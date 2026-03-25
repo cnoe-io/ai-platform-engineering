@@ -201,6 +201,20 @@ export function DynamicAgentTimeline({
 
   // If there's nothing to show at all, render nothing
   const hasAnythingToShow = hasMeaningfulSegments || showStreamingContent || showFinalAnswerInTimeline || showFinalAnswerOutside || showTasksSection || showFilesSection;
+
+  // If streaming but nothing to show yet, show thinking indicator
+  if (isStreaming && !hasAnythingToShow) {
+    return (
+      <div className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card/50 border border-border/50">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/60 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-primary/80" />
+        </span>
+        <span className="text-xs text-muted-foreground">Thinking...</span>
+      </div>
+    );
+  }
+
   if (!hasAnythingToShow) {
     return null;
   }

@@ -124,10 +124,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
   const conversation = getActiveConversation();
 
-  // State for tracking history loading
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
-  const historyLoadedRef = useRef<Set<string>>(new Set());
+  // Ref to track which conversations we've checked for HITL interrupt state
+  const interruptCheckedRef = useRef<Set<string>>(new Set());
 
   // ─── Files & Tasks for Timeline (fetched via API) ─────────────────
   const [timelineFiles, setTimelineFiles] = useState<string[]>([]);
@@ -264,99 +262,72 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const recoveringMessageId = null; 
 
   // ═══════════════════════════════════════════════════════════════
-  // LOAD CHAT HISTORY from MongoDB messages collection + HITL state from checkpointer
+  // CHECK HITL INTERRUPT STATE from checkpointer (messages loaded by ChatContainer)
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     // Skip if no conversationId (new conversation) or agentId
     if (!conversationId || !agentId) return;
     
-    // Skip if already loaded this conversation
-    if (historyLoadedRef.current.has(conversationId)) return;
+    // Skip if already checked this conversation
+    if (interruptCheckedRef.current.has(conversationId)) return;
     
-    // Skip if conversation already has messages (e.g., from streaming session)
-    if (conversation?.messages && conversation.messages.length > 0) {
-      historyLoadedRef.current.add(conversationId);
-      return;
-    }
+    // Mark as checked BEFORE async to prevent duplicate checks in Strict Mode
+    interruptCheckedRef.current.add(conversationId);
 
-    // Mark as loading BEFORE async to prevent duplicate fetches in Strict Mode
-    historyLoadedRef.current.add(conversationId);
-
-    const loadHistory = async () => {
-      setIsLoadingHistory(true);
-      setHistoryLoadError(null);
-      
+    const checkInterruptState = async () => {
       try {
-        // Load messages from MongoDB messages collection (same as standard chat)
-        // This is the unified storage that's written to during streaming
-        await loadMessagesFromServer(conversationId, { force: true });
-        console.log(`[DynamicAgentChatPanel] Loaded messages from MongoDB for ${conversationId}`);
-        
-        // Note: Todos are fetched by DynamicAgentContext via the /todos endpoint
-        
         // Check for pending HITL interrupt state (lightweight call to checkpointer)
-        // This is the only thing we still need from the checkpointer
-        try {
-          const interruptResponse = await fetch(
-            `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`
-          );
+        // Messages are already loaded by ChatContainer - we only check interrupt state here
+        const interruptResponse = await fetch(
+          `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`
+        );
+        
+        if (interruptResponse.ok) {
+          const interruptData = await interruptResponse.json();
           
-          if (interruptResponse.ok) {
-            const interruptData = await interruptResponse.json();
+          // Handle pending interrupt - restore the HITL form if present
+          if (interruptData.has_pending_interrupt && interruptData.interrupt_data) {
+            const { prompt, fields } = interruptData.interrupt_data;
             
-            // Handle pending interrupt - restore the HITL form if present
-            if (interruptData.has_pending_interrupt && interruptData.interrupt_data) {
-              const { prompt, fields } = interruptData.interrupt_data;
-              
-              // Get the last message from the store (just loaded from MongoDB)
-              const currentConv = useChatStore.getState().conversations.find(c => c.id === conversationId);
-              const lastMsg = currentConv?.messages?.[currentConv.messages.length - 1];
-              
-              if (lastMsg && lastMsg.role === "assistant") {
-                const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
-                  field_name: f.field_name,
-                  field_label: f.field_label,
-                  field_description: f.field_description,
-                  field_type: f.field_type,
-                  field_values: f.field_values,
-                  required: f.required,
-                  default_value: f.default_value,
-                  placeholder: f.placeholder,
-                }));
+            // Get the last message from the store (already loaded by ChatContainer)
+            const currentConv = useChatStore.getState().conversations.find(c => c.id === conversationId);
+            const lastMsg = currentConv?.messages?.[currentConv.messages.length - 1];
+            
+            if (lastMsg && lastMsg.role === "assistant") {
+              const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
+                field_name: f.field_name,
+                field_label: f.field_label,
+                field_description: f.field_description,
+                field_type: f.field_type,
+                field_values: f.field_values,
+                required: f.required,
+                default_value: f.default_value,
+                placeholder: f.placeholder,
+              }));
 
-                setPendingUserInput({
-                  messageId: lastMsg.id,
-                  metadata: {
-                    user_input: true,
-                    input_title: `Input Required`,
-                    input_description: prompt,
-                    input_fields: inputFields,
-                  },
-                  contextId: conversationId,
-                  isSSE: true,
-                  agentId: agentId,
-                });
-              }
+              setPendingUserInput({
+                messageId: lastMsg.id,
+                metadata: {
+                  user_input: true,
+                  input_title: `Input Required`,
+                  input_description: prompt,
+                  input_fields: inputFields,
+                },
+                contextId: conversationId,
+                isSSE: true,
+                agentId: agentId,
+              });
             }
           }
-        } catch (interruptError) {
-          // Non-fatal: HITL state check failed, but messages are loaded
-          console.warn("[DynamicAgentChatPanel] Failed to check interrupt state:", interruptError);
         }
-      } catch (error) {
-        console.error("[DynamicAgentChatPanel] Failed to load history:", error);
-        setHistoryLoadError((error as Error).message);
-      } finally {
-        setIsLoadingHistory(false);
+      } catch (interruptError) {
+        // Non-fatal: HITL state check failed
+        console.warn("[DynamicAgentChatPanel] Failed to check interrupt state:", interruptError);
       }
     };
 
-    loadHistory();
-    // Note: We intentionally exclude conversation?.messages?.length from deps
-    // to avoid re-fetching when messages change. The historyLoadedRef guard
-    // ensures we only fetch once per conversation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, agentId, loadMessagesFromServer]);
+    checkInterruptState();
+  }, [conversationId, agentId]);
 
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)
@@ -1044,7 +1015,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
             {!conversation?.messages.length && (
               <div className="text-center py-20">
-                {(isLoadingHistory || isLoadingMessages) ? (
+                {isLoadingMessages ? (
                   <>
                     <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
                       <Loader2 className="h-8 w-8 text-white animate-spin" />
@@ -1052,16 +1023,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                     <h2 className="text-2xl font-bold mb-2">Loading conversation...</h2>
                     <p className="text-muted-foreground max-w-md mx-auto mb-1">
                       Retrieving your conversation history
-                    </p>
-                  </>
-                ) : historyLoadError ? (
-                  <>
-                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                      <Sparkles className="h-8 w-8 text-white" />
-                    </div>
-                    <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
-                    <p className="text-muted-foreground max-w-md mx-auto mb-1">
-                      Failed to load history: {historyLoadError}
                     </p>
                   </>
                 ) : (
