@@ -60,6 +60,28 @@ global:
   langgraphRedis:
     enabled: false
 
+  # Global checkpoint persistence for all agents + supervisor.
+  # Set once here; all subcharts inherit automatically.
+  # Per-agent override: set checkpointPersistence on individual agent sections.
+  # Options: memory (default, in-process) | redis | postgres | mongodb
+  checkpointPersistence:
+    type: "memory"
+    redis:
+      url: ""
+      existingSecret: {}
+      autoDiscoverService: ""
+      dbIndex: 0
+    postgres:
+      dsn: ""
+      existingSecret: {}
+    mongodb:
+      uri: ""
+      existingSecret: {}
+      dbName: ""
+      checkpointCollection: ""
+      writesCollection: ""
+    ttlMinutes: 0
+
 # ServiceMonitor for scraping all ai-platform-engineering components
 # For agent metrics endpoints, use global.metrics.enabled above
 metrics:

@@ -100,7 +100,14 @@ spec:
             - name: MCP_HOST
               value: {{ include "agent.fullname" . }}-mcp
             {{- end }}
-            {{- with .Values.checkpointPersistence }}
+            {{- /* Resolve checkpointPersistence: local override > global > default (memory) */}}
+            {{- $ckpt := .Values.checkpointPersistence }}
+            {{- if and (hasKey .Values "global") (hasKey .Values.global "checkpointPersistence") }}
+              {{- if eq ($ckpt.type | default "memory") "memory" }}
+                {{- $ckpt = .Values.global.checkpointPersistence }}
+              {{- end }}
+            {{- end }}
+            {{- with $ckpt }}
             - name: LANGGRAPH_CHECKPOINT_TYPE
               value: {{ .type | default "memory" | quote }}
             {{- if eq (.type | default "memory") "redis" }}
