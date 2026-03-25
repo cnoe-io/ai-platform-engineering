@@ -1,0 +1,4040 @@
+openapi: 3.1.0
+info:
+  title: CAIPE UI Backend API
+  version: 1.0.0
+  description: |
+    Backend-for-Frontend API for the CAIPE UI (Next.js App Router). Routes live under `/api/*` on the UI origin.
+    Most endpoints require a NextAuth session cookie. Admin vs admin-view vs authenticated-only behavior matches
+    the markdown API docs in `docs/docs/api/`.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: /api
+    description: UI Backend API routes
+security:
+  - SessionCookie: []
+tags:
+  - name: admin
+    description: Admin and admin-view operations (users, teams, stats, audit, Slack admin, metrics, NPS admin)
+  - name: chat
+    description: Conversations, messages, sharing, bookmarks, search
+  - name: rbac
+    description: Keycloak realm roles, IdP mappers, permissions, policies, RBAC audit
+  - name: slack
+    description: Slack linking and channel-to-team mappings
+  - name: platform
+    description: Health, version, config, debug, feedback, NPS, changelog, workflow runs
+  - name: dynamic-agents
+    description: Proxy to Dynamic Agents service
+  - name: rag
+    description: Proxy to RAG server
+  - name: settings
+    description: User preferences and defaults
+
+paths:
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      summary: List Keycloak users with filters
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/AdminUsersSearch"
+        - $ref: "#/components/parameters/AdminUsersRole"
+        - $ref: "#/components/parameters/AdminUsersTeam"
+        - $ref: "#/components/parameters/AdminUsersIdp"
+        - $ref: "#/components/parameters/AdminUsersSlackStatus"
+        - $ref: "#/components/parameters/AdminUsersEnabled"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSizeCamel"
+      responses:
+        "200":
+          description: User list (unwrapped)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserListResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/KeycloakUserId"
+    get:
+      operationId: adminGetUser
+      summary: Get Keycloak user detail with sessions and teams
+      tags: [admin]
+      responses:
+        "200":
+          description: Wrapped user detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserDetail"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: adminUpdateUser
+      summary: Update Keycloak user
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KeycloakUserUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOk"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/users/{id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/KeycloakUserId"
+    post:
+      operationId: adminAssignRealmRoles
+      summary: Assign realm roles by name
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleNamesBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOk"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: adminRemoveRealmRoles
+      summary: Remove realm roles by name
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleNamesBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOk"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/users/{id}/teams:
+    parameters:
+      - $ref: "#/components/parameters/KeycloakUserId"
+    post:
+      operationId: adminAddUserTeam
+      summary: Add user email to team_kb_ownership members
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamIdBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOk"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    delete:
+      operationId: adminRemoveUserTeam
+      summary: Remove user from team_kb_ownership
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamIdBody"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOk"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/users/{email}/role:
+    patch:
+      operationId: adminPatchMongoUserRole
+      summary: Update MongoDB users.metadata.role by email
+      tags: [admin]
+      parameters:
+        - name: email
+          in: path
+          required: true
+          description: URL-encoded user email
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [admin, user]
+      responses:
+        "200":
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessRoleUpdate"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/migrate-conversations:
+    post:
+      operationId: adminMigrateConversations
+      summary: Import conversations into MongoDB for calling admin
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MigrateConversationsBody"
+      responses:
+        "200":
+          description: Migration result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMigrateResult"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/teams:
+    get:
+      operationId: adminListTeams
+      summary: List MongoDB teams
+      tags: [admin]
+      responses:
+        "200":
+          description: Teams list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamsList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    post:
+      operationId: adminCreateTeam
+      summary: Create team
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeamBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamCreated"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/teams/{id}:
+    parameters:
+      - $ref: "#/components/parameters/MongoObjectId"
+    get:
+      operationId: adminGetTeam
+      summary: Get team by id
+      tags: [admin]
+      responses:
+        "200":
+          description: Team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamWrap"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    patch:
+      operationId: adminPatchTeam
+      summary: Update team name/description
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchTeamBody"
+      responses:
+        "200":
+          description: Updated team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamWrap"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: adminDeleteTeam
+      summary: Delete team
+      tags: [admin]
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamDeleted"
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/teams/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/MongoObjectId"
+    post:
+      operationId: adminAddTeamMember
+      summary: Add team member
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTeamMemberBody"
+      responses:
+        "201":
+          description: Team with member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamWrap"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: adminRemoveTeamMember
+      summary: Remove team member
+      tags: [admin]
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Team updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamWrap"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/teams/{id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/MongoObjectId"
+    get:
+      operationId: adminGetTeamKeycloakRoles
+      summary: Get team keycloak_roles
+      tags: [admin]
+      responses:
+        "200":
+          description: Roles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamRoles"
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: adminPutTeamKeycloakRoles
+      summary: Replace team keycloak_roles
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamRolesBody"
+      responses:
+        "200":
+          description: Updated team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessTeamWrap"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/stats:
+    get:
+      operationId: adminGetStats
+      summary: Platform analytics aggregates
+      tags: [admin]
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [1d, 7d, 30d, 90d]
+            default: 30d
+      responses:
+        "200":
+          description: Stats payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessAdminStats"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/stats/checkpoints:
+    get:
+      operationId: adminGetCheckpointStats
+      summary: LangGraph checkpoint collection stats
+      tags: [admin]
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+        - name: peek
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Checkpoint stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessGenericData"
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/stats/skills:
+    get:
+      operationId: adminGetSkillStats
+      summary: Skill and workflow run aggregates
+      tags: [admin]
+      responses:
+        "200":
+          description: Skill stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessGenericData"
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/metrics:
+    get:
+      operationId: adminPrometheusInstantOrRange
+      summary: Proxy PromQL to Prometheus
+      tags: [admin]
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [instant, range]
+        - name: start
+          in: query
+          schema:
+            type: string
+        - name: end
+          in: query
+          schema:
+            type: string
+        - name: step
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Prometheus JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPrometheusWrap"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502": { $ref: "#/components/responses/BadGateway" }
+        "503": { $ref: "#/components/responses/ServiceUnavailablePrometheus" }
+        "504": { $ref: "#/components/responses/GatewayTimeout" }
+    post:
+      operationId: adminPrometheusBatch
+      summary: Batch PromQL queries
+      tags: [admin]
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrometheusBatchBody"
+      responses:
+        "200":
+          description: Per-query results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPrometheusBatch"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/ServiceUnavailablePrometheus" }
+
+  /admin/feedback:
+    get:
+      operationId: adminListFeedback
+      summary: List messages with feedback ratings
+      tags: [admin]
+      parameters:
+        - name: rating
+          in: query
+          schema:
+            type: string
+            enum: [positive, negative]
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Feedback entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessAdminFeedback"
+        "404": { $ref: "#/components/responses/FeatureDisabled" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/nps:
+    get:
+      operationId: adminGetNpsAnalytics
+      summary: NPS analytics
+      tags: [admin]
+      parameters:
+        - name: campaign_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: NPS data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessGenericData"
+        "404": { $ref: "#/components/responses/NpsDisabled" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/nps/campaigns:
+    get:
+      operationId: adminListNpsCampaigns
+      summary: List NPS campaigns
+      tags: [admin]
+      responses:
+        "200":
+          description: Campaigns
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNpsCampaigns"
+        "404": { $ref: "#/components/responses/NpsDisabled" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    post:
+      operationId: adminCreateNpsCampaign
+      summary: Create NPS campaign
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NpsCampaignCreate"
+      responses:
+        "201":
+          description: Created campaign
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNpsCampaign"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    patch:
+      operationId: adminStopNpsCampaign
+      summary: End campaign early
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campaign_id]
+              properties:
+                campaign_id:
+                  type: string
+      responses:
+        "200":
+          description: Stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessCampaignStopped"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/audit-logs:
+    get:
+      operationId: adminAuditLogsList
+      summary: Paginated conversations for audit
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/AuditPage"
+        - $ref: "#/components/parameters/AuditPageSize"
+        - name: owner_email
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: include_deleted
+          in: query
+          schema:
+            type: boolean
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, archived, deleted]
+      responses:
+        "200":
+          description: Paginated audit items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPaginatedConversations"
+        "403": { $ref: "#/components/responses/FeatureDisabledAudit" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/audit-logs/owners:
+    get:
+      operationId: adminAuditLogOwners
+      summary: Distinct conversation owners
+      tags: [admin]
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Owner emails
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOwners"
+        "403": { $ref: "#/components/responses/FeatureDisabledAudit" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/audit-logs/export:
+    get:
+      operationId: adminAuditLogsExportCsv
+      summary: Export audit logs as CSV
+      tags: [admin]
+      parameters:
+        - name: owner_email
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: date_from
+          in: query
+          schema:
+            type: string
+        - name: date_to
+          in: query
+          schema:
+            type: string
+        - name: include_deleted
+          in: query
+          schema:
+            type: boolean
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: CSV file
+          content:
+            text/csv:
+              schema:
+                type: string
+        "403": { $ref: "#/components/responses/FeatureDisabledAudit" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/audit-logs/{id}/messages:
+    get:
+      operationId: adminAuditConversationMessages
+      summary: Conversation plus paginated messages for audit
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Conversation UUID
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/AuditPage"
+        - $ref: "#/components/parameters/AuditPageSize"
+      responses:
+        "200":
+          description: Conversation and messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessAuditMessages"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/FeatureDisabledAudit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /admin/slack/users:
+    get:
+      operationId: adminSlackUsersList
+      summary: Paginated Slack identity dashboard rows
+      tags: [slack]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSizeUnderscore"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, linked, pending, unlinked]
+            default: all
+      responses:
+        "200":
+          description: Slack users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessSlackUserPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/slack/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/KeycloakUserId"
+    post:
+      operationId: adminSlackUserRelinkNonce
+      summary: Create re-link URL for Keycloak user
+      tags: [slack]
+      responses:
+        "200":
+          description: Relink payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessSlackRelink"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      operationId: adminSlackUserRevoke
+      summary: Remove slack_user_id from Keycloak user
+      tags: [slack]
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessSlackRevoke"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/slack/channel-mappings:
+    get:
+      operationId: adminListChannelMappings
+      summary: List Slack channel to team mappings
+      tags: [slack]
+      responses:
+        "200":
+          description: Mappings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessChannelMappings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    post:
+      operationId: adminUpsertChannelMapping
+      summary: Upsert channel mapping
+      tags: [slack]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelMappingUpsert"
+      responses:
+        "201":
+          description: Created mapping
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessChannelMapping"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    delete:
+      operationId: adminDeactivateChannelMapping
+      summary: Soft-deactivate mapping by id
+      tags: [slack]
+      parameters:
+        - name: id
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: Deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessDeactivateMapping"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /admin/roles:
+    get:
+      operationId: adminListRealmRoles
+      summary: List Keycloak realm roles
+      tags: [rbac]
+      responses:
+        "200":
+          description: Roles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessRealmRolesList"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: adminCreateRealmRole
+      summary: Create realm role
+      tags: [rbac]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoleBody"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessRoleCreated"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/roles/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: URL-encoded role name
+        schema:
+          type: string
+    get:
+      operationId: adminGetRealmRole
+      summary: Get realm role by name
+      tags: [rbac]
+      responses:
+        "200":
+          description: Role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessRealmRoleWrap"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: adminDeleteRealmRole
+      summary: Delete realm role
+      tags: [rbac]
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/role-mappings:
+    get:
+      operationId: adminListIdpRoleMappers
+      summary: List IdP OIDC role mappers
+      tags: [rbac]
+      responses:
+        "200":
+          description: Mappers and IdP aliases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessRoleMappings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: adminCreateIdpRoleMapper
+      summary: Create OIDC advanced role IdP mapper
+      tags: [rbac]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleMappingCreate"
+      responses:
+        "201":
+          description: Mapper created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMapperCreated"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/role-mappings/{id}:
+    delete:
+      operationId: adminDeleteIdpRoleMapper
+      summary: Delete IdP mapper
+      tags: [rbac]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: alias
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessOk"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/rbac-audit:
+    get:
+      operationId: adminRbacAuditList
+      summary: Paginated authorization decision records (no success wrapper)
+      tags: [rbac]
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: component
+          in: query
+          schema:
+            type: string
+        - name: capability
+          in: query
+          schema:
+            type: string
+        - name: subject_hash
+          in: query
+          schema:
+            type: string
+        - name: outcome
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Audit records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RbacAuditPage"
+        "400": { $ref: "#/components/responses/BadRequestJson" }
+        "401": { $ref: "#/components/responses/UnauthorizedPlain" }
+        "403": { $ref: "#/components/responses/ForbiddenPlain" }
+        "503": { $ref: "#/components/responses/ServiceUnavailablePlain" }
+
+  /rbac/permissions:
+    get:
+      operationId: getEffectiveRbacPermissions
+      summary: Effective Keycloak permissions map (no envelope)
+      tags: [rbac]
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: Permissions by resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorPlain"
+        "503":
+          description: Permissions unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorPlain"
+
+  /auth/role:
+    get:
+      operationId: getUiAuthRole
+      summary: Coarse UI role (session optional)
+      tags: [rbac]
+      security: []
+      responses:
+        "200":
+          description: Role and optional email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiRoleResponse"
+
+  /auth/slack-link:
+    get:
+      operationId: slackLinkCallback
+      summary: Slack identity linking browser callback
+      tags: [slack]
+      security: []
+      parameters:
+        - name: nonce
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: slack_user_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+        "302":
+          description: Redirect to sign-in
+        "400":
+          description: Invalid or missing parameters
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorSlackLink"
+
+  /policies:
+    get:
+      operationId: getDefaultPolicy
+      summary: Get default CEL policy document
+      tags: [rbac]
+      responses:
+        "200":
+          description: Policy document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPolicyGet"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    put:
+      operationId: putDefaultPolicy
+      summary: Upsert default policy body
+      tags: [rbac]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPolicyUpdate"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    post:
+      operationId: resetDefaultPolicy
+      summary: Reset policy from disk (action=reset)
+      tags: [rbac]
+      parameters:
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [reset]
+      responses:
+        "200":
+          description: Reset result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPolicyUpdate"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /policies/seed:
+    get:
+      operationId: seedDefaultPolicy
+      summary: Seed default policy from policy.lp if missing
+      tags: [rbac]
+      responses:
+        "200":
+          description: Seed result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPolicySeed"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /chat/conversations:
+    get:
+      operationId: listConversations
+      summary: List accessible conversations
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ChatPage"
+        - $ref: "#/components/parameters/ChatPageSize"
+        - name: archived
+          in: query
+          schema: { type: string }
+        - name: pinned
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Paginated conversations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPaginatedConversations"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    post:
+      operationId: createConversation
+      summary: Create conversation
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationBody"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /chat/conversations/trash:
+    get:
+      operationId: listTrashedConversations
+      summary: List soft-deleted conversations for current user
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ChatPage"
+        - $ref: "#/components/parameters/ChatPageSize"
+      responses:
+        "200":
+          description: Paginated conversations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPaginatedConversations"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /chat/shared:
+    get:
+      operationId: listSharedConversations
+      summary: Conversations shared with caller (not owned)
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ChatPage"
+        - $ref: "#/components/parameters/ChatPageSize"
+      responses:
+        "200":
+          description: Paginated conversations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPaginatedConversations"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /chat/search:
+    get:
+      operationId: searchConversations
+      summary: Search owned or directly shared conversations
+      tags: [chat]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: tags
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/ChatPage"
+        - $ref: "#/components/parameters/ChatPageSize"
+      responses:
+        "200":
+          description: Paginated conversations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPaginatedConversations"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /chat/conversations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      operationId: getConversation
+      summary: Get one conversation with access_level
+      tags: [chat]
+      responses:
+        "200":
+          description: Conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    put:
+      operationId: updateConversation
+      summary: Update conversation (owner only)
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchConversationBody"
+      responses:
+        "200":
+          description: Updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    delete:
+      operationId: deleteConversation
+      summary: Soft or permanent delete (owner only)
+      tags: [chat]
+      parameters:
+        - name: permanent
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessDeleteConversation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /chat/conversations/{id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      operationId: listMessages
+      summary: Paginated messages for conversation
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ChatPage"
+        - $ref: "#/components/parameters/ChatPageSize"
+      responses:
+        "200":
+          description: Paginated messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessPaginatedMessages"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: upsertMessage
+      summary: Create or update message by message_id
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageUpsertBody"
+      responses:
+        "200":
+          description: Updated message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageWrap"
+        "201":
+          description: Created message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageWrap"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /chat/messages/{id}:
+    put:
+      operationId: updateMessageById
+      summary: Update message by Mongo _id or message_id UUID
+      tags: [chat]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessagePatchBody"
+      responses:
+        "200":
+          description: Updated message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMessageWrap"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /chat/conversations/{id}/share:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      operationId: getShareState
+      summary: Sharing config and access grants (owner only)
+      tags: [chat]
+      responses:
+        "200":
+          description: Share state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessShareState"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: applyShareUpdates
+      summary: Apply sharing updates (owner only)
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SharePostBody"
+      responses:
+        "200":
+          description: Updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: patchSharePermission
+      summary: Update user or team share permission
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SharePatchBody"
+      responses:
+        "200":
+          description: Updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /chat/conversations/{id}/archive:
+    post:
+      operationId: toggleArchiveConversation
+      summary: Toggle is_archived (owner only)
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Partial conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversationPartial"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /chat/conversations/{id}/pin:
+    post:
+      operationId: togglePinConversation
+      summary: Toggle is_pinned (owner only)
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Partial conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversationPartial"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /chat/conversations/{id}/restore:
+    post:
+      operationId: restoreConversation
+      summary: Restore soft-deleted conversation (owner only)
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Restored conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessConversation"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /chat/bookmarks:
+    get:
+      operationId: listBookmarks
+      summary: Paginated bookmarks
+      tags: [chat]
+      parameters:
+        - $ref: "#/components/parameters/ChatPage"
+        - $ref: "#/components/parameters/ChatPageSize"
+      responses:
+        "200":
+          description: Bookmarks page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessBookmarkPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createBookmark
+      summary: Create bookmark
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookmarkCreateBody"
+      responses:
+        "201":
+          description: Created bookmark
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessBookmark"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      summary: Load or create MongoDB user for session
+      tags: [platform]
+      responses:
+        "200":
+          description: User document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMongoUser"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: updateCurrentUser
+      summary: Update display name and avatar
+      tags: [platform]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserMePatch"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessMongoUser"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /users/me/stats:
+    get:
+      operationId: getMyStats
+      summary: Usage stats for current user
+      tags: [platform]
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserStats"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /users/me/insights:
+    get:
+      operationId: getMyInsights
+      summary: Personal analytics (30-day window)
+      tags: [platform]
+      responses:
+        "200":
+          description: Insights
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessGenericData"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /users/me/insights/skills:
+    get:
+      operationId: getMySkillInsights
+      summary: Personal skill configs and run stats
+      tags: [platform]
+      responses:
+        "200":
+          description: Skill insights
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessGenericData"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /users/me/favorites:
+    get:
+      operationId: getMyFavorites
+      summary: Favorite agent config IDs
+      tags: [platform]
+      responses:
+        "200":
+          description: Favorites
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessFavorites"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    put:
+      operationId: putMyFavorites
+      summary: Replace favorites list
+      tags: [platform]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FavoritesBody"
+      responses:
+        "200":
+          description: Updated favorites
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessFavoritesUpdate"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /users/search:
+    get:
+      operationId: searchUsers
+      summary: Search MongoDB users by email or name
+      tags: [platform]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+      responses:
+        "200":
+          description: Matching users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserSearch"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /users/debug:
+    get:
+      operationId: debugListUsers
+      summary: Truncated MongoDB user list (debug)
+      tags: [platform]
+      responses:
+        "200":
+          description: Debug users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessDebugUsers"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /user/info:
+    get:
+      operationId: proxyRagUserInfo
+      summary: Proxy to RAG GET /v1/user/info
+      tags: [rag]
+      security: []
+      responses:
+        "200":
+          description: RAG user info (passthrough)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RagUserInfo"
+        "502":
+          description: RAG unreachable
+
+  /health:
+    get:
+      operationId: bffHealth
+      summary: UI Backend API liveness
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /version:
+    get:
+      operationId: bffVersion
+      summary: Build and package version
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: Version info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionInfo"
+        "500":
+          description: Error fallback
+
+  /config:
+    get:
+      operationId: publicRuntimeConfig
+      summary: NEXT_PUBLIC_* env snapshot
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: Key-value public config
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: { type: string }
+
+  /settings:
+    get:
+      operationId: getUserSettings
+      summary: Full user settings document
+      tags: [settings]
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserSettings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: putUserSettings
+      summary: Partial update nested preferences/notifications/defaults
+      tags: [settings]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSettingsPatch"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserSettings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /settings/preferences:
+    patch:
+      operationId: patchUserPreferences
+      summary: Flat merge into preferences
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreferencesFlat"
+      responses:
+        "200":
+          description: Full settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserSettings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /settings/notifications:
+    patch:
+      operationId: patchUserNotifications
+      summary: Flat merge into notifications
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationsFlat"
+      responses:
+        "200":
+          description: Full settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserSettings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /settings/defaults:
+    patch:
+      operationId: patchUserDefaults
+      summary: Flat merge into defaults
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DefaultsFlat"
+      responses:
+        "200":
+          description: Full settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessUserSettings"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /debug/auth-status:
+    get:
+      operationId: debugAuthStatus
+      summary: Session and admin flag introspection
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: Auth status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebugAuthStatus"
+
+  /debug/session:
+    get:
+      operationId: debugSession
+      summary: Lightweight session dump
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: Session debug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebugSession"
+
+  /feedback:
+    get:
+      operationId: feedbackConfig
+      summary: Whether Langfuse feedback is enabled
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: Feedback config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackConfig"
+    post:
+      operationId: submitFeedback
+      summary: Submit like/dislike to Langfuse when configured
+      tags: [platform]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackSubmitBody"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackSubmitResponse"
+        "400":
+          description: Bad request
+        "500":
+          description: Server error
+
+  /nps:
+    post:
+      operationId: submitNps
+      summary: Store NPS response
+      tags: [platform]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NpsSubmitBody"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessNpsSubmit"
+        "404": { $ref: "#/components/responses/NpsDisabled" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /nps/active:
+    get:
+      operationId: getActiveNpsCampaign
+      summary: Whether an NPS campaign is active for UI
+      tags: [platform]
+      responses:
+        "200":
+          description: Active campaign state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NpsActiveResponse"
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /changelog:
+    get:
+      operationId: getChangelog
+      summary: Parsed CHANGELOG.md releases
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: Releases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangelogResponse"
+        "500":
+          description: Fetch failed
+        "502":
+          description: Upstream failed
+
+  /skill-templates:
+    get:
+      operationId: listSkillTemplates
+      summary: Built-in skill templates from disk
+      tags: [platform]
+      security: []
+      responses:
+        "200":
+          description: Template array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SkillTemplate"
+
+  /workflow-runs:
+    post:
+      operationId: createWorkflowRun
+      summary: Create workflow run
+      tags: [platform]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowRunCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessWorkflowRunCreate"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    get:
+      operationId: listOrGetWorkflowRun
+      summary: List runs for owner or get one by id
+      tags: [platform]
+      parameters:
+        - name: id
+          in: query
+          schema: { type: string }
+        - name: workflow_id
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Run or array of runs
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/WorkflowRun"
+                  - $ref: "#/components/schemas/WorkflowRun"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    put:
+      operationId: updateWorkflowRun
+      summary: Owner update by query id
+      tags: [platform]
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowRunUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessWorkflowRunMutate"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+    delete:
+      operationId: deleteWorkflowRun
+      summary: Owner delete by query id
+      tags: [platform]
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessWorkflowRunMutate"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
+
+  /dynamic-agents:
+    get:
+      operationId: proxyDynamicAgentsRoot
+      summary: Proxy GET to Dynamic Agents service
+      tags: [dynamic-agents]
+      responses:
+        "200":
+          description: Service JSON (passthrough)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "502":
+          description: Upstream error
+
+  /dynamic-agents/available:
+    get:
+      operationId: proxyDynamicAgentsAvailable
+      summary: List available dynamic agents
+      tags: [dynamic-agents]
+      responses:
+        "200":
+          description: Passthrough JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /dynamic-agents/models:
+    get:
+      operationId: proxyDynamicAgentsModels
+      summary: List models from Dynamic Agents
+      tags: [dynamic-agents]
+      responses:
+        "200":
+          description: Passthrough JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /dynamic-agents/agents/{id}:
+    get:
+      operationId: proxyDynamicAgentById
+      summary: Get dynamic agent by id
+      tags: [dynamic-agents]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Agent document (passthrough)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: Not found
+
+  /dynamic-agents/chat/start-stream:
+    post:
+      operationId: proxyDynamicAgentsStartStream
+      summary: Start agent chat stream (proxied SSE/binary)
+      tags: [dynamic-agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Streaming response (content-type varies)
+        "502":
+          description: Upstream error
+
+  /rag/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        description: Remaining path segments forwarded to RAG (catch-all)
+        schema:
+          type: string
+    get:
+      operationId: proxyRagGet
+      summary: Proxy GET to RAG server
+      tags: [rag]
+      responses:
+        "200":
+          description: RAG response (passthrough)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "502":
+          description: RAG unreachable
+    post:
+      operationId: proxyRagPost
+      summary: Proxy POST to RAG server
+      tags: [rag]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: RAG response (passthrough)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "502":
+          description: RAG unreachable
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: next-auth.session-token
+      description: |
+        NextAuth.js session cookie. In production with Secure cookies the name may be
+        `__Secure-next-auth.session-token`. Send the session cookie from the browser; API clients must obtain a session via OIDC first.
+
+  parameters:
+    KeycloakUserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    MongoObjectId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-f0-9]{24}$"
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeCamel:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    PageSizeUnderscore:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    AuditPage:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    AuditPageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        maximum: 100
+        default: 20
+    AdminUsersSearch:
+      name: search
+      in: query
+      schema:
+        type: string
+    AdminUsersRole:
+      name: role
+      in: query
+      schema:
+        type: string
+    AdminUsersTeam:
+      name: team
+      in: query
+      schema:
+        type: string
+    AdminUsersIdp:
+      name: idp
+      in: query
+      schema:
+        type: string
+    AdminUsersSlackStatus:
+      name: slackStatus
+      in: query
+      schema:
+        type: string
+        enum: [linked, unlinked]
+    AdminUsersEnabled:
+      name: enabled
+      in: query
+      schema:
+        type: boolean
+    ChatPage:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    ChatPageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    ConversationId:
+      name: id
+      in: path
+      required: true
+      description: Conversation UUID
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    BadRequestJson:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorCodeEnvelope"
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    UnauthorizedPlain:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorPlain"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    ForbiddenPlain:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorPlain"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    BadGateway:
+      description: Bad gateway
+    GatewayTimeout:
+      description: Gateway timeout
+    ServiceUnavailableMongo:
+      description: MongoDB not configured
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    ServiceUnavailablePrometheus:
+      description: Prometheus not configured
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    ServiceUnavailablePlain:
+      description: Service unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorPlain"
+    FeatureDisabled:
+      description: Feature disabled
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    NpsDisabled:
+      description: NPS disabled
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+    FeatureDisabledAudit:
+      description: Audit logs disabled
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorEnvelope"
+
+  schemas:
+    ApiErrorEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: string
+        code:
+          type: string
+    ApiErrorCodeEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+        code:
+          type: string
+    ErrorPlain:
+      type: object
+      properties:
+        error:
+          type: string
+    ErrorSlackLink:
+      type: object
+      properties:
+        error:
+          type: string
+    SuccessEnvelope:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          description: Payload (shape varies by operation)
+
+    AdminUserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        enabled:
+          type: boolean
+        attributes:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        roles:
+          type: array
+          items:
+            type: string
+    AdminUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUserSummary"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+    KeycloakUserDetail:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        email: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        enabled: { type: boolean }
+        createdAt: { type: integer, format: int64 }
+        attributes:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        slackLinkStatus:
+          type: string
+          enum: [linked, unlinked]
+        realmRoles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RealmRole"
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserSession"
+        federatedIdentities:
+          type: array
+          items:
+            $ref: "#/components/schemas/FederatedIdentity"
+        teams:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamKbRow"
+        lastAccess: { type: integer, format: int64 }
+    SuccessUserDetail:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: "#/components/schemas/KeycloakUserDetail"
+
+    RealmRole:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+    UserSession:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        ipAddress: { type: string }
+        start: { type: integer, format: int64 }
+        lastAccess: { type: integer, format: int64 }
+        rememberMe: { type: boolean }
+    FederatedIdentity:
+      type: object
+      properties:
+        identityProvider: { type: string }
+        userId: { type: string }
+        userName: { type: string }
+    TeamKbRow:
+      type: object
+      properties:
+        team_id: { type: string }
+        tenant_id: { type: string }
+
+    KeycloakUserUpdate:
+      type: object
+      additionalProperties: true
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+        email: { type: string }
+        enabled: { type: boolean }
+        attributes:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    SuccessOk:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            ok: { type: boolean, const: true }
+
+    RoleRef:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+    RoleNamesBody:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleRef"
+
+    TeamIdBody:
+      type: object
+      required: [teamId]
+      properties:
+        teamId: { type: string }
+
+    SuccessRoleUpdate:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            message: { type: string }
+            email: { type: string }
+            role: { type: string }
+
+    MigrateMessage:
+      type: object
+      properties:
+        role: { type: string }
+        content: { type: string }
+        created_at: { type: string, format: date-time }
+        turn_id: { type: string }
+    MigrateConversation:
+      type: object
+      required: [id, title]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        createdAt: { type: string, format: date-time }
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrateMessage"
+    MigrateConversationsBody:
+      type: object
+      required: [conversations]
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/MigrateConversation"
+    SuccessMigrateResult:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            message: { type: string }
+            migrated: { type: integer }
+            skipped: { type: integer }
+            errors:
+              type: array
+              items: { type: string }
+
+    TeamMember:
+      type: object
+      properties:
+        user_id: { type: string }
+        role: { type: string, enum: [owner, admin, member] }
+        added_at: { type: string, format: date-time }
+        added_by: { type: string }
+    Team:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        owner_id: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
+        keycloak_roles:
+          type: array
+          items: { type: string }
+    SuccessTeamsList:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            teams:
+              type: array
+              items:
+                $ref: "#/components/schemas/Team"
+            total: { type: integer }
+
+    CreateTeamBody:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        members:
+          type: array
+          items: { type: string, format: email }
+    SuccessTeamCreated:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            message: { type: string }
+            team_id: { type: string }
+            team:
+              $ref: "#/components/schemas/Team"
+
+    SuccessTeamWrap:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            team:
+              $ref: "#/components/schemas/Team"
+
+    PatchTeamBody:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+
+    SuccessTeamDeleted:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            message: { type: string }
+            deleted: { type: boolean }
+
+    AddTeamMemberBody:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string, format: email }
+        role:
+          type: string
+          enum: [admin, member]
+          default: member
+
+    SuccessTeamRoles:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            roles:
+              type: array
+              items: { type: string }
+    TeamRolesBody:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          items: { type: string }
+
+    SuccessAdminStats:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: true
+          properties:
+            range: { type: string }
+            days: { type: integer }
+            overview:
+              type: object
+              additionalProperties: true
+
+    SuccessGenericData:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: true
+
+    SuccessPrometheusWrap:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: true
+
+    PrometheusQueryItem:
+      type: object
+      required: [id, query, type]
+      properties:
+        id: { type: string }
+        query: { type: string }
+        type: { type: string, enum: [instant, range] }
+        start: { type: string }
+        end: { type: string }
+        step: { type: string }
+    PrometheusBatchBody:
+      type: object
+      required: [queries]
+      properties:
+        queries:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/PrometheusQueryItem"
+    SuccessPrometheusBatch:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: true
+
+    FeedbackEntry:
+      type: object
+      properties:
+        message_id: { type: string }
+        conversation_id: { type: string }
+        conversation_title: { type: string }
+        content_snippet: { type: string }
+        role: { type: string }
+        rating: { type: string }
+        reason: { type: string }
+        submitted_by: { type: string }
+        submitted_at: { type: string, format: date-time }
+    SuccessAdminFeedback:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            entries:
+              type: array
+              items:
+                $ref: "#/components/schemas/FeedbackEntry"
+            pagination:
+              type: object
+              additionalProperties: true
+
+    SuccessNpsCampaigns:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            campaigns:
+              type: array
+              items:
+                $ref: "#/components/schemas/NpsCampaign"
+    NpsCampaign:
+      type: object
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        response_count: { type: integer }
+        status:
+          type: string
+          enum: [active, ended, scheduled]
+    NpsCampaignCreate:
+      type: object
+      required: [name, starts_at, ends_at]
+      properties:
+        name: { type: string }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+    SuccessNpsCampaign:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/NpsCampaign"
+    SuccessCampaignStopped:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            stopped: { type: boolean }
+            ended_at: { type: string, format: date-time }
+
+    ConversationSharing:
+      type: object
+      properties:
+        is_public: { type: boolean }
+        shared_with:
+          type: array
+          items: { type: string }
+        shared_with_teams:
+          type: array
+          items: { type: string }
+        team_permissions:
+          type: object
+          additionalProperties: { type: string }
+        share_link_enabled: { type: boolean }
+        public_permission: { type: string }
+        share_link_expires: { type: string, format: date-time }
+    Conversation:
+      type: object
+      properties:
+        _id: { type: string, format: uuid }
+        title: { type: string }
+        owner_id: { type: string }
+        agent_id: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+        sharing:
+          $ref: "#/components/schemas/ConversationSharing"
+        tags:
+          type: array
+          items: { type: string }
+        is_archived: { type: boolean }
+        is_pinned: { type: boolean }
+        deleted_at:
+          type: ["string", "null"]
+        access_level:
+          type: string
+          enum: [owner, shared, shared_readonly, admin_audit]
+        message_count: { type: integer }
+        last_message_at: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [active, archived, deleted]
+
+    SuccessPaginatedConversations:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [items, total, page, page_size, has_more]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/Conversation"
+            total: { type: integer }
+            page: { type: integer }
+            page_size: { type: integer }
+            has_more: { type: boolean }
+
+    SuccessOwners:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            owners:
+              type: array
+              items: { type: string }
+
+    Message:
+      type: object
+      properties:
+        _id: { type: string }
+        message_id: { type: string }
+        conversation_id: { type: string, format: uuid }
+        owner_id: { type: string }
+        role: { type: string }
+        content: { type: string }
+        sender_email: { type: string }
+        sender_name: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+        a2a_events:
+          type: array
+          items: {}
+        artifacts:
+          type: array
+          items: {}
+        feedback:
+          type: object
+          additionalProperties: true
+
+    PaginatedMessages:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+        has_more: { type: boolean }
+
+    SuccessAuditMessages:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            conversation:
+              $ref: "#/components/schemas/Conversation"
+            messages:
+              $ref: "#/components/schemas/PaginatedMessages"
+
+    SlackUserRow:
+      type: object
+      properties:
+        keycloak_user_id: { type: string }
+        username: { type: string }
+        email: { type: string }
+        display_name: { type: string }
+        slack_user_id: { type: string }
+        link_status:
+          type: string
+          enum: [linked, pending, unlinked]
+        enabled: { type: boolean }
+        roles:
+          type: array
+          items: { type: string }
+        teams:
+          type: array
+          items: { type: string }
+        last_interaction: { type: string, format: date-time }
+        obo_success_count: { type: integer }
+        obo_fail_count: { type: integer }
+        active_channels:
+          type: array
+          items: { type: string }
+    SuccessSlackUserPage:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [items, total, page, page_size, has_more]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/SlackUserRow"
+            total: { type: integer }
+            page: { type: integer }
+            page_size: { type: integer }
+            has_more: { type: boolean }
+
+    SuccessSlackRelink:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            relink_url: { type: string }
+            slack_user_id: { type: string }
+            expires_at: { type: string, format: date-time }
+            message: { type: string }
+    SuccessSlackRevoke:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            revoked: { type: boolean }
+            keycloak_user_id: { type: string }
+
+    ChannelMapping:
+      type: object
+      properties:
+        id: { type: string }
+        slack_channel_id: { type: string }
+        team_id: { type: string }
+        team_name: { type: string }
+        slack_workspace_id: { type: string }
+        channel_name: { type: string }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        active: { type: boolean }
+        stale_team: { type: boolean }
+        stale_channel_archived: { type: boolean }
+    ChannelMappingUpsert:
+      type: object
+      required: [slack_channel_id, team_id]
+      properties:
+        slack_channel_id: { type: string }
+        team_id: { type: string }
+        channel_name: { type: string }
+        workspace_id: { type: string }
+    SuccessChannelMappings:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ChannelMapping"
+    SuccessChannelMapping:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/ChannelMapping"
+    SuccessDeactivateMapping:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            deactivated: { type: boolean }
+
+    KeycloakRoleDef:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        composite: { type: boolean }
+        clientRole: { type: boolean }
+        containerId: { type: string }
+    SuccessRealmRolesList:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            roles:
+              type: array
+              items:
+                $ref: "#/components/schemas/KeycloakRoleDef"
+            total: { type: integer }
+    CreateRoleBody:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+    SuccessRoleCreated:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            message: { type: string }
+            name: { type: string }
+    SuccessRealmRoleWrap:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            role:
+              $ref: "#/components/schemas/KeycloakRoleDef"
+    SuccessMessage:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            message: { type: string }
+
+    IdpMapper:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        name: { type: string }
+        identityProviderAlias: { type: string }
+        identityProviderMapper: { type: string }
+        config:
+          type: object
+          additionalProperties: true
+        idpAlias: { type: string }
+    SuccessRoleMappings:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            mappers:
+              type: array
+              items:
+                $ref: "#/components/schemas/IdpMapper"
+            idpAliases:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+    RoleMappingCreate:
+      type: object
+      required: [idpAlias, groupName, roleName]
+      properties:
+        idpAlias: { type: string }
+        groupName: { type: string }
+        roleName: { type: string }
+    SuccessMapperCreated:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/IdpMapper"
+
+    RbacAuditRecord:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        tenant_id: { type: string }
+        subject_hash: { type: string }
+        actor_hash: { type: string }
+        capability: { type: string }
+        component: { type: string }
+        resource_ref: { type: string }
+        outcome: { type: string }
+        reason_code: { type: string }
+        pdp: { type: string }
+        correlation_id: { type: string }
+    RbacAuditPage:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/RbacAuditRecord"
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+
+    PermissionsResponse:
+      type: object
+      properties:
+        permissions:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    UiRoleResponse:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [admin, user]
+        email: { type: string }
+
+    SuccessPolicyGet:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            name: { type: string }
+            content: { type: string }
+            is_system: { type: boolean }
+            updated_at: { type: string, format: date-time }
+            updated_by: { type: string }
+            exists: { type: boolean }
+    SuccessPolicyUpdate:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            message: { type: string }
+    SuccessPolicySeed:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            seeded: { type: boolean }
+            message: { type: string }
+
+    CreateConversationBody:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        id: { type: string, format: uuid }
+        tags:
+          type: array
+          items: { type: string }
+        agent_id: { type: string }
+
+    PatchConversationBody:
+      type: object
+      properties:
+        title: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        is_archived: { type: boolean }
+        is_pinned: { type: boolean }
+
+    SuccessConversation:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/Conversation"
+
+    SuccessDeleteConversation:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            deleted: { type: boolean }
+            permanent: { type: boolean }
+
+    SuccessPaginatedMessages:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/PaginatedMessages"
+
+    MessageUpsertBody:
+      type: object
+      required: [role, content]
+      properties:
+        message_id: { type: string }
+        role: { type: string }
+        content: { type: string }
+        sender_email: { type: string }
+        sender_name: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        a2a_events:
+          type: array
+          items: {}
+        artifacts:
+          type: array
+          items: {}
+
+    SuccessMessageWrap:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/Message"
+
+    MessagePatchBody:
+      type: object
+      properties:
+        content: { type: string }
+        feedback:
+          type: object
+          properties:
+            rating: { type: string }
+            comment: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        a2a_events:
+          type: array
+          items: {}
+
+    SharingAccess:
+      type: object
+      properties:
+        _id: { type: string }
+        conversation_id: { type: string, format: uuid }
+        granted_by: { type: string }
+        granted_to: { type: string }
+        permission: { type: string, enum: [view, comment] }
+        granted_at: { type: string, format: date-time }
+        accessed_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+
+    SuccessShareState:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            sharing:
+              $ref: "#/components/schemas/ConversationSharing"
+            access_list:
+              type: array
+              items:
+                $ref: "#/components/schemas/SharingAccess"
+
+    SharePostBody:
+      type: object
+      properties:
+        user_emails:
+          type: array
+          items: { type: string, format: email }
+        team_ids:
+          type: array
+          items: { type: string }
+        permission: { type: string, enum: [view, comment] }
+        is_public: { type: boolean }
+        public_permission: { type: string }
+        enable_link: { type: boolean }
+        link_expires: { type: string, format: date-time }
+
+    SharePatchBody:
+      type: object
+      required: [permission]
+      properties:
+        email: { type: string, format: email }
+        team_id: { type: string }
+        permission: { type: string, enum: [view, comment] }
+
+    SuccessConversationPartial:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            _id: { type: string, format: uuid }
+            title: { type: string }
+            owner_id: { type: string }
+            is_archived: { type: boolean }
+            is_pinned: { type: boolean }
+            updated_at: { type: string, format: date-time }
+
+    ConversationBookmark:
+      type: object
+      properties:
+        _id: { type: string }
+        user_id: { type: string }
+        conversation_id: { type: string, format: uuid }
+        message_id: { type: string }
+        note: { type: string }
+        created_at: { type: string, format: date-time }
+
+    SuccessBookmarkPage:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [items, total, page, page_size, has_more]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConversationBookmark"
+            total: { type: integer }
+            page: { type: integer }
+            page_size: { type: integer }
+            has_more: { type: boolean }
+
+    BookmarkCreateBody:
+      type: object
+      required: [conversation_id]
+      properties:
+        conversation_id: { type: string, format: uuid }
+        message_id: { type: string }
+        note: { type: string }
+
+    SuccessBookmark:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/ConversationBookmark"
+
+    MongoUserDoc:
+      type: object
+      properties:
+        _id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        avatar_url: { type: string, format: uri }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_login: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+          properties:
+            sso_provider: { type: string }
+            sso_id: { type: string }
+            role: { type: string, enum: [admin, user] }
+
+    SuccessMongoUser:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/MongoUserDoc"
+
+    UserMePatch:
+      type: object
+      properties:
+        name: { type: string }
+        avatar_url: { type: string, format: uri }
+
+    SuccessUserStats:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: true
+          properties:
+            total_conversations: { type: integer }
+            total_messages: { type: integer }
+            total_tokens_used: { type: integer }
+            conversations_this_week: { type: integer }
+            messages_this_week: { type: integer }
+            favorite_agents:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  count: { type: integer }
+
+    SuccessFavorites:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            favorites:
+              type: array
+              items: { type: string }
+
+    FavoritesBody:
+      type: object
+      required: [favorites]
+      properties:
+        favorites:
+          type: array
+          items: { type: string }
+
+    SuccessFavoritesUpdate:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            favorites:
+              type: array
+              items: { type: string }
+            message: { type: string }
+
+    UserSearchHit:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        name: { type: string }
+        avatar_url: { type: string, format: uri }
+
+    SuccessUserSearch:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserSearchHit"
+
+    SuccessDebugUsers:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            total_users: { type: integer }
+            users:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+
+    RagUserInfo:
+      type: object
+      additionalProperties: true
+      properties:
+        email: { type: string }
+        role: { type: string }
+        is_authenticated: { type: boolean }
+        groups:
+          type: array
+          items: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+        in_trusted_network: { type: boolean }
+
+    HealthResponse:
+      type: object
+      required: [status, service, timestamp]
+      properties:
+        status:
+          type: string
+          const: "ok"
+        service: { type: string }
+        timestamp: { type: string, format: date-time }
+
+    VersionInfo:
+      type: object
+      properties:
+        version: { type: string }
+        gitCommit: { type: string }
+        buildDate: { type: string }
+        packageVersion: { type: string }
+        error: { type: string }
+
+    UserSettingsPreferences:
+      type: object
+      additionalProperties: true
+      properties:
+        theme: { type: string }
+        gradient_theme: { type: string }
+        font_family: { type: string }
+        font_size: { type: string }
+        sidebar_collapsed: { type: boolean }
+        context_panel_visible: { type: boolean }
+        debug_mode: { type: boolean }
+        code_theme: { type: string }
+
+    UserSettingsNotifications:
+      type: object
+      additionalProperties: true
+      properties:
+        email_enabled: { type: boolean }
+        in_app_enabled: { type: boolean }
+        conversation_shared: { type: boolean }
+        weekly_summary: { type: boolean }
+
+    UserSettingsDefaults:
+      type: object
+      additionalProperties: true
+      properties:
+        default_model: { type: string }
+        default_agent_mode: { type: string }
+        auto_title_conversations: { type: boolean }
+
+    UserSettings:
+      type: object
+      properties:
+        _id: { type: string }
+        user_id: { type: string, format: email }
+        preferences:
+          $ref: "#/components/schemas/UserSettingsPreferences"
+        notifications:
+          $ref: "#/components/schemas/UserSettingsNotifications"
+        defaults:
+          $ref: "#/components/schemas/UserSettingsDefaults"
+        updated_at: { type: string, format: date-time }
+
+    SuccessUserSettings:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          $ref: "#/components/schemas/UserSettings"
+
+    UserSettingsPatch:
+      type: object
+      properties:
+        preferences:
+          $ref: "#/components/schemas/UserSettingsPreferences"
+        notifications:
+          $ref: "#/components/schemas/UserSettingsNotifications"
+        defaults:
+          $ref: "#/components/schemas/UserSettingsDefaults"
+
+    PreferencesFlat:
+      type: object
+      additionalProperties: true
+
+    NotificationsFlat:
+      type: object
+      additionalProperties: true
+
+    DefaultsFlat:
+      type: object
+      additionalProperties: true
+
+    DebugAuthStatus:
+      type: object
+      properties:
+        authenticated: { type: boolean }
+        message: { type: string }
+        session:
+          type: object
+          additionalProperties: true
+        config:
+          type: object
+          additionalProperties: true
+        checks:
+          type: object
+          additionalProperties: true
+
+    DebugSession:
+      type: object
+      properties:
+        authenticated: { type: boolean }
+        user:
+          type: object
+          additionalProperties: true
+        role: { type: string }
+        isAuthorized: { type: boolean }
+        env:
+          type: object
+          additionalProperties: { type: string }
+
+    FeedbackConfig:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        host: { type: string }
+
+    FeedbackSubmitBody:
+      type: object
+      required: [feedbackType]
+      properties:
+        feedbackType: { type: string, enum: [like, dislike] }
+        conversationId: { type: string }
+        traceId: { type: string }
+        messageId: { type: string }
+        reason: { type: string }
+        additionalFeedback: { type: string }
+
+    FeedbackSubmitResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        langfuseEnabled: { type: boolean }
+
+    NpsSubmitBody:
+      type: object
+      required: [score]
+      properties:
+        score: { type: integer, minimum: 0, maximum: 10 }
+        comment: { type: string }
+        campaign_id: { type: string }
+
+    SuccessNpsSubmit:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            submitted: { type: boolean }
+
+    NpsActiveResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            active: { type: boolean }
+            campaign:
+              type: object
+              properties:
+                id: { type: string }
+                name: { type: string }
+                ends_at: { type: string, format: date-time }
+
+    ChangelogItem:
+      type: object
+      properties:
+        text: { type: string }
+        scope: { type: string }
+
+    ChangelogSection:
+      type: object
+      properties:
+        type: { type: string }
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangelogItem"
+
+    ChangelogRelease:
+      type: object
+      properties:
+        version: { type: string }
+        date: { type: string }
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangelogSection"
+
+    ChangelogResponse:
+      type: object
+      properties:
+        releases:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangelogRelease"
+        scopes:
+          type: array
+          items: { type: string }
+        error: { type: string }
+
+    SkillTemplate:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        title: { type: string }
+        category: { type: string }
+        icon: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        content: { type: string }
+
+    WorkflowRun:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string }
+        workflow_id: { type: string }
+        workflow_name: { type: string }
+        status: { type: string }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        owner_id: { type: string, format: email }
+        created_at: { type: string, format: date-time }
+        result_summary: { type: string }
+        error_message: { type: string }
+        execution_artifacts:
+          type: object
+          additionalProperties: true
+
+    WorkflowRunCreate:
+      type: object
+      required: [workflow_id]
+      properties:
+        workflow_id: { type: string }
+        workflow_name: { type: string }
+        workflow_category: { type: string }
+        input_parameters:
+          type: object
+          additionalProperties: true
+        input_prompt: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+
+    WorkflowRunUpdate:
+      type: object
+      additionalProperties: true
+      properties:
+        status: { type: string }
+        completed_at: { type: string, format: date-time }
+        duration_ms: { type: integer }
+        result_summary: { type: string }
+        error_message: { type: string }
+        execution_artifacts:
+          type: object
+          additionalProperties: true
+
+    SuccessWorkflowRunCreate:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            id: { type: string }
+            message: { type: string }
+
+    SuccessWorkflowRunMutate:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          properties:
+            id: { type: string }
+            message: { type: string }
