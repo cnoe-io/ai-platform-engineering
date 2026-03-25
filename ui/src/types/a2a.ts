@@ -234,6 +234,8 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   events: A2AEvent[];
+  /** SSE events for Dynamic Agents (stored per-message, like A2A events) */
+  sseEvents?: SSEAgentEvent[];
   widgets?: Widget[];
   isFinal?: boolean;
   feedback?: MessageFeedback;

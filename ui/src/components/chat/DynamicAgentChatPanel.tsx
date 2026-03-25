@@ -15,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
-import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData } from "@/components/dynamic-agents/sse-types";
+import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData, isToolStartData, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType } from "@/types/a2a";
@@ -25,6 +25,10 @@ import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 import { getGradientStyle } from "@/lib/gradient-themes";
 import { InlineEventCard } from "./InlineEventCard";
+import { DynamicAgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
+import { useDynamicAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
+import type { TaskItem } from "@/components/shared/timeline";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
@@ -123,6 +127,59 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
   const historyLoadedRef = useRef<Set<string>>(new Set());
 
+  // ─── Files & Tasks for Timeline (fetched via API) ─────────────────
+  const [timelineFiles, setTimelineFiles] = useState<string[]>([]);
+  const [timelineTasks, setTimelineTasks] = useState<TaskItem[]>([]);
+  const [isDownloadingFile, setIsDownloadingFile] = useState(false);
+  const [downloadingFilePath, setDownloadingFilePath] = useState<string | undefined>();
+  const [isDeletingFile, setIsDeletingFile] = useState(false);
+  const [deletingFilePath, setDeletingFilePath] = useState<string | undefined>();
+  const [filesFetchKey, setFilesFetchKey] = useState(0);
+  const [todosFetchKey, setTodosFetchKey] = useState(0);
+  const filesFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
+  const todosFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
+
+  // ─── Subagent Info Cache (for timeline avatar gradients) ──────────
+  const [subagentCache, setSubagentCache] = useState<Map<string, SubagentLookupInfo>>(new Map());
+  const subagentCacheFetchedRef = useRef(false);
+
+  // Fetch all available agents once for subagent lookup
+  useEffect(() => {
+    if (subagentCacheFetchedRef.current) return;
+    subagentCacheFetchedRef.current = true;
+
+    const fetchAgents = async () => {
+      try {
+        const response = await fetch("/api/dynamic-agents?enabled_only=true");
+        const data = await response.json();
+        if (data.success && data.data?.items) {
+          const cache = new Map<string, SubagentLookupInfo>();
+          for (const agent of data.data.items as DynamicAgentConfig[]) {
+            // Index by both id and name for flexible lookup
+            const info: SubagentLookupInfo = {
+              name: agent.name,
+              gradientTheme: agent.ui?.gradient_theme,
+            };
+            cache.set(agent._id, info);
+            // Also index by lowercase name for name-based lookup
+            cache.set(agent.name.toLowerCase(), info);
+          }
+          setSubagentCache(cache);
+        }
+      } catch (err) {
+        console.warn("[DynamicAgentChatPanel] Failed to fetch agents for subagent lookup:", err);
+      }
+    };
+
+    fetchAgents();
+  }, []);
+
+  // Callback to look up subagent info by name
+  const getSubagentInfo = useCallback((subagentName: string): SubagentLookupInfo | undefined => {
+    // Try exact match first, then lowercase
+    return subagentCache.get(subagentName) || subagentCache.get(subagentName.toLowerCase());
+  }, [subagentCache]);
+
   // Check if THIS conversation is streaming (not global)
   const isThisConversationStreaming = activeConversationId
     ? isConversationStreaming(activeConversationId)
@@ -181,11 +238,12 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
   // Auto-scroll during streaming only if user is near the bottom
+  // Depend on both message content AND sseEvents length since timeline renders from SSE events
   useEffect(() => {
     if (autoScrollEnabled && isThisConversationStreaming && !isUserScrolledUp) {
       scrollToBottom("instant");
     }
-  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
+  }, [conversation?.messages?.at(-1)?.content, conversation?.sseEvents?.length, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
   // Reset scroll state and collapse older turns when conversation changes
   useEffect(() => {
@@ -297,6 +355,200 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // ensures we only fetch once per conversation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, agentId, loadMessagesFromServer]);
+
+  // ═══════════════════════════════════════════════════════════════
+  // FILES & TASKS FETCH (for timeline display in latest message)
+  // ═══════════════════════════════════════════════════════════════
+
+  // Detect file write events and trigger a fetch
+  useEffect(() => {
+    const events = conversation?.sseEvents || [];
+    const hasFileWriteEvent = events.some(
+      (e) =>
+        e.type === "tool_start" &&
+        isToolStartData(e.toolData) &&
+        FILE_TOOL_NAMES.includes(e.toolData.tool_name as typeof FILE_TOOL_NAMES[number])
+    );
+    if (hasFileWriteEvent) {
+      setFilesFetchKey((k) => k + 1);
+    }
+  }, [conversation?.sseEvents]);
+
+  // Detect write_todos tool events and trigger a fetch
+  useEffect(() => {
+    const events = conversation?.sseEvents || [];
+    const hasWriteTodosEvent = events.some(
+      (e) => e.type === "tool_start" && isToolStartData(e.toolData) && e.toolData.tool_name === TODO_TOOL_NAME
+    );
+    if (hasWriteTodosEvent) {
+      setTodosFetchKey((k) => k + 1);
+    }
+  }, [conversation?.sseEvents]);
+
+  // Fetch files from API
+  useEffect(() => {
+    if (!conversationId || !agentId) {
+      setTimelineFiles([]);
+      filesFetchedForRef.current = null;
+      return;
+    }
+
+    const currentFetchState = { conversationId, agentId, fetchKey: filesFetchKey };
+    if (
+      filesFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
+      filesFetchedForRef.current?.agentId === currentFetchState.agentId &&
+      filesFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
+    ) {
+      return;
+    }
+    
+    filesFetchedForRef.current = currentFetchState;
+
+    const fetchFiles = async () => {
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
+          {
+            headers: {
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setTimelineFiles(data.files || []);
+        }
+      } catch {
+        // Silently ignore fetch errors - files are optional
+      }
+    };
+
+    fetchFiles();
+  }, [conversationId, agentId, filesFetchKey, accessToken]);
+
+  // Fetch todos from API
+  useEffect(() => {
+    if (!conversationId || !agentId) {
+      setTimelineTasks([]);
+      todosFetchedForRef.current = null;
+      return;
+    }
+
+    const currentFetchState = { conversationId, agentId, fetchKey: todosFetchKey };
+    if (
+      todosFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
+      todosFetchedForRef.current?.agentId === currentFetchState.agentId &&
+      todosFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
+    ) {
+      return;
+    }
+    
+    todosFetchedForRef.current = currentFetchState;
+
+    const fetchTodos = async () => {
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${conversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
+          {
+            headers: {
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const fetchedTodos: TaskItem[] = (data.todos || []).map(
+            (todo: { content?: string; status?: string }, idx: number) => ({
+              id: `todo-${idx}`,
+              content: todo.content || "",
+              status: (todo.status as "pending" | "in_progress" | "completed") || "pending",
+            })
+          );
+          setTimelineTasks(fetchedTodos);
+        }
+      } catch {
+        // Silently ignore fetch errors - todos are optional
+      }
+    };
+
+    fetchTodos();
+  }, [conversationId, agentId, todosFetchKey, accessToken]);
+
+  // Handle file download
+  const handleTimelineFileDownload = useCallback(
+    async (path: string) => {
+      if (!conversationId || !agentId || isDownloadingFile) return;
+
+      setIsDownloadingFile(true);
+      setDownloadingFilePath(path);
+
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          {
+            headers: {
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.content || "";
+
+          // Create blob and download
+          const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          const filename = path.split("/").pop() || "file.txt";
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      } catch {
+        // Silently ignore download errors
+      } finally {
+        setIsDownloadingFile(false);
+        setDownloadingFilePath(undefined);
+      }
+    },
+    [conversationId, agentId, accessToken, isDownloadingFile]
+  );
+
+  // Handle file delete
+  const handleTimelineFileDelete = useCallback(
+    async (path: string) => {
+      if (!conversationId || !agentId || isDeletingFile) return;
+
+      setIsDeletingFile(true);
+      setDeletingFilePath(path);
+
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          {
+            method: "DELETE",
+            headers: {
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            },
+          }
+        );
+
+        if (response.ok) {
+          setFilesFetchKey((k) => k + 1);
+        }
+      } catch {
+        // Silently ignore delete errors
+      } finally {
+        setIsDeletingFile(false);
+        setDeletingFilePath(undefined);
+      }
+    },
+    [conversationId, agentId, accessToken, isDeletingFile]
+  );
 
   // ═══════════════════════════════════════════════════════════════
   // RESTORE PENDING USER INPUT FORM after page refresh / navigation.
@@ -945,13 +1197,30 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                       const isLastAssistantMessage = msg.role === "assistant" &&
                         index === arr.length - 1;
 
-                      // Filter SSE events for this message turn
-                      const turnEvents = filterEventsForTurn(
-                        conversation?.sseEvents ?? [],
-                        msg,
-                        allMessages,
-                        allMessages.findIndex(m => m.id === msg.id)
-                      );
+                      // Get SSE events for this message turn:
+                      // - For completed messages: use msg.sseEvents (persisted with the message)
+                      // - For streaming (latest message): use conversation.sseEvents (live buffer)
+                      // - Fall back to timestamp-based filtering if msg.sseEvents is not available
+                      const isStreaming = isLastAssistantMessage && isThisConversationStreaming;
+                      let turnEvents: SSEAgentEvent[];
+                      
+                      if (msg.role !== "assistant") {
+                        turnEvents = [];
+                      } else if (isStreaming) {
+                        // Streaming: use live buffer from conversation
+                        turnEvents = conversation?.sseEvents ?? [];
+                      } else if (msg.sseEvents && msg.sseEvents.length > 0) {
+                        // Completed message with persisted events
+                        turnEvents = msg.sseEvents;
+                      } else {
+                        // Fall back to timestamp-based filtering (legacy/edge cases)
+                        turnEvents = filterEventsForTurn(
+                          conversation?.sseEvents ?? [],
+                          msg,
+                          allMessages,
+                          allMessages.findIndex(m => m.id === msg.id)
+                        );
+                      }
 
                       return (
                         <ChatMessage
@@ -973,6 +1242,16 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                           agentGradient={agentGradient}
                           agentName={agentName}
                           turnEvents={turnEvents}
+                          // Timeline props (only passed to latest message)
+                          timelineFiles={timelineFiles}
+                          timelineTasks={timelineTasks}
+                          onFileDownload={handleTimelineFileDownload}
+                          onFileDelete={handleTimelineFileDelete}
+                          isDownloadingFile={isDownloadingFile}
+                          downloadingFilePath={downloadingFilePath}
+                          isDeletingFile={isDeletingFile}
+                          deletingFilePath={deletingFilePath}
+                          getSubagentInfo={getSubagentInfo}
                         />
                       );
                     })}
@@ -1373,6 +1652,9 @@ function parseStreamSegments(events: SSEAgentEvent[], isStreaming: boolean): Str
 /**
  * Filter SSE events for a specific message turn based on timestamps.
  * Returns events that occurred between this message and the next user message.
+ * 
+ * NOTE: This is a fallback for legacy messages. Prefer using msg.sseEvents directly
+ * for completed messages, as the message timestamp may be after all events finished.
  */
 function filterEventsForTurn(
   sseEvents: SSEAgentEvent[],
@@ -1448,12 +1730,12 @@ const markdownComponents = {
     </p>
   ),
   ul: ({ children }: { children?: React.ReactNode }) => (
-    <ul className="list-disc list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
+    <ul className="list-disc list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">
       {children}
     </ul>
   ),
   ol: ({ children }: { children?: React.ReactNode }) => (
-    <ol className="list-decimal list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">
+    <ol className="list-decimal list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">
       {children}
     </ol>
   ),
@@ -1817,6 +2099,16 @@ interface ChatMessageProps {
   agentGradient?: string | null;
   agentName?: string;
   turnEvents?: SSEAgentEvent[];
+  // Timeline props (for DynamicAgentTimeline)
+  timelineFiles?: string[];
+  timelineTasks?: TaskItem[];
+  onFileDownload?: (path: string) => void;
+  onFileDelete?: (path: string) => void;
+  isDownloadingFile?: boolean;
+  downloadingFilePath?: string;
+  isDeletingFile?: boolean;
+  deletingFilePath?: string;
+  getSubagentInfo?: (agentId: string) => SubagentLookupInfo | undefined;
 }
 
 const ChatMessage = React.memo(function ChatMessage({
@@ -1837,6 +2129,16 @@ const ChatMessage = React.memo(function ChatMessage({
   agentGradient,
   agentName,
   turnEvents = [],
+  // Timeline props
+  timelineFiles = [],
+  timelineTasks = [],
+  onFileDownload,
+  onFileDelete,
+  isDownloadingFile,
+  downloadingFilePath,
+  isDeletingFile,
+  deletingFilePath,
+  getSubagentInfo,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isHovered, setIsHovered] = useState(false);
@@ -1847,6 +2149,9 @@ const ChatMessage = React.memo(function ChatMessage({
 
   const displayContent = message.content;
   const collapsedPreview = message.content.slice(0, 300).trim();
+
+  // Transform SSE events into grouped timeline data for assistant messages
+  const { data: timelineData } = useDynamicAgentTimeline(turnEvents, isStreaming);
 
   return (
     <motion.div
@@ -1955,10 +2260,18 @@ const ChatMessage = React.memo(function ChatMessage({
         </div>
 
         {isStreaming && message.role === "assistant" ? (
-          <StreamingView
-            message={message}
-            isStreaming={isStreaming}
-            turnEvents={turnEvents}
+          <DynamicAgentTimeline
+            data={timelineData}
+            files={isLatestAnswer ? timelineFiles : []}
+            tasks={isLatestAnswer ? timelineTasks : []}
+            isLatestMessage={isLatestAnswer}
+            onFileDownload={onFileDownload}
+            onFileDelete={onFileDelete}
+            isDownloadingFile={isDownloadingFile}
+            downloadingFilePath={downloadingFilePath}
+            isDeletingFile={isDeletingFile}
+            deletingFilePath={deletingFilePath}
+            getSubagentInfo={getSubagentInfo}
           />
         ) : !isUser && turnEvents.length > 0 ? (
           // Completed assistant message with events - use interleaved view
@@ -2002,10 +2315,18 @@ const ChatMessage = React.memo(function ChatMessage({
                 )}
               </motion.div>
             )}
-            <StreamingView
-              message={message}
-              isStreaming={false}
-              turnEvents={turnEvents}
+            <DynamicAgentTimeline
+              data={timelineData}
+              files={isLatestAnswer ? timelineFiles : []}
+              tasks={isLatestAnswer ? timelineTasks : []}
+              isLatestMessage={isLatestAnswer}
+              onFileDownload={onFileDownload}
+              onFileDelete={onFileDelete}
+              isDownloadingFile={isDownloadingFile}
+              downloadingFilePath={downloadingFilePath}
+              isDeletingFile={isDeletingFile}
+              deletingFilePath={deletingFilePath}
+              getSubagentInfo={getSubagentInfo}
             />
           </>
         ) : (
@@ -2065,7 +2386,12 @@ const ChatMessage = React.memo(function ChatMessage({
                     remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       // Simplified markdown components for user messages
-                      p: ({ children }) => <p className="text-sm leading-relaxed mb-0">{children}</p>,
+                      p: ({ children }) => <p className="text-sm leading-relaxed mb-1.5 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>,
+                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
                       code: ({ children }) => <code className="bg-black/20 px-1 rounded font-mono text-xs">{children}</code>,
                     }}
                   >

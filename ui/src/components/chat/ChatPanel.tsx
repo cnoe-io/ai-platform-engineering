@@ -2308,10 +2308,10 @@ const ChatMessage = React.memo(function ChatMessage({
                         <p className="text-sm leading-relaxed text-primary-foreground/90 mb-1.5 last:mb-0">{children}</p>
                       ),
                       ul: ({ children }) => (
-                        <ul className="list-disc list-outside ml-5 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>
+                        <ul className="list-disc list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>
                       ),
                       ol: ({ children }) => (
-                        <ol className="list-decimal list-outside ml-5 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>
+                        <ol className="list-decimal list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>
                       ),
                       li: ({ children }) => (
                         <li className="leading-relaxed">{children}</li>

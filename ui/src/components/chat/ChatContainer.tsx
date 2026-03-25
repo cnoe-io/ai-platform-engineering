@@ -287,9 +287,13 @@ export function ChatContainer() {
       return;
     }
 
+    // Skip fetch if we already have agent info for this exact (uuid, agentId) combo.
+    // BUT if agentInfo is null (e.g., returning to conversation after state cleared),
+    // we must re-fetch even if ref matches.
     if (
       fetchedAgentRef.current?.uuid === uuid &&
-      fetchedAgentRef.current?.agentId === selectedAgentId
+      fetchedAgentRef.current?.agentId === selectedAgentId &&
+      agentInfo !== null
     ) {
       return;
     }
@@ -321,7 +325,9 @@ export function ChatContainer() {
     }
 
     fetchAgentInfo();
-  }, [uuid, selectedAgentId, dynamicAgentsEnabled]);
+    // Note: agentInfo in deps intentionally triggers re-fetch when agentInfo becomes null
+    // (e.g., on page refresh or after navigating away and back)
+  }, [uuid, selectedAgentId, dynamicAgentsEnabled, agentInfo]);
 
   // If no uuid, render nothing (this is the /chat redirect page case)
   if (!uuid) {
@@ -361,7 +367,9 @@ export function ChatContainer() {
   const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
   const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
 
-  const isLoadingMessages = fetchInProgress || (storageMode === 'mongodb' && !storeHasMessages && conversation?.title !== "New Conversation");
+  // Only show loading if we haven't finished fetching yet. After fetchDone=true,
+  // having no messages is legitimate (e.g., messages were deleted) — not a loading state.
+  const isLoadingMessages = fetchInProgress || (storageMode === 'mongodb' && !storeHasMessages && !fetchDone && conversation?.title !== "New Conversation");
 
   return selectedAgentId && dynamicAgentsEnabled ? (
     <DynamicAgentChatView

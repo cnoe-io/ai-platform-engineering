@@ -322,3 +322,43 @@ export function createSSEAgentEvent(
 
 // Stable empty array to avoid re-renders
 export const EMPTY_SSE_EVENTS: SSEAgentEvent[] = [];
+
+// ═══════════════════════════════════════════════════════════════
+// Tool Name Constants
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tool names for file operations (from deepagents filesystem middleware).
+ * Used to detect when file-related tools are called.
+ */
+export const FILE_TOOL_NAMES = ["write_file", "edit_file", "read_file", "ls"] as const;
+
+/** Type for file tool names */
+export type FileToolName = (typeof FILE_TOOL_NAMES)[number];
+
+/**
+ * Type-safe check if a tool name is a file tool.
+ * Avoids TypeScript errors when using .includes() with readonly const arrays.
+ */
+export function isFileToolName(name: string): name is FileToolName {
+  return (FILE_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/**
+ * Tool name for todo/task operations (from deepagents todo middleware).
+ * Used to detect when task-related tools are called.
+ */
+export const TODO_TOOL_NAME = "write_todos" as const;
+
+/**
+ * Type-safe check if a tool name is the todo tool.
+ */
+export function isTodoToolName(name: string): boolean {
+  return name === TODO_TOOL_NAME;
+}
+
+/**
+ * Tool name for subagent invocations (from deepagents task middleware).
+ * When tool_name === "task", the tool call is a subagent invocation.
+ */
+export const SUBAGENT_TOOL_NAME = "task" as const;
