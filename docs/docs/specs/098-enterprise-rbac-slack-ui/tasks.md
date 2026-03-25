@@ -448,6 +448,9 @@ With multiple developers:
 | FR-025 | Slack identity linking | T030, T032, T033, T038, T063, T094 |
 | FR-026 | RAG server Keycloak JWT integration | T116, T117, T118, T119, T122 |
 | FR-027 | Per-KB access control (hybrid) | T120, T121, T123, T124, T125, T126, T127 |
+| FR-028 | Dynamic agent RBAC (three-layer) | T132, T133, T134, T135, T136 |
+| FR-029 | CEL as mandated policy engine | T128, T129, T130, T131 |
+| FR-030 | Dynamic agent MCP routing via AG | T137, T138, T139, T140 |
 
 | SC | Verification | Tasks |
 |----|-------------|-------|
@@ -462,6 +465,39 @@ With multiple developers:
 | SC-009 | Multi-tenant denial | T058, T059, T062 |
 | SC-010 | RAG Keycloak JWT role mapping | T118, T119 |
 | SC-011 | Per-KB query-time filtering | T121, T123, T126 |
+| SC-012 | Dynamic agent layered RBAC | T135, T136 |
+| SC-013 | CEL at all enforcement points | T128, T129, T130, T131 |
+
+---
+
+## Phase 11: User Story 8 — Dynamic Agent RBAC + CEL Mandate (Priority: P1)
+
+> **Depends on**: Phase 2 (Keycloak realm), Phase 10 (RAG CEL patterns)
+> **Can run in parallel with**: US1/US5/US7 after Phase 2 complete
+> **FR coverage**: FR-028 (T132–T136), FR-029 (T128–T131), FR-030 (T137–T140)
+> **SC coverage**: SC-012 (T135–T136), SC-013 (T128–T131)
+
+### 11A — CEL Library + Infrastructure (FR-029)
+
+- [ ] T128 [US8] Create shared CEL evaluator library — Python package using `cel-python` with standard context schema (`user.roles`, `user.teams`, `user.email`, `resource.id`, `resource.type`, `resource.visibility`, `resource.owner_id`, `resource.shared_with_teams`, `action`). Include `evaluate(expression: str, context: dict) → bool` interface, error handling (fail closed on eval error), and unit tests. *Files*: `ai_platform_engineering/utils/cel_evaluator.py`
+- [ ] T129 [US8] Create TypeScript CEL evaluator library — NPM package using `cel-js` with the same standard context schema. Include `evaluate(expression: string, context: Record<string, unknown>): boolean` interface. *Files*: `ui/src/lib/rbac/cel-evaluator.ts`
+- [ ] T130 [US8] Integrate CEL evaluator into RAG server `rbac.py` — replace code-based per-KB access checks (`get_accessible_kb_ids`) with CEL evaluation using configurable expressions. Load per-KB access expression from config/env. Fall back to fail-closed on CEL errors. *Files*: `ai_platform_engineering/knowledge_bases/rag/server/src/server/rbac.py`
+- [ ] T131 [US8] Integrate CEL evaluator into BFF `api-middleware.ts` — extend `requireRbacPermission` to evaluate CEL expressions for RBAC checks. Load expressions from config. Maintain backward compatibility with existing Keycloak AuthZ checks as CEL inputs. *Files*: `ui/src/lib/api-middleware.ts`
+
+### 11B — Dynamic Agent Keycloak Integration (FR-028)
+
+- [ ] T132 [US8] On agent create (`POST /api/v1/agents`), sync Keycloak resource — register new resource (type: `dynamic_agent`, name: agent ID) with scopes `view`, `invoke`, `configure`, `delete` via Keycloak Admin API. Auto-generate scope-based policies from visibility level. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/mongo.py`, new `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/keycloak_sync.py` [P with T128]
+- [ ] T133 [US8] On agent delete, remove Keycloak resource + clean up dangling per-agent realm roles (`agent_user:<id>`, `agent_admin:<id>`) via Keycloak Admin API. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/keycloak_sync.py`, `mongo.py`
+- [ ] T134 [US8] Add per-agent realm role management — Admin API endpoint to assign/remove `agent_user:<agent-id>` and `agent_admin:<agent-id>` realm roles to users. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/keycloak_sync.py`, Admin UI integration
+- [ ] T135 [US8] Replace `can_view_agent`/`can_use_agent` code in `access.py` with CEL evaluation — load per-agent access CEL expression from config; build context from JWT roles + MongoDB visibility + team membership; evaluate. Fail closed on error. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/access.py`
+- [ ] T136 [US8] Update `list_agents` query-time filtering to use CEL — evaluate per-agent CEL expression for each agent in listing; return only agents the user can access. Optimize with batch evaluation or pre-filtering. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/mongo.py`, `access.py`
+
+### 11C — Deepagent MCP Gateway Routing (FR-030)
+
+- [ ] T137 [US8] Update `AgentRuntime` to accept and store OBO JWT from `UserContext` — extend `AgentContext` to carry `obo_jwt` through the LangGraph execution graph. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/agent_runtime.py` [independent — can start early]
+- [ ] T138 [US8] Configure deepagent MCP client to route through Agent Gateway — update MCP client config to use AG URL (from env/config) instead of direct MCP server URLs. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/agent_runtime.py`
+- [ ] T139 [US8] Forward OBO JWT as `Authorization: Bearer` header to AG from MCP client — attach user's OBO JWT to all outbound MCP requests from LangGraph nodes. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/agent_runtime.py`
+- [ ] T140 [US8] Add AG CEL rules for dynamic agent tool invocations — add policy rules in `deploy/agentgateway/config.yaml` for dynamic agent MCP tool access patterns. Validate that CEL evaluates user roles against tool permissions. *Files*: `deploy/agentgateway/config.yaml`
 
 ---
 
