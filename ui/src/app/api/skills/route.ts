@@ -4,6 +4,7 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
+import type { SkillHubDoc } from "@/lib/hub-crawl";
 
 /**
  * Skills Catalog API — Single source of truth for UI and assistant (FR-001).
@@ -299,7 +300,7 @@ async function aggregateLocally(
     );
     if (mongoOk) {
       const { getHubSkills } = await import("@/lib/hub-crawl");
-      const hubsCol = await getCol("skill_hubs");
+      const hubsCol = await getCol<SkillHubDoc>("skill_hubs");
       const enabledHubs = await hubsCol.find({ enabled: true }).toArray();
       for (const hub of enabledHubs) {
         try {
@@ -376,7 +377,7 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
         error: "skills_unavailable",
         message:
           "Skills are temporarily unavailable. Please try again later.",
-      },
+      } as unknown as CatalogResponse,
       { status: 503 },
     );
   }

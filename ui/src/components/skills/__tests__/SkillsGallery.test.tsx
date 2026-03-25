@@ -797,7 +797,7 @@ describe("SkillsGallery — empty states", () => {
     fireEvent.change(searchInput, { target: { value: "nonexistent-xyz" } });
 
     await waitFor(() => {
-      expect(screen.getByText("No skills match your search")).toBeInTheDocument();
+      expect(screen.getByText(/No skills match your search/)).toBeInTheDocument();
     });
   });
 
