@@ -84,8 +84,10 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const [showScrollButton, setShowScrollButton] = useState(false);
   const isAutoScrollingRef = useRef(false);
 
-  // Message window: collapse older turns for render performance
-  const [olderTurnsExpanded, setOlderTurnsExpanded] = useState(false);
+  // Message window: progressive loading of older turns
+  const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_VISIBLE_TURNS);
+  // Ref to preserve scroll position when loading more turns
+  const scrollDistanceFromBottomRef = useRef<number | null>(null);
 
   const {
     activeConversationId,
@@ -245,11 +247,11 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     }
   }, [conversation?.messages?.at(-1)?.content, conversation?.sseEvents?.length, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
-  // Reset scroll state and collapse older turns when conversation changes
+  // Reset scroll state and visible turns when conversation changes
   useEffect(() => {
     setIsUserScrolledUp(false);
     setShowScrollButton(false);
-    setOlderTurnsExpanded(false);
+    setVisibleTurnCount(INITIAL_VISIBLE_TURNS);
     // Scroll to bottom when switching conversations. Use rAF to wait for
     // the browser to lay out the newly rendered messages, then scroll.
     const raf = requestAnimationFrame(() => {
@@ -1110,74 +1112,61 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
               {(() => {
                 const allMessages = deduplicateByKey(conversation?.messages ?? [], (msg) => msg.id);
                 const turns = groupMessagesIntoTurns(allMessages);
-                const shouldCollapse = turns.length > COLLAPSE_THRESHOLD && !olderTurnsExpanded;
-                const collapsedTurns = shouldCollapse ? turns.slice(0, -VISIBLE_TURN_COUNT) : [];
-                // Flatten visible turns back to messages for rendering
-                const visibleTurns = shouldCollapse ? turns.slice(-VISIBLE_TURN_COUNT) : turns;
+                
+                // Progressive loading: show only the most recent N turns
+                const totalTurns = turns.length;
+                const effectiveVisibleCount = Math.min(visibleTurnCount, totalTurns);
+                const hiddenTurnCount = Math.max(0, totalTurns - effectiveVisibleCount);
+                const visibleTurns = turns.slice(-effectiveVisibleCount);
+                
+                // Flatten visible turns to messages for rendering
                 const visibleMessages = visibleTurns.flatMap(t =>
                   [t.userMsg, t.assistantMsg].filter(Boolean) as ChatMessageType[]
                 );
 
-                // Build a Set of visible message IDs for quick lookup against allMessages
+                // Build a Set of visible message IDs for quick lookup
                 const visibleMsgIds = new Set(visibleMessages.map(m => m.id));
-                // When expanded, render all messages
-                const renderMessages = olderTurnsExpanded || turns.length <= COLLAPSE_THRESHOLD
-                  ? allMessages
-                  : allMessages.filter(m => visibleMsgIds.has(m.id));
+                const renderMessages = allMessages.filter(m => visibleMsgIds.has(m.id));
 
-                // Collect message IDs for older turns (for eviction on collapse)
-                const olderTurnMsgIds = shouldCollapse
-                  ? [] // Not needed when already collapsed
-                  : turns.slice(0, -VISIBLE_TURN_COUNT).flatMap(t =>
-                      [t.userMsg?.id, t.assistantMsg?.id].filter(Boolean) as string[]
-                    );
-
-                const handleCollapse = () => {
-                  // Evict content from old messages before collapsing
-                  if (activeConversationId && olderTurnMsgIds.length > 0) {
-                    evictOldMessageContent(activeConversationId, olderTurnMsgIds);
+                // Handle loading more turns
+                const handleLoadMore = async () => {
+                  // Capture scroll position before loading
+                  if (scrollViewportRef.current) {
+                    const viewport = scrollViewportRef.current;
+                    scrollDistanceFromBottomRef.current = viewport.scrollHeight - viewport.scrollTop;
                   }
-                  setOlderTurnsExpanded(false);
-                };
-
-                const handleExpand = () => {
-                  setOlderTurnsExpanded(true);
+                  
+                  // Increase visible turn count
+                  const newVisibleCount = Math.min(visibleTurnCount + LOAD_MORE_BATCH_SIZE, totalTurns);
+                  setVisibleTurnCount(newVisibleCount);
+                  
                   // Re-load messages from MongoDB to restore evicted content
                   if (activeConversationId) {
-                    loadMessagesFromServer(activeConversationId, { force: true });
+                    await loadMessagesFromServer(activeConversationId, { force: true });
                   }
+                  
+                  // Restore scroll position after render (use rAF to wait for layout)
+                  requestAnimationFrame(() => {
+                    if (scrollViewportRef.current && scrollDistanceFromBottomRef.current !== null) {
+                      const viewport = scrollViewportRef.current;
+                      viewport.scrollTop = viewport.scrollHeight - scrollDistanceFromBottomRef.current;
+                      scrollDistanceFromBottomRef.current = null;
+                    }
+                  });
                 };
 
                 return (
                   <>
-                    {/* Collapsed older turns banner */}
-                    {shouldCollapse && collapsedTurns.length > 0 && (
-                      <CollapsedTurnsBanner
-                        key="collapsed-turns"
-                        turns={collapsedTurns}
-                        onExpand={handleExpand}
+                    {/* Load earlier turns divider */}
+                    {hiddenTurnCount > 0 && (
+                      <LoadEarlierDivider
+                        key="load-earlier"
+                        count={hiddenTurnCount}
+                        onLoad={handleLoadMore}
                       />
                     )}
 
-                    {/* Re-collapse button when older turns are expanded */}
-                    {olderTurnsExpanded && turns.length > COLLAPSE_THRESHOLD && (
-                      <motion.button
-                        key="collapse-banner"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        onClick={handleCollapse}
-                        className={cn(
-                          "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg",
-                          "bg-muted/30 hover:bg-muted/50 border border-dashed border-border/40 hover:border-border/60",
-                          "transition-all duration-200 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        <ChevronUp className="h-3 w-3" />
-                        <span>Collapse {turns.length - VISIBLE_TURN_COUNT} older turns</span>
-                      </motion.button>
-                    )}
-
-                    {/* Rendered messages (recent turns, or all if expanded) */}
+                    {/* Rendered messages (visible turns only) */}
                     {renderMessages.map((msg, index, arr) => {
                       const isLastMessage = index === arr.length - 1;
                       const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
@@ -1978,11 +1967,11 @@ function StreamingView({ message, isStreaming = false, turnEvents = [] }: Stream
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Message Window: Auto-collapse old turns for performance
+// Message Window: Progressive loading of older turns
 // ─────────────────────────────────────────────────────────────────────────────
 
-const VISIBLE_TURN_COUNT = 2;
-const COLLAPSE_THRESHOLD = 2;
+const INITIAL_VISIBLE_TURNS = 3;
+const LOAD_MORE_BATCH_SIZE = 3;
 
 interface Turn {
   userMsg?: ChatMessageType;
@@ -2017,66 +2006,33 @@ function groupMessagesIntoTurns(messages: ChatMessageType[]): Turn[] {
   return turns;
 }
 
-const CollapsedTurnsBanner = React.memo(function CollapsedTurnsBanner({
-  turns,
-  onExpand,
+/**
+ * Subtle divider that shows how many earlier turns are available to load.
+ * Clicking loads the next batch progressively.
+ */
+const LoadEarlierDivider = React.memo(function LoadEarlierDivider({
+  count,
+  onLoad,
 }: {
-  turns: Turn[];
-  onExpand: () => void;
+  count: number;
+  onLoad: () => void;
 }) {
-  if (turns.length === 0) return null;
-
-  const oldest = turns[0];
-  const newest = turns[turns.length - 1];
-  const msgCount = turns.reduce((n, t) => n + (t.userMsg ? 1 : 0) + (t.assistantMsg ? 1 : 0), 0);
-
-  const formatTime = (d: Date) => {
-    const date = d instanceof Date ? d : new Date(d);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  };
-
   return (
     <motion.button
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      onClick={onExpand}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      onClick={onLoad}
       className={cn(
-        "w-full flex items-center gap-3 px-4 py-3 rounded-xl",
-        "bg-muted/40 hover:bg-muted/60 border border-border/40 hover:border-border/60",
-        "transition-all duration-200 cursor-pointer group text-left"
+        "w-full flex items-center justify-center gap-2 py-3 my-2",
+        "text-xs text-muted-foreground hover:text-foreground transition-colors group cursor-pointer"
       )}
     >
-      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-        <MessageSquare className="h-4 w-4 text-primary/70" />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-foreground/80">
-            {turns.length} older {turns.length === 1 ? "turn" : "turns"}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            ({msgCount} messages)
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
-          {oldest.preview}
-          {turns.length > 1 && ` — ... — ${newest.preview}`}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground/60">
-        <Clock className="h-3 w-3" />
-        <span>{formatTime(oldest.timestamp)}</span>
-        {turns.length > 1 && (
-          <>
-            <span>—</span>
-            <span>{formatTime(newest.timestamp)}</span>
-          </>
-        )}
-      </div>
-
-      <ChevronDown className="h-4 w-4 text-muted-foreground/50 group-hover:text-foreground/70 transition-colors shrink-0" />
+      <span className="flex-1 h-px bg-border/40 group-hover:bg-border/60 transition-colors" />
+      <span className="flex items-center gap-1.5 px-3">
+        <ChevronUp className="h-3 w-3" />
+        {count} earlier
+      </span>
+      <span className="flex-1 h-px bg-border/40 group-hover:bg-border/60 transition-colors" />
     </motion.button>
   );
 });

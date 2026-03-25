@@ -9,6 +9,7 @@ import {
   Info,
   Trash2,
   RefreshCw,
+  Download,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -61,15 +62,62 @@ export function DynamicAgentContext({
   onCollapse,
 }: DynamicAgentContextProps) {
   const { data: session } = useSession();
-  const { clearSSEEvents } = useChatStore(
+  const { clearSSEEvents, conversations } = useChatStore(
     useShallow((s) => ({
       clearSSEEvents: s.clearSSEEvents,
+      conversations: s.conversations,
     }))
   );
+
+  // Get current conversation for download
+  const conversation = conversations.find((c) => c.id === conversationId);
 
   // Restart runtime handler
   const [isRestarting, setIsRestarting] = useState(false);
   const [runtimeRestarted, setRuntimeRestarted] = useState(false);
+
+  // Download chat handler
+  const handleDownloadChat = useCallback(() => {
+    if (!conversation) return;
+
+    // Build export object, omitting MongoDB-specific fields
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      conversationId,
+      title: conversation.title,
+      agent: {
+        id: agentId,
+        name: agentName,
+        model: agentModel,
+        visibility: agentVisibility,
+      },
+      messages: conversation.messages?.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        sseEvents: m.sseEvents,
+        feedback: m.feedback,
+        timelineSegments: m.timelineSegments,
+      })),
+      sseEvents: conversation.sseEvents,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+    };
+
+    // Create and trigger download
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chat-${conversationId?.slice(0, 8)}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [conversation, conversationId, agentId, agentName, agentModel, agentVisibility]);
 
   const handleRestartRuntime = useCallback(async () => {
     if (!agentId || !conversationId || isRestarting) return;
@@ -199,6 +247,8 @@ export function DynamicAgentContext({
               isRestarting={isRestarting}
               agentNotFound={agentNotFound}
               agentDisabled={agentDisabled}
+              onDownloadChat={handleDownloadChat}
+              hasMessages={!!conversation?.messages?.length}
             />
           </div>
         </ScrollArea>
@@ -256,6 +306,10 @@ interface AgentInfoContentProps {
   agentNotFound?: boolean;
   /** Whether the agent is disabled */
   agentDisabled?: boolean;
+  /** Callback to download chat as JSON */
+  onDownloadChat?: () => void;
+  /** Whether there are messages to download */
+  hasMessages?: boolean;
 }
 
 function AgentInfoContent({
@@ -272,6 +326,8 @@ function AgentInfoContent({
   isRestarting,
   agentNotFound,
   agentDisabled,
+  onDownloadChat,
+  hasMessages,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
   const toolCount = allowedTools
@@ -447,6 +503,20 @@ function AgentInfoContent({
             <p className="text-[10px] text-muted-foreground leading-relaxed">
               This will refresh the session, checking for any new updates to the agent and refreshing connections to MCP servers. Chat history will not be affected.
             </p>
+            
+            {/* Download Chat Button */}
+            {onDownloadChat && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onDownloadChat}
+                disabled={!hasMessages}
+                className="w-full justify-center gap-2 text-xs"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download Chat
+              </Button>
+            )}
           </div>
         </div>
       )}
