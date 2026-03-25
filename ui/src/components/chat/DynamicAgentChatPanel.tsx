@@ -770,6 +770,12 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       const currentMsg = currentConv?.messages.find((m: ChatMessageType) => m.id === assistantMsgId);
       const wasAlreadyCancelled = currentMsg?.isFinal && currentMsg?.turnStatus === "interrupted";
 
+      // CRITICAL: Copy conversation-level sseEvents to the message for persistence.
+      // During streaming, events are collected at conversation.sseEvents. When we finalize,
+      // we must attach them to the message so historical messages render timelines correctly
+      // (without this, only the latest streaming message would show the timeline).
+      const turnSSEEvents = currentConv?.sseEvents || [];
+
       if (wasAlreadyCancelled) {
         // Message was cancelled by user - don't overwrite the interrupted status
         // Also don't call setConversationStreaming(null) - cancelConversationRequest already did that
@@ -779,7 +785,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           content: accumulatedText, 
           rawStreamContent, 
           isFinal: false,
-          turnStatus: "waiting_for_input" as TurnStatus 
+          turnStatus: "waiting_for_input" as TurnStatus,
+          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
         });
         setConversationStreaming(convId!, null);
       } else {
@@ -788,7 +795,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           content: accumulatedText, 
           rawStreamContent, 
           isFinal: true,
-          turnStatus: "done" as TurnStatus
+          turnStatus: "done" as TurnStatus,
+          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
         });
         setConversationStreaming(convId!, null);
       }
@@ -1006,12 +1014,18 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         finalTurnStatus = "interrupted";
       }
 
+      // CRITICAL: Copy conversation-level sseEvents to the message for persistence.
+      // (Same reason as in submitMessage - see comment there)
+      const currentConv = useChatStore.getState().conversations.find((c: Conversation) => c.id === activeConversationId);
+      const turnSSEEvents = currentConv?.sseEvents || [];
+
       if (!hitlFormRequested) {
         updateMessage(activeConversationId, assistantMsgId, {
           content: accumulatedText,
           rawStreamContent,
           isFinal: true,
           turnStatus: finalTurnStatus,
+          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
         });
       } else {
         updateMessage(activeConversationId, assistantMsgId, {
@@ -1019,6 +1033,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           rawStreamContent,
           isFinal: false,
           turnStatus: finalTurnStatus,
+          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
         });
       }
       setConversationStreaming(activeConversationId, null);

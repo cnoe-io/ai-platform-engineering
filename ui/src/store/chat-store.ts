@@ -442,10 +442,15 @@ const storeImplementation = (set: any, get: any) => ({
           // Mark the message as cancelled with interrupted status
           const msg = conv?.messages.find((m: ChatMessage) => m.id === streamingState.messageId);
           if (msg && !msg.isFinal) {
+            // CRITICAL: Copy conversation-level sseEvents to the message for persistence.
+            // During streaming, events are collected at conversation.sseEvents. When we cancel,
+            // we must attach them to the message so historical messages render timelines correctly.
+            const turnSSEEvents = conv?.sseEvents || [];
             state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");
             state.updateMessage(conversationId, streamingState.messageId, { 
               isFinal: true,
-              turnStatus: "interrupted"
+              turnStatus: "interrupted",
+              sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
             });
           }
 

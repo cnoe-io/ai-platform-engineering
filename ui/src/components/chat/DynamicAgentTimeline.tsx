@@ -289,7 +289,7 @@ export function DynamicAgentTimeline({
 
         {/* Tasks section */}
         {showTasksSection && (
-          <DATaskSection tasks={tasks} readonly={!isLatestMessage} turnEnded={turnEnded} />
+          <DATaskSection tasks={tasks} readonly={!isLatestMessage} turnEnded={turnEnded} isStreaming={isStreaming} />
         )}
 
         {/* Files section */}
@@ -298,6 +298,7 @@ export function DynamicAgentTimeline({
             files={files}
             readonly={!isLatestMessage}
             turnEnded={turnEnded}
+            isStreaming={isStreaming}
             onFileDownload={onFileDownload}
             onFileDelete={onFileDelete}
             isDownloading={isDownloadingFile}
@@ -958,10 +959,12 @@ function DATaskSection({
   tasks,
   readonly,
   turnEnded = false,
+  isStreaming = false,
 }: {
   tasks: TaskItem[];
   readonly: boolean;
   turnEnded?: boolean;
+  isStreaming?: boolean;
 }) {
   const completedCount = tasks.filter((t) => t.status === "completed").length;
   const allCompleted = completedCount === tasks.length;
@@ -982,6 +985,8 @@ function DATaskSection({
         </span>
       }
       defaultExpanded={!turnEnded}
+      autoCollapseOnStreamEnd
+      isStreaming={isStreaming}
       contentClassName="px-3 pb-3"
     >
       <TaskList tasks={tasks} readonly={readonly} />
@@ -997,6 +1002,7 @@ function DAFileSection({
   files,
   readonly,
   turnEnded = false,
+  isStreaming = false,
   onFileDownload,
   onFileDelete,
   isDownloading,
@@ -1007,6 +1013,7 @@ function DAFileSection({
   files: string[];
   readonly: boolean;
   turnEnded?: boolean;
+  isStreaming?: boolean;
   onFileDownload?: (path: string) => void;
   onFileDelete?: (path: string) => void;
   isDownloading?: boolean;
@@ -1018,6 +1025,8 @@ function DAFileSection({
     <CollapsibleSection
       title={`${files.length} file${files.length !== 1 ? "s" : ""}`}
       defaultExpanded={!turnEnded}
+      autoCollapseOnStreamEnd
+      isStreaming={isStreaming}
       contentClassName="px-3 pb-3"
     >
       <FileTree
