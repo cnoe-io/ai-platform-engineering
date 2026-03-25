@@ -99,3 +99,33 @@ For **Slack**, `slack_user_id ↔ keycloak_sub` mapping is stored as a **Keycloa
 **Rationale**: Keycloak is the natural home for authz policies (it evaluates them); MongoDB is the natural home for team/KB assignments (already used by the UI and RAG server). Avoids duplicating policies across stores.
 
 **Alternatives considered**: Keycloak-only (rejected—team/KB assignments and ASP policies don't fit Keycloak's AuthZ model well); MongoDB-only (rejected—would require building a PDP from scratch).
+
+---
+
+## R-10: Admin UI User Detail View — Keycloak API strategy (FR-033)
+
+**Decision (2026-03-25)**: Use Keycloak Admin REST API for server-side user pagination (`GET /users?search=&first=&max=&enabled=`), user count (`GET /users/count`), role mapping management (`GET/POST/DELETE /users/{id}/role-mappings/realm`), user session retrieval (`GET /users/{id}/sessions`), and federated identity lookup (`GET /users/{id}/federated-identity`). Role-based filtering uses `GET /roles/{name}/users`. Team and Slack link filters cross-reference MongoDB and Keycloak user attributes respectively via BFF-side joins.
+
+**Rationale**: Keycloak's Admin API natively supports paginated user search, enabled/disabled filter, and per-user role mapping management — no custom indexing needed. Role filtering via the role-users endpoint avoids fetching all users. Team membership and Slack link status require MongoDB/attribute lookups but the dataset is smaller after Keycloak-side pagination narrows results.
+
+**Alternatives considered**: Client-side pagination (rejected — doesn't scale to 1000+ users); custom user index in MongoDB (rejected — adds sync complexity and dual-write risk); GraphQL layer over Keycloak (over-engineering for current needs).
+
+---
+
+## R-11: Slack identity linking callback architecture (FR-025)
+
+**Decision (2026-03-25)**: The OAuth callback for Slack identity linking lives at **`/api/auth/slack-link`** in the **Next.js BFF**. The Slack bot generates a linking URL containing a **single-use nonce** (32 bytes, hex-encoded) and `slack_user_id` as query parameters. The BFF validates the nonce against MongoDB (`slack_link_nonces`), initiates Keycloak OIDC authorization code flow, exchanges the code for tokens, extracts `keycloak_sub`, stores the `slack_user_id ↔ keycloak_sub` mapping as a Keycloak user attribute via Admin API, marks the nonce as consumed, renders a success page in the browser, and posts a confirmation DM to the user via the **Slack Web API** using `SLACK_BOT_TOKEN`.
+
+**Rationale**: The BFF already has Keycloak OIDC integration (NextAuth). Hosting the callback there avoids adding HTTP server capabilities to the Python Slack bot. Direct Slack API call for the confirmation DM avoids inter-service webhook infrastructure. The bot remains a pure Slack Bolt app with no inbound HTTP requirements.
+
+**Alternatives considered**: Bot backend callback (rejected — adds HTTP server to bot); webhook from BFF to bot for DM (rejected — adds inter-service dependency); lazy detection on next command (rejected — no immediate in-Slack feedback); dedicated linking microservice (over-engineering).
+
+---
+
+## R-12: Nonce storage and TTL for identity linking (FR-025)
+
+**Decision (2026-03-25)**: Nonces are stored in MongoDB collection `slack_link_nonces` with a **10-minute TTL** via MongoDB TTL index on `created_at`. Each document contains `nonce` (unique), `slack_user_id`, `created_at`, and `consumed` (boolean). On callback, the BFF validates: (1) nonce exists, (2) not consumed, (3) not expired. After successful use, `consumed` is set to `true` (prevents replay even before TTL expiry).
+
+**Rationale**: MongoDB TTL indexes auto-expire documents — no cron or cleanup needed. 10 minutes allows for MFA prompts and browser switching while limiting the interception window. Single-use + consumed flag prevents replay attacks.
+
+**Alternatives considered**: Redis TTL (rejected — not in current stack for this use case); in-memory store (rejected — doesn't survive BFF restarts); 5-minute TTL (too short for MFA); 30-minute TTL (unnecessarily long exposure).

@@ -2078,6 +2078,7 @@ services:
       KC_LOG_LEVEL: info
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443"]
     volumes:
+      - keycloak-data:/opt/keycloak/data
       - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json
       - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
     ports:
@@ -2271,4 +2272,6 @@ volumes:
   langgraph_postgres_data:
     driver: local
   langgraph_mongodb_data:
+    driver: local
+  keycloak-data:
     driver: local

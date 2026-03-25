@@ -43,10 +43,11 @@ export const POST = withErrorHandler(async (
       expires_at: expiresAt,
       created_by: user.email,
       created_at: new Date(),
+      consumed: false,
     });
 
     const base = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
-    const relinkUrl = `${base}/api/auth/slack-link?nonce=${encodeURIComponent(nonce)}`;
+    const relinkUrl = `${base}/api/auth/slack-link?nonce=${encodeURIComponent(nonce)}&slack_user_id=${encodeURIComponent(slackUserId)}`;
 
     return successResponse({
       relink_url: relinkUrl,

@@ -13,12 +13,16 @@ Security constraints:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
-import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import quote
+
+from motor.motor_asyncio import AsyncIOMotorClient
 
 from .keycloak_admin import get_user_by_attribute, set_user_attribute
 
@@ -29,40 +33,86 @@ _LINK_BASE_URL = os.environ.get(
     "SLACK_LINK_BASE_URL",
     os.environ.get("CAIPE_URL", "http://localhost:3000"),
 )
+_MONGODB_DB = os.environ.get("MONGODB_DB", "caipe")
+
+_client: Optional[AsyncIOMotorClient] = None
+_indexes_lock: Optional[asyncio.Lock] = None
+_indexes_ensured = False
 
 
 @dataclass
 class PendingLink:
     nonce: str
     slack_user_id: str
-    created_at: float
-    ttl: int = _LINK_TTL_SECONDS
-    used: bool = False
-
-    @property
-    def expired(self) -> bool:
-        return time.time() > self.created_at + self.ttl
 
 
-# In-memory store; production should use a TTL cache (Redis, etc.)
-_pending_links: dict[str, PendingLink] = {}
+def _mongo_uri() -> str:
+    uri = os.environ.get("MONGODB_URI", "").strip()
+    if not uri:
+        raise RuntimeError("MONGODB_URI is required for Slack identity linking nonces")
+    return uri
 
 
-def generate_linking_url(slack_user_id: str) -> str:
+def _get_client() -> AsyncIOMotorClient:
+    global _client
+    if _client is None:
+        _client = AsyncIOMotorClient(_mongo_uri())
+    return _client
+
+
+def _nonces_collection():
+    return _get_client()[_MONGODB_DB]["slack_link_nonces"]
+
+
+async def ensure_indexes() -> None:
+    global _indexes_ensured, _indexes_lock
+    if _indexes_lock is None:
+        _indexes_lock = asyncio.Lock()
+    async with _indexes_lock:
+        if _indexes_ensured:
+            return
+        coll = _nonces_collection()
+        await coll.create_index("nonce", unique=True)
+        await coll.create_index("created_at", expireAfterSeconds=_LINK_TTL_SECONDS)
+        _indexes_ensured = True
+
+
+def _expiry_filter() -> dict:
+    now = datetime.utcnow()
+    cutoff = now - timedelta(seconds=_LINK_TTL_SECONDS)
+    return {
+        "$or": [
+            {"expires_at": {"$gt": now}},
+            {
+                "expires_at": {"$exists": False},
+                "created_at": {"$gte": cutoff},
+            },
+        ],
+    }
+
+
+async def generate_linking_url(slack_user_id: str) -> str:
     """Create a single-use linking URL for the given Slack user.
 
     Returns an HTTPS URL (in production) containing a CSPRNG nonce.
     The URL is valid for ``_LINK_TTL_SECONDS`` and can be used exactly once.
     """
+    await ensure_indexes()
     nonce = secrets.token_urlsafe(32)
-    _pending_links[nonce] = PendingLink(
-        nonce=nonce,
-        slack_user_id=slack_user_id,
-        created_at=time.time(),
+    coll = _nonces_collection()
+    await coll.insert_one(
+        {
+            "nonce": nonce,
+            "slack_user_id": slack_user_id,
+            "created_at": datetime.utcnow(),
+            "consumed": False,
+        }
     )
 
     base = _LINK_BASE_URL.rstrip("/")
-    url = f"{base}/api/auth/slack-link?nonce={nonce}"
+    q_nonce = quote(nonce, safe="")
+    q_sid = quote(slack_user_id, safe="")
+    url = f"{base}/api/auth/slack-link?nonce={q_nonce}&slack_user_id={q_sid}"
 
     if os.environ.get("NODE_ENV") == "production" and not url.startswith("https://"):
         raise ValueError("Linking URLs must use HTTPS in production")
@@ -71,29 +121,32 @@ def generate_linking_url(slack_user_id: str) -> str:
     return url
 
 
-def validate_nonce(nonce: str) -> Optional[PendingLink]:
+async def validate_nonce(nonce: str) -> Optional[PendingLink]:
     """Validate and consume a linking nonce.
 
     Returns the ``PendingLink`` if valid, or ``None`` if the nonce is
     unknown, expired, or already used. Consumed nonces are marked as
     used to prevent replay.
     """
-    link = _pending_links.get(nonce)
-    if link is None:
-        logger.warning("Unknown linking nonce: %s…", nonce[:8])
+    await ensure_indexes()
+    coll = _nonces_collection()
+    filt: dict = {
+        "nonce": nonce,
+        "consumed": {"$ne": True},
+        **_expiry_filter(),
+    }
+    doc = await coll.find_one_and_update(
+        filt,
+        {"$set": {"consumed": True}},
+    )
+    if doc is None:
+        logger.warning("Unknown, expired, replayed, or invalid linking nonce: %s…", nonce[:8])
         return None
-
-    if link.used:
-        logger.warning("Replay attempt on nonce: %s…", nonce[:8])
+    sid = doc.get("slack_user_id")
+    if not isinstance(sid, str) or not sid:
+        logger.error("Nonce document missing slack_user_id: %s…", nonce[:8])
         return None
-
-    if link.expired:
-        logger.warning("Expired nonce: %s… (age=%.0fs)", nonce[:8], time.time() - link.created_at)
-        del _pending_links[nonce]
-        return None
-
-    link.used = True
-    return link
+    return PendingLink(nonce=nonce, slack_user_id=sid)
 
 
 async def complete_linking(nonce: str, keycloak_user_id: str) -> bool:
@@ -104,7 +157,7 @@ async def complete_linking(nonce: str, keycloak_user_id: str) -> bool:
 
     Returns True on success, False on validation failure.
     """
-    link = validate_nonce(nonce)
+    link = await validate_nonce(nonce)
     if link is None:
         return False
 
@@ -145,9 +198,5 @@ async def resolve_slack_user(slack_user_id: str) -> Optional[str]:
     return user.get("id")
 
 
-def cleanup_expired() -> int:
-    """Remove expired nonces from the in-memory store. Returns count removed."""
-    expired = [k for k, v in _pending_links.items() if v.expired]
-    for k in expired:
-        del _pending_links[k]
-    return len(expired)
+async def cleanup_expired() -> int:
+    return 0

@@ -82,6 +82,35 @@ Server-side utility (`ui/src/lib/rbac/keycloak-admin.ts`) that authenticates via
 
 **Protected built-in roles** (cannot be deleted via Admin UI): `admin`, `chat_user`, `team_member`, `kb_admin`, `offline_access`, `uma_authorization`, `default-roles-caipe`
 
+### Keycloak Admin API — User Management (FR-033)
+
+Additional operations for the Admin UI User Detail View. Server-side utility in `ui/src/lib/rbac/keycloak-admin.ts`.
+
+| Operation | Keycloak Endpoint | Purpose |
+|---|---|---|
+| Search users (paginated) | `GET /admin/realms/{realm}/users?search={q}&first={n}&max={m}&enabled={bool}` | Server-side paginated user list with text search and enabled filter |
+| Count users | `GET /admin/realms/{realm}/users/count?search={q}&enabled={bool}` | Total count for pagination controls |
+| Get user by ID | `GET /admin/realms/{realm}/users/{id}` | Full user representation for detail modal |
+| Get user realm role mappings | `GET /admin/realms/{realm}/users/{id}/role-mappings/realm` | User's assigned realm roles |
+| Assign realm roles to user | `POST /admin/realms/{realm}/users/{id}/role-mappings/realm` | Add roles (body: role representation array) |
+| Remove realm roles from user | `DELETE /admin/realms/{realm}/users/{id}/role-mappings/realm` | Remove roles (body: role representation array) |
+| Get user sessions | `GET /admin/realms/{realm}/users/{id}/sessions` | Last login timestamp |
+| Get user federated identities | `GET /admin/realms/{realm}/users/{id}/federated-identity` | IdP source (alias + upstream user ID) |
+| Enable/disable user | `PUT /admin/realms/{realm}/users/{id}` (with `enabled` field) | Account toggle |
+| List users with role | `GET /admin/realms/{realm}/roles/{role-name}/users?first={n}&max={m}` | Role-based filter |
+
+### Parsed role conventions (FR-033 modal display)
+
+Per-KB and per-agent roles are **Keycloak realm roles** whose names follow naming conventions. The Admin UI parses these into structured objects for display:
+
+| Pattern | Parsed type | Example |
+|---------|-------------|---------|
+| `kb_reader:<kb-id>` | Per-KB read | `kb_reader:platform-docs` |
+| `kb_ingestor:<kb-id>` | Per-KB ingest | `kb_ingestor:team-a-docs` |
+| `kb_admin:<kb-id>` | Per-KB admin | `kb_admin:team-a-docs` |
+| `agent_user:<agent-id>` | Per-agent user | `agent_user:agent-123` |
+| `agent_admin:<agent-id>` | Per-agent admin | `agent_admin:agent-456` |
+
 ---
 
 ## MongoDB-managed entities
@@ -209,6 +238,35 @@ Registered in Keycloak as a confidential client with token exchange permission.
 - **Principal** resolves capabilities via **Keycloak AuthZ** evaluation (PDP) for UI/Slack, or via **AG policy** for MCP/A2A.
 - **OBO Token** carries **sub** (user) + **act** (bot) → consumed by AG and platform components.
 - **Slack identity link** (Keycloak user attribute) → prerequisite for **OBO exchange** on Slack path.
+
+### MongoDB Collection: `slack_link_nonces` (FR-025)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `_id` | ObjectId | Auto-generated |
+| `nonce` | string | Unique, 32-byte hex-encoded CSPRNG value |
+| `slack_user_id` | string | Slack user who initiated the linking request |
+| `created_at` | datetime | UTC timestamp; TTL index expires documents after 600s (10 min) |
+| `consumed` | boolean | `false` initially; set to `true` after successful OAuth callback |
+
+**Indexes**: unique on `nonce`; TTL on `created_at` (expireAfterSeconds: 600).
+
+**Lifecycle**: Bot generates nonce → stores in MongoDB → user clicks linking URL → BFF validates nonce (exists, not consumed, not expired) → performs OIDC code exchange → stores Keycloak user attribute → marks nonce consumed → sends Slack DM + renders success page. Expired documents auto-deleted by MongoDB TTL index.
+
+### Slack Identity Linking Flow (FR-025 — updated)
+
+```text
+Slack User → /caipe command → Bot checks identity link
+  ├── Link exists → OBO exchange → proceed
+  └── No link → Bot sends "Link your account" DM with URL:
+      https://{BFF_HOST}/api/auth/slack-link?nonce={nonce}&slack_user_id={id}
+      User clicks → BFF validates nonce → Keycloak OIDC login →
+      Code exchange → Extract keycloak_sub →
+      Store slack_user_id as Keycloak user attribute →
+      Mark nonce consumed →
+      ├── Render browser success page
+      └── Post Slack DM: "Your account is linked"
+```
 
 ## State transitions
 

@@ -352,6 +352,203 @@ export async function createGroupRoleMapper(
   };
 }
 
+export async function listRealmUsersPage(
+  first: number,
+  max: number
+): Promise<Array<Record<string, unknown>>> {
+  const response = await adminFetch(
+    `/users?first=${first}&max=${max}`,
+    { method: "GET" }
+  );
+  await assertOk(response, "listRealmUsersPage");
+  return parseJsonArray<Record<string, unknown>>(response);
+}
+
+export async function listRealmRoleMappingsForUser(
+  userId: string
+): Promise<KeycloakRole[]> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(
+    `/users/${enc}/role-mappings/realm`,
+    { method: "GET" }
+  );
+  await assertOk(response, "listRealmRoleMappingsForUser");
+  const raw = await parseJsonArray<Record<string, unknown>>(response);
+  return raw.map((r) => ({
+    id: String(r.id ?? ""),
+    name: String(r.name ?? ""),
+    description:
+      r.description !== undefined && r.description !== null
+        ? String(r.description)
+        : undefined,
+    composite: Boolean(r.composite),
+    clientRole: Boolean(r.clientRole),
+    containerId: String(r.containerId ?? ""),
+  }));
+}
+
+export async function getRealmUserById(
+  userId: string
+): Promise<Record<string, unknown>> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}`, { method: "GET" });
+  await assertOk(response, `getRealmUserById(${userId})`);
+  return (await response.json()) as Record<string, unknown>;
+}
+
+export async function mergeUserAttributes(
+  userId: string,
+  attrs: Record<string, unknown>
+): Promise<void> {
+  const user = await getRealmUserById(userId);
+  const existing =
+    user.attributes && typeof user.attributes === "object" && !Array.isArray(user.attributes)
+      ? (user.attributes as Record<string, unknown>)
+      : {};
+
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === undefined || value === null) {
+      delete merged[key];
+    } else {
+      merged[key] = value;
+    }
+  }
+
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}`, {
+    method: "PUT",
+    body: JSON.stringify({ ...user, attributes: merged }),
+  });
+  await assertOk(response, `mergeUserAttributes(${userId})`);
+}
+
+export interface KeycloakSession {
+  id: string;
+  username?: string;
+  ipAddress?: string;
+  start?: number;
+  lastAccess?: number;
+}
+
+export interface KeycloakFederatedIdentity {
+  identityProvider: string;
+  userId: string;
+  userName: string;
+}
+
+export interface SearchUsersParams {
+  search?: string;
+  enabled?: boolean;
+  first?: number;
+  max?: number;
+}
+
+export async function searchRealmUsers(
+  params: SearchUsersParams
+): Promise<Array<Record<string, unknown>>> {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set("search", params.search);
+  if (params.enabled !== undefined) qs.set("enabled", String(params.enabled));
+  qs.set("first", String(params.first ?? 0));
+  qs.set("max", String(params.max ?? 20));
+  const response = await adminFetch(`/users?${qs.toString()}`, { method: "GET" });
+  await assertOk(response, "searchRealmUsers");
+  return parseJsonArray<Record<string, unknown>>(response);
+}
+
+export async function countRealmUsers(
+  params?: Pick<SearchUsersParams, "search" | "enabled">
+): Promise<number> {
+  const qs = new URLSearchParams();
+  if (params?.search) qs.set("search", params.search);
+  if (params?.enabled !== undefined) qs.set("enabled", String(params.enabled));
+  const response = await adminFetch(`/users/count?${qs.toString()}`, { method: "GET" });
+  await assertOk(response, "countRealmUsers");
+  const text = await response.text();
+  return parseInt(text, 10) || 0;
+}
+
+export async function getUserSessions(
+  userId: string
+): Promise<KeycloakSession[]> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}/sessions`, { method: "GET" });
+  await assertOk(response, "getUserSessions");
+  const raw = await parseJsonArray<Record<string, unknown>>(response);
+  return raw.map((s) => ({
+    id: String(s.id ?? ""),
+    username: s.username !== undefined ? String(s.username) : undefined,
+    ipAddress: s.ipAddress !== undefined ? String(s.ipAddress) : undefined,
+    start: typeof s.start === "number" ? s.start : undefined,
+    lastAccess: typeof s.lastAccess === "number" ? s.lastAccess : undefined,
+  }));
+}
+
+export async function getUserFederatedIdentities(
+  userId: string
+): Promise<KeycloakFederatedIdentity[]> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}/federated-identity`, { method: "GET" });
+  await assertOk(response, "getUserFederatedIdentities");
+  const raw = await parseJsonArray<Record<string, unknown>>(response);
+  return raw.map((fi) => ({
+    identityProvider: String(fi.identityProvider ?? ""),
+    userId: String(fi.userId ?? ""),
+    userName: String(fi.userName ?? ""),
+  }));
+}
+
+export async function assignRealmRolesToUser(
+  userId: string,
+  roles: KeycloakRole[]
+): Promise<void> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}/role-mappings/realm`, {
+    method: "POST",
+    body: JSON.stringify(roles),
+  });
+  await assertOk(response, "assignRealmRolesToUser");
+}
+
+export async function removeRealmRolesFromUser(
+  userId: string,
+  roles: KeycloakRole[]
+): Promise<void> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}/role-mappings/realm`, {
+    method: "DELETE",
+    body: JSON.stringify(roles),
+  });
+  await assertOk(response, "removeRealmRolesFromUser");
+}
+
+export async function updateUser(
+  userId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+  await assertOk(response, "updateUser");
+}
+
+export async function listUsersWithRole(
+  roleName: string,
+  first = 0,
+  max = 100
+): Promise<Array<Record<string, unknown>>> {
+  const enc = encodeURIComponent(roleName);
+  const response = await adminFetch(
+    `/roles/${enc}/users?first=${first}&max=${max}`,
+    { method: "GET" }
+  );
+  await assertOk(response, "listUsersWithRole");
+  return parseJsonArray<Record<string, unknown>>(response);
+}
+
 export async function deleteIdpMapper(alias: string, mapperId: string): Promise<void> {
   console.log(`[KeycloakAdmin] deleteIdpMapper alias=${alias} mapperId=${mapperId}`);
   const encAlias = encodeURIComponent(alias);

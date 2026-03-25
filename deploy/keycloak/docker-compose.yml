@@ -1,3 +1,6 @@
+volumes:
+  keycloak-data:
+
 services:
   keycloak:
     container_name: keycloak
@@ -13,6 +16,7 @@ services:
       KC_LOG_LEVEL: info
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443"]
     volumes:
+    - keycloak-data:/opt/keycloak/data
     - ./realm-config.json:/opt/keycloak/data/import/realm-config.json
     ports:
     - "7080:7080"
