@@ -1,42 +1,29 @@
-## 0.2.41 (2026-03-19)
+## 0.2.42 (2026-03-24)
 
-## 0.2.40-rc.6 (2026-03-19)
+### Fix
+
+- **slack-bot**: prevent posting to main channel when thread message is deleted (#1034)
+
+## 0.2.41-rc.3 (2026-03-24)
+
+### Fix
+
+- **slack-ingestor**: detect lookback_days config changes and trigger full re-ingestion (#1035)
+
+## 0.2.41-rc.2 (2026-03-24)
+
+### Fix
+
+- **executor**: plan step attribution, false final answer, and sub-agent source bugs (#1025)
+
+## 0.2.41-rc.1 (2026-03-19)
 
 ### Feat
 
 - **checkpointer**: per-agent MongoDB checkpoint isolation with auto-prefix (#1017)
-
-### Fix
-
-- **ui**: detect stale system templates in seed status check (#1020)
-
-## 0.2.40-rc.5 (2026-03-19)
-
-### Feat
-
 - **dynamic-agents**: add file deletion from context panel
 - **dynamic-agents**: add loading state and simplify file tree
 - **dynamic-agents**: add files tree to context panel
-
-### Fix
-
-- **dynamic-agents**: rename logging.py to avoid stdlib collision
-
-### Refactor
-
-- **dynamic-agents**: use API endpoint for todos instead of SSE events
-- **dynamic-agents**: consolidate SSE event system into stream_events.py
-
-## 0.2.40-rc.3 (2026-03-19)
-
-### Fix
-
-- **feedback**: fix DM scoring name, align Langfuse scores across Slack and UI (#1018)
-
-## 0.2.40-rc.4 (2026-03-19)
-
-### Feat
-
 - **helm**: change default imagePullPolicy from Always to IfNotPresent since we do not do stable/latest tags anymore
 - **subagents**: centralise MCP mode variabled into utils
 - **helm**: add mcp deployments in parent chart for single-node HTTP case
@@ -48,14 +35,20 @@
 
 ### Fix
 
+- **ui**: detect stale system templates in seed status check (#1020)
+- **dynamic-agents**: rename logging.py to avoid stdlib collision
+- **feedback**: fix DM scoring name, align Langfuse scores across Slack and UI (#1018)
 - **task-config**: handle GraphInterrupt correctly as expected and not an exception error
 - **helm**: remove mongodb runtime dependency
 - further renaming of caipe to user_input that were missing
 - **helm**: ensure single-node creates each subagent prompt configs and some cleanups
 
-## 0.2.40-rc.2 (2026-03-19)
+### Refactor
 
-## 0.2.40-rc.1 (2026-03-18)
+- **dynamic-agents**: use API endpoint for todos instead of SSE events
+- **dynamic-agents**: consolidate SSE event system into stream_events.py
+
+## 0.2.40 (2026-03-18)
 
 ### Feat
 

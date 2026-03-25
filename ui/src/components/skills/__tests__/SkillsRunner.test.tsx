@@ -12,7 +12,7 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SkillsRunner } from "../SkillsRunner";
-import type { AgentConfig } from "@/types/agent-config";
+import type { AgentSkill } from "@/types/agent-skill";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -101,7 +101,7 @@ jest.mock("@/lib/markdown-components", () => ({
 // Test data
 // ---------------------------------------------------------------------------
 
-function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
+function makeConfig(overrides: Partial<AgentSkill> = {}): AgentSkill {
   return {
     id: "test-config-1",
     name: "Test Workflow",

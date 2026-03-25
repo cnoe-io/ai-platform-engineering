@@ -19,6 +19,7 @@ async def put_api_public_v1_incidents_incident_number_notes_note_name(
     body_name: Optional[str] = None,
     body_display_name: Optional[str] = None,
     body_json_value: Optional[Dict[str, Any]] = None,
+    org_slug: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
         Update a Note
@@ -63,7 +64,7 @@ async def put_api_public_v1_incidents_incident_number_notes_note_name(
     data = assemble_nested_body(flat_body)
 
     success, response = await make_api_request(
-        f"/api-public/v1/incidents/{path_incidentNumber}/notes/{path_noteName}", method="PUT", params=params, data=data
+        f"/api-public/v1/incidents/{path_incidentNumber}/notes/{path_noteName}", method="PUT", org_slug=org_slug, params=params, data=data
     )
 
     if not success:
@@ -73,7 +74,7 @@ async def put_api_public_v1_incidents_incident_number_notes_note_name(
 
 
 async def delete_api_public_v1_incidents_incident_number_notes_note_name(
-    path_incidentNumber: str, path_noteName: str
+    path_incidentNumber: str, path_noteName: str, org_slug: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
         Delete a Note
@@ -108,6 +109,7 @@ async def delete_api_public_v1_incidents_incident_number_notes_note_name(
     success, response = await make_api_request(
         f"/api-public/v1/incidents/{path_incidentNumber}/notes/{path_noteName}",
         method="DELETE",
+        org_slug=org_slug,
         params=params,
         data=data,
     )

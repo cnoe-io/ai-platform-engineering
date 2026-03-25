@@ -24,6 +24,7 @@ async def get_api_reporting_v2_incidents(
     service: Optional[str] = None,
     currentPhase: Optional[str] = None,
     routingKey: Optional[str] = None,
+    org_slug: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
         Get/search incident history
@@ -119,7 +120,7 @@ async def get_api_reporting_v2_incidents(
     flat_body = {}
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/api-reporting/v2/incidents", method="GET", params=params, data=data)
+    success, response = await make_api_request("/api-reporting/v2/incidents", method="GET", org_slug=org_slug, params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

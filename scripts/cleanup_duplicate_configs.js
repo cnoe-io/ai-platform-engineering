@@ -17,7 +17,7 @@ db = db.getSiblingDB('caipe');
 print('🔍 Finding duplicate agent configs...');
 
 // Aggregate to find duplicate IDs
-const duplicates = db.agent_configs.aggregate([
+const duplicates = db.agent_skills.aggregate([
   {
     $group: {
       _id: '$id',
@@ -57,18 +57,18 @@ if (duplicates.length === 0) {
     
     toDelete.forEach(doc => {
       print(`   🗑️  Deleting: ${doc.name || 'unnamed'} (${doc._id})`);
-      db.agent_configs.deleteOne({ _id: doc._id });
+      db.agent_skills.deleteOne({ _id: doc._id });
       totalDeleted++;
     });
   });
   
   print(`\n✅ Cleanup complete! Deleted ${totalDeleted} duplicate entries.`);
-  print(`📊 Remaining configs: ${db.agent_configs.countDocuments()}`);
+  print(`📊 Remaining configs: ${db.agent_skills.countDocuments()}`);
 }
 
 // Verify unique index exists
 print('\n🔍 Checking for unique index on id field...');
-const indexes = db.agent_configs.getIndexes();
+const indexes = db.agent_skills.getIndexes();
 const hasUniqueIndex = indexes.some(idx => 
   idx.key && idx.key.id === 1 && idx.unique === true
 );
@@ -78,7 +78,7 @@ if (hasUniqueIndex) {
 } else {
   print('⚠️  Creating unique index on "id" field...');
   try {
-    db.agent_configs.createIndex({ id: 1 }, { unique: true });
+    db.agent_skills.createIndex({ id: 1 }, { unique: true });
     print('✅ Unique index created successfully');
   } catch (error) {
     print(`❌ Failed to create unique index: ${error.message}`);

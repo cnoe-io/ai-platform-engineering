@@ -736,7 +736,7 @@ services:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-slack
-      - MCP_PORT=8000
+      - MCP_PORT=3001
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-slack:
@@ -745,27 +745,28 @@ services:
       - slack
       - all-agents
 
+  # OSS Slack MCP Server (https://github.com/korotovsky/slack-mcp-server)
   mcp-slack:
-    build:
-      context: .
-      dockerfile: build/agents/Dockerfile.mcp
-      args:
-        - AGENT_NAME=slack
+    image: ghcr.io/korotovsky/slack-mcp-server:v1.2.3
     container_name: mcp-slack
     env_file: [.env]
-    ports: ["18007:8000"]
-    volumes:
-      - ./ai_platform_engineering/agents/slack/mcp/mcp_slack:/app/mcp_slack
+    ports: ["18007:3001"]
     environment:
-      - MCP_MODE=http
-      - MCP_HOST=0.0.0.0
-      - MCP_PORT=8000
+      - SLACK_MCP_HOST=0.0.0.0
+      - SLACK_MCP_PORT=3001
+      - SLACK_MCP_XOXB_TOKEN=${SLACK_BOT_TOKEN}
+      # Message posting (disabled by default for safety). Set to 'true' for all
+      # channels, or restrict to specific channel IDs (comma-separated), or use
+      # '!' prefix to exclude channels.
+      # Examples: 'true' (all), 'C123,C456' (whitelist), '!C789' (blacklist)
+      # - SLACK_MCP_ADD_MESSAGE_TOOL=${SLACK_MCP_ADD_MESSAGE_TOOL:-false}
+    command: ["--transport", "http"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      test: ["CMD-SHELL", "curl -so /dev/null -w '%{http_code}' --max-time 2 -X POST http://localhost:3001/mcp | grep -q 400"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 60s
     profiles:
       - slack
       - all-agents
@@ -1793,6 +1794,7 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
+    command: ["sh", "-c", "uv sync --no-dev && exec python -m app"]
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
     environment:

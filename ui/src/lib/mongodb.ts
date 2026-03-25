@@ -209,16 +209,21 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'sharing_access', { granted_to: 1 }),
     safeCreateIndex(db, 'sharing_access', { conversation_id: 1, granted_to: 1 }),
 
-    // Agent configs collection (Agent Skills)
-    safeCreateIndex(db, 'agent_configs', { id: 1 }, { unique: true }),
-    safeCreateIndex(db, 'agent_configs', { owner_id: 1 }),
-    safeCreateIndex(db, 'agent_configs', { category: 1 }),
-    safeCreateIndex(db, 'agent_configs', { is_system: 1 }),
-    safeCreateIndex(db, 'agent_configs', { name: 1 }),
-    safeCreateIndex(db, 'agent_configs', { created_at: -1 }),
-    safeCreateIndex(db, 'agent_configs', { 'metadata.tags': 1 }),
+    // Agent skills collection (catalog source agent_skills)
+    safeCreateIndex(db, 'agent_skills', { id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'agent_skills', { owner_id: 1 }),
+    safeCreateIndex(db, 'agent_skills', { category: 1 }),
+    safeCreateIndex(db, 'agent_skills', { is_system: 1 }),
+    safeCreateIndex(db, 'agent_skills', { name: 1 }),
+    safeCreateIndex(db, 'agent_skills', { created_at: -1 }),
+    safeCreateIndex(db, 'agent_skills', { 'metadata.tags': 1 }),
 
-    // Workflow runs collection (Agent Skills History)
+    // Skill hubs collection
+    safeCreateIndex(db, 'skill_hubs', { id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'skill_hubs', { enabled: 1 }),
+    safeCreateIndex(db, 'skill_hubs', { location: 1 }),
+
+    // Workflow runs collection (skill / workflow run history)
     safeCreateIndex(db, 'workflow_runs', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'workflow_runs', { workflow_id: 1 }),
     safeCreateIndex(db, 'workflow_runs', { owner_id: 1 }),
@@ -241,6 +246,67 @@ async function createIndexes(db: Db) {
   ]);
 
   console.log('✅ MongoDB indexes ensured');
+
+  await migrateAgentConfigsToAgentSkills(db);
+}
+
+/**
+ * One-time migration: copy documents from the legacy `agent_configs`
+ * collection into `agent_skills`.  Skips documents whose `id` already
+ * exists in `agent_skills` to avoid duplicates.  After a successful
+ * migration the old collection is renamed to `agent_configs_migrated`
+ * so this function becomes a no-op on subsequent startups.
+ */
+async function migrateAgentConfigsToAgentSkills(db: Db): Promise<void> {
+  const collections = await db.listCollections({ name: 'agent_configs' }).toArray();
+  if (collections.length === 0) {
+    return; // nothing to migrate
+  }
+
+  const source = db.collection('agent_configs');
+  const sourceCount = await source.countDocuments();
+  if (sourceCount === 0) {
+    // Empty collection — just drop it
+    await source.drop().catch(() => {});
+    console.log('🗑️  Dropped empty legacy agent_configs collection');
+    return;
+  }
+
+  const target = db.collection('agent_skills');
+  const docs = await source.find({}).toArray();
+
+  let migrated = 0;
+  let skipped = 0;
+
+  for (const doc of docs) {
+    const docId = doc.id ?? doc._id?.toString();
+    if (!docId) {
+      skipped++;
+      continue;
+    }
+
+    const exists = await target.findOne({ id: docId });
+    if (exists) {
+      skipped++;
+      continue;
+    }
+
+    const { _id, ...rest } = doc;
+    await target.insertOne(rest);
+    migrated++;
+  }
+
+  // Rename so migration never runs again
+  try {
+    await source.rename('agent_configs_migrated');
+  } catch {
+    // If rename fails (e.g. target exists), drop instead
+    await source.drop().catch(() => {});
+  }
+
+  console.log(
+    `✅ Migrated agent_configs → agent_skills: ${migrated} copied, ${skipped} skipped (already existed or invalid)`
+  );
 }
 
 /**

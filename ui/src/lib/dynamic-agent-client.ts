@@ -11,12 +11,11 @@
  * SSE event types from the backend (stream_events.py):
  *   - content: streaming text token (data is a string)
  *   - tool_start: tool invocation started (data is structured JSON)
+ *                 Note: Subagent invocations also use tool_start with tool_name="task"
  *   - tool_end: tool invocation completed (data is structured JSON)
  *   - todo_update: task list update (data is structured JSON)
- *   - subagent_start: subagent delegation started (data is structured JSON)
- *   - subagent_end: subagent completed (data is structured JSON)
- *   - final_result: completion with final content (data is JSON with artifact shape)
- *   - error: error message (data is JSON with error field)
+ *   - warning: non-fatal issue (data is structured JSON, rendered inline)
+ *   - error: error message (data is JSON with error field, rendered inline)
  *   - done: stream complete (data is empty JSON)
  */
 
@@ -64,12 +63,6 @@ export class DynamicAgentClient {
   private abortController: AbortController | null = null;
 
   /**
-   * The trace_id from the last completed stream (from final_result metadata).
-   * Can be used for feedback integration with Langfuse.
-   */
-  public lastTraceId: string | null = null;
-
-  /**
    * Callback for when agent requests user input via form.
    * Set this to handle HITL form rendering.
    */
@@ -87,6 +80,59 @@ export class DynamicAgentClient {
     if (this.abortController) {
       this.abortController.abort();
       this.abortController = null;
+    }
+  }
+
+  /**
+   * Cancel the stream on the backend.
+   *
+   * This sends a cancel request to the backend, which sets a flag
+   * causing the stream to exit gracefully at the next chunk boundary.
+   * Also aborts the client-side fetch.
+   *
+   * @param conversationId Conversation/session ID
+   * @param agentId Dynamic agent config ID
+   * @returns true if cancellation was requested, false on error
+   */
+  async cancelStream(conversationId: string, agentId: string): Promise<boolean> {
+    // First, abort the client-side fetch
+    this.abort();
+
+    // Then request backend cancellation
+    const cancelUrl = `${this.proxyUrl}/cancel`;
+
+    try {
+      console.log(`[DynamicAgent] Sending cancel request to ${cancelUrl}`);
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (this.accessToken) {
+        headers["Authorization"] = `Bearer ${this.accessToken}`;
+      }
+
+      const response = await fetch(cancelUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          agent_id: agentId,
+          session_id: conversationId,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error(
+          `[DynamicAgent] Cancel request failed: ${response.status} ${response.statusText}`
+        );
+        return false;
+      }
+
+      const result = await response.json();
+      console.log(`[DynamicAgent] Cancel result:`, result);
+      return result.cancelled ?? false;
+    } catch (error) {
+      console.error("[DynamicAgent] Cancel request error:", error);
+      return false;
     }
   }
 
@@ -318,19 +364,21 @@ export class DynamicAgentClient {
           if (!eventStr.trim()) continue;
 
           let eventType = "message";
-          let eventData = "";
+          const dataLines: string[] = [];
 
           for (const line of eventStr.split("\n")) {
             if (line.startsWith("event: ")) {
               eventType = line.slice(7).trim();
             } else if (line.startsWith("data: ")) {
-              eventData = line.slice(6);
+              dataLines.push(line.slice(6));
             } else if (line.startsWith("data:")) {
               // Handle "data:" without space
-              eventData = line.slice(5);
+              dataLines.push(line.slice(5));
             }
           }
 
+          // Join multiple data lines with newlines (SSE spec)
+          const eventData = dataLines.join("\n");
           yield { event: eventType, data: eventData };
         }
       }
@@ -346,37 +394,26 @@ export class DynamicAgentClient {
   private mapToAgentEvent(raw: RawSSEEvent): SSEAgentEvent | null {
     const { event, data } = raw;
 
-    // ─── Structured events: content, tool_*, todo_update, subagent_*, final_result, input_required, warning ───
+    // ─── Structured events: content, tool_*, todo_update, input_required, warning ───
+    // Note: Subagent invocations come through as tool_start/tool_end with tool_name="task"
+    // All events are now JSON with namespace included in the data
     if (
       event === "content" ||
       event === "tool_start" ||
       event === "tool_end" ||
       event === "todo_update" ||
-      event === "subagent_start" ||
-      event === "subagent_end" ||
-      event === "final_result" ||
       event === "input_required" ||
       event === "warning"
     ) {
       try {
-        // content events have data as plain string, others are JSON
-        let parsedData: unknown;
-        if (event === "content") {
-          parsedData = data;
-        } else {
-          parsedData = JSON.parse(data);
-        }
+        // All events are now JSON (content is wrapped as {text, namespace})
+        const parsedData = JSON.parse(data);
 
         const agentEvent = createSSEAgentEvent(
-          { type: event, data: parsedData },
+          event,
+          parsedData,
           undefined, // taskId could be added later for crash recovery
         );
-
-        // Capture trace_id from final_result for feedback integration
-        if (event === "final_result" && agentEvent.artifact?.metadata?.trace_id) {
-          this.lastTraceId = agentEvent.artifact.metadata.trace_id as string;
-          console.log(`[DynamicAgent] Captured trace_id: ${this.lastTraceId}`);
-        }
 
         return agentEvent;
       } catch (e) {
@@ -386,10 +423,8 @@ export class DynamicAgentClient {
     }
 
     // ─── done: stream complete ───────────────────────────────────────
-    // NOTE: We return null here instead of creating an empty final_result,
-    // because the real final_result event has already been emitted by the backend
-    // with the correct metadata (failed_servers, missing_tools, etc.).
-    // Creating another final_result here would overwrite that data.
+    // The done event signals that the stream is complete.
+    // The chat panel marks isFinal=true when the loop exits after receiving done.
     if (event === "done") {
       console.log(`[DynamicAgent] Stream done event received`);
       return null;
@@ -410,6 +445,7 @@ export class DynamicAgentClient {
           displayContent: `Error: ${errorMsg}`,
           content: `Error: ${errorMsg}`,
           isFinal: true,
+          namespace: parsed.namespace ?? [],
         };
       } catch {
         console.log(`[DynamicAgent] ❌ Failed to parse error, using raw data`);
@@ -421,6 +457,7 @@ export class DynamicAgentClient {
           displayContent: `Error: ${data}`,
           content: `Error: ${data}`,
           isFinal: true,
+          namespace: [],
         };
       }
     }

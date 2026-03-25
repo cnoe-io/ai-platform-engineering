@@ -1,15 +1,13 @@
 ---
-title: "CNCF Sandbox Application Draft"
-description: Draft application for CAIPE to join the CNCF Sandbox
+title: "CNCF Sandbox application for CAIPE"
+description: Application for Community AI Platform Engineering (CAIPE) to join the CNCF Sandbox, merged via the upstream pull request.
 authors: [sriaradhyula]
 tags: [articles]
-draft: true
 ---
 
 # [Sandbox] CAIPE (Community AI Platform Engineering)
 
-> Draft application for [CNCF Sandbox](https://github.com/cncf/sandbox/issues/new?assignees=&labels=New&projects=&template=application.yml&title=%5BSandbox%5D+CAIPE).
-> Copy each section into the corresponding field of the GitHub issue form.
+> Application for [CNCF Sandbox](https://github.com/cncf/sandbox/issues/new?assignees=&labels=New&projects=&template=application.yml&title=%5BSandbox%5D+CAIPE). This post tracks the text merged in [cnoe-io/ai-platform-engineering#904](https://github.com/cnoe-io/ai-platform-engineering/pull/904); copy each section into the corresponding field of the GitHub issue form when submitting.
 
 <!-- truncate -->
 

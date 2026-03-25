@@ -164,6 +164,9 @@ export interface WidgetAction {
   context?: Record<string, unknown>;
 }
 
+// Turn status for Dynamic Agents (shown in timeline)
+export type TurnStatus = "done" | "interrupted" | "waiting_for_input";
+
 // Chat conversation types
 export interface Conversation {
   id: string;
@@ -186,18 +189,7 @@ export interface Conversation {
     shared_with_teams?: string[];
     share_link_enabled?: boolean;
   };
-  /** 
-   * Runtime status for Dynamic Agents - persists across SSE event clearing.
-   * Updated when final_result events arrive, cleared on runtime restart.
-   */
-  runtimeStatus?: {
-    /** MCP servers that failed to connect */
-    failedServers?: string[];
-    /** Tools that were configured but unavailable */
-    missingTools?: string[];
-    /** Whether we have received at least one final_result (runtime has been initialized) */
-    initialized?: boolean;
-  };
+
 }
 
 // Feedback types - matching agent-forge
@@ -245,6 +237,8 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   events: A2AEvent[];
+  /** SSE events for Dynamic Agents (stored per-message, like A2A events) */
+  sseEvents?: SSEAgentEvent[];
   widgets?: Widget[];
   isFinal?: boolean;
   feedback?: MessageFeedback;
@@ -266,6 +260,8 @@ export interface ChatMessage {
   senderImage?: string;
   /** Structured timeline segments built during streaming */
   timelineSegments?: TimelineSegment[];
+  /** Turn status for Dynamic Agents: done, interrupted, or waiting_for_input */
+  turnStatus?: TurnStatus;
 }
 
 // Input field configuration for use case forms

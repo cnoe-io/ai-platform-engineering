@@ -36,73 +36,7 @@ from langchain.tools.tool_node import InjectedState
 
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
-# Official deepagents package (pip-installed, not vendored)
-# The vendored deepagents/ in repo root is for multi-node mode
-# Single-node uses the pip package which has different API (system_prompt, middleware)
-import sys
-
-# CRITICAL: Remove vendored deepagents from path BEFORE any imports can occur
-# The vendored version at /app/deepagents (Docker) or ./deepagents (local) shadows the pip package
-# We need to ensure the pip-installed version is used for single-node mode
-def _setup_pip_deepagents_path():
-    """Configure sys.path to use pip-installed deepagents, not vendored."""
-    # Get the repo root directory (where vendored deepagents/ lives)
-    # This file is at: ai_platform_engineering/multi_agents/platform_engineer/deep_agent_single.py
-    # Repo root is 4 levels up
-    current_file = os.path.abspath(__file__)
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
-
-    # Paths that might contain the vendored deepagents
-    vendored_paths = [
-        '/app',  # Docker container path
-        repo_root,  # Local development from repo root
-        '',  # Current directory
-        '.',  # Current directory (explicit)
-        os.getcwd(),  # Current working directory
-    ]
-
-    # Remove any path that could shadow the pip-installed deepagents
-    paths_to_remove = []
-    for p in sys.path:
-        # Check if this path contains the vendored deepagents
-        vendored_deepagents = os.path.join(p, 'deepagents') if p else 'deepagents'
-        if os.path.isdir(vendored_deepagents) and os.path.isfile(os.path.join(vendored_deepagents, '__init__.py')):
-            # This path has a deepagents directory - check if it's the vendored one
-            # The vendored version has sub_agent.py with "prompt" field, pip version has "system_prompt"
-            sub_agent_file = os.path.join(vendored_deepagents, 'sub_agent.py')
-            if os.path.isfile(sub_agent_file):
-                try:
-                    with open(sub_agent_file, 'r') as f:
-                        content = f.read()
-                        # Vendored version uses "prompt: str" in SubAgent TypedDict
-                        # Pip version uses "system_prompt"
-                        if 'prompt: str' in content and 'system_prompt' not in content:
-                            paths_to_remove.append(p)
-                except Exception:
-                    pass
-
-    # Also remove common vendored paths even if we couldn't verify
-    for p in sys.path:
-        abs_p = os.path.abspath(p) if p else os.getcwd()
-        for vendored in vendored_paths:
-            vendored_abs = os.path.abspath(vendored) if vendored else os.getcwd()
-            if abs_p == vendored_abs and p not in paths_to_remove:
-                # Check if this path has a deepagents folder
-                if os.path.isdir(os.path.join(abs_p, 'deepagents')):
-                    paths_to_remove.append(p)
-
-    for p in paths_to_remove:
-        if p in sys.path:
-            sys.path.remove(p)
-
-    # Clear any cached vendored module
-    for key in list(sys.modules.keys()):
-        if key == 'deepagents' or key.startswith('deepagents.'):
-            del sys.modules[key]
-
-_setup_pip_deepagents_path()
-
-# Now import from pip package (vendored paths removed from sys.path)
+# Upstream deepagents package (pip-installed)
 from deepagents import create_deep_agent
 
 # Custom middleware and utilities from our package
@@ -121,6 +55,14 @@ from ai_platform_engineering.utils.deepagents_custom.self_service_middleware imp
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
+)
+
+# Skills middleware: upstream SkillsMiddleware + custom catalog layer
+from deepagents.middleware.skills import SkillsMiddleware
+from deepagents.backends.state import StateBackend
+from ai_platform_engineering.skills_middleware import (
+    get_merged_skills,
+    build_skills_files,
 )
 from ai_platform_engineering.utils.agent_tools.terraform_fmt_tool import terraform_fmt
 from ai_platform_engineering.utils.deepagents_custom.state import DeepAgentState
@@ -1260,10 +1202,31 @@ This format is required so the UI can display agent stickers next to each task.
 
         logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")
 
+        # Load skills catalog and build StateBackend files for SkillsMiddleware (FR-015)
+        try:
+            skills = get_merged_skills(include_content=True)
+            self._skills_files, self._skills_sources = build_skills_files(skills)
+            logger.info(f"📚 Loaded {len(skills)} skills for supervisor ({len(self._skills_sources)} sources)")
+        except Exception as e:
+            logger.warning(f"Failed to load skills catalog: {e}")
+            self._skills_files = {}
+            self._skills_sources = []
+
+        # Build SkillsMiddleware with sources from catalog
+        skills_middleware_list = []
+        if self._skills_sources:
+            skills_middleware_list.append(
+                SkillsMiddleware(
+                    backend=lambda rt: StateBackend(rt),
+                    sources=self._skills_sources,
+                )
+            )
+
         # Create the deep agent with middleware for deterministic task execution
         #
         # Middleware:
-        # 1. DeterministicTaskMiddleware:
+        # 1. SkillsMiddleware: Injects skills into system prompt (progressive disclosure)
+        # 2. DeterministicTaskMiddleware:
         #    - before_model: Injects write_todos + task tool calls for next step
         #    - after_model: Updates todos, pops completed task, loops if more tasks
         #
@@ -1283,6 +1246,7 @@ This format is required so the UI can display agent stickers next to each task.
             model=base_model,
             middleware=[
                 PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
+                *skills_middleware_list,
                 DeterministicTaskMiddleware(),
                 CallToolWithFileArgMiddleware(),
                 SelfServiceWorkflowMiddleware(),
@@ -1332,6 +1296,9 @@ This format is required so the UI can display agent stickers next to each task.
             state_dict = {"messages": [{"role": "user", "content": enhanced_prompt}]}
             if user_email:
                 state_dict["user_email"] = user_email
+            # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
+            if getattr(self, "_skills_files", None):
+                state_dict["files"] = dict(self._skills_files)
             result = await graph.ainvoke(
                 state_dict,
                 {"configurable": {"thread_id": uuid.uuid4()}}
@@ -1366,6 +1333,9 @@ This format is required so the UI can display agent stickers next to each task.
             state_dict = {"messages": [{"role": "user", "content": prompt}]}
             if user_email:
                 state_dict["user_email"] = user_email
+            # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
+            if getattr(self, "_skills_files", None):
+                state_dict["files"] = dict(self._skills_files)
 
             async for event in graph.astream_events(
                 state_dict,

@@ -1,0 +1,29 @@
+[project]
+name = "caipe-slack-bot"
+version = "0.1.0"
+description = "CAIPE Slack Bot"
+license = "Apache-2.0"
+authors = [
+  { name = "CNOE Contributors" }
+]
+requires-python = ">=3.13,<4.0"
+dependencies = [
+  "setuptools",
+  "slack-bolt",
+  "slack-sdk",
+  "requests",
+  "loguru",
+  "pydantic",
+  "pymongo",
+  "pyyaml",
+  "langfuse",
+]
+
+[dependency-groups]
+unittest = [
+  "pytest",
+  "pytest-mock",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"

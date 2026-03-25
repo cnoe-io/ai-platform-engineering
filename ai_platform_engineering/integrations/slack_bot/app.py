@@ -112,6 +112,11 @@ def handle_mention(event, say, client):
 
         thread_ts = event.get("thread_ts") or event.get("ts")
         user_id = event.get("user")
+
+        if not utils.verify_thread_exists(client, channel_id, thread_ts):
+            logger.warning(f"[{thread_ts}] Ignoring @mention — parent message was deleted")
+            return
+
         message_text = slack_context.extract_message_text(event)
 
         user_name, user_email = utils.get_message_author_info(event, client)
@@ -224,6 +229,11 @@ def handle_qanda_message(event, say, client):
     try:
         channel_id = event.get("channel")
         thread_ts = event.get("ts")
+
+        if not utils.verify_thread_exists(client, channel_id, thread_ts):
+            logger.warning(f"[{thread_ts}] Ignoring Q&A message — parent message was deleted")
+            return
+
         user_id = event.get("user")
         team_id = event.get("team")
         message_text = slack_context.extract_message_text(event)
@@ -291,7 +301,13 @@ def handle_dm_message(event, say, client):
         if event.get("bot_id"):
             return
 
+        channel_id = event.get("channel")
         thread_ts = event.get("thread_ts") or event.get("ts")
+
+        if not utils.verify_thread_exists(client, channel_id, thread_ts):
+            logger.warning(f"[{thread_ts}] Ignoring DM — parent message was deleted")
+            return
+
         user_id = event.get("user")
         message_text = slack_context.extract_message_text(event)
 

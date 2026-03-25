@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { SkillRunStats } from "@/types/agent-config";
+import type { SkillRunStats } from "@/types/agent-skill";
 
 // ---------------------------------------------------------------------------
 // Visibility Breakdown

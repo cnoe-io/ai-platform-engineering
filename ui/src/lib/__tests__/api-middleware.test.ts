@@ -26,6 +26,11 @@ jest.mock('@/lib/mongodb', () => ({
   getCollection: jest.fn(),
 }));
 
+jest.mock('@/lib/jwt-validation', () => ({
+  validateBearerJWT: jest.fn().mockRejectedValue(new Error('mock: not implemented')),
+  validateLocalSkillsJWT: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));

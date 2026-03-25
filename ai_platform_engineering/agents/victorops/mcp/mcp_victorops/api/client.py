@@ -1,24 +1,92 @@
+import json
 import os
 import logging
-from typing import Optional, Dict, Tuple, Any
+from typing import Optional, Dict, List, NamedTuple, Tuple, Any
 import httpx
-
-# Load environment variables
-API_URL = os.getenv("VICTOROPS_API_URL")
-API_TOKEN = os.getenv("X_VO_API_KEY")
-API_TOKEN_ID = os.getenv("X_VO_API_ID")
-
-
-if not API_URL:
-    raise ValueError("VICTOROPS_API_URL environment variable is not set.")
-if not API_TOKEN:
-    raise ValueError("X_VO_API_KEY environment variable is not set.")
-if not API_TOKEN_ID:
-    raise ValueError("X_VO_API_ID environment variable is not set.")
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_victorops")
+
+
+class OrgCredentials(NamedTuple):
+    api_url: str
+    api_key: str
+    api_id: str
+
+
+def _build_org_registry() -> Dict[str, OrgCredentials]:
+    """Build the org credential registry from environment variables.
+
+    Reads VICTOROPS_ORGS (JSON) if set, otherwise falls back to the
+    single-org env vars VICTOROPS_API_URL / X_VO_API_KEY / X_VO_API_ID.
+    """
+    registry: Dict[str, OrgCredentials] = {}
+
+    orgs_json = os.getenv("VICTOROPS_ORGS")
+    if orgs_json:
+        try:
+            orgs = json.loads(orgs_json)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"VICTOROPS_ORGS is not valid JSON: {e}") from e
+
+        for slug, cfg in orgs.items():
+            missing = [k for k in ("api_url", "api_key", "api_id") if not cfg.get(k)]
+            if missing:
+                raise ValueError(
+                    f"VICTOROPS_ORGS org '{slug}' is missing: {', '.join(missing)}"
+                )
+            registry[slug] = OrgCredentials(
+                api_url=cfg["api_url"],
+                api_key=cfg["api_key"],
+                api_id=cfg["api_id"],
+            )
+        return registry
+
+    # Fallback: single-org env vars → "default" org
+    api_url = os.getenv("VICTOROPS_API_URL")
+    api_key = os.getenv("X_VO_API_KEY")
+    api_id = os.getenv("X_VO_API_ID")
+
+    if not api_url:
+        raise ValueError("VICTOROPS_API_URL environment variable is not set.")
+    if not api_key:
+        raise ValueError("X_VO_API_KEY environment variable is not set.")
+    if not api_id:
+        raise ValueError("X_VO_API_ID environment variable is not set.")
+
+    registry["default"] = OrgCredentials(api_url=api_url, api_key=api_key, api_id=api_id)
+    return registry
+
+
+_org_registry = _build_org_registry()
+
+
+def list_orgs() -> List[str]:
+    """Return the slugs of all configured VictorOps organizations."""
+    return list(_org_registry.keys())
+
+
+def get_org_credentials(org_slug: Optional[str] = None) -> OrgCredentials:
+    """Look up credentials for an org slug.
+
+    When org_slug is None and only one org is configured, that org is used.
+    When org_slug is None and multiple orgs exist, raises ValueError so the
+    caller (the LLM) knows it must specify one.
+    """
+    if org_slug is None:
+        if len(_org_registry) == 1:
+            return next(iter(_org_registry.values()))
+        raise ValueError(
+            f"Multiple VictorOps orgs are configured ({', '.join(_org_registry.keys())}). "
+            "Please specify an org_slug."
+        )
+    if org_slug not in _org_registry:
+        raise ValueError(
+            f"Unknown org_slug '{org_slug}'. "
+            f"Available orgs: {', '.join(_org_registry.keys())}"
+        )
+    return _org_registry[org_slug]
 
 
 
@@ -37,8 +105,7 @@ def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
 async def make_api_request(
     path: str,
     method: str = "GET",
-    token: Optional[str] = None,
-    token_id: Optional[str] = None,
+    org_slug: Optional[str] = None,
     params: Dict[str, Any] = {},
     data: Dict[str, Any] = {},
     timeout: int = 30,
@@ -49,8 +116,7 @@ async def make_api_request(
     Args:
         path: API path to request (without base URL)
         method: HTTP method (default: GET)
-        token: API key (defaults to X-VO-Api-Key)
-        token_id: API key id (defaults to X-VO-Api-Id)
+        org_slug: VictorOps organization slug (resolves credentials from registry)
         params: Query parameters for the request (optional)
         data: JSON data for POST/PATCH/PUT requests (optional)
         timeout: Request timeout in seconds (default: 30)
@@ -60,32 +126,12 @@ async def make_api_request(
     """
     logger.debug(f"Making {method} request to {path}")
 
-    if not token:
-        logger.debug("No token provided, using default token")
-        token = API_TOKEN
-
-    if not token:
-        logger.error("No token available - neither provided nor found in environment")
-        return (
-            False,
-            {"error": "Token is required. Please set the API_TOKEN environment variable."},
-        )
-
-    if not token_id:
-        logger.debug("No token provided, using default token")
-        token_id = API_TOKEN_ID
-
-    if not token_id:
-        logger.error("No token available - neither provided nor found in environment")
-        return (
-            False,
-            {"error": "Token is required. Please set the API_TOKEN_ID environment variable."},
-        )
+    creds = get_org_credentials(org_slug)
 
     try:
         headers = {
-            "X-VO-Api-Id": token_id,
-            "X-VO-Api-Key": token,
+            "X-VO-Api-Id": creds.api_id,
+            "X-VO-Api-Key": creds.api_key,
             "Accept": "application/json",
         }
 
@@ -95,7 +141,7 @@ async def make_api_request(
             logger.debug(f"Request data: {data}")
 
         async with httpx.AsyncClient(timeout=timeout) as client:
-            url = f"{API_URL}{path}"
+            url = f"{creds.api_url}{path}"
             logger.debug(f"Full request URL: {url}")
 
             method_map = {
@@ -154,13 +200,13 @@ async def make_api_request(
         return (False, {"error": f"HTTP error: {e.response.status_code} - {str(e)}"})
     except httpx.RequestError as e:
         error_message = str(e)
-        if token and token in error_message:
-            error_message = error_message.replace(token, "[REDACTED]")
+        if creds.api_key and creds.api_key in error_message:
+            error_message = error_message.replace(creds.api_key, "[REDACTED]")
         logger.error(f"Request error: {error_message}")
         return (False, {"error": f"Request error: {error_message}"})
     except Exception as e:
         error_message = str(e)
-        if token and token in error_message:
-            error_message = error_message.replace(token, "[REDACTED]")
+        if creds.api_key and creds.api_key in error_message:
+            error_message = error_message.replace(creds.api_key, "[REDACTED]")
         logger.error(f"Unexpected error: {error_message}")
         return (False, {"error": f"Unexpected error: {error_message}"})

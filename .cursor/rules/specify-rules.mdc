@@ -6,10 +6,17 @@ alwaysApply: true
 
 # ai-platform-engineering-fix-thinking-collapse Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-18
+Auto-generated from all feature plans. Last updated: 2026-03-23
 
 ## Active Technologies
 - N/A (UI state only) (095-fix-thinking-panel-expand)
+- Python 3.11+ (supervisor, `skills_middleware`), TypeScript / Next.js 16 + React 19 (UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI (`skills_middleware.router`), A2A binding (`AIPlatformEngineerA2ABinding`), httpx, PyJWT/jose for JWKS (097-skills-middleware-integration)
+- MongoDB (skills, skill_hubs, agent_skills projection); optional filesystem / `SKILLS_DIR` for built-ins; in-process `StateBackend` for middleware file injection (097-skills-middleware-integration)
+- Python 3.11+ (backend), TypeScript / Next.js App Router (UI) + LangGraph, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI (supervisor bindings), Motor/pymongo (MongoDB), Next.js API routes + existing JWT/JWKS helpers (097-skills-middleware-integration)
+- MongoDB (`skill_hubs`, optional `skills`, agent projections); filesystem `SKILLS_DIR`; in-process `StateBackend` for middleware (097-skills-middleware-integration)
+- Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind (097-skills-middleware-integration)
+- MongoDB (`agent_skills`, optional `skills`, `skill_hubs`, `catalog_api_keys`, `skill_scan_findings`); filesystem `SKILLS_DIR` for packaged defaults; in-process catalog cache with explicit generation counters (097-skills-middleware-integration)
+- Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional **`cisco-ai-skill-scanner`** CLI/package for hub/CI scans per [skill-scanner](https://github.com/cisco-ai-defense/skill-scanner) (097-skills-middleware-integration)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -29,9 +36,10 @@ npm test && npm run lint
 TypeScript (UI), React 19: Follow standard conventions
 
 ## Recent Changes
-- 095-fix-thinking-panel-expand: Added TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand)
+- 097-skills-middleware-integration: Added Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional **`cisco-ai-skill-scanner`** CLI/package for hub/CI scans per [skill-scanner](https://github.com/cisco-ai-defense/skill-scanner)
+- 097-skills-middleware-integration: Added Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind
+- 097-skills-middleware-integration: Added Python 3.11+ (backend), TypeScript / Next.js App Router (UI) + LangGraph, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI (supervisor bindings), Motor/pymongo (MongoDB), Next.js API routes + existing JWT/JWKS helpers
 
-- 094-fix-thinking-panel-expand: Added TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand)
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

@@ -20,7 +20,7 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SkillsGallery } from "../SkillsGallery";
-import type { AgentConfig } from "@/types/agent-config";
+import type { AgentSkill } from "@/types/agent-skill";
 
 // ---------------------------------------------------------------------------
 // Config mock — controlled per-test via mockWorkflowRunnerEnabled
@@ -53,16 +53,16 @@ let mockIsLoading = false;
 let mockError: string | null = null;
 let mockIsAdmin = false;
 
-jest.mock("@/store/agent-config-store", () => ({
-  useAgentConfigStore: () => ({
+jest.mock("@/store/agent-skills-store", () => ({
+  useAgentSkillsStore: () => ({
     configs: mockConfigs(),
     isLoading: mockIsLoading,
     error: mockError,
-    loadConfigs: mockLoadConfigs,
-    deleteConfig: mockDeleteConfig,
+    loadSkills: mockLoadConfigs,
+    deleteSkill: mockDeleteConfig,
     toggleFavorite: mockToggleFavorite,
     isFavorite: mockIsFavorite,
-    getFavoriteConfigs: mockGetFavoriteConfigs,
+    getFavoriteSkills: mockGetFavoriteConfigs,
   }),
 }));
 
@@ -102,7 +102,7 @@ jest.mock("@/components/ui/caipe-spinner", () => ({
 // Test data helpers
 // ---------------------------------------------------------------------------
 
-function makeQuickStart(id = "qs-1"): AgentConfig {
+function makeQuickStart(id = "qs-1"): AgentSkill {
   return {
     id,
     name: "Incident Correlation & Root Cause Analysis",
@@ -124,7 +124,7 @@ function makeQuickStart(id = "qs-1"): AgentConfig {
   };
 }
 
-function makeWorkflow(id = "wf-1"): AgentConfig {
+function makeWorkflow(id = "wf-1"): AgentSkill {
   return {
     id,
     name: "Multi-Step Deploy Workflow",
@@ -143,7 +143,7 @@ function makeWorkflow(id = "wf-1"): AgentConfig {
 }
 
 // Configs returned by the store — set per describe block
-let _configs: AgentConfig[] = [];
+let _configs: AgentSkill[] = [];
 function mockConfigs() {
   return _configs;
 }
@@ -351,7 +351,7 @@ describe("SkillsGallery — search and filter", () => {
       makeQuickStart("qs-1"),
       { ...makeQuickStart("qs-devops"), name: "DevOps Health Check", description: "Check cluster health", category: "DevOps" },
       { ...makeQuickStart("qs-cloud"), name: "Cost Explorer", description: "Analyze AWS costs", category: "Cloud" },
-    ] as AgentConfig[];
+    ] as AgentSkill[];
   });
 
   it("filters configs by search query matching name", () => {
@@ -415,7 +415,7 @@ describe("SkillsGallery — variable substitution in run modal", () => {
           { name: "cluster", label: "Cluster", type: "text" as const, required: true, placeholder: "Enter cluster" },
         ],
       },
-    }] as AgentConfig[];
+    }] as AgentSkill[];
   });
 
   it("replaces {{variables}} in the prompt when form fields are filled", () => {
@@ -458,7 +458,7 @@ describe("SkillsGallery — delete", () => {
       ...makeQuickStart("qs-del"),
       is_system: false,
       owner_id: "test@example.com",
-    }] as AgentConfig[];
+    }] as AgentSkill[];
     jest.spyOn(window, "confirm").mockReturnValue(true);
   });
 
@@ -466,7 +466,7 @@ describe("SkillsGallery — delete", () => {
     (window.confirm as jest.Mock).mockRestore();
   });
 
-  it("calls deleteConfig when user confirms deletion", async () => {
+  it("calls deleteSkill when user confirms deletion", async () => {
     renderGallery();
 
     const deleteButtons = screen.getAllByTitle("Delete template");
@@ -475,7 +475,7 @@ describe("SkillsGallery — delete", () => {
     expect(mockDeleteConfig).toHaveBeenCalledWith("qs-del");
   });
 
-  it("does NOT call deleteConfig when user cancels", () => {
+  it("does NOT call deleteSkill when user cancels", () => {
     (window.confirm as jest.Mock).mockReturnValue(false);
 
     renderGallery();
@@ -518,7 +518,7 @@ describe("SkillsGallery — edit/delete visibility", () => {
       ...makeQuickStart("user-skill"),
       is_system: false,
       owner_id: "test@example.com",
-    }] as AgentConfig[];
+    }] as AgentSkill[];
 
     renderGallery();
 
@@ -563,7 +563,7 @@ describe("SkillsGallery — Run in Chat", () => {
       is_system: false,
       owner_id: "test@example.com",
       tasks: [{ display_text: "Do it", llm_prompt: "Perform the task", subagent: "user_input" }],
-    }] as AgentConfig[];
+    }] as AgentSkill[];
   });
 
   it("calls createConversation, setPendingMessage, and router.push on Run in Chat", () => {
@@ -601,7 +601,7 @@ describe("SkillsGallery — Run in Chat", () => {
         title: "Deploy",
         fields: [{ name: "app", label: "App", type: "text" as const, required: true, placeholder: "Enter app" }],
       },
-    }] as AgentConfig[];
+    }] as AgentSkill[];
 
     renderGallery();
     fireEvent.click(screen.getByText("Form Skill"));
@@ -631,29 +631,29 @@ describe("SkillsGallery — Run in Chat", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — view mode", () => {
-  const mySkill: AgentConfig = {
+  const mySkill: AgentSkill = {
     ...makeQuickStart("my-1"),
     name: "My Personal Skill",
     is_system: false,
     owner_id: "test@example.com",
     visibility: "private",
-  } as AgentConfig;
+  } as AgentSkill;
 
-  const globalSkill: AgentConfig = {
+  const globalSkill: AgentSkill = {
     ...makeQuickStart("global-1"),
     name: "Global System Skill",
     is_system: true,
     owner_id: "system",
     visibility: "global",
-  } as AgentConfig;
+  } as AgentSkill;
 
-  const teamSkill: AgentConfig = {
+  const teamSkill: AgentSkill = {
     ...makeQuickStart("team-1"),
     name: "Team Shared Skill",
     is_system: false,
     owner_id: "other@example.com",
     visibility: "team",
-  } as AgentConfig;
+  } as AgentSkill;
 
   beforeEach(() => {
     _configs = [mySkill, globalSkill, teamSkill];
@@ -703,14 +703,14 @@ describe("SkillsGallery — view mode", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — favorites", () => {
-  const favSkill: AgentConfig = {
+  const favSkill: AgentSkill = {
     ...makeQuickStart("fav-1"),
     name: "Favorite Skill",
     is_system: false,
     owner_id: "test@example.com",
-  } as AgentConfig;
+  } as AgentSkill;
 
-  it("renders Favorites section when getFavoriteConfigs returns configs", () => {
+  it("renders Favorites section when getFavoriteSkills returns configs", () => {
     _configs = [favSkill];
     mockGetFavoriteConfigs.mockReturnValue([favSkill]);
     mockIsFavorite.mockImplementation((id: string) => id === "fav-1");
@@ -735,7 +735,7 @@ describe("SkillsGallery — favorites", () => {
       name: "Star Skill",
       is_system: false,
       owner_id: "test@example.com",
-    }] as AgentConfig[];
+    }] as AgentSkill[];
 
     renderGallery();
 
@@ -770,7 +770,7 @@ describe("SkillsGallery — loading/error", () => {
     expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
   });
 
-  it("Try Again calls loadConfigs", () => {
+  it("Try Again calls loadSkills", () => {
     mockError = "Network error";
     _configs = [];
     mockLoadConfigs.mockClear();
@@ -797,7 +797,7 @@ describe("SkillsGallery — empty states", () => {
     fireEvent.change(searchInput, { target: { value: "nonexistent-xyz" } });
 
     await waitFor(() => {
-      expect(screen.getByText("No skills match your search")).toBeInTheDocument();
+      expect(screen.getByText(/No skills match your search/)).toBeInTheDocument();
     });
   });
 
@@ -831,7 +831,7 @@ describe("SkillsGallery — editable prompt", () => {
       is_system: false,
       owner_id: "test@example.com",
       tasks: [{ display_text: "Run", llm_prompt: "Original prompt text", subagent: "user_input" }],
-    }] as AgentConfig[];
+    }] as AgentSkill[];
   });
 
   it("editing the prompt textarea updates the editable prompt", () => {
@@ -868,7 +868,7 @@ describe("SkillsGallery — modal interactions", () => {
       name: "Modal Skill",
       is_system: false,
       owner_id: "test@example.com",
-    }] as AgentConfig[];
+    }] as AgentSkill[];
   });
 
   it("clicking Cancel closes modal", () => {
@@ -905,7 +905,7 @@ describe("SkillsGallery — edit callback", () => {
       name: "Editable Skill",
       is_system: false,
       owner_id: "test@example.com",
-    } as AgentConfig;
+    } as AgentSkill;
     _configs = [userConfig];
 
     const onEditConfig = jest.fn();
@@ -975,7 +975,7 @@ describe("SkillsGallery — variable defaults ({{name:default}} syntax)", () => 
           { name: "replicas", label: "Replicas", type: "number" as const, required: false, placeholder: "Default: 3", defaultValue: "3" },
         ],
       },
-    }] as AgentConfig[];
+    }] as AgentSkill[];
   });
 
   it("pre-fills form fields with default values", () => {
@@ -1031,7 +1031,7 @@ describe("SkillsGallery — variable defaults ({{name:default}} syntax)", () => 
           { name: "cluster", label: "Cluster", type: "text" as const, required: false, placeholder: "Default: prod", defaultValue: "prod" },
         ],
       },
-    }] as AgentConfig[];
+    }] as AgentSkill[];
 
     renderGallery();
 
@@ -1066,7 +1066,7 @@ describe("SkillsGallery — auto-generated form from prompt variables", () => {
         subagent: "user_input",
       }],
       // No input_form — should be auto-generated from prompt variables
-    }] as AgentConfig[];
+    }] as AgentSkill[];
   });
 
   it("auto-generates form fields from prompt variables", () => {

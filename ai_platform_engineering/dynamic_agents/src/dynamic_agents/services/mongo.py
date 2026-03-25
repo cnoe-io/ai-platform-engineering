@@ -1,6 +1,7 @@
 """MongoDB service for Dynamic Agents."""
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,6 +22,39 @@ from dynamic_agents.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Reserved agent slugs that cannot be used as agent IDs.
+# These are LangGraph/deepagents internal names that would conflict with namespace routing.
+RESERVED_AGENT_SLUGS = frozenset(
+    {
+        # LangGraph internal node names
+        "__start__",
+        "__end__",
+        "__interrupt__",
+        "__checkpoint__",
+        "__error__",
+        "start",
+        "end",
+        # LangGraph react agent node names
+        "agent",
+        "tools",
+        "call-model",
+        # DeepAgents built-in
+        "general-purpose",
+        "task",
+    }
+)
+
+
+def _slugify(name: str) -> str:
+    """Convert agent name to URL-safe slug.
+
+    Examples:
+        'My Test Agent' → 'my-test-agent'
+        'RAG Helper!!!' → 'rag-helper'
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return re.sub(r"-+", "-", slug)
 
 
 class MongoDBService:
@@ -93,9 +127,23 @@ class MongoDBService:
     # =========================================================================
 
     def create_agent(self, agent: DynamicAgentConfigCreate, owner_id: str) -> DynamicAgentConfig:
-        """Create a new dynamic agent config."""
+        """Create a new dynamic agent config.
+
+        Raises:
+            ValueError: If agent name is reserved or already exists.
+        """
         now = datetime.now(timezone.utc)
-        agent_id = f"dynamic-agent-{int(now.timestamp() * 1000)}"
+
+        # Generate semantic agent_id from name
+        agent_id = _slugify(agent.name)
+
+        # Validate: not reserved
+        if agent_id in RESERVED_AGENT_SLUGS or agent_id.startswith("__"):
+            raise ValueError(f"Agent name '{agent.name}' is reserved")
+
+        # Validate: unique
+        if self._get_agents_collection().find_one({"_id": agent_id}):
+            raise ValueError(f"Agent with ID '{agent_id}' already exists")
 
         doc = {
             "_id": agent_id,

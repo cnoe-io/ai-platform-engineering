@@ -48,26 +48,32 @@ class VictorOpsAgent(BaseLangGraphAgent):
 
     def get_mcp_config(self, server_path: str) -> dict:
         """Return MCP configuration for VictorOps."""
-        victorops_api_url = os.getenv("VICTOROPS_API_URL")
-        if not victorops_api_url:
-            raise ValueError("VICTOROPS_API_URL must be set as an environment variable.")
+        env: dict[str, str] = {}
 
-        x_vo_key = os.getenv("X_VO_API_KEY")
-        if not x_vo_key:
-            raise ValueError("X_VO_API_KEY must be set as an environment variable.")
+        victorops_orgs = os.getenv("VICTOROPS_ORGS")
+        if victorops_orgs:
+            env["VICTOROPS_ORGS"] = victorops_orgs
+        else:
+            victorops_api_url = os.getenv("VICTOROPS_API_URL")
+            if not victorops_api_url:
+                raise ValueError("VICTOROPS_API_URL must be set as an environment variable.")
 
-        x_vo_key_id = os.getenv("X_VO_API_ID")
-        if not x_vo_key_id:
-            raise ValueError("X_VO_API_ID must be set as an environment variable.")
+            x_vo_key = os.getenv("X_VO_API_KEY")
+            if not x_vo_key:
+                raise ValueError("X_VO_API_KEY must be set as an environment variable.")
+
+            x_vo_key_id = os.getenv("X_VO_API_ID")
+            if not x_vo_key_id:
+                raise ValueError("X_VO_API_ID must be set as an environment variable.")
+
+            env["VICTOROPS_API_URL"] = victorops_api_url
+            env["X_VO_API_KEY"] = x_vo_key
+            env["X_VO_API_ID"] = x_vo_key_id
 
         return {
             "command": "uv",
             "args": ["run", "--project", os.path.dirname(server_path), server_path],
-            "env": {
-                "VICTOROPS_API_URL": victorops_api_url,
-                "X_VO_API_KEY": x_vo_key,
-                "X_VO_API_ID": x_vo_key_id,
-            },
+            "env": env,
             "transport": "stdio",
         }
 

@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ai_platform_engineering.multi_agents.platform_engineer.supervisor_agent import AIPlatformEngineerMAS
 from ai_platform_engineering.utils.models.generic_agent import UserPrompt
+from ai_platform_engineering.skills_middleware.router import router as skills_router
+from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +27,10 @@ app.add_middleware(
 )
 
 mas_graph = AIPlatformEngineerMAS()
+set_mas_instance(mas_graph)
+
+# Skills catalog API (GET /skills, POST /skills/refresh, supervisor status, hub crawl)
+app.include_router(skills_router)
 
 
 @app.post("/agent/prompt")

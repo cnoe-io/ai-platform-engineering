@@ -13,7 +13,7 @@ sidebar_label: Architecture
 | **MongoDB as source of truth with YAML seeding (chosen)** | Dynamic CRUD, no redeploy needed, seeding preserves existing workflows | Requires MongoDB dependency | Selected |
 | YAML file only | Simple, version-controlled | Requires rebuild/redeploy for changes, no multi-user | Rejected |
 | Git-backed YAML with auto-sync | Version-controlled, familiar workflow | Complex sync logic, merge conflicts | Rejected |
-| Repurpose existing agent_configs collection | Reuses existing infrastructure | Different schema/purpose, migration risk | Rejected |
+| Repurpose existing agent_skills collection | Reuses existing infrastructure | Different schema/purpose, migration risk | Rejected |
 
 ## Solution Architecture
 

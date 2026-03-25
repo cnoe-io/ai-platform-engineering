@@ -15,8 +15,8 @@
  * - Feedback: renders positive/negative counts with satisfaction bar
  * - Feedback: shows empty state when no feedback given
  * - Skill usage: renders skill categories with run counts and success rates
- * - Skill usage: shows empty state with Browse Agent Skills button
- * - Navigation: Browse Agent Skills navigates to /skills
+ * - Skill usage: shows empty state with Browse skills button
+ * - Navigation: Browse skills navigates to /skills
  * - AuthGuard: wraps page in AuthGuard component
  */
 
@@ -544,21 +544,21 @@ describe('Insights Page', () => {
       render(<Insights />)
 
       await waitFor(() => {
-        expect(screen.getByText('No skill runs yet. Run an Agent Skill to see your usage here.')).toBeInTheDocument()
-        expect(screen.getByText('Browse Agent Skills')).toBeInTheDocument()
+        expect(screen.getByText('No skill runs yet. Run a skill from the skills page to see your usage here.')).toBeInTheDocument()
+        expect(screen.getByText('Browse skills')).toBeInTheDocument()
       })
     })
 
-    it('navigates to skills when Browse Agent Skills is clicked', async () => {
+    it('navigates to skills when Browse skills is clicked', async () => {
       mockFetchSuccess(makeInsightsData({ skill_usage: [] }))
 
       render(<Insights />)
 
       await waitFor(() => {
-        expect(screen.getByText('Browse Agent Skills')).toBeInTheDocument()
+        expect(screen.getByText('Browse skills')).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByText('Browse Agent Skills'))
+      fireEvent.click(screen.getByText('Browse skills'))
       expect(mockPush).toHaveBeenCalledWith('/skills')
     })
 

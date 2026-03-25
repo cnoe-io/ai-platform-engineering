@@ -340,6 +340,7 @@ async def create_application(
     namespace: str = "",
     validate: bool = True,
     upsert: bool = False,
+    directory_recurse: bool = False,
 ) -> Dict[str, Any]:
     """
     Create a new application in ArgoCD
@@ -358,16 +359,20 @@ async def create_application(
         namespace: Application namespace
         validate: Whether to validate the application before creation
         upsert: Whether to update the application if it already exists
+        directory_recurse: Recursively scan subdirectories for manifests (default: False)
 
     Returns:
         The created application details
     """
+    directory = {"recurse": True} if directory_recurse else None
+
     # Create application structure
     app = Application(
         name=name,
         project=project,
         source=ApplicationSource(
-            repo_url=repo_url, path=path, target_revision=revision
+            repo_url=repo_url, path=path, target_revision=revision,
+            directory=directory,
         ),
         destination=ApplicationDestination(
             server=dest_server, namespace=dest_namespace
@@ -612,3 +617,4 @@ async def sync_application(
     else:
         logger.error(f"Failed to sync application '{name}': {response.get('error')}")
         return {"error": response.get("error", f"Failed to sync application '{name}'")}
+

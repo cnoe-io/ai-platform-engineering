@@ -827,23 +827,16 @@ class TestDeepAgentStoreWiring:
 class TestGraphBuilderStoreParam:
     """Tests for store parameter in deepagents/graph.py."""
 
-    def test_agent_builder_accepts_store(self):
-        import inspect
-        from deepagents.graph import _agent_builder
-
-        sig = inspect.signature(_agent_builder)
-        assert "store" in sig.parameters
-
     def test_create_deep_agent_accepts_store(self):
         import inspect
-        from deepagents.graph import create_deep_agent
+        from deepagents import create_deep_agent
 
         sig = inspect.signature(create_deep_agent)
         assert "store" in sig.parameters
 
     def test_async_create_deep_agent_accepts_store(self):
         import inspect
-        from deepagents.graph import async_create_deep_agent
+        from deepagents import async_create_deep_agent
 
         sig = inspect.signature(async_create_deep_agent)
         assert "store" in sig.parameters

@@ -90,6 +90,7 @@ export interface Message {
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug) serialized for persistence
+  sse_events?: any[]; // SSE events for Dynamic Agents (tool_start, tool_end, content, etc.)
   feedback?: MessageFeedback;
 }
 
@@ -244,10 +245,14 @@ export interface AddMessageRequest {
     latency_ms?: number;
     agent_name?: string;
     is_final?: boolean;
+    turn_status?: string; // "done" | "interrupted" | "waiting_for_input"
+    is_interrupted?: boolean;
+    task_id?: string;
     timeline_segments?: any[]; // TimelineSegment[] for plan/thinking/answer reconstruction
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug)
+  sse_events?: any[]; // SSE events for Dynamic Agents (tool_start, tool_end, content, etc.)
 }
 
 export interface UpdateMessageRequest {

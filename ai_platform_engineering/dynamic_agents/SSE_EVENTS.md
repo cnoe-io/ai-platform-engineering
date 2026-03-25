@@ -1,134 +1,70 @@
 # Dynamic Agents SSE Events
 
-Real-time streaming from Dynamic Agents backend to UI.
-
-## Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              BACKEND                                        │
-│                                                                             │
-│  ┌──────────────┐     ┌─────────────────────────────────────────────────┐  │
-│  │  LangGraph   │     │              agent_runtime.py                   │  │
-│  │  astream()   │────>│  stream() / resume()                            │  │
-│  │              │     │    │                                            │  │
-│  │  yields:     │     │    ├─> transform_stream_chunk()  ─┐             │  │
-│  │  (ns,mode,   │     │    │   (from stream_events.py)    │             │  │
-│  │   data)      │     │    │                              v             │  │
-│  └──────────────┘     │    │                    ┌───────────────────┐   │  │
-│                       │    │                    │ stream_events.py  │   │  │
-│                       │    │                    │                   │   │  │
-│                       │    │                    │ make_content()    │   │  │
-│                       │    │                    │ make_tool_start() │   │  │
-│                       │    │                    │ make_tool_end()   │   │  │
-│                       │    │                    │ make_subagent_*() │   │  │
-│                       │    │                    │ make_final_result │   │  │
-│                       │    │<───────────────────│ make_input_req()  │   │  │
-│                       │    │                    └───────────────────┘   │  │
-│                       │    v                                            │  │
-│                       │  yield event ──> [optional event_adapter] ──>   │  │
-│                       └─────────────────────────────────────────────────┘  │
-│                                          │                                  │
-└──────────────────────────────────────────│──────────────────────────────────┘
-                                           │
-                          POST /api/dynamic-agents/chat/stream
-                          Content-Type: text/event-stream
-                                           │
-                                           v
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              FRONTEND                                        │
-│                                                                              │
-│  ┌──────────────────────┐     ┌──────────────────┐     ┌─────────────────┐  │
-│  │ dynamic-agent-       │────>│ sse-types.ts     │────>│ DynamicAgent    │  │
-│  │ client.ts            │     │                  │     │ Context.tsx     │  │
-│  │                      │     │ SSEAgentEvent    │     │                 │  │
-│  │ parseSSEStream()     │     │ type guards      │     │ Events Panel    │  │
-│  └──────────────────────┘     └──────────────────┘     └─────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+Real-time streaming from backend to UI via `POST /api/dynamic-agents/chat/stream`.
 
 ## Event Types
 
-| Event | Trigger | Purpose |
-|-------|---------|---------|
-| `content` | AIMessage chunk | LLM token streaming |
-| `tool_start` | AIMessage.tool_calls | Tool invocation started (includes `write_todos`) |
-| `tool_end` | ToolMessage received | Tool completed |
-| `subagent_start` | task tool called | Subagent delegation started |
-| `subagent_end` | task ToolMessage received | Subagent completed |
-| `final_result` | Stream ends | Full response + metadata |
-| `input_required` | request_user_input called | HITL form needed |
-| `error` | Exception | Error message |
-| `done` | Stream ends | Terminal event |
+| Event | When | Data |
+|-------|------|------|
+| `content` | LLM token | `{text, namespace}` |
+| `tool_start` | Tool invoked | `{tool_name, tool_call_id, args, namespace}` |
+| `tool_end` | Tool finished | `{tool_call_id, namespace}` |
+| `input_required` | HITL needed | `{tool_call_id, tool_name, args}` |
+| `done` | Stream ends | `{}` |
 
-## Todos
+## Known Tools
 
-Todos are handled via `tool_start`/`tool_end` for `write_todos` like any other tool.
-The UI extracts todos from `tool_start.args.todos` when `tool_name === "write_todos"`.
+| Tool | Behavior |
+|------|----------|
+| `write_todos` | UI extracts `args.todos` array and renders todo list |
+| `task` | Spawns subagent; events from subagent have `namespace: [tool_call_id]` |
+| `write_file` | File write; UI may show in files panel |
+| `request_user_input` | Triggers `input_required` event for HITL form |
+| `*` (other) | Rendered as generic tool call in events panel |
 
-For session resume, the UI fetches todos via:
+## Namespace & Subagent Correlation
+
+**Problem**: When `task` spawns a subagent, LangGraph assigns an internal UUID (e.g., `tools:e3b034a3-...`) to namespace subagent events. Clients need to correlate these to the `tool_start` they already received.
+
+**Solution**: Backend uses LangGraph's `tasks` stream mode which emits:
+```python
+{"id": "e3b034a3-...", "input": {"tool_call": {"id": "tooluse_XYZ", "name": "task", ...}}}
 ```
-GET /api/dynamic-agents/conversations/{id}/todos?agent_id=X
+
+We build a mapping `{tools:e3b034a3-... → tooluse_XYZ}` and replace namespaces before emitting SSE events.
+
+**Result**:
+```
+event: tool_start                                       ← subagent spawning
+data: {"tool_name": "task", "tool_call_id": "tooluse_XYZ", ...}
+
+event: content                                          ← subagent streaming
+data: {"text": "Hello", "namespace": ["tooluse_XYZ"]}   ← UI matches to tool_start above
 ```
 
-This returns the persisted todo state from the LangGraph checkpointer.
+Empty `namespace: []` = parent agent. Non-empty = subagent (value matches parent's `tool_call_id`).
 
 ## Files
 
-| File | Responsibility |
-|------|----------------|
-| `stream_events.py` | Event constants, builders (`make_*`), LangGraph→SSE transform |
-| `agent_runtime.py` | Orchestration, calls `transform_stream_chunk()`, yields events |
-| `routes/chat.py` | HTTP endpoint, wraps events as SSE format |
+| File | Role |
+|------|------|
+| `stream_events.py` | `transform_stream_chunk()`, event builders, namespace correlation |
+| `agent_runtime.py` | Calls transform, yields events, manages `namespace_mapping` |
+| `routes/chat.py` | HTTP endpoint, SSE formatting |
 
-## Adding a New Event
+## Adding Events
 
-1. Add constant in `stream_events.py`:
-   ```python
-   MY_EVENT = "my_event"
-   ```
+Keep events lean. Avoid bloat—only add fields clients actually need.
 
-2. Add builder function:
-   ```python
-   def make_my_event(data: str, agent: str) -> dict[str, Any]:
-       logger.debug(f"[sse:{MY_EVENT}] {data}")
-       return {"type": MY_EVENT, "data": {"value": data, "agent": agent}}
-   ```
-
+1. Add constant: `MY_EVENT = "my_event"` in `stream_events.py`
+2. Add builder: `make_my_event(...)` returning `{"type": MY_EVENT, "data": {...}}`
 3. Add detection in `_handle_updates_chunk()` or `_handle_messages_chunk()`
-
 4. Add TypeScript type in `ui/src/components/dynamic-agents/sse-types.ts`
 
-## Caveats
-
-1. **deepagents is read-only** — Cannot modify the `write_todos` or `task` tool implementations. Must work with existing behavior.
-
-2. **Subagents don't stream** — The `task` tool uses `ainvoke()` internally, so subagent work is opaque. We only see start/end events.
-
-3. **Namespace filtering** — `transform_stream_chunk()` ignores chunks with non-empty namespace (subgraph internals). Only parent agent events become SSE events.
-
-4. **ToolMessage content hidden** — Tool results (e.g., RAG JSON) are NOT sent as `content` events. Only AIMessage content reaches the chat.
-
-## Debugging
-
-Enable debug logging to see event emission:
+## Debug
 
 ```python
-import logging
 logging.getLogger("dynamic_agents.services.stream_events").setLevel(logging.DEBUG)
 ```
 
-Events log as: `[sse:tool_start] search_jira id=abc123...`
-
-## Event Format
-
-```
-event: <event_type>
-data: <json>
-
-```
-
-Example `tool_start`:
-```json
-{"type": "tool_start", "data": {"tool_name": "search_jira", "tool_call_id": "call_abc", "args": {"query": "..."}, "agent": "DynamicAgent"}}
-```
+Logs: `[sse:tasks] Mapped tools:abc → tooluse_XYZ`, `[sse:correlate] tools:abc → tooluse_XYZ`

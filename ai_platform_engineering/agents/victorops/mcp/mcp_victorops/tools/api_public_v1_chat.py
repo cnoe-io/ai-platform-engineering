@@ -20,6 +20,7 @@ async def post_api_public_v1_chat(
     body_monitoringTool: str,
     body_incidentId: Optional[float] = None,
     body_tags: Optional[List[str]] = None,
+    org_slug: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Send a chat message into VictorOps
@@ -68,7 +69,7 @@ async def post_api_public_v1_chat(
         flat_body["tags"] = body_tags
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/api-public/v1/chat", method="POST", params=params, data=data)
+    success, response = await make_api_request("/api-public/v1/chat", method="POST", org_slug=org_slug, params=params, data=data)
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")

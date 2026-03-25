@@ -305,9 +305,8 @@ test-mcp-pagerduty: ## Run PagerDuty MCP tests
 	@echo "Running PagerDuty MCP tests..."
 	@cd ai_platform_engineering/agents/pagerduty/mcp && $(MAKE) test
 
-test-mcp-slack: ## Run Slack MCP tests
-	@echo "Running Slack MCP tests..."
-	@cd ai_platform_engineering/agents/slack/mcp && $(MAKE) test
+test-mcp-slack: ## Slack MCP is external (korotovsky/slack-mcp-server) - no local tests
+	@echo "Slack uses the external OSS korotovsky/slack-mcp-server. No local MCP tests."
 
 test-mcp-splunk: ## Run Splunk MCP tests
 	@echo "Running Splunk MCP tests..."

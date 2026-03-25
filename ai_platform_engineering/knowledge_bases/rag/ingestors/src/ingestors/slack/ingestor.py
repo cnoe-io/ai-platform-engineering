@@ -324,14 +324,18 @@ async def sync_slack_channels(client: Client):
     slack_client = WebClient(token=slack_token)
     syncer = SlackChannelSyncer(slack_client, workspace_url)
     
-    # Load timestamps from previous runs (stored in datasource metadata)
+    # Load timestamps and lookback_days from previous runs (stored in datasource metadata)
     existing_datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
     timestamp_map = {}
+    stored_lookback_map = {}
     for ds in existing_datasources:
-        if ds.metadata and "last_ts" in ds.metadata:
+        if ds.metadata:
             # Extract channel_id from datasource_id (format: slack-channel-{channel_id})
-            channel_id = ds.datasource_id.replace("slack-channel-", "")
-            timestamp_map[channel_id] = ds.metadata["last_ts"]
+            ch_id = ds.datasource_id.replace("slack-channel-", "")
+            if "last_ts" in ds.metadata:
+                timestamp_map[ch_id] = ds.metadata["last_ts"]
+            if "lookback_days" in ds.metadata:
+                stored_lookback_map[ch_id] = ds.metadata["lookback_days"]
     
     # Process each channel
     for channel_id, config in channels.items():
@@ -344,7 +348,17 @@ async def sync_slack_channels(client: Client):
         # Create or update datasource
         datasource_id = f"slack-channel-{channel_id}"
         last_ts = timestamp_map.get(channel_id)
-        
+
+        # Detect lookback_days change — if it changed, reset last_ts to force
+        # a full re-fetch with the new lookback window instead of incremental sync
+        stored_lookback = stored_lookback_map.get(channel_id)
+        if stored_lookback is not None and stored_lookback != lookback_days:
+            logger.info(
+                f"lookback_days changed from {stored_lookback} to {lookback_days} "
+                f"for #{channel_name}, resetting last_ts for full re-ingestion"
+            )
+            last_ts = None
+
         # Fetch messages
         messages, newest_ts = syncer.fetch_channel_messages(
             channel_id,

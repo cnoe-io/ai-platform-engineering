@@ -20,7 +20,7 @@ sidebar_label: Architecture
 
 ### What's Well-Covered
 
-- **All 3 store files** — `chat-store.ts`, `agent-config-store.ts`, `workflow-run-store.ts`
+- **All 3 store files** — `chat-store.ts`, `agent-skills-store.ts`, `workflow-run-store.ts`
 - **All 9 hooks** — `use-a2a-streaming`, `use-admin-role`, `use-caipe-health`, `use-prometheus`, `use-rag-health`, `useRagPermissions`, `use-service-health`, `use-user-init`, `use-version`
 - **15 of 16 lib files** — API clients, auth, config, MongoDB, streaming, storage, utils
 - **Core chat components** — `ChatPanel` (2 test files), `AuthGuard`, `FeedbackButton`, `AgentStreamBox`, `SubAgentCard`
@@ -83,7 +83,7 @@ Entire RAG subsystem has 0% test coverage. `IngestView.tsx` is the largest untes
 | `chat/search/route.ts` | High | Query/search with input validation |
 | `chat/bookmarks/route.ts` | Medium | User bookmarks |
 | `workflow-runs/route.ts` | Medium | Workflow execution tracking |
-| `agent-configs/seed/route.ts` | Medium | Seed agent configurations |
+| `agent-skills/seed/route.ts` | Medium | Seed agent skills |
 | `admin/metrics/route.ts` | Medium | Admin-only metrics |
 | `admin/stats/skills/route.ts` | Medium | Admin-only stats |
 | `users/me/route.ts` | Medium | Current user profile |
