@@ -86,6 +86,7 @@ async def list_agents(
         user_teams=user.groups,
         include_disabled=user.is_admin,
         admin_view=user.is_admin,
+        user=user,
     )
 
     # Apply pagination

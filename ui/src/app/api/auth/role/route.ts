@@ -33,6 +33,5 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     role,
     email: session.user.email,
-    // Note: groups are extracted client-side from idToken to avoid oversized cookies
   }, { status: 200 });
 }

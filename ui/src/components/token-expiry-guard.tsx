@@ -31,6 +31,8 @@ export function TokenExpiryGuard() {
   const dismissedForExpiryRef = useRef<number | null>(null);
   /** Tracks whether a silent refresh is in flight to prevent concurrent attempts. */
   const isRefreshingRef = useRef(false);
+  /** Cooldown: timestamp of the last successful refresh to prevent rapid re-refresh loops. */
+  const lastRefreshAtRef = useRef<number>(0);
 
   // Handle logout
   const handleLogout = useCallback(async () => {
@@ -93,12 +95,17 @@ export function TokenExpiryGuard() {
       return false;
     }
 
+    const now = Date.now();
+    const COOLDOWN_MS = 60_000;
+    if (now - lastRefreshAtRef.current < COOLDOWN_MS) {
+      return false;
+    }
+
     isRefreshingRef.current = true;
     try {
       console.log("[TokenExpiryGuard] Attempting silent token refresh...");
-      // updateSession() triggers NextAuth to re-run the JWT callback server-side.
-      // If the token is near expiry, the JWT callback calls refreshAccessToken().
       await updateSession();
+      lastRefreshAtRef.current = Date.now();
       console.log("[TokenExpiryGuard] Silent refresh triggered successfully");
       return true;
     } catch (error) {

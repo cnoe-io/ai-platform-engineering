@@ -26,6 +26,9 @@ import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
+import { RolesAccessTab } from "@/components/admin/RolesAccessTab";
+import { SlackUsersTab } from "@/components/admin/SlackUsersTab";
+import { SlackChannelMappingTab } from "@/components/admin/SlackChannelMappingTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
 import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
@@ -193,7 +196,7 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'roles', 'slack'];
 
 function AdminPage() {
   const { status } = useSession();
@@ -303,6 +306,7 @@ function AdminPage() {
   const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
   const [statsRefreshing, setStatsRefreshing] = useState(false);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
+  const [slackSubTab, setSlackSubTab] = useState<"slack-users" | "slack-channels">("slack-users");
 
   useEffect(() => {
     // Fetch admin data when authenticated or when SSO is disabled (local dev)
@@ -758,59 +762,72 @@ function AdminPage() {
               params.set('tab', tab);
               router.replace(`${pathname}?${params.toString()}`, { scroll: false });
             }} className="space-y-4">
-              <TabsList className={`grid w-full ${(() => {
-                const n = 6
-                  + (getConfig('feedbackEnabled') ? 1 : 0)
-                  + (getConfig('npsEnabled') ? 1 : 0)
-                  + (auditLogsEnabled && isAdmin ? 1 : 0)
-                  + (isAdmin ? 1 : 0);
-                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10' };
-                return cols[n] ?? 'grid-cols-6';
-              })()}`}>
-                <TabsTrigger value="users" className="gap-2">
+              <TabsList className="flex w-full overflow-x-auto justify-start gap-0">
+                {/* People & Access */}
+                <TabsTrigger value="users" className="gap-1.5 shrink-0">
                   <Users className="h-4 w-4" />
                   Users
                 </TabsTrigger>
-                <TabsTrigger value="teams" className="gap-2">
+                <TabsTrigger value="teams" className="gap-1.5 shrink-0">
                   <UsersIcon className="h-4 w-4" />
                   Teams
                 </TabsTrigger>
-                <TabsTrigger value="skills" className="gap-2">
+                {isAdmin && (
+                  <TabsTrigger value="roles" className="gap-1.5 shrink-0">
+                    <Shield className="h-4 w-4" />
+                    Roles
+                  </TabsTrigger>
+                )}
+                {isAdmin && (
+                  <TabsTrigger value="slack" className="gap-1.5 shrink-0">
+                    <MessageSquare className="h-4 w-4" />
+                    Slack Integration
+                  </TabsTrigger>
+                )}
+
+                <div className="mx-1 h-6 w-px bg-border self-center shrink-0" aria-hidden="true" />
+
+                {/* Insights */}
+                <TabsTrigger value="skills" className="gap-1.5 shrink-0">
                   <Layers className="h-4 w-4" />
                   Skills
                 </TabsTrigger>
                 {getConfig('feedbackEnabled') && (
-                <TabsTrigger value="feedback" className="gap-2">
-                  <ThumbsUp className="h-4 w-4" />
-                  Feedback
-                </TabsTrigger>
+                  <TabsTrigger value="feedback" className="gap-1.5 shrink-0">
+                    <ThumbsUp className="h-4 w-4" />
+                    Feedback
+                  </TabsTrigger>
                 )}
                 {getConfig('npsEnabled') && (
-                <TabsTrigger value="nps" className="gap-2">
-                  <Star className="h-4 w-4" />
-                  NPS
-                </TabsTrigger>
+                  <TabsTrigger value="nps" className="gap-1.5 shrink-0">
+                    <Star className="h-4 w-4" />
+                    NPS
+                  </TabsTrigger>
                 )}
-                <TabsTrigger value="stats" className="gap-2">
+                <TabsTrigger value="stats" className="gap-1.5 shrink-0">
                   <TrendingUp className="h-4 w-4" />
                   Statistics
                 </TabsTrigger>
-                <TabsTrigger value="metrics" className="gap-2">
+
+                <div className="mx-1 h-6 w-px bg-border self-center shrink-0" aria-hidden="true" />
+
+                {/* Platform */}
+                <TabsTrigger value="metrics" className="gap-1.5 shrink-0">
                   <Activity className="h-4 w-4" />
                   Metrics
                 </TabsTrigger>
-                <TabsTrigger value="health" className="gap-2">
+                <TabsTrigger value="health" className="gap-1.5 shrink-0">
                   <Database className="h-4 w-4" />
                   Health
                 </TabsTrigger>
                 {auditLogsEnabled && isAdmin && (
-                  <TabsTrigger value="audit-logs" className="gap-2">
+                  <TabsTrigger value="audit-logs" className="gap-1.5 shrink-0">
                     <FileText className="h-4 w-4" />
-                    Audit Logs
+                    Audits
                   </TabsTrigger>
                 )}
                 {isAdmin && (
-                  <TabsTrigger value="policy" className="gap-2">
+                  <TabsTrigger value="policy" className="gap-1.5 shrink-0">
                     <Shield className="h-4 w-4" />
                     Policy
                   </TabsTrigger>
@@ -2368,6 +2385,33 @@ function AdminPage() {
               {isAdmin && (
                 <TabsContent value="policy" className="space-y-4">
                   <PolicyTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+              {isAdmin && (
+                <TabsContent value="roles" className="space-y-4">
+                  <RolesAccessTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+              {isAdmin && (
+                <TabsContent value="slack" className="space-y-4">
+                  <Tabs value={slackSubTab} onValueChange={(v) => setSlackSubTab(v as "slack-users" | "slack-channels")} className="space-y-4">
+                    <TabsList className="w-full sm:w-auto justify-start">
+                      <TabsTrigger value="slack-users" className="gap-1.5">
+                        <Users className="h-4 w-4" />
+                        Slack users
+                      </TabsTrigger>
+                      <TabsTrigger value="slack-channels" className="gap-1.5">
+                        <Layers className="h-4 w-4" />
+                        Channel mappings
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="slack-users" className="mt-4">
+                      <SlackUsersTab isAdmin={isAdmin} />
+                    </TabsContent>
+                    <TabsContent value="slack-channels" className="mt-4">
+                      <SlackChannelMappingTab isAdmin={isAdmin} />
+                    </TabsContent>
+                  </Tabs>
                 </TabsContent>
               )}
             </Tabs>

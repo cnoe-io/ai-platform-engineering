@@ -179,6 +179,153 @@ export function requireAdminView(session: { role?: string; canViewAdmin?: boolea
 }
 
 // ============================================================================
+// Enterprise RBAC (098) — Keycloak Authorization Services
+// ============================================================================
+
+import { checkPermission } from '@/lib/rbac/keycloak-authz';
+import { logAuthzDecision } from '@/lib/rbac/audit';
+import { deniedApiResponse } from '@/lib/rbac/error-responses';
+import { evaluate as evalCel } from '@/lib/rbac/cel-evaluator';
+import type { RbacResource, RbacScope } from '@/lib/rbac/types';
+
+function parseCelRbacExpressions(): Record<string, string> {
+  const raw = process.env.CEL_RBAC_EXPRESSIONS?.trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+      }
+      return out;
+    }
+  } catch (e) {
+    console.warn('[CEL] Invalid CEL_RBAC_EXPRESSIONS JSON — ignoring map:', e);
+  }
+  return {};
+}
+
+function decodeJwtPayload(accessToken: string): Record<string, unknown> {
+  try {
+    const parts = accessToken.split('.');
+    if (parts.length < 2) return {};
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = Buffer.from(b64, 'base64').toString('utf8');
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function buildRbacCelContext(
+  session: { accessToken?: string; sub?: string; org?: string },
+  resource: RbacResource,
+  scope: RbacScope,
+  extra?: Record<string, unknown>
+): Record<string, unknown> {
+  const payload = session.accessToken ? decodeJwtPayload(session.accessToken) : {};
+  const ra = (payload.realm_access as { roles?: string[] } | undefined)?.roles;
+  const roles = Array.isArray(ra) ? [...ra] : [];
+  const teams: string[] = [];
+  const baseResource = {
+    id: '',
+    type: resource,
+    visibility: '',
+    owner_id: '',
+    shared_with_teams: teams as string[],
+  };
+  const resourceObj =
+    extra?.resource && typeof extra.resource === 'object'
+      ? { ...baseResource, ...(extra.resource as Record<string, unknown>) }
+      : baseResource;
+  return {
+    user: {
+      email: String(payload.email ?? payload.preferred_username ?? session.sub ?? ''),
+      teams,
+      roles,
+    },
+    resource: resourceObj,
+    action: typeof extra?.action === 'string' ? extra.action : scope,
+  };
+}
+
+/**
+ * Require a specific RBAC permission via Keycloak AuthZ Services (PDP-1).
+ *
+ * Calls Keycloak's UMA ticket grant to verify the user's access token has
+ * the required {resource}#{scope} permission. Logs an audit event for every
+ * allow/deny decision. Throws 403 on deny, 503 if Keycloak is unreachable.
+ */
+export async function requireRbacPermission(
+  session: { accessToken?: string; sub?: string; org?: string },
+  resource: RbacResource,
+  scope: RbacScope,
+  celContext?: Record<string, unknown>
+): Promise<void> {
+  const accessToken = session.accessToken;
+
+  if (!accessToken) {
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: session.sub ?? 'unknown',
+      resource,
+      scope,
+      outcome: 'deny',
+      reasonCode: 'DENY_NO_TOKEN',
+      pdp: 'keycloak',
+    });
+    throw new ApiError('Authentication required', 401);
+  }
+
+  const result = await checkPermission({ resource, scope, accessToken });
+
+  const outcome = result.allowed ? 'allow' : 'deny';
+  const reasonCode = result.allowed
+    ? 'OK'
+    : (result.reason === 'DENY_PDP_UNAVAILABLE' ? 'DENY_PDP_UNAVAILABLE' : 'DENY_NO_CAPABILITY');
+
+  logAuthzDecision({
+    tenantId: session.org ?? 'unknown',
+    sub: session.sub ?? 'unknown',
+    resource,
+    scope,
+    outcome,
+    reasonCode,
+    pdp: 'keycloak',
+  });
+
+  if (result.reason === 'DENY_PDP_UNAVAILABLE') {
+    throw new ApiError('Authorization service unavailable — access denied (fail-closed)', 503);
+  }
+
+  if (!result.allowed) {
+    const denial = deniedApiResponse(resource, scope);
+    throw new ApiError(denial.message, 403, denial.capability);
+  }
+
+  const celMap = parseCelRbacExpressions();
+  const celKey = `${resource}#${scope}`;
+  const celExpr = celMap[celKey];
+  if (celExpr) {
+    const ctx = buildRbacCelContext(session, resource, scope, celContext);
+    const ok = evalCel(celExpr, ctx);
+    if (!ok) {
+      logAuthzDecision({
+        tenantId: session.org ?? 'unknown',
+        sub: session.sub ?? 'unknown',
+        resource,
+        scope,
+        outcome: 'deny',
+        reasonCode: 'DENY_CEL',
+        pdp: 'keycloak',
+      });
+      throw new ApiError('Policy denied (CEL)', 403, 'CEL_DENIED');
+    }
+  }
+}
+
+// ============================================================================
 // Error Handling
 // ============================================================================
 

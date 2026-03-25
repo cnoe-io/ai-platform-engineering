@@ -42,7 +42,19 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
+from server.rbac import (
+  get_user_or_anonymous,
+  require_role,
+  has_permission,
+  get_permissions,
+  is_trusted_request,
+  UserInfoCache,
+  set_userinfo_cache,
+  get_auth_manager,
+  _authenticate_from_token,
+  check_kb_datasource_access,
+  inject_kb_filter,
+)
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
@@ -568,18 +580,27 @@ async def delete_ingestor(ingestor_id: str, user: UserContext = Depends(require_
 
 
 @app.post("/v1/datasource", status_code=status.HTTP_202_ACCEPTED)
-async def upsert_datasource(datasource_info: DataSourceInfo, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def upsert_datasource(
+  datasource_info: DataSourceInfo,
+  request: Request,
+  user: UserContext = Depends(require_role(Role.INGESTONLY)),
+):
   """Create or update datasource metadata entry."""
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
+  await check_kb_datasource_access(request, user, datasource_info.datasource_id, "ingest")
   await metadata_storage.store_datasource_info(datasource_info)
 
   return status.HTTP_202_ACCEPTED
 
 
 @app.delete("/v1/datasource", status_code=status.HTTP_200_OK)
-async def delete_datasource(datasource_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
+async def delete_datasource(
+  datasource_id: str,
+  request: Request,
+  user: UserContext = Depends(require_role(Role.ADMIN)),
+):
   """Delete datasource from vector storage and metadata."""
 
   # Check initialization
@@ -587,6 +608,8 @@ async def delete_datasource(datasource_id: str, user: UserContext = Depends(requ
     raise HTTPException(status_code=500, detail="Server not initialized")
   if graph_rag_enabled and not data_graph_db:
     raise HTTPException(status_code=500, detail="Server not initialized")
+
+  await check_kb_datasource_access(request, user, datasource_id, "admin")
 
   # Fetch datasource info
   datasource_info = await metadata_storage.get_datasource_info(datasource_id)
@@ -1021,6 +1044,46 @@ async def add_job_errors(job_id: str, error_messages: List[str], user: UserConte
 
 
 # ============================================================================
+# Query Endpoint
+# ============================================================================
+
+
+@app.post("/v1/query", response_model=List[QueryResult])
+async def query_documents(
+  query_request: QueryRequest,
+  request: Request,
+  user: UserContext = Depends(require_role(Role.READONLY)),
+):
+  """Query for relevant documents using semantic search in the unified collection."""
+
+  # Enforce max results limit
+  if query_request.limit > max_results_per_query:
+    raise HTTPException(status_code=400, detail=f"Query limit exceeds maximum allowed of {max_results_per_query} results.")
+
+  # If weighted ranker specified but no weights then use default weights
+  if query_request.ranker_type == "weighted":
+    if query_request.ranker_params is None:
+      query_request.ranker_params = {"weights": [0.7, 0.3]}  # More weight to dense (semantic) score
+
+  # If no ranker specified then set ranker params to None
+  if not query_request.ranker_type or query_request.ranker_type == "":
+    query_request.ranker_params = None
+
+  tenant_id = request.headers.get("X-Tenant-Id") or "default"
+  if await inject_kb_filter(query_request, user, tenant_id, request):
+    return []
+
+  results = await vector_db_query_service.query(
+    query=query_request.query,
+    filters=query_request.filters,
+    limit=query_request.limit,
+    ranker=query_request.ranker_type,
+    ranker_params=query_request.ranker_params,
+  )
+  return results
+
+
+# ============================================================================
 # Ingestion Endpoints
 # ============================================================================
 
@@ -1296,11 +1359,16 @@ async def reload_all_confluence_pages(user: UserContext = Depends(require_role(R
 
 
 @app.post("/v1/ingest")
-async def ingest_documents(ingest_request: DocumentIngestRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def ingest_documents(
+  ingest_request: DocumentIngestRequest,
+  request: Request,
+  user: UserContext = Depends(require_role(Role.INGESTONLY)),
+):
   """Updates/Ingests text and graph data to the appropriate databases"""
 
   if not vector_db or not metadata_storage or not ingestor or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
+  await check_kb_datasource_access(request, user, ingest_request.datasource_id, "ingest")
   logger.info(f"Starting data ingestion for datasource: {ingest_request.datasource_id}")
 
   # Check if datasource exists

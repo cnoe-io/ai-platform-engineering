@@ -54,6 +54,9 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
     if (session?.accessToken) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
     }
+    if (session?.org) {
+      headers['X-Tenant-Id'] = session.org;
+    }
   } catch (error) {
     // If session retrieval fails, continue without auth headers
     // RAG server may still allow access from trusted networks or anonymous users

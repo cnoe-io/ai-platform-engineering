@@ -187,6 +187,7 @@ def stream_a2a_response(
   additional_footer=None,
   overthink_mode=False,
   escalation_config=None,
+  platform_team_id=None,
 ):
   """
   Stream an A2A response to Slack.
@@ -330,6 +331,7 @@ def stream_a2a_response(
       message_text=message_text,
       context_id=context_id,
       metadata=metadata,
+      x_team_id=platform_team_id,
     ):
       if thread_deleted:
         logger.info(f"[{thread_ts}] Thread deleted — stopping A2A stream processing")
@@ -1222,6 +1224,7 @@ def handle_ai_alert_processing(
   session_manager,
   custom_prompt=None,
   escalation_config=None,
+  platform_team_id=None,
 ):
   """AI-powered alert processing."""
   alert_text = event.get("text", "")
@@ -1285,6 +1288,7 @@ def handle_ai_alert_processing(
     },
     session_manager=session_manager,
     escalation_config=escalation_config,
+    platform_team_id=platform_team_id,
   )
 
   logger.info(f"[{thread_ts}] AI processed alert from {bot_username}")

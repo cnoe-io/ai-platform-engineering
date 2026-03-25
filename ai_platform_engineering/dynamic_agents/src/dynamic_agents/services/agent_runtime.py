@@ -79,6 +79,7 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._event_adapter = event_adapter
+        self._auth_bearer: str | None = (user.obo_jwt or user.access_token) if user else None
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
@@ -115,7 +116,12 @@ class AgentRuntime:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
         else:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+            )
 
             if not connections:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
@@ -410,8 +416,11 @@ class AgentRuntime:
 
         config["context"] = AgentContext(
             user_id=user_id,
+            user_name=self._user.name if self._user else None,
+            user_groups=list(self._user.groups) if self._user else [],
             agent_config_id=self.config.id,
             session_id=session_id,
+            obo_jwt=self._auth_bearer,
         )
 
         if "metadata" not in config:

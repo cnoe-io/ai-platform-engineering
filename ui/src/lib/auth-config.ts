@@ -17,9 +17,10 @@ import { decodeJwt } from "jose";
  *     - Single value: "memberOf"
  *     - Comma-separated: "groups,members,roles" (all checked, results combined)
  *     - Empty/unset: auto-detect from common claim names
- * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
+ * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access"; set to empty to disable)
  * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
+ * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
  */
 
 // Check if refresh token support should be enabled
@@ -423,7 +424,8 @@ export const authOptions: NextAuthOptions = {
         params: {
           scope: ENABLE_REFRESH_TOKEN
             ? "openid email profile groups offline_access"
-            : "openid email profile groups"
+            : "openid email profile groups",
+          ...(process.env.OIDC_IDP_HINT ? { kc_idp_hint: process.env.OIDC_IDP_HINT } : {}),
         }
       },
       idToken: true,
@@ -447,10 +449,15 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, account, profile, trigger }) {
-      // Initial sign in - persist the OAuth tokens
+      // Strip idToken from existing sessions — it adds ~1KB and pushes
+      // the cookie over the 4096-byte limit, causing chunking loops.
+      if (token.idToken) {
+        delete token.idToken;
+      }
+
+      // Initial sign in - persist the OAuth tokens (NOT id_token).
       if (account) {
         token.accessToken = account.access_token;
-        token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
 
@@ -496,6 +503,17 @@ export const authOptions: NextAuthOptions = {
         token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
+        // Extract Keycloak realm_access.roles (098 RBAC)
+        const realmAccess = profileData.realm_access as { roles?: string[] } | undefined;
+        if (realmAccess?.roles) {
+          token.realmRoles = realmAccess.roles;
+        }
+
+        // Extract org claim for multi-tenant isolation (FR-020)
+        if (typeof profileData.org === "string") {
+          token.org = profileData.org;
+        }
+
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
         console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
@@ -503,6 +521,12 @@ export const authOptions: NextAuthOptions = {
         console.log('[Auth JWT] User role:', token.role);
         console.log('[Auth JWT] Can view admin:', token.canViewAdmin);
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
+        if (token.realmRoles) {
+          console.log('[Auth JWT] Keycloak realm roles:', token.realmRoles);
+        }
+        if (token.org) {
+          console.log('[Auth JWT] Org (tenant):', token.org);
+        }
       }
 
       // NOTE: When trigger === "update" (from updateSession() or refetchInterval),
@@ -606,10 +630,8 @@ export const authOptions: NextAuthOptions = {
 
       // Only pass tokens if they're valid (not expired)
       if (!token.error) {
-        // Store access token and ID token for client-side use
         session.accessToken = token.accessToken as string;
-        session.idToken = token.idToken as string; // Needed for decoding groups/claims client-side
-        session.hasRefreshToken = !!token.refreshToken; // Indicate if refresh token is available
+        session.hasRefreshToken = !!token.refreshToken;
       }
 
       session.error = token.error as string | undefined;
@@ -645,6 +667,10 @@ export const authOptions: NextAuthOptions = {
       // We don't store profile in token anymore (saves session cookie size)
       // Just pass through the sub if available
       session.sub = token.sub as string | undefined;
+
+      // 098 RBAC: Keycloak realm roles and org claim for enterprise RBAC
+      session.realmRoles = token.realmRoles as string[] | undefined;
+      session.org = token.org as string | undefined;
 
       return session;
     },
@@ -724,36 +750,34 @@ export const authOptions: NextAuthOptions = {
 declare module "next-auth" {
   interface Session {
     accessToken?: string;
-    idToken?: string; // Needed for client-side group extraction (not stored in cookie, fetched on demand)
-    hasRefreshToken?: boolean; // Whether refresh token is available
+    hasRefreshToken?: boolean;
     error?: string;
-    // groups removed from session - too large (40+ groups = 8KB cookie!)
-    // Instead, extract groups client-side from idToken when needed
     isAuthorized?: boolean;
-    sub?: string; // User subject ID from OIDC
-    expiresAt?: number; // Access token expiry (Unix timestamp)
-    refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
+    sub?: string;
+    expiresAt?: number;
+    refreshTokenExpiresAt?: number;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
     canAccessDynamicAgents?: boolean; // Whether user can access custom agents
+    realmRoles?: string[];  // Keycloak realm_access.roles (098 RBAC)
+    org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }
 
 declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
-    idToken?: string;
     refreshToken?: string;
     expiresAt?: number;
     refreshTokenExpiresAt?: number;
     error?: string;
-    // groups removed - too large (40+ groups = 8KB cookie!)
-    // profile removed - not needed
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean;
     canAccessDynamicAgents?: boolean;
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
     refreshSuppressedUntil?: number; // Unix timestamp — skip refresh attempts until this time (set after graceful invalid_grant)
+    realmRoles?: string[];  // Keycloak realm_access.roles (098 RBAC)
+    org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }
