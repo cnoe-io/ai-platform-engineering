@@ -319,14 +319,19 @@
 - **User Story 6 (Phase 8, P2)**: Depends on Foundational (Phase 2); can run in parallel with US2/US3
 - **Polish (Phase 9)**: Depends on all user stories being functionally complete
 - **User Story 7 (Phase 10, P1)**: Depends on Foundational (Phase 2) and Keycloak realm config (T007); can run in parallel with US1/US5; benefits from US3 (T046 TeamKbOwnership model) but can stub MongoDB lookups initially
+- **User Story 8 (Phase 11, P1)**: Depends on Foundational (Phase 2) and Keycloak realm config (T007); benefits from Phase 10 CEL patterns; can run in parallel with US1/US5/US7 after Phase 2
+- **User Story 9 (Phase 12, P2)**: Depends on Foundational (Phase 2) and Slack identity linking (Phase 4 / FR-025); can run in parallel with US6/US7/US8 after Phase 4 complete
 
 ### User Story Dependencies
 
 - **US1 (P1)**: Requires Phase 2 only — no dependency on other stories
 - **US5 (P1)**: Requires Phase 2 only — independent of US1 but benefits from shared Keycloak realm config
 - **US7 (P1)**: Requires Phase 2 (Keycloak realm config, OIDC setup); independent of US1/US5; benefits from US3 T046 (TeamKbOwnership model) for hybrid access
+- **US8 (P1)**: Requires Phase 2 (Keycloak realm config); benefits from US7 Phase 10 CEL patterns (T130 RAG CEL); T128 (CEL library) is a shared prerequisite for T130/T131/T135; can start T137 (AgentRuntime OBO) early, independent of CEL work
 - **US2 (P2)**: Requires Phase 2; benefits from US1 BFF middleware (T023) being complete for consistent enforcement
 - **US3 (P2)**: Requires Phase 2; independent of US1/US2 but uses same Keycloak AuthZ client
+- **US6 (P2)**: Requires Phase 2; can run in parallel with US2/US3
+- **US9 (P2)**: Requires Phase 2 + US5 Phase 4 (Slack identity linking / FR-025); T141–T146 (bot channel mapper) require Slack bot middleware from US1/US5; T147–T152 (Admin UI) require Keycloak Admin client from US6 T106; can run in parallel with US6/US7/US8
 - **US4 (P3)**: Requires Phase 2 + audit loggers; benefits from US1 + US5 providing real audit events to query
 
 ### Within Each User Story
@@ -347,6 +352,8 @@
 - Within US3: T046+T047 (MongoDB model + Keycloak AuthZ resources) in parallel
 - Phase 10 (US7): T117+T120 in parallel (models + realm config); T118 after T117; T119 after T118; T121 after T117; T122 after T121+T119; T123 after T122; T124 after T123; T125 after T124; T126 after T123; T127 independent
 - Phase 8 (US6): T106+T107+T108 in parallel (keycloak-admin client + BFF routes); T109 after T110; T111+T112+T113+T114 after BFF routes
+- Phase 11 (US8): T128+T129 in parallel (Python + TS CEL libraries); T130+T131 after T128/T129; T132 parallel with T128; T133 after T132; T134 after T132; T135 after T128; T136 after T135; T137 independent (start early); T138+T139 after T137; T140 after T138
+- Phase 12 (US9): T141 first (schema); T142 after T141; T143 after T142; T144 after T143; T145+T146 after T142; T147+T148+T149 in parallel (BFF API routes); T150+T151 in parallel (UI components); T152 after T150+T151
 - Phase 9: 9 sub-sections; within each, [P]-marked tasks run in parallel:
   - 9A (multi-tenant): T058+T059 in parallel; T060+T061 in parallel
   - 9B (edge cases): T063+T064+T065+T066+T067 in parallel
@@ -378,27 +385,30 @@ Task T033: "Wire identity linking into Slack bot entry in ai_platform_engineerin
 
 ## Implementation Strategy
 
-### MVP First (US1 + US5 + US7 — P1 only)
+### MVP First (US1 + US5 + US7 + US8 — P1 only)
 
 1. Complete Phase 1: Setup (T001–T006)
 2. Complete Phase 2: Foundational (T007–T020) — **critical path**
 3. Complete Phase 3: User Story 1 (T021–T029) — admin governance
 4. Complete Phase 4: User Story 5 (T030–T038) — OBO delegation
 5. Complete Phase 10: User Story 7 (T116–T127) — RAG Keycloak RBAC + per-KB access
-6. **STOP and VALIDATE**: Test US1 + US5 + US7 against quickstart.md
-7. Deploy/demo: admin roles govern Slack + UI, bot delegates as user, RAG enforces per-KB access
+6. Complete Phase 11: User Story 8 (T128–T140) — Dynamic agent RBAC + CEL mandate
+7. **STOP and VALIDATE**: Test US1 + US5 + US7 + US8 against quickstart.md
+8. Deploy/demo: admin roles govern Slack + UI, bot delegates as user, RAG + dynamic agents enforce RBAC
 
 ### Incremental Delivery
 
 1. Setup + Foundational → Foundation ready
 2. Add US1 → Admin governance MVP → Deploy/Demo
 3. Add US5 → OBO delegation → Deploy/Demo
-4. Add US7 → RAG Keycloak RBAC + per-KB access → Deploy/Demo (P1 complete)
-5. Add US2 → Conditional UI → Deploy/Demo
-6. Add US3 → Team RAG tools → Deploy/Demo (P2 complete)
-7. Add US6 → RBAC Admin UI → Deploy/Demo (P2 roles complete)
-8. Add US4 → Audit + compliance → Deploy/Demo (P3 complete)
-9. Polish → Multi-tenant isolation, edge-case hardening, operator guide, performance, security, CI → Final release
+4. Add US7 → RAG Keycloak RBAC + per-KB access → Deploy/Demo
+5. Add US8 → Dynamic agent RBAC + CEL → Deploy/Demo (P1 complete)
+6. Add US2 → Conditional UI → Deploy/Demo
+7. Add US3 → Team RAG tools → Deploy/Demo
+8. Add US6 → RBAC Admin UI → Deploy/Demo
+9. Add US9 → Slack channel RBAC + Admin dashboard → Deploy/Demo (P2 complete)
+10. Add US4 → Audit + compliance → Deploy/Demo (P3 complete)
+11. Polish → Multi-tenant isolation, edge-case hardening, operator guide, performance, security, CI → Final release
 
 ### Parallel Team Strategy
 
@@ -409,10 +419,13 @@ With multiple developers:
    - Developer A: User Story 1 (admin governance)
    - Developer B: User Story 5 (OBO delegation)
    - Developer C: User Story 7 (RAG Keycloak RBAC + per-KB access)
+   - Developer D: User Story 8 (dynamic agent RBAC + CEL) — can start T137 early
 3. Once P1 stories complete:
    - Developer A: User Story 2 (conditional UI)
    - Developer B: User Story 3 (team RAG tools)
-4. Developer C: User Story 4 (audit)
+   - Developer C: User Story 6 (RBAC Admin UI)
+   - Developer D: User Story 9 (Slack channel RBAC + Admin dashboard)
+4. Developer A or B: User Story 4 (audit)
 5. All converge for Polish phase
 
 ---
