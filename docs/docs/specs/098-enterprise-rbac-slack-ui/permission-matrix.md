@@ -37,6 +37,12 @@
 | `dynamic_agent` | `dynamic_agent#delete` | Delete agent + cleanup KC resource | `agent_admin:<id>` or owner | Dynamic Agents API | CEL | Per-agent scoped |
 | `dynamic_agent` | `dynamic_agent#create` | Create new agent + sync KC resource | `team_member` or `admin` | Dynamic Agents API | Keycloak + CEL | — |
 | `dynamic_agent` | `dynamic_agent#mcp.invoke` | Agent's MCP tool call (via deepagent) | User's OBO JWT roles | AG proxy | AG CEL | FR-030; same as `mcp#invoke` |
+| `slack_channel` | `slack_channel#scope` | Bot command in linked channel scoped to team | `chat_user` + `team_member(linked-team)` | Slack Bot | Keycloak AuthZ + MongoDB mapping | Channel = context only, not permission (FR-031) |
+| `slack_channel` | `slack_channel#map.create` | Create channel-to-team mapping | `admin` | Admin UI API | Keycloak AuthZ | Admin UI only; bot never writes (FR-031, FR-032) |
+| `slack_channel` | `slack_channel#map.delete` | Remove channel-to-team mapping | `admin` | Admin UI API | Keycloak AuthZ | FR-032 |
+| `slack_channel` | `slack_channel#map.view` | View channel-to-team mappings | `admin` | Admin UI API | Keycloak AuthZ | FR-032 |
+| `slack_admin` | `slack_admin#users.view` | View Slack user bootstrapping dashboard | `admin` | Admin UI API | Keycloak AuthZ | Full operational view (FR-032) |
+| `slack_admin` | `slack_admin#users.relink` | Trigger re-link prompt or revoke link | `admin` | Admin UI API | Keycloak Admin API | FR-032 |
 | `sub_agent` | `sub_agent#invoke` | Dispatch sub-agent | `chat_user` | AG proxy | AG | Composable with ASP |
 | `sub_agent` | `sub_agent#configure` | Configure sub-agents | `admin` | UI BFF | Keycloak | — |
 | `sub_agent` | `sub_agent#admin` | Full sub-agent admin | `admin` | UI BFF / AG | Both | — |
@@ -119,6 +125,8 @@ user.roles.exists(r, r == "admin")
 | Dynamic agent operations | Dynamic Agents service | CEL evaluator + Keycloak resources + per-agent roles + MongoDB visibility (FR-028, FR-029) |
 | Dynamic agent MCP calls | Agent Gateway | CEL policy + OBO JWT; deepagent MCP calls route through AG (FR-030) |
 | BFF RBAC middleware | Next.js BFF | CEL evaluator extends `requireRbacPermission` (FR-029) |
+| Slack channel-to-team scoping | Slack Bot | Channel mapping from MongoDB (60s cache) + Keycloak role check; deny with explanation if user lacks team role (FR-031) |
+| Slack admin dashboard | Admin UI API | Keycloak AuthZ for admin access; Keycloak Admin API for user data; MongoDB for channel mappings (FR-032) |
 
 ## Composition Rules (FR-012)
 

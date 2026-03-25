@@ -451,6 +451,8 @@ With multiple developers:
 | FR-028 | Dynamic agent RBAC (three-layer) | T132, T133, T134, T135, T136 |
 | FR-029 | CEL as mandated policy engine | T128, T129, T130, T131 |
 | FR-030 | Dynamic agent MCP routing via AG | T137, T138, T139, T140 |
+| FR-031 | Slack channel-to-team scope mapping | T141, T142, T143, T144, T145, T146 |
+| FR-032 | Admin UI Slack management dashboard | T147, T148, T149, T150, T151, T152 |
 
 | SC | Verification | Tasks |
 |----|-------------|-------|
@@ -498,6 +500,32 @@ With multiple developers:
 - [ ] T138 [US8] Configure deepagent MCP client to route through Agent Gateway — update MCP client config to use AG URL (from env/config) instead of direct MCP server URLs. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/agent_runtime.py`
 - [ ] T139 [US8] Forward OBO JWT as `Authorization: Bearer` header to AG from MCP client — attach user's OBO JWT to all outbound MCP requests from LangGraph nodes. *Files*: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/agent_runtime.py`
 - [ ] T140 [US8] Add AG CEL rules for dynamic agent tool invocations — add policy rules in `deploy/agentgateway/config.yaml` for dynamic agent MCP tool access patterns. Validate that CEL evaluates user roles against tool permissions. *Files*: `deploy/agentgateway/config.yaml`
+
+---
+
+## Phase 12: User Story 9 — Slack Channel-to-Team RBAC + Admin UI Slack Dashboard (Priority: P2)
+
+> **Depends on**: Phase 2 (Keycloak realm), Phase 3 (Slack identity linking / FR-025)
+> **Can run in parallel with**: US6/US7/US8 after Phase 3 complete
+> **FR coverage**: FR-031 (T141–T146), FR-032 (T147–T152)
+
+### 12A — Slack Channel-to-Team Mapping Infrastructure (FR-031)
+
+- [ ] T141 [US9] Create MongoDB `channel_team_mappings` collection schema — fields: `slack_channel_id` (unique), `team_id` (ref to teams), `slack_workspace_id`, `channel_name` (denormalized for display), `created_by`, `created_at`, `active` (boolean). Add index on `slack_channel_id`. *Files*: MongoDB schema documentation, `data-model.md` update
+- [ ] T142 [US9] Implement `channel_team_mapper.py` in Slack bot — module with `resolve_team(channel_id) → team_id | None`, in-memory cache with 60-second TTL, MongoDB query on cache miss. Fall back to user's default team if no mapping exists. *Files*: `ai_platform_engineering/integrations/slack_bot/utils/channel_team_mapper.py`
+- [ ] T143 [US9] Integrate channel-to-team resolution into Slack bot RBAC middleware — on every bot command, resolve channel → team, then verify user has `team_member(team_id)` Keycloak role. If mismatch, deny with explanation: "You don't have the required team role for this channel's team. Contact your admin." *Files*: `ai_platform_engineering/integrations/slack_bot/utils/rbac_middleware.py`
+- [ ] T144 [US9] Add team context to OBO token exchange — when channel-to-team is resolved, pass `team_id` as additional context to downstream platform calls (RAG queries, agent invocations) so they scope to the correct team's resources. *Files*: `ai_platform_engineering/integrations/slack_bot/utils/obo_exchange.py`, `rbac_middleware.py`
+- [ ] T145 [US9] Handle unlinked channels — when user issues a command in a channel with no mapping, use user's default team (from Keycloak user attributes or MongoDB profile) or prompt to select a team. Never default to unrestricted access. *Files*: `channel_team_mapper.py`, `rbac_middleware.py`
+- [ ] T146 [US9] Handle stale mappings — if mapped team has been deleted from MongoDB, treat mapping as inactive; deny with explanation and log a warning. If mapped channel is archived in Slack, mapping is inert (no events arrive). *Files*: `channel_team_mapper.py`
+
+### 12B — Admin UI Slack Management Dashboard (FR-032)
+
+- [ ] T147 [US9] Create BFF API route `GET /api/admin/slack/users` — query Keycloak Admin API for users with `slack_user_id` attribute; join with bot operational metrics from MongoDB (last interaction, OBO success/fail count, active channels). Return paginated list with link status (`linked`/`pending`/`unlinked`). *Files*: `ui/src/app/api/admin/slack/users/route.ts`
+- [ ] T148 [US9] Create BFF API routes for Slack user actions — `POST /api/admin/slack/users/:id/relink` (send re-link prompt), `DELETE /api/admin/slack/users/:id/link` (revoke link by removing Keycloak user attribute). *Files*: `ui/src/app/api/admin/slack/users/[id]/route.ts`
+- [ ] T149 [US9] Create BFF API route `GET/POST/DELETE /api/admin/slack/channel-mappings` — CRUD for `channel_team_mappings` collection in MongoDB. `GET` returns all mappings with channel names (denormalized) and team names. `POST` creates new mapping. `DELETE` removes mapping. Browse Slack channels via Slack API for channel selection. *Files*: `ui/src/app/api/admin/slack/channel-mappings/route.ts`
+- [ ] T150 [US9] Create `SlackUsersTab.tsx` component — full operational dashboard showing Slack user table with columns: display name, Slack ID, link status badge, Keycloak username, roles, teams, link date, last interaction, OBO counts. Action buttons: re-link, revoke. Filterable by status. *Files*: `ui/src/components/admin/SlackUsersTab.tsx`
+- [ ] T151 [US9] Create `SlackChannelMappingTab.tsx` component — CRUD table for channel-to-team mappings. "Add Mapping" dialog with Slack channel browser (dropdown) and team selector. Stale mapping indicators (archived channel, deleted team). Remove button per row. *Files*: `ui/src/components/admin/SlackChannelMappingTab.tsx`
+- [ ] T152 [US9] Add "Slack Integration" tab to Admin page — integrate `SlackUsersTab` and `SlackChannelMappingTab` as sub-tabs under a new "Slack Integration" section on the Admin page. Gate access with `admin` role via `requireRbacPermission`. *Files*: `ui/src/app/(app)/admin/page.tsx`
 
 ---
 

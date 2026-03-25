@@ -783,6 +783,120 @@ sequenceDiagram
 
 ---
 
+## Slack Channel-to-Team RBAC (FR-031, FR-032)
+
+Slack channels act as **team selectors** — providing context for which team's resources (KBs, agents, tools) are in scope. The channel does **not** grant additional permissions; the user's **Keycloak roles are the sole authority**.
+
+### Slack Bot RBAC Flow with Channel Context
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Slack as Slack Channel<br>(#team-a-eng)
+    participant Bot as Slack Bot
+    participant Cache as In-Memory Cache<br>(60s TTL)
+    participant Mongo as MongoDB<br>(channel_team_mappings)
+    participant KC as Keycloak
+    participant Platform as CAIPE Platform<br>(RAG/Agents/Tools)
+
+    User->>Slack: /ask "what is our SLA?"
+    Slack->>Bot: Event: message in channel C123
+
+    Note over Bot: Step 1: Resolve user identity (FR-025)
+    Bot->>KC: Find user by attribute<br>slack_user_id = U456
+    KC-->>Bot: keycloak_sub = user@corp.com
+
+    Note over Bot: Step 2: Resolve channel → team (FR-031)
+    Bot->>Cache: Lookup channel C123
+    alt Cache hit (< 60s old)
+        Cache-->>Bot: team_id = team-a
+    else Cache miss
+        Bot->>Mongo: Find mapping for<br>slack_channel_id = C123
+        Mongo-->>Bot: team_id = team-a
+        Bot->>Cache: Store (C123 → team-a, TTL 60s)
+    end
+
+    Note over Bot: Step 3: OBO token exchange (FR-018)
+    Bot->>KC: Token exchange<br>(bot_token, user_sub)
+    KC-->>Bot: OBO JWT<br>(sub=user, act=bot,<br>roles=[chat_user, team_member])
+
+    Note over Bot: Step 4: Verify team membership
+    Bot->>Bot: Check: user has<br>team_member(team-a)?
+
+    alt User has team role
+        Bot->>Platform: Query scoped to team-a<br>(OBO JWT + team context)
+        Platform-->>Bot: Team-scoped results
+        Bot-->>Slack: Answer from team-a KBs
+    else User lacks team role
+        Bot-->>Slack: "You don't have the required<br>team role for this channel's team.<br>Contact your admin."
+    end
+```
+
+### Slack Bot Data Sources
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Slack Bot Runtime                   │
+│                                                     │
+│  ┌──────────────┐    ┌──────────────────────────┐   │
+│  │  Keycloak    │    │  MongoDB                 │   │
+│  │              │    │                          │   │
+│  │  • Identity  │    │  • Channel-to-team       │   │
+│  │    linking   │    │    mappings (FR-031)     │   │
+│  │    (FR-025)  │    │                          │   │
+│  │  • OBO token │    │  • Operational metrics   │   │
+│  │    exchange  │    │    (last interaction,    │   │
+│  │    (FR-018)  │    │    OBO success/fail)     │   │
+│  │  • AuthZ PDP │    │                          │   │
+│  │    (FR-022)  │    │  Cached in bot memory    │   │
+│  │              │    │  with 60s TTL            │   │
+│  └──────────────┘    └──────────────────────────┘   │
+│                                                     │
+│  Identity & Auth ←── Keycloak (source of truth)     │
+│  Team Context    ←── MongoDB (channel mappings)     │
+└─────────────────────────────────────────────────────┘
+```
+
+### Admin UI Slack Management Dashboard (FR-032)
+
+```mermaid
+flowchart TD
+    subgraph admin ["Admin UI — Slack Integration Tab"]
+        subgraph users ["Slack User Bootstrapping Dashboard"]
+            UserList["User List\n(linked/pending/unlinked)"]
+            UserDetail["Per-User Detail:\n• Slack name + ID\n• Keycloak username\n• Mapped roles\n• Team memberships\n• Link timestamp\n• Last bot interaction\n• OBO success/fail count\n• Channel activity"]
+            Actions["Actions:\n• Send re-link prompt\n• Revoke link\n• Re-link"]
+        end
+
+        subgraph channels ["Channel-to-Team Mapping Manager"]
+            ChannelList["Active Mappings\n(channel name ↔ team name)"]
+            CreateMap["Create Mapping:\n• Browse Slack channels\n• Select CAIPE team\n• Save"]
+            StaleFlag["Stale Detection:\n• Archived channel\n• Deleted team"]
+            RemoveMap["Remove Mapping"]
+        end
+    end
+
+    subgraph sources ["Data Sources"]
+        KC_Admin["Keycloak Admin API\n(user attributes,\nslack_user_id)"]
+        Mongo_Maps["MongoDB\n(channel_team_mappings)"]
+        Slack_API["Slack API\n(channel browse)"]
+        Bot_Metrics["Bot Backend\n(operational metrics)"]
+    end
+
+    UserList --> KC_Admin
+    UserDetail --> KC_Admin
+    UserDetail --> Bot_Metrics
+    Actions --> KC_Admin
+
+    ChannelList --> Mongo_Maps
+    CreateMap --> Mongo_Maps
+    CreateMap --> Slack_API
+    StaleFlag --> Mongo_Maps
+    RemoveMap --> Mongo_Maps
+```
+
+---
+
 ## Component Summary
 
 | Component | Role | Required? | Authorization |
@@ -798,6 +912,7 @@ sequenceDiagram
 | **MCP Servers** | Tool invocation | Yes | AG-gated access |
 | **RAG Server** | KBs, datasources | Yes | PDP-gated admin; AG-gated queries; CEL per-KB access (FR-027) |
 | **Dynamic Agents** | User-created/runtime agents, deepagent LangGraph | Yes | Three-layer RBAC: Keycloak resource + per-agent roles + MongoDB visibility + CEL (FR-028); MCP calls via AG (FR-030) |
+| **Slack Bot** | Slack commands, identity linking, channel-team scoping | Yes | Identity linking via Keycloak (FR-025); OBO exchange (FR-018); channel-to-team mapping from MongoDB with 60s cache (FR-031); AuthZ via Keycloak PDP (FR-022); Admin UI dashboard (FR-032) |
 | **MongoDB** | Users, policies, permission matrix, team/KB config (no Slack identity links — those are in Keycloak) | Yes | Data store for PDP + Admin UI |
 
 ---
