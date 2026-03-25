@@ -101,7 +101,7 @@ scripts/
 |----------|------|
 | Research | [research.md](./research.md) |
 | Data model | [data-model.md](./data-model.md) |
-| Contracts | [contracts/](./contracts/) |
+| Contracts | [contracts/](./contracts/catalog-api.md) |
 | Quickstart | [quickstart.md](./quickstart.md) |
 
 ## Next steps
