@@ -224,7 +224,7 @@ async def get_conversation_messages(
     interrupt_data = await runtime.has_pending_interrupt(conversation_id)
     has_pending_interrupt = interrupt_data is not None
 
-    logger.info(
+    logger.debug(
         f"Retrieved {len(messages)} messages for conversation {conversation_id}, "
         f"has_pending_interrupt={has_pending_interrupt}"
     )
@@ -233,6 +233,96 @@ async def get_conversation_messages(
         conversation_id=conversation_id,
         agent_id=agent_id,
         messages=messages,
+        has_pending_interrupt=has_pending_interrupt,
+        interrupt_data=InterruptData(**interrupt_data) if interrupt_data else None,
+    )
+
+
+class InterruptStateResponse(BaseModel):
+    """Response containing only the HITL interrupt state (no messages)."""
+
+    conversation_id: str
+    agent_id: str
+    has_pending_interrupt: bool = False
+    interrupt_data: InterruptData | None = None
+
+
+@router.get("/{conversation_id}/interrupt-state", response_model=InterruptStateResponse)
+async def get_interrupt_state(
+    conversation_id: str,
+    agent_id: str = Query(..., description="Dynamic agent ID"),
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> InterruptStateResponse:
+    """Get HITL interrupt state for a conversation (lightweight, no messages).
+
+    This is a lightweight endpoint that only checks if there's a pending
+    human-in-the-loop interrupt. It does NOT fetch messages - use the
+    standard /api/chat/conversations/{id}/messages endpoint for that.
+
+    Used by the UI to restore HITL forms after page refresh while loading
+    messages from the MongoDB messages collection.
+    """
+    # 1. Verify agent exists
+    agent = mongo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # 2. Check conversation exists and user has access
+    if mongo._client is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    db = mongo._db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    conversations_coll = db["conversations"]
+    conversation = conversations_coll.find_one({"_id": conversation_id})
+
+    if not conversation:
+        # Conversation doesn't exist yet - no interrupt possible
+        return InterruptStateResponse(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            has_pending_interrupt=False,
+        )
+
+    # 3. Check access
+    if not can_access_conversation(conversation, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # 4. Get MCP servers for the agent (needed to create runtime)
+    server_ids = list(agent.allowed_tools.keys())
+    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+
+    # 5. Get or create runtime to access checkpointer
+    cache = get_runtime_cache()
+    cache.set_mongo_service(mongo)
+
+    runtime = await cache.get_or_create(
+        agent,
+        mcp_servers,
+        conversation_id,
+        user=user,
+    )
+
+    # 6. Check for pending interrupt only (no message extraction)
+    if not runtime._graph:
+        return InterruptStateResponse(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            has_pending_interrupt=False,
+        )
+
+    interrupt_data = await runtime.has_pending_interrupt(conversation_id)
+    has_pending_interrupt = interrupt_data is not None
+
+    logger.debug(
+        f"Checked interrupt state for conversation {conversation_id}: has_pending_interrupt={has_pending_interrupt}"
+    )
+
+    return InterruptStateResponse(
+        conversation_id=conversation_id,
+        agent_id=agent_id,
         has_pending_interrupt=has_pending_interrupt,
         interrupt_data=InterruptData(**interrupt_data) if interrupt_data else None,
     )
@@ -333,7 +423,7 @@ async def get_conversation_todos(
                 status = "pending"
             todos.append(TodoItem(content=content, status=status))
 
-    logger.info(f"Retrieved {len(todos)} todos for conversation {conversation_id}")
+    logger.debug(f"Retrieved {len(todos)} todos for conversation {conversation_id}")
 
     return ConversationTodosResponse(
         conversation_id=conversation_id,
@@ -425,7 +515,7 @@ async def get_conversation_files_list(
     files_dict = state.values.get("files", {})
     file_paths = sorted(files_dict.keys()) if isinstance(files_dict, dict) else []
 
-    logger.info(f"Retrieved {len(file_paths)} files for conversation {conversation_id}")
+    logger.debug(f"Retrieved {len(file_paths)} files for conversation {conversation_id}")
 
     return ConversationFilesListResponse(
         conversation_id=conversation_id,
@@ -515,7 +605,7 @@ async def get_conversation_file_content(
         # Fallback: assume it's already a string
         content = str(file_data)
 
-    logger.info(f"Retrieved file {path} for conversation {conversation_id}")
+    logger.debug(f"Retrieved file {path} for conversation {conversation_id}")
 
     return FileContentResponse(
         conversation_id=conversation_id,

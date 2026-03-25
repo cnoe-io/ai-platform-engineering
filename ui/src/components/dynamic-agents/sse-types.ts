@@ -7,9 +7,9 @@
  *
  * Event types match backend stream_events.py:
  * - content: LLM token streaming
- * - tool_start/tool_end: Tool invocations (including write_todos for task tracking)
- * - subagent_start/subagent_end: Subagent invocations
- * - final_result: Final agent response
+ * - tool_start/tool_end: Tool invocations (including task tool for subagents)
+ * - warning/error: Warnings and errors (rendered inline in chat)
+ * - done: Stream completion
  */
 
 // ═══════════════════════════════════════════════════════════════
@@ -35,12 +35,29 @@ export interface SSEArtifact {
 // Structured Event Data Types (from backend stream_events.py)
 // ═══════════════════════════════════════════════════════════════
 
-/** Tool call data from tool_start/tool_end events */
-export interface ToolEventData {
+/** Tool start event data - contains all tool info */
+export interface ToolStartEventData {
   tool_name: string;
   tool_call_id: string;
-  args?: Record<string, unknown>; // Only in tool_start, truncated to 100 chars
-  agent: string;
+  args?: Record<string, unknown>;
+}
+
+/** Tool end event data - minimal, just the ID to match back */
+export interface ToolEndEventData {
+  tool_call_id: string;
+}
+
+/** Type guard: check if toolData is from a tool_start event */
+export function isToolStartData(
+  data: ToolStartEventData | ToolEndEventData | undefined
+): data is ToolStartEventData {
+  return data !== undefined && "tool_name" in data;
+}
+
+/** Content event data - now wrapped with namespace */
+export interface ContentEventData {
+  text: string;
+  namespace: string[];
 }
 
 /** Todo item from write_todos tool (via tool_start events) */
@@ -49,29 +66,9 @@ export interface TodoItem {
   status: "pending" | "in_progress" | "completed";
 }
 
-/** Subagent data from subagent_start/subagent_end events */
-export interface SubagentEventData {
-  subagent_name: string;
-  purpose?: string; // Only in subagent_start
-  parent_agent: string;
-}
-
 /** Warning data from warning events */
 export interface WarningEventData {
   message: string;
-  missing_tools?: string[];
-  failed_servers?: string[];
-}
-
-/** Final result data from final_result events */
-export interface FinalResultEventData {
-  content?: string;
-  agent_name?: string;
-  trace_id?: string;
-  /** MCP servers that failed to connect */
-  failed_servers?: string[];
-  /** Tools that were configured but unavailable */
-  missing_tools?: string[];
 }
 
 /** Input required data from input_required events (HITL forms) */
@@ -132,17 +129,20 @@ export interface HITLMetadata {
 /**
  * Event types matching backend stream_events.py constants.
  * These are the primary event types from the new structured SSE system.
+ *
+ * Note: Subagent invocations are now emitted as tool_start/tool_end with tool_name="task".
+ * The UI should check toolData.tool_name === "task" to identify subagent calls.
+ * Use namespace to determine which agent generated the event:
+ * - namespace=[] → parent agent
+ * - namespace=["my-helper-agent"] → subagent with that agent_id
  */
 export type SSEEventType =
   | "content" // LLM token streaming
-  | "tool_start" // Tool invocation started (includes write_todos for task tracking)
+  | "tool_start" // Tool invocation started (task tool = subagent invocation)
   | "tool_end" // Tool invocation completed
-  | "subagent_start" // Subagent invocation started
-  | "subagent_end" // Subagent invocation completed
-  | "final_result" // Final agent response
   | "input_required" // Agent requests user input via form (HITL)
-  | "warning" // Warning event (e.g., missing tools)
-  | "error"; // Error event
+  | "warning" // Warning event (e.g., missing tools) - rendered inline
+  | "error"; // Error event - rendered inline
 
 /**
  * SSE Agent event stored in the conversation.
@@ -161,37 +161,33 @@ export interface SSEAgentEvent {
   /** Task ID for crash recovery */
   taskId?: string;
 
-  /** Artifact data if present (for final_result) */
-  artifact?: SSEArtifact;
-
   /** Whether this is the final event */
   isFinal?: boolean;
 
+  /**
+   * LangGraph namespace indicating which agent generated this event.
+   * - [] (empty) = parent/root agent
+   * - ["my-helper-agent"] = subagent with that agent_id
+   * - ["parent", "child"] = nested subagent (if supported)
+   */
+  namespace: string[];
+
   // ─── Structured event data (new) ─────────────────────────────
   /** Tool event data for tool_start/tool_end */
-  toolData?: ToolEventData;
-
-  /** Subagent data for subagent_start/subagent_end */
-  subagentData?: SubagentEventData;
+  toolData?: ToolStartEventData | ToolEndEventData;
 
   /** Warning data for warning events */
   warningData?: WarningEventData;
-
-  /** Final result data for final_result events */
-  finalResultData?: FinalResultEventData;
 
   /** Input required data for input_required events (HITL forms) */
   inputRequiredData?: InputRequiredEventData;
 
   // ─── Content ─────────────────────────────────────────────────
-  /** Content text for content/final_result events */
+  /** Content text for content events */
   content?: string;
 
   /** Display content (for error events and UI display) */
   displayContent?: string;
-
-  /** Source agent name */
-  sourceAgent?: string;
 
   // ─── HITL support ────────────────────────────────────────────
   /** Context ID for user input forms */
@@ -212,86 +208,112 @@ function generateEventId(): string {
 }
 
 /**
+ * Raw backend SSE data structure.
+ * All event data now includes namespace for agent hierarchy.
+ * - Content events: { text: string, namespace: string[] }
+ * - Other events: { ...eventData, namespace: string[] }
+ */
+export interface SSEBackendData {
+  namespace: string[];
+  // Content events
+  text?: string;
+  // Tool events
+  tool_name?: string;
+  tool_call_id?: string;
+  args?: Record<string, unknown>;
+  // Input required events
+  interrupt_id?: string;
+  prompt?: string;
+  fields?: InputFieldDefinition[];
+  agent?: string;
+  // Warning events
+  message?: string;
+  // Allow other fields
+  [key: string]: unknown;
+}
+
+/**
  * Create an SSEAgentEvent from a backend event.
  * This replaces the old toSSEAgentStoreEvent + ParsedSSEEvent conversion.
+ *
+ * @param eventType - The SSE event type (content, tool_start, etc.)
+ * @param data - The parsed JSON data from the SSE event
+ * @param taskId - Optional task ID for crash recovery
  */
 export function createSSEAgentEvent(
-  backendEvent: {
-    type: string;
-    data: unknown;
-  },
+  eventType: string,
+  data: SSEBackendData,
   taskId?: string
 ): SSEAgentEvent {
-  const { type, data } = backendEvent;
+  // Extract namespace from data (all events now include it)
+  const namespace = data.namespace ?? [];
 
   const base: SSEAgentEvent = {
     id: generateEventId(),
     timestamp: new Date(),
-    type: type as SSEEventType,
-    raw: backendEvent,
+    type: eventType as SSEEventType,
+    raw: { type: eventType, data },
     taskId,
+    namespace,
   };
 
-  switch (type) {
+  switch (eventType) {
     case "content":
+      // Content events have { text: string, namespace: string[] }
       return {
         ...base,
-        content: data as string,
+        content: data.text ?? "",
       };
 
-    case "tool_start":
-    case "tool_end":
-      return {
-        ...base,
-        toolData: data as ToolEventData,
-        sourceAgent: (data as ToolEventData).agent,
+    case "tool_start": {
+      // Tool start has { tool_name, tool_call_id, args, namespace }
+      const toolData: ToolStartEventData = {
+        tool_name: data.tool_name!,
+        tool_call_id: data.tool_call_id!,
+        args: data.args,
       };
-
-    case "subagent_start":
-    case "subagent_end":
       return {
         ...base,
-        subagentData: data as SubagentEventData,
-        sourceAgent: (data as SubagentEventData).parent_agent,
+        toolData,
       };
+    }
 
-    case "final_result": {
-      const resultData = data as { artifact?: SSEArtifact };
-      const artifact = resultData.artifact;
-      const textPart = artifact?.parts?.find((p) => p.kind === "text");
-      const metadata = artifact?.metadata as Record<string, unknown> | undefined;
-
+    case "tool_end": {
+      // Tool end has { tool_call_id, namespace }
+      const toolData: ToolEndEventData = {
+        tool_call_id: data.tool_call_id!,
+      };
       return {
         ...base,
-        isFinal: true,
-        artifact,
-        content: textPart?.text,
-        sourceAgent: metadata?.agent_name as string | undefined,
-        finalResultData: {
-          content: textPart?.text,
-          agent_name: metadata?.agent_name as string | undefined,
-          trace_id: metadata?.trace_id as string | undefined,
-          failed_servers: metadata?.failed_servers as string[] | undefined,
-          missing_tools: metadata?.missing_tools as string[] | undefined,
-        },
+        toolData,
       };
     }
 
     case "input_required": {
-      const inputData = data as InputRequiredEventData;
+      // Input required has { interrupt_id, prompt, fields, agent, namespace }
+      const inputData: InputRequiredEventData = {
+        interrupt_id: data.interrupt_id!,
+        prompt: data.prompt!,
+        fields: data.fields!,
+        agent: data.agent!,
+      };
       return {
         ...base,
         inputRequiredData: inputData,
-        sourceAgent: inputData.agent,
       };
     }
 
-    case "warning":
+    case "warning": {
+      // Warning has { message, namespace }
+      const warningData: WarningEventData = {
+        message: data.message!,
+      };
       return {
         ...base,
-        warningData: data as WarningEventData,
-        displayContent: (data as WarningEventData).message,
+        warningData,
+        displayContent: data.message,
       };
+    }
 
     default:
       return base;
@@ -300,3 +322,43 @@ export function createSSEAgentEvent(
 
 // Stable empty array to avoid re-renders
 export const EMPTY_SSE_EVENTS: SSEAgentEvent[] = [];
+
+// ═══════════════════════════════════════════════════════════════
+// Tool Name Constants
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tool names for file operations (from deepagents filesystem middleware).
+ * Used to detect when file-related tools are called.
+ */
+export const FILE_TOOL_NAMES = ["write_file", "edit_file", "read_file", "ls"] as const;
+
+/** Type for file tool names */
+export type FileToolName = (typeof FILE_TOOL_NAMES)[number];
+
+/**
+ * Type-safe check if a tool name is a file tool.
+ * Avoids TypeScript errors when using .includes() with readonly const arrays.
+ */
+export function isFileToolName(name: string): name is FileToolName {
+  return (FILE_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/**
+ * Tool name for todo/task operations (from deepagents todo middleware).
+ * Used to detect when task-related tools are called.
+ */
+export const TODO_TOOL_NAME = "write_todos" as const;
+
+/**
+ * Type-safe check if a tool name is the todo tool.
+ */
+export function isTodoToolName(name: string): boolean {
+  return name === TODO_TOOL_NAME;
+}
+
+/**
+ * Tool name for subagent invocations (from deepagents task middleware).
+ * When tool_name === "task", the tool call is a subagent invocation.
+ */
+export const SUBAGENT_TOOL_NAME = "task" as const;

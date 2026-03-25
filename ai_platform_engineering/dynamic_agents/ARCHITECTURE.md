@@ -128,7 +128,7 @@ src/dynamic_agents/
 | `config.py` | `Settings` class with environment variables (MongoDB, auth, CORS, runtime TTL) |
 | `routes/chat.py` | Chat endpoint that receives messages and streams SSE responses |
 | `services/agent_runtime.py` | Core runtime logic: builds agents, manages cache, streams responses |
-| `services/stream_events.py` | Creates structured SSE events (`content`, `tool_start`, `final_result`, etc.) |
+| `services/stream_events.py` | Creates structured SSE events (`content`, `tool_start`, etc.) |
 | `services/stream_trackers.py` | Tracks tool calls, todos, and subagent invocations during streaming |
 
 ---
@@ -283,8 +283,7 @@ Browser sends: POST /api/dynamic-agents/chat/stream
 │       → task tool call → emit "subagent_start" event                         │
 │       → task tool result → emit "subagent_end" event                         │
 │                                                                              │
-│  6. After stream ends, emit "final_result" with accumulated content          │
-│     → Includes trace_id, failed_servers, missing_tools in metadata           │
+│  6. Emit "done" event when stream ends                                       │
 └─────────────────────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -292,16 +291,7 @@ Browser sends: POST /api/dynamic-agents/chat/stream
 │  SSE Events sent to browser (via StreamingResponse)                          │
 │                                                                              │
 │  event: content                                                              │
-│  data: "Hello, I'll help you..."                                             │
-│                                                                              │
-│  event: tool_start                                                           │
-│  data: {"tool_name":"search_jira","tool_call_id":"call_123",...}             │
-│                                                                              │
-│  event: tool_end                                                             │
-│  data: {"tool_name":"search_jira","tool_call_id":"call_123",...}             │
-│                                                                              │
-│  event: final_result                                                         │
-│  data: {"artifact":{"artifactId":"...","parts":[...],"metadata":{...}}}      │
+│  data: I found several issues...                                             │
 │                                                                              │
 │  event: done                                                                 │
 │  data: {}                                                                    │

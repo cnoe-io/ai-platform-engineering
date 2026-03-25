@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+def _encode_sse_data(data: str) -> str:
+    """Encode data for SSE format, handling newlines properly.
+
+    In SSE, newlines in data values must be sent as multiple 'data:' lines.
+    For example, "line1\\nline2" becomes "data: line1\\ndata: line2".
+    """
+    if "\n" not in data:
+        return f"data: {data}"
+    # Split on newlines and prefix each line with "data: "
+    lines = data.split("\n")
+    return "\n".join(f"data: {line}" for line in lines)
+
+
 class RestartRuntimeRequest(BaseModel):
     """Request body for restarting agent runtime."""
 
@@ -68,14 +81,20 @@ async def _generate_sse_events(
         async for event in runtime.stream(message, session_id, user.email, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
+            namespace = event.get("namespace", [])
 
-            # Format as SSE
+            # Format as SSE - include namespace in data payload
             if isinstance(event_data, dict):
+                # Add namespace to dict data
+                event_data["namespace"] = namespace
                 data = json.dumps(event_data)
             else:
-                data = str(event_data)
+                # For content events (string data), wrap with namespace
+                data = json.dumps({"text": event_data, "namespace": namespace})
 
-            yield f"event: {event_type}\ndata: {data}\n\n"
+            # Use proper SSE encoding (handles newlines in content)
+            sse_data = _encode_sse_data(data)
+            yield f"event: {event_type}\n{sse_data}\n\n"
 
         # Send done event
         yield "event: done\ndata: {}\n\n"
@@ -182,14 +201,20 @@ async def _generate_resume_sse_events(
         async for event in runtime.resume(session_id, user.email, form_data, trace_id):
             event_type = event.get("type", "event")
             event_data = event.get("data", "")
+            namespace = event.get("namespace", [])
 
-            # Format as SSE
+            # Format as SSE - include namespace in data payload
             if isinstance(event_data, dict):
+                # Add namespace to dict data
+                event_data["namespace"] = namespace
                 data = json.dumps(event_data)
             else:
-                data = str(event_data)
+                # For content events (string data), wrap with namespace
+                data = json.dumps({"text": event_data, "namespace": namespace})
 
-            yield f"event: {event_type}\ndata: {data}\n\n"
+            # Use proper SSE encoding (handles newlines in content)
+            sse_data = _encode_sse_data(data)
+            yield f"event: {event_type}\n{sse_data}\n\n"
 
         # Send done event
         yield "event: done\ndata: {}\n\n"
@@ -302,7 +327,6 @@ async def chat_invoke(
 
     content_parts = []
     tool_calls = []
-    trace_id = None
 
     async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
         event_type = event.get("type", "")
@@ -312,11 +336,6 @@ async def chat_invoke(
             content_parts.append(str(event_data))
         elif event_type == "tool_start":
             tool_calls.append(event_data)
-        elif event_type == "final_result":
-            # Extract trace_id from final_result metadata
-            artifact = event_data.get("artifact", {}) if isinstance(event_data, dict) else {}
-            metadata = artifact.get("metadata", {})
-            trace_id = metadata.get("trace_id")
 
     return {
         "success": True,
@@ -324,7 +343,7 @@ async def chat_invoke(
         "tool_calls": tool_calls,
         "agent_id": agent.id,
         "conversation_id": request.conversation_id,
-        "trace_id": trace_id,
+        "trace_id": request.trace_id,
     }
 
 
@@ -360,6 +379,55 @@ async def restart_runtime(
     return {
         "success": True,
         "invalidated": invalidated,
+        "agent_id": request.agent_id,
+        "session_id": request.session_id,
+    }
+
+
+class CancelStreamRequest(BaseModel):
+    """Request body for cancelling an active stream."""
+
+    agent_id: str
+    session_id: str
+
+
+@router.post("/cancel")
+async def cancel_stream(
+    request: CancelStreamRequest,
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> dict:
+    """Cancel an active streaming request.
+
+    This sets a cancellation flag that causes the stream to exit gracefully
+    at the next chunk boundary. The stream will close without emitting
+    further events.
+    """
+    # Set conversation context for logging
+    conversation_id_var.set(request.session_id)
+
+    logger.info(
+        f"[cancel] Cancel request received: agent={request.agent_id}, session={request.session_id}, user={user.email}"
+    )
+
+    # Get agent config to verify access
+    agent = mongo.get_agent(request.agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Check access - only users who can use the agent can cancel it
+    if not can_use_agent(agent, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Cancel the stream via the runtime cache
+    cache = get_runtime_cache()
+    cancelled = cache.cancel_stream(request.agent_id, request.session_id)
+
+    logger.info(f"[cancel] Cancel result: agent={agent.name}, user={user.email}, cancelled={cancelled}")
+
+    return {
+        "success": True,
+        "cancelled": cancelled,
         "agent_id": request.agent_id,
         "session_id": request.session_id,
     }

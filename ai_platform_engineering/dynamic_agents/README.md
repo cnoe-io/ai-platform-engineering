@@ -287,9 +287,6 @@ data: {"tool_name":"github_get_file_contents","tool_call_id":"tc-1","agent":"Cod
 event: content
 data: I found several issues...
 
-event: final_result
-data: {"artifact":{"artifactId":"evt-abc123","name":"final_result","parts":[{"kind":"text","text":"..."}],"metadata":{"trace_id":"trace-xyz"}}}
-
 event: done
 data: {}
 ```
@@ -303,9 +300,8 @@ Quick reference:
 - `tool_start` / `tool_end` - Tool invocation lifecycle
 - `todo_update` - Task list updates
 - `subagent_start` / `subagent_end` - Subagent delegation lifecycle
-- `final_result` - Final agent response
-- `warning` / `error` - Warnings and errors
-- `done` - Stream complete |
+- `warning` / `error` - Warnings and errors (rendered inline in chat)
+- `done` - Stream complete
 
 ## Testing
 

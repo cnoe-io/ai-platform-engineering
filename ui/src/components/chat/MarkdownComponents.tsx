@@ -49,10 +49,10 @@ export const assistantMarkdownComponents: Record<string, React.ComponentType<any
     <p className="text-sm leading-relaxed text-foreground/90 mb-2 last:mb-0">{children}</p>
   ),
   ul: ({ children }: { children: React.ReactNode }) => (
-    <ul className="list-disc list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">{children}</ul>
+    <ul className="list-disc list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">{children}</ul>
   ),
   ol: ({ children }: { children: React.ReactNode }) => (
-    <ol className="list-decimal list-outside ml-5 mb-2 space-y-1 text-sm text-foreground/90">{children}</ol>
+    <ol className="list-decimal list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">{children}</ol>
   ),
   li: ({ children }: { children: React.ReactNode }) => (
     <li className="leading-relaxed">{children}</li>

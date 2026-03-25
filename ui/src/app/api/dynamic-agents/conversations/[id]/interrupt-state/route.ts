@@ -1,10 +1,11 @@
 /**
- * Proxy route for fetching dynamic agent conversation messages.
+ * Proxy route for fetching dynamic agent HITL interrupt state.
  *
- * GET /api/dynamic-agents/conversations/[id]/messages?agent_id=X
+ * GET /api/dynamic-agents/conversations/[id]/interrupt-state?agent_id=X
  *
- * This proxies to the Dynamic Agents service which retrieves messages
- * from the LangGraph checkpointer (not the MongoDB messages collection).
+ * This is a lightweight endpoint that only checks for pending human-in-the-loop
+ * interrupts. Messages are loaded separately from the MongoDB messages collection
+ * via the standard /api/chat/conversations/[id]/messages endpoint.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,8 +17,8 @@ import {
 import { getServerConfig } from "@/lib/config";
 
 /**
- * GET /api/dynamic-agents/conversations/[id]/messages
- * Proxy to Dynamic Agents service to get messages from checkpointer.
+ * GET /api/dynamic-agents/conversations/[id]/interrupt-state
+ * Proxy to Dynamic Agents service to check for HITL interrupt state.
  */
 export const GET = withErrorHandler(
   async (
@@ -50,7 +51,7 @@ export const GET = withErrorHandler(
       
       // Build the backend URL
       const backendUrl = new URL(
-        `/api/v1/conversations/${conversationId}/messages`,
+        `/api/v1/conversations/${conversationId}/interrupt-state`,
         config.dynamicAgentsUrl
       );
       backendUrl.searchParams.set("agent_id", agentId);
@@ -73,7 +74,7 @@ export const GET = withErrorHandler(
 
       if (!response.ok) {
         const errorText = await response.text();
-        let errorMessage = `Failed to fetch messages: ${response.status}`;
+        let errorMessage = `Failed to fetch interrupt state: ${response.status}`;
         try {
           const errorJson = JSON.parse(errorText);
           errorMessage = errorJson.detail || errorMessage;

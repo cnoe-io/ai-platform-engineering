@@ -472,7 +472,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
         // Extract common properties
         const artifactName = isSSEEvent
-          ? (sseEvent.type === "final_result" ? "final_result" : sseEvent.artifact?.name || sseEvent.type)
+          ? sseEvent.type  // SSE events don't use artifact.name, just use the event type
           : (a2aEvent.artifactName || "");
         const newContent = isSSEEvent
           ? (sseEvent.displayContent || sseEvent.content || "")
@@ -501,12 +501,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         // Flush buffer immediately for important events that update the Tasks panel
         // (execution plans, tool notifications, final results, user input forms)
         // For SSE events, map new event types to importance
+        // Note: Subagent invocations come through as tool_start/tool_end with tool_name="task"
         const isImportantArtifact = isSSEEvent
           ? (sseEvent.type === "tool_start" ||
              sseEvent.type === "tool_end" ||
-             sseEvent.type === "subagent_start" ||
-             sseEvent.type === "subagent_end" ||
-             sseEvent.type === "final_result" ||
              sseEvent.type === "error")
           : (artifactName === "execution_plan_update" ||
              artifactName === "execution_plan_status_update" ||
@@ -1290,20 +1288,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
           }
           break; // Stream pauses for user input
-        }
-
-        // Handle final_result
-        if (sseEvent.type === "final_result" && sseEvent.content) {
-          accumulatedText = sseEvent.content;
-          rawStreamContent += `\n\n[final_result]\n${sseEvent.content}`;
-          hasReceivedCompleteResult = true;
-          timeline.pushFinalAnswer(sseEvent.content, eventNum);
-          updateMessage(activeConversationId, assistantMsgId, {
-            content: accumulatedText,
-            rawStreamContent,
-            isFinal: true,
-            timelineSegments: timeline.getSegments(),
-          });
         }
 
         // Handle content tokens — route through timeline as thinking
@@ -2324,10 +2308,10 @@ const ChatMessage = React.memo(function ChatMessage({
                         <p className="text-sm leading-relaxed text-primary-foreground/90 mb-1.5 last:mb-0">{children}</p>
                       ),
                       ul: ({ children }) => (
-                        <ul className="list-disc list-outside ml-5 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>
+                        <ul className="list-disc list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>
                       ),
                       ol: ({ children }) => (
-                        <ol className="list-decimal list-outside ml-5 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>
+                        <ol className="list-decimal list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>
                       ),
                       li: ({ children }) => (
                         <li className="leading-relaxed">{children}</li>

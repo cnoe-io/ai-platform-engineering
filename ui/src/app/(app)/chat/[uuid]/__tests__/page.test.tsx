@@ -182,13 +182,13 @@ jest.mock("framer-motion", () => ({
 // Import after mocks
 // ============================================================================
 
-import ChatUUID from "../page";
+import { ChatContainer } from "@/components/chat/ChatContainer";
 
 // ============================================================================
 // Tests
 // ============================================================================
 
-describe("ChatUUID Page", () => {
+describe("ChatContainer", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockConversations = [];
@@ -198,7 +198,7 @@ describe("ChatUUID Page", () => {
   });
 
   it("renders CAIPESpinner with branded loading message while fetching from MongoDB", () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
     const logo = screen.getByRole("img", { name: "Test App" });
@@ -207,7 +207,7 @@ describe("ChatUUID Page", () => {
   });
 
   it("shows only spinner during loading (sidebar is in layout, not page)", () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     // Sidebar is now rendered by the layout, not the page
     // The page should only show the spinner during loading
@@ -215,13 +215,14 @@ describe("ChatUUID Page", () => {
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
   });
 
-  it("keeps spinner until messages arrive from MongoDB (not just metadata)", async () => {
-    render(<ChatUUID />);
+  it("shows chat panel with loading state while messages load from MongoDB", async () => {
+    render(<ChatContainer />);
 
+    // Initial render - no conversation in store, so spinner shows
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
 
-    // Resolve the conversation metadata — spinner should STILL be visible
-    // because messages haven't loaded yet
+    // Resolve the conversation metadata — now conversation is in store
+    // so chat panel shows immediately (with isLoadingMessages=true internally)
     resolveGetConversation({
       _id: mockUuid,
       title: "Test Conversation",
@@ -229,18 +230,20 @@ describe("ChatUUID Page", () => {
       updated_at: new Date().toISOString(),
     });
 
-    // Wait for loadMessagesFromServer to be called
+    // Wait for loadMessagesFromServer to be called and chat panel to render
     await waitFor(() => {
       expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
     });
 
-    // Spinner should still be showing while messages load
-    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
+    // Chat panel shows while messages are loading (new behavior)
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+    });
 
     // Now resolve the message load
     resolveLoadMessages();
 
+    // Chat panel should still be visible after messages load
     await waitFor(() => {
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
@@ -263,7 +266,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(
       screen.queryByText("Loading conversation...")
@@ -271,7 +274,7 @@ describe("ChatUUID Page", () => {
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
   });
 
-  it("shows spinner when store has conversation but no messages (metadata-only stub)", async () => {
+  it("shows chat panel immediately when store has conversation but no messages (metadata-only stub)", async () => {
     mockConversations = [
       {
         id: mockUuid,
@@ -284,11 +287,11 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
-    // Spinner should show because messages are empty
-    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
+    // Chat panel should show immediately (new behavior - no full-screen spinner)
+    // The chat panel will receive isLoadingMessages=true internally
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
     // loadMessagesFromServer should be called with force=true
     await waitFor(() => {
@@ -300,6 +303,7 @@ describe("ChatUUID Page", () => {
     // Resolve messages
     resolveLoadMessages();
 
+    // Chat panel should still be visible after messages load
     await waitFor(() => {
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
@@ -308,7 +312,7 @@ describe("ChatUUID Page", () => {
   it("does not show spinner in localStorage mode", () => {
     mockStorageMode = "localStorage";
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(
       screen.queryByText("Loading conversation...")
@@ -317,7 +321,7 @@ describe("ChatUUID Page", () => {
   });
 
   it("falls back to empty conversation when MongoDB returns 404", async () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
 
@@ -333,7 +337,7 @@ describe("ChatUUID Page", () => {
   // ========================================================================
 
   it("falls back to empty conversation on non-404 API error (e.g. network failure)", async () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
 
@@ -347,7 +351,7 @@ describe("ChatUUID Page", () => {
     expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
   });
 
-  it("dismisses spinner when loadMessagesFromServer fails on metadata-only stub", async () => {
+  it("shows chat panel immediately even when loadMessagesFromServer fails on metadata-only stub", async () => {
     mockConversations = [
       {
         id: mockUuid,
@@ -360,9 +364,10 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
-    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+    // Chat panel should show immediately (new behavior)
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid, {
@@ -370,19 +375,17 @@ describe("ChatUUID Page", () => {
       });
     });
 
-    // Reject the message load — spinner should still dismiss via finally block
+    // Reject the message load — chat panel should still be visible
     rejectLoadMessages(new Error("Failed to fetch messages"));
 
-    // fetchDone=true, fetchInProgress=false, storeHasMessages=false,
-    // title != "New Conversation" → showSpinner stays true (spinner persists
-    // because we believe messages *should* exist for this titled conversation)
+    // Chat panel remains visible after failed load
     await waitFor(() => {
-      expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
   });
 
   it("dismisses spinner when loadMessagesFromServer fails on not-in-store path", async () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
 
@@ -425,7 +428,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
   });
@@ -443,7 +446,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     await waitFor(() => {
       expect(mockLoadMessagesFromServer).toHaveBeenCalled();
@@ -458,7 +461,7 @@ describe("ChatUUID Page", () => {
   });
 
   it("calls setActiveConversation after 404 fallback", async () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     rejectGetConversation(new Error("Conversation not found (404)"));
 
@@ -487,7 +490,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     // No spinner — renders immediately
     expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
@@ -513,7 +516,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     expect(mockLoadMessagesFromServer).not.toHaveBeenCalled();
@@ -537,7 +540,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
@@ -547,7 +550,7 @@ describe("ChatUUID Page", () => {
     mockStorageMode = "localStorage";
     mockConversations = [];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
@@ -557,7 +560,7 @@ describe("ChatUUID Page", () => {
   // Edge cases: Sidebar race condition (storeHasMessages reactive guard)
   // ========================================================================
 
-  it("keeps spinner when fetchDone but storeHasMessages is false (Sidebar race)", async () => {
+  it("shows chat panel immediately even during Sidebar race (storeHasMessages false)", async () => {
     // Simulate: loadMessagesFromServer resolved but Sidebar's
     // loadConversationsFromServer concurrently wiped messages.
     // The mock loadMessagesFromServer normally populates messages,
@@ -586,9 +589,11 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
-    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+    // Chat panel shows immediately when conversation is in store (new behavior)
+    // Even with empty messages, we show the panel with isLoadingMessages=true
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(mockLoadMessagesFromServer).toHaveBeenCalled();
@@ -597,12 +602,10 @@ describe("ChatUUID Page", () => {
     // Resolve without populating messages (simulates race)
     resolveLoadMessages();
 
-    // fetchDone=true, storeHasMessages=false, title != "New Conversation"
-    // → showSpinner should remain true
+    // Chat panel remains visible even when messages are empty
     await waitFor(() => {
-      expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
-    expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
 
     // Restore original mock
     if (originalMock) mockLoadMessagesFromServer.mockImplementation(originalMock);
@@ -613,7 +616,7 @@ describe("ChatUUID Page", () => {
   // ========================================================================
 
   it("recovers when conversation appears in store while API fetch fails", async () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     // Simulate: another part of the app (e.g. streaming) added the
     // conversation to the store while getConversation was in flight
@@ -648,7 +651,7 @@ describe("ChatUUID Page", () => {
       throw new TypeError("Cannot read properties of undefined");
     });
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     await waitFor(() => {
       expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
@@ -677,7 +680,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     expect(screen.getByTestId("context-panel")).toBeInTheDocument();
@@ -686,7 +689,7 @@ describe("ChatUUID Page", () => {
   });
 
   it("does not render context panel or chat panel while spinner is showing", () => {
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
@@ -706,7 +709,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByText(`Chat: ${mockUuid}`)).toBeInTheDocument();
   });
@@ -729,7 +732,7 @@ describe("ChatUUID Page", () => {
       },
     ];
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     expect(screen.getByText(`Chat: ${mockUuid}`)).toBeInTheDocument();
     expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
@@ -742,7 +745,7 @@ describe("ChatUUID Page", () => {
   it("adds conversation to store via setState when loaded from MongoDB", async () => {
     const { useChatStore } = require("@/store/chat-store");
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     resolveGetConversation({
       _id: mockUuid,
@@ -764,7 +767,7 @@ describe("ChatUUID Page", () => {
   it("adds fallback conversation to store when MongoDB returns 404", async () => {
     const { useChatStore } = require("@/store/chat-store");
 
-    render(<ChatUUID />);
+    render(<ChatContainer />);
 
     rejectGetConversation(new Error("Conversation not found (404)"));
 
@@ -801,7 +804,7 @@ describe("ChatUUID Page", () => {
         },
       ];
 
-      render(<ChatUUID />);
+      render(<ChatContainer />);
 
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
@@ -825,15 +828,16 @@ describe("ChatUUID Page", () => {
         },
       ];
 
-      render(<ChatUUID />);
+      render(<ChatContainer />);
 
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
     });
 
-    it("shows spinner then chat panel for large conversation loaded from MongoDB", async () => {
-      render(<ChatUUID />);
+    it("shows chat panel with loading state for conversation loaded from MongoDB", async () => {
+      render(<ChatContainer />);
 
+      // Full-screen spinner shows only during initial fetch (no conversation in store)
       expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
 
       resolveGetConversation({
@@ -847,8 +851,8 @@ describe("ChatUUID Page", () => {
         expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
       });
 
-      expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
-
+      // After conversation metadata is loaded, chat panel should render
+      // (with internal loading state via isLoadingMessages prop)
       resolveLoadMessages();
 
       await waitFor(() => {
@@ -857,7 +861,9 @@ describe("ChatUUID Page", () => {
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
     });
 
-    it("never shows Welcome screen for titled conversation even if messages load slowly", async () => {
+    it("renders chat panel immediately for conversation already in store (even with empty messages)", async () => {
+      // When conversation is already in store, ChatContainer renders the panel immediately
+      // with isLoadingMessages=true (shows skeleton inside panel, not full-screen spinner)
       mockConversations = [
         {
           id: mockUuid,
@@ -870,18 +876,17 @@ describe("ChatUUID Page", () => {
         },
       ];
 
-      render(<ChatUUID />);
+      render(<ChatContainer />);
 
-      // Spinner shows while messages are empty
-      expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
-      // Welcome screen must NOT appear
-      expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
+      // Chat panel renders immediately (no full-screen spinner for conversations already in store)
+      // The panel internally shows loading skeleton via isLoadingMessages prop
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+      expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
 
       await waitFor(() => {
         expect(mockLoadMessagesFromServer).toHaveBeenCalled();
       });
 
-      // Resolve message load
       resolveLoadMessages();
 
       await waitFor(() => {
@@ -907,7 +912,7 @@ describe("ChatUUID Page", () => {
         },
       ];
 
-      render(<ChatUUID />);
+      render(<ChatContainer />);
 
       // No spinner at all — messages are already there
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
@@ -916,7 +921,9 @@ describe("ChatUUID Page", () => {
       expect(screen.getByText(`Chat: ${mockUuid}`)).toBeInTheDocument();
     });
 
-    it("spinner persists through concurrent Sidebar wipe for large conversations", async () => {
+    it("renders chat panel for conversation in store even if messages are empty (sidebar race)", async () => {
+      // New behavior: ChatContainer renders chat panel immediately for conversations in store
+      // The panel handles empty messages internally (shows skeleton via isLoadingMessages)
       const originalMock = mockLoadMessagesFromServer.getMockImplementation();
       mockLoadMessagesFromServer.mockImplementation(
         () =>
@@ -941,22 +948,23 @@ describe("ChatUUID Page", () => {
         },
       ];
 
-      render(<ChatUUID />);
+      render(<ChatContainer />);
 
-      expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+      // Chat panel renders immediately for conversations in store
+      // (panel shows internal loading state, not full-screen spinner)
+      expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+      expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
 
       await waitFor(() => {
         expect(mockLoadMessagesFromServer).toHaveBeenCalled();
       });
 
-      // Resolve but messages are still empty (sidebar wiped them)
       resolveLoadMessages();
 
-      // Spinner should persist — no Welcome screen or blank page
+      // Chat panel still visible after load
       await waitFor(() => {
-        expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+        expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
       });
-      expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
 
       if (originalMock) mockLoadMessagesFromServer.mockImplementation(originalMock);
     });
@@ -979,7 +987,7 @@ describe("ChatUUID Page", () => {
         },
       ];
 
-      render(<ChatUUID />);
+      render(<ChatContainer />);
 
       // Chat panel renders immediately
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument();

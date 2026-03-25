@@ -14,12 +14,10 @@ import {
   MessageSquareText,
   PauseCircle,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import type { TimelineSegment, PlanStep, ToolCallInfo } from "@/types/a2a";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
-import { assistantMarkdownComponents, assistantProseClassName } from "./MarkdownComponents";
+import { StreamingMarkdown } from "@/components/shared/timeline";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -312,17 +310,12 @@ function TimelineSummary({
 // ─── Thinking Segment ────────────────────────────────────────────────────────
 
 function ThinkingSegment({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
-  if (!content) return null;
-
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none text-muted-foreground/80 prose-headings:text-foreground prose-p:text-foreground/90 prose-li:text-foreground/90 prose-strong:text-foreground prose-a:text-primary">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-        {content}
-      </ReactMarkdown>
-      {isStreaming && (
-        <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
-      )}
-    </div>
+    <StreamingMarkdown
+      content={content}
+      isStreaming={isStreaming}
+      variant="thinking"
+    />
   );
 }
 
@@ -602,19 +595,11 @@ function FinalAnswerSegment({
   content: string;
   isStreaming?: boolean;
 }) {
-  if (!content) return null;
-
   return (
-    <div className={assistantProseClassName}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={assistantMarkdownComponents}
-      >
-        {content}
-      </ReactMarkdown>
-      {isStreaming && (
-        <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
-      )}
-    </div>
+    <StreamingMarkdown
+      content={content}
+      isStreaming={isStreaming}
+      variant="final"
+    />
   );
 }

@@ -50,9 +50,9 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
         continue;
       }
 
-      // Skip execution plan artifacts - shown in Tasks panel
-      if (event.artifact?.name === "execution_plan_update" ||
-          event.artifact?.name === "execution_plan_status_update") {
+      // Skip execution plan artifacts - shown in Tasks panel (A2A events only)
+      if ('artifact' in event && event.artifact?.name === "execution_plan_update" ||
+          'artifact' in event && event.artifact?.name === "execution_plan_status_update") {
         continue;
       }
 
@@ -123,9 +123,10 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
     }
 
     // Check completion status
+    // For A2A events, check artifact name; for SSE events, check isFinal
     const hasFinalResult = events.some(e =>
-      e.artifact?.name === "final_result" ||
-      e.artifact?.name === "partial_result"
+      ('artifact' in e && (e.artifact?.name === "final_result" || e.artifact?.name === "partial_result")) ||
+      e.isFinal === true
     );
     if (hasFinalResult) return "completed";
 

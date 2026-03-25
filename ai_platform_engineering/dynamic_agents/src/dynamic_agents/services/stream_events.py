@@ -8,11 +8,27 @@ structured SSE events for the UI. It contains:
 2. Event builder functions (make_*_event)
 3. LangGraph message helpers (detection/extraction)
 4. Stream transformation (transform_stream_chunk)
+5. Namespace correlation (tasks stream mode handling)
 
 To add a new event type:
 1. Add a constant (e.g., MY_EVENT = "my_event")
 2. Add a builder function (make_my_event)
 3. Add detection logic in _handle_messages_chunk or _handle_updates_chunk
+
+## Namespace Correlation
+
+When using subagents (via the `task` tool), LangGraph assigns each subagent
+invocation an internal UUID used in the namespace (e.g., `tools:e3b034a3-...`).
+However, clients need to correlate subagent events to the `tool_start` event
+they already received, which contains the `tool_call_id`.
+
+By streaming with `tasks` mode enabled, LangGraph emits task metadata containing
+both the internal task UUID and the original `tool_call_id`. We build a mapping
+`{namespace_uuid: tool_call_id}` and use it to replace the LangGraph namespace
+with the correlated `tool_call_id` before emitting SSE events.
+
+This correlation is done server-side so all clients (Web UI, Slack, Webex,
+Backstage) receive pre-correlated events without duplicating logic.
 """
 
 import logging
@@ -28,9 +44,6 @@ logger = logging.getLogger(__name__)
 CONTENT = "content"
 TOOL_START = "tool_start"
 TOOL_END = "tool_end"
-SUBAGENT_START = "subagent_start"
-SUBAGENT_END = "subagent_end"
-FINAL_RESULT = "final_result"
 INPUT_REQUIRED = "input_required"
 
 
@@ -67,11 +80,6 @@ def _truncate_args(args: dict[str, Any], max_len: int = 100) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════
 
 
-def is_task_tool(tool_name: str) -> bool:
-    """Check if this is the task tool (subagent invocation)."""
-    return tool_name == "task"
-
-
 def _is_tool_message(msg: Any) -> bool:
     """Check if message is a ToolMessage (tool result, not for display)."""
     return "ToolMessage" in type(msg).__name__
@@ -106,117 +114,137 @@ def _extract_tool_call(tc: Any) -> dict[str, Any]:
 
 
 # ═══════════════════════════════════════════════════════════════
+# Namespace Correlation (Tasks Stream Mode)
+# ═══════════════════════════════════════════════════════════════
+
+
+def _handle_tasks_chunk(
+    data: Any,
+    namespace_mapping: dict[str, str],
+) -> None:
+    """Extract namespace UUID → tool_call_id mapping from tasks events.
+
+    LangGraph's `tasks` stream mode emits task metadata when a tool is invoked.
+    For the `task` tool (subagent invocation), this contains:
+    - id: The task UUID (used in namespace as "tools:{id}")
+    - input.tool_call.id: The tool_call_id from the original invocation
+
+    We build this mapping so subagent events can be correlated to their
+    `tool_start` events, which clients already have.
+
+    Args:
+        data: The data portion of the tasks chunk (single task dict)
+        namespace_mapping: Dict to update with new mappings (mutated)
+    """
+    # Tasks data comes as a single dict per event, not a list
+    if not isinstance(data, dict):
+        return
+
+    task_id = data.get("id")
+    task_input = data.get("input", {})
+
+    # The tool_call info is nested under input.tool_call for tool executions
+    tool_call = task_input.get("tool_call", {}) if isinstance(task_input, dict) else {}
+    tool_call_id = tool_call.get("id")
+    tool_name = tool_call.get("name")
+
+    # Only create mapping for "task" tool calls (subagent invocations)
+    # Other tools don't spawn subgraphs with their own namespace
+    if task_id and tool_call_id and tool_name == "task":
+        namespace_key = f"tools:{task_id}"
+        if namespace_key not in namespace_mapping:
+            namespace_mapping[namespace_key] = tool_call_id
+            logger.debug(f"[sse:tasks] Mapped {namespace_key} → {tool_call_id}")
+
+
+def _correlate_namespace(
+    namespace: tuple[str, ...],
+    namespace_mapping: dict[str, str],
+) -> tuple[str, ...]:
+    """Correlate LangGraph namespace to tool_call_id using the mapping.
+
+    Args:
+        namespace: Original LangGraph namespace tuple (e.g., ("tools:abc-123",))
+        namespace_mapping: Mapping from namespace UUID to tool_call_id
+
+    Returns:
+        Correlated namespace tuple. If the first element is found in the mapping,
+        it's replaced with the tool_call_id. If not found, returns empty tuple
+        (treated as parent agent) and logs a warning.
+    """
+    if not namespace:
+        return namespace
+
+    first = namespace[0]
+    if first in namespace_mapping:
+        # Replace with correlated tool_call_id
+        correlated = (namespace_mapping[first],) + namespace[1:]
+        logger.debug(f"[sse:correlate] {first} → {namespace_mapping[first]}")
+        return correlated
+    else:
+        # Unknown namespace - treat as parent agent
+        logger.warning(f"[sse:correlate] Unknown namespace {first}, mapping has {list(namespace_mapping.keys())}")
+        return ()
+
+
+# ═══════════════════════════════════════════════════════════════
 # Event Builder Functions
 # ═══════════════════════════════════════════════════════════════
 
 
-def make_content_event(content: str) -> dict[str, Any]:
-    """LLM token streaming content."""
+def make_content_event(content: str, namespace: tuple[str, ...] = ()) -> dict[str, Any]:
+    """LLM token streaming content.
+
+    Args:
+        content: The content text
+        namespace: LangGraph namespace tuple. Empty = parent agent.
+    """
     # No debug log for content - too noisy
-    return {"type": CONTENT, "data": content}
+    return {"type": CONTENT, "data": content, "namespace": list(namespace)}
 
 
 def make_tool_start_event(
     tool_name: str,
     tool_call_id: str,
     args: dict[str, Any],
-    agent: str,
+    namespace: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    """Tool call started."""
-    logger.debug(f"[sse:{TOOL_START}] {tool_name} id={tool_call_id[:8]}...")
+    """Tool call started.
+
+    Args:
+        tool_name: Name of the tool being called
+        tool_call_id: Unique ID for this tool call
+        args: Tool arguments (will be truncated)
+        namespace: LangGraph namespace tuple. Empty = parent agent.
+    """
+    logger.debug(f"[sse:{TOOL_START}] {tool_name} id={tool_call_id[:8]}... ns={namespace}")
     return {
         "type": TOOL_START,
         "data": {
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
             "args": _truncate_args(args),
-            "agent": agent,
         },
+        "namespace": list(namespace),
     }
 
 
-def make_tool_end_event(
-    tool_call_id: str,
-    agent: str,
-) -> dict[str, Any]:
-    """Tool call completed."""
-    logger.debug(f"[sse:{TOOL_END}] id={tool_call_id[:8]}...")
+def make_tool_end_event(tool_call_id: str, namespace: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Tool call completed.
+
+    Kept minimal - UI tracks state from tool_start and matches by tool_call_id.
+
+    Args:
+        tool_call_id: The tool call ID to match against tool_start
+        namespace: LangGraph namespace tuple. Empty = parent agent.
+    """
+    logger.debug(f"[sse:{TOOL_END}] id={tool_call_id[:8]}... ns={namespace}")
     return {
         "type": TOOL_END,
         "data": {
             "tool_call_id": tool_call_id,
-            "agent": agent,
         },
-    }
-
-
-def make_subagent_start_event(
-    tool_call_id: str,
-    subagent_name: str,
-    purpose: str,
-    parent_agent: str,
-) -> dict[str, Any]:
-    """Subagent invocation started (task tool called)."""
-    logger.debug(f"[sse:{SUBAGENT_START}] {subagent_name} id={tool_call_id[:8]}...")
-    return {
-        "type": SUBAGENT_START,
-        "data": {
-            "tool_call_id": tool_call_id,
-            "subagent_name": subagent_name,
-            "purpose": _truncate(purpose),
-            "parent_agent": parent_agent,
-        },
-    }
-
-
-def make_subagent_end_event(
-    tool_call_id: str,
-    parent_agent: str,
-) -> dict[str, Any]:
-    """Subagent invocation completed (task tool result received)."""
-    logger.debug(f"[sse:{SUBAGENT_END}] id={tool_call_id[:8]}...")
-    return {
-        "type": SUBAGENT_END,
-        "data": {
-            "tool_call_id": tool_call_id,
-            "parent_agent": parent_agent,
-        },
-    }
-
-
-def make_final_result_event(
-    content: str,
-    agent: str,
-    trace_id: str | None = None,
-    failed_servers: list[str] | None = None,
-    missing_tools: list[str] | None = None,
-) -> dict[str, Any]:
-    """Final result from agent.
-
-    Args:
-        content: The final text content from the agent.
-        agent: The agent name.
-        trace_id: Optional trace ID for observability.
-        failed_servers: List of MCP server IDs that failed to connect.
-        missing_tools: List of tool names that were configured but unavailable.
-    """
-    logger.debug(f"[sse:{FINAL_RESULT}] agent={agent} len={len(content)}")
-    return {
-        "type": FINAL_RESULT,
-        "data": {
-            "artifact": {
-                "artifactId": _make_event_id(),
-                "name": "final_result",
-                "description": "Final result from dynamic agent",
-                "parts": [{"kind": "text", "text": content}],
-                "metadata": {
-                    "trace_id": trace_id,
-                    "agent_name": agent,
-                    "failed_servers": failed_servers or [],
-                    "missing_tools": missing_tools or [],
-                },
-            },
-        },
+        "namespace": list(namespace),
     }
 
 
@@ -225,6 +253,7 @@ def make_input_required_event(
     prompt: str,
     fields: list[dict[str, Any]],
     agent: str,
+    namespace: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Input required from user (HITL form).
 
@@ -236,8 +265,9 @@ def make_input_required_event(
         prompt: Message explaining what information is needed.
         fields: List of field definitions for the form.
         agent: The agent name that requested input.
+        namespace: LangGraph namespace tuple. Empty = parent agent.
     """
-    logger.debug(f"[sse:{INPUT_REQUIRED}] agent={agent} fields={len(fields)}")
+    logger.debug(f"[sse:{INPUT_REQUIRED}] agent={agent} fields={len(fields)} ns={namespace}")
     return {
         "type": INPUT_REQUIRED,
         "data": {
@@ -246,6 +276,7 @@ def make_input_required_event(
             "fields": fields,
             "agent": agent,
         },
+        "namespace": list(namespace),
     }
 
 
@@ -256,23 +287,26 @@ def make_input_required_event(
 
 def transform_stream_chunk(
     chunk: tuple,
-    agent_name: str,
-    active_task_calls: set[str],
     accumulated_content: list[str],
+    namespace_mapping: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Transform a LangGraph astream() chunk into SSE events.
 
     Handles the multi-mode streaming format from astream() with subgraphs=True.
     Chunks come as tuples: (namespace, mode, data) or (mode, data).
 
+    For subagent events, the namespace is correlated using namespace_mapping
+    to replace LangGraph's internal task UUID with the tool_call_id from the
+    original `task` tool invocation. This allows clients to match subagent
+    events to their `tool_start` events.
+
     Args:
         chunk: Raw chunk from graph.astream()
-        agent_name: Name of the agent (for event metadata)
-        active_task_calls: Set of tool_call_ids for active subagent calls (mutated)
         accumulated_content: List to accumulate content tokens (mutated)
+        namespace_mapping: Mapping from LangGraph namespace to tool_call_id (mutated by tasks mode)
 
     Returns:
-        List of SSE event dicts
+        List of SSE event dicts, each containing a 'namespace' field
     """
     # Parse chunk format: (namespace, mode, data) or (mode, data)
     if len(chunk) == 3:
@@ -284,15 +318,23 @@ def transform_stream_chunk(
         logger.warning(f"[sse] Unexpected chunk format: {chunk}")
         return []
 
-    # Only process parent agent events (namespace = empty tuple)
-    # Subagent events from task tool are handled via tool_call tracking
-    if len(namespace) > 0:
+    # Log non-empty namespaces for debugging subagent events
+    if namespace:
+        logger.debug(f"[sse:chunk] mode={mode} namespace={namespace}")
+
+    # Handle tasks mode - update namespace mapping, no events emitted
+    if mode == "tasks":
+        _handle_tasks_chunk(data, namespace_mapping)
         return []
 
+    # Correlate namespace for subagent events
+    correlated_namespace = _correlate_namespace(namespace, namespace_mapping)
+
+    # Process events with correlated namespace
     if mode == "messages":
-        return _handle_messages_chunk(data, accumulated_content)
+        return _handle_messages_chunk(data, accumulated_content, correlated_namespace)
     elif mode == "updates":
-        return _handle_updates_chunk(data, agent_name, active_task_calls)
+        return _handle_updates_chunk(data, correlated_namespace)
 
     return []
 
@@ -300,12 +342,14 @@ def transform_stream_chunk(
 def _handle_messages_chunk(
     data: Any,
     accumulated_content: list[str],
+    namespace: tuple[str, ...],
 ) -> list[dict[str, Any]]:
     """Handle 'messages' mode chunks → content events.
 
     Args:
         data: The data portion of the chunk (message, metadata) tuple
         accumulated_content: List to accumulate content tokens (mutated)
+        namespace: LangGraph namespace tuple
 
     Returns:
         List of content events (0 or 1 items)
@@ -328,22 +372,20 @@ def _handle_messages_chunk(
     content = _extract_content(msg_chunk)
     if content:
         accumulated_content.append(content)
-        return [make_content_event(content)]
+        return [make_content_event(content, namespace)]
 
     return []
 
 
 def _handle_updates_chunk(
     data: Any,
-    agent_name: str,
-    active_task_calls: set[str],
+    namespace: tuple[str, ...],
 ) -> list[dict[str, Any]]:
-    """Handle 'updates' mode chunks → tool/subagent events.
+    """Handle 'updates' mode chunks → tool events.
 
     Args:
         data: The data portion of the chunk (dict of node updates)
-        agent_name: Name of the agent (for event metadata)
-        active_task_calls: Set of tool_call_ids for active subagent calls (mutated)
+        namespace: LangGraph namespace tuple
 
     Returns:
         List of SSE events
@@ -371,25 +413,11 @@ def _handle_updates_chunk(
                     tool_call_id = tc_info["id"]
                     args = tc_info["args"]
 
-                    # Check if this is a subagent invocation (task tool)
-                    if is_task_tool(tool_name):
-                        active_task_calls.add(tool_call_id)
-                        subagent_type = args.get("subagent_type", "unknown")
-                        purpose = args.get("description", "")
-                        results.append(make_subagent_start_event(tool_call_id, subagent_type, purpose, agent_name))
-                    else:
-                        # Regular tool call (including write_todos)
-                        results.append(make_tool_start_event(tool_name, tool_call_id, args, agent_name))
+                    results.append(make_tool_start_event(tool_name, tool_call_id, args, namespace))
 
             # Handle ToolMessage (tool results)
             tool_call_id = getattr(msg, "tool_call_id", None)
             if tool_call_id:
-                # Check if this is a subagent result
-                if tool_call_id in active_task_calls:
-                    active_task_calls.discard(tool_call_id)
-                    results.append(make_subagent_end_event(tool_call_id, agent_name))
-                else:
-                    # Regular tool result
-                    results.append(make_tool_end_event(tool_call_id, agent_name))
+                results.append(make_tool_end_event(tool_call_id, namespace))
 
     return results

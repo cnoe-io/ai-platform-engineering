@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
@@ -34,7 +35,6 @@ from dynamic_agents.services.mcp_client import (
     get_tools_with_resilience,
 )
 from dynamic_agents.services.stream_events import (
-    make_final_result_event,
     make_input_required_event,
     transform_stream_chunk,
 )
@@ -98,6 +98,8 @@ class AgentRuntime:
         self._mcp_servers_updated_at: datetime = max(
             (s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc)
         )
+        # Cancellation flag for graceful stream termination
+        self._cancelled: bool = False
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -160,7 +162,13 @@ class AgentRuntime:
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
             f"provider={self.config.model_provider}, model={self.config.model_id}"
         )
-        llm = LLMFactory(provider=self.config.model_provider).get_llm(model=self.config.model_id)
+        # Configure botocore with extended timeouts for Bedrock to prevent
+        # ReadTimeoutError during long-running agent operations (especially subagents)
+        boto_config = BotocoreConfig(read_timeout=300, connect_timeout=60)
+        llm = LLMFactory(provider=self.config.model_provider).get_llm(
+            model=self.config.model_id,
+            config=boto_config,
+        )
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # 7. Resolve subagents (other dynamic agents that this agent can delegate to)
@@ -192,60 +200,65 @@ class AgentRuntime:
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
 
-    def _build_builtin_tools(self, user: UserContext | None = None) -> list:
+    def _build_builtin_tools(
+        self,
+        user: UserContext | None = None,
+        agent_config: DynamicAgentConfig | None = None,
+    ) -> list:
         """Build list of built-in tools based on agent config.
 
         Args:
             user: User context for tools that need user info
+            agent_config: Agent config to use. Defaults to self.config (parent agent).
+                          Pass subagent config to build tools for a subagent.
 
         Returns:
             List of LangChain tools to add to the agent.
         """
+        config = agent_config or self.config
         tools = []
         config_summary: dict[str, Any] = {}
 
-        if not self.config.builtin_tools:
+        if not config.builtin_tools:
             return tools
 
         # fetch_url tool (disabled by default)
-        fetch_url_config = self.config.builtin_tools.fetch_url
+        fetch_url_config = config.builtin_tools.fetch_url
         if fetch_url_config and fetch_url_config.enabled:
             allowed_domains = fetch_url_config.allowed_domains or "*"
             tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
             config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
 
         # current_datetime tool (enabled by default)
-        current_datetime_config = self.config.builtin_tools.current_datetime
+        current_datetime_config = config.builtin_tools.current_datetime
         if current_datetime_config and current_datetime_config.enabled:
             tools.append(create_current_datetime_tool())
             config_summary["current_datetime"] = {}
 
         # user_info tool (enabled by default)
-        user_info_config = self.config.builtin_tools.user_info
+        user_info_config = config.builtin_tools.user_info
         if user_info_config and user_info_config.enabled:
             if user:
                 tools.append(create_user_info_tool(user))
                 config_summary["user_info"] = {"user": user.email}
             else:
-                logger.warning(f"Agent '{self.config.name}': user_info enabled but no user context available")
+                logger.warning(f"Agent '{config.name}': user_info enabled but no user context available")
 
         # sleep tool (enabled by default)
-        sleep_config = self.config.builtin_tools.sleep
+        sleep_config = config.builtin_tools.sleep
         if sleep_config and sleep_config.enabled:
             max_seconds = sleep_config.max_seconds or 300
             tools.append(create_sleep_tool(max_seconds=max_seconds))
             config_summary["sleep"] = {"max_seconds": max_seconds}
 
         # request_user_input tool (enabled by default)
-        request_user_input_config = self.config.builtin_tools.request_user_input
+        request_user_input_config = config.builtin_tools.request_user_input
         if request_user_input_config and request_user_input_config.enabled:
             tools.append(create_request_user_input_tool())
             config_summary["request_user_input"] = {}
 
         if tools:
-            logger.info(f"Agent '{self.config.name}': added built-in tools: {config_summary}")
-        else:
-            logger.warning(f"Agent '{self.config.name}': no built-in tools configured")
+            logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
 
         return tools
 
@@ -306,8 +319,10 @@ class AgentRuntime:
             subagent_prompt = subagent_config.system_prompt
 
             # Create SubAgent dict in deepagents format
+            # Use agent_id as the name - this ensures namespace[0] from LangGraph
+            # matches the MongoDB agent_id exactly
             subagent_dict: dict[str, Any] = {
-                "name": _sanitize_agent_name(ref.name),
+                "name": ref.agent_id,
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
@@ -323,28 +338,31 @@ class AgentRuntime:
         return subagents
 
     async def _build_subagent_tools(self, subagent_config: DynamicAgentConfig) -> list:
-        """Build MCP tools for a subagent.
+        """Build tools for a subagent (MCP tools + built-in tools).
 
         Args:
             subagent_config: The subagent's configuration
 
         Returns:
-            List of LangChain tools from MCP servers
+            List of LangChain tools (MCP + built-in based on subagent config)
         """
+        tools: list = []
+
+        # 1. Build MCP tools from subagent's allowed_tools config
         server_ids = list(subagent_config.allowed_tools.keys())
-        if not server_ids:
-            return []
+        if server_ids:
+            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            if connections:
+                mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
+                all_tools = await mcp_client.get_tools()
+                mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
+                tools.extend(mcp_tools)
 
-        connections = build_mcp_connections(self.mcp_servers, server_ids)
-        if not connections:
-            return []
+        # 2. Add built-in tools based on subagent's config
+        builtin_tools = self._build_builtin_tools(self._user, subagent_config)
+        if builtin_tools:
+            tools.extend(builtin_tools)
 
-        # Create MCP client for subagent
-        mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
-        all_tools = await mcp_client.get_tools()
-
-        # Filter tools based on subagent's allowed_tools config
-        tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
         return tools
 
     def _build_stream_config(self, session_id: str, user_id: str, trace_id: str | None) -> dict[str, Any]:
@@ -404,12 +422,11 @@ class AgentRuntime:
 
         Emits structured SSE events for the UI:
         - content: Streaming text tokens
-        - tool_start: Tool call started (with args)
+        - tool_start: Tool call started (with args). For task tool, includes agent_id.
         - tool_end: Tool call completed
-        - todo_update: Task list updated (from write_todos)
-        - subagent_start: Subagent delegation started (task tool)
-        - subagent_end: Subagent delegation completed
-        - final_result: Completion signal with final content
+        - input_required: Agent requests user input (HITL form)
+
+        The stream ends with a 'done' SSE event (handled by the HTTP layer).
 
         Args:
             message: User's input message
@@ -423,61 +440,59 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
+        # Reset cancellation flag at start of each stream
+        self._cancelled = False
+
         config = self._build_stream_config(session_id, user_id, trace_id)
 
-        # Track active task tool calls (subagents) so we can emit correct end events
-        # This is the minimal state needed - just tool_call_ids of task tools
-        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
+        # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
+        # See stream_events.py for details on why this mapping is needed.
+        namespace_mapping: dict[str, str] = {}
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
-        logger.info(f"[stream] _failed_servers={self._failed_servers}, _missing_tools={self._missing_tools}")
-
-        # NOTE: Warning events for failed MCP servers and missing tools have been removed.
-        # This information is now included in the final_result event metadata (failed_servers,
-        # missing_tools) and the UI derives a persistent warning banner from runtimeStatus.
-        # See: make_final_result_event() and ui/src/components/dynamic-agents/DynamicAgentContext.tsx
 
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(
             {"messages": [{"role": "user", "content": message}]},
             config=config,
-            stream_mode=["messages", "updates"],
+            stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
         ):
-            for event in transform_stream_chunk(chunk, self.config.name, active_task_calls, accumulated_content):
+            # Check for cancellation between chunks
+            if self._cancelled:
+                logger.info(
+                    f"[stream] Stream cancelled by user for agent '{self.config.name}': "
+                    f"conv={session_id}, user={user_id}"
+                )
+                return
+
+            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
                 if self._event_adapter:
                     event = self._event_adapter(event)
                 yield event
 
         # Check for pending interrupt (agent called request_user_input)
-        logger.info("[stream] Stream loop completed, checking for pending interrupt...")
+        logger.debug("[stream] Stream loop completed, checking for pending interrupt...")
         interrupt_data = await self.has_pending_interrupt(session_id)
-        logger.info(f"[stream] has_pending_interrupt result: {interrupt_data}")
+        logger.debug(f"[stream] has_pending_interrupt result: {interrupt_data}")
         if interrupt_data:
-            logger.info(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
+            logger.debug(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
             yield make_input_required_event(
                 interrupt_id=interrupt_data["interrupt_id"],
                 prompt=interrupt_data["prompt"],
                 fields=interrupt_data["fields"],
                 agent=self.config.name,
             )
-            return  # Don't emit final_result, stream paused for user input
+            return  # Don't continue, stream paused for user input
 
-        # Emit final_result with accumulated content
+        # Stream complete - the frontend relies on the SSE 'done' event to know
+        # streaming has finished. Content was already sent via 'content' events.
         final_text = "".join(accumulated_content)
-        if final_text:
-            logger.info(
-                f"[stream] Completed stream for agent '{self.config.name}': "
-                f"conv={session_id}, content_length={len(final_text)}"
-            )
-            yield make_final_result_event(
-                content=final_text,
-                agent=self.config.name,
-                trace_id=self._current_trace_id,
-                failed_servers=self._failed_servers,
-                missing_tools=self._missing_tools,
-            )
+        logger.info(
+            f"[stream] Completed stream for agent '{self.config.name}': "
+            f"conv={session_id}, content_length={len(final_text)}"
+        )
 
     async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
         """Check if there's a pending interrupt for the given session.
@@ -567,11 +582,14 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
+        # Reset cancellation flag at start of resume
+        self._cancelled = False
+
         config = self._build_stream_config(session_id, user_id, trace_id)
 
-        # Track active task tool calls (subagents) so we can emit correct end events
-        active_task_calls: set[str] = set()
         accumulated_content: list[str] = []
+        # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
+        namespace_mapping: dict[str, str] = {}
 
         logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
 
@@ -630,10 +648,17 @@ class AgentRuntime:
         async for chunk in self._graph.astream(
             Command(resume=resume_payload),
             config=config,
-            stream_mode=["messages", "updates"],
+            stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
         ):
-            for event in transform_stream_chunk(chunk, self.config.name, active_task_calls, accumulated_content):
+            # Check for cancellation between chunks
+            if self._cancelled:
+                logger.info(
+                    f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
+                )
+                return
+
+            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
                 if self._event_adapter:
                     event = self._event_adapter(event)
                 yield event
@@ -641,29 +666,22 @@ class AgentRuntime:
         # Check for another pending interrupt (agent might request more input)
         interrupt_data = await self.has_pending_interrupt(session_id)
         if interrupt_data:
-            logger.info(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
+            logger.debug(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
             yield make_input_required_event(
                 interrupt_id=interrupt_data["interrupt_id"],
                 prompt=interrupt_data["prompt"],
                 fields=interrupt_data["fields"],
                 agent=self.config.name,
             )
-            return  # Don't emit final_result, stream paused
+            return  # Don't continue, stream paused
 
-        # Emit final_result with accumulated content
+        # Stream complete - the frontend relies on the SSE 'done' event to know
+        # streaming has finished. Content was already sent via 'content' events.
         final_text = "".join(accumulated_content)
-        if final_text:
-            logger.info(
-                f"[resume] Completed resume for agent '{self.config.name}': "
-                f"conv={session_id}, content_length={len(final_text)}"
-            )
-            yield make_final_result_event(
-                content=final_text,
-                agent=self.config.name,
-                trace_id=self._current_trace_id,
-                failed_servers=self._failed_servers,
-                missing_tools=self._missing_tools,
-            )
+        logger.info(
+            f"[resume] Completed resume for agent '{self.config.name}': "
+            f"conv={session_id}, content_length={len(final_text)}"
+        )
 
     async def cleanup(self) -> None:
         """Cleanup MCP client connections and MongoDB checkpointer."""
@@ -677,6 +695,21 @@ class AgentRuntime:
             logger.info("Closed MongoDB checkpointer for agent runtime")
 
         self._initialized = False
+
+    def cancel(self) -> bool:
+        """Request cancellation of the active stream.
+
+        This sets a flag that will be checked between LangGraph chunks,
+        causing the stream to exit gracefully at the next opportunity.
+
+        Returns:
+            True if cancellation was requested, False if already cancelled.
+        """
+        if not self._cancelled:
+            self._cancelled = True
+            logger.info(f"[cancel] Cancellation requested for agent '{self.config.name}'")
+            return True
+        return False
 
     @property
     def age_seconds(self) -> float:
@@ -804,6 +837,30 @@ class AgentRuntimeCache:
             await runtime.cleanup()
             logger.info(f"Runtime cache invalidated for agent={agent_id}, conv={session_id}")
             return True
+        return False
+
+    def cancel_stream(self, agent_id: str, session_id: str) -> bool:
+        """Cancel an active stream for a specific agent/session.
+
+        This sets the cancellation flag on the runtime, which will cause
+        the stream to exit gracefully at the next chunk boundary.
+
+        Args:
+            agent_id: Agent configuration ID
+            session_id: Conversation/session ID
+
+        Returns:
+            True if cancellation was requested, False if no runtime or already cancelled
+        """
+        key = self._make_key(agent_id, session_id)
+        runtime = self._cache.get(key)
+        if runtime:
+            cancelled = runtime.cancel()
+            logger.info(
+                f"[cancel_stream] Cancel requested for agent={agent_id}, session={session_id}: cancelled={cancelled}"
+            )
+            return cancelled
+        logger.warning(f"[cancel_stream] No runtime found for agent={agent_id}, session={session_id}")
         return False
 
 
