@@ -5,7 +5,7 @@
  * Tests for Admin Write API Routes
  *
  * Covers:
- * - PATCH /api/admin/users/[email]/role — update user role
+ * - PATCH /api/admin/users/[id]/role — update user role
  * - POST /api/admin/teams/[id]/members — add member to team
  * - DELETE /api/admin/teams/[id]/members — remove member from team
  * - POST /api/admin/migrate-conversations — migrate conversations
@@ -134,20 +134,20 @@ beforeEach(() => {
 });
 
 // ============================================================================
-// PATCH /api/admin/users/[email]/role — Update user role
+// PATCH /api/admin/users/[id]/role — Update user role
 // ============================================================================
 
-describe('PATCH /api/admin/users/[email]/role', () => {
+describe('PATCH /api/admin/users/[id]/role', () => {
   let PATCH: any;
 
   beforeEach(async () => {
     jest.resetModules();
-    const mod = await import('@/app/api/admin/users/[email]/role/route');
+    const mod = await import('@/app/api/admin/users/[id]/role/route');
     PATCH = mod.PATCH;
   });
 
   const makeContext = (email: string) => ({
-    params: Promise.resolve({ email }),
+    params: Promise.resolve({ id: email }),
   });
 
   it('returns 401 when not authenticated', async () => {

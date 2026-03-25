@@ -1,5 +1,3 @@
-// PATCH /api/admin/users/[email]/role - Update user role
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
@@ -15,10 +13,9 @@ interface UpdateRoleRequest {
   role: 'admin' | 'user';
 }
 
-// PATCH /api/admin/users/[email]/role
 export const PATCH = withErrorHandler(async (
   request: NextRequest,
-  context: { params: Promise<{ email: string }> }
+  context: { params: Promise<{ id: string }> }
 ) => {
   if (!isMongoDBConfigured) {
     return NextResponse.json(
@@ -35,7 +32,7 @@ export const PATCH = withErrorHandler(async (
     requireAdmin(session);
 
     const params = await context.params;
-    const targetEmail = decodeURIComponent(params.email);
+    const identifier = decodeURIComponent(params.id);
     const body: UpdateRoleRequest = await request.json();
 
     if (!body.role || !['admin', 'user'].includes(body.role)) {
@@ -43,17 +40,18 @@ export const PATCH = withErrorHandler(async (
     }
 
     const users = await getCollection<User>('users');
-    
-    // Find the target user
-    const targetUser = await users.findOne({ email: targetEmail });
-    
+
+    const isEmail = identifier.includes('@');
+    const filter = isEmail ? { email: identifier } : { _id: identifier };
+
+    const targetUser = await users.findOne(filter);
+
     if (!targetUser) {
-      throw new ApiError(`User not found: ${targetEmail}`, 404);
+      throw new ApiError(`User not found: ${identifier}`, 404);
     }
 
-    // Update user role
     const result = await users.updateOne(
-      { email: targetEmail },
+      filter,
       {
         $set: {
           'metadata.role': body.role,
@@ -63,14 +61,14 @@ export const PATCH = withErrorHandler(async (
     );
 
     if (result.matchedCount === 0) {
-      throw new ApiError(`User not found: ${targetEmail}`, 404);
+      throw new ApiError(`User not found: ${identifier}`, 404);
     }
 
-    console.log(`[Admin] User ${user.email} changed role of ${targetEmail} to ${body.role}`);
+    console.log(`[Admin] User ${user.email} changed role of ${targetUser.email} to ${body.role}`);
 
     return successResponse({
       message: `User role updated to ${body.role}`,
-      email: targetEmail,
+      email: targetUser.email,
       role: body.role,
     });
   });
