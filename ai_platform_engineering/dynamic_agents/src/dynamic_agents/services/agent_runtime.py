@@ -98,6 +98,8 @@ class AgentRuntime:
         self._mcp_servers_updated_at: datetime = max(
             (s.updated_at for s in mcp_servers), default=datetime.min.replace(tzinfo=timezone.utc)
         )
+        # Cancellation flag for graceful stream termination
+        self._cancelled: bool = False
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -438,6 +440,9 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
+        # Reset cancellation flag at start of each stream
+        self._cancelled = False
+
         config = self._build_stream_config(session_id, user_id, trace_id)
 
         accumulated_content: list[str] = []
@@ -454,6 +459,14 @@ class AgentRuntime:
             stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
         ):
+            # Check for cancellation between chunks
+            if self._cancelled:
+                logger.info(
+                    f"[stream] Stream cancelled by user for agent '{self.config.name}': "
+                    f"conv={session_id}, user={user_id}"
+                )
+                return
+
             for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
                 if self._event_adapter:
                     event = self._event_adapter(event)
@@ -569,6 +582,9 @@ class AgentRuntime:
         if not self._initialized:
             await self.initialize()
 
+        # Reset cancellation flag at start of resume
+        self._cancelled = False
+
         config = self._build_stream_config(session_id, user_id, trace_id)
 
         accumulated_content: list[str] = []
@@ -635,6 +651,13 @@ class AgentRuntime:
             stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
         ):
+            # Check for cancellation between chunks
+            if self._cancelled:
+                logger.info(
+                    f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
+                )
+                return
+
             for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
                 if self._event_adapter:
                     event = self._event_adapter(event)
@@ -672,6 +695,21 @@ class AgentRuntime:
             logger.info("Closed MongoDB checkpointer for agent runtime")
 
         self._initialized = False
+
+    def cancel(self) -> bool:
+        """Request cancellation of the active stream.
+
+        This sets a flag that will be checked between LangGraph chunks,
+        causing the stream to exit gracefully at the next opportunity.
+
+        Returns:
+            True if cancellation was requested, False if already cancelled.
+        """
+        if not self._cancelled:
+            self._cancelled = True
+            logger.info(f"[cancel] Cancellation requested for agent '{self.config.name}'")
+            return True
+        return False
 
     @property
     def age_seconds(self) -> float:
@@ -799,6 +837,30 @@ class AgentRuntimeCache:
             await runtime.cleanup()
             logger.info(f"Runtime cache invalidated for agent={agent_id}, conv={session_id}")
             return True
+        return False
+
+    def cancel_stream(self, agent_id: str, session_id: str) -> bool:
+        """Cancel an active stream for a specific agent/session.
+
+        This sets the cancellation flag on the runtime, which will cause
+        the stream to exit gracefully at the next chunk boundary.
+
+        Args:
+            agent_id: Agent configuration ID
+            session_id: Conversation/session ID
+
+        Returns:
+            True if cancellation was requested, False if no runtime or already cancelled
+        """
+        key = self._make_key(agent_id, session_id)
+        runtime = self._cache.get(key)
+        if runtime:
+            cancelled = runtime.cancel()
+            logger.info(
+                f"[cancel_stream] Cancel requested for agent={agent_id}, session={session_id}: cancelled={cancelled}"
+            )
+            return cancelled
+        logger.warning(f"[cancel_stream] No runtime found for agent={agent_id}, session={session_id}")
         return False
 
 

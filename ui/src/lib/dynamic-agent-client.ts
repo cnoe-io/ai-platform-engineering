@@ -84,6 +84,59 @@ export class DynamicAgentClient {
   }
 
   /**
+   * Cancel the stream on the backend.
+   *
+   * This sends a cancel request to the backend, which sets a flag
+   * causing the stream to exit gracefully at the next chunk boundary.
+   * Also aborts the client-side fetch.
+   *
+   * @param conversationId Conversation/session ID
+   * @param agentId Dynamic agent config ID
+   * @returns true if cancellation was requested, false on error
+   */
+  async cancelStream(conversationId: string, agentId: string): Promise<boolean> {
+    // First, abort the client-side fetch
+    this.abort();
+
+    // Then request backend cancellation
+    const cancelUrl = `${this.proxyUrl}/cancel`;
+
+    try {
+      console.log(`[DynamicAgent] Sending cancel request to ${cancelUrl}`);
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (this.accessToken) {
+        headers["Authorization"] = `Bearer ${this.accessToken}`;
+      }
+
+      const response = await fetch(cancelUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          agent_id: agentId,
+          session_id: conversationId,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error(
+          `[DynamicAgent] Cancel request failed: ${response.status} ${response.statusText}`
+        );
+        return false;
+      }
+
+      const result = await response.json();
+      console.log(`[DynamicAgent] Cancel result:`, result);
+      return result.cancelled ?? false;
+    } catch (error) {
+      console.error("[DynamicAgent] Cancel request error:", error);
+      return false;
+    }
+  }
+
+  /**
    * Send a message and stream the response as SSEAgentEvent objects.
    *
    * @param message User message text

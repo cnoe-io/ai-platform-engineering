@@ -4,6 +4,7 @@ import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus } from
 import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
+import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
 
@@ -12,6 +13,8 @@ interface StreamingState {
   conversationId: string;
   messageId: string;
   client: A2AClient;
+  // For Dynamic Agents: client reference for backend cancellation
+  dynamicAgentClient?: DynamicAgentClient;
 }
 
 interface ChatState {
@@ -407,7 +410,27 @@ const storeImplementation = (set: any, get: any) => ({
         const state = get();
         const streamingState = state.streamingConversations.get(conversationId);
         if (streamingState) {
-          // Abort the A2A client
+          // Get conversation to check if it's a Dynamic Agent
+          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+          
+          // For Dynamic Agents, send backend cancel request before aborting client
+          if (streamingState.dynamicAgentClient) {
+            if (conv?.agent_id) {
+              console.log(`[ChatStore] Cancelling Dynamic Agent stream: conv=${conversationId.substring(0, 8)}, agent=${conv.agent_id}`);
+              // Fire-and-forget backend cancel - the abort below will close the client connection
+              streamingState.dynamicAgentClient.cancelStream(conversationId, conv.agent_id)
+                .then((cancelled) => {
+                  console.log(`[ChatStore] Backend cancel result: cancelled=${cancelled}`);
+                })
+                .catch((error) => {
+                  console.error('[ChatStore] Backend cancel failed:', error);
+                });
+            } else {
+              console.warn(`[ChatStore] Cannot cancel backend stream: agent_id not found for conv=${conversationId.substring(0, 8)}`);
+            }
+          }
+
+          // Abort the client (A2A or Dynamic Agent wrapper)
           streamingState.client.abort();
           // Remove from streaming map
           const newMap = new Map(state.streamingConversations);
@@ -417,7 +440,6 @@ const storeImplementation = (set: any, get: any) => ({
             isStreaming: newMap.size > 0,
           });
           // Mark the message as cancelled with interrupted status
-          const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
           const msg = conv?.messages.find((m: ChatMessage) => m.id === streamingState.messageId);
           if (msg && !msg.isFinal) {
             state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");

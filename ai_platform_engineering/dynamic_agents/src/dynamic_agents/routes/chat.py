@@ -382,3 +382,52 @@ async def restart_runtime(
         "agent_id": request.agent_id,
         "session_id": request.session_id,
     }
+
+
+class CancelStreamRequest(BaseModel):
+    """Request body for cancelling an active stream."""
+
+    agent_id: str
+    session_id: str
+
+
+@router.post("/cancel")
+async def cancel_stream(
+    request: CancelStreamRequest,
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> dict:
+    """Cancel an active streaming request.
+
+    This sets a cancellation flag that causes the stream to exit gracefully
+    at the next chunk boundary. The stream will close without emitting
+    further events.
+    """
+    # Set conversation context for logging
+    conversation_id_var.set(request.session_id)
+
+    logger.info(
+        f"[cancel] Cancel request received: agent={request.agent_id}, session={request.session_id}, user={user.email}"
+    )
+
+    # Get agent config to verify access
+    agent = mongo.get_agent(request.agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Check access - only users who can use the agent can cancel it
+    if not can_use_agent(agent, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Cancel the stream via the runtime cache
+    cache = get_runtime_cache()
+    cancelled = cache.cancel_stream(request.agent_id, request.session_id)
+
+    logger.info(f"[cancel] Cancel result: agent={agent.name}, user={user.email}, cancelled={cancelled}")
+
+    return {
+        "success": True,
+        "cancelled": cancelled,
+        "agent_id": request.agent_id,
+        "session_id": request.session_id,
+    }

@@ -665,6 +665,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       conversationId: convId,
       messageId: assistantMsgId,
       client: { abort: abortFn } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+      // For Dynamic Agents: enable backend cancellation
+      dynamicAgentClient: dynClient,
     });
 
     try {
@@ -928,6 +930,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       conversationId: activeConversationId,
       messageId: assistantMsgId,
       client: { abort: () => dynClient.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+      // For Dynamic Agents: enable backend cancellation
+      dynamicAgentClient: dynClient,
     });
 
     let accumulatedText = "";
