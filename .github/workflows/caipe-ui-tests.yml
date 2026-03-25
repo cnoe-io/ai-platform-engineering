@@ -225,7 +225,7 @@ jobs:
             **High Priority:**
             - hooks/use-a2a-streaming.ts - Core streaming functionality
             - store/chat-store.ts - Chat state management
-            - store/agent-config-store.ts - Agent configuration
+            - store/agent-skills-store.ts - Agent skills
             - lib/api-client.ts - API communication
             - lib/storage-mode.ts - MongoDB/localStorage switching
 

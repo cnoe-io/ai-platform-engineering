@@ -37,7 +37,7 @@ import { Input } from "@/components/ui/input";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
-import type { AgentConfig } from "@/types/agent-config";
+import type { AgentSkill } from "@/types/agent-skill";
 import { A2ASDKClient, type ParsedA2AEvent } from "@/lib/a2a-sdk-client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -46,7 +46,7 @@ import { WorkflowHistoryView } from "./WorkflowHistoryView";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 
 interface AgentBuilderRunnerProps {
-  config: AgentConfig;
+  config: AgentSkill;
   onBack?: () => void;
   onComplete?: (result: string) => void;
   cameFromHistory?: boolean;

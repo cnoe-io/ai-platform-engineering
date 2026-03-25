@@ -24,11 +24,22 @@ const customJestConfig = {
   ],
   // Transform ESM packages
   transformIgnorePatterns: [
-    'node_modules/(?!(uuid|@a2a-js)/)',
+    'node_modules/(?!(uuid|@a2a-js|jose)/)',
   ],
   // Prevent CI failure when workers do not exit gracefully (e.g. SkillsBuilderEditor async state)
   forceExit: true,
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
-module.exports = createJestConfig(customJestConfig)
+// We override the resolved config to ensure our transformIgnorePatterns take effect
+// (next/jest prepends its own patterns that can shadow ours)
+const baseConfig = createJestConfig(customJestConfig)
+module.exports = async () => {
+  const config = await baseConfig()
+  // Replace next/jest's transformIgnorePatterns with ours so ESM packages (jose, uuid, etc.) are transformed
+  config.transformIgnorePatterns = [
+    'node_modules/(?!(uuid|@a2a-js|jose)/)',
+    '^.+\\.module\\.(css|sass|scss)$',
+  ]
+  return config
+}

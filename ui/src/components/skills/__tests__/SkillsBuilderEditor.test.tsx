@@ -15,7 +15,7 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SkillsBuilderEditor } from "../SkillsBuilderEditor";
-import type { AgentConfig } from "@/types/agent-config";
+import type { AgentSkill } from "@/types/agent-skill";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -24,10 +24,10 @@ import type { AgentConfig } from "@/types/agent-config";
 const mockCreateConfig = jest.fn().mockResolvedValue(undefined);
 const mockUpdateConfig = jest.fn().mockResolvedValue(undefined);
 
-jest.mock("@/store/agent-config-store", () => ({
-  useAgentConfigStore: () => ({
-    createConfig: mockCreateConfig,
-    updateConfig: mockUpdateConfig,
+jest.mock("@/store/agent-skills-store", () => ({
+  useAgentSkillsStore: () => ({
+    createSkill: mockCreateConfig,
+    updateSkill: mockUpdateConfig,
   }),
 }));
 
@@ -218,7 +218,7 @@ function renderEditor(
   );
 }
 
-function makeExistingConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
+function makeExistingConfig(overrides: Partial<AgentSkill> = {}): AgentSkill {
   return {
     id: "cfg-123",
     name: "Existing Skill",
@@ -304,7 +304,7 @@ describe("SkillsBuilderEditor — form validation", () => {
 });
 
 describe("SkillsBuilderEditor — submission", () => {
-  it("calls createConfig with correct data on valid create submission", async () => {
+  it("calls createSkill with correct data on valid create submission", async () => {
     const onSuccess = jest.fn();
     renderEditor({ onSuccess });
 
@@ -327,7 +327,7 @@ describe("SkillsBuilderEditor — submission", () => {
     expect(configArg.tasks[0].subagent).toBe("user_input");
   });
 
-  it("calls updateConfig in edit mode", async () => {
+  it("calls updateSkill in edit mode", async () => {
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
 
@@ -358,7 +358,7 @@ describe("SkillsBuilderEditor — submission", () => {
     });
   });
 
-  it("shows error toast when createConfig rejects", async () => {
+  it("shows error toast when createSkill rejects", async () => {
     mockCreateConfig.mockRejectedValueOnce(new Error("Network error"));
 
     renderEditor();
@@ -1803,7 +1803,7 @@ describe("SkillsBuilderEditor — Allowed Tools (Experimental)", () => {
   });
 
   it("initializes allowed tools from existingConfig", async () => {
-    const existingConfig: AgentConfig = {
+    const existingConfig: AgentSkill = {
       id: "cfg-tools",
       name: "Tools Skill",
       category: "DevOps",

@@ -13,7 +13,7 @@ Build a visual Task Builder UI for creating and managing `task_config.yaml`-styl
 
 Currently there is a disconnect between the UI and the supervisor:
 
-- The **UI** has an Agent Builder / Skills Builder that saves workflow configs to MongoDB (`agent_configs` collection), but the supervisor never reads from it.
+- The **UI** has an Agent Builder / Skills Builder that saves workflow configs to MongoDB (`agent_skills` collection), but the supervisor never reads from it.
 - The **supervisor** (`deep_agent_single.py`) reads workflows exclusively from `task_config.yaml` on disk via `load_task_config()`.
 - There is **no bridge** between them — workflows created in the UI are not available to `invoke_self_service_task`.
 
@@ -45,7 +45,7 @@ The Task Builder feature solves this by:
 - Real-time collaboration / multi-user editing of the same workflow.
 - Version history / diff for task configs (future).
 - Workflow execution preview / dry-run from the builder UI (future).
-- Migrating existing `agent_configs` data into `task_configs` (they serve different purposes).
+- Migrating existing `agent_skills` data into `task_configs` (they serve different purposes).
 
 ## Design
 

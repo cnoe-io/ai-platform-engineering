@@ -27,6 +27,8 @@ import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
+import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
+import { useSlashCommands } from "./useSlashCommands";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
@@ -58,9 +60,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
-  const [showMentionMenu, setShowMentionMenu] = useState(false);
-  const [mentionFilter, setMentionFilter] = useState("");
-  const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashFilter, setSlashFilter] = useState("");
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -108,7 +110,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     recoverInterruptedTask,
     evictOldMessageContent,
     loadMessagesFromServer,
+    updateConversationTitle,
   } = useChatStore();
+
+  // Slash command registry (built-in + skills + agents)
+  const slashCommands = useSlashCommands();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
   const ssoEnabled = getConfig('ssoEnabled');
@@ -881,9 +887,126 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     submitMessage(content);
   }, [isThisConversationStreaming, submitMessage]);
 
+  // Handle /skills chat command: fetch catalog and render in-chat (FR-002)
+  const handleSkillsCommand = useCallback(async () => {
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+
+    // Add user message showing the command
+    const turnId = `turn-${Date.now()}`;
+    addMessage(convId, { role: "user", content: "/skills" }, turnId);
+
+    // Set a descriptive title instead of "/skills"
+    updateConversationTitle(convId, "Skills Catalog");
+
+    // Add placeholder assistant message
+    const msgId = addMessage(convId, { role: "assistant", content: "Loading skills..." }, turnId);
+
+    try {
+      const res = await fetch("/api/skills?page=1&page_size=50", { credentials: "include" });
+      if (!res.ok) {
+        updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
+        return;
+      }
+      const data = await res.json();
+      const skills = data.skills || [];
+      const total = typeof data.meta?.total === "number" ? data.meta.total : skills.length;
+      const noMatches = data.meta?.message === "no_matches";
+      if (skills.length === 0) {
+        updateMessage(
+          convId,
+          msgId,
+          {
+            content: noMatches
+              ? "No skills match your current search or filters. Open the skills page to adjust filters or add hubs."
+              : "No skills available at the moment. Ask an admin to register hubs or agent config skills.",
+            isFinal: true,
+          },
+        );
+        return;
+      }
+      const more = total > skills.length ? ` (showing ${skills.length} of ${total})` : "";
+      const lines = [
+        `**Available Skills**${more}\n`,
+        ...skills.map((s: { name: string; description: string; source: string }) =>
+          `- **${s.name}**: ${s.description} *(${s.source})*`
+        ),
+        "\n*Same catalog as the skills page (first page). Type /skills any time to refresh.*",
+      ];
+      updateMessage(convId, msgId, { content: lines.join("\n"), isFinal: true });
+    } catch {
+      updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
+    }
+  }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
+
+  // Handle /help command: show available commands in chat
+  const handleHelpCommand = useCallback(() => {
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+    const turnId = `turn-${Date.now()}`;
+    addMessage(convId, { role: "user", content: "/help" }, turnId);
+
+    // Set a descriptive title instead of "/help"
+    updateConversationTitle(convId, "Help & Commands");
+
+    const agentLines = DEFAULT_AGENTS.map(a => `  \`/@${a.id}\` — ${a.label} agent`).join("\n");
+    const helpText = [
+      "**Available Commands**\n",
+      "  `/skills` — List all available skills",
+      "  `/help` — Show this help message",
+      "  `/clear` — Clear the current conversation",
+      "",
+      "**Agents** (inserts @mention, then keep typing your question)\n",
+      agentLines,
+      "",
+      "*Type `/` to see the autocomplete menu. Use Arrow keys + Tab to select.*",
+    ].join("\n");
+
+    addMessage(convId, { role: "assistant", content: helpText, isFinal: true } as any, turnId);
+  }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
+
+  // Handle /clear command
+  const handleClearCommand = useCallback(() => {
+    // Create a fresh conversation (effectively clearing the current one)
+    createConversation();
+  }, [createConversation]);
+
+  // Unified slash command executor
+  const executeSlashCommand = useCallback(async (commandId: string) => {
+    switch (commandId) {
+      case "skills":
+        await handleSkillsCommand();
+        break;
+      case "help":
+        handleHelpCommand();
+        break;
+      case "clear":
+        handleClearCommand();
+        break;
+    }
+  }, [handleSkillsCommand, handleHelpCommand, handleClearCommand]);
+
   // Wrapper for form submission that uses input state
   const handleSubmit = useCallback(async (forceSend = false) => {
     if (!input.trim()) return;
+
+    // Check for slash commands via the registry
+    const trimmed = input.trim();
+    if (trimmed.startsWith("/")) {
+      const cmdName = trimmed.slice(1).toLowerCase();
+      const cmd = slashCommands.find(
+        (c) => c.action === "execute" && c.id === cmdName,
+      );
+      if (cmd) {
+        setInput("");
+        await executeSlashCommand(cmd.id);
+        return;
+      }
+    }
 
     // If streaming and not force sending, queue the message (up to 3)
     if (isThisConversationStreaming && !forceSend) {
@@ -921,7 +1044,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setInput("");
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -1339,68 +1462,103 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
       appendToMessage, addSSEEvent, setConversationStreaming]);
 
-  // Handle @mention detection
+  // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     setInput(newValue);
 
-    // Check for @ mention trigger
     const cursorPos = e.target.selectionStart;
     const textBeforeCursor = newValue.slice(0, cursorPos);
-    const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
 
-    if (lastAtSymbol !== -1) {
-      // Check if @ is at start of word (preceded by space or at beginning)
-      const charBeforeAt = lastAtSymbol > 0 ? textBeforeCursor[lastAtSymbol - 1] : ' ';
-      const isAtWordStart = charBeforeAt === ' ' || charBeforeAt === '\n';
+    // Detect / at start of input or after a newline
+    const lastSlash = textBeforeCursor.lastIndexOf("/");
+    if (lastSlash !== -1) {
+      const charBefore = lastSlash > 0 ? textBeforeCursor[lastSlash - 1] : undefined;
+      const isAtStart = lastSlash === 0 || charBefore === "\n";
 
-      if (isAtWordStart) {
-        const textAfterAt = textBeforeCursor.slice(lastAtSymbol + 1);
-        // Only show if no space after @ (still typing the mention)
-        if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
-          setMentionFilter(textAfterAt.toLowerCase());
-          setShowMentionMenu(true);
+      if (isAtStart) {
+        const filterText = textBeforeCursor.slice(lastSlash + 1);
+        if (!filterText.includes(" ") && !filterText.includes("\n")) {
+          setSlashFilter(filterText);
+          setShowSlashMenu(true);
+          setSlashSelectedIndex(0);
           return;
         }
       }
     }
 
-    setShowMentionMenu(false);
+    setShowSlashMenu(false);
   }, []);
 
-  // Handle mention selection
-  const handleMentionSelect = useCallback((agent: CustomCall) => {
-    if (!inputRef.current) return;
+  // Handle slash command selection (Tab/Enter/click)
+  const handleSlashSelect = useCallback((cmd: SlashCommand) => {
+    setShowSlashMenu(false);
 
-    const cursorPos = inputRef.current.selectionStart;
-    const textBeforeCursor = input.slice(0, cursorPos);
-    const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
+    if (cmd.action === "execute") {
+      // Execute commands (e.g., /skills, /help, /clear)
+      setInput("");
+      executeSlashCommand(cmd.id);
+      return;
+    }
 
-    if (lastAtSymbol !== -1) {
-      const textBeforeAt = input.slice(0, lastAtSymbol);
-      const textAfterCursor = input.slice(cursorPos);
-      const newText = textBeforeAt + agent.prompt + ' ' + textAfterCursor;
+    // Insert commands
+    if (cmd.category === "agent") {
+      // Agent: replace /text with @agentname + trailing space
+      const cursorPos = inputRef.current?.selectionStart ?? input.length;
+      const textBeforeCursor = input.slice(0, cursorPos);
+      const lastSlash = textBeforeCursor.lastIndexOf("/");
+      const textBefore = lastSlash >= 0 ? input.slice(0, lastSlash) : "";
+      const textAfter = input.slice(cursorPos);
+      const newText = textBefore + cmd.value + " " + textAfter;
 
       setInput(newText);
-      setShowMentionMenu(false);
-
-      // Set cursor position after the mention
       setTimeout(() => {
         if (inputRef.current) {
-          const newCursorPos = textBeforeAt.length + agent.prompt.length + 1;
-          inputRef.current.selectionStart = newCursorPos;
-          inputRef.current.selectionEnd = newCursorPos;
+          const newPos = textBefore.length + cmd.value.length + 1;
+          inputRef.current.selectionStart = newPos;
+          inputRef.current.selectionEnd = newPos;
           inputRef.current.focus();
         }
       }, 0);
+    } else if (cmd.category === "skill") {
+      // Skill: send a rich prompt so the supervisor recognizes the skill invocation
+      setInput("");
+      const skillPrompt = `Execute skill: ${cmd.value}\n\nRead and follow the instructions in the SKILL.md file for the "${cmd.value}" skill.`;
+      submitMessage(skillPrompt).then(() => {
+        const convId = activeConversationId;
+        if (convId) {
+          updateConversationTitle(convId, `Skill: ${cmd.label}`);
+        }
+      });
     }
-  }, [input]);
+  }, [input, executeSlashCommand, submitMessage, activeConversationId, updateConversationTitle]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Close mention menu on Escape
-    if (e.key === "Escape" && showMentionMenu) {
-      setShowMentionMenu(false);
-      return;
+    // Slash menu keyboard navigation
+    if (showSlashMenu) {
+      const filtered = getFilteredCommands(slashCommands, slashFilter);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        if (filtered.length > 0) {
+          handleSlashSelect(filtered[slashSelectedIndex]);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSlashMenu(false);
+        return;
+      }
     }
 
     // Force send: Cmd/Ctrl + Enter
@@ -1409,9 +1567,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       handleSubmit(true); // Force send
       return;
     }
-    // Normal send: Enter (only if not streaming, otherwise queue)
-    // Don't send if mention menu is open
-    if (e.key === "Enter" && !e.shiftKey && !showMentionMenu) {
+    // Normal send: Enter
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(false);
     }
@@ -1707,46 +1864,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           )}
 
           <div className="relative">
-            {/* @mention autocomplete menu */}
-            <AnimatePresence>
-              {showMentionMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 8 }}
-                  className="absolute bottom-full left-0 right-0 mb-2 bg-card border border-border rounded-xl shadow-lg overflow-hidden z-50"
-                >
-                  <div className="p-2 border-b border-border">
-                    <p className="text-xs text-muted-foreground font-medium">Select an agent:</p>
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {DEFAULT_AGENTS
-                      .filter(agent =>
-                        agent.label.toLowerCase().includes(mentionFilter) ||
-                        agent.id.toLowerCase().includes(mentionFilter)
-                      )
-                      .map((agent) => {
-                        const agentLogo = AGENT_LOGOS[agent.id];
-                        return (
-                          <button
-                            key={agent.id}
-                            onClick={() => handleMentionSelect(agent)}
-                            className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/80 transition-colors text-left"
-                          >
-                            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-white dark:bg-gray-200 p-1 shrink-0">
-                              {agentLogo?.icon || <span className="text-sm font-bold">{agent.label.charAt(0)}</span>}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-foreground">{agent.label}</p>
-                              <p className="text-xs text-muted-foreground">{agent.prompt}</p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Slash command autocomplete menu */}
+            <SlashCommandMenu
+              filter={slashFilter}
+              commands={slashCommands}
+              selectedIndex={slashSelectedIndex}
+              onSelect={handleSlashSelect}
+              visible={showSlashMenu}
+            />
 
             <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
               <TextareaAutosize
@@ -1759,7 +1884,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                     ? queuedMessages.length >= 3
                       ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
                       : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                    : `Ask ${getConfig('appName')} anything or type @ to mention an agent...`
+                    : `Ask ${getConfig('appName')} anything, or type / to see commands, skills, and agents...`
                 }
                 className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
                 minRows={1}

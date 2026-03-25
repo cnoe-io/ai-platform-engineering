@@ -1,0 +1,29 @@
+# Optional packaged-skills scan (FR-023, T065). Runs when SKILLS_DIR is available.
+# Install CLI in the job: pip/uv install cisco-ai-skill-scanner (see scripts/scan-packaged-skills.sh).
+
+name: Skills packaged scan
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  scan-packaged-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run scan-packaged-skills.sh
+        env:
+          # Set repository variable SKILLS_DIR_PACKAGED or pass a path as workflow input in a follow-up.
+          SKILLS_DIR: ${{ vars.SKILLS_DIR_PACKAGED }}
+          SKILL_SCANNER_GATE: ${{ vars.SKILL_SCANNER_GATE }}
+          SKILL_SCANNER_POLICY: ${{ vars.SKILL_SCANNER_POLICY }}
+          SKILL_SCANNER_FAIL_ON: ${{ vars.SKILL_SCANNER_FAIL_ON }}
+        run: |
+          chmod +x scripts/scan-packaged-skills.sh
+          ./scripts/scan-packaged-skills.sh

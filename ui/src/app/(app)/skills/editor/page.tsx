@@ -3,25 +3,25 @@
 import React, { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SkillsBuilderEditor } from "@/components/skills";
-import { useAgentConfigStore } from "@/store/agent-config-store";
+import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import type { AgentConfig } from "@/types/agent-config";
+import type { AgentSkill } from "@/types/agent-skill";
 
 export default function SkillEditorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const configId = searchParams.get("id");
 
-  const { configs, isLoading, loadConfigs, getConfigById } = useAgentConfigStore();
-  const [existingConfig, setExistingConfig] = useState<AgentConfig | undefined>(undefined);
+  const { configs, isLoading, loadSkills, getSkillById } = useAgentSkillsStore();
+  const [existingConfig, setExistingConfig] = useState<AgentSkill | undefined>(undefined);
   const [ready, setReady] = useState(!configId);
 
   useEffect(() => {
     if (configs.length === 0 && !isLoading) {
-      loadConfigs();
+      loadSkills();
     }
-  }, [configs.length, isLoading, loadConfigs]);
+  }, [configs.length, isLoading, loadSkills]);
 
   useEffect(() => {
     if (!configId) {
@@ -29,11 +29,11 @@ export default function SkillEditorPage() {
       return;
     }
     if (configs.length > 0) {
-      const found = getConfigById(configId);
+      const found = getSkillById(configId);
       if (found) setExistingConfig(found);
       setReady(true);
     }
-  }, [configId, configs, getConfigById]);
+  }, [configId, configs, getSkillById]);
 
   const handleClose = () => router.push("/skills");
   const handleSuccess = () => router.push("/skills");
