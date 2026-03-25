@@ -259,13 +259,13 @@ export const authOptions: NextAuthOptions = {
       wellKnown: process.env.OIDC_ISSUER
         ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
         : undefined,
-      // Request offline_access to get refresh tokens (if enabled)
-      // Falls back to warning-only mode if refresh tokens not available
+      // Keycloak issues regular refresh tokens for confidential clients
+      // without needing offline_access scope. Requesting offline_access
+      // requires extra Keycloak config and causes login failures if not
+      // enabled on the client/realm. Regular refresh tokens are sufficient.
       authorization: {
         params: {
-          scope: ENABLE_REFRESH_TOKEN
-            ? "openid email profile groups offline_access"
-            : "openid email profile groups",
+          scope: "openid email profile groups",
           ...(process.env.OIDC_IDP_HINT ? { kc_idp_hint: process.env.OIDC_IDP_HINT } : {}),
         }
       },
@@ -274,26 +274,71 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.OIDC_CLIENT_ID,
       clientSecret: process.env.OIDC_CLIENT_SECRET,
       profile(profile) {
-        // Handle various OIDC provider claim formats
-        // Duo uses: fullname, firstname, lastname, username
-        // Standard OIDC: name, preferred_username, email
+        // Build display name from available claims.
+        // Keycloak sends standard OIDC: name, given_name, family_name
+        // Duo SSO sends: fullname, firstname, lastname, username
+        const composedName =
+          `${profile.given_name || profile.firstname || ""} ${profile.family_name || profile.lastname || ""}`.trim();
+        const name =
+          profile.name || profile.fullname || composedName ||
+          profile.preferred_username || profile.username || profile.email;
+
+        console.log("[Auth profile] Claims:", {
+          name: profile.name,
+          given_name: profile.given_name,
+          family_name: profile.family_name,
+          fullname: profile.fullname,
+          preferred_username: profile.preferred_username,
+          resolved: name,
+        });
+
         return {
           id: profile.sub,
-          name: profile.fullname || profile.name || profile.preferred_username ||
-                `${profile.firstname || ""} ${profile.lastname || ""}`.trim() ||
-                profile.username || profile.email,
-          email: profile.email || profile.username, // Some providers use username as email
+          name,
+          email: profile.email || profile.username,
           image: profile.picture,
         };
       },
     },
   ],
   callbacks: {
-    async jwt({ token, account, profile, trigger }) {
+    async jwt({ token, account, profile, trigger, session: updateData }) {
       // Strip idToken from existing sessions — it adds ~1KB and pushes
       // the cookie over the 4096-byte limit, causing chunking loops.
       if (token.idToken) {
         delete token.idToken;
+      }
+
+      // Force-refresh when admin changes roles/permissions and calls
+      // update({ forceRefresh: true }) from the client.
+      if (
+        trigger === "update" &&
+        updateData &&
+        typeof updateData === "object" &&
+        (updateData as Record<string, unknown>).forceRefresh &&
+        token.refreshToken
+      ) {
+        console.log("[Auth] Force-refreshing token (role/permission change)");
+        const refreshed = await refreshAccessToken(token) as typeof token;
+        // Re-extract realm roles from the fresh access token
+        if (refreshed.accessToken && !refreshed.error) {
+          try {
+            const parts = (refreshed.accessToken as string).split(".");
+            if (parts.length === 3) {
+              const payload = JSON.parse(
+                Buffer.from(parts[1], "base64url").toString()
+              );
+              const ra = payload.realm_access;
+              if (ra && Array.isArray(ra.roles)) {
+                refreshed.realmRoles = ra.roles;
+                console.log("[Auth] Updated realm roles from refreshed token:", ra.roles);
+              }
+            }
+          } catch (e) {
+            console.warn("[Auth] Could not decode refreshed access token for realm roles:", e);
+          }
+        }
+        return refreshed;
       }
 
       // Initial sign in - persist the OAuth tokens (NOT id_token).

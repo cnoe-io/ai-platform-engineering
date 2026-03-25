@@ -186,7 +186,7 @@ def rbac_global_middleware(body, context, next, logger):
     )
 
     if rbac_status == "unlinked":
-        linking_url = generate_linking_url(slack_user_id)
+        linking_url = asyncio.run(generate_linking_url(slack_user_id))
         if channel:
             try:
                 context["client"].chat_postEphemeral(

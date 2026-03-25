@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,6 +31,8 @@ import { SlackChannelMappingTab } from "@/components/admin/SlackChannelMappingTa
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
+import { UserManagementTab } from "@/components/admin/UserManagementTab";
+import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -140,19 +142,6 @@ interface NPSData {
   }>;
 }
 
-interface UserInfo {
-  email: string;
-  name: string;
-  role: string;
-  created_at: Date;
-  last_login: Date;
-  last_activity: Date;
-  stats: {
-    conversations: number;
-    messages: number;
-  };
-}
-
 interface Team {
   _id: string;
   name: string;
@@ -177,11 +166,9 @@ function AdminPage() {
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
-  const [users, setUsers] = useState<UserInfo[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const initialTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState(
     initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'users'
@@ -207,6 +194,7 @@ function AdminPage() {
   const [statsRange, setStatsRange] = useState<"1d" | "7d" | "30d" | "90d">("30d");
   const rangeLabel = statsRange === "1d" ? "24 Hours" : statsRange === "7d" ? "7 Days" : statsRange === "90d" ? "90 Days" : "30 Days";
   const [slackSubTab, setSlackSubTab] = useState<"slack-users" | "slack-channels">("slack-users");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   useEffect(() => {
     // Only fetch admin data once the user is authenticated
@@ -242,24 +230,22 @@ function AdminPage() {
       const feedbackOn = getConfig('feedbackEnabled');
       const npsOn = getConfig('npsEnabled');
       // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
-      const [statsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
+      const [statsRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
         fetch(`/api/admin/stats?range=${statsRange}`),
-        fetch('/api/admin/users'),
         fetch('/api/admin/teams').catch(() => null),
         fetch('/api/admin/stats/skills').catch(() => null),
         feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
         npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
       ]);
 
-      if (statsRes.status === 401 || usersRes.status === 401) {
+      if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
         setLoading(false);
         return;
       }
 
-      const [statsResponse, usersResponse, teamsResponse] = await Promise.all([
+      const [statsResponse, teamsResponse] = await Promise.all([
         statsRes.json(),
-        usersRes.json(),
         teamsRes ? teamsRes.json().catch(() => ({ success: true, data: { teams: [] } })) : { success: true, data: { teams: [] } },
       ]);
 
@@ -267,12 +253,6 @@ function AdminPage() {
         setStats(statsResponse.data);
       } else {
         throw new Error(statsResponse.error || 'Failed to load stats');
-      }
-
-      if (usersResponse.success) {
-        setUsers(usersResponse.data.users);
-      } else {
-        throw new Error(usersResponse.error || 'Failed to load users');
       }
 
       if (teamsResponse.success) {
@@ -406,40 +386,6 @@ function AdminPage() {
       alert(`Failed to stop campaign: ${err.message}`);
     } finally {
       setStoppingCampaign(null);
-    }
-  };
-
-  const handleRoleChange = async (email: string, newRole: 'admin' | 'user') => {
-    if (!confirm(`Are you sure you want to change ${email} to ${newRole}?`)) {
-      return;
-    }
-
-    setUpdatingRole(email);
-
-    try {
-      const response = await fetch(`/api/admin/users/${encodeURIComponent(email)}/role`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole }),
-      });
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to update role');
-      }
-
-      // Update local state
-      setUsers(users.map(u =>
-        u.email === email ? { ...u, role: newRole } : u
-      ));
-
-      console.log(`[Admin] Successfully changed ${email} to ${newRole}`);
-    } catch (err: any) {
-      console.error('[Admin] Failed to update role:', err);
-      alert(`Failed to update role: ${err.message}`);
-    } finally {
-      setUpdatingRole(null);
     }
   };
 
@@ -660,74 +606,14 @@ function AdminPage() {
 
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>User Management</CardTitle>
-                    <CardDescription>
-                      {isAdmin ? 'Manage user access, roles, and view activity' : 'View user access, roles, and activity'}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                        <div>Email</div>
-                        <div>Name</div>
-                        <div>Role</div>
-                        <div>Activity</div>
-                        <div>Stats</div>
-                        {isAdmin && <div className="text-right">Actions</div>}
-                      </div>
-                      {users.map((user) => (
-                        <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                          <div className="truncate">{user.email}</div>
-                          <div className="truncate">{user.name}</div>
-                          <div>
-                            <span className={`px-2 py-0.5 rounded text-xs ${
-                              user.role === 'admin'
-                                ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                            }`}>
-                              {user.role}
-                            </span>
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {new Date(user.last_activity).toLocaleDateString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {user.stats.conversations} chats, {user.stats.messages} msgs
-                          </div>
-                          {isAdmin && (
-                            <div className="flex justify-end gap-1">
-                              {user.role === 'user' ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleRoleChange(user.email, 'admin')}
-                                  disabled={updatingRole === user.email}
-                                  className="h-7 text-xs gap-1"
-                                >
-                                  <ShieldCheck className="h-3 w-3" />
-                                  Make Admin
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleRoleChange(user.email, 'user')}
-                                  disabled={updatingRole === user.email}
-                                  className="h-7 text-xs gap-1"
-                                >
-                                  <ShieldOff className="h-3 w-3" />
-                                  Remove Admin
-                                </Button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+                <UserManagementTab onSelectUser={(id) => setSelectedUserId(id)} />
+                {selectedUserId && (
+                  <UserDetailModal
+                    userId={selectedUserId}
+                    onClose={() => setSelectedUserId(null)}
+                    onSaved={() => {}}
+                  />
+                )}
               </TabsContent>
 
               {/* Team Management Tab */}

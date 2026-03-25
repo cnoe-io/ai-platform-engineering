@@ -139,7 +139,7 @@ IDP_JSON=$(cat <<ENDJSON
     "issuer": "${IDP_ISSUER}",
     "jwksUrl": "${JWKS_EP}",
     "defaultScope": "openid email profile groups",
-    "syncMode": "IMPORT",
+    "syncMode": "FORCE",
     "validateSignature": "true",
     "useJwksUrl": "true"
   }
@@ -214,6 +214,64 @@ create_mapper_if_missing "${ALIAS}-email-mapper" "$(cat <<ENDJSON
 ENDJSON
 )"
 
+# Map first name from upstream IdP (tries given_name first, then firstname — covers standard OIDC and Duo)
+create_mapper_if_missing "${ALIAS}-first-name" "$(cat <<ENDJSON
+{
+  "name": "${ALIAS}-first-name",
+  "identityProviderAlias": "${ALIAS}",
+  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+  "config": {
+    "syncMode": "INHERIT",
+    "claim": "given_name",
+    "user.attribute": "firstName"
+  }
+}
+ENDJSON
+)"
+
+create_mapper_if_missing "${ALIAS}-first-name-duo" "$(cat <<ENDJSON
+{
+  "name": "${ALIAS}-first-name-duo",
+  "identityProviderAlias": "${ALIAS}",
+  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+  "config": {
+    "syncMode": "INHERIT",
+    "claim": "firstname",
+    "user.attribute": "firstName"
+  }
+}
+ENDJSON
+)"
+
+# Map last name from upstream IdP
+create_mapper_if_missing "${ALIAS}-last-name" "$(cat <<ENDJSON
+{
+  "name": "${ALIAS}-last-name",
+  "identityProviderAlias": "${ALIAS}",
+  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+  "config": {
+    "syncMode": "INHERIT",
+    "claim": "family_name",
+    "user.attribute": "lastName"
+  }
+}
+ENDJSON
+)"
+
+create_mapper_if_missing "${ALIAS}-last-name-duo" "$(cat <<ENDJSON
+{
+  "name": "${ALIAS}-last-name-duo",
+  "identityProviderAlias": "${ALIAS}",
+  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+  "config": {
+    "syncMode": "INHERIT",
+    "claim": "lastname",
+    "user.attribute": "lastName"
+  }
+}
+ENDJSON
+)"
+
 # --- chat_user role: claim-based if IDP_ACCESS_GROUP is set, hardcoded fallback for local dev ---
 if [ -n "${IDP_ACCESS_GROUP:-}" ]; then
   echo "[init-idp]   Using claim-based chat_user mapper (IDP_ACCESS_GROUP=${IDP_ACCESS_GROUP})"
@@ -266,9 +324,48 @@ ENDJSON
 )"
 fi
 
+# --- ensure standard OIDC profile mappers exist (given_name, family_name, name, preferred_username) ---
+# The realm import may not include these, so ensure they are present so
+# Keycloak's ID token/userinfo carry the user's name to downstream clients.
+echo "[init-idp] Ensuring standard profile scope mappers ..."
+PROFILE_SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null \
+  | grep -B1 '"profile"' | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+if [ -n "${PROFILE_SCOPE_ID}" ]; then
+  EXISTING_MAPPERS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/client-scopes/${PROFILE_SCOPE_ID}/protocol-mappers/models" 2>/dev/null || echo "[]")
+
+  for MAPPER_NAME in "given name" "family name" "full name" "username"; do
+    if echo "${EXISTING_MAPPERS}" | grep -q "\"name\" *: *\"${MAPPER_NAME}\""; then
+      echo "[init-idp]   Profile mapper '${MAPPER_NAME}' already exists."
+    else
+      case "${MAPPER_NAME}" in
+        "given name")
+          MAPPER_JSON='{"name":"given name","protocol":"openid-connect","protocolMapper":"oidc-usermodel-attribute-mapper","config":{"user.attribute":"firstName","claim.name":"given_name","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true","introspection.token.claim":"true","jsonType.label":"String"}}'
+          ;;
+        "family name")
+          MAPPER_JSON='{"name":"family name","protocol":"openid-connect","protocolMapper":"oidc-usermodel-attribute-mapper","config":{"user.attribute":"lastName","claim.name":"family_name","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true","introspection.token.claim":"true","jsonType.label":"String"}}'
+          ;;
+        "full name")
+          MAPPER_JSON='{"name":"full name","protocol":"openid-connect","protocolMapper":"oidc-full-name-mapper","config":{"id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true","introspection.token.claim":"true"}}'
+          ;;
+        "username")
+          MAPPER_JSON='{"name":"username","protocol":"openid-connect","protocolMapper":"oidc-usermodel-attribute-mapper","config":{"user.attribute":"username","claim.name":"preferred_username","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true","introspection.token.claim":"true","jsonType.label":"String"}}'
+          ;;
+      esac
+      echo "[init-idp]   Creating profile mapper '${MAPPER_NAME}' ..."
+      curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/client-scopes/${PROFILE_SCOPE_ID}/protocol-mappers/models" \
+        -d "${MAPPER_JSON}" || echo "[init-idp]   WARNING: failed to create '${MAPPER_NAME}'"
+    fi
+  done
+else
+  echo "[init-idp]   WARNING: profile client scope not found."
+fi
+
 # --- disable "Review Profile" in first broker login flow ---
 # Prevents Keycloak from showing the "Update Account Information" page
-# on first SSO login — username/email are already provided by the IdP.
+# on first SSO login — username/email/name are already provided by the IdP mappers.
 echo "[init-idp] Disabling 'Review Profile' in first broker login flow ..."
 AUTH="Authorization: Bearer $(json_field "$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
   -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}")" "access_token")"
@@ -279,13 +376,23 @@ EXECUTIONS=$(curl -sf -H "${AUTH}" \
 REVIEW_ID=$(echo "${EXECUTIONS}" | grep -B2 '"idp-review-profile"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
 
 if [ -n "${REVIEW_ID}" ]; then
+  # Keycloak 26.x requires providerId in the execution update payload
   curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
     "${KC_URL}/admin/realms/${REALM}/authentication/flows/first%20broker%20login/executions" \
-    -d "{\"id\":\"${REVIEW_ID}\",\"requirement\":\"DISABLED\"}" && \
+    -d "{\"id\":\"${REVIEW_ID}\",\"requirement\":\"DISABLED\",\"providerId\":\"idp-review-profile\"}" && \
     echo "[init-idp]   Review Profile disabled." || \
-    echo "[init-idp]   WARNING: could not disable Review Profile."
+    echo "[init-idp]   WARNING: could not disable Review Profile via full payload."
 else
   echo "[init-idp]   Review Profile execution not found — may already be disabled."
 fi
+
+# Also set firstName/lastName as NOT required on the realm to prevent the form
+# from blocking login even if the mapper hasn't populated the fields yet.
+echo "[init-idp] Ensuring firstName/lastName are not required in realm user profile ..."
+curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+  "${KC_URL}/admin/realms/${REALM}" \
+  -d '{"registrationEmailAsUsername":true}' 2>/dev/null && \
+  echo "[init-idp]   Realm profile updated." || \
+  echo "[init-idp]   WARNING: could not update realm profile settings."
 
 echo "[init-idp] Done — IdP '${ALIAS}' is ready."

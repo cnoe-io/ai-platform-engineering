@@ -82,9 +82,22 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     let pendingSet = new Set<string>();
     try {
-      const nonceColl = await getCollection<{ slack_user_id: string; expires_at: Date }>("slack_link_nonces");
+      const nonceColl = await getCollection<{
+        slack_user_id: string;
+        expires_at?: Date;
+        created_at?: Date;
+        consumed?: boolean;
+      }>("slack_link_nonces");
+      const now = Date.now();
+      const ttlMs = 10 * 60 * 1000;
       const pendingRows = await nonceColl
-        .find({ expires_at: { $gt: new Date() } })
+        .find({
+          consumed: { $ne: true },
+          $or: [
+            { expires_at: { $gt: new Date() } },
+            { created_at: { $gte: new Date(now - ttlMs) } },
+          ],
+        })
         .project({ slack_user_id: 1 })
         .toArray();
       pendingSet = new Set(pendingRows.map((r) => r.slack_user_id));
