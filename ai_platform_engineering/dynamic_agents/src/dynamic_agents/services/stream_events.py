@@ -141,7 +141,6 @@ def _handle_tasks_chunk(
         return
 
     task_id = data.get("id")
-    task_name = data.get("name")
     task_input = data.get("input", {})
 
     # The tool_call info is nested under input.tool_call for tool executions

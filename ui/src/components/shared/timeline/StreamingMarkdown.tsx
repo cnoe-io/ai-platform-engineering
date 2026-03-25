@@ -47,6 +47,11 @@ export function StreamingMarkdown({
 }: StreamingMarkdownProps) {
   if (!content) return null;
 
+  // Streaming cursor element
+  const cursor = isStreaming ? (
+    <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
+  ) : null;
+
   // Use simple styling for thinking variant to avoid prose-related issues
   if (variant === "thinking") {
     return (
@@ -54,6 +59,7 @@ export function StreamingMarkdown({
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
           {content}
         </ReactMarkdown>
+        {cursor}
       </div>
     );
   }
@@ -63,6 +69,7 @@ export function StreamingMarkdown({
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
         {content}
       </ReactMarkdown>
+      {cursor}
     </div>
   );
 }
