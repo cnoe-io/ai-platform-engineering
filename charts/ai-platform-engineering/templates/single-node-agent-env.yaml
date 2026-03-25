@@ -1,7 +1,9 @@
 {{- /*
 This ConfigMap is only needed in single-node mode where all agents run in-process.
-It provides ENABLE_<AGENT> env vars so the deep agent knows which subagents to load,
-and <AGENT>_MCP_HOST / <AGENT>_MCP_PORT / <AGENT>_MCP_MODE env vars for MCP transport.
+It provides:
+  - ENABLE_<AGENT> env vars so the deep agent knows which subagents to load
+  - <AGENT>_MCP_HOST / <AGENT>_MCP_PORT / <AGENT>_MCP_MODE env vars for MCP transport
+  - Per-agent env vars from agent-<name>.env (e.g. AWS_ACCOUNT_LIST, USE_AWS_CLI_AS_TOOL)
 Per-subagent LLM config (keys, endpoints, models) is handled via secrets (agentSecrets).
 In multi-node mode, the supervisor-agent-env ConfigMap handles this instead.
 */ -}}
@@ -26,6 +28,13 @@ data:
   {{ $ENV }}_MCP_HOST: {{ printf "%s-agent-%s-mcp" $.Release.Name $name | quote }}
   {{ $ENV }}_MCP_PORT: {{ $mcp.port | default 8000 | quote }}
   {{- end }}
+  {{- end }}
+  {{- /* Forward per-agent env vars so in-process agents can read them via os.getenv.
+         In multi-node mode these are set on each agent's own pod; in single-node
+         they must be injected into the supervisor pod via this ConfigMap. */ -}}
+  {{- $agentEnv := $agentValues.env | default dict }}
+  {{- range $key, $value := $agentEnv }}
+  {{ $key }}: {{ $value | quote }}
   {{- end }}
   {{- end }}
   {{- end }}
