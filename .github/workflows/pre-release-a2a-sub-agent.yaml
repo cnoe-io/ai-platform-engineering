@@ -74,7 +74,7 @@ jobs:
 
       - name: Detect changed paths
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           predicate-quantifier: 'every'
           filters: ${{ steps.generate-filters.outputs.filters }}
