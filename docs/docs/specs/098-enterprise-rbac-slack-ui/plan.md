@@ -5,7 +5,7 @@
 
 ## Summary
 
-Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Supervisor, RAG, sub-agents, tools, skills, A2A, and MCP** (FR-008, FR-014), grounded in **IdP directory groups** (Okta, Entra ID) federated through **Keycloak** (required OIDC broker and PDP), with **OBO token exchange** for end-to-end user identity delegation (FR-018–FR-021, absorbed from 093), **Agent Gateway** as the required MCP/A2A/agent data-plane gateway, **RAG server Keycloak integration** with **per-KB access control** (FR-026, FR-027) providing defense-in-depth enforcement at the data layer, **dynamic agent RBAC** with three-layer Keycloak resource + per-agent roles + MongoDB visibility (FR-028), **CEL as the mandated policy engine** at all enforcement points (FR-029), and **deepagent MCP routing through Agent Gateway** (FR-030).
+Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Supervisor, RAG, sub-agents, tools, skills, A2A, and MCP** (FR-008, FR-014), grounded in **IdP directory groups** (Okta, Entra ID) federated through **Keycloak** (required OIDC broker and PDP), with **OBO token exchange** for end-to-end user identity delegation (FR-018–FR-021, absorbed from 093), **Agent Gateway** as the required MCP/A2A/agent data-plane gateway, **RAG server Keycloak integration** with **per-KB access control** (FR-026, FR-027) providing defense-in-depth enforcement at the data layer, **dynamic agent RBAC** with three-layer Keycloak resource + per-agent roles + MongoDB visibility (FR-028), **CEL as the mandated policy engine** at all enforcement points (FR-029), **deepagent MCP routing through Agent Gateway** (FR-030), **Slack channel-to-team scope mapping** (FR-031) so bot commands are automatically scoped to the linked team's KBs/agents/tools, and an **Admin UI Slack Management Dashboard** (FR-032) with full operational Slack user bootstrapping view and channel-to-team mapping manager.
 
 **Technical approach**: Dual-PDP architecture:
 - **Keycloak Authorization Services** — PDP for UI/Slack paths (FR-022). The 098 permission matrix is modeled as Keycloak resources, scopes, and role-based policies. BFF and Slack bot call Keycloak AuthZ for every protected operation.
@@ -55,6 +55,8 @@ Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Superviso
 
 **Post–Phase 11 addition (Session 2026-03-25)**: Dynamic agent RBAC (FR-028), CEL as mandated policy engine (FR-029), and deepagent MCP routing through AG (FR-030) added as Phase 11 / User Story 8 (P1). Three-layer Keycloak resource + per-agent roles + MongoDB visibility model. CEL evaluators embedded in all services (AG, RAG, dynamic agents, BFF). See [architecture.md § Dynamic Agent RBAC](./architecture.md#dynamic-agent-rbac-architecture-fr-028-fr-029-fr-030).
 
+**Post–Phase 12 addition (Session 2026-03-25)**: Slack channel-to-team scope mapping (FR-031) and Admin UI Slack Management Dashboard (FR-032) added as Phase 12 / User Story 9 (P2). Slack channels act as team selectors (context only, not permission grants); Keycloak roles remain sole authority. Admin UI provides full operational view of Slack user bootstrapping (linking status, OBO counts, roles) and CRUD for channel-to-team mappings. Bot caches mappings with 60s TTL. See [architecture.md § Slack Channel RBAC](./architecture.md#slack-channel-to-team-rbac-fr-031-fr-032).
+
 ## Project Structure
 
 ### Documentation (this feature)
@@ -89,6 +91,8 @@ ui/
 │   ├── app/api/admin/role-mappings/route.ts   # Group-to-role mapping CRUD (FR-024)
 │   ├── app/api/admin/role-mappings/[id]/route.ts  # Mapping delete
 │   ├── app/api/admin/teams/[id]/roles/route.ts    # Team role assignment
+│   ├── app/api/admin/slack/users/route.ts         # Slack user bootstrapping data (FR-032)
+│   ├── app/api/admin/slack/channel-mappings/route.ts  # Channel-to-team mapping CRUD (FR-031, FR-032)
 │   ├── app/api/rag/                           # RAG tool CRUD (team-scoped RBAC)
 │   ├── app/(app)/admin/                       # Admin pages (RBAC-gated)
 │   ├── app/(app)/knowledge-bases/             # KB management (team-scoped)
@@ -105,7 +109,9 @@ ui/
 │   └── components/admin/
 │       ├── RolesAccessTab.tsx                 # Admin tab: roles, mappings, team assignments (FR-024)
 │       ├── CreateRoleDialog.tsx               # New role dialog
-│       └── GroupRoleMappingDialog.tsx         # New group-to-role mapping dialog
+│       ├── GroupRoleMappingDialog.tsx         # New group-to-role mapping dialog
+│       ├── SlackUsersTab.tsx                  # Slack user bootstrapping dashboard — full operational view (FR-032)
+│       └── SlackChannelMappingTab.tsx         # Channel-to-team mapping CRUD manager (FR-031, FR-032)
 └── tests/
 
 ai_platform_engineering/
@@ -130,6 +136,7 @@ ai_platform_engineering/
 │       ├── identity_linker.py                 # Slack identity linking (FR-025)
 │       ├── obo_exchange.py                    # OBO token exchange (RFC 8693)
 │       ├── rbac_middleware.py                 # RBAC enforcement middleware
+│       ├── channel_team_mapper.py             # Channel-to-team scope resolution + 60s TTL cache (FR-031)
 │       └── audit.py                           # Structured audit event logger
 ├── multi_agents/platform_engineer/
 │   └── protocol_bindings/a2a/agent_executor.py  # OBO JWT forwarding through delegation chain
@@ -168,7 +175,7 @@ deploy/
 
 ## Next step
 
-Run **`/speckit.tasks`** to produce `tasks.md` with ordered implementation items (already generated — 88 tasks across 11 phases).
+Run **`/speckit.tasks`** to produce `tasks.md` with ordered implementation items (already generated — 100 tasks across 12 phases).
 
 **Paths (relative to repository root)**
 
