@@ -1,6 +1,8 @@
 # Slack Agent Makefile
 # --------------------------------------------------
 # This Makefile includes common functionality and adds Slack-specific targets.
+# The Slack agent uses the OSS korotovsky/slack-mcp-server instead of a
+# custom in-tree MCP server, so run-a2a and run-mcp are overridden.
 # --------------------------------------------------
 
 # Agent-specific variables
@@ -9,15 +11,10 @@ AGENT_NAME = slack
 # Include common functionality
 include ../common.mk
 
-# Additional PHONY targets specific to this agent
-.PHONY: slack-specific-target
-
-## ========== Slack-Specific Targets ==========
-
-slack-specific-target: ## Example slack-specific target
-	@echo "This is a Slack-specific target"
-	@echo "Agent: $(AGENT_NAME)"
-	@echo "Package: $(AGENT_PKG_NAME)"
+# Override run-a2a: skip `uv add ./mcp` since Slack uses the OSS korotovsky/slack-mcp-server
+run-a2a: setup-venv check-env uv-sync ## Run A2A agent (MCP server is external)
+	export PYTHONPATH=$(REPO_ROOT):$$PYTHONPATH; \
+	uv run python -m $(AGENT_PKG_NAME) --host 0.0.0.0 --port $${A2A_PORT:-8000}
 
 # Override run-docker-a2a to include Slack-specific environment variables
 run-docker-a2a: ## Run the A2A agent in Docker with Slack-specific env vars

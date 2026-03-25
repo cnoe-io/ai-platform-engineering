@@ -30,9 +30,7 @@ dependencies = [
     "python-dotenv==1.2.1",
     "cnoe-agent-utils==0.3.14",
     "pydantic==2.12.5",
-    "fastmcp==2.13.3",
     "mcp==1.21.0",
-    "mcp-slack",
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
 ]
@@ -72,6 +70,8 @@ select = [
 ]
 ignore = ["F403"]
 
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }
-mcp-slack = { path = "mcp" }
