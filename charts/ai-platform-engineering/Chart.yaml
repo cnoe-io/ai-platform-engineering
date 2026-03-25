@@ -3,8 +3,7 @@ apiVersion: v2
 appVersion: 0.2.42 # Do NOT modify. It will be updated automatically using the release workflow
 name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
-sou
-es:
+sources:
   - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
 version: 0.2.42 # Do NOT bump this. It will be updated automatically using the PR or release workflow
