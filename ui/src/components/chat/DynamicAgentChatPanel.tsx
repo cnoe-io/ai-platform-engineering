@@ -925,6 +925,11 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     const agentId = pendingUserInput.agentId;
     setPendingUserInput(null);
 
+    // Clear previous turn's events before starting resume stream
+    // (the previous message already has its sseEvents persisted)
+    console.log(`[SSE-DEBUG] 🧹 clearSSEEvents() called for conv=${activeConversationId} — starting HITL resume`);
+    clearSSEEvents(activeConversationId);
+
     // Create Dynamic Agent client for resume
     const dynClient = new DynamicAgentClient({
       proxyUrl: "/api/dynamic-agents/chat",
