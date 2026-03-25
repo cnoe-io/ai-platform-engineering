@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Conversation, ChatMessage, A2AEvent, MessageFeedback } from "@/types/a2a";
+import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus } from "@/types/a2a";
 import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
@@ -416,12 +416,15 @@ const storeImplementation = (set: any, get: any) => ({
             streamingConversations: newMap,
             isStreaming: newMap.size > 0,
           });
-          // Mark the message as cancelled
+          // Mark the message as cancelled with interrupted status
           const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
           const msg = conv?.messages.find((m: ChatMessage) => m.id === streamingState.messageId);
           if (msg && !msg.isFinal) {
             state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");
-            state.updateMessage(conversationId, streamingState.messageId, { isFinal: true });
+            state.updateMessage(conversationId, streamingState.messageId, { 
+              isFinal: true,
+              turnStatus: "interrupted"
+            });
           }
 
           // Reset periodic save counter and save to MongoDB after cancel —
@@ -985,6 +988,7 @@ const storeImplementation = (set: any, get: any) => ({
                 is_final: msg.isFinal ?? false,
                 ...(msg.taskId && { task_id: msg.taskId }),
                 ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
+                ...(msg.turnStatus && { turn_status: msg.turnStatus }),
                 ...(msg.timelineSegments && msg.timelineSegments.length > 0 && {
                   timeline_segments: msg.timelineSegments,
                 }),
@@ -1221,6 +1225,8 @@ const storeImplementation = (set: any, get: any) => ({
               isFinal,
               turnId: msg.metadata?.turn_id,
               taskId: msg.metadata?.task_id,
+              // Restore turnStatus from MongoDB (defaults to undefined for legacy messages)
+              turnStatus: msg.metadata?.turn_status as TurnStatus | undefined,
               // Mark as interrupted only if explicitly flagged in MongoDB, or
               // if this is the very last assistant message and it's not final
               // (genuinely mid-stream when saved, with no follow-up).

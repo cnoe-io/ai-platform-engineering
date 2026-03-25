@@ -20,7 +20,8 @@ import type {
   DAContentSegment,
   DAToolSegment,
   DASubagentSegment,
-  DADoneSegment,
+  DAStatusSegment,
+  DAStatusType,
 } from "@/types/dynamic-agent-timeline";
 import type { ToolStartEventData } from "@/components/dynamic-agents/sse-types";
 import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
@@ -124,11 +125,17 @@ export class DATimelineManager {
 
     // Check if this is a subagent invocation (task tool)
     if (toolData.tool_name === SUBAGENT_TOOL_NAME) {
+      const subagentId = toolData.tool_call_id;
+
+      // DEDUP GUARD: Skip if we already have this subagent (HITL resume replays events)
+      if (this.subagents.has(subagentId)) {
+        return;
+      }
+
       // Flush any pending root content before subagent
       this.flushRootContent();
 
       // Create subagent entry
-      const subagentId = toolData.tool_call_id;
       const args = toolData.args || {};
 
       const subagentState: SubagentState = {
@@ -165,6 +172,11 @@ export class DATimelineManager {
         startedAt: now,
       });
     } else if (namespace.length === 0) {
+      // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+      if (this.rootToolMap.has(toolData.tool_call_id)) {
+        return;
+      }
+
       // Root-level tool - flush content first
       this.flushRootContent();
 
@@ -184,12 +196,18 @@ export class DATimelineManager {
       };
       this.rootSegments.push(segment);
     } else {
-      // Subagent tool - flush subagent content first
+      // Subagent tool
       const subagentId = namespace[0];
-      this.flushSubagentContent(subagentId);
-
       const subagent = this.subagents.get(subagentId);
       if (subagent) {
+        // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+        if (subagent.toolMap.has(toolData.tool_call_id)) {
+          return;
+        }
+
+        // Flush subagent content first
+        this.flushSubagentContent(subagentId);
+
         const tool: DAToolInfo = {
           id: toolData.tool_call_id,
           name: toolData.tool_name,
@@ -232,13 +250,14 @@ export class DATimelineManager {
         // Flush any remaining subagent content
         this.flushSubagentContent(toolCallId);
         
-        // Add a "done" segment to the subagent's nested timeline
-        const doneSegment: DADoneSegment = {
-          type: "done",
-          id: `${toolCallId}-done`,
+        // Add a "status" segment to the subagent's nested timeline
+        const statusSegment: DAStatusSegment = {
+          type: "status",
+          id: `${toolCallId}-status`,
+          status: "done",
           label: subagent.info.name,
         };
-        subagent.segments.push(doneSegment);
+        subagent.segments.push(statusSegment);
       }
     } else {
       // Subagent tool completion
@@ -328,8 +347,9 @@ export class DATimelineManager {
 
   /**
    * Finalize the timeline (called when stream ends).
+   * @param status - The status to show: "done", "interrupted", or "waiting_for_input"
    */
-  finalize(): void {
+  finalize(status: DAStatusType = "done"): void {
     this.isFinalized = true;
 
     // Flush any remaining content
@@ -338,10 +358,11 @@ export class DATimelineManager {
       this.flushSubagentContent(subagentId);
     }
 
-    // Mark all running tools as completed
+    // Mark all running tools as completed (unless interrupted)
+    const toolStatus = status === "interrupted" ? "failed" : "completed";
     for (const tool of this.rootToolMap.values()) {
       if (tool.status === "running") {
-        tool.status = "completed";
+        tool.status = toolStatus;
         tool.endedAt = new Date();
       }
     }
@@ -349,22 +370,23 @@ export class DATimelineManager {
     // Mark all running subagents and their tools as completed
     for (const subagent of this.subagents.values()) {
       if (subagent.info.status === "running") {
-        subagent.info.status = "completed";
+        subagent.info.status = toolStatus;
       }
       for (const tool of subagent.toolMap.values()) {
         if (tool.status === "running") {
-          tool.status = "completed";
+          tool.status = toolStatus;
           tool.endedAt = new Date();
         }
       }
     }
 
-    // Add a "done" segment for the parent agent
-    const doneSegment: DADoneSegment = {
-      type: "done",
-      id: "root-done",
+    // Add a status segment for the parent agent
+    const statusSegment: DAStatusSegment = {
+      type: "status",
+      id: "root-status",
+      status,
     };
-    this.rootSegments.push(doneSegment);
+    this.rootSegments.push(statusSegment);
   }
 
   // ═══════════════════════════════════════════════════════════════

@@ -27,6 +27,7 @@ import type {
   DAWarningSegment,
   DAErrorSegment,
   DADoneSegment,
+  DAStatusSegment,
   DAToolInfo,
 } from "@/types/dynamic-agent-timeline";
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
@@ -185,8 +186,8 @@ export function DynamicAgentTimeline({
   const showFilesSection = files.length > 0 && hasFileToolsInSegments(segments);
 
   // Check if we have meaningful timeline segments (tools, subagents, content, warnings, errors)
-  // "done" segments don't count - they're just markers
-  const hasMeaningfulSegments = segments.some(s => s.type !== "done");
+  // "done" and "status" segments don't count - they're just markers
+  const hasMeaningfulSegments = segments.some(s => s.type !== "done" && s.type !== "status");
   
   // Should show timeline content (always show when streaming to include final answer as thinking)
   const showTimeline = isStreaming || machineryExpanded;
@@ -380,6 +381,8 @@ function DASegmentRenderer({
         return "amber";
       case "error":
         return "red";
+      case "status":
+        return segment.status === "done" ? "emerald" : "amber";
       case "done":
         return "emerald";
       default:
@@ -410,6 +413,9 @@ function DASegmentRenderer({
       )}
       {segment.type === "error" && (
         <DAErrorSegmentView segment={segment} isNested={isNested} />
+      )}
+      {segment.type === "status" && (
+        <DAStatusSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "done" && (
         <DADoneSegmentView segment={segment} isNested={isNested} />
@@ -800,6 +806,46 @@ function DAErrorSegmentView({ segment, isNested = false }: { segment: DAErrorSeg
     )}>
       <XCircle className={cn("shrink-0 mt-0.5", isNested ? "h-2.5 w-2.5" : "h-3.5 w-3.5")} />
       <span>{segment.message}</span>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Status Segment (done, interrupted, waiting_for_input)
+// ═══════════════════════════════════════════════════════════════
+
+function DAStatusSegmentView({ segment, isNested = false }: { segment: DAStatusSegment; isNested?: boolean }) {
+  const { status, label } = segment;
+  
+  // Determine styling based on status
+  const isDone = status === "done";
+  const isInterrupted = status === "interrupted";
+  const isWaiting = status === "waiting_for_input";
+  
+  // Status labels
+  const statusLabel = isDone ? "Done" : isInterrupted ? "Interrupted" : "Waiting for user response";
+  
+  return (
+    <div className={cn(
+      "flex items-center gap-1.5",
+      isNested ? "text-[10px]" : "text-xs",
+      isDone && "text-emerald-500",
+      (isInterrupted || isWaiting) && "text-amber-500"
+    )}>
+      {isDone ? (
+        <CheckCircle className={cn("shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
+      ) : (
+        <span className="relative flex shrink-0">
+          <span className={cn(
+            "relative inline-flex rounded-full bg-amber-500",
+            isNested ? "h-2 w-2" : "h-2.5 w-2.5"
+          )} />
+        </span>
+      )}
+      <span className="font-medium">{statusLabel}</span>
+      {label && (
+        <span className="text-muted-foreground/60">— {label}</span>
+      )}
     </div>
   );
 }

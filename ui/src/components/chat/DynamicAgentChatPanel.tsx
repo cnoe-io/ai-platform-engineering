@@ -18,7 +18,7 @@ import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
 import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData, isToolStartData, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType } from "@/types/a2a";
+import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
@@ -647,6 +647,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     let rawStreamContent = ""; 
     let eventCounter = 0;
     let hitlFormRequested = false;
+    let hasError = false;
     let lastUIUpdate = 0;
     const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
     const eventBuffer: SSEAgentEvent[] = [];
@@ -761,22 +762,42 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         flushEventBuffer();
       }
 
-      if (hitlFormRequested) {
-        updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: false });
+      // Check if the message was already finalized (e.g., by cancelConversationRequest)
+      // If so, don't overwrite the turnStatus that was set there
+      const currentConv = useChatStore.getState().conversations.find((c: Conversation) => c.id === convId);
+      const currentMsg = currentConv?.messages.find((m: ChatMessageType) => m.id === assistantMsgId);
+      const wasAlreadyCancelled = currentMsg?.isFinal && currentMsg?.turnStatus === "interrupted";
+
+      if (wasAlreadyCancelled) {
+        // Message was cancelled by user - don't overwrite the interrupted status
+        // Also don't call setConversationStreaming(null) - cancelConversationRequest already did that
+        console.log("[DynamicAgent] Stream finalize skipped - message was already cancelled");
+      } else if (hitlFormRequested) {
+        updateMessage(convId!, assistantMsgId, { 
+          content: accumulatedText, 
+          rawStreamContent, 
+          isFinal: false,
+          turnStatus: "waiting_for_input" as TurnStatus 
+        });
+        setConversationStreaming(convId!, null);
       } else {
         // Stream ended - mark as final with accumulated content
         updateMessage(convId!, assistantMsgId, { 
           content: accumulatedText, 
           rawStreamContent, 
-          isFinal: true 
+          isFinal: true,
+          turnStatus: "done" as TurnStatus
         });
+        setConversationStreaming(convId!, null);
       }
-
-      setConversationStreaming(convId!, null);
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
+      // Set interrupted status on error
+      updateMessage(convId!, assistantMsgId, {
+        turnStatus: "interrupted" as TurnStatus,
+      });
       setConversationStreaming(convId, null);
     }
   }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, createConversation, clearSSEEvents, addMessage, appendToMessage, updateMessage, addSSEEvent, setConversationStreaming, session?.user]);
@@ -912,6 +933,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     let accumulatedText = "";
     let rawStreamContent = "";
     let hitlFormRequested = false;
+    let hasError = false;
 
     try {
       for await (const event of dynClient.resumeStream(activeConversationId, agentId, formDataJson)) {
@@ -967,8 +989,17 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         // Handle errors - break stream, error will be rendered inline via StreamingView
         if (sseEvent.type === "error") {
           console.error("[ChatPanel] SSE resume error event:", sseEvent.displayContent);
+          hasError = true;
           break;
         }
+      }
+
+      // Determine turn status based on stream outcome
+      let finalTurnStatus: TurnStatus = "done";
+      if (hitlFormRequested) {
+        finalTurnStatus = "waiting_for_input";
+      } else if (hasError) {
+        finalTurnStatus = "interrupted";
       }
 
       if (!hitlFormRequested) {
@@ -976,6 +1007,14 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           content: accumulatedText,
           rawStreamContent,
           isFinal: true,
+          turnStatus: finalTurnStatus,
+        });
+      } else {
+        updateMessage(activeConversationId, assistantMsgId, {
+          content: accumulatedText,
+          rawStreamContent,
+          isFinal: false,
+          turnStatus: finalTurnStatus,
         });
       }
       setConversationStreaming(activeConversationId, null);
@@ -983,6 +1022,10 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       console.error("[ChatPanel] SSE HITL resume error:", error);
       appendToMessage(activeConversationId, assistantMsgId,
         `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      // Set interrupted status on error
+      updateMessage(activeConversationId, assistantMsgId, {
+        turnStatus: "interrupted" as TurnStatus,
+      });
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
@@ -2068,7 +2111,12 @@ const ChatMessage = React.memo(function ChatMessage({
   const collapsedPreview = message.content.slice(0, 300).trim();
 
   // Transform SSE events into grouped timeline data for assistant messages
-  const { data: timelineData } = useDynamicAgentTimeline(turnEvents, isStreaming);
+  // Use turnStatus from message (defaults to "done" for backward compatibility)
+  const { data: timelineData } = useDynamicAgentTimeline(
+    turnEvents, 
+    isStreaming, 
+    message.turnStatus
+  );
 
   return (
     <motion.div

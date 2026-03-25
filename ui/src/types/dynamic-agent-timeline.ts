@@ -92,7 +92,23 @@ export interface DAErrorSegment {
   message: string;
 }
 
-/** A done/completion marker */
+/** Status segment types */
+export type DAStatusType = "done" | "interrupted" | "waiting_for_input";
+
+/** A status marker (completion, interruption, or waiting for input) */
+export interface DAStatusSegment {
+  type: "status";
+  id: string;
+  /** Status type: done, interrupted, or waiting_for_input */
+  status: DAStatusType;
+  /** Optional label (e.g., subagent name that completed) */
+  label?: string;
+}
+
+/**
+ * @deprecated Use DAStatusSegment instead
+ * Kept for backward compatibility during migration
+ */
 export interface DADoneSegment {
   type: "done";
   id: string;
@@ -108,6 +124,7 @@ export type DATimelineSegment =
   | DASubagentSegment
   | DAWarningSegment
   | DAErrorSegment
+  | DAStatusSegment
   | DADoneSegment;
 
 // ═══════════════════════════════════════════════════════════════

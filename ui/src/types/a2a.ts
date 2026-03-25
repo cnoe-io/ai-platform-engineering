@@ -164,6 +164,9 @@ export interface WidgetAction {
   context?: Record<string, unknown>;
 }
 
+// Turn status for Dynamic Agents (shown in timeline)
+export type TurnStatus = "done" | "interrupted" | "waiting_for_input";
+
 // Chat conversation types
 export interface Conversation {
   id: string;
@@ -257,6 +260,8 @@ export interface ChatMessage {
   senderImage?: string;
   /** Structured timeline segments built during streaming */
   timelineSegments?: TimelineSegment[];
+  /** Turn status for Dynamic Agents: done, interrupted, or waiting_for_input */
+  turnStatus?: TurnStatus;
 }
 
 // Input field configuration for use case forms

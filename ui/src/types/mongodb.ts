@@ -245,6 +245,9 @@ export interface AddMessageRequest {
     latency_ms?: number;
     agent_name?: string;
     is_final?: boolean;
+    turn_status?: string; // "done" | "interrupted" | "waiting_for_input"
+    is_interrupted?: boolean;
+    task_id?: string;
     timeline_segments?: any[]; // TimelineSegment[] for plan/thinking/answer reconstruction
   };
   artifacts?: Artifact[];

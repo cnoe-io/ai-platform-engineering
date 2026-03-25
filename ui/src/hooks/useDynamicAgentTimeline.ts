@@ -11,7 +11,7 @@
 
 import { useMemo, useRef } from "react";
 import { DATimelineManager, createDATimelineManager } from "@/lib/da-timeline-manager";
-import type { DATimelineData } from "@/types/dynamic-agent-timeline";
+import type { DATimelineData, DAStatusType } from "@/types/dynamic-agent-timeline";
 import type {
   SSEAgentEvent,
   ToolStartEventData,
@@ -48,11 +48,13 @@ const EMPTY_DATA: DATimelineData = {
  *
  * @param events - SSE events for the current message turn
  * @param isStreaming - Whether the stream is still active
+ * @param turnStatus - Status to show when finalized: "done", "interrupted", or "waiting_for_input"
  * @returns Interleaved timeline data for DynamicAgentTimeline
  */
 export function useDynamicAgentTimeline(
   events: SSEAgentEvent[],
-  isStreaming: boolean
+  isStreaming: boolean,
+  turnStatus?: DAStatusType
 ): UseDynamicAgentTimelineResult {
   // Keep a stable manager reference across renders
   // We'll recreate when events array identity changes (new message)
@@ -126,14 +128,14 @@ export function useDynamicAgentTimeline(
 
     // Finalize if not streaming
     if (!isStreaming) {
-      manager.finalize();
+      manager.finalize(turnStatus || "done");
     }
 
     // Update prev events ref
     prevEventsRef.current = events;
 
     return manager.getGroupedData();
-  }, [events, isStreaming]);
+  }, [events, isStreaming, turnStatus]);
 
   return { data };
 }
