@@ -473,11 +473,11 @@ class AgentRuntime:
                 yield event
 
         # Check for pending interrupt (agent called request_user_input)
-        logger.info("[stream] Stream loop completed, checking for pending interrupt...")
+        logger.debug("[stream] Stream loop completed, checking for pending interrupt...")
         interrupt_data = await self.has_pending_interrupt(session_id)
-        logger.info(f"[stream] has_pending_interrupt result: {interrupt_data}")
+        logger.debug(f"[stream] has_pending_interrupt result: {interrupt_data}")
         if interrupt_data:
-            logger.info(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
+            logger.debug(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
             yield make_input_required_event(
                 interrupt_id=interrupt_data["interrupt_id"],
                 prompt=interrupt_data["prompt"],
@@ -666,7 +666,7 @@ class AgentRuntime:
         # Check for another pending interrupt (agent might request more input)
         interrupt_data = await self.has_pending_interrupt(session_id)
         if interrupt_data:
-            logger.info(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
+            logger.debug(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
             yield make_input_required_event(
                 interrupt_id=interrupt_data["interrupt_id"],
                 prompt=interrupt_data["prompt"],

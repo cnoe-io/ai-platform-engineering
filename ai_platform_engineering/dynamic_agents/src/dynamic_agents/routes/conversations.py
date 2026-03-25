@@ -224,7 +224,7 @@ async def get_conversation_messages(
     interrupt_data = await runtime.has_pending_interrupt(conversation_id)
     has_pending_interrupt = interrupt_data is not None
 
-    logger.info(
+    logger.debug(
         f"Retrieved {len(messages)} messages for conversation {conversation_id}, "
         f"has_pending_interrupt={has_pending_interrupt}"
     )
@@ -316,7 +316,7 @@ async def get_interrupt_state(
     interrupt_data = await runtime.has_pending_interrupt(conversation_id)
     has_pending_interrupt = interrupt_data is not None
 
-    logger.info(
+    logger.debug(
         f"Checked interrupt state for conversation {conversation_id}: has_pending_interrupt={has_pending_interrupt}"
     )
 
@@ -423,7 +423,7 @@ async def get_conversation_todos(
                 status = "pending"
             todos.append(TodoItem(content=content, status=status))
 
-    logger.info(f"Retrieved {len(todos)} todos for conversation {conversation_id}")
+    logger.debug(f"Retrieved {len(todos)} todos for conversation {conversation_id}")
 
     return ConversationTodosResponse(
         conversation_id=conversation_id,
@@ -515,7 +515,7 @@ async def get_conversation_files_list(
     files_dict = state.values.get("files", {})
     file_paths = sorted(files_dict.keys()) if isinstance(files_dict, dict) else []
 
-    logger.info(f"Retrieved {len(file_paths)} files for conversation {conversation_id}")
+    logger.debug(f"Retrieved {len(file_paths)} files for conversation {conversation_id}")
 
     return ConversationFilesListResponse(
         conversation_id=conversation_id,
@@ -605,7 +605,7 @@ async def get_conversation_file_content(
         # Fallback: assume it's already a string
         content = str(file_data)
 
-    logger.info(f"Retrieved file {path} for conversation {conversation_id}")
+    logger.debug(f"Retrieved file {path} for conversation {conversation_id}")
 
     return FileContentResponse(
         conversation_id=conversation_id,

@@ -154,7 +154,7 @@ def _handle_tasks_chunk(
         namespace_key = f"tools:{task_id}"
         if namespace_key not in namespace_mapping:
             namespace_mapping[namespace_key] = tool_call_id
-            logger.info(f"[sse:tasks] Mapped {namespace_key} → {tool_call_id}")
+            logger.debug(f"[sse:tasks] Mapped {namespace_key} → {tool_call_id}")
 
 
 def _correlate_namespace(
