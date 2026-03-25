@@ -1177,7 +1177,10 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                     {/* Rendered messages (visible turns only) */}
                     {renderMessages.map((msg, index, arr) => {
                       const isLastMessage = index === arr.length - 1;
-                      const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
+                      // RACE CONDITION FIX: Also consider non-finalized messages as streaming
+                      // This handles the window between addMessage() and setConversationStreaming()
+                      const isAssistantStreaming = msg.role === "assistant" && isLastMessage && 
+                        (isThisConversationStreaming || msg.isFinal !== true);
 
                       // For retry: if user message, use its content; if assistant, find preceding user message
                       const getRetryContent = () => {
@@ -1198,13 +1201,20 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                       // - For completed messages: use msg.sseEvents (persisted with the message)
                       // - For streaming (latest message): use conversation.sseEvents (live buffer)
                       // - Fall back to timestamp-based filtering if msg.sseEvents is not available
-                      const isStreaming = isLastAssistantMessage && isThisConversationStreaming;
+                      //
+                      // RACE CONDITION FIX: There's a window between addMessage() and 
+                      // setConversationStreaming() where isThisConversationStreaming is false
+                      // but the message is actually being streamed. We detect this by checking
+                      // if the last assistant message is not finalized (isFinal !== true).
+                      const isStreamingOrPending = isLastAssistantMessage && 
+                        (isThisConversationStreaming || msg.isFinal !== true);
                       let turnEvents: SSEAgentEvent[];
                       
                       if (msg.role !== "assistant") {
                         turnEvents = [];
-                      } else if (isStreaming) {
-                        // Streaming: use live buffer from conversation
+                      } else if (isStreamingOrPending) {
+                        // Streaming or pending finalization: use live buffer from conversation
+                        // This handles the race condition where streaming state isn't set yet
                         turnEvents = conversation?.sseEvents ?? [];
                       } else if (msg.sseEvents && msg.sseEvents.length > 0) {
                         // Completed message with persisted events
