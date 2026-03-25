@@ -136,8 +136,21 @@ class A2AClient:
         self.request_id_counter += 1
         return request_id
 
-    def _get_headers(self, accept: str = "application/json") -> Dict[str, str]:
-        """Build request headers including X-Client-Source and optional Bearer token."""
+    def _get_headers(
+        self,
+        accept: str = "application/json",
+        obo_token: Optional[str] = None,
+        x_team_id: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Build request headers including X-Client-Source and optional Bearer token.
+
+        Args:
+            accept: Accept header value.
+            obo_token: If provided, overrides the default auth_client token
+                with an OBO JWT (sub=user, act.sub=bot) for user-level
+                authorization through Agent Gateway (098 RBAC FR-019).
+            x_team_id: Optional CAIPE Mongo team id for ``X-Team-Id`` (FR-031).
+        """
         headers = {
             "Content-Type": "application/json",
             "Accept": accept,
@@ -145,9 +158,13 @@ class A2AClient:
         }
         if self.channel_id:
             headers["X-Client-Channel"] = self.channel_id
-        if self.auth_client:
+        if obo_token:
+            headers["Authorization"] = f"Bearer {obo_token}"
+        elif self.auth_client:
             token = self.auth_client.get_access_token()
             headers["Authorization"] = f"Bearer {token}"
+        if x_team_id:
+            headers["X-Team-Id"] = x_team_id
         return headers
 
     def send_message_stream(
@@ -155,6 +172,8 @@ class A2AClient:
         message_text: str,
         context_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        obo_token: Optional[str] = None,
+        x_team_id: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         """
         Send a message to the agent and stream back responses using SSE
@@ -163,6 +182,8 @@ class A2AClient:
             message_text: The text of the message to send
             context_id: Optional context ID to continue a conversation
             metadata: Optional metadata to attach to the message
+            obo_token: OBO JWT for user-level authorization (098 RBAC FR-019)
+            x_team_id: CAIPE team scope for downstream RAG/agents (FR-031)
 
         Yields:
             Dictionary events from the A2A stream (Message, Task, StatusUpdate, ArtifactUpdate)
@@ -192,7 +213,9 @@ class A2AClient:
             response = requests.post(
                 self.base_url,
                 json=rpc_request,
-                headers=self._get_headers(accept="text/event-stream"),
+                headers=self._get_headers(
+                    accept="text/event-stream", obo_token=obo_token, x_team_id=x_team_id
+                ),
                 stream=True,
                 timeout=self.timeout,
             )

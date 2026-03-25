@@ -1082,6 +1082,15 @@ services:
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # 098 Enterprise RBAC — Keycloak AuthZ (requires --profile rbac)
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
+      - KEYCLOAK_RESOURCE_SERVER_ID=${KEYCLOAK_RESOURCE_SERVER_ID:-caipe-platform}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - RBAC_CACHE_TTL_SECONDS=${RBAC_CACHE_TTL_SECONDS:-60}
+      # 098 Enterprise RBAC — Keycloak Admin API (US6: role/mapping CRUD from Admin UI)
+      - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
+      - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
     depends_on:
       - caipe-supervisor
     profiles:
@@ -1153,6 +1162,9 @@ services:
       dockerfile: ./build/Dockerfile.server
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
     container_name: rag_server
+    # Keycloak discovery returns jwks_uri on localhost:7080; map localhost → host so fetches work in-container.
+    extra_hosts:
+      - "localhost:host-gateway"
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
@@ -1172,16 +1184,25 @@ services:
       - NEO4J_PASSWORD=dummy_password
       - MILVUS_URI=http://milvus-standalone:19530
       - ONTOLOGY_AGENT_RESTAPI_ADDR=http://agent_ontology:8098
-      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-true}
+      # false = vector RAG only (no Neo4j); use graph_rag profile + ENABLE_GRAPH_RAG=true for graph
+      - ENABLE_GRAPH_RAG=${ENABLE_GRAPH_RAG:-false}
       - CLEANUP_INTERVAL=86400
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
       # Embeddings configuration
       - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-azure-openai}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-large}
-      # OIDC JWT validation for UI tokens
-      - OIDC_ISSUER=${OIDC_ISSUER}
-      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
-      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM}
+      # OIDC JWT validation — defaults to local Keycloak; .env overrides if set.
+      # rag_server uses OIDC_DISCOVERY_URL (Docker-internal) to fetch JWKS
+      # and OIDC_ISSUER / OIDC_ISSUER_URL (browser-facing) to validate the "iss" claim in JWTs.
+      # OIDC_JWKS_URL: direct certs URL inside Docker network (optional; speeds JWKS fetch).
+      # OIDC_AUDIENCE: resource-server audience (caipe-platform) added by Keycloak audience mapper.
+      - OIDC_ISSUER=${OIDC_ISSUER:-http://localhost:7080/realms/caipe}
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-http://localhost:7080/realms/caipe}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-caipe-ui}
+      - OIDC_AUDIENCE=${OIDC_AUDIENCE:-caipe-platform}
+      - OIDC_JWKS_URL=${OIDC_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-http://keycloak:7080/realms/caipe/.well-known/openid-configuration}
+      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-groups}
       # Ingestor OIDC configuration (for OAuth2 client credentials)
       - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER:-}
       - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID}
@@ -1191,9 +1212,17 @@ services:
       - RBAC_READONLY_GROUPS=${RBAC_READONLY_GROUPS}
       - RBAC_INGESTONLY_GROUPS=${RBAC_INGESTONLY_GROUPS}
       - RBAC_ADMIN_GROUPS=${RBAC_ADMIN_GROUPS}
+      # 098 team-scoped KB / datasource checks (MongoDB same as UI)
+      - RBAC_TEAM_SCOPE_ENABLED=${RBAC_TEAM_SCOPE_ENABLED:-true}
+      - RBAC_MONGODB_URI=${RBAC_MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
+      - RBAC_MONGODB_DATABASE=${RBAC_MONGODB_DATABASE:-caipe}
     restart: unless-stopped
     env_file: [.env]
-    depends_on: [rag-redis]
+    depends_on:
+      rag-redis:
+        condition: service_started
+      milvus-standalone:
+        condition: service_healthy
     profiles:
       - rag
       - graph_rag
@@ -1258,7 +1287,7 @@ services:
     restart: unless-stopped
     depends_on: [rag_server]
     profiles:
-      - web_ingestor
+      - web-ingestor
 
   backstage_ingestor:
     build:
@@ -1819,12 +1848,132 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
+      # 098 Enterprise RBAC (requires --profile rbac)
+      - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-false}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
+      - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-caipe-platform}
+      - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - KEYCLOAK_BOT_CLIENT_ID=${KEYCLOAK_BOT_CLIENT_ID:-caipe-slack-bot}
+      - KEYCLOAK_BOT_CLIENT_SECRET=${KEYCLOAK_BOT_CLIENT_SECRET:-caipe-slack-bot-dev-secret}
+      - SLACK_LINKING_BASE_URL=${SLACK_LINKING_BASE_URL:-http://localhost:8030}
     depends_on:
       - caipe-supervisor
       - caipe-mongodb
     profiles:
       - slack-bot
       - all-integrations
+
+  ####################################################################################################
+  #                                  Enterprise RBAC (098)                                       #
+  ####################################################################################################
+  # Keycloak + Agent Gateway for 098 Enterprise RBAC.
+  # Usage (Slack + RAG RBAC — copy deploy/rbac/.env.rbac.example into .env and set embeddings keys):
+  #   COMPOSE_PROFILES=rbac,rag,slack-bot,caipe-supervisor,caipe-mongodb \
+  #     docker compose -f docker-compose.dev.yaml up -d
+  #
+  # RAG: http://localhost:9446  (requires Milvus stack + embedding provider env, e.g. AZURE_OPENAI_*)
+  # Slack bot: socket mode or http://localhost:8030 — set SLACK_* tokens in .env
+  #
+  # Admin console: http://localhost:7080/admin (admin / admin)
+  # Agent Gateway proxy: http://localhost:4000
+  # Agent Gateway admin UI: http://localhost:15000/ui
+  #
+  # Test personas (see deploy/keycloak/realm-config.json):
+  #   admin-user / admin       → admin, chat_user
+  #   standard-user / standard → chat_user, team_member
+  #   kb-admin-user / kbadmin  → chat_user, team_member, kb_admin
+  #   denied-user / denied     → (no roles)
+  #   org-b-user / orgb        → chat_user (tenant: globex)
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    container_name: keycloak
+    environment:
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: "7080"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_LOG_LEVEL: info
+    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443"]
+    volumes:
+      - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json
+      - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
+    ports:
+      - "7080:7080"
+      - "7443:7443"
+    # Wait until management is up AND the realm JWKS route returns 200 (TCP-only on 7080 was
+    # too early — realm import can lag, leaving the fetcher in an endless curl loop).
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/9000 && exec 3<&- && exec 3>&- &&
+          exec 3<>/dev/tcp/127.0.0.1/7080 &&
+          printf $$'GET /realms/caipe/protocol/openid-connect/certs HTTP/1.0\r\nHost: localhost:7080\r\nConnection: close\r\n\r\n' >&3 &&
+          head -n 1 <&3 | grep -q ' 200'"
+      interval: 10s
+      timeout: 10s
+      retries: 25
+      start_period: 120s
+    profiles:
+      - rbac
+
+  # One-shot init container: creates the upstream OIDC identity-provider
+  # broker in Keycloak from IDP_* env vars (set in .env).
+  # Skips silently when IDP_ISSUER is unset — local-only users + test
+  # personas still work via direct Keycloak login.
+  keycloak-init:
+    image: alpine/curl:latest
+    container_name: keycloak-init
+    entrypoint: ["/bin/sh", "/scripts/init-idp.sh"]
+    volumes:
+      - ./deploy/keycloak/init-idp.sh:/scripts/init-idp.sh:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      IDP_ALIAS: ${IDP_ALIAS:-}
+      IDP_DISPLAY_NAME: ${IDP_DISPLAY_NAME:-}
+      IDP_ISSUER: ${IDP_ISSUER:-}
+      IDP_CLIENT_ID: ${IDP_CLIENT_ID:-}
+      IDP_CLIENT_SECRET: ${IDP_CLIENT_SECRET:-}
+      IDP_ACCESS_GROUP: ${IDP_ACCESS_GROUP:-}
+      IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
+      KC_REALM: caipe
+    network_mode: "service:keycloak"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: "no"
+    profiles:
+      - rbac
+
+  agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:latest
+    container_name: agentgateway
+    restart: unless-stopped
+    command: ["--file", "/etc/agentgateway/config.yaml"]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+      - "15000:15000" # Admin UI (config.config.adminAddr)
+    volumes:
+      - ./deploy/agentgateway/config.yaml:/etc/agentgateway/config.yaml:ro
+    tmpfs:
+      - /tmp
+    # Distroless image: no wget/sh/curl — Docker HEALTHCHECK exec would always fail.
+    healthcheck:
+      disable: true
+    profiles:
+      - rbac
 
   ####################################################################################################
   #                       LangGraph Persistence Backends                                         #

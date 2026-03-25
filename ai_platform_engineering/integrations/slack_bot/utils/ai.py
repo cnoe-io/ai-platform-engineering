@@ -127,6 +127,7 @@ def stream_a2a_response(
     triggered_by_user_id=None,
     additional_footer=None,
     overthink_mode=False,
+    platform_team_id=None,
 ):
     """
     Stream an A2A response to Slack.
@@ -150,6 +151,7 @@ def stream_a2a_response(
         additional_footer: Optional additional text to append to footer
         overthink_mode: If True, check response for [DEFER] or [LOW_CONFIDENCE] markers
             and skip posting if found. Returns {"skipped": True, "reason": "..."} in that case.
+        platform_team_id: CAIPE Mongo team id for ``X-Team-Id`` on A2A requests (FR-031).
 
     Returns:
         List of Slack blocks for the final response, or dict with retry_needed=True on recoverable errors,
@@ -282,6 +284,7 @@ def stream_a2a_response(
             message_text=message_text,
             context_id=context_id,
             metadata=metadata,
+            x_team_id=platform_team_id,
         ):
             if thread_deleted:
                 logger.info(f"[{thread_ts}] Thread deleted — stopping A2A stream processing")
@@ -966,6 +969,7 @@ def handle_ai_alert_processing(
     channel_config,
     session_manager,
     custom_prompt=None,
+    platform_team_id=None,
 ):
     """AI-powered alert processing."""
     alert_text = event.get("text", "")
@@ -1027,6 +1031,7 @@ def handle_ai_alert_processing(
             "jira_config": channel_config,
         },
         session_manager=session_manager,
+        platform_team_id=platform_team_id,
     )
 
     logger.info(f"[{thread_ts}] AI processed alert from {bot_username}")

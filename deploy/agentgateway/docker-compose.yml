@@ -1,0 +1,31 @@
+# Agent Gateway is the data-plane proxy for MCP, A2A, and agent traffic. It validates
+# JWTs against Keycloak (JWKS URL + issuer in config.yaml) and enforces CEL authorization
+# rules before forwarding to configured backends. Start Keycloak first on network
+# keycloak_default so the gateway can resolve http://keycloak:7080.
+#
+# JWKS: config.yaml uses jwks.url pointing at Keycloak's OpenID certs endpoint (no init container).
+
+services:
+  agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:latest
+    container_name: agentgateway
+    restart: unless-stopped
+    command: ["--file", "/etc/agentgateway/config.yaml"]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "4000:4000"
+      - "15000:15000"
+    volumes:
+      - ./config.yaml:/etc/agentgateway/config.yaml:ro
+    tmpfs:
+      - /tmp
+    networks:
+      - keycloak_default
+    healthcheck:
+      disable: true
+
+networks:
+  keycloak_default:
+    external: true

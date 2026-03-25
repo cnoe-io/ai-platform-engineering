@@ -18,6 +18,7 @@ from dynamic_agents.models import (
     MCPServerConfig,
     MCPServerConfigCreate,
     MCPServerConfigUpdate,
+    UserContext,
     VisibilityType,
 )
 
@@ -155,7 +156,16 @@ class MongoDBService:
         }
 
         self._get_agents_collection().insert_one(doc)
-        return DynamicAgentConfig(**doc)
+        created = DynamicAgentConfig(**doc)
+        try:
+            from dynamic_agents.services.keycloak_sync import get_keycloak_sync_service
+
+            get_keycloak_sync_service().sync_agent_resource(
+                created.id, created.name, created.visibility.value
+            )
+        except Exception as e:
+            logger.warning("Keycloak sync after agent create failed: %s", e)
+        return created
 
     def get_agent(self, agent_id: str) -> DynamicAgentConfig | None:
         """Get a dynamic agent config by ID."""
@@ -170,6 +180,7 @@ class MongoDBService:
         user_teams: list[str] | None = None,
         include_disabled: bool = False,
         admin_view: bool = False,
+        user: UserContext | None = None,
     ) -> list[DynamicAgentConfig]:
         """List dynamic agents visible to the user.
 
@@ -178,11 +189,31 @@ class MongoDBService:
             user_teams: Team IDs the user belongs to
             include_disabled: Include disabled agents
             admin_view: If True, return all agents (admin only)
+            user: Full user context (required for CEL-based listing)
         """
-        query: dict[str, Any] = {}
+        expr = (self.settings.cel_dynamic_agent_access_expression or "").strip()
 
-        if not admin_view and user_id:
-            # Visibility filter: user sees their own, global, or team-shared
+        if admin_view:
+            query: dict[str, Any] = {}
+            if not include_disabled:
+                query["enabled"] = True
+            docs = self._get_agents_collection().find(query).sort("name", ASCENDING)
+            return [DynamicAgentConfig(**doc) for doc in docs]
+
+        if expr:
+            from dynamic_agents.auth.access import can_view_agent
+
+            if not user:
+                return []
+            query = {}
+            if not include_disabled:
+                query["enabled"] = True
+            docs = self._get_agents_collection().find(query).sort("name", ASCENDING)
+            agents = [DynamicAgentConfig(**doc) for doc in docs]
+            return [a for a in agents if can_view_agent(a, user)]
+
+        query = {}
+        if user_id:
             visibility_conditions = [
                 {"visibility": VisibilityType.GLOBAL.value},
                 {"owner_id": user_id},
@@ -245,7 +276,15 @@ class MongoDBService:
             return False
 
         result = self._get_agents_collection().delete_one({"_id": agent_id})
-        return result.deleted_count > 0
+        if result.deleted_count > 0:
+            try:
+                from dynamic_agents.services.keycloak_sync import get_keycloak_sync_service
+
+                get_keycloak_sync_service().remove_agent_resource(agent_id)
+            except Exception as e:
+                logger.warning("Keycloak cleanup after agent delete failed: %s", e)
+            return True
+        return False
 
     def upsert_agent(self, agent_id: str, doc: dict[str, Any]) -> DynamicAgentConfig:
         """Upsert a dynamic agent config by ID.

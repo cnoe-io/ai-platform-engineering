@@ -123,6 +123,53 @@ Server-side utility (`ui/src/lib/rbac/keycloak-admin.ts`) that authenticates via
 - `datasource_ids` ⊆ datasources the team is allowed to use (enforced on write via team ownership record).
 - `team_id` immutable after create unless capability `rag.tool.transfer` (future) exists.
 
+### Slack channel-to-team mapping (FR-031)
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `slack_channel_id` | string | Slack conversation ID; **unique** per document |
+| `team_id` | string | CAIPE team id (MongoDB `teams._id` as string) |
+| `slack_workspace_id` | string | Slack workspace / team id (`T…`) |
+| `channel_name` | string | Denormalized display name (optional refresh from Slack API) |
+| `created_by` | string | Admin user id or email who created the mapping |
+| `created_at` | datetime | UTC |
+| `active` | boolean | When `false`, mapping is ignored at runtime |
+
+**Collection**: `channel_team_mappings`
+
+**Indexes**: unique on `slack_channel_id`; optional compound `{ active: 1, slack_channel_id: 1 }` for admin list queries.
+
+**Rules**
+
+- Archived Slack channels do not emit bot events; mappings for those channels are effectively inert until the channel is used again.
+- If `team_id` no longer exists in `teams`, the bot treats the mapping as invalid (fail closed), logs a warning, and denies with an admin-facing explanation.
+
+#### Collection `channel_team_mappings` — formal field list (US9)
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `slack_channel_id` | string | **Unique** lookup key; one document per Slack conversation id |
+| `team_id` | string | CAIPE team id (`teams._id` as string) |
+| `slack_workspace_id` | string | Slack workspace id (`T…`) |
+| `channel_name` | string | Denormalized label for Admin UI |
+| `created_by` | string | Admin subject id or email |
+| `created_at` | datetime | UTC |
+| `active` | boolean | When `false`, mapping is ignored at runtime (soft delete) |
+
+**Indexes**: unique on `slack_channel_id`; optional compound `{ active: 1, slack_channel_id: 1 }` for admin listings.
+
+### Slack user operational metrics (optional, FR-032 dashboard)
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `slack_user_id` | string | Primary key for upserts |
+| `last_interaction_at` | datetime | Last bot interaction |
+| `obo_success_count` | number | Successful OBO exchanges (if recorded) |
+| `obo_fail_count` | number | Failed OBO exchanges |
+| `active_channel_ids` | string[] | Recently seen channel ids (cap length in application code) |
+
+**Collection**: `slack_user_metrics` — populated by the bot when instrumentation is enabled; Admin UI joins to Keycloak users by `slack_user_id`.
+
 ### Authorization decision record (audit)
 
 | Field | Type | Notes |

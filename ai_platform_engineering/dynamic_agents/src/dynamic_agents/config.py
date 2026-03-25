@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # Seed configuration path (for MCP servers and agents loaded at startup)
     seed_config_path: str | None = None
 
+    # CEL (FR-029) — optional per-agent policy; when empty, legacy visibility checks apply
+    cel_dynamic_agent_access_expression: str = ""
+
+    # When set, MCP HTTP/SSE clients use this base URL (e.g. http://agentgateway:4000/mcp/{server_id})
+    agent_gateway_url: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

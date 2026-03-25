@@ -375,6 +375,8 @@ async def get_current_user(
             groups=["admin"],
             is_admin=True,
             raw_claims={},
+            access_token=None,
+            obo_jwt=None,
         )
 
     auth_header = request.headers.get("Authorization")
@@ -392,6 +394,7 @@ async def get_current_user(
         )
 
     token = auth_header[7:]  # Remove "Bearer " prefix
+    obo_jwt = (request.headers.get("X-OBO-JWT") or request.headers.get("X-Obo-Token") or "").strip() or None
 
     # Validate token and get claims
     claims = await validate_token(token, settings)
@@ -431,6 +434,8 @@ async def get_current_user(
         groups=groups,
         is_admin=is_admin,
         raw_claims=claims,
+        access_token=token,
+        obo_jwt=obo_jwt,
     )
 
 

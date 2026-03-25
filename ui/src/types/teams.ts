@@ -8,6 +8,7 @@ export interface Team {
   created_at: Date;
   updated_at: Date;
   members: TeamMember[];
+  keycloak_roles?: string[];
   metadata?: {
     department?: string;
     tags?: string[];

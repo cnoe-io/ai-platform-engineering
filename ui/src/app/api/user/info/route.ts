@@ -10,7 +10,6 @@ import { authOptions } from '@/lib/auth-config';
  * 
  * Authentication:
  * - Authorization: Bearer {access_token} (OIDC JWT access token)
- * - X-Identity-Token: {id_token} (OIDC JWT ID token for claims extraction)
  * 
  * The RAG server does not support OAuth2Proxy headers.
  */
@@ -35,7 +34,6 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
       hasUser: !!session?.user,
       userEmail: session?.user?.email,
       hasAccessToken: !!session?.accessToken,
-      hasIdToken: !!session?.idToken,
       accessTokenPrefix: session?.accessToken ? session.accessToken.substring(0, 20) + '...' : 'MISSING',
       expiresAt: session?.expiresAt ? new Date((session.expiresAt as number) * 1000).toISOString() : 'N/A'
     });
@@ -48,11 +46,6 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
       console.warn('[User Info] ⚠️  No accessToken in session - RAG server will use trusted network or anonymous');
     }
 
-    // Pass ID token for claims extraction (email, groups)
-    // Some OIDC providers only include user claims in the ID token, not the access token
-    if (session?.idToken) {
-      headers['X-Identity-Token'] = session.idToken;
-    }
   } catch (error) {
     console.error('[User Info] Error retrieving session:', error);
   }

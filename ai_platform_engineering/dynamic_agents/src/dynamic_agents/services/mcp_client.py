@@ -11,46 +11,80 @@ from dynamic_agents.models import MCPServerConfig, TransportType
 logger = logging.getLogger(__name__)
 
 
-def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
+def build_mcp_connection_config(
+    server: MCPServerConfig,
+    *,
+    agent_gateway_url: str | None = None,
+    auth_bearer: str | None = None,
+) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
     Args:
         server: MCP server configuration
+        agent_gateway_url: When set, HTTP/SSE targets use ``{base}/mcp/{server.id}`` instead of direct endpoints.
+        auth_bearer: Optional Bearer token for AG or upstream MCP.
 
     Returns:
         Connection config dict compatible with langchain_mcp_adapters
     """
+    headers: dict[str, str] = {}
+    if auth_bearer:
+        headers["Authorization"] = f"Bearer {auth_bearer}"
+
+    def attach_headers(cfg: dict[str, Any]) -> dict[str, Any]:
+        if not headers:
+            return cfg
+        return {**cfg, "headers": {**cfg.get("headers", {}), **headers}}
+
     if server.transport == TransportType.SSE:
-        return {
-            "url": server.endpoint,
-            "transport": "sse",
-        }
-    elif server.transport == TransportType.HTTP:
-        return {
-            "url": server.endpoint,
-            "transport": "streamable_http",
-        }
-    else:  # stdio
-        config: dict[str, Any] = {
-            "command": server.command,
-            "transport": "stdio",
-        }
-        if server.args:
-            config["args"] = server.args
-        if server.env:
-            config["env"] = server.env
-        return config
+        url = (
+            f"{agent_gateway_url.rstrip('/')}/mcp/{server.id}"
+            if agent_gateway_url and server.endpoint
+            else server.endpoint
+        )
+        return attach_headers(
+            {
+                "url": url,
+                "transport": "sse",
+            }
+        )
+    if server.transport == TransportType.HTTP:
+        url = (
+            f"{agent_gateway_url.rstrip('/')}/mcp/{server.id}"
+            if agent_gateway_url and server.endpoint
+            else server.endpoint
+        )
+        return attach_headers(
+            {
+                "url": url,
+                "transport": "streamable_http",
+            }
+        )
+    config: dict[str, Any] = {
+        "command": server.command,
+        "transport": "stdio",
+    }
+    if server.args:
+        config["args"] = server.args
+    if server.env:
+        config["env"] = server.env
+    return config
 
 
 def build_mcp_connections(
     servers: list[MCPServerConfig],
     server_ids: list[str],
+    *,
+    agent_gateway_url: str | None = None,
+    auth_bearer: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
     Args:
         servers: List of all available MCP server configs
         server_ids: List of server IDs to include
+        agent_gateway_url: Optional Agent Gateway base URL for HTTP/SSE MCP routing.
+        auth_bearer: Optional OBO/user JWT for Authorization header on MCP requests.
 
     Returns:
         Dict mapping server_id to connection config
@@ -68,7 +102,11 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
-        connections[server_id] = build_mcp_connection_config(server)
+        connections[server_id] = build_mcp_connection_config(
+            server,
+            agent_gateway_url=agent_gateway_url,
+            auth_bearer=auth_bearer,
+        )
 
     return connections
 

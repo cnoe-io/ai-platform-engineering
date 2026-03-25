@@ -40,6 +40,8 @@ class UserContext(BaseModel):
     groups: list[str] = []
     is_admin: bool = False
     raw_claims: dict[str, Any] = {}
+    access_token: str | None = Field(default=None, repr=False)
+    obo_jwt: str | None = Field(default=None, repr=False)
 
 
 # =============================================================================
@@ -366,6 +368,7 @@ class AgentContext(BaseModel):
     user_groups: list[str] = []
     agent_config_id: str
     session_id: str
+    obo_jwt: str | None = None
 
 
 # =============================================================================

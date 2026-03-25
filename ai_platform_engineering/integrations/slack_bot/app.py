@@ -30,6 +30,55 @@ from utils.scoring import submit_feedback_score
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 
+# 098 Enterprise RBAC enforcement
+RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
+
+if RBAC_ENABLED:
+    import asyncio
+    from utils.rbac_middleware import TEAM_ROLE_MISMATCH_MESSAGE
+    from utils.identity_linker import resolve_slack_user, generate_linking_url
+    from utils.channel_team_mapper import (
+        resolve_effective_team_for_user,
+        user_has_team_member_role,
+    )
+    from utils.keycloak_admin import fetch_user_realm_role_names
+
+    async def _rbac_enrich_context(body, slack_user_id, context):
+        keycloak_user_id = await resolve_slack_user(slack_user_id)
+        if keycloak_user_id is None:
+            return "unlinked"
+        channel_id = (
+            body.get("event", {}).get("channel")
+            or body.get("channel", {}).get("id")
+        )
+        eff = await resolve_effective_team_for_user(channel_id, keycloak_user_id)
+        if eff.user_denial_message:
+            return ("deny", eff.user_denial_message)
+        if not eff.team_id:
+            return ("deny", eff.user_denial_message or TEAM_ROLE_MISMATCH_MESSAGE)
+        roles = await fetch_user_realm_role_names(keycloak_user_id)
+        if not user_has_team_member_role(roles, eff.team_id):
+            return ("deny", TEAM_ROLE_MISMATCH_MESSAGE)
+        context["keycloak_user_id"] = keycloak_user_id
+        context["platform_team_id"] = eff.team_id
+        if channel_id:
+            context["slack_channel_id"] = channel_id
+        return "ok"
+
+    logger.info("Enterprise RBAC enforcement enabled for Slack bot")
+else:
+    logger.info("Slack RBAC enforcement disabled (set SLACK_RBAC_ENABLED=true to enable)")
+
+
+def _platform_team_id_from_context(context):
+    if not RBAC_ENABLED or context is None:
+        return None
+    try:
+        tid = context.get("platform_team_id")
+        return tid if isinstance(tid, str) and tid else None
+    except AttributeError:
+        return None
+
 # Initialize OAuth2 auth client if enabled
 AUTH_ENABLED = os.environ.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
 
@@ -89,10 +138,91 @@ for attempt in range(1, max_retries + 1):
 
 
 # =============================================================================
+# 098 RBAC Global Middleware
+# =============================================================================
+@app.middleware
+def rbac_global_middleware(body, context, next, logger):
+    """Enterprise RBAC enforcement checkpoint (098).
+
+    When SLACK_RBAC_ENABLED=true:
+    1. Extracts Slack user ID from the event/action payload.
+    2. Resolves the Slack user to a Keycloak identity (identity link).
+    3. If unlinked, sends an ephemeral message prompting account linking.
+    4. If linked, performs OBO token exchange so downstream requests
+       carry the user's identity (sub=user, act.sub=bot).
+    5. Stores the OBO access token and user_sub on the Bolt context
+       for per-handler RBAC checks.
+    """
+    if not RBAC_ENABLED:
+        next()
+        return
+
+    slack_user_id = (
+        body.get("event", {}).get("user")
+        or body.get("user", {}).get("id")
+        or body.get("user_id")
+    )
+
+    if not slack_user_id:
+        next()
+        return
+
+    context["rbac_enabled"] = True
+    context["slack_user_id"] = slack_user_id
+
+    try:
+        loop = asyncio.new_event_loop()
+        rbac_status = loop.run_until_complete(_rbac_enrich_context(body, slack_user_id, context))
+    except Exception:
+        logger.warning("Failed to resolve Slack user %s — allowing pass-through", slack_user_id)
+        next()
+        return
+    finally:
+        loop.close()
+
+    channel = (
+        body.get("event", {}).get("channel")
+        or body.get("channel", {}).get("id")
+    )
+
+    if rbac_status == "unlinked":
+        linking_url = generate_linking_url(slack_user_id)
+        if channel:
+            try:
+                context["client"].chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    text=(
+                        "Your Slack account is not linked to an enterprise identity. "
+                        f"<{linking_url}|Click here to link your account> before using this feature."
+                    ),
+                )
+            except Exception:
+                logger.warning("Could not send linking prompt to %s", slack_user_id)
+        next()
+        return
+
+    if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
+        msg = rbac_status[1]
+        if channel:
+            try:
+                context["client"].chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    text=msg,
+                )
+            except Exception:
+                logger.warning("Could not send RBAC denial to %s", slack_user_id)
+        return
+
+    next()
+
+
+# =============================================================================
 # @mention handler (manually invoke CAIPE)
 # =============================================================================
 @app.event("app_mention")
-def handle_mention(event, say, client):
+def handle_mention(event, say, client, context=None):
     """Handle @mentions of the bot to query CAIPE."""
     try:
         if event.get("edited") or event.get("subtype") == "message_changed":
@@ -175,6 +305,7 @@ def handle_mention(event, say, client):
             context_id=context_id,
             metadata=request_metadata if request_metadata else None,
             session_manager=session_manager,
+            platform_team_id=_platform_team_id_from_context(context),
         )
 
         if isinstance(result, dict) and result.get("retry_needed"):
@@ -225,7 +356,7 @@ def handle_mention(event, say, client):
 # =============================================================================
 # Q&A Mode (auto respond to messages in channel, excluding bots)
 # =============================================================================
-def handle_qanda_message(event, say, client):
+def handle_qanda_message(event, say, client, context=None):
     try:
         channel_id = event.get("channel")
         thread_ts = event.get("ts")
@@ -273,6 +404,7 @@ def handle_qanda_message(event, say, client):
             metadata=request_metadata,
             session_manager=session_manager,
             overthink_mode=channel_config.qanda.overthink,
+            platform_team_id=_platform_team_id_from_context(context),
         )
 
         if isinstance(result, dict) and result.get("skipped"):
@@ -295,7 +427,7 @@ def handle_qanda_message(event, say, client):
             logger.exception(f"Failed to send error message: {say_error}")
 
 
-def handle_dm_message(event, say, client):
+def handle_dm_message(event, say, client, context=None):
     """Handle direct messages to the bot."""
     try:
         if event.get("bot_id"):
@@ -358,6 +490,7 @@ def handle_dm_message(event, say, client):
             context_id=context_id,
             metadata=request_metadata if request_metadata else None,
             session_manager=session_manager,
+            platform_team_id=_platform_team_id_from_context(context),
         )
 
         if isinstance(result, dict) and result.get("retry_needed"):
@@ -408,7 +541,7 @@ def handle_dm_message(event, say, client):
 
 
 @app.event("message")
-def handle_message_events(body, say, client):
+def handle_message_events(body, say, client, context=None):
     event = body.get("event")
     if not event:
         return
@@ -420,7 +553,7 @@ def handle_message_events(body, say, client):
     # Route DMs to dedicated handler
     channel_type = event.get("channel_type")
     if channel_type == "im" and not event.get("bot_id"):
-        handle_dm_message(event, say, client)
+        handle_dm_message(event, say, client, context)
         return
 
     channel_id = event.get("channel")
@@ -453,7 +586,7 @@ def handle_message_events(body, say, client):
         if utils.check_has_jira_info(channel_id):
             channel_config = config.channels[channel_id]
             if channel_config.ai_enabled and channel_config.qanda.enabled:
-                handle_qanda_message(event, say, client)
+                handle_qanda_message(event, say, client, context)
                 return
 
         return
@@ -490,6 +623,7 @@ def handle_message_events(body, say, client):
             default_config,
             session_manager,
             custom_prompt=channel_config.ai_alerts.custom_prompt,
+            platform_team_id=_platform_team_id_from_context(context),
         )
 
 

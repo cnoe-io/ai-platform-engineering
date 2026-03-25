@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Dynamic Agent Builder - Standalone agent service with deepagents 0.4.7"
 requires-python = ">=3.13,<4.0"
 dependencies = [
+    "cel-python>=0.5.0",
     "fastapi==0.115.12",
     "uvicorn[standard]==0.34.2",
     "deepagents==0.4.7",
