@@ -1,7 +1,5 @@
 """Tests for snippet_utils module."""
 
-import pytest
-
 from server.snippet_utils import (
   extract_query_phrases,
   find_match_positions,
