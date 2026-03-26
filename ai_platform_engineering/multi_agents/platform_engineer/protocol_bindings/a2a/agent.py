@@ -35,6 +35,10 @@ from ai_platform_engineering.utils.a2a_common.langmem_utils import (
     preflight_context_check,
     _extract_tool_call_ids,
 )
+from ai_platform_engineering.utils.a2a_common.context_config import (
+    get_context_limit_for_provider,
+    get_min_messages_to_keep,
+)
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 _log_level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -300,8 +304,8 @@ class AIPlatformEngineerA2ABinding:
       # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
       # ========================================================================
       try:
-          max_context_tokens = int(os.getenv("MAX_CONTEXT_TOKENS", "100000"))
-          min_messages_to_keep = int(os.getenv("MIN_MESSAGES_TO_KEEP", "4"))
+          max_context_tokens = get_context_limit_for_provider(agent_name="supervisor")
+          min_messages_to_keep = get_min_messages_to_keep(agent_name="supervisor")
 
           context_result = await preflight_context_check(
               graph=self.graph,
@@ -954,19 +958,17 @@ class AIPlatformEngineerA2ABinding:
                   logging.error(f"Aggressive summarization failed: {summ_err}")
           else:
               try:
-                  max_ctx = int(os.getenv("MAX_CONTEXT_TOKENS", "0"))
-                  if not max_ctx:
-                      logging.warning("MAX_CONTEXT_TOKENS not set; skipping context compression in error recovery")
-                  else:
-                      await preflight_context_check(
-                          graph=self.graph,
-                          config=config,
-                          model=LLMFactory().get_llm(),
-                          agent_name="supervisor",
-                          max_context_tokens=max_ctx,
-                          min_messages_to_keep=4,
-                          tool_count=50,
-                      )
+                  max_ctx = get_context_limit_for_provider(agent_name="supervisor")
+                  min_msgs = get_min_messages_to_keep(agent_name="supervisor")
+                  await preflight_context_check(
+                      graph=self.graph,
+                      config=config,
+                      model=LLMFactory().get_llm(),
+                      agent_name="supervisor",
+                      max_context_tokens=max_ctx,
+                      min_messages_to_keep=min_msgs,
+                      tool_count=50,
+                  )
               except Exception as ctx_err:
                   logging.warning(f"State repair (context compression) failed: {ctx_err}")
 

@@ -1,11 +1,25 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
-"""Global context management configuration for all agent types."""
+"""Global context management configuration for all agent types.
+
+In single-node mode every agent runs in the same process and shares one set of
+environment variables.  To let each agent keep its own context-management
+settings, all public helpers accept an optional ``agent_name`` parameter.
+
+Priority chain (highest wins):
+  1. Agent-scoped env var   – ``<AGENT>_MAX_CONTEXT_TOKENS``
+  2. Provider-specific env  – ``AWS_BEDROCK_MAX_CONTEXT_TOKENS``
+  3. Global override env    – ``MAX_CONTEXT_TOKENS``
+  4. Hardcoded default
+
+The same pattern applies to ``MIN_MESSAGES_TO_KEEP``,
+``ENABLE_AUTO_COMPRESSION``, and ``MAX_TOOL_OUTPUT_LENGTH``.
+"""
 
 import logging
 import os
-from typing import Dict
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -31,37 +45,76 @@ PROVIDER_ENV_VARS: Dict[str, str] = {
 }
 
 
-def get_context_limit_for_provider(provider: str = None) -> int:
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _agent_env(agent_name: Optional[str], var_name: str) -> Optional[str]:
+    """Return the value of ``<AGENT>_<VAR_NAME>`` if *agent_name* is given.
+
+    For example ``_agent_env("argocd", "MAX_CONTEXT_TOKENS")`` looks up
+    ``ARGOCD_MAX_CONTEXT_TOKENS``.  Returns ``None`` when *agent_name* is
+    ``None`` or the env var is unset.
+    """
+    if not agent_name:
+        return None
+    key = f"{agent_name.upper()}_{var_name}"
+    return os.getenv(key)
+
+
+def get_max_tool_output_length(agent_name: Optional[str] = None, default: int = 2000) -> int:
+    """Return the maximum tool-output length for streaming truncation.
+
+    Priority: ``<AGENT>_MAX_TOOL_OUTPUT_LENGTH`` > ``MAX_TOOL_OUTPUT_LENGTH``
+    > *default*.
+    """
+    agent_val = _agent_env(agent_name, "MAX_TOOL_OUTPUT_LENGTH")
+    if agent_val:
+        try:
+            return int(agent_val)
+        except ValueError:
+            pass
+    try:
+        return int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", str(default)))
+    except ValueError:
+        return default
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def get_context_limit_for_provider(
+    provider: str = None,
+    *,
+    agent_name: Optional[str] = None,
+) -> int:
     """
     Get the context token limit for a specific LLM provider.
 
     Priority order:
-    1. Provider-specific environment variable (e.g., AWS_BEDROCK_MAX_CONTEXT_TOKENS)
-    2. Global override environment variable (MAX_CONTEXT_TOKENS)
-    3. Default limit for the provider
-    4. Fallback default (100000)
+    1. Agent-scoped env var (e.g., ARGOCD_MAX_CONTEXT_TOKENS)
+    2. Provider-specific environment variable (e.g., AWS_BEDROCK_MAX_CONTEXT_TOKENS)
+    3. Global override environment variable (MAX_CONTEXT_TOKENS)
+    4. Default limit for the provider
+    5. Fallback default (100000)
 
     Args:
         provider: LLM provider name (e.g., "aws-bedrock", "azure-openai")
                  If None, uses LLM_PROVIDER environment variable
+        agent_name: Optional agent name for scoped lookups (e.g., "argocd").
+                    When set, ``<AGENT>_MAX_CONTEXT_TOKENS`` is checked first.
 
     Returns:
         Context token limit as integer
 
     Examples:
-        >>> # Using default for azure-openai
         >>> get_context_limit_for_provider("azure-openai")
         100000
 
-        >>> # With provider-specific override
-        >>> os.environ["AWS_BEDROCK_MAX_CONTEXT_TOKENS"] = "180000"
-        >>> get_context_limit_for_provider("aws-bedrock")
-        180000
-
-        >>> # With global override
-        >>> os.environ["MAX_CONTEXT_TOKENS"] = "120000"
-        >>> get_context_limit_for_provider("azure-openai")
-        120000
+        >>> os.environ["ARGOCD_MAX_CONTEXT_TOKENS"] = "20000"
+        >>> get_context_limit_for_provider("aws-bedrock", agent_name="argocd")
+        20000
     """
     # Get provider from environment if not specified
     if provider is None:
@@ -69,7 +122,23 @@ def get_context_limit_for_provider(provider: str = None) -> int:
 
     provider = provider.lower()
 
-    # 1. Check provider-specific environment variable
+    # 1. Check agent-scoped environment variable
+    agent_val = _agent_env(agent_name, "MAX_CONTEXT_TOKENS")
+    if agent_val:
+        try:
+            limit = int(agent_val)
+            logger.info(
+                f"Using agent-scoped context limit from "
+                f"{agent_name.upper()}_MAX_CONTEXT_TOKENS: {limit:,} tokens"
+            )
+            return limit
+        except ValueError:
+            logger.warning(
+                f"Invalid value for {agent_name.upper()}_MAX_CONTEXT_TOKENS="
+                f"'{agent_val}', falling back to next priority"
+            )
+
+    # 2. Check provider-specific environment variable
     provider_env_var = PROVIDER_ENV_VARS.get(provider)
     if provider_env_var:
         provider_specific_limit = os.getenv(provider_env_var)
@@ -87,7 +156,7 @@ def get_context_limit_for_provider(provider: str = None) -> int:
                     "falling back to next priority"
                 )
 
-    # 2. Check global override environment variable
+    # 3. Check global override environment variable
     global_override = os.getenv("MAX_CONTEXT_TOKENS")
     if global_override:
         try:
@@ -103,7 +172,7 @@ def get_context_limit_for_provider(provider: str = None) -> int:
                 "falling back to default"
             )
 
-    # 3. Use default limit for the provider
+    # 4. Use default limit for the provider
     default_limit = DEFAULT_PROVIDER_CONTEXT_LIMITS.get(provider, 100000)
     logger.debug(
         f"Using default context limit for provider={provider}: {default_limit:,} tokens"
@@ -111,13 +180,27 @@ def get_context_limit_for_provider(provider: str = None) -> int:
     return default_limit
 
 
-def get_min_messages_to_keep() -> int:
+def get_min_messages_to_keep(agent_name: Optional[str] = None) -> int:
     """
     Get the minimum number of recent messages to always keep.
+
+    Priority: ``<AGENT>_MIN_MESSAGES_TO_KEEP`` > ``MIN_MESSAGES_TO_KEEP`` > 10.
+
+    Args:
+        agent_name: Optional agent name for scoped lookups.
 
     Returns:
         Minimum messages to keep (default: 10)
     """
+    agent_val = _agent_env(agent_name, "MIN_MESSAGES_TO_KEEP")
+    if agent_val:
+        try:
+            return int(agent_val)
+        except ValueError:
+            logger.warning(
+                f"Invalid value for {agent_name.upper()}_MIN_MESSAGES_TO_KEEP="
+                f"'{agent_val}', falling back"
+            )
     try:
         return int(os.getenv("MIN_MESSAGES_TO_KEEP", "10"))
     except ValueError:
@@ -128,19 +211,31 @@ def get_min_messages_to_keep() -> int:
         return 10
 
 
-def is_auto_compression_enabled() -> bool:
+def is_auto_compression_enabled(agent_name: Optional[str] = None) -> bool:
     """
     Check if auto-compression is enabled.
+
+    Priority: ``<AGENT>_ENABLE_AUTO_COMPRESSION`` > ``ENABLE_AUTO_COMPRESSION``
+    > ``true``.
+
+    Args:
+        agent_name: Optional agent name for scoped lookups.
 
     Returns:
         True if enabled (default), False otherwise
     """
+    agent_val = _agent_env(agent_name, "ENABLE_AUTO_COMPRESSION")
+    if agent_val is not None:
+        return agent_val.lower() == "true"
     return os.getenv("ENABLE_AUTO_COMPRESSION", "true").lower() == "true"
 
 
-def get_context_config() -> Dict[str, any]:
+def get_context_config(agent_name: Optional[str] = None) -> Dict[str, any]:
     """
     Get complete context management configuration.
+
+    Args:
+        agent_name: Optional agent name for scoped lookups.
 
     Returns:
         Dictionary with:
@@ -152,17 +247,22 @@ def get_context_config() -> Dict[str, any]:
     provider = os.getenv("LLM_PROVIDER", "azure-openai").lower()
     return {
         "provider": provider,
-        "max_context_tokens": get_context_limit_for_provider(provider),
-        "min_messages_to_keep": get_min_messages_to_keep(),
-        "auto_compression_enabled": is_auto_compression_enabled(),
+        "max_context_tokens": get_context_limit_for_provider(
+            provider, agent_name=agent_name
+        ),
+        "min_messages_to_keep": get_min_messages_to_keep(agent_name=agent_name),
+        "auto_compression_enabled": is_auto_compression_enabled(
+            agent_name=agent_name
+        ),
     }
 
 
-def log_context_config():
+def log_context_config(agent_name: Optional[str] = None):
     """Log the current context management configuration."""
-    config = get_context_config()
+    config = get_context_config(agent_name=agent_name)
+    prefix = f"[{agent_name}] " if agent_name else ""
     logger.info(
-        f"Context management config: provider={config['provider']}, "
+        f"{prefix}Context management config: provider={config['provider']}, "
         f"max_tokens={config['max_context_tokens']:,}, "
         f"min_messages={config['min_messages_to_keep']}, "
         f"auto_compression={config['auto_compression_enabled']}"
