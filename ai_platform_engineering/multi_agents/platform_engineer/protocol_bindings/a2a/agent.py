@@ -16,10 +16,13 @@ from a2a.types import (
     TaskArtifactUpdateEvent,
     TaskStatusUpdateEvent,
 )
-from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
-    AIPlatformEngineerMAS,
-    USE_STRUCTURED_RESPONSE,
-)
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
+try:
+    from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
+        AIPlatformEngineerMAS,
+    )
+except (ImportError, ModuleNotFoundError):
+    AIPlatformEngineerMAS = None  # Resolved at runtime; allows test patching
 from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt

@@ -398,6 +398,32 @@ class AIPlatformEngineerA2ABinding:
       logging.debug(f"Created tracing config: {config}")
 
       # ========================================================================
+      # CROSS-THREAD MEMORY: Retrieve prior context for new conversations
+      # ========================================================================
+      graph_store = getattr(self.graph, 'store', None)
+      try:
+          if graph_store and user_email and isinstance(inputs, dict):
+              state = await self.graph.aget_state(config)
+              is_new_thread = not state or not state.values or not state.values.get("messages")
+              if is_new_thread:
+                  from ai_platform_engineering.utils.store import store_get_cross_thread_context
+                  cross_thread_ctx = await store_get_cross_thread_context(
+                      store=graph_store,
+                      user_id=user_email,
+                  )
+                  if cross_thread_ctx:
+                      from langchain_core.messages import SystemMessage
+                      inputs['messages'].insert(
+                          0, SystemMessage(content=cross_thread_ctx)
+                      )
+                      logging.info(
+                          f"Injected cross-thread context for user={user_email} "
+                          f"({len(cross_thread_ctx)} chars)"
+                      )
+      except Exception as ctx_err:
+          logging.debug(f"Cross-thread context retrieval skipped: {ctx_err}")
+
+      # ========================================================================
       # EXECUTION PLAN STATE: re-seed on HITL resume, reset on fresh query
       # ========================================================================
       if command is not None:
@@ -1788,6 +1814,38 @@ class AIPlatformEngineerA2ABinding:
           logging.info(f"📤 Keeping content in final response - {len(accumulated_ai_content)} chunks accumulated but only {yielded_chunk_count} yielded")
 
       logging.info(f"🚀 YIELDING FINAL RESPONSE: is_task_complete={final_response.get('is_task_complete')}, require_user_input={final_response.get('require_user_input')}, content_length={len(final_response.get('content', ''))}, final_model_content={len(final_response.get('final_model_content', ''))}")
+
+      # ========================================================================
+      # BACKGROUND FACT EXTRACTION: Extract and persist facts after response
+      # ========================================================================
+      try:
+          from ai_platform_engineering.utils.agent_memory.fact_extraction import (
+              is_fact_extraction_enabled,
+              extract_and_store_facts,
+          )
+          if is_fact_extraction_enabled() and graph_store and user_email:
+              state = await self.graph.aget_state(config)
+              thread_messages = (
+                  state.values.get("messages", [])
+                  if state and state.values else []
+              )
+              if thread_messages:
+                  thread_id = config.get("configurable", {}).get("thread_id")
+                  asyncio.create_task(
+                      extract_and_store_facts(
+                          store=graph_store,
+                          messages=thread_messages,
+                          user_id=user_email,
+                          thread_id=thread_id,
+                      )
+                  )
+                  logging.info(
+                      f"Launched background fact extraction for user={user_email}, "
+                      f"thread={thread_id}, messages={len(thread_messages)}"
+                  )
+      except Exception as fact_err:
+          logging.debug(f"Background fact extraction skipped: {fact_err}")
+
       yield final_response
 
   def handle_structured_response(self, ai_message):

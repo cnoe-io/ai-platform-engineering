@@ -1018,47 +1018,58 @@ class TestStreamConfigWiring:
 # ============================================================================
 
 class TestDeepAgentCheckpointerWiring:
-    """Test InMemorySaver checkpointer wiring in deep_agent."""
+    """Test checkpointer wiring in the single-node deep agent (deep_agent_single.py)."""
 
     def test_checkpointer_attached_by_default(self):
+        """When LANGGRAPH_DEV is not set, create_checkpointer() is called and attached."""
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("LANGGRAPH_DEV", None)
 
-            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.platform_registry") as mock_reg, \
-                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.async_create_deep_agent") as mock_create, \
-                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory"):
-                mock_reg.agents = {}
-                mock_reg.enable_dynamic_monitoring = MagicMock()
-                mock_reg.get_all_agents.return_value = {}
+            mock_graph = MagicMock()
+            mock_checkpointer = MagicMock()
 
-                mock_graph = MagicMock()
-                mock_create.return_value = mock_graph
+            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.create_deep_agent", return_value=mock_graph), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.create_checkpointer", return_value=mock_checkpointer) as mock_create_cp, \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.create_store", return_value=None), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.LLMFactory"), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.load_platform_config", return_value={}), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.generate_platform_system_prompt", return_value="test prompt"), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.load_task_config", return_value={}), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.get_merged_skills", return_value=[]), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.build_skills_files", return_value=({}, [])), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.SINGLE_NODE_AGENTS", []):
 
-                from importlib import reload
-                import ai_platform_engineering.multi_agents.platform_engineer.deep_agent as da_module
-                reload(da_module)
+                import asyncio
+                from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import PlatformEngineerDeepAgent
+                agent = PlatformEngineerDeepAgent()
+                asyncio.get_event_loop().run_until_complete(agent.ensure_initialized())
 
-                da_module.AIPlatformEngineerMAS()
-                assert mock_graph.checkpointer is not None
+                mock_create_cp.assert_called_once()
+                assert mock_graph.checkpointer == mock_checkpointer
 
     def test_checkpointer_disabled_with_langgraph_dev(self):
+        """When LANGGRAPH_DEV is set, no checkpointer is attached."""
         with patch.dict(os.environ, {"LANGGRAPH_DEV": "1"}):
-            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.platform_registry") as mock_reg, \
-                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.async_create_deep_agent") as mock_create, \
-                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory"):
-                mock_reg.agents = {}
-                mock_reg.enable_dynamic_monitoring = MagicMock()
-                mock_reg.get_all_agents.return_value = {}
+            mock_graph = MagicMock(spec=["checkpointer"])
+            mock_graph.checkpointer = None
 
-                mock_graph = MagicMock(spec=["checkpointer"])
-                mock_graph.checkpointer = None
-                mock_create.return_value = mock_graph
+            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.create_deep_agent", return_value=mock_graph), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.create_checkpointer") as mock_create_cp, \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.create_store", return_value=None), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.LLMFactory"), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.load_platform_config", return_value={}), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.generate_platform_system_prompt", return_value="test prompt"), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.load_task_config", return_value={}), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.get_merged_skills", return_value=[]), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.build_skills_files", return_value=({}, [])), \
+                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single.SINGLE_NODE_AGENTS", []):
 
-                from importlib import reload
-                import ai_platform_engineering.multi_agents.platform_engineer.deep_agent as da_module
-                reload(da_module)
+                import asyncio
+                from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import PlatformEngineerDeepAgent
+                agent = PlatformEngineerDeepAgent()
+                asyncio.get_event_loop().run_until_complete(agent.ensure_initialized())
 
-                da_module.AIPlatformEngineerMAS()
+                mock_create_cp.assert_not_called()
                 assert mock_graph.checkpointer is None
 
 
