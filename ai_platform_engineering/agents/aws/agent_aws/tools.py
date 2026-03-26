@@ -231,8 +231,6 @@ class AWSCLIToolInput(BaseModel):
     profile: str = Field(
         description=(
             "AWS profile name for the account to query. THIS IS REQUIRED! "
-            "Available profiles: prod-account-1, staging-account-1, dev-account-1, research-account-1, demo-account-1. "
-            "When user says 'in dev', use profile='dev-account-1'. "
             "When user says 'get all EC2 in all accounts', make separate calls with each profile. "
             "If user does NOT specify an account, you must ask which account to query."
         )
@@ -287,7 +285,6 @@ class AWSCLITool(BaseTool):
         "Examples: 'ec2 describe-instances', 's3 ls', 'iam list-roles'. "
         "Write operations (create, delete, update) are blocked. "
         "IMPORTANT: Use 'profile' parameter to query specific AWS accounts! "
-        "When user asks about 'dev account', set profile='dev-account-1'. "
         "When user asks 'get all EC2', query each profile separately."
     )
     args_schema: type[BaseModel] = AWSCLIToolInput

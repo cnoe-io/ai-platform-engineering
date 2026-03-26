@@ -580,8 +580,9 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
     Using SubAgent dict format (instead of CompiledSubAgent) allows SubAgentMiddleware
     to build the subagent with shared StateBackend for filesystem state sharing.
 
-    System prompts are loaded from prompt_config.yaml when available (via agent_prompts section),
-    otherwise falls back to the agent's built-in SYSTEM_INSTRUCTION.
+    System prompts always use the agent's built-in get_system_instruction(),
+    matching multi-node (standalone) mode. The prompt_config.agent_prompts
+    entries are routing hints for the supervisor, not subagent system prompts.
 
     Per-subagent model overrides are resolved from SUBAGENT_<NAME>_MODEL env vars.
     The value should be a provider:model-name string (e.g. "openai:gpt-4o-mini")
@@ -592,7 +593,7 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         agent_instance: The agent instance with get_mcp_tools() and SYSTEM_INSTRUCTION
         name: Subagent name for routing
         description: Description for LLM routing decisions
-        prompt_config: Optional prompt configuration dict with agent_prompts section
+        prompt_config: Optional prompt configuration dict (used for model overrides only)
 
     Returns:
         SubAgent dict with name, description, system_prompt, tools, middleware,
@@ -614,18 +615,13 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
     # Note: FilesystemMiddleware provides read_file, write_file, etc. separately
     tools.extend([tool_result_to_file, wait])
 
-    # Get system prompt - prefer prompt_config, fall back to agent's built-in
-    system_prompt = None
-    if prompt_config:
-        agent_prompts = prompt_config.get("agent_prompts", {})
-        agent_config = agent_prompts.get(name, {})
-        system_prompt = agent_config.get("system_prompt")
-        if system_prompt:
-            logger.info(f"📝 Using prompt_config system_prompt for {name} subagent")
-
-    if not system_prompt:
-        system_prompt = agent_instance._get_system_instruction_with_date()
-        logger.info(f"📝 Using built-in system_prompt for {name} subagent")
+    # Always use the agent's built-in system prompt — it matches what the agent
+    # uses in multi-node (standalone) mode and contains rich operational details
+    # (tool usage SOPs, account lists, URL patterns, etc.).
+    # prompt_config.agent_prompts entries are routing hints for the supervisor,
+    # not subagent system prompts.
+    system_prompt = agent_instance._get_system_instruction_with_date()
+    logger.info(f"📝 Using built-in system_prompt for {name} subagent")
 
     subagent_def = {
         "name": name,
@@ -694,17 +690,9 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
 
     tools.extend([tool_result_to_file, wait, terraform_fmt])
 
-    # Build subagent def (prompt, middleware, model override) without re-loading tools
-    system_prompt = None
-    if prompt_config:
-        agent_prompts = prompt_config.get("agent_prompts", {})
-        agent_config = agent_prompts.get(name, {})
-        system_prompt = agent_config.get("system_prompt")
-        if system_prompt:
-            logger.info(f"📝 Using prompt_config system_prompt for {name} subagent")
-    if not system_prompt:
-        system_prompt = agent._get_system_instruction_with_date()
-        logger.info(f"📝 Using built-in system_prompt for {name} subagent")
+    # Always use the agent's built-in system prompt (matches multi-node mode)
+    system_prompt = agent._get_system_instruction_with_date()
+    logger.info(f"📝 Using built-in system_prompt for {name} subagent")
 
     subagent_def = {
         "name": name,
@@ -761,10 +749,76 @@ async def create_argocd_subagent_def(prompt_config: dict = None) -> dict:
 
 
 async def create_aws_subagent_def(prompt_config: dict = None) -> dict:
-    """Create AWS subagent definition with shared filesystem."""
+    """Create AWS subagent definition with MCP tools and AWS CLI/kubectl tools.
+
+    Unlike most subagents that only use MCP tools, AWS also needs the CLI tools
+    because the standalone AWS agent (multi-node) uses aws_cli_execute and
+    eks_kubectl_execute as its primary tools. In single-node mode, MCP tools
+    alone may not cover all operations — the CLI tools fill the gap.
+    """
     from ai_platform_engineering.agents.aws.agent_aws.agent_langgraph import AWSAgentLangGraph
+    from ai_platform_engineering.agents.aws.agent_aws.tools import get_aws_cli_tool, get_eks_kubectl_tool
+
     agent = AWSAgentLangGraph()
-    return await create_subagent_def(agent, "aws", "AWS: EC2, EKS, S3 resource management", prompt_config)
+    name = "aws"
+
+    # Load MCP tools via standard path (HTTP to mcp-aws sidecar or STDIO)
+    mcp_tools = await agent._load_mcp_tools({}, include_fallback=False)
+    if mcp_tools:
+        logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded")
+    else:
+        logger.warning(f"{name}: MCP tools unavailable — will rely on CLI tools only")
+
+    tools = list(mcp_tools)
+
+    # Add AWS CLI tool (reads USE_AWS_CLI_AS_TOOL env var, default true)
+    aws_cli_tool = get_aws_cli_tool()
+    if aws_cli_tool:
+        tools.append(aws_cli_tool)
+        logger.info(f"{name}: Added AWS CLI tool (aws_cli_execute)")
+
+    # Add EKS kubectl tool for Kubernetes resource inspection
+    try:
+        eks_kubectl_tool = get_eks_kubectl_tool()
+        if eks_kubectl_tool:
+            tools.append(eks_kubectl_tool)
+            logger.info(f"{name}: Added EKS kubectl tool (eks_kubectl_execute)")
+    except Exception as e:
+        logger.warning(f"{name}: Failed to load EKS kubectl tool: {e}")
+
+    tools.extend([tool_result_to_file, wait])
+
+    if not any(t for t in tools if t not in (tool_result_to_file, wait)):
+        logger.error(f"{name}: No domain tools available — check MCP config and USE_AWS_CLI_AS_TOOL")
+
+    # Always use the agent's built-in system prompt — it contains dynamically
+    # generated account details, profile names, and tool usage patterns from
+    # get_system_instruction(). The prompt_config.agent_prompts.aws entry is a
+    # routing hint for the supervisor, not an actual subagent system prompt.
+    system_prompt = agent._get_system_instruction_with_date()
+    logger.info(f"📝 Using built-in system_prompt for {name} subagent (has account/profile details)")
+
+    cli_count = sum(1 for t in tools if t not in (tool_result_to_file, wait) and t not in mcp_tools)
+    subagent_def = {
+        "name": name,
+        "description": "AWS: EC2, EKS, S3 resource management",
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "middleware": [
+            PolicyMiddleware(agent_name=name, agent_type="subagent"),
+        ],
+    }
+
+    model_override = _get_subagent_model(name)
+    if model_override:
+        subagent_def["model"] = model_override
+
+    logger.info(
+        f"📦 Created SubAgent def for {name} with {len(tools)} tools "
+        f"({len(mcp_tools)} MCP + {cli_count} CLI)"
+        f"{f', model={model_override}' if model_override else ''}"
+    )
+    return subagent_def
 
 
 async def create_pagerduty_subagent_def(prompt_config: dict = None) -> dict:
