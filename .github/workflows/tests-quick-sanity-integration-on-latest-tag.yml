@@ -45,6 +45,16 @@ jobs:
           fetch-tags: true
           fetch-depth: 0
 
+      - name: Reclaim disk space
+        run: |
+          echo "::group::Reclaim disk space"
+          echo "Before cleanup:"
+          df -h /
+          docker system prune -af --volumes 2>/dev/null || true
+          echo "After cleanup:"
+          df -h /
+          echo "::endgroup::"
+
       - name: Pre-clean Kind cluster
         run: |
           kind delete cluster --name caipe 2>/dev/null || true
