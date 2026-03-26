@@ -411,25 +411,25 @@ export interface MCPBuiltinToolsConfig {
 }
 
 export async function getMCPTools(): Promise<MCPToolConfig[]> {
-  return get('/v1/mcp/tools');
+  return get('/v1/mcp/custom-tools');
 }
 
 export async function createMCPTool(config: Omit<MCPToolConfig, 'created_at' | 'updated_at'>): Promise<MCPToolConfig> {
-  return post('/v1/mcp/tools', config);
+  return post('/v1/mcp/custom-tools', config);
 }
 
 export async function updateMCPTool(toolId: string, config: MCPToolConfig): Promise<MCPToolConfig> {
-  return put(`/v1/mcp/tools/${toolId}`, config);
+  return put(`/v1/mcp/custom-tools/${toolId}`, config);
 }
 
 export async function deleteMCPTool(toolId: string): Promise<{ message: string }> {
-  return del(`/v1/mcp/tools/${toolId}`);
+  return del(`/v1/mcp/custom-tools/${toolId}`);
 }
 
 export async function getMCPBuiltinConfig(): Promise<MCPBuiltinToolsConfig> {
-  return get('/v1/mcp/builtin-config');
+  return get('/v1/mcp/builtin-tools');
 }
 
 export async function updateMCPBuiltinConfig(config: MCPBuiltinToolsConfig): Promise<MCPBuiltinToolsConfig> {
-  return put('/v1/mcp/builtin-config', config);
+  return put('/v1/mcp/builtin-tools', config);
 }
