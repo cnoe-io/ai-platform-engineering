@@ -108,6 +108,16 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      - name: Reclaim disk space
+        run: |
+          echo "::group::Reclaim disk space"
+          echo "Before cleanup:"
+          df -h /
+          docker system prune -af --volumes 2>/dev/null || true
+          echo "After cleanup:"
+          df -h /
+          echo "::endgroup::"
+
       - name: Start services
         run: |
           set -euo pipefail
