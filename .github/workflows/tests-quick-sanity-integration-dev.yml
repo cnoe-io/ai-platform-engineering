@@ -121,28 +121,34 @@ jobs:
       - name: Start services
         run: |
           set -euo pipefail
-          docker compose -f docker-compose.dev.yaml \
-            --profile caipe-supervisor \
-            --profile caipe-mongodb \
-            --profile deps \
-            --profile caipe-ui \
-            --profile all-agents \
-            --profile netutils-agent \
-            --profile rag \
-            up -d --build
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+
+          # Build images first (succeeds even if some will fail at runtime)
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS build
+
+          # Start services — tolerate partial failures from agents with
+          # missing credentials (e.g. webex, splunk). The readiness check
+          # below validates the supervisor is healthy.
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS up -d \
+            || echo "::warning::Some containers failed to start (expected for agents without credentials)"
 
       - name: Stream service logs (background)
         run: |
           set -euo pipefail
           echo "::group::Service logs"
-          ( docker compose -f docker-compose.dev.yaml \
-              --profile caipe-supervisor \
-              --profile caipe-mongodb \
-              --profile deps \
-              --profile caipe-ui \
-              --profile all-agents \
-              --profile netutils-agent \
-              --profile rag \
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+
+          ( docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS \
               logs -f --no-color --timestamps \
               | tee -a compose-live.log ) &
           echo $! > logs.pid
@@ -155,6 +161,11 @@ jobs:
             if curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null; then
               echo "Service is up"
               break
+            fi
+            if [ "$i" -eq 36 ]; then
+              echo "::error::Supervisor did not become ready within 3 minutes"
+              docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+              exit 1
             fi
             echo "Not ready yet ($i/36). Sleeping 5s..."
             sleep 5
@@ -189,14 +200,13 @@ jobs:
         if: always()
         run: |
           echo "::group::Cleanup"
-          docker compose -f docker-compose.dev.yaml \
-            --profile caipe-supervisor \
-            --profile caipe-mongodb \
-            --profile deps \
-            --profile caipe-ui \
-            --profile all-agents \
-            --profile netutils-agent \
-            --profile rag \
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS \
             down -v --remove-orphans || true
           docker rmi -f $(docker images -aq) 2>/dev/null || true
           echo "::endgroup::"
