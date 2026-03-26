@@ -531,25 +531,6 @@ class AWSCLITool(BaseTool):
                 return f"❌ Error executing command: {str(e)}"
 
 
-def _build_dynamic_args_schema(profile_names: list[str]) -> type[BaseModel]:
-    """Build AWSCLIToolInput with actual profile names in the description."""
-    profiles_str = ", ".join(profile_names) if profile_names else "default"
-
-    class DynamicAWSCLIToolInput(AWSCLIToolInput):
-        profile: str = Field(
-            description=(
-                f"AWS profile name for the account to query. THIS IS REQUIRED! "
-                f"Available profiles: {profiles_str}. "
-                "When user says 'get all EC2 in all accounts', make separate calls with each profile. "
-                "If user does NOT specify an account, you must ask which account to query."
-            )
-        )
-
-    DynamicAWSCLIToolInput.__name__ = "AWSCLIToolInput"
-    DynamicAWSCLIToolInput.__qualname__ = "AWSCLIToolInput"
-    return DynamicAWSCLIToolInput
-
-
 def get_aws_cli_tool() -> Optional[AWSCLITool]:
     """
     Factory function to create AWS CLI tool if enabled.
@@ -567,25 +548,13 @@ def get_aws_cli_tool() -> Optional[AWSCLITool]:
 
     # Setup AWS profiles for cross-account access
     accounts = setup_aws_profiles()
-    profile_names = [a["name"] for a in accounts]
     if accounts:
-        logger.info(f"AWS profiles configured: {profile_names}")
+        logger.info(f"AWS profiles configured: {[a['name'] for a in accounts]}")
 
     # Always read-only - no create, update, delete operations
     logger.info("AWS CLI tool enabled (read-only mode)")
 
-    tool = AWSCLITool(allow_write_operations=False)
-
-    # Inject actual profile names into tool schema so the LLM knows valid profiles
-    if profile_names:
-        tool.args_schema = _build_dynamic_args_schema(profile_names)
-        profiles_str = ", ".join(profile_names)
-        tool.description = (
-            f"{tool.description} "
-            f"Available profiles: {profiles_str}."
-        )
-
-    return tool
+    return AWSCLITool(allow_write_operations=False)
 
 
 class ReflectionToolInput(BaseModel):
