@@ -20,8 +20,6 @@ from common.metadata_storage import MetadataStorage
 from common.job_manager import JobManager, JobStatus
 from common.models.server import (
   ExploreNeighborhoodRequest,
-  QueryRequest,
-  QueryResult,
   DocumentIngestRequest,
   IngestorPingRequest,
   IngestorPingResponse,
@@ -33,6 +31,8 @@ from common.models.server import (
   ConfluenceIngestRequest,
   ConfluenceReloadRequest,
   JobsBatchRequest,
+  MCPToolInvokeRequest,
+  MCPToolInvokeResponse,
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
@@ -81,7 +81,6 @@ mcp_enabled = os.getenv("ENABLE_MCP", "true").lower() in ("true", "1", "yes")
 mcp_auth_enabled = os.getenv("MCP_AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
 sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 180))  # seconds to sleep on init failure before shutdown
 max_documents_per_ingest = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", 1000))  # max number of documents to ingest per ingestion request
-max_results_per_query = int(os.getenv("MAX_RESULTS_PER_QUERY", 100))  # max number of results to return per query
 confluence_url = os.getenv("CONFLUENCE_URL")  # optional - base URL for Confluence instance (e.g., https://company.atlassian.net/wiki)
 
 default_collection_name_docs = "rag_default"
@@ -645,38 +644,6 @@ async def add_job_errors(job_id: str, error_messages: List[str], user: UserConte
   final_length = results[-1] if results else 0
   logger.debug(f"Added {len(error_messages)} error messages to job {job_id}, total errors: {final_length}")
   return {"job_id": job_id, "errors_added": len(error_messages), "total_errors": final_length}
-
-
-# ============================================================================
-# Query Endpoint
-# ============================================================================
-
-
-@app.post("/v1/query", response_model=List[QueryResult])
-async def query_documents(query_request: QueryRequest, user: UserContext = Depends(require_role(Role.READONLY))):
-  """Query for relevant documents using semantic search in the unified collection."""
-
-  # Enforce max results limit
-  if query_request.limit > max_results_per_query:
-    raise HTTPException(status_code=400, detail=f"Query limit exceeds maximum allowed of {max_results_per_query} results.")
-
-  # If weighted ranker specified but no weights then use default weights
-  if query_request.ranker_type == "weighted":
-    if query_request.ranker_params is None:
-      query_request.ranker_params = {"weights": [0.7, 0.3]}  # More weight to dense (semantic) score
-
-  # If no ranker specified then set ranker params to None
-  if not query_request.ranker_type or query_request.ranker_type == "":
-    query_request.ranker_params = None
-
-  results = await vector_db_query_service.query(
-    query=query_request.query,
-    filters=query_request.filters,
-    limit=query_request.limit,
-    ranker=query_request.ranker_type,
-    ranker_params=query_request.ranker_params,
-  )
-  return results
 
 
 # ============================================================================
@@ -1442,16 +1409,16 @@ async def _reload_mcp_tools():
   await agent_tools.reload_tools(mcp, graph_rag_enabled=graph_rag_enabled, builtin_config=builtin_config, tool_configs=tool_configs)
 
 
-@app.get("/v1/mcp/tools", tags=["MCP Tools"])
+@app.get("/v1/mcp/custom-tools", tags=["MCP Tools"])
 async def list_mcp_tools(user: UserContext = Depends(require_role(Role.READONLY))):
-  """List all MCP search tool configurations."""
+  """List all custom MCP search tool configurations."""
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   tools = await metadata_storage.fetch_all_mcp_tool_configs()
   return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(tools))
 
 
-@app.post("/v1/mcp/tools", tags=["MCP Tools"])
+@app.post("/v1/mcp/custom-tools", tags=["MCP Tools"])
 async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
   """Create a new custom MCP search tool. The tool_id must be unique and not reserved."""
   if not metadata_storage:
@@ -1470,7 +1437,7 @@ async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(req
   return JSONResponse(status_code=status.HTTP_201_CREATED, content=jsonable_encoder(config))
 
 
-@app.put("/v1/mcp/tools/{tool_id}", tags=["MCP Tools"])
+@app.put("/v1/mcp/custom-tools/{tool_id}", tags=["MCP Tools"])
 async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
   """Update an existing MCP search tool configuration (including the seeded 'search' tool)."""
   if not metadata_storage:
@@ -1490,7 +1457,7 @@ async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext
   return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(config))
 
 
-@app.delete("/v1/mcp/tools/{tool_id}", tags=["MCP Tools"])
+@app.delete("/v1/mcp/custom-tools/{tool_id}", tags=["MCP Tools"])
 async def delete_mcp_tool(tool_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
   """Delete a custom MCP search tool. Reserved tool IDs (e.g. 'search') cannot be deleted."""
   if not metadata_storage:
@@ -1506,7 +1473,7 @@ async def delete_mcp_tool(tool_id: str, user: UserContext = Depends(require_role
   return JSONResponse(status_code=status.HTTP_200_OK, content={"message": f"MCP tool '{tool_id}' deleted."})
 
 
-@app.get("/v1/mcp/builtin-config", tags=["MCP Tools"])
+@app.get("/v1/mcp/builtin-tools", tags=["MCP Tools"])
 async def get_mcp_builtin_config(user: UserContext = Depends(require_role(Role.READONLY))):
   """Get the built-in MCP tools enable/disable configuration."""
   if not metadata_storage:
@@ -1515,7 +1482,7 @@ async def get_mcp_builtin_config(user: UserContext = Depends(require_role(Role.R
   return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(config))
 
 
-@app.put("/v1/mcp/builtin-config", tags=["MCP Tools"])
+@app.put("/v1/mcp/builtin-tools", tags=["MCP Tools"])
 async def update_mcp_builtin_config(config: MCPBuiltinToolsConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
   """Update the built-in MCP tools enable/disable toggles (fetch_document, fetch_datasources, graph_tools)."""
   if not metadata_storage:
@@ -1524,3 +1491,107 @@ async def update_mcp_builtin_config(config: MCPBuiltinToolsConfig, user: UserCon
   logger.info(f"Updated MCPBuiltinToolsConfig (by {user.email}): {config}")
   await _reload_mcp_tools()
   return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(config))
+
+
+@app.get("/v1/mcp/tools/schema", tags=["MCP Tools"])
+async def get_mcp_tool_schemas(user: UserContext = Depends(require_role(Role.READONLY))):
+  """
+  Get all registered MCP tools with their full JSON schemas.
+
+  Returns both built-in tools (search, fetch_document, list_datasources_and_entity_types)
+  and custom search tools. Each tool includes its full parameter schema for dynamic
+  form generation in the UI.
+
+  This endpoint is useful for:
+  - Building dynamic search forms in the UI
+  - Discovering available MCP tools and their parameters
+  - Debugging/simulating MCP tool invocations via REST
+  """
+  if not mcp_enabled:
+    raise HTTPException(status_code=400, detail="MCP is not enabled")
+  if not agent_tools:
+    raise HTTPException(status_code=500, detail="MCP tools not initialized")
+
+  # Get all registered tools from FastMCP
+  registered_tools = await mcp.get_tools()
+
+  tools_with_schemas = []
+  for tool in registered_tools.values():
+    tools_with_schemas.append(
+      {
+        "name": tool.name,
+        "description": tool.description or "",
+        "parameters": tool.parameters,  # Full JSON schema
+      }
+    )
+
+  return JSONResponse(
+    status_code=status.HTTP_200_OK,
+    content={"tools": tools_with_schemas, "count": len(tools_with_schemas)},
+  )
+
+
+@app.post("/v1/mcp/invoke", response_model=MCPToolInvokeResponse, tags=["MCP Tools"])
+async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Depends(require_role(Role.READONLY))):
+  """
+  Invoke an MCP tool via REST API.
+
+  This endpoint allows invoking any registered MCP tool directly via REST,
+  useful for debugging, testing, and UI integration without needing a full
+  MCP client connection.
+
+  The arguments must match the tool's parameter schema (see /v1/mcp/tools/schema).
+  """
+  if not mcp_enabled:
+    raise HTTPException(status_code=400, detail="MCP is not enabled")
+  if not agent_tools:
+    raise HTTPException(status_code=500, detail="MCP tools not initialized")
+
+  # Find the tool
+  registered_tools = await mcp.get_tools()
+  tool = registered_tools.get(request.tool_name)
+
+  if not tool:
+    raise HTTPException(status_code=404, detail=f"MCP tool '{request.tool_name}' not found")
+
+  try:
+    # Invoke the tool using tool.run()
+    result = await tool.run(request.arguments)
+
+    # Extract the raw result from ToolResult.content
+    # Each content block has a .text attribute containing JSON-encoded data
+    # We parse and return the first content block's data as-is
+    raw_result = None
+    if result.content:
+      first_content = result.content[0]
+      if hasattr(first_content, "text"):
+        try:
+          import json
+
+          raw_result = json.loads(first_content.text)
+        except (json.JSONDecodeError, TypeError):
+          raw_result = first_content.text
+      elif isinstance(first_content, dict) and "text" in first_content:
+        try:
+          import json
+
+          raw_result = json.loads(first_content["text"])
+        except (json.JSONDecodeError, TypeError):
+          raw_result = first_content["text"]
+      else:
+        raw_result = str(first_content)
+
+    return MCPToolInvokeResponse(
+      tool_name=request.tool_name,
+      success=True,
+      result=raw_result,
+      error=None,
+    )
+  except Exception as e:
+    logger.error(f"Error invoking MCP tool '{request.tool_name}': {e}")
+    return MCPToolInvokeResponse(
+      tool_name=request.tool_name,
+      success=False,
+      result=None,
+      error=str(e),
+    )

@@ -176,21 +176,60 @@ export const getJobsBatch = async (
 };
 
 // ============================================================================
-// Query API
+// MCP Tools API
 // ============================================================================
 
-export const searchDocuments = async (params: {
-    query: string;
-    limit?: number;
-    similarity_threshold?: number;
-    filters?: Record<string, string | boolean>;
-    ranker_type?: string;
-    ranker_params?: { weights: number[] };
-    datasource_id?: string;
-    connector_id?: string;
-    graph_entity_type?: string;
-}): Promise<QueryResult[]> => {
-    return apiPost('/v1/query', params);
+// MCP Tool Schema types
+export interface MCPToolParameter {
+    type: string;
+    description?: string;
+    default?: unknown;
+    enum?: string[];
+    items?: { type: string };
+    properties?: Record<string, MCPToolParameter>;
+    required?: string[];
+}
+
+export interface MCPToolSchema {
+    name: string;
+    description: string;
+    parameters: {
+        type: string;
+        properties: Record<string, MCPToolParameter>;
+        required?: string[];
+    };
+}
+
+export interface MCPToolSchemasResponse {
+    tools: MCPToolSchema[];
+    count: number;
+}
+
+export interface MCPToolInvokeResponse {
+    tool_name: string;
+    success: boolean;
+    result: unknown;
+    error: string | null;
+}
+
+/**
+ * Get all registered MCP tools with their full JSON schemas.
+ */
+export const getMCPToolSchemas = async (): Promise<MCPToolSchemasResponse> => {
+    return apiGet('/v1/mcp/tools/schema');
+};
+
+/**
+ * Invoke an MCP tool via REST API.
+ */
+export const invokeMCPTool = async (
+    toolName: string,
+    args: Record<string, unknown>
+): Promise<MCPToolInvokeResponse> => {
+    return apiPost('/v1/mcp/invoke', {
+        tool_name: toolName,
+        arguments: args,
+    });
 };
 
 // ============================================================================
