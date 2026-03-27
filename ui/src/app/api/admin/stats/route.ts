@@ -6,7 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
@@ -51,8 +51,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
-
+    await requireRbacPermission(session, 'admin_ui', 'view');
     const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);
 

@@ -290,6 +290,17 @@ export function UserMenu() {
   const [changelogError, setChangelogError] = useState<string | null>(null);
   const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [rbacPosture, setRbacPosture] = useState<{
+    realm_roles: string[];
+    per_kb_roles: string[];
+    per_agent_roles: string[];
+    teams: Array<{ _id: string; name: string; role?: string }>;
+    idp_source: string;
+    slack_linked: boolean;
+    role: string;
+  } | null>(null);
+  const [rbacLoading, setRbacLoading] = useState(false);
+  const rbacFetched = useRef(false);
 
   const fetchChangelog = useCallback(async () => {
     if (changelogFetched.current) return;
@@ -307,6 +318,22 @@ export function UserMenu() {
       setChangelogError("Unable to load changelog");
     } finally {
       setChangelogLoading(false);
+    }
+  }, []);
+
+  const fetchRbacPosture = useCallback(async () => {
+    if (rbacFetched.current) return;
+    rbacFetched.current = true;
+    setRbacLoading(true);
+    try {
+      const res = await fetch("/api/auth/my-roles");
+      if (!res.ok) throw new Error("Failed to fetch RBAC posture");
+      const data = await res.json();
+      setRbacPosture(data);
+    } catch (err) {
+      console.error("[UserMenu] RBAC posture fetch failed:", err);
+    } finally {
+      setRbacLoading(false);
     }
   }, []);
 
@@ -612,9 +639,16 @@ export function UserMenu() {
             </div>
           </DialogHeader>
 
-          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); }}>
+          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); if (val === "rbac") fetchRbacPosture(); }}>
             <div className="px-6 pt-2 border-b border-border">
               <TabsList className="bg-transparent h-auto p-0 gap-4">
+                <TabsTrigger
+                  value="rbac"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+                  My RBAC
+                </TabsTrigger>
                 <TabsTrigger
                   value="oidc"
                   className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
@@ -645,6 +679,164 @@ export function UserMenu() {
                 </TabsTrigger>
               </TabsList>
             </div>
+
+            {/* My RBAC Tab */}
+            <TabsContent value="rbac" className="mt-0">
+              <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
+                {rbacLoading && (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                {!rbacLoading && rbacPosture && (
+                  <>
+                    {/* Platform Role */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Shield className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold">Platform Role</span>
+                      </div>
+                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                        <span className={cn(
+                          "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold",
+                          rbacPosture.role === "admin"
+                            ? "bg-primary/20 text-primary border border-primary/30"
+                            : "bg-muted text-muted-foreground border border-border"
+                        )}>
+                          {rbacPosture.role === "admin" ? "Admin" : "User"}
+                        </span>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          IdP: <span className="font-mono">{rbacPosture.idp_source}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Slack: {rbacPosture.slack_linked ? (
+                            <span className="text-green-600 dark:text-green-500 font-medium">Linked</span>
+                          ) : (
+                            <span className="text-muted-foreground">Not linked</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Realm Roles */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <KeyRound className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold">Realm Roles</span>
+                        <span className="text-xs text-muted-foreground/70">({rbacPosture.realm_roles.length})</span>
+                      </div>
+                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                        {rbacPosture.realm_roles.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {rbacPosture.realm_roles.map((role) => (
+                              <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                                {role}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No realm roles assigned</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Teams */}
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold">Teams</span>
+                        <span className="text-xs text-muted-foreground/70">({rbacPosture.teams.length})</span>
+                      </div>
+                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                        {rbacPosture.teams.length > 0 ? (
+                          <div className="space-y-2">
+                            {rbacPosture.teams.map((team) => (
+                              <div key={team._id} className="flex items-center justify-between">
+                                <span className="text-sm font-medium">{team.name}</span>
+                                {team.role && (
+                                  <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                    {team.role}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not a member of any team</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Per-KB Roles */}
+                    {rbacPosture.per_kb_roles.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Layers className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-semibold">Knowledge Base Access</span>
+                          <span className="text-xs text-muted-foreground/70">({rbacPosture.per_kb_roles.length})</span>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                          <div className="space-y-1.5">
+                            {rbacPosture.per_kb_roles.map((role) => {
+                              const [type, id] = role.split(":");
+                              return (
+                                <div key={role} className="flex items-center justify-between text-xs">
+                                  <span className="font-mono text-foreground/80">{id}</span>
+                                  <span className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                                    type === "kb_admin"
+                                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                      : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                  )}>
+                                    {type === "kb_admin" ? "admin" : "reader"}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Per-Agent Roles */}
+                    {rbacPosture.per_agent_roles.length > 0 && (
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Code className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-semibold">Agent Access</span>
+                          <span className="text-xs text-muted-foreground/70">({rbacPosture.per_agent_roles.length})</span>
+                        </div>
+                        <div className="bg-muted/30 rounded-lg p-4 border border-border">
+                          <div className="space-y-1.5">
+                            {rbacPosture.per_agent_roles.map((role) => {
+                              const [type, id] = role.split(":");
+                              return (
+                                <div key={role} className="flex items-center justify-between text-xs">
+                                  <span className="font-mono text-foreground/80">{id}</span>
+                                  <span className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-medium",
+                                    type === "agent_admin"
+                                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                                      : "bg-green-500/10 text-green-600 dark:text-green-400"
+                                  )}>
+                                    {type === "agent_admin" ? "admin" : "user"}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {!rbacLoading && !rbacPosture && (
+                  <div className="text-center py-12">
+                    <span className="text-xs text-muted-foreground">Unable to load RBAC posture</span>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
 
             {/* OIDC Token Tab */}
             <TabsContent value="oidc" className="mt-0">
@@ -1132,14 +1324,14 @@ export function UserMenu() {
             <p className="text-xs text-center text-muted-foreground">
               Built with ❤️ by the{" "}
               <a
-                href="https://cnoe.io/"
+                href="https://caipe.io/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                CNOE
+                caipe.io
               </a>{" "}
-              community
+              OSS community
             </p>
           </div>
         </DialogContent>

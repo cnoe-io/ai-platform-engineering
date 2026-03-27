@@ -515,6 +515,21 @@ class AIPlatformEngineerA2ABinding:
       # model + tools cycles). Match the multi-node agent's limit of 100.
       config['recursion_limit'] = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "500"))
 
+      # Attach audit callback so tool invocations are logged to audit_events
+      try:
+          from ai_platform_engineering.utils.audit_callback import AuditCallbackHandler
+          _audit_cb = AuditCallbackHandler(
+              agent_name="supervisor",
+              user_email=user_email,
+              context_id=context_id,
+              trace_id=trace_id or config.get("metadata", {}).get("trace_id"),
+          )
+          _cbs = list(config.get("callbacks") or [])
+          _cbs.append(_audit_cb)
+          config["callbacks"] = _cbs
+      except Exception as _audit_err:
+          logging.debug(f"Audit callback not attached: {_audit_err}")
+
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
           config['metadata'] = {}
@@ -541,6 +556,14 @@ class AIPlatformEngineerA2ABinding:
               logging.debug(f"Added trace_id from context to config metadata: {current_trace_id}")
           else:
               logging.debug("No trace_id available from parameter or context")
+
+      # Inject OBO token into configurable so auth-aware proxy tools can read it (FR-038e)
+      obo_token = getattr(self, '_obo_token', None)
+      if obo_token:
+          if 'configurable' not in config:
+              config['configurable'] = {}
+          config['configurable']['obo_token'] = obo_token
+          logging.info("Injected obo_token into config.configurable for AG routing")
 
       logging.debug(f"Created tracing config: {config}")
 

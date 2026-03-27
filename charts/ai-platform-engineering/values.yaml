@@ -22,6 +22,7 @@ tags:
   agent-petstore: false
   rag-stack: false
   slack-bot: false
+  keycloak: false
 
 # Global configuration shared across all subcharts
 global:
@@ -791,6 +792,75 @@ slack-bot:
     limits:
       cpu: 500m
       memory: 512Mi
+
+######### Keycloak Identity Provider configuration #########
+# Keycloak provides RBAC, identity federation (upstream SSO broker),
+# and token exchange (RFC 8693) for the Slack bot.
+# Enable with tag: keycloak=true
+keycloak:
+  image:
+    repository: "quay.io/keycloak/keycloak"
+    tag: "26.3"
+    pullPolicy: IfNotPresent
+
+  # Admin credentials — auto-generated random password by default.
+  # For prod: set admin.secretRef to an existing Secret, or enable
+  # externalSecrets to pull from Vault / AWS Secrets Manager.
+  admin:
+    username: admin
+    password: ""       # Leave empty for auto-generated 32-char password
+    secretRef: ""      # Set to an existing K8s Secret name with keys: username, password
+
+  realm:
+    name: caipe
+    sslRequired: "external"  # "none" for dev, "external" for prod
+
+  # Keycloak features
+  features:
+    tokenExchange: true
+    adminFineGrainedAuthz: true
+
+  # Token exchange setup — enables bot impersonation via RFC 8693
+  tokenExchange:
+    enabled: true
+    botClientId: "caipe-slack-bot"
+
+  # Upstream IDP broker (generic OIDC — works with Okta, Azure AD, Duo, etc.)
+  # No vendor-specific credentials stored here.
+  idp:
+    enabled: false
+    alias: ""              # e.g. "upstream-sso"
+    displayName: ""        # e.g. "Enterprise SSO"
+    issuer: ""             # OIDC issuer URL
+    clientId: ""
+    secretRef: ""          # K8s Secret with key: IDP_CLIENT_SECRET
+    accessGroup: ""        # IdP group claim → chat_user role
+    adminGroup: ""         # IdP group claim → admin role
+
+  # External Secrets for admin password
+  externalSecrets:
+    enabled: false
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    data: []
+      # - secretKey: password
+      #   remoteRef:
+      #     key: prod/keycloak
+      #     property: admin_password
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus

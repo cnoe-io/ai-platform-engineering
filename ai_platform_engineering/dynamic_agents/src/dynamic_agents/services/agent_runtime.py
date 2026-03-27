@@ -369,9 +369,15 @@ class AgentRuntime:
         tools: list = []
 
         # 1. Build MCP tools from subagent's allowed_tools config
+        #    Inherit parent's AG routing and auth (FR-038f)
         server_ids = list(subagent_config.allowed_tools.keys())
         if server_ids:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+            )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent
                 all_tools, failed, failed_errors = await get_tools_with_resilience(connections)

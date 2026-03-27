@@ -1,186 +1,213 @@
-# 098 Permission Matrix
+# Permission Matrix: Enterprise RBAC (FR-008, FR-014)
 
-**Version**: 1 (Draft)
-**Spec**: [spec.md](./spec.md) — FR-008, FR-014
-**PDP mapping**: Keycloak AuthZ (UI/Slack) | Agent Gateway (MCP/A2A/Agent)
+**Version**: 1.1  
+**Status**: Active  
+**FRs**: FR-001, FR-002, FR-008, FR-012, FR-014, FR-016  
+**Date**: 2026-03-26 (updated 2026-03-26 — T121)
 
-## Matrix
+## Overview
 
-| Component | Capability ID | Description | Required Role(s) | Channel / API | PDP | ASP Relationship |
-|-----------|---------------|-------------|-------------------|---------------|-----|-----------------|
-| `admin_ui` | `admin_ui#view` | View admin dashboard | `admin` | UI BFF | Keycloak | — |
-| `admin_ui` | `admin_ui#configure` | Change platform settings | `admin` | UI BFF | Keycloak | — |
-| `admin_ui` | `admin_ui#admin` | Full admin operations | `admin` | UI BFF | Keycloak | — |
-| `admin_ui` | `admin_ui#audit.view` | View audit logs | `admin` | UI BFF | Keycloak | — |
-| `slack` | `slack#view` | View Slack bot responses | `chat_user` | Slack Bolt | Keycloak | — |
-| `slack` | `slack#invoke` | Issue Slack commands | `chat_user` | Slack Bolt | Keycloak | — |
-| `slack` | `slack#admin` | Slack admin operations | `admin` | Slack Bolt | Keycloak | — |
-| `supervisor` | `supervisor#invoke` | Invoke supervisor routing | `chat_user` | A2A / BFF | AG | Composable with ASP |
-| `supervisor` | `supervisor#configure` | Configure supervisor | `admin` | UI BFF | Keycloak | — |
-| `supervisor` | `supervisor#admin` | Full supervisor admin | `admin` | UI BFF / AG | Both | — |
-| `rag` | `rag#query` | Query RAG / search KBs | `chat_user` | RAG API / BFF | Keycloak | — |
-| `rag` | `rag#ingest` | Ingest data into KBs | `kb_admin` | RAG API / BFF | Keycloak | — |
-| `rag` | `rag#admin` | Full RAG administration | `kb_admin` | RAG API / BFF | Keycloak | — |
-| `rag` | `rag#tool.create` | Create team RAG tool | `team_member` | UI BFF | Keycloak | — |
-| `rag` | `rag#tool.update` | Update team RAG tool | `team_member` | UI BFF | Keycloak | — |
-| `rag` | `rag#tool.delete` | Delete team RAG tool | `team_member` | UI BFF | Keycloak | — |
-| `rag` | `rag#tool.view` | View RAG tools | `chat_user` | UI BFF | Keycloak | — |
-| `rag` | `rag#kb.admin` | Administer knowledge bases | `kb_admin` | RAG API / BFF | Keycloak | — |
-| `rag` | `rag#kb.ingest` | Ingest into knowledge bases | `kb_admin` | RAG API / BFF | Keycloak | — |
-| `rag` | `rag#kb.query` | Query knowledge bases | `chat_user` | RAG API / BFF | Keycloak | — |
-| `rag` | `rag#kb.read:<kb-id>` | Read/query a specific KB | `kb_reader:<kb-id>` or team owner | RAG API | RAG server (JWT + MongoDB) | Per-KB scoped |
-| `rag` | `rag#kb.ingest:<kb-id>` | Ingest into a specific KB | `kb_ingestor:<kb-id>` or `kb_admin` | RAG API | RAG server (JWT + MongoDB) | Per-KB scoped |
-| `rag` | `rag#kb.admin:<kb-id>` | Administer a specific KB | `kb_admin:<kb-id>` or `admin` | RAG API | RAG server (JWT + MongoDB) | Per-KB scoped |
-| `dynamic_agent` | `dynamic_agent#view` | View/list agents | `chat_user` (CEL-filtered) | Dynamic Agents API | CEL | Filtered by visibility + roles + team |
-| `dynamic_agent` | `dynamic_agent#invoke` | Invoke/chat with agent | `agent_user:<id>` or visibility match | Dynamic Agents API | CEL | Per-agent scoped |
-| `dynamic_agent` | `dynamic_agent#configure` | Update agent config | `agent_admin:<id>` or owner | Dynamic Agents API | CEL | Per-agent scoped |
-| `dynamic_agent` | `dynamic_agent#delete` | Delete agent + cleanup KC resource | `agent_admin:<id>` or owner | Dynamic Agents API | CEL | Per-agent scoped |
-| `dynamic_agent` | `dynamic_agent#create` | Create new agent + sync KC resource | `team_member` or `admin` | Dynamic Agents API | Keycloak + CEL | — |
-| `dynamic_agent` | `dynamic_agent#mcp.invoke` | Agent's MCP tool call (via deepagent) | User's OBO JWT roles | AG proxy | AG CEL | FR-030; same as `mcp#invoke` |
-| `slack_channel` | `slack_channel#scope` | Bot command in linked channel scoped to team | `chat_user` + `team_member(linked-team)` | Slack Bot | Keycloak AuthZ + MongoDB mapping | Channel = context only, not permission (FR-031) |
-| `slack_channel` | `slack_channel#map.create` | Create channel-to-team mapping | `admin` | Admin UI API | Keycloak AuthZ | Admin UI only; bot never writes (FR-031, FR-032) |
-| `slack_channel` | `slack_channel#map.delete` | Remove channel-to-team mapping | `admin` | Admin UI API | Keycloak AuthZ | FR-032 |
-| `slack_channel` | `slack_channel#map.view` | View channel-to-team mappings | `admin` | Admin UI API | Keycloak AuthZ | FR-032 |
-| `slack_admin` | `slack_admin#users.view` | View Slack user bootstrapping dashboard | `admin` | Admin UI API | Keycloak AuthZ | Full operational view (FR-032) |
-| `slack_admin` | `slack_admin#users.relink` | Trigger re-link prompt or revoke link | `admin` | Admin UI API | Keycloak Admin API | FR-032 |
-| `sub_agent` | `sub_agent#invoke` | Dispatch sub-agent | `chat_user` | AG proxy | AG | Composable with ASP |
-| `sub_agent` | `sub_agent#configure` | Configure sub-agents | `admin` | UI BFF | Keycloak | — |
-| `sub_agent` | `sub_agent#admin` | Full sub-agent admin | `admin` | UI BFF / AG | Both | — |
-| `tool` | `tool#invoke` | Invoke agent/MCP tool | `chat_user` | AG proxy | AG | Deny-wins with ASP |
-| `tool` | `tool#configure` | Configure tools | `admin` | UI BFF | Keycloak | — |
-| `tool` | `tool#admin` | Full tool administration | `admin` | UI BFF | Keycloak | — |
-| `skill` | `skill#invoke` | Execute a skill | `chat_user` | AG proxy | AG | Composable with ASP |
-| `skill` | `skill#configure` | Configure skills | `admin` | UI BFF | Keycloak | — |
-| `skill` | `skill#admin` | Full skill administration | `admin` | UI BFF | Keycloak | — |
-| `a2a` | `a2a#create` | Create A2A task | `chat_user` | AG proxy | AG | — |
-| `a2a` | `a2a#view` | View A2A tasks/artifacts | `chat_user` | AG proxy | AG | — |
-| `a2a` | `a2a#admin` | Full A2A administration | `admin` | UI BFF / AG | Both | — |
-| `mcp` | `mcp#invoke` | Invoke MCP tool | `chat_user` | AG proxy | AG | Deny-wins with ASP |
-| `mcp` | `mcp#view` | List MCP tools | `chat_user` | AG proxy | AG | — |
-| `mcp` | `mcp#admin` | Full MCP administration | `admin` | UI BFF / AG | Both | — |
+This matrix enumerates protected capabilities across **all FR-008 integration
+surfaces**: Admin UI, Slack, Supervisor, RAG, sub-agents, tools, **tasks**
+(Task Builder), **skills**, A2A, and MCP. Default deny applies to any
+capability not explicitly listed as allowed for a given role (FR-002).
 
-## Per-KB Access Control (FR-027)
+**Keycloak export**: Resource **names** below align with `deploy/keycloak/realm-config.json`
+(`caipe-platform` → Authorization Services → resources `admin_ui`, `slack`,
+`supervisor`, `rag`, `sub_agent`, `tool`, `skill`, `a2a`, `mcp`). There is **no**
+separate `task` resource in that export yet; task-level checks use the same
+**realm role** conventions as agents until a dedicated resource is added
+(FR-028).
 
-Per-KB capabilities (`rag#kb.read:<kb-id>`, `rag#kb.ingest:<kb-id>`, `rag#kb.admin:<kb-id>`) are enforced by the **RAG server** as a second layer after BFF coarse checks. Access is determined by the **union** of two sources:
+## Roles
 
-| Source | Storage | How It Works |
-|--------|---------|--------------|
-| **Keycloak per-KB roles** | JWT `roles` claim | Roles like `kb_reader:kb-team-a`, `kb_ingestor:kb-ops`, `kb_reader:*` (wildcard) grant scoped access to specific KBs |
-| **Team ownership** | MongoDB `team_kb_ownership` | Teams own KBs; team members can access their team's KBs without explicit per-KB roles |
+| Role | Description | Source |
+|------|-------------|--------|
+| `admin` | Full platform administration | Keycloak realm role |
+| `kb_admin` | KB administration (all KBs) | Keycloak realm role |
+| `team_member` | Team-scoped access | Keycloak realm role |
+| `chat_user` | Agent chat access | Keycloak realm role |
+| `denied` | Test persona: authenticated user **without** chat/tool/MCP baseline roles | Not a realm role in dev export—model with `offline_access` only (see seed `denied-user`) |
 
-**Global overrides**: `admin` and `kb_admin` roles grant access to **all** KBs without per-KB roles.
+Per-resource roles follow the pattern `<type>_<permission>:<id>` (e.g.,
+`kb_reader:my-kb`, `agent_user:agent-123`, `task_user:task-456`,
+`skill_user:skill-789`). Wildcards (`kb_reader:*`, `agent_user:*`, etc.) grant
+access to all resources of that **type** at that permission level. Sample KB
+roles ship in `realm-config.json`; **agent / task / skill** id-scoped roles
+are created/assigned at runtime via Admin API / UI as resources are provisioned.
 
-**Query-time filtering**: The RAG server's `/v1/query` endpoint injects `datasource_id` filters to restrict results to authorized KBs (server-side enforced, transparent to caller).
+## Permission Matrix
 
-## Per-Agent Access Control (FR-028)
+### 1. Admin UI (`admin_ui`)
 
-Per-agent capabilities (`dynamic_agent#view`, `dynamic_agent#invoke`, `dynamic_agent#configure`, `dynamic_agent#delete`) are enforced by the **Dynamic Agents service** using **CEL evaluation** across three sources:
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| View dashboard | `view` | `admin`, `kb_admin`, `team_member`, `chat_user` | Keycloak | N/A |
+| View users | `view` | `admin` | Keycloak | N/A |
+| Manage users | `admin` | `admin` | Keycloak | N/A |
+| Manage roles | `configure` | `admin` | Keycloak | N/A |
+| View audit logs | `audit.view` | `admin` | Keycloak | N/A |
+| Configure platform | `configure` | `admin` | Keycloak | N/A |
+| View teams | `view` | `admin`, `kb_admin`, `team_member` | Keycloak | N/A |
+| Manage teams | `admin` | `admin` | Keycloak | N/A |
 
-| Source | Storage | How It Works |
-|--------|---------|--------------|
-| **Keycloak per-agent roles** | JWT `roles` claim | Roles like `agent_user:agent-123`, `agent_admin:agent-456`, `agent_user:*` (wildcard) grant scoped access to specific agents |
-| **MongoDB visibility** | `DynamicAgentConfig` document | `visibility` (`private`/`team`/`global`) + `shared_with_teams` determines base access model |
-| **Ownership** | `DynamicAgentConfig.owner_id` | Agent creator has full access to their own agents |
+### 2. Slack (`slack`)
 
-**Global overrides**: `admin` role grants access to **all** agents without per-agent roles.
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| Use bot commands | `invoke` | `chat_user`, `team_member`, `kb_admin`, `admin` | Keycloak | N/A |
+| Admin bot commands | `admin` | `admin` | Keycloak | N/A |
+| Identity linking | `configure` | Any authenticated | Keycloak | N/A |
 
-**CEL evaluation**: A single CEL expression combines all three sources at runtime. The expression is **configurable** (loaded from config), not hardcoded. Example:
+### 3. Supervisor (`supervisor`)
 
-```cel
-user.roles.exists(r, r == "admin")
-  || user.roles.exists(r, r == "agent_user:" + resource.id)
-  || resource.visibility == "global"
-  || (resource.visibility == "team" && resource.shared_with_teams.exists(t, t in user.teams))
-  || resource.owner_id == user.email
-```
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| Invoke assistant | `invoke` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | N/A |
+| Configure routing | `configure` | `admin` | AG | N/A |
+| View routing config | `view` | `admin` | AG | N/A |
 
-**Keycloak resource sync**: On agent creation, a Keycloak resource is created (type: `dynamic_agent`). On deletion, the resource and dangling per-agent roles are cleaned up.
+### 4. RAG (`rag`)
 
-## Roles Summary
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| Query KB | `query` | `chat_user`, `team_member`, `kb_admin`, `admin`, `kb_reader:<id>` | AG + RAG server | Per-KB filter |
+| Ingest data | `ingest` | `kb_admin`, `admin`, `kb_ingestor:<id>` | AG + RAG server | Per-KB filter |
+| Admin KB | `admin` | `kb_admin`, `admin`, `kb_admin:<id>` | AG + RAG server | Per-KB filter |
+| Create RAG tool | `tool.create` | `team_member`, `kb_admin`, `admin` | Keycloak | Team-scoped |
+| Update RAG tool | `tool.update` | `team_member` (own team), `kb_admin`, `admin` | Keycloak | Team-scoped |
+| Delete RAG tool | `tool.delete` | `team_member` (own team), `kb_admin`, `admin` | Keycloak | Team-scoped |
+| View RAG tools | `tool.view` | `chat_user`, `team_member`, `kb_admin`, `admin` | Keycloak | N/A |
 
-| Role | Description | Typical IdP Group |
-|------|-------------|-------------------|
-| `admin` | Platform administrator — full access | `platform-admin` |
-| `chat_user` | Standard user — can chat, invoke tools, query RAG | `backstage-access` |
-| `team_member` | Team member — can CRUD team-scoped RAG tools | `team-{name}-eng` |
-| `kb_admin` | KB administrator — can admin/ingest knowledge bases | `kb-admins` |
-| `kb_reader:<kb-id>` | Per-KB reader — can query a specific KB | Admin-assigned per user/team |
-| `kb_ingestor:<kb-id>` | Per-KB ingestor — can ingest into a specific KB | Admin-assigned per user/team |
-| `kb_admin:<kb-id>` | Per-KB admin — full admin on a specific KB | Admin-assigned per user/team |
-| `agent_user:<agent-id>` | Per-agent user — can view and invoke a specific agent | Admin-assigned per user/team |
-| `agent_admin:<agent-id>` | Per-agent admin — full access on a specific agent | Admin-assigned per user/team |
-| `agent_user:*` | Wildcard agent user — can view and invoke all agents | Admin-assigned |
+### 5. Sub-agents (`sub_agent`)
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| Dispatch | `invoke` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | Deny wins with ASP |
+| View results | `view` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | N/A |
+| Configure / route sub-agent | `configure` | `admin` | Keycloak / AG | N/A |
+| Sub-agent administration | `admin` | `admin` | Keycloak / AG | N/A |
+
+### 6. Tools (`tool`)
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| Invoke tool | `invoke` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | **Deny wins**: if ASP denies, tool is blocked even if RBAC allows |
+| Configure tool | `configure` | `admin` | AG | N/A |
+| View tool list | `view` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | Filtered by ASP |
+
+### 7. Skills Gateway (`skill`)
+
+Keycloak resource **`skill`** in `realm-config.json` exposes scopes `view`, `invoke`,
+`configure`, `delete`. Fine-grained access uses the same three-layer pattern as
+dynamic agents (FR-028): realm roles, optional resource policies, MongoDB
+visibility, and CEL where configured.
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| View skill catalog / metadata | `view` | `chat_user`, `team_member`, `kb_admin`, `admin`, or `skill_user:<id>` / `skill_admin:<id>` for restricted skills | Keycloak + service | Filtered by ASP |
+| Invoke skill | `invoke` | Baseline roles above, or per-skill `skill_user:<id>` / `skill_admin:<id>` | AG + service | Deny wins with ASP |
+| Create / update skill config | `configure` | `skill_admin:<id>`, `admin`, or team maintainer per product rules | Keycloak + service | N/A |
+| Delete skill | `delete` | `skill_admin:<id>` or `admin` | Keycloak + service | N/A |
+| Wildcard | `view` / `invoke` / `configure` / `delete` | `skill_user:*`, `skill_admin:*` | Keycloak + service | Same as per-id, all skills |
+
+### 8. A2A (`a2a`)
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| Create task | `create` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | N/A |
+| View artifacts | `view` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | N/A |
+| Cancel task | `delete` | Owner or `admin` | AG | N/A |
+
+### 9. MCP (`mcp`)
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| List tools | `view` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | Filtered by ASP |
+| Invoke tool | `invoke` | `chat_user`, `team_member`, `kb_admin`, `admin` | AG | **Deny wins**: if ASP denies, tool is blocked even if RBAC allows |
+| Admin tools | `admin` | `admin` | AG | N/A |
+
+### 10. Task Builder (`task`)
+
+FR-008 treats **user-defined tasks** as first-class alongside agents and skills.
+The sample Keycloak export does **not** define a separate `task` Authorization
+Resource; enforcement is **realm roles + MongoDB + CEL** (and BFF routes), analogous
+to dynamic agents until Keycloak resources are synced for tasks.
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| List / view task definitions | `view` | `chat_user`, `team_member`, `kb_admin`, `admin`, or `task_user:<id>` / `task_admin:<id>` (plus team visibility) | BFF / Task service | CEL optional |
+| Execute / schedule task | `invoke` | `task_user:<id>`, `task_admin:<id>`, or baseline platform roles per deployment | AG + service | Deny wins with ASP |
+| Create / update task | `configure` | `task_admin:<id>`, `team_member` (own team), `admin` | BFF / Task service | Team-scoped |
+| Delete task | `delete` | `task_admin:<id>` or `admin` | BFF / Task service | N/A |
+| Wildcard | `view` / `invoke` / `configure` / `delete` | `task_user:*`, `task_admin:*` | As above | — |
+
+### 11. Chat & conversations (UI BFF) *(FR-008 surface: CAIPE web UI)*
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| List/create own conversations | `view` / `create` | Authenticated user (session) | Session + ownership | N/A |
+| Send messages / use chat | `invoke` | Typically `chat_user`+ for agent-backed chat; product route may not yet call Keycloak per message | Session + optional RBAC | Tool calls via ASP + AG |
+| Open shared / team conversation | `view` | Share recipient or team member per conversation ACL | Session + MongoDB ACL | N/A |
+
+### 12. Policies & ASP tool configuration (UI BFF)
+
+| Capability | Scope | Required Roles | PDP | ASP Relationship |
+|------------|-------|---------------|-----|-----------------|
+| View / edit platform policies | `view` / `configure` | `admin` | Keycloak `admin_ui` + admin session | ASP policies stored in Mongo — admin only |
+
+## FR-008 ↔ Keycloak Authorization Resources
+
+| FR-008 surface | `realm-config.json` resource `name` |
+|----------------|-------------------------------------|
+| CAIPE Admin UI | `admin_ui` |
+| Slack | `slack` |
+| Supervisor | `supervisor` |
+| RAG / KB / RAG tools (AuthZ layer) | `rag` |
+| Sub-agents | `sub_agent` |
+| Runtime tools | `tool` |
+| Skills Gateway | `skill` |
+| A2A | `a2a` |
+| MCP | `mcp` |
+| Task Builder | *(not in export — planned / realm roles + app layer)* |
+
+## Keycloak export alignment (operator note)
+
+The checked-in **`realm-config.json`** is a **dev sample**. Scope policies do not
+encode every matrix row literally—for example, `rag-query-access` attaches
+`query`, `tool.view`, and `kb.query` to **`chat-user-role-policy`** only; **`team_member`** and **`kb_admin`** gain RAG-related access through other policies (e.g. `rag-team-tool-access`, `rag-kb-admin-access`) that may **not** include the `query` scope. Before production, **reconcile** Authorization Services permissions with this matrix (or with [operator-guide.md](./operator-guide.md)) so PDP outcomes match intended enterprise roles.
+
+## Composition with ASP (FR-012)
+
+The 098 permission matrix and ASP (Answer Set Programming) Global Tool
+Authorization Policy are **independent layers**. When both apply:
+
+1. RBAC is evaluated first (Keycloak or AG).
+2. If RBAC **denies**, the request is denied (RBAC is authoritative).
+3. If RBAC **allows**, ASP is evaluated.
+4. If ASP **denies**, the request is denied (**deny wins**).
+5. If both allow, the request proceeds.
+
+This is an **intersection** model: effective access = RBAC ∩ ASP.
 
 ## Enforcement Points
 
-| Path | PDP | Enforcement Mechanism |
-|------|-----|----------------------|
-| Admin UI (BFF API routes) | Keycloak AuthZ Services | `keycloak-authz.ts` → UMA ticket grant |
-| Slack bot commands | Keycloak AuthZ Services | `keycloak_authz.py` → UMA ticket grant |
-| MCP tool invocation | Agent Gateway | CEL policy + JWT validation |
-| A2A inter-agent traffic | Agent Gateway | CEL policy + JWT validation |
-| Agent/sub-agent dispatch | Agent Gateway | CEL policy + JWT validation |
-| RAG server KB operations | RAG server (defense-in-depth) | JWT → Keycloak role mapper + CEL per-KB access (FR-026, FR-027, FR-029) |
-| RAG server `/v1/query` | RAG server (query-time filter) | CEL `inject_kb_filter()` restricts results to accessible KBs (FR-027, FR-029) |
-| Dynamic agent operations | Dynamic Agents service | CEL evaluator + Keycloak resources + per-agent roles + MongoDB visibility (FR-028, FR-029) |
-| Dynamic agent MCP calls | Agent Gateway | CEL policy + OBO JWT; deepagent MCP calls route through AG (FR-030) |
-| BFF RBAC middleware | Next.js BFF | CEL evaluator extends `requireRbacPermission` (FR-029) |
-| Slack channel-to-team scoping | Slack Bot | Channel mapping from MongoDB (60s cache) + Keycloak role check; deny with explanation if user lacks team role (FR-031) |
-| Slack admin dashboard | Admin UI API | Keycloak AuthZ for admin access; Keycloak Admin API for user data; MongoDB for channel mappings (FR-032) |
+| Path | PDP | Mechanism |
+|------|-----|-----------|
+| Admin UI (BFF) | Keycloak AuthZ | `requireRbacPermission()` in API routes |
+| Slack bot | Keycloak AuthZ | `rbac_middleware.py` |
+| MCP/A2A/Agent | Agent Gateway | CEL policy rules in `config.yaml` |
+| RAG server | AG + RAG server | JWT validation + per-KB filter |
+| Dynamic agents | AG + service | JWT validation + CEL per-agent |
+| Task Builder | BFF + service + AG (if task invokes tools) | Realm roles + CEL + MongoDB visibility |
+| Skills Gateway | BFF + AG + service | Keycloak `skill` + CEL + ASP |
 
-## Composition Rules (FR-012)
+## Tenant Isolation (FR-020)
 
-When multiple authorization layers apply (098 RBAC, ASP/tool policy, AG policy), effective access is the **intersection** — deny from any layer results in overall deny.
+All matrix checks are scoped by `org` claim from the JWT. A principal in
+org A cannot access resources belonging to org B. AG enforces tenant
+isolation via the CEL rule:
 
-**Precedence**: deny wins. If 098 RBAC denies, the operation is denied regardless of ASP or AG policy. If ASP denies, the operation is denied regardless of 098 RBAC allowing it.
-
-### Detailed Composition and Precedence (T052)
-
-#### Layers evaluated (in order)
-
-| # | Layer | Where | What it checks |
-|---|-------|-------|----------------|
-| 1 | **Agent Gateway CEL** | AG proxy | JWT `realm_access.roles` against tool-name / action patterns |
-| 2 | **098 Keycloak AuthZ** | BFF / Slack middleware | UMA ticket grant for `resource#scope` per permission matrix |
-| 3 | **ASP Tool Policy** | RAG server / supervisor | Application-specific tool allow/deny lists managed in MongoDB |
-| 4 | **Team-scope check** | BFF (MongoDB) + RAG server | `team_id` ownership; `datasource_ids ⊆ allowed_datasource_ids` |
-
-#### Deny-wins algorithm
-
+```cel
+has(jwt.org) && has(request.headers.x_tenant_id) && jwt.org != request.headers.x_tenant_id
 ```
-effective_access = AG_allows
-                 AND keycloak_allows
-                 AND asp_allows
-                 AND team_scope_allows
-```
-
-A **deny** at any layer results in an overall deny. Layers are independent — a later allow cannot override an earlier deny.
-
-#### Examples
-
-| Scenario | AG | Keycloak | ASP | Team | Result |
-|----------|-----|----------|-----|------|--------|
-| Admin invokes `admin_config` tool | allow | allow | — | — | **allow** |
-| `chat_user` invokes `admin_config` tool | deny | — | — | — | **deny** (AG blocks) |
-| `team_member(a)` creates tool in team-b | allow | allow | — | deny | **deny** (cross-team) |
-| `team_member(a)` creates tool in team-a, but datasource not in allowed set | allow | allow | — | deny | **deny** (datasource binding) |
-| `kb_admin` ingests to KB, ASP blocks tool | allow | allow | deny | — | **deny** (ASP overrides) |
-| `chat_user` queries RAG | allow | allow | allow | — | **allow** |
-
-#### Fail-closed behavior
-
-If **any** PDP is unreachable (Keycloak down, AG misconfigured, MongoDB unavailable for team-scope):
-
-- The system returns a **503** or **deny** — never an implicit allow.
-- Audit log records reason code `DENY_PDP_UNAVAILABLE` or `DENY_SCOPE`.
-- The BFF `requireRbacPermission` and RAG server `validate_datasource_binding` both enforce this.
-
-## Test Personas (SC-003)
-
-| Persona | Roles | Expected Access |
-|---------|-------|-----------------|
-| `admin-user` | `admin`, `chat_user` | Full access to all components |
-| `standard-user` | `chat_user`, `team_member` | Chat, tools, team RAG CRUD; no admin |
-| `kb-admin-user` | `chat_user`, `team_member`, `kb_admin` | Chat, tools, team RAG CRUD, KB admin/ingest |
-| `denied-user` | (none) | No access to any protected capability |
-| `org-b-user` | `chat_user` | Chat in org-b only; no access to org-a resources |

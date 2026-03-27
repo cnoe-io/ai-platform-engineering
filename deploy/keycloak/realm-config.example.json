@@ -25,16 +25,23 @@
   "quickLoginCheckMilliSeconds": 1000,
   "maxDeltaTimeSeconds": 43200,
   "failureFactor": 30,
-  "requiredCredentials": ["password"],
+  "requiredCredentials": [
+    "password"
+  ],
   "otpPolicyType": "totp",
   "otpPolicyAlgorithm": "HmacSHA256",
   "otpPolicyInitialCounter": 0,
   "otpPolicyDigits": 6,
   "otpPolicyLookAheadWindow": 1,
   "otpPolicyPeriod": 30,
-  "otpSupportedApplications": ["FreeOTP", "Google Authenticator"],
+  "otpSupportedApplications": [
+    "FreeOTP",
+    "Google Authenticator"
+  ],
   "webAuthnPolicyRpEntityName": "keycloak",
-  "webAuthnPolicySignatureAlgorithms": ["ES256"],
+  "webAuthnPolicySignatureAlgorithms": [
+    "ES256"
+  ],
   "accessTokenLifespan": 3600,
   "accessTokenLifespanForImplicitFlow": 900,
   "ssoSessionIdleTimeout": 1800,
@@ -60,12 +67,24 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "authorizationServicesEnabled": false,
-      "redirectUris": ["http://localhost:3000/*"],
-      "webOrigins": ["http://localhost:3000"],
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
       "protocol": "openid-connect",
       "fullScopeAllowed": true,
-      "defaultClientScopes": ["profile", "email", "roles", "groups", "org"],
-      "optionalClientScopes": ["offline_access"]
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
     },
     {
       "clientId": "caipe-platform",
@@ -81,7 +100,16 @@
       "authorizationServicesEnabled": true,
       "protocol": "openid-connect",
       "fullScopeAllowed": true,
-      "defaultClientScopes": ["profile", "email", "roles", "groups", "org"],
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      },
       "authorizationSettings": {
         "allowRemoteResourceManagement": true,
         "policyEnforcementMode": "ENFORCING",
@@ -92,10 +120,18 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "view"},
-              {"name": "configure"},
-              {"name": "admin"},
-              {"name": "audit.view"}
+              {
+                "name": "view"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              },
+              {
+                "name": "audit.view"
+              }
             ]
           },
           {
@@ -103,9 +139,15 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "view"},
-              {"name": "invoke"},
-              {"name": "admin"}
+              {
+                "name": "view"
+              },
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "admin"
+              }
             ]
           },
           {
@@ -113,9 +155,15 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "invoke"},
-              {"name": "configure"},
-              {"name": "admin"}
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              }
             ]
           },
           {
@@ -123,16 +171,36 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "query"},
-              {"name": "ingest"},
-              {"name": "admin"},
-              {"name": "tool.create"},
-              {"name": "tool.update"},
-              {"name": "tool.delete"},
-              {"name": "tool.view"},
-              {"name": "kb.admin"},
-              {"name": "kb.ingest"},
-              {"name": "kb.query"}
+              {
+                "name": "query"
+              },
+              {
+                "name": "ingest"
+              },
+              {
+                "name": "admin"
+              },
+              {
+                "name": "tool.create"
+              },
+              {
+                "name": "tool.update"
+              },
+              {
+                "name": "tool.delete"
+              },
+              {
+                "name": "tool.view"
+              },
+              {
+                "name": "kb.admin"
+              },
+              {
+                "name": "kb.ingest"
+              },
+              {
+                "name": "kb.query"
+              }
             ]
           },
           {
@@ -140,9 +208,15 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "invoke"},
-              {"name": "configure"},
-              {"name": "admin"}
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              }
             ]
           },
           {
@@ -150,9 +224,15 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "invoke"},
-              {"name": "configure"},
-              {"name": "admin"}
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              }
             ]
           },
           {
@@ -160,9 +240,18 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "invoke"},
-              {"name": "configure"},
-              {"name": "admin"}
+              {
+                "name": "view"
+              },
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "delete"
+              }
             ]
           },
           {
@@ -170,9 +259,21 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "create"},
-              {"name": "view"},
-              {"name": "admin"}
+              {
+                "name": "create"
+              },
+              {
+                "name": "view"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "delete"
+              },
+              {
+                "name": "admin"
+              }
             ]
           },
           {
@@ -180,9 +281,15 @@
             "type": "caipe:component",
             "ownerManagedAccess": false,
             "scopes": [
-              {"name": "invoke"},
-              {"name": "view"},
-              {"name": "admin"}
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "view"
+              },
+              {
+                "name": "admin"
+              }
             ]
           }
         ],
@@ -349,13 +456,13 @@
           },
           {
             "name": "skill-invoke-access",
-            "description": "Chat users can invoke skills",
+            "description": "Chat users can view and invoke skills",
             "type": "scope",
             "logic": "POSITIVE",
             "decisionStrategy": "UNANIMOUS",
             "config": {
               "resources": "[\"skill\"]",
-              "scopes": "[\"invoke\"]",
+              "scopes": "[\"view\",\"invoke\"]",
               "applyPolicies": "[\"chat-user-role-policy\"]"
             }
           },
@@ -387,8 +494,14 @@
       "serviceAccountsEnabled": true,
       "authorizationServicesEnabled": false,
       "protocol": "openid-connect",
-      "fullScopeAllowed": false,
-      "defaultClientScopes": ["profile", "email", "roles", "groups", "org"],
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
       "attributes": {
         "oidc.token.exchange.enabled": "true"
       }
@@ -589,8 +702,16 @@
       }
     }
   ],
-  "defaultDefaultClientScopes": ["profile", "email", "roles", "groups", "org"],
-  "defaultOptionalClientScopes": ["offline_access"],
+  "defaultDefaultClientScopes": [
+    "profile",
+    "email",
+    "roles",
+    "groups",
+    "org"
+  ],
+  "defaultOptionalClientScopes": [
+    "offline_access"
+  ],
   "browserSecurityHeaders": {
     "contentSecurityPolicyReportOnly": "",
     "xContentTypeOptions": "nosniff",
@@ -602,12 +723,21 @@
   },
   "smtpServer": {},
   "eventsEnabled": true,
-  "eventsListeners": ["jboss-logging"],
+  "eventsListeners": [
+    "jboss-logging"
+  ],
   "enabledEventTypes": [
-    "LOGIN", "LOGIN_ERROR", "LOGOUT", "CODE_TO_TOKEN",
-    "CODE_TO_TOKEN_ERROR", "CLIENT_LOGIN", "CLIENT_LOGIN_ERROR",
-    "TOKEN_EXCHANGE", "TOKEN_EXCHANGE_ERROR",
-    "PERMISSION_TOKEN", "PERMISSION_TOKEN_ERROR"
+    "LOGIN",
+    "LOGIN_ERROR",
+    "LOGOUT",
+    "CODE_TO_TOKEN",
+    "CODE_TO_TOKEN_ERROR",
+    "CLIENT_LOGIN",
+    "CLIENT_LOGIN_ERROR",
+    "TOKEN_EXCHANGE",
+    "TOKEN_EXCHANGE_ERROR",
+    "PERMISSION_TOKEN",
+    "PERMISSION_TOKEN_ERROR"
   ],
   "adminEventsEnabled": true,
   "adminEventsDetailsEnabled": true,
@@ -820,7 +950,9 @@
         "subType": "anonymous",
         "subComponents": {},
         "config": {
-          "max-clients": ["200"]
+          "max-clients": [
+            "200"
+          ]
         }
       },
       {
@@ -847,7 +979,9 @@
         "subType": "authenticated",
         "subComponents": {},
         "config": {
-          "allow-default-scopes": ["true"]
+          "allow-default-scopes": [
+            "true"
+          ]
         }
       },
       {
@@ -878,9 +1012,23 @@
       "emailVerified": true,
       "firstName": "Admin",
       "lastName": "User",
-      "credentials": [{"type": "password", "value": "admin"}],
-      "realmRoles": ["admin", "chat_user", "offline_access", "uma_authorization"],
-      "attributes": {"org": ["acme"]}
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin"
+        }
+      ],
+      "realmRoles": [
+        "admin",
+        "chat_user",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
     },
     {
       "username": "standard-user",
@@ -889,9 +1037,23 @@
       "emailVerified": true,
       "firstName": "Standard",
       "lastName": "User",
-      "credentials": [{"type": "password", "value": "standard"}],
-      "realmRoles": ["chat_user", "team_member", "offline_access", "uma_authorization"],
-      "attributes": {"org": ["acme"]}
+      "credentials": [
+        {
+          "type": "password",
+          "value": "standard"
+        }
+      ],
+      "realmRoles": [
+        "chat_user",
+        "team_member",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
     },
     {
       "username": "kb-admin-user",
@@ -900,9 +1062,24 @@
       "emailVerified": true,
       "firstName": "KB Admin",
       "lastName": "User",
-      "credentials": [{"type": "password", "value": "kbadmin"}],
-      "realmRoles": ["chat_user", "team_member", "kb_admin", "offline_access", "uma_authorization"],
-      "attributes": {"org": ["acme"]}
+      "credentials": [
+        {
+          "type": "password",
+          "value": "kbadmin"
+        }
+      ],
+      "realmRoles": [
+        "chat_user",
+        "team_member",
+        "kb_admin",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
     },
     {
       "username": "denied-user",
@@ -911,9 +1088,20 @@
       "emailVerified": true,
       "firstName": "Denied",
       "lastName": "User",
-      "credentials": [{"type": "password", "value": "denied"}],
-      "realmRoles": ["offline_access"],
-      "attributes": {"org": ["acme"]}
+      "credentials": [
+        {
+          "type": "password",
+          "value": "denied"
+        }
+      ],
+      "realmRoles": [
+        "offline_access"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
     },
     {
       "username": "org-b-user",
@@ -922,9 +1110,22 @@
       "emailVerified": true,
       "firstName": "Org-B",
       "lastName": "User",
-      "credentials": [{"type": "password", "value": "orgb"}],
-      "realmRoles": ["chat_user", "offline_access", "uma_authorization"],
-      "attributes": {"org": ["globex"]}
+      "credentials": [
+        {
+          "type": "password",
+          "value": "orgb"
+        }
+      ],
+      "realmRoles": [
+        "chat_user",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "globex"
+        ]
+      }
     }
   ],
   "roles": {
@@ -978,9 +1179,14 @@
     "description": "${role_default-roles}",
     "composite": true,
     "composites": {
-      "realm": ["offline_access"],
+      "realm": [
+        "offline_access"
+      ],
       "client": {
-        "account": ["view-profile", "manage-account"]
+        "account": [
+          "view-profile",
+          "manage-account"
+        ]
       }
     }
   },

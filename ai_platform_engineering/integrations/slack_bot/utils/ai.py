@@ -12,6 +12,7 @@ This module handles all interactions with the CAIPE supervisor, including:
 
 import json
 import os
+import re
 import time
 
 from loguru import logger
@@ -188,6 +189,7 @@ def stream_a2a_response(
   overthink_mode=False,
   escalation_config=None,
   platform_team_id=None,
+  obo_token=None,
 ):
   """
   Stream an A2A response to Slack.

@@ -27,20 +27,19 @@ logger = logging.getLogger("caipe.slack_bot.channel_team_mapper")
 DEFAULT_TEAM_USER_ATTR = "caipe_default_team_id"
 
 UNLINKED_CHANNEL_MESSAGE = (
-    "This Slack channel is not mapped to a CAIPE team, and your profile has no "
-    "default team. Ask an admin to map this channel or set your default team "
-    "attribute (`caipe_default_team_id`) in Keycloak."
+    "This channel hasn't been set up for CAIPE yet. "
+    "Ask your admin to enable it in the CAIPE Admin panel."
 )
 
 DEFAULT_TEAM_INVALID_MESSAGE = (
-    "Your default CAIPE team is no longer valid. Contact your admin to update "
-    "your profile or map this channel to a team."
+    "Your team assignment is no longer valid. "
+    "Please contact your admin to update your access."
 )
 
 
 def user_has_team_member_role(realm_roles: list[str], team_id: str) -> bool:
-    """Return True if *realm_roles* contains ``team_member(<team_id>)``."""
-    expected = f"team_member({team_id})"
+    """Return True if *realm_roles* contains ``team_member:<team_id>``."""
+    expected = f"team_member:{team_id}"
     return any(r == expected for r in realm_roles)
 
 

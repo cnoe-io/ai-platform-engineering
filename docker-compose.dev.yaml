@@ -74,6 +74,11 @@ services:
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
       - ENABLE_ARTIFACT_STREAMING=true
+      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
+      - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
+      # OBO token exchange — supervisor exchanges user JWT for OBO JWT via Keycloak (FR-038d)
+      - KEYCLOAK_SUPERVISOR_CLIENT_ID=${KEYCLOAK_SUPERVISOR_CLIENT_ID:-caipe-platform}
+      - KEYCLOAK_SUPERVISOR_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
 
       # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
       # Leave empty for all-in-one mode (all agents in-process via MCP).
@@ -1190,6 +1195,7 @@ services:
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
       # UI Branding (optional — set in .env or leave blank for CAIPE defaults)
       # No NEXT_PUBLIC_ prefix needed; the server reads process.env at request time
@@ -1220,6 +1226,9 @@ services:
       # 098 Enterprise RBAC — Keycloak Admin API (US6: role/mapping CRUD from Admin UI)
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+      # 098 Slack identity linking HMAC secret (shared with slack-bot)
+      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
     volumes:
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
@@ -1284,6 +1293,8 @@ services:
       # without rebuilding the image (Python imports config.yaml from site-packages by
       # default, which is frozen at image-build time)
       - SEED_CONFIG_PATH=/app/dynamic_agents/src/dynamic_agents/services/config.yaml
+      # Agent Gateway (FR-038f) — MCP routing through AG for dynamic agents
+      - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
@@ -2024,14 +2035,15 @@ services:
       - CAIPE_UI_URL=${CAIPE_UI_URL:-http://caipe-ui:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
       # 098 Enterprise RBAC (requires --profile rbac)
-      - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-false}
+      - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-true}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-caipe-platform}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
       - KEYCLOAK_BOT_CLIENT_ID=${KEYCLOAK_BOT_CLIENT_ID:-caipe-slack-bot}
       - KEYCLOAK_BOT_CLIENT_SECRET=${KEYCLOAK_BOT_CLIENT_SECRET:-caipe-slack-bot-dev-secret}
-      - SLACK_LINKING_BASE_URL=${SLACK_LINKING_BASE_URL:-http://localhost:8030}
+      - SLACK_LINKING_BASE_URL=${SLACK_LINKING_BASE_URL:-http://localhost:3000}
+      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
     depends_on:
       caipe-supervisor:
         condition: service_started
@@ -2076,7 +2088,7 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
       KC_LOG_LEVEL: info
-    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443"]
+    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
     volumes:
       - keycloak-data:/opt/keycloak/data
       - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json
@@ -2130,6 +2142,29 @@ services:
     profiles:
       - rbac
 
+  # One-shot init container: configures token exchange + impersonation
+  # permissions on caipe-slack-bot so the Slack bot can mint JWTs on
+  # behalf of users (RFC 8693).  Idempotent — safe to re-run.
+  keycloak-init-token-exchange:
+    image: alpine/curl:latest
+    container_name: keycloak-init-token-exchange
+    entrypoint: ["/bin/sh", "/scripts/init-token-exchange.sh"]
+    volumes:
+      - ./deploy/keycloak/init-token-exchange.sh:/scripts/init-token-exchange.sh:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_REALM: caipe
+      KC_BOT_CLIENT_ID: caipe-slack-bot
+      KC_SSL_REQUIRED: none
+    network_mode: "service:keycloak"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: "no"
+    profiles:
+      - rbac
+
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:latest
     container_name: agentgateway
@@ -2146,13 +2181,37 @@ services:
       - "15000:15000" # Admin UI (config.config.adminAddr)
     volumes:
       - ./deploy/agentgateway/config.yaml:/etc/agentgateway/config.yaml:ro
+      - ag_config:/etc/agentgateway/dynamic:ro
     tmpfs:
       - /tmp
-    # Distroless image: no wget/sh/curl — Docker HEALTHCHECK exec would always fail.
     healthcheck:
       disable: true
+
+  # AG Config Bridge — syncs CEL policies from MongoDB to AG's config.yaml
+  ag-config-bridge:
+    build:
+      context: ./deploy/agentgateway
+      dockerfile: Dockerfile.config-bridge
+    container_name: ag-config-bridge
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     profiles:
       - rbac
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AG_CONFIG_OUTPUT: /etc/agentgateway/config.yaml
+      AG_TEMPLATE_PATH: /app/config.yaml.j2
+      AG_POLL_INTERVAL: ${AG_POLL_INTERVAL:-5}
+      AG_ISSUER: ${AG_ISSUER:-http://localhost:7080/realms/caipe}
+      AG_AUDIENCE: ${AG_AUDIENCE:-caipe-platform}
+      AG_JWKS_URL: ${AG_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+    volumes:
+      - ag_config:/etc/agentgateway
 
   ####################################################################################################
   #                       LangGraph Persistence Backends                                         #
@@ -2274,4 +2333,6 @@ volumes:
   langgraph_mongodb_data:
     driver: local
   keycloak-data:
+    driver: local
+  ag_config:
     driver: local

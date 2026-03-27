@@ -10,7 +10,6 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
 } from '@/lib/api-middleware';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -33,8 +32,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
-
     const { searchParams } = new URL(req.url);
     const rating = searchParams.get('rating'); // 'positive' | 'negative' | null (all)
     const source = searchParams.get('source'); // 'web' | 'slack' | null (all)

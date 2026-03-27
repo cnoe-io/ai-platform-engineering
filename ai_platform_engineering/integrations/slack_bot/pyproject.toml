@@ -15,7 +15,9 @@ dependencies = [
   "loguru==0.7.3",
   "pydantic==2.12.5",
   "pymongo==4.16.0",
+  "motor",
   "pyyaml==6.0.3",
+  "langfuse",
 ]
 
 [dependency-groups]

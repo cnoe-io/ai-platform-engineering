@@ -284,6 +284,24 @@ class A2ARemoteAgentConnectTool(BaseTool):
       )
       logger.debug(f"📊 Metrics: subagent={self.name}, status={call_status}, duration={duration:.2f}s")
 
+      # Persist agent delegation audit event
+      try:
+          from ai_platform_engineering.utils.audit_logger import log_audit_event
+          log_audit_event(
+              event_type="agent_delegation",
+              outcome="success" if call_status == "success" else "error",
+              action=f"delegate_to_{self.name}",
+              agent_name=self.name,
+              user_email=user_email or None,
+              duration_ms=duration * 1000,
+              correlation_id=trace_id,
+              context_id=context_id,
+              component="supervisor",
+              reason_code=last_error[:500] if last_error and call_status != "success" else None,
+          )
+      except Exception as _ae:
+          logger.debug(f"Audit delegation log failed: {_ae}")
+
   async def _execute_once(
       self,
       prompt: str,

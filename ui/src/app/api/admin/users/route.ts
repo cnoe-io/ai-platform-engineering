@@ -3,7 +3,6 @@ import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
   withAuth,
   withErrorHandler,
-  requireAdminView,
   ApiError,
 } from "@/lib/api-middleware";
 import {
@@ -123,8 +122,6 @@ async function userMatchesFilters(
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   return withAuth(request, async (req, _user, session) => {
-    requireAdminView(session);
-
     const url = new URL(req.url);
     const search = (url.searchParams.get("search") ?? "").trim() || undefined;
     const role = (url.searchParams.get("role") ?? "").trim() || undefined;

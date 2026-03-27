@@ -6,6 +6,7 @@ import {
   withErrorHandler,
   successResponse,
   requireAdmin,
+  requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -38,6 +39,7 @@ export const GET = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
+    await requireRbacPermission(session, 'admin_ui', 'view');
     requireAdmin(session);
 
     const params = await context.params;
@@ -64,6 +66,7 @@ export const PUT = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
+    await requireRbacPermission(session, 'admin_ui', 'admin');
     requireAdmin(session);
 
     const params = await context.params;

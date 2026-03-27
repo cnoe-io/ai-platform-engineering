@@ -179,9 +179,9 @@ config:
   OIDC_REQUIRED_GROUP: "app-users"
   # OIDC admin group (non-sensitive)
   OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
-  # OIDC admin view group for read-only admin dashboard access (non-sensitive)
-  # Leave empty to allow all authenticated users to view admin dashboard
-  OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
+  # Bootstrap admin emails — comma-separated list for initial admin setup.
+  # Remove after configuring proper role mappings via the Admin > Roles tab.
+  # BOOTSTRAP_ADMIN_EMAILS: ""
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Support contact email

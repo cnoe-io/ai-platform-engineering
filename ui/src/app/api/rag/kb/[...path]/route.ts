@@ -27,6 +27,31 @@ function getRagServerUrl(): string {
   );
 }
 
+function decodeJwtPayload(accessToken: string | undefined): Record<string, unknown> {
+  if (!accessToken) return {};
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length < 2) return {};
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json = Buffer.from(b64, "base64").toString("utf8");
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** First `team_member(<id>)` from realm_access.roles, for X-Team-Id upstream. */
+function extractTeamIdFromAccessToken(accessToken: string | undefined): string | undefined {
+  const roles = (decodeJwtPayload(accessToken).realm_access as { roles?: string[] } | undefined)
+    ?.roles;
+  if (!Array.isArray(roles)) return undefined;
+  for (const role of roles) {
+    const match = String(role).match(/^team_member\((.+)\)$/);
+    if (match) return match[1];
+  }
+  return undefined;
+}
+
 function scopeForMethod(method: string): RbacScope {
   switch (method) {
     case "GET":

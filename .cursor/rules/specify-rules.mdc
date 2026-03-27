@@ -23,6 +23,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-08
 - Keycloak (users, roles, user attributes, sessions) + MongoDB (team memberships, slack_user_metrics) (098-enterprise-rbac-slack-ui)
 - TypeScript (Next.js 16, React 19) + Python 3.11+ (Slack bot) + NextAuth.js, Keycloak Admin REST API, MongoDB, Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui (098-enterprise-rbac-slack-ui)
 - Keycloak (users, roles, attributes, sessions) + MongoDB (teams, slack_link_nonces, slack_user_metrics) (098-enterprise-rbac-slack-ui)
+- Python 3.11+ (supervisor, agents, Slack bot, RAG server), TypeScript / Next.js 16 + React 19 (UI) + LangGraph, LangChain, FastAPI, NextAuth.js, Keycloak (OIDC + AuthZ Services), Agent Gateway, MongoDB, cel-python (Python CEL), cel-js (TypeScript CEL), Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui (098-enterprise-rbac-slack-ui)
+- MongoDB (teams, KB ownership, app metadata, nonces, metrics), Keycloak (policies, resources, roles, user attributes) (098-enterprise-rbac-slack-ui)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -45,6 +47,7 @@ TypeScript (UI), React 19: Follow standard conventions
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI
+- 098-enterprise-rbac-slack-ui: Added Python 3.11+ (supervisor, agents, Slack bot, RAG server), TypeScript / Next.js 16 + React 19 (UI) + LangGraph, LangChain, FastAPI, NextAuth.js, Keycloak (OIDC + AuthZ Services), Agent Gateway, MongoDB, cel-python (Python CEL), cel-js (TypeScript CEL), Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui
 - 098-enterprise-rbac-slack-ui: Added TypeScript (Next.js 16, React 19) + Python 3.11+ (Slack bot) + NextAuth.js, Keycloak Admin REST API, MongoDB, Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui
 - 098-enterprise-rbac-slack-ui: Added TypeScript (Next.js 16, React 19) + NextAuth.js, Keycloak Admin REST API, MongoDB (teams), Tailwind CSS, shadcn/ui components
 - 098-enterprise-rbac-slack-ui: Added Python 3.11+ (supervisor, agents, slack-bot); TypeScript / Next.js 16 (CAIPE UI, BFF API routes)

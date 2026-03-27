@@ -10,6 +10,7 @@ import {
   paginatedResponse,
   ApiError,
   requireConversationAccess,
+  requireRbacPermission,
   validateUUID,
   validateRequired,
   getPaginationParams,
@@ -59,6 +60,8 @@ export const POST = withErrorHandler(async (
   context: { params: Promise<{ id: string }> }
 ) => {
   return withAuth(request, async (req, user, session) => {
+    await requireRbacPermission(session, 'supervisor', 'invoke');
+
     const params = await context.params;
     const conversationId = params.id;
     const body: AddMessageRequest = await request.json();

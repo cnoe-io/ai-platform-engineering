@@ -1,0 +1,321 @@
+#!/bin/sh
+# -------------------------------------------------------------------
+# deploy/keycloak/init-token-exchange.sh
+#
+# Configures Keycloak token exchange (RFC 8693) impersonation for the
+# CAIPE Slack bot.  Runs after realm import to set up fine-grained
+# admin permissions that cannot be declared in realm-config.json.
+#
+# Idempotent — safe to re-run on every container start.
+#
+# Depends on: sh, curl, grep, sed (all in alpine/curl or Alpine).
+#
+# Required env vars:
+#   KEYCLOAK_ADMIN / KC_BOOTSTRAP_ADMIN_USERNAME  (default: admin)
+#   KEYCLOAK_ADMIN_PASSWORD / KC_BOOTSTRAP_ADMIN_PASSWORD (default: admin)
+#
+# Optional:
+#   KC_REALM           – realm name (default: caipe)
+#   KC_BOT_CLIENT_ID   – bot client-id (default: caipe-slack-bot)
+#   KC_SSL_REQUIRED    – realm sslRequired (default: none for dev)
+# -------------------------------------------------------------------
+set -eu
+
+REALM="${KC_REALM:-caipe}"
+KC_URL="${KC_URL:-http://localhost:7080}"
+BOT_CLIENT_ID="${KC_BOT_CLIENT_ID:-caipe-slack-bot}"
+SSL_REQ="${KC_SSL_REQUIRED:-none}"
+ADMIN_USER="${KEYCLOAK_ADMIN:-${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}}"
+ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}}"
+
+TAG="[init-token-exchange]"
+
+# --- helper: extract a string field from JSON (no jq needed) ---
+json_field() {
+  echo "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:.*"\(.*\)"/\1/'
+}
+
+# --- helper: extract a JSON array or object (simple, single-line) ---
+json_bool() {
+  echo "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*[a-z]*" | head -1 | sed "s/.*:[[:space:]]*//"
+}
+
+# --- obtain admin token ---
+get_admin_token() {
+  TOKEN_RESP=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password&client_id=admin-cli&username=${ADMIN_USER}&password=${ADMIN_PASS}") || {
+    echo "${TAG} ERROR: could not authenticate to Keycloak" >&2
+    return 1
+  }
+  json_field "${TOKEN_RESP}" "access_token"
+}
+
+echo "${TAG} Obtaining admin access token ..."
+ACCESS_TOKEN=$(get_admin_token) || exit 1
+if [ -z "${ACCESS_TOKEN}" ]; then
+  echo "${TAG} ERROR: empty access_token" >&2
+  exit 1
+fi
+AUTH="Authorization: Bearer ${ACCESS_TOKEN}"
+
+# ------------------------------------------------------------------
+# 1. Set sslRequired on master + realm
+# ------------------------------------------------------------------
+echo "${TAG} Setting sslRequired=${SSL_REQ} on master and ${REALM} realms ..."
+curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+  "${KC_URL}/admin/realms/master" \
+  -d "{\"sslRequired\":\"${SSL_REQ}\"}" 2>/dev/null && \
+  echo "${TAG}   master realm sslRequired=${SSL_REQ}" || \
+  echo "${TAG}   WARNING: could not update master realm."
+
+curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+  "${KC_URL}/admin/realms/${REALM}" \
+  -d "{\"sslRequired\":\"${SSL_REQ}\"}" 2>/dev/null && \
+  echo "${TAG}   ${REALM} realm sslRequired=${SSL_REQ}" || \
+  echo "${TAG}   WARNING: could not update ${REALM} realm."
+
+# ------------------------------------------------------------------
+# 2. Configure user profile: unmanagedAttributePolicy + slack_user_id
+# ------------------------------------------------------------------
+echo "${TAG} Configuring user profile ..."
+PROFILE=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/users/profile" 2>/dev/null || echo "{}")
+
+# Check if slack_user_id is already declared
+if echo "${PROFILE}" | grep -q '"slack_user_id"'; then
+  echo "${TAG}   slack_user_id already declared in user profile."
+else
+  echo "${TAG}   Adding slack_user_id to user profile ..."
+  # Use sed to inject the attribute and set unmanagedAttributePolicy
+  # We rebuild the profile JSON to add slack_user_id and set the policy
+  UPDATED_PROFILE=$(echo "${PROFILE}" | sed 's/\("attributes"[[:space:]]*:[[:space:]]*\[/\1{"name":"slack_user_id","displayName":"Slack User ID","validations":{},"annotations":{},"permissions":{"view":["admin"],"edit":["admin"]},"multivalued":false},/')
+
+  # Set unmanagedAttributePolicy
+  if echo "${UPDATED_PROFILE}" | grep -q '"unmanagedAttributePolicy"'; then
+    UPDATED_PROFILE=$(echo "${UPDATED_PROFILE}" | sed 's/"unmanagedAttributePolicy"[[:space:]]*:[[:space:]]*"[^"]*"/"unmanagedAttributePolicy":"ADMIN_EDIT"/')
+  else
+    # Append before closing brace
+    UPDATED_PROFILE=$(echo "${UPDATED_PROFILE}" | sed 's/}$/,"unmanagedAttributePolicy":"ADMIN_EDIT"}/')
+  fi
+
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/users/profile" \
+    -d "${UPDATED_PROFILE}" 2>/dev/null && \
+    echo "${TAG}   User profile updated (slack_user_id + ADMIN_EDIT)." || \
+    echo "${TAG}   WARNING: could not update user profile."
+fi
+
+# Also ensure unmanagedAttributePolicy is set even if slack_user_id was already there
+if ! echo "${PROFILE}" | grep -q '"ADMIN_EDIT"'; then
+  UPDATED_PROFILE=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/users/profile" 2>/dev/null || echo "{}")
+  if echo "${UPDATED_PROFILE}" | grep -q '"unmanagedAttributePolicy"'; then
+    UPDATED_PROFILE=$(echo "${UPDATED_PROFILE}" | sed 's/"unmanagedAttributePolicy"[[:space:]]*:[[:space:]]*"[^"]*"/"unmanagedAttributePolicy":"ADMIN_EDIT"/')
+  else
+    UPDATED_PROFILE=$(echo "${UPDATED_PROFILE}" | sed 's/}$/,"unmanagedAttributePolicy":"ADMIN_EDIT"}/')
+  fi
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/users/profile" \
+    -d "${UPDATED_PROFILE}" 2>/dev/null && \
+    echo "${TAG}   unmanagedAttributePolicy set to ADMIN_EDIT." || true
+fi
+
+# ------------------------------------------------------------------
+# 3. Find bot client internal ID
+# ------------------------------------------------------------------
+echo "${TAG} Looking up client '${BOT_CLIENT_ID}' ..."
+CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=${BOT_CLIENT_ID}" 2>/dev/null || echo "[]")
+
+BOT_INTERNAL_ID=$(json_field "${CLIENTS_RESP}" "id")
+if [ -z "${BOT_INTERNAL_ID}" ]; then
+  echo "${TAG} ERROR: client '${BOT_CLIENT_ID}' not found in realm '${REALM}'" >&2
+  exit 1
+fi
+echo "${TAG}   Client internal ID: ${BOT_INTERNAL_ID}"
+
+# ------------------------------------------------------------------
+# 4. Ensure fullScopeAllowed = true
+# ------------------------------------------------------------------
+echo "${TAG} Ensuring fullScopeAllowed=true on '${BOT_CLIENT_ID}' ..."
+FULL_SCOPE=$(json_bool "${CLIENTS_RESP}" "fullScopeAllowed")
+if [ "${FULL_SCOPE}" = "true" ]; then
+  echo "${TAG}   Already true."
+else
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}" \
+    -d "{\"clientId\":\"${BOT_CLIENT_ID}\",\"fullScopeAllowed\":true}" 2>/dev/null && \
+    echo "${TAG}   Set fullScopeAllowed=true." || \
+    echo "${TAG}   WARNING: could not set fullScopeAllowed."
+fi
+
+# ------------------------------------------------------------------
+# 5. Get service account user + assign impersonation role
+# ------------------------------------------------------------------
+echo "${TAG} Looking up service account for '${BOT_CLIENT_ID}' ..."
+SA_RESP=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}/service-account-user" 2>/dev/null || echo "{}")
+SA_USER_ID=$(json_field "${SA_RESP}" "id")
+
+if [ -z "${SA_USER_ID}" ]; then
+  echo "${TAG} ERROR: service account not found for '${BOT_CLIENT_ID}'" >&2
+  exit 1
+fi
+echo "${TAG}   Service account user ID: ${SA_USER_ID}"
+
+# Find realm-management client
+RM_RESP=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null || echo "[]")
+RM_CLIENT_ID=$(json_field "${RM_RESP}" "id")
+
+if [ -z "${RM_CLIENT_ID}" ]; then
+  echo "${TAG} WARNING: realm-management client not found — skipping impersonation role."
+else
+  # Check if impersonation role is already assigned
+  SA_CLIENT_ROLES=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users/${SA_USER_ID}/role-mappings/clients/${RM_CLIENT_ID}" 2>/dev/null || echo "[]")
+
+  if echo "${SA_CLIENT_ROLES}" | grep -q '"impersonation"'; then
+    echo "${TAG}   impersonation role already assigned."
+  else
+    echo "${TAG}   Assigning impersonation role ..."
+    # Get the impersonation role object
+    ROLES_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles" 2>/dev/null || echo "[]")
+    IMP_ROLE_ID=$(echo "${ROLES_RESP}" | grep -B1 '"impersonation"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+
+    if [ -n "${IMP_ROLE_ID}" ]; then
+      curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/users/${SA_USER_ID}/role-mappings/clients/${RM_CLIENT_ID}" \
+        -d "[{\"id\":\"${IMP_ROLE_ID}\",\"name\":\"impersonation\"}]" && \
+        echo "${TAG}   impersonation role assigned." || \
+        echo "${TAG}   WARNING: could not assign impersonation role."
+    else
+      echo "${TAG}   WARNING: impersonation role not found in realm-management."
+    fi
+  fi
+fi
+
+# ------------------------------------------------------------------
+# 6. Enable management permissions on the bot client
+# ------------------------------------------------------------------
+echo "${TAG} Enabling management permissions on '${BOT_CLIENT_ID}' ..."
+
+# Refresh token (previous operations may have taken time)
+ACCESS_TOKEN=$(get_admin_token) || exit 1
+AUTH="Authorization: Bearer ${ACCESS_TOKEN}"
+
+MGMT_PERMS=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{"enabled":false}')
+
+MGMT_ENABLED=$(json_bool "${MGMT_PERMS}" "enabled")
+if [ "${MGMT_ENABLED}" = "true" ]; then
+  echo "${TAG}   Management permissions already enabled."
+  # Re-fetch to get permission IDs
+  MGMT_PERMS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{}')
+else
+  MGMT_PERMS=$(curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}/management/permissions" \
+    -d '{"enabled":true}' 2>/dev/null || echo '{}')
+  echo "${TAG}   Management permissions enabled."
+fi
+
+# Extract token-exchange permission ID
+TOKEN_EXCHANGE_PERM_ID=$(echo "${MGMT_PERMS}" | grep -o '"token-exchange" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+echo "${TAG}   token-exchange permission ID: ${TOKEN_EXCHANGE_PERM_ID:-NOT_FOUND}"
+
+# ------------------------------------------------------------------
+# 7. Create client policy for the bot (idempotent)
+# ------------------------------------------------------------------
+if [ -z "${RM_CLIENT_ID}" ]; then
+  echo "${TAG} WARNING: skipping policy setup — realm-management not found."
+else
+  echo "${TAG} Ensuring client policy for '${BOT_CLIENT_ID}' ..."
+  POLICY_NAME="caipe-slack-bot-token-exchange-policy"
+
+  # Check if policy already exists
+  EXISTING_POLICIES=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy?name=${POLICY_NAME}&max=1" 2>/dev/null || echo "[]")
+
+  if echo "${EXISTING_POLICIES}" | grep -q "\"${POLICY_NAME}\""; then
+    echo "${TAG}   Policy '${POLICY_NAME}' already exists."
+    POLICY_ID=$(json_field "${EXISTING_POLICIES}" "id")
+  else
+    echo "${TAG}   Creating policy '${POLICY_NAME}' ..."
+    POLICY_RESP=$(curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy/client" \
+      -d "{\"name\":\"${POLICY_NAME}\",\"description\":\"Allow ${BOT_CLIENT_ID} to perform token exchange\",\"logic\":\"POSITIVE\",\"clients\":[\"${BOT_INTERNAL_ID}\"]}" 2>/dev/null || echo '{}')
+    POLICY_ID=$(json_field "${POLICY_RESP}" "id")
+    if [ -n "${POLICY_ID}" ]; then
+      echo "${TAG}   Policy created: ${POLICY_ID}"
+    else
+      echo "${TAG}   WARNING: could not create policy."
+    fi
+  fi
+
+  # ------------------------------------------------------------------
+  # 8. Associate policy with token-exchange permission
+  # ------------------------------------------------------------------
+  if [ -n "${TOKEN_EXCHANGE_PERM_ID}" ] && [ -n "${POLICY_ID}" ]; then
+    echo "${TAG} Associating policy with token-exchange permission ..."
+
+    # Get permission details (resources + scopes)
+    PERM_RESOURCES=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${TOKEN_EXCHANGE_PERM_ID}/resources" 2>/dev/null || echo "[]")
+    RESOURCE_ID=$(json_field "${PERM_RESOURCES}" "_id")
+
+    PERM_SCOPES=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${TOKEN_EXCHANGE_PERM_ID}/scopes" 2>/dev/null || echo "[]")
+    SCOPE_ID=$(json_field "${PERM_SCOPES}" "id")
+
+    PERM_NAME="token-exchange.permission.client.${BOT_INTERNAL_ID}"
+
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${TOKEN_EXCHANGE_PERM_ID}" \
+      -d "{\"id\":\"${TOKEN_EXCHANGE_PERM_ID}\",\"name\":\"${PERM_NAME}\",\"type\":\"scope\",\"logic\":\"POSITIVE\",\"decisionStrategy\":\"AFFIRMATIVE\",\"resources\":[\"${RESOURCE_ID}\"],\"scopes\":[\"${SCOPE_ID}\"],\"policies\":[\"${POLICY_ID}\"]}" 2>/dev/null && \
+      echo "${TAG}   token-exchange permission updated." || \
+      echo "${TAG}   WARNING: could not update token-exchange permission."
+  fi
+
+  # ------------------------------------------------------------------
+  # 9. Enable user management permissions + associate impersonate
+  # ------------------------------------------------------------------
+  echo "${TAG} Enabling user management permissions ..."
+
+  USER_MGMT=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users-management-permissions" 2>/dev/null || echo '{"enabled":false}')
+  USER_MGMT_ENABLED=$(json_bool "${USER_MGMT}" "enabled")
+
+  if [ "${USER_MGMT_ENABLED}" = "true" ]; then
+    echo "${TAG}   User management permissions already enabled."
+    USER_MGMT=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/users-management-permissions" 2>/dev/null || echo '{}')
+  else
+    USER_MGMT=$(curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/users-management-permissions" \
+      -d '{"enabled":true}' 2>/dev/null || echo '{}')
+    echo "${TAG}   User management permissions enabled."
+  fi
+
+  # Extract impersonate permission ID
+  IMPERSONATE_PERM_ID=$(echo "${USER_MGMT}" | grep -o '"impersonate" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+
+  if [ -n "${IMPERSONATE_PERM_ID}" ] && [ -n "${POLICY_ID}" ]; then
+    echo "${TAG} Associating policy with impersonate permission ..."
+
+    IMP_RESOURCES=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${IMPERSONATE_PERM_ID}/resources" 2>/dev/null || echo "[]")
+    IMP_RESOURCE_ID=$(json_field "${IMP_RESOURCES}" "_id")
+
+    IMP_SCOPES=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${IMPERSONATE_PERM_ID}/scopes" 2>/dev/null || echo "[]")
+    IMP_SCOPE_ID=$(json_field "${IMP_SCOPES}" "id")
+
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${IMPERSONATE_PERM_ID}" \
+      -d "{\"id\":\"${IMPERSONATE_PERM_ID}\",\"name\":\"admin-impersonating.permission.users\",\"type\":\"scope\",\"logic\":\"POSITIVE\",\"decisionStrategy\":\"AFFIRMATIVE\",\"resources\":[\"${IMP_RESOURCE_ID}\"],\"scopes\":[\"${IMP_SCOPE_ID}\"],\"policies\":[\"${POLICY_ID}\"]}" 2>/dev/null && \
+      echo "${TAG}   impersonate permission updated." || \
+      echo "${TAG}   WARNING: could not update impersonate permission."
+  fi
+fi
+
+echo "${TAG} Done — token exchange configured for '${BOT_CLIENT_ID}'."

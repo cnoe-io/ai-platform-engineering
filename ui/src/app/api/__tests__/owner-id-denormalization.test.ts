@@ -29,6 +29,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 const mockCollections: Record<string, any> = {};
@@ -42,6 +44,14 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
+}));
+
+jest.mock('@/lib/rbac/cel-evaluator', () => ({
+  evaluate: jest.fn().mockReturnValue(true),
+}));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
 // ============================================================================
@@ -80,6 +90,8 @@ function authenticatedSession(email = 'user@example.com') {
   return {
     user: { email, name: 'Test User' },
     role: 'user',
+    accessToken: 'test-access-token',
+    sub: 'test-sub',
   };
 }
 

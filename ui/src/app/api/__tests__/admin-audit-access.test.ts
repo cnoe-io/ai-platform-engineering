@@ -9,7 +9,11 @@ const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
-jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
@@ -164,32 +168,6 @@ describe('requireConversationAccess — admin audit', () => {
     expect(result.conversation).toEqual(conv);
   });
 
-  it('returns access_level admin_audit when canViewAdmin=true session is provided', async () => {
-    const conv = {
-      _id: CONV_ID,
-      owner_id: 'owner@example.com',
-      title: 'Test',
-      sharing: { shared_with: [], shared_with_teams: [] },
-    };
-    const convsCol = createMockCollection();
-    convsCol.findOne.mockResolvedValue(conv);
-    mockCollections['conversations'] = convsCol;
-
-    const sharingAccessCol = createMockCollection();
-    sharingAccessCol.findOne.mockResolvedValue(null);
-    mockCollections['sharing_access'] = sharingAccessCol;
-
-    const result = await requireConversationAccess(
-      CONV_ID,
-      'auditor@example.com',
-      mockGetCollection,
-      { role: 'user', canViewAdmin: true }
-    );
-
-    expect(result.access_level).toBe('admin_audit');
-    expect(result.conversation).toEqual(conv);
-  });
-
   it('throws 403 when non-admin non-shared non-owner user without session', async () => {
     const conv = {
       _id: CONV_ID,
@@ -210,7 +188,7 @@ describe('requireConversationAccess — admin audit', () => {
     await expect(err).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it('throws 403 when non-admin user even with session (role=user, canViewAdmin=false)', async () => {
+  it('throws 403 when non-admin user with session (role=user)', async () => {
     const conv = {
       _id: CONV_ID,
       owner_id: 'owner@example.com',
@@ -227,7 +205,6 @@ describe('requireConversationAccess — admin audit', () => {
 
     const err = requireConversationAccess(CONV_ID, 'other@example.com', mockGetCollection, {
       role: 'user',
-      canViewAdmin: false,
     });
     await expect(err).rejects.toThrow(ApiError);
     await expect(err).rejects.toMatchObject({ statusCode: 403 });
@@ -333,7 +310,6 @@ describe('GET /api/chat/conversations/[id] — access_level in response', () => 
     mockGetServerSession.mockResolvedValue({
       user: { email: 'admin@example.com', name: 'Admin' },
       role: 'admin',
-      canViewAdmin: true,
     });
 
     const convsCol = createMockCollection();

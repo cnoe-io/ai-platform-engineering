@@ -19,6 +19,7 @@ import { decodeJwt } from "jose";
  *     - Empty/unset: auto-detect from common claim names
  * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access"; set to empty to disable)
  * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
+ * - BOOTSTRAP_ADMIN_EMAILS: Comma-separated emails granted admin on login (bootstrap only)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
  */
@@ -48,6 +49,29 @@ export const REQUIRED_DYNAMIC_AGENTS_GROUP = process.env.OIDC_REQUIRED_DYNAMIC_A
 // Users in this group can view admin data but cannot make changes
 // Leave empty to allow all authenticated users to view admin dashboard
 export const REQUIRED_ADMIN_VIEW_GROUP = process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP || "";
+
+// Bootstrap admin emails — solves the chicken-and-egg problem where you
+// need an admin to assign admin roles but can't become admin without one.
+// Comma-separated list of emails that are treated as admin on login.
+// Once real OIDC group mappings or MongoDB roles are configured, remove this.
+const BOOTSTRAP_ADMIN_EMAILS: Set<string> = new Set(
+  (process.env.BOOTSTRAP_ADMIN_EMAILS || "")
+    .split(",")
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+if (BOOTSTRAP_ADMIN_EMAILS.size > 0) {
+  console.log(
+    `[Auth] 🔑 Bootstrap admins configured (${BOOTSTRAP_ADMIN_EMAILS.size}):`,
+    Array.from(BOOTSTRAP_ADMIN_EMAILS).join(", ")
+  );
+}
+
+export function isBootstrapAdmin(email: string | undefined | null): boolean {
+  if (!email || BOOTSTRAP_ADMIN_EMAILS.size === 0) return false;
+  return BOOTSTRAP_ADMIN_EMAILS.has(email.toLowerCase());
+}
 
 // Default group claim names to check (in order of priority)
 // Note: Duo SSO uses "members" for full group list, "groups" for limited set
@@ -549,9 +573,30 @@ export const authOptions: NextAuthOptions = {
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
         // Extract Keycloak realm_access.roles (098 RBAC)
+        // Realm roles live in a separate claim from IdP groups and must
+        // be merged so that OIDC_REQUIRED_ADMIN_GROUP works for both
+        // IdP group names AND Keycloak realm role names.
         const realmAccess = profileData.realm_access as { roles?: string[] } | undefined;
         if (realmAccess?.roles) {
           token.realmRoles = realmAccess.roles;
+          for (const role of realmAccess.roles) {
+            if (!groups.includes(role)) {
+              groups.push(role);
+            }
+          }
+        }
+
+        // Only store the authorization result and role (NOT the groups array!)
+        // Storing 40+ groups causes 8KB session cookies and browser crashes
+        token.isAuthorized = hasRequiredGroup(groups);
+
+        const email = profileData.email as string | undefined;
+        const adminViaGroup = isAdminUser(groups);
+        const adminViaBootstrap = isBootstrapAdmin(email);
+        token.role = (adminViaGroup || adminViaBootstrap) ? 'admin' : 'user';
+
+        if (adminViaBootstrap && !adminViaGroup) {
+          console.log(`[Auth JWT] ✅ Bootstrap admin granted for ${email} (via BOOTSTRAP_ADMIN_EMAILS)`);
         }
 
         // Extract org claim for multi-tenant isolation (FR-020)
@@ -562,9 +607,7 @@ export const authOptions: NextAuthOptions = {
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
         console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
-        console.log('[Auth JWT] Required admin view group:', REQUIRED_ADMIN_VIEW_GROUP);
         console.log('[Auth JWT] User role:', token.role);
-        console.log('[Auth JWT] Can view admin:', token.canViewAdmin);
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
         if (token.realmRoles) {
           console.log('[Auth JWT] Keycloak realm roles:', token.realmRoles);

@@ -48,7 +48,8 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents"]
+testpaths = ["tests", "ai_platform_engineering/utils", "ai_platform_engineering/multi_agents"]
+asyncio_mode = "auto"
 markers = [
   "integration: marks tests as integration tests requiring live services (deselect with '-m not integration')",
 ]
@@ -83,6 +84,7 @@ dev = [
     # Slack bot utils (e.g. tests importing ai.py) expect loguru at import time
     "loguru==0.7.3",
     "asyncpg==0.31.0",
+    "cel-python>=0.4.0",
     "psycopg[binary]==3.3.3",
     "pytest==9.0.3",
     "ruff==0.14.8",

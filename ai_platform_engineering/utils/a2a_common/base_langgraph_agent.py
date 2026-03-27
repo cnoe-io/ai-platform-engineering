@@ -1965,6 +1965,19 @@ Use this as the reference point for all date calculations. When users say "today
         callbacks = list(config.get("callbacks") or [])
         callbacks.append(MetricsCallbackHandler(agent_name=agent_name))
 
+        # Add audit callback handler to persist tool actions to audit_events
+        try:
+            from ai_platform_engineering.utils.audit_callback import AuditCallbackHandler
+            _meta = config.get("metadata") or {}
+            callbacks.append(AuditCallbackHandler(
+                agent_name=agent_name,
+                user_email=_meta.get("user_email"),
+                context_id=_meta.get("context_id") or sessionId,
+                trace_id=_meta.get("trace_id"),
+            ))
+        except Exception:
+            pass
+
         config = RunnableConfig(
             callbacks=callbacks,
             tags=config.get("tags"),

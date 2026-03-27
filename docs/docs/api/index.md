@@ -4,50 +4,38 @@ sidebar_position: 1
 
 # API Reference
 
-Complete API documentation for the CAIPE (Community AI Platform Engineering) platform. This reference covers all internal and external APIs across the 5 core services.
+Complete API documentation for the CAIPE (Community AI Platform Engineering) platform. This reference covers the **Next.js UI Backend API** (`/api/*`) and points to related Python services (RAG, Dynamic Agents, Supervisor A2A).
 
-## Services
+> **Authentication:** Unless an endpoint explicitly says otherwise, assume **NextAuth** (OIDC session cookies). Many admin and enterprise routes additionally require **Keycloak Authorization Services** permissions (e.g. `admin_ui#view`, `supervisor#invoke`) and/or coarse **`session.role === 'admin'`**. A few routes accept **Bearer** tokens (e.g. skills catalog). **Unauthenticated** routes are called out per document (e.g. `/api/health`, `/api/config`, public supervisor agent card).
 
-| Service | Technology | Base URL | Authentication |
-|---------|-----------|----------|----------------|
-| **UI Backend API** | Next.js 16 API Routes | `/api/*` | NextAuth session (OIDC) |
-| **RAG Server** | FastAPI (Python) | `/v1/*` | Bearer JWT (Keycloak) |
-| **Dynamic Agents** | FastAPI (Python) | `/api/v1/*` | Bearer JWT (Keycloak) |
-| **CAIPE Supervisor** | Starlette + A2A SDK | `/` (JSON-RPC) | Bearer JWT (Keycloak) |
-| **Slack Bot** | Slack Bolt (Python) | Socket Mode (no REST) | Slack Events API + OBO JWT |
+## Services overview
 
-## Authentication Patterns
+| Service | Technology | Typical base | Authentication |
+|---------|------------|--------------|----------------|
+| **UI Backend API** | Next.js API Routes | `/api/*` | NextAuth session; optional Bearer on selected routes |
+| **RAG Server** | FastAPI | `RAG_SERVER_URL` / `NEXT_PUBLIC_RAG_URL` | Bearer JWT (proxied from UI session) |
+| **Dynamic Agents** | FastAPI | `DYNAMIC_AGENTS_URL` | Bearer JWT (proxied from UI for writes) |
+| **CAIPE Supervisor** | Starlette + A2A SDK | `CAIPE_URL` / `A2A_HOST:A2A_PORT` | Optional shared key or OAuth2 JWT |
+| **Slack Bot** | Slack Bolt | Socket Mode | Slack signing secret; OBO JWT to CAIPE |
 
-### NextAuth Session (UI Backend API)
+## Common response patterns (UI Backend API)
 
-All UI Backend API routes use server-side NextAuth sessions. The session is established via OIDC login with Keycloak. Admin endpoints additionally check `session.role === 'admin'` or `session.canViewAdmin`.
-
-### Bearer JWT (Backend Services)
-
-Backend services validate Keycloak-issued JWTs. The token must include `realm_access.roles` for RBAC enforcement. Tokens are forwarded by the UI Backend API as `Authorization: Bearer <token>`.
-
-### RBAC Middleware
-
-The UI Backend API uses `requireRbacPermission(session, resource, scope)` for fine-grained access control via Keycloak Authorization Services. CEL expressions provide an additional policy evaluation layer.
-
-## Common Response Patterns
-
-### Success Response
+### Success (`successResponse`)
 
 ```json
 {
   "success": true,
-  "data": { ... }
+  "data": { }
 }
 ```
 
-### Paginated Response
+### Pagination (`paginatedResponse`)
 
 ```json
 {
   "success": true,
   "data": {
-    "items": [...],
+    "items": [],
     "total": 150,
     "page": 1,
     "page_size": 20,
@@ -56,7 +44,7 @@ The UI Backend API uses `requireRbacPermission(session, resource, scope)` for fi
 }
 ```
 
-### Error Response
+### Error (`ApiError` / `withErrorHandler`)
 
 ```json
 {
@@ -66,38 +54,26 @@ The UI Backend API uses `requireRbacPermission(session, resource, scope)` for fi
 }
 ```
 
-### Common HTTP Status Codes
+Some routes return **plain JSON** without the `success` wrapper (e.g. `GET /api/admin/users`, `GET /api/rbac/permissions`, unified audit endpoints).
 
-| Code | Meaning |
-|------|---------|
-| `200` | Success |
-| `201` | Created |
-| `400` | Bad Request — validation error |
-| `401` | Unauthorized — no valid session/token |
-| `403` | Forbidden — insufficient permissions |
-| `404` | Not Found |
-| `503` | Service Unavailable — dependency down (MongoDB, Keycloak) |
+## Domain documentation
 
-## Domain Documentation
+| Domain | Description | Document |
+|--------|-------------|----------|
+| **Admin & user management** | Keycloak user directory, realm role assignment, team KB membership, MongoDB teams CRUD, platform stats | [admin-user-management.md](./admin-user-management.md) |
+| **RBAC & roles** | Realm roles, IdP mappers, permissions, CEL policies, admin tab gates, RBAC / unified audit | [rbac-roles.md](./rbac-roles.md) |
+| **Chat & conversations** | Conversations, messages, sharing, pins, archive, search | [chat-conversations.md](./chat-conversations.md) |
+| **RAG & knowledge bases** | RAG proxies, KB RBAC proxy, team-scoped RAG tools (MongoDB) | [rag-knowledge-bases.md](./rag-knowledge-bases.md) |
+| **Dynamic agents & MCP** | Dynamic agent list/CRUD, SSE chat proxies, MCP server registry, supervisor tools proxy | [dynamic-agents-mcp.md](./dynamic-agents-mcp.md) |
+| **Slack integration** | Slack user admin list, channel–team mappings, web identity link callback | [slack-integration.md](./slack-integration.md) |
+| **Platform** | Health, runtime public config, version, skills catalog, catalog API keys, skill hubs & templates | [platform.md](./platform.md) |
+| **Supervisor agent (A2A)** | Agent card, JSON-RPC task API, optional `/tools` and metrics | [supervisor-agent.md](./supervisor-agent.md) |
 
-The API reference is organized by functional domain. Each domain document covers endpoints from all relevant services.
+## OpenAPI specifications
 
-| Domain | Description | Link |
-|--------|-------------|------|
-| **Admin & User Management** | User CRUD, team management, stats, feedback, NPS, audit logs | [admin-user-management.md](./admin-user-management.md) |
-| **RBAC & Roles** | Role management, role mappings, permissions, policies, audit | [rbac-roles.md](./rbac-roles.md) |
-| **Chat & Conversations** | Conversations, messages, bookmarks, sharing, search | [chat-conversations.md](./chat-conversations.md) |
-| **RAG & Knowledge Bases** | Datasources, ingestion, query, graph explore, MCP tools | [rag-knowledge-bases.md](./rag-knowledge-bases.md) |
-| **Dynamic Agents & MCP** | Agent CRUD, MCP server management, chat/streaming, tools | [dynamic-agents-mcp.md](./dynamic-agents-mcp.md) |
-| **Slack Integration** | Slack user bootstrapping, channel mappings, identity linking | [slack-integration.md](./slack-integration.md) |
-| **Platform** | Health, readiness, metrics, config, version, settings | [platform.md](./platform.md) |
-| **CAIPE Supervisor Agent** | Agent card, JSON-RPC methods, tools endpoint | [caipe-supervisor.md](./caipe-supervisor.md) |
+Machine-readable OpenAPI specs (where maintained):
 
-## OpenAPI Specifications
-
-Machine-readable OpenAPI specs are available for services with REST APIs:
-
-| Service | Spec File |
+| Service | Spec file |
 |---------|-----------|
 | UI Backend API | [openapi/ui-backend-api.yaml](./openapi/ui-backend-api.yaml) |
 | RAG Server | [openapi/rag-server.yaml](./openapi/rag-server.yaml) |

@@ -1,0 +1,52 @@
+# Agent Gateway configuration — rendered by config-bridge from MongoDB policies.
+# DO NOT EDIT DIRECTLY. Manage policies via Admin UI > Security & Policy > AG MCP Policies.
+# Template: deploy/agentgateway/config.yaml.j2
+# Generation: {{ generation }}
+
+binds:
+- port: 4000
+  listeners:
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: {{ issuer }}
+        audiences: [{{ audience }}]
+        jwks:
+          url: {{ jwks_url }}
+    routes:
+    - policies:
+        authorization:
+          rules:
+          - deny: '!has(jwt.sub)'
+          - deny: 'has(jwt.org) && has(request.headers.x_tenant_id) && jwt.org != request.headers.x_tenant_id'
+          - allow: 'has(jwt.sub)'
+      backends:
+      - policies:
+          mcpAuthorization:
+            rules:
+            {% for policy in policies %}
+            {% if policy.enabled %}
+            # {{ policy.description | default(policy.backend_id + "/" + policy.tool_pattern, true) }}
+            - |
+              {{ policy.expression }} &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("{{ policy.tool_pattern }}")
+            {% endif %}
+            {% endfor %}
+
+        mcp:
+          targets:
+          {% for backend in backends %}
+          {% if backend.enabled %}
+          - name: {{ backend.id }}
+            mcp:
+              host: {{ backend.upstream_url }}
+          {% endif %}
+          {% endfor %}
+
+config:
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: info
+    format: json

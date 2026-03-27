@@ -26,6 +26,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 
+@pytest.fixture(autouse=True)
+def _skills_router_tests_no_oidc():
+    """GET /skills uses anonymous bypass when OIDC is unset; clear issuer if present in env."""
+    with patch.dict(os.environ, {"OIDC_ISSUER": ""}):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # FastAPI router tests (skill catalog + refresh)
 # ---------------------------------------------------------------------------

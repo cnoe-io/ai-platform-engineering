@@ -1,0 +1,123 @@
+replicaCount: 1
+
+image:
+  repository: quay.io/keycloak/keycloak
+  tag: "26.3"
+  pullPolicy: IfNotPresent
+
+# Init container image (alpine/curl) used by post-install Jobs
+initImage:
+  repository: alpine/curl
+  tag: latest
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ---------- Admin credentials ----------
+# The chart generates a K8s Secret with a random password by default.
+# For prod: either supply admin.secretRef (existing Secret) or enable
+# externalSecrets to pull from Vault / AWS Secrets Manager.
+admin:
+  username: admin
+  # Dev-only shortcut — set a fixed password. Leave empty ("") for
+  # auto-generated random 32-char password (recommended for prod).
+  password: ""
+  # Reference to an existing K8s Secret with keys: username, password.
+  # When set, the chart does NOT create a Secret.
+  secretRef: ""
+
+# ---------- Keycloak features ----------
+features:
+  tokenExchange: true
+  adminFineGrainedAuthz: true
+
+# ---------- Realm ----------
+realm:
+  name: caipe
+  # "none" for dev, "external" for prod (HTTPS terminated at ingress)
+  sslRequired: "external"
+
+# ---------- Upstream Identity Provider (generic OIDC) ----------
+# Configures an external IDP broker (e.g. Okta, Azure AD, Duo SSO).
+# The init-idp Job creates the broker post-import — no vendor secrets
+# are stored in this chart.
+idp:
+  enabled: false
+  alias: ""              # e.g. "upstream-sso"
+  displayName: ""        # e.g. "Enterprise SSO"
+  issuer: ""             # OIDC issuer URL
+  clientId: ""
+  # clientSecret must be in the K8s Secret referenced by idp.secretRef
+  secretRef: ""          # K8s Secret with key: IDP_CLIENT_SECRET
+  accessGroup: ""        # IdP group claim mapped to chat_user role
+  adminGroup: ""         # IdP group claim mapped to admin role
+
+# ---------- Token exchange (RFC 8693) ----------
+tokenExchange:
+  enabled: true
+  botClientId: "caipe-slack-bot"
+
+# ---------- User profile ----------
+userProfile:
+  unmanagedAttributePolicy: "ADMIN_EDIT"
+  customAttributes:
+    - name: slack_user_id
+      displayName: "Slack User ID"
+      permissions:
+        view: ["admin"]
+        edit: ["admin"]
+
+# ---------- ExternalSecrets ----------
+externalSecrets:
+  enabled: false
+  apiVersion: "v1beta1"
+  secretStoreRef:
+    name: "vault"
+    kind: "ClusterSecretStore"
+  data: []
+    # Example: pull admin password from Vault
+    # - secretKey: password
+    #   remoteRef:
+    #     key: prod/keycloak
+    #     property: admin_password
+
+# ---------- Service ----------
+service:
+  type: ClusterIP
+  port: 8080
+
+# ---------- Persistence ----------
+# Keycloak uses an embedded H2 database by default.
+# For prod, configure an external PostgreSQL via KC_DB_* env vars.
+persistence:
+  enabled: false
+
+# ---------- Extra env vars ----------
+env: {}
+  # KC_DB: postgres
+  # KC_DB_URL: "jdbc:postgresql://postgres:5432/keycloak"
+  # KC_DB_USERNAME: keycloak
+  # KC_DB_PASSWORD: changeme
+
+# ---------- Resources ----------
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+volumes: []
+volumeMounts: []
