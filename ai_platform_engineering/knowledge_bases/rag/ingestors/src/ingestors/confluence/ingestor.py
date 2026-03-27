@@ -423,6 +423,12 @@ async def periodic_reload(client: Client):
               page_configs=page_configs,
             )
             await client.upsert_datasource(datasource_info)
+          else:
+            # Skip if already ingested within the reload interval
+            current_time = int(time.time())
+            if datasource_info.last_updated and (current_time - datasource_info.last_updated) < RELOAD_INTERVAL:
+              logger.info(f"Space {space_key} is up-to-date (last ingested {current_time - datasource_info.last_updated}s ago), skipping")
+              continue
 
           title_patterns = _get_title_patterns(datasource_info.metadata)
 
