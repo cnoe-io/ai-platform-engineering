@@ -306,7 +306,7 @@ function AdminPage() {
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
 
   useEffect(() => {
-    // Only fetch admin data once the user is authenticated
+    // Fetch admin data when authenticated or when SSO is disabled (local dev)
     if (status === "authenticated" || !getConfig('ssoEnabled')) {
       loadAdminData();
     }

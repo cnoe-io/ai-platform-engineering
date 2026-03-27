@@ -86,7 +86,8 @@ export async function getAuthenticatedUser(
 /**
  * Require authentication for API route
  * Use this as a wrapper for protected endpoints.
- * No session → 401 (never uses anonymous fallback).
+ * When SSO is disabled (local dev), falls back to anonymous admin user.
+ * When SSO is enabled, no session → 401.
  */
 export async function withAuth<T>(
   request: NextRequest,
