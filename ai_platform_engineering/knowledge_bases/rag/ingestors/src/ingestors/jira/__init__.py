@@ -1,1 +1,1 @@
-from ingestors.jira import ingestor
+from ingestors.jira import ingestor as ingestor
