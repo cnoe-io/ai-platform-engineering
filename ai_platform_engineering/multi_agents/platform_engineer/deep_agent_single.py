@@ -27,7 +27,8 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import tool, StructuredTool, InjectedToolCallId
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.checkpoint.memory import InMemorySaver
+from ai_platform_engineering.utils.checkpointer import create_checkpointer
+from ai_platform_engineering.utils.store import create_store
 from langgraph.types import Command
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -1307,6 +1308,15 @@ This format is required so the UI can display agent stickers next to each task.
             ],
         )
 
+        # Attach cross-thread store if available
+        try:
+            store = create_store()
+            if store is not None:
+                deep_agent_kwargs["store"] = store
+                logger.info("Cross-thread store attached to deep agent")
+        except Exception:
+            logger.warning("Failed to create cross-thread store, continuing without it", exc_info=True)
+
         if USE_STRUCTURED_RESPONSE:
             from langchain.agents.structured_output import ToolStrategy
             deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
@@ -1318,7 +1328,7 @@ This format is required so the UI can display agent stickers next to each task.
 
         # Attach checkpointer if not in dev mode
         if not os.getenv("LANGGRAPH_DEV"):
-            deep_agent.checkpointer = InMemorySaver()
+            deep_agent.checkpointer = create_checkpointer()
 
         # Update graph atomically
         self._graph = deep_agent

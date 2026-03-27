@@ -39,7 +39,7 @@ from ai_platform_engineering.utils.mcp_config import (
     resolve_mcp_mode, resolve_mcp_url, is_http_mode,
 )
 
-from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
+from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled, get_max_tool_output_length
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
 
@@ -115,14 +115,18 @@ class BaseLangGraphAgent(ABC):
             # Fallback to cl100k_base (used by GPT-4/3.5)
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
 
-        # Get context management configuration from global config
+        # Get context management configuration from global config,
+        # scoped to this agent so single-node per-agent overrides work.
         llm_provider = os.getenv("LLM_PROVIDER", "azure-openai").lower()
-        self.max_context_tokens = get_context_limit_for_provider(llm_provider)
-        self.min_messages_to_keep = get_min_messages_to_keep()
-        self.enable_auto_compression = is_auto_compression_enabled()
+        agent_name = self.get_agent_name()
+        self.max_context_tokens = get_context_limit_for_provider(
+            llm_provider, agent_name=agent_name
+        )
+        self.min_messages_to_keep = get_min_messages_to_keep(agent_name=agent_name)
+        self.enable_auto_compression = is_auto_compression_enabled(agent_name=agent_name)
 
         logger.info(
-            f"Context management initialized for provider={llm_provider}: "
+            f"[{agent_name}] Context management initialized for provider={llm_provider}: "
             f"max_tokens={self.max_context_tokens:,}, "
             f"min_messages={self.min_messages_to_keep}, "
             f"auto_compression={self.enable_auto_compression}"
@@ -2168,7 +2172,7 @@ Use this as the reference point for all date calculations. When users say "today
                             tool_output_preview = tool_content
 
                             # Limit output size to avoid overwhelming the stream
-                            max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
+                            max_output_length = get_max_tool_output_length(self.get_agent_name())
                             if len(tool_output_preview) > max_output_length:
                                 tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
 
@@ -2336,7 +2340,7 @@ Use this as the reference point for all date calculations. When users say "today
                                 tool_output_preview = tool_content
 
                                 # Limit output size to avoid overwhelming the stream
-                                max_output_length = int(os.getenv("MAX_TOOL_OUTPUT_LENGTH", "2000"))
+                                max_output_length = get_max_tool_output_length(self.get_agent_name())
                                 if len(tool_output_preview) > max_output_length:
                                     tool_output_preview = tool_output_preview[:max_output_length] + "...\n[Output truncated]"
 
