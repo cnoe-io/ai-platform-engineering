@@ -26,6 +26,7 @@ from a2a_client import A2AClient
 from utils.session_manager import SessionManager
 from utils.langfuse_client import FeedbackClient
 from utils.scoring import submit_feedback_score
+from utils.authorization import UserAuthorizer
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -64,6 +65,7 @@ else:
     logger.info("Langfuse feedback scoring disabled (set LANGFUSE_SCORING_ENABLED=true to enable)")
 
 hitl_handler = HITLCallbackHandler(a2a_client, session_manager)
+authorizer = UserAuthorizer(channel_configs=config.channels)
 
 max_retries = int(os.environ.get("CAIPE_CONNECT_RETRIES", "10"))
 retry_delay = int(os.environ.get("CAIPE_CONNECT_RETRY_DELAY", "6"))
@@ -132,6 +134,24 @@ def handle_mention(event, say, client):
 
         bot_info = client.auth_test()
         bot_user_id = bot_info.get("user_id")
+
+        admin_cmd = authorizer.parse_admin_command(
+            event.get("text", ""), bot_user_id
+        )
+        if admin_cmd:
+            _handle_admin_command(
+                admin_cmd, user_id, channel_id, thread_ts, client
+            )
+            return
+
+        if not authorizer.is_authorized(user_id, channel_id):
+            logger.info(f"[{thread_ts}] Unauthorized user {user_id} in {channel_id}")
+            client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                text=authorizer.get_denial_message(user_id),
+            )
+            return
 
         context_message = message_text
         if event.get("thread_ts"):
@@ -223,6 +243,56 @@ def handle_mention(event, say, client):
 
 
 # =============================================================================
+# Admin commands (authorize / revoke / list)
+# =============================================================================
+def _handle_admin_command(cmd, user_id, channel_id, thread_ts, client):
+    """Process an admin command parsed from an @mention."""
+    action = cmd["action"]
+    target = cmd.get("target_user", "")
+
+    if not authorizer.is_admin(user_id):
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="Only admins can run authorization commands.",
+        )
+        return
+
+    if action == "list":
+        info = authorizer.list_authorized()
+        lines = [
+            f"*Authorization mode:* `{info['mode']}`",
+            f"*Admins:* {', '.join(f'<@{u}>' for u in info['admins']) or '_none_'}",
+            f"*Static allow list:* {', '.join(f'<@{u}>' for u in info['static_allowed']) or '_none_'}",
+            f"*Dynamic grants:* {', '.join(f'<@{u}>' for u in info['dynamic_grants']) or '_none_'}",
+            f"*Denied:* {', '.join(f'<@{u}>' for u in info['denied']) or '_none_'}",
+        ]
+        client.chat_postEphemeral(
+            channel=channel_id,
+            user=user_id,
+            text="\n".join(lines),
+        )
+        return
+
+    if not target:
+        client.chat_postEphemeral(
+            channel=channel_id, user=user_id,
+            text=f"Usage: `@caipe {action} @user`",
+        )
+        return
+
+    if action == "authorize":
+        msg = authorizer.authorize_user(target, granted_by=user_id)
+    else:
+        msg = authorizer.revoke_user(target, revoked_by=user_id)
+
+    client.chat_postMessage(
+        channel=channel_id, thread_ts=thread_ts, text=msg,
+    )
+    logger.info(f"Admin {user_id} ran '{action}' on {target}: {msg}")
+
+
+# =============================================================================
 # Q&A Mode (auto respond to messages in channel, excluding bots)
 # =============================================================================
 def handle_qanda_message(event, say, client):
@@ -236,6 +306,11 @@ def handle_qanda_message(event, say, client):
 
         user_id = event.get("user")
         team_id = event.get("team")
+
+        if user_id and not authorizer.is_authorized(user_id, channel_id):
+            logger.debug(f"[{thread_ts}] Q&A skipped for unauthorized user {user_id}")
+            return
+
         message_text = slack_context.extract_message_text(event)
 
         user_name, user_email = utils.get_message_author_info(event, client)
@@ -309,6 +384,11 @@ def handle_dm_message(event, say, client):
             return
 
         user_id = event.get("user")
+
+        if user_id and not authorizer.is_authorized(user_id):
+            say(text=authorizer.get_denial_message(user_id), thread_ts=thread_ts)
+            return
+
         message_text = slack_context.extract_message_text(event)
 
         user_name, user_email = utils.get_message_author_info(event, client)

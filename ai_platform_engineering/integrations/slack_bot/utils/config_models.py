@@ -231,6 +231,7 @@ class ChannelConfig(BaseModel):
     qanda: QandaConfig = Field(default_factory=QandaConfig)
     ai_alerts: AIAlertsConfig = Field(default_factory=AIAlertsConfig)
     default: Dict[str, Any]
+    authorized_users: Optional[List[str]] = None
 
     @model_validator(mode="after")
     def validate_bot_config(self):
