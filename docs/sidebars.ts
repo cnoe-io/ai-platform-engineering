@@ -252,6 +252,21 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'architecture/gateway',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/enterprise-identity-federation',
+          label: 'Enterprise Identity Federation',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/slack-bot-authorization',
+          label: 'Slack Bot Authorization',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/slack-io-guardrails',
+          label: 'Slack I/O Guardrails',
         }
       ],
     },
