@@ -185,3 +185,22 @@ class QueryResult(BaseModel):
 class JobsBatchRequest(BaseModel):
   datasource_ids: List[str] = Field(..., description="List of datasource IDs to fetch jobs for", max_length=100)
   status_filter: Optional[List[str]] = Field(None, description="Optional list of job statuses to filter by (e.g., ['in_progress', 'pending'])")
+
+
+# ============================================================================
+# Models for MCP Tool Invocation
+# ============================================================================
+class MCPToolInvokeRequest(BaseModel):
+  """Request to invoke an MCP tool via REST API."""
+
+  tool_name: str = Field(..., description="Name of the MCP tool to invoke (e.g., 'search', 'fetch_document')")
+  arguments: Dict[str, Any] = Field(default_factory=dict, description="Arguments to pass to the tool (must match tool's parameter schema)")
+
+
+class MCPToolInvokeResponse(BaseModel):
+  """Response from MCP tool invocation."""
+
+  tool_name: str = Field(..., description="Name of the tool that was invoked")
+  success: bool = Field(..., description="Whether the tool invocation succeeded")
+  result: Optional[Any] = Field(None, description="Result returned by the tool (if successful)")
+  error: Optional[str] = Field(None, description="Error message (if failed)")

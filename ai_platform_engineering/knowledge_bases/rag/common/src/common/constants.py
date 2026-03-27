@@ -45,7 +45,7 @@ REDIS_DATASOURCE_DOCUMENTS_PREFIX = "rag/datasource_documents:"
 REDIS_INGESTOR_PREFIX = "rag/ingestor:"
 
 # Redis keys for MCP tool configuration
-REDIS_MCP_TOOL_CONFIG_PREFIX = "rag/mcp/tool:"        # per-tool: {prefix}{tool_id}
+REDIS_MCP_TOOL_CONFIG_PREFIX = "rag/mcp/tool:"  # per-tool: {prefix}{tool_id}
 REDIS_MCP_BUILTIN_CONFIG_KEY = "rag/mcp/builtin_config"  # singleton for fetch/graph toggles
 
 # Redis key prefixes for job management

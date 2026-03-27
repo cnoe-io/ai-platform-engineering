@@ -32,3 +32,11 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 common = { path = "../common" }
+
+[tool.ruff]
+line-length = 300
+indent-width = 2
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["F403"]

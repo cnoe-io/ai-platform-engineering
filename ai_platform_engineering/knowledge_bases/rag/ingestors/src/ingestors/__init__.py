@@ -1,2 +1,2 @@
 def main() -> None:
-    print("Hello from ingestors!")
+  print("Hello from ingestors!")
