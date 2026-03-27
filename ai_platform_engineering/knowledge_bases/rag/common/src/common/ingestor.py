@@ -876,6 +876,17 @@ class IngestorBuilder:
         return
       else:
         # Periodic mode with smart scheduling based on datasource timestamps
+        # Always run one sync on startup to register new env-var-configured sources
+        # (e.g. CONFLUENCE_SPACES, SLACK_CHANNELS) and trigger ingestion for any
+        # that have never been ingested, before entering the sleep loop.
+        logger.info("Running startup sync cycle...")
+        if asyncio.iscoroutinefunction(self._sync_function):
+          await self._sync_function(client)
+        else:
+          self._sync_function(client)
+        self._last_sync_time = int(time.time())
+        logger.info(f"Startup sync cycle completed at {self._last_sync_time}")
+
         while True:
           # Calculate when next sync should happen based on datasource timestamps
           sleep_time, has_datasources = await self._calculate_next_sync_time(client)

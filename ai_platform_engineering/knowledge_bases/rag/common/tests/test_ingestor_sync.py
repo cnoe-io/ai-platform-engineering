@@ -6,6 +6,7 @@ as the reload interval fallback instead of DEFAULT_RELOAD_INTERVAL, causing a ti
 when datasources were older than CHECK_INTERVAL but younger than DEFAULT_RELOAD_INTERVAL.
 """
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -527,3 +528,47 @@ class TestTightLoopSafeguard:
 
     assert len(sleep_called_with) == 1
     assert sleep_called_with[0] == 5000  # sleeps for exactly the returned value
+
+
+class TestStartupSync:
+    """Tests for the startup sync that always runs before the periodic loop."""
+
+    @pytest.mark.asyncio
+    async def test_startup_sync_runs_even_when_datasources_are_fresh(self):
+        """Startup sync runs even if all datasources are up-to-date, so newly
+        configured env-var sources (e.g. CONFLUENCE_SPACES) are picked up.
+        Also verifies _last_sync_time is set after the startup sync."""
+        builder = _make_builder(sync_interval=600)
+        builder._name = "test"
+        builder._type = "test"
+        builder._description = "test"
+        builder._metadata = {}
+
+        sync_count = 0
+
+        async def fake_sync(client):
+            nonlocal sync_count
+            sync_count += 1
+
+        builder._sync_function = fake_sync
+
+        mock_client = _mock_client([])
+        mock_client.initialize = AsyncMock()
+        mock_client.shutdown = AsyncMock()
+
+        before = int(time.time())
+        # Large sleep_time — without startup sync, the loop would sleep first
+        # and never call the sync function in this test. The sleep raises
+        # CancelledError to stop the loop after the startup sync completes.
+        with patch('common.ingestor.Client', return_value=mock_client):
+            with patch.object(builder, '_calculate_next_sync_time', new_callable=AsyncMock) as mock_calc:
+                mock_calc.return_value = (86400, True)
+                with patch('asyncio.sleep', side_effect=asyncio.CancelledError):
+                    try:
+                        await builder._run_ingestor()
+                    except (asyncio.CancelledError, RuntimeError):
+                        pass
+
+        assert sync_count == 1
+        assert builder._last_sync_time is not None
+        assert builder._last_sync_time >= before
