@@ -52,3 +52,16 @@ dev = [
 
 [tool.uv.sources]
 common = { path = "../common" }
+
+[tool.ruff]
+line-length = 300
+indent-width = 2
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["F403"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/ingestors/webloader/loader/scrapy_worker.py" = ["E402"]
+"src/ingestors/webloader/loader/worker_pool.py" = ["E402"]
+"tests/webloader/test_ingestor.py" = ["E402"]

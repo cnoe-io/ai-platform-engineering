@@ -28,3 +28,11 @@ huggingface = [
 [build-system]
 requires = ["uv_build>=0.8.17,<0.9.0"]
 build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 300
+indent-width = 2
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["F403"]
