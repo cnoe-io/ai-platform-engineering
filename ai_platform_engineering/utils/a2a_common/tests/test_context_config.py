@@ -11,6 +11,7 @@ from ai_platform_engineering.utils.a2a_common.context_config import (
     PROVIDER_ENV_VARS,
     get_context_config,
     get_context_limit_for_provider,
+    get_max_tool_output_length,
     get_min_messages_to_keep,
     is_auto_compression_enabled,
     log_context_config,
@@ -28,12 +29,20 @@ class TestContextConfig(unittest.TestCase):
             "MAX_CONTEXT_TOKENS",
             "MIN_MESSAGES_TO_KEEP",
             "ENABLE_AUTO_COMPRESSION",
+            "MAX_TOOL_OUTPUT_LENGTH",
             "AZURE_OPENAI_MAX_CONTEXT_TOKENS",
             "OPENAI_MAX_CONTEXT_TOKENS",
             "AWS_BEDROCK_MAX_CONTEXT_TOKENS",
             "ANTHROPIC_MAX_CONTEXT_TOKENS",
             "GOOGLE_GEMINI_MAX_CONTEXT_TOKENS",
             "GCP_VERTEXAI_MAX_CONTEXT_TOKENS",
+            # Agent-scoped env vars used in tests
+            "ARGOCD_MAX_CONTEXT_TOKENS",
+            "ARGOCD_MIN_MESSAGES_TO_KEEP",
+            "ARGOCD_ENABLE_AUTO_COMPRESSION",
+            "ARGOCD_MAX_TOOL_OUTPUT_LENGTH",
+            "SUPERVISOR_MAX_CONTEXT_TOKENS",
+            "SUPERVISOR_MIN_MESSAGES_TO_KEEP",
         ]
         for var in env_vars:
             self.env_backup[var] = os.environ.pop(var, None)
@@ -322,6 +331,151 @@ class TestLogContextConfig(TestContextConfig):
         log_output = ''.join(log_context.output)
         self.assertIn('provider=aws-bedrock', log_output)
         self.assertIn('max_tokens=180,000', log_output)
+
+
+class TestAgentScopedContextLimit(TestContextConfig):
+    """Test agent-scoped context limit lookups (single-node mode)."""
+
+    def test_agent_scoped_takes_highest_priority(self):
+        """Agent-scoped var wins over provider-specific, global, and default."""
+        os.environ["ARGOCD_MAX_CONTEXT_TOKENS"] = "20000"
+        os.environ["AWS_BEDROCK_MAX_CONTEXT_TOKENS"] = "180000"
+        os.environ["MAX_CONTEXT_TOKENS"] = "100000"
+
+        limit = get_context_limit_for_provider("aws-bedrock", agent_name="argocd")
+        self.assertEqual(limit, 20000)
+
+    def test_agent_scoped_falls_back_to_provider(self):
+        """Without agent-scoped var, provider-specific wins."""
+        os.environ["AWS_BEDROCK_MAX_CONTEXT_TOKENS"] = "180000"
+        limit = get_context_limit_for_provider("aws-bedrock", agent_name="argocd")
+        self.assertEqual(limit, 180000)
+
+    def test_agent_scoped_falls_back_to_global(self):
+        """Without agent or provider var, global wins."""
+        os.environ["MAX_CONTEXT_TOKENS"] = "50000"
+        limit = get_context_limit_for_provider("aws-bedrock", agent_name="argocd")
+        self.assertEqual(limit, 50000)
+
+    def test_agent_scoped_falls_back_to_default(self):
+        """Without any env var, use provider default."""
+        limit = get_context_limit_for_provider("aws-bedrock", agent_name="argocd")
+        self.assertEqual(limit, 150000)
+
+    def test_agent_none_preserves_existing_behavior(self):
+        """agent_name=None behaves exactly like before."""
+        os.environ["MAX_CONTEXT_TOKENS"] = "60000"
+        limit = get_context_limit_for_provider("azure-openai", agent_name=None)
+        self.assertEqual(limit, 60000)
+
+    def test_invalid_agent_scoped_falls_back(self):
+        """Invalid agent-scoped value falls through to provider-specific."""
+        os.environ["ARGOCD_MAX_CONTEXT_TOKENS"] = "not-a-number"
+        os.environ["AWS_BEDROCK_MAX_CONTEXT_TOKENS"] = "180000"
+
+        limit = get_context_limit_for_provider("aws-bedrock", agent_name="argocd")
+        self.assertEqual(limit, 180000)
+
+    def test_different_agents_get_different_limits(self):
+        """Two agents in the same process read their own scoped values."""
+        os.environ["ARGOCD_MAX_CONTEXT_TOKENS"] = "20000"
+        os.environ["SUPERVISOR_MAX_CONTEXT_TOKENS"] = "150000"
+
+        argocd = get_context_limit_for_provider("aws-bedrock", agent_name="argocd")
+        supervisor = get_context_limit_for_provider("aws-bedrock", agent_name="supervisor")
+
+        self.assertEqual(argocd, 20000)
+        self.assertEqual(supervisor, 150000)
+
+
+class TestAgentScopedMinMessages(TestContextConfig):
+    """Test agent-scoped MIN_MESSAGES_TO_KEEP lookups."""
+
+    def test_agent_scoped_override(self):
+        os.environ["ARGOCD_MIN_MESSAGES_TO_KEEP"] = "2"
+        self.assertEqual(get_min_messages_to_keep(agent_name="argocd"), 2)
+
+    def test_agent_scoped_falls_back_to_global(self):
+        os.environ["MIN_MESSAGES_TO_KEEP"] = "15"
+        self.assertEqual(get_min_messages_to_keep(agent_name="argocd"), 15)
+
+    def test_agent_scoped_falls_back_to_default(self):
+        self.assertEqual(get_min_messages_to_keep(agent_name="argocd"), 10)
+
+    def test_agent_none_preserves_behavior(self):
+        os.environ["MIN_MESSAGES_TO_KEEP"] = "7"
+        self.assertEqual(get_min_messages_to_keep(agent_name=None), 7)
+
+    def test_invalid_agent_scoped_falls_back(self):
+        os.environ["ARGOCD_MIN_MESSAGES_TO_KEEP"] = "bad"
+        os.environ["MIN_MESSAGES_TO_KEEP"] = "5"
+        self.assertEqual(get_min_messages_to_keep(agent_name="argocd"), 5)
+
+
+class TestAgentScopedAutoCompression(TestContextConfig):
+    """Test agent-scoped ENABLE_AUTO_COMPRESSION lookups."""
+
+    def test_agent_scoped_disable(self):
+        os.environ["ARGOCD_ENABLE_AUTO_COMPRESSION"] = "false"
+        self.assertFalse(is_auto_compression_enabled(agent_name="argocd"))
+
+    def test_agent_scoped_enable(self):
+        os.environ["ARGOCD_ENABLE_AUTO_COMPRESSION"] = "true"
+        os.environ["ENABLE_AUTO_COMPRESSION"] = "false"
+        self.assertTrue(is_auto_compression_enabled(agent_name="argocd"))
+
+    def test_agent_scoped_falls_back_to_global(self):
+        os.environ["ENABLE_AUTO_COMPRESSION"] = "false"
+        self.assertFalse(is_auto_compression_enabled(agent_name="argocd"))
+
+    def test_agent_scoped_falls_back_to_default_true(self):
+        self.assertTrue(is_auto_compression_enabled(agent_name="argocd"))
+
+
+class TestAgentScopedToolOutputLength(TestContextConfig):
+    """Test agent-scoped MAX_TOOL_OUTPUT_LENGTH lookups."""
+
+    def test_agent_scoped_override(self):
+        os.environ["ARGOCD_MAX_TOOL_OUTPUT_LENGTH"] = "5000"
+        self.assertEqual(get_max_tool_output_length(agent_name="argocd"), 5000)
+
+    def test_agent_scoped_falls_back_to_global(self):
+        os.environ["MAX_TOOL_OUTPUT_LENGTH"] = "3000"
+        self.assertEqual(get_max_tool_output_length(agent_name="argocd"), 3000)
+
+    def test_agent_scoped_falls_back_to_default(self):
+        self.assertEqual(get_max_tool_output_length(agent_name="argocd"), 2000)
+
+    def test_none_agent_uses_global(self):
+        os.environ["MAX_TOOL_OUTPUT_LENGTH"] = "4000"
+        self.assertEqual(get_max_tool_output_length(agent_name=None), 4000)
+
+    def test_custom_default(self):
+        self.assertEqual(get_max_tool_output_length(default=500), 500)
+
+
+class TestAgentScopedGetContextConfig(TestContextConfig):
+    """Test get_context_config with agent_name parameter."""
+
+    def test_agent_scoped_config(self):
+        """Agent-scoped values flow through get_context_config."""
+        os.environ["ARGOCD_MAX_CONTEXT_TOKENS"] = "20000"
+        os.environ["ARGOCD_MIN_MESSAGES_TO_KEEP"] = "2"
+        os.environ["ARGOCD_ENABLE_AUTO_COMPRESSION"] = "true"
+
+        config = get_context_config(agent_name="argocd")
+
+        self.assertEqual(config["max_context_tokens"], 20000)
+        self.assertEqual(config["min_messages_to_keep"], 2)
+        self.assertTrue(config["auto_compression_enabled"])
+
+    def test_no_agent_name_returns_defaults(self):
+        """Without agent_name, returns global defaults."""
+        config = get_context_config()
+
+        self.assertEqual(config["max_context_tokens"], 100000)
+        self.assertEqual(config["min_messages_to_keep"], 10)
+        self.assertTrue(config["auto_compression_enabled"])
 
 
 if __name__ == '__main__':
