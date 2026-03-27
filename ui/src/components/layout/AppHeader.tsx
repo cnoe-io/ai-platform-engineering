@@ -76,7 +76,7 @@ function GuardedLink({
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin, canViewAdmin } = useAdminRole();
+  const { isAdmin } = useAdminRole();
   const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
@@ -294,7 +294,7 @@ export function AppHeader() {
             </GuardedLink>
           )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
-          {canViewAdmin && (
+          {session && (
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>

@@ -1,229 +1,186 @@
-# Quickstart: Enterprise RBAC local verification
+# Quickstart: Enterprise RBAC Local Development
 
-Verify the 098 Enterprise RBAC feature locally using the unified dev compose stack.
+**Phase 1 Output** | **Date**: 2026-03-25 | **Plan**: [plan.md](./plan.md)
 
 ## Prerequisites
 
-- Docker / Docker Compose v2+
-- Node.js 20+ and npm
-- Python 3.11+ and uv
-- `curl` and `jq`
+- Docker + Docker Compose
+- Node.js 20+ (via nvm)
+- Python 3.11+ with uv
+- Access to the `098-enterprise-rbac-slack-ui` branch
 
-## 1. Start the RBAC stack
-
-From the repo root:
+## 1. Start Keycloak
 
 ```bash
-docker compose -f docker-compose.dev.yaml \
-  --profile rbac --profile caipe-mongodb up -d
+cd deploy/keycloak
+docker compose up -d
 ```
 
-This starts:
-- **Keycloak** on port 7080 (admin console: `http://localhost:7080/admin`, creds: `admin` / `admin`)
-- **Agent Gateway** on port 4000
-- **MongoDB** on port 27017
+Keycloak will be available at `http://localhost:7080` with the `caipe` realm pre-configured.
 
-The realm config at `deploy/keycloak/realm-config.json` is auto-imported with test users, roles, clients, and Authorization Services policies.
+**Default admin**: `admin` / `admin` (Keycloak console)
 
-Wait for healthy:
+### Verify realm roles
+
+Open `http://localhost:7080/admin/master/console/#/caipe/roles` and confirm these roles exist:
+- `admin`, `chat_user`, `team_member`, `kb_admin`, `offline_access`
+
+### Configure client mapper (if not in realm-config.json)
+
+1. Navigate to **Clients → caipe-ui → Client scopes → caipe-ui-dedicated**
+2. Add mapper: **Realm Roles** → Claim name: `realm_access` (already default)
+3. Add mapper: **Group Membership** → Claim name: `groups`, Full group path: OFF
+
+## 2. Start MongoDB
 
 ```bash
-docker compose -f docker-compose.dev.yaml --profile rbac ps
+# From repo root
+docker compose -f docker-compose.dev.yaml up -d mongodb
 ```
 
-## 2. Test personas
+## 3. Configure UI environment
 
-| Username | Password | Roles | Tenant |
-|---|---|---|---|
-| `admin-user` | `admin` | admin, chat_user | acme |
-| `standard-user` | `standard` | chat_user, team_member | acme |
-| `kb-admin-user` | `kbadmin` | chat_user, team_member, kb_admin | acme |
-| `denied-user` | `denied` | (none) | acme |
-| `org-b-user` | `orgb` | chat_user | globex |
-
-## 3. Verify Keycloak token issuance
+Ensure `ui/.env.local` has:
 
 ```bash
-KC_HOST=http://localhost:7080
-REALM=caipe
+# Keycloak OIDC
+OIDC_ISSUER=http://localhost:7080/realms/caipe
+OIDC_CLIENT_ID=caipe-ui
+OIDC_CLIENT_SECRET=caipe-ui-dev-secret
 
-TOKEN=$(curl -s "$KC_HOST/realms/$REALM/protocol/openid-connect/token" \
-  -d "grant_type=password" \
-  -d "client_id=caipe-ui" \
-  -d "username=admin-user" \
-  -d "password=admin" \
-  -d "scope=openid" | jq -r '.access_token')
+# Admin group (must match a group in your IdP or Keycloak)
+OIDC_REQUIRED_ADMIN_GROUP=eti_sre_admin
 
-echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq .
+# Bootstrap admin (for initial setup before group mapping works)
+BOOTSTRAP_ADMIN_EMAILS=your.email@example.com
+
+# Keycloak Admin API
+KEYCLOAK_URL=http://localhost:7080
+KEYCLOAK_REALM=caipe
+KEYCLOAK_ADMIN_CLIENT_ID=admin-cli
+KEYCLOAK_ADMIN_CLIENT_SECRET=<generate-in-keycloak>
+
+# MongoDB
+MONGODB_URI=mongodb://admin:changeme@localhost:27017
+MONGODB_DATABASE=caipe
 ```
 
-Expected claims: `sub`, `realm_access.roles` (should include `admin`, `chat_user`), `org` (`acme`).
-
-## 4. Verify Keycloak Authorization Services (PDP-1)
-
-Check an admin permission:
-
-```bash
-curl -s "$KC_HOST/realms/$REALM/protocol/openid-connect/token" \
-  -d "grant_type=urn:ietf:params:oauth:grant-type:uma-ticket" \
-  -d "audience=caipe-platform" \
-  -d "permission=admin_ui#view" \
-  -d "response_mode=decision" \
-  -H "Authorization: Bearer $TOKEN" | jq .
-```
-
-Expected: `{"result": true}` for `admin-user`.
-
-Now test with `denied-user`:
-
-```bash
-DENIED_TOKEN=$(curl -s "$KC_HOST/realms/$REALM/protocol/openid-connect/token" \
-  -d "grant_type=password" \
-  -d "client_id=caipe-ui" \
-  -d "username=denied-user" \
-  -d "password=denied" \
-  -d "scope=openid" | jq -r '.access_token')
-
-curl -s "$KC_HOST/realms/$REALM/protocol/openid-connect/token" \
-  -d "grant_type=urn:ietf:params:oauth:grant-type:uma-ticket" \
-  -d "audience=caipe-platform" \
-  -d "permission=admin_ui#view" \
-  -d "response_mode=decision" \
-  -H "Authorization: Bearer $DENIED_TOKEN" | jq .
-```
-
-Expected: `403 Forbidden` (no admin role).
-
-## 5. Verify Agent Gateway policy (PDP-2)
-
-```bash
-AG_HOST=http://localhost:4000
-
-curl -s -o /dev/null -w "%{http_code}" "$AG_HOST/v1/mcp/tools/list" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-Without a valid token: should return `401` or `403`.
-
-## 6. Verify OBO token exchange
-
-Simulate bot-to-user delegation:
-
-```bash
-OBO_TOKEN=$(curl -s "$KC_HOST/realms/$REALM/protocol/openid-connect/token" \
-  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
-  -d "subject_token=$TOKEN" \
-  -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
-  -d "requested_token_type=urn:ietf:params:oauth:token-type:access_token" \
-  -d "client_id=caipe-slack-bot" \
-  -d "client_secret=caipe-slack-bot-dev-secret" | jq -r '.access_token')
-
-echo "$OBO_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq .
-```
-
-Expected: OBO JWT with `sub` = user, `act.sub` = bot service account.
-
-## 7. Verify Slack identity link (Keycloak user attribute)
-
-Write and read `slack_user_id` attribute:
-
-```bash
-ADMIN_TOKEN=$(curl -s "$KC_HOST/realms/master/protocol/openid-connect/token" \
-  -d "grant_type=password" \
-  -d "client_id=admin-cli" \
-  -d "username=admin" \
-  -d "password=admin" | jq -r '.access_token')
-
-USER_ID=$(curl -s "$KC_HOST/admin/realms/$REALM/users?username=admin-user" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.[0].id')
-
-curl -s -X PUT "$KC_HOST/admin/realms/$REALM/users/$USER_ID" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"attributes\": {\"slack_user_id\": [\"U12345\"], \"org\": [\"acme\"]}}"
-
-curl -s "$KC_HOST/admin/realms/$REALM/users?q=slack_user_id:U12345" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.[0].attributes'
-```
-
-Expected: `{"slack_user_id": ["U12345"], "org": ["acme"]}`.
-
-## 8. Verify multi-tenant isolation
-
-Attempt cross-tenant access with `org-b-user` (tenant `globex`):
-
-```bash
-ORGB_TOKEN=$(curl -s "$KC_HOST/realms/$REALM/protocol/openid-connect/token" \
-  -d "grant_type=password" \
-  -d "client_id=caipe-ui" \
-  -d "username=org-b-user" \
-  -d "password=orgb" \
-  -d "scope=openid" | jq -r '.access_token')
-
-curl -s -o /dev/null -w "%{http_code}" "$AG_HOST/v1/mcp/tools/list" \
-  -H "Authorization: Bearer $ORGB_TOKEN" \
-  -H "X-Tenant-Id: acme" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-Expected: `403` (org-b-user has `org=globex` but requests `X-Tenant-Id: acme`).
-
-## 9. Run UI with RBAC
+## 4. Start the UI
 
 ```bash
 cd ui
 npm install
-
-# Set env vars for Keycloak OIDC
-SSO_ENABLED=true \
-OIDC_CLIENT_ID=caipe-ui \
-OIDC_ISSUER=http://localhost:7080/realms/caipe \
-KEYCLOAK_URL=http://localhost:7080 \
-KEYCLOAK_REALM=caipe \
-KEYCLOAK_RESOURCE_SERVER_ID=caipe-platform \
-KEYCLOAK_CLIENT_SECRET=caipe-platform-dev-secret \
-MONGODB_URI="mongodb://admin:changeme@localhost:27017/caipe?authSource=admin" \
 npm run dev
 ```
 
-Open `http://localhost:3000`. Sign in as different personas — admin pages should be visible/hidden based on role.
+## 5. Run tests
 
-## 10. Verify audit trail
-
-After performing some operations, query the audit API:
+### UI tests
 
 ```bash
-curl -s "http://localhost:3000/api/admin/rbac-audit?limit=5" \
-  -H "Cookie: <session-cookie>" | jq .
+cd ui
+npm test                    # All tests
+npm test -- --coverage      # With coverage report
 ```
 
-Or check MongoDB directly:
+### Supervisor tests
 
 ```bash
-docker exec caipe-mongodb-dev mongosh --quiet \
-  -u admin -p changeme --authenticationDatabase admin \
-  caipe --eval 'db.authorization_decision_records.find().sort({ts:-1}).limit(5).toArray()'
+# Install missing deps
+uv add --dev pytest-asyncio pytest-cov
+
+# Run tests
+PYTHONPATH=. uv run pytest tests/ -v
+
+# With coverage
+PYTHONPATH=. uv run pytest tests/ --cov=ai_platform_engineering --cov-report=term-missing
 ```
 
-## Acceptance criteria checklist
+## 6. Verify RBAC is working
 
-- [ ] Keycloak token contains `realm_access.roles` and `org` claims
-- [ ] Keycloak AuthZ returns correct allow/deny for matrix capabilities
-- [ ] AG blocks unauthenticated MCP requests (401/403)
-- [ ] AG applies CEL policy rules for role-based tool access
-- [ ] AG blocks cross-tenant access (org mismatch → 403)
-- [ ] OBO token contains `act.sub` claim
-- [ ] Slack identity link stored and retrieved via Keycloak Admin API
-- [ ] BFF middleware denies unauthorized admin routes
-- [ ] Denied actions show user-friendly feedback
-- [ ] Audit records persisted to MongoDB
-- [ ] Admin audit API returns paginated records (admin-only)
+1. Log in at `http://localhost:3000`
+2. Check server console for `[Auth JWT] User groups count:` — should show your groups
+3. Check `[Auth JWT] User role:` — should show `admin` if your group matches
+4. Navigate to Admin dashboard — Roles and Slack Integration tabs should be visible
+5. Open user system menu — should show your realm roles and teams
 
-## Teardown
+## 7. Persona validation checklist (SC-003)
+
+Use Keycloak users from `deploy/keycloak/realm-config.json` (adjust passwords locally) or create equivalent realm roles. Goal: **no** protected surface grants a high-risk action that the [permission matrix](./permission-matrix.md) forbids for that persona.
+
+Record **Pass / Fail** and notes (which endpoint or UI path was exercised).
+
+### `admin` — full access
+
+| # | Check | Pass? |
+|---|--------|-------|
+| A1 | UI: Admin dashboard loads; Users, Teams, Roles, sensitive tabs available per `admin_tab_policies` | |
+| A2 | API: `GET /api/admin/users` returns 200 | |
+| A3 | Can assign roles / team membership (if exercised) | |
+| A4 | RAG proxy / query succeeds for all KBs the deployment exposes | |
+| A5 | MCP via Agent Gateway: admin-prefixed or `supervisor_config` tools allowed when JWT has `admin` realm role | |
+
+### `chat_user` — chat access, no admin
+
+| # | Check | Pass? |
+|---|--------|-------|
+| C1 | UI: Main chat works; **Admin** entry hidden or returns 403 on deep link | |
+| C2 | API: `GET /api/admin/users` returns **403** | |
+| C3 | User menu: shows own RBAC posture (`/api/auth/my-roles`); no admin-only tabs | |
+| C4 | Supervisor / A2A invoke allowed where matrix grants `chat_user` | |
+| C5 | MCP (AG): generic tool invoke allowed; **admin_** / **rag_ingest** / **supervisor_config** denied | |
+
+### `team_member` — team-scoped KB / agent context
+
+| # | Check | Pass? |
+|---|--------|-------|
+| T1 | Can access team-scoped RAG tools / KBs only for member teams (MongoDB + Keycloak roles) | |
+| T2 | Cannot modify another team’s tool configs without `kb_admin` / `admin` | |
+| T3 | Slack (if configured): channel→team mapping scopes context; without `team_member` for that team, bot denies with clear message (FR-031 / FR-004) | |
+
+### `kb_admin` — KB administration
+
+| # | Check | Pass? |
+|---|--------|-------|
+| K1 | RAG ingest and KB admin operations succeed | |
+| K2 | UI admin **user/role** management still **403** unless also `admin` / bootstrap admin | |
+| K3 | AG: `rag_ingest*` allowed; platform user management remains blocked | |
+
+### `denied` — no baseline access
+
+Use a user with **no** `chat_user`, `team_member`, `kb_admin`, or `admin` (seed user `denied@example.com` is a starting point).
+
+| # | Check | Pass? |
+|---|--------|-------|
+| D1 | UI: cannot reach agent chat or receives clear unauthorized experience | |
+| D2 | `GET /api/chat/conversations` or equivalent protected API returns **401/403** | |
+| D3 | AG MCP: tool list/invoke **denied** (no valid role in `jwt.realm_access.roles`) | |
+| D4 | No leakage of other users’ data in error messages (FR-004) | |
+
+### Optional regression
+
+| # | Check | Pass? |
+|---|--------|-------|
+| R1 | Stop Keycloak: BFF protected route returns **503** fail-closed (no silent allow) | |
+| R2 | With ASP denying a tool: RBAC allow + ASP deny → **deny** | |
+
+**References**: [security-review.md](./security-review.md), [operator-guide.md](./operator-guide.md).
+
+## Troubleshooting
+
+### "User role: user" even with OIDC_REQUIRED_ADMIN_GROUP set
+
+Your OIDC token may not contain the admin group in its claims. Check:
+1. Server logs for `[Auth JWT] User groups count:` — if 0, the groups claim is missing
+2. Add a **Group Membership** mapper on the `caipe-ui` client in Keycloak
+3. Alternatively, use `BOOTSTRAP_ADMIN_EMAILS=your.email@example.com` as a temporary workaround
+
+### Supervisor tests fail with "async def functions are not natively supported"
 
 ```bash
-docker compose -f docker-compose.dev.yaml --profile rbac --profile caipe-mongodb down -v
+uv add --dev pytest-asyncio
 ```
+
+### UI tests fail with ESM module errors
+
+Some dependencies (uuid, jose, @a2a-js) require ESM transforms. Check `jest.config.js` has them in `transformIgnorePatterns`.

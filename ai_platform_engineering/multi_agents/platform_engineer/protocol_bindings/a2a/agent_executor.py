@@ -838,12 +838,34 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Extract user_id from A2A message metadata (set by client or gateway),
         # falling back to the email extracted from the query prefix.
         user_id = None
+        obo_token = None
         if context.message and context.message.metadata:
             meta = context.message.metadata
             if isinstance(meta, dict):
                 user_id = meta.get("user_id") or meta.get("user_email")
+                obo_token = meta.get("obo_token") or meta.get("access_token")
         if not user_id and user_email:
             user_id = user_email
+
+        # OBO exchange: if we have a user access token but no OBO-specific token,
+        # exchange it via Keycloak for an OBO token (FR-038d).
+        if obo_token:
+            try:
+                from ai_platform_engineering.utils.obo_exchange import (
+                    exchange_token_for_supervisor,
+                )
+                import os
+                if os.getenv("AGENT_GATEWAY_URL"):
+                    obo_result = await exchange_token_for_supervisor(obo_token)
+                    if obo_result:
+                        obo_token = obo_result.access_token
+                        logger.info("OBO token exchange succeeded for user delegation")
+                    else:
+                        logger.warning(
+                            "OBO exchange failed — using original access token"
+                        )
+            except Exception as exc:
+                logger.warning("OBO exchange import/call error: %s", exc)
 
         # Initialize state
         state = StreamState()
@@ -851,8 +873,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         try:
             self.agent._pending_user_email = user_email
+            if obo_token:
+                self.agent._obo_token = obo_token
             stream_params = inspect.signature(self.agent.stream).parameters
             stream_kwargs = {"user_id": user_id} if "user_id" in stream_params else {}
+            if "obo_token" in stream_params and obo_token:
+                stream_kwargs["obo_token"] = obo_token
             async for event in self.agent.stream(query, context_id, trace_id, **stream_kwargs):
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,

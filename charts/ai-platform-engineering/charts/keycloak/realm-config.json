@@ -1,0 +1,1312 @@
+{
+  "realm": "caipe",
+  "enabled": true,
+  "sslRequired": "none",
+  "displayName": "CAIPE Realm",
+  "displayNameHtml": "<div class=\"kc-logo-text\"><span>Grid</span></div>",
+  "loginTheme": "caipe",
+  "adminTheme": "keycloak",
+  "accountTheme": "keycloak",
+  "emailTheme": "keycloak",
+  "internationalizationEnabled": false,
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "unmanagedAttributePolicy": "ADMIN_EDIT",
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 30,
+  "requiredCredentials": [
+    "password"
+  ],
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA256",
+  "otpPolicyInitialCounter": 0,
+  "otpPolicyDigits": 6,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyPeriod": 30,
+  "otpSupportedApplications": [
+    "FreeOTP",
+    "Google Authenticator"
+  ],
+  "webAuthnPolicyRpEntityName": "keycloak",
+  "webAuthnPolicySignatureAlgorithms": [
+    "ES256"
+  ],
+  "accessTokenLifespan": 3600,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespan": 5184000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
+  "actionTokenGeneratedByAdminLifespan": 43200,
+  "actionTokenGeneratedByUserLifespan": 300,
+  "scopeMappings": [
+    {
+      "clientScope": "offline_access",
+      "roles": [
+        "offline_access"
+      ]
+    }
+  ],
+  "clientScopeMappings": {},
+  "clients": [
+    {
+      "clientId": "caipe-ui",
+      "name": "CAIPE Admin UI",
+      "description": "Next.js frontend — confidential OIDC client for Admin UI (NextAuth server-side flow)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "caipe-ui-dev-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ]
+    },
+    {
+      "clientId": "caipe-platform",
+      "name": "CAIPE Platform Resource Server",
+      "description": "Confidential client — Authorization Services enabled (PDP-1 for UI/Slack RBAC)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "caipe-platform-dev-secret",
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      },
+      "authorizationSettings": {
+        "allowRemoteResourceManagement": true,
+        "policyEnforcementMode": "ENFORCING",
+        "decisionStrategy": "UNANIMOUS",
+        "resources": [
+          {
+            "name": "admin_ui",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "view"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              },
+              {
+                "name": "audit.view"
+              }
+            ]
+          },
+          {
+            "name": "slack",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "view"
+              },
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "admin"
+              }
+            ]
+          },
+          {
+            "name": "supervisor",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              }
+            ]
+          },
+          {
+            "name": "rag",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "query"
+              },
+              {
+                "name": "ingest"
+              },
+              {
+                "name": "admin"
+              },
+              {
+                "name": "tool.create"
+              },
+              {
+                "name": "tool.update"
+              },
+              {
+                "name": "tool.delete"
+              },
+              {
+                "name": "tool.view"
+              },
+              {
+                "name": "kb.admin"
+              },
+              {
+                "name": "kb.ingest"
+              },
+              {
+                "name": "kb.query"
+              }
+            ]
+          },
+          {
+            "name": "sub_agent",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              }
+            ]
+          },
+          {
+            "name": "tool",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "admin"
+              }
+            ]
+          },
+          {
+            "name": "skill",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "view"
+              },
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "delete"
+              }
+            ]
+          },
+          {
+            "name": "a2a",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "create"
+              },
+              {
+                "name": "view"
+              },
+              {
+                "name": "configure"
+              },
+              {
+                "name": "delete"
+              },
+              {
+                "name": "admin"
+              }
+            ]
+          },
+          {
+            "name": "mcp",
+            "type": "caipe:component",
+            "ownerManagedAccess": false,
+            "scopes": [
+              {
+                "name": "invoke"
+              },
+              {
+                "name": "view"
+              },
+              {
+                "name": "admin"
+              }
+            ]
+          }
+        ],
+        "policies": [
+          {
+            "name": "admin-role-policy",
+            "description": "Grants access to principals with admin realm role",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"admin\",\"required\":true}]"
+            }
+          },
+          {
+            "name": "chat-user-role-policy",
+            "description": "Grants access to principals with chat_user realm role",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"chat_user\",\"required\":true}]"
+            }
+          },
+          {
+            "name": "team-member-role-policy",
+            "description": "Grants access to principals with team_member realm role",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"team_member\",\"required\":true}]"
+            }
+          },
+          {
+            "name": "kb-admin-role-policy",
+            "description": "Grants access to principals with kb_admin realm role",
+            "type": "role",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "roles": "[{\"id\":\"kb_admin\",\"required\":true}]"
+            }
+          },
+          {
+            "name": "admin-ui-full-access",
+            "description": "Admins have full access to admin_ui component",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"admin_ui\"]",
+              "scopes": "[\"view\",\"configure\",\"admin\",\"audit.view\"]",
+              "applyPolicies": "[\"admin-role-policy\"]"
+            }
+          },
+          {
+            "name": "supervisor-invoke-access",
+            "description": "Chat users can invoke supervisor",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"supervisor\"]",
+              "scopes": "[\"invoke\"]",
+              "applyPolicies": "[\"chat-user-role-policy\"]"
+            }
+          },
+          {
+            "name": "supervisor-admin-access",
+            "description": "Admins can configure and administer supervisor",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"supervisor\"]",
+              "scopes": "[\"configure\",\"admin\"]",
+              "applyPolicies": "[\"admin-role-policy\"]"
+            }
+          },
+          {
+            "name": "rag-query-access",
+            "description": "Chat users can query RAG and view tools",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"rag\"]",
+              "scopes": "[\"query\",\"tool.view\",\"kb.query\"]",
+              "applyPolicies": "[\"chat-user-role-policy\"]"
+            }
+          },
+          {
+            "name": "rag-team-tool-access",
+            "description": "Team members can create/update/delete RAG tools",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"rag\"]",
+              "scopes": "[\"tool.create\",\"tool.update\",\"tool.delete\"]",
+              "applyPolicies": "[\"team-member-role-policy\"]"
+            }
+          },
+          {
+            "name": "rag-kb-admin-access",
+            "description": "KB admins can administer and ingest knowledge bases",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"rag\"]",
+              "scopes": "[\"kb.admin\",\"kb.ingest\",\"admin\",\"ingest\"]",
+              "applyPolicies": "[\"kb-admin-role-policy\"]"
+            }
+          },
+          {
+            "name": "tool-invoke-access",
+            "description": "Chat users can invoke tools",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"tool\"]",
+              "scopes": "[\"invoke\"]",
+              "applyPolicies": "[\"chat-user-role-policy\"]"
+            }
+          },
+          {
+            "name": "tool-admin-access",
+            "description": "Admins can configure and administer tools",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"tool\"]",
+              "scopes": "[\"configure\",\"admin\"]",
+              "applyPolicies": "[\"admin-role-policy\"]"
+            }
+          },
+          {
+            "name": "mcp-invoke-access",
+            "description": "Chat users can invoke MCP tools",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"mcp\"]",
+              "scopes": "[\"invoke\",\"view\"]",
+              "applyPolicies": "[\"chat-user-role-policy\"]"
+            }
+          },
+          {
+            "name": "a2a-access",
+            "description": "Chat users can create and view A2A tasks",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"a2a\"]",
+              "scopes": "[\"create\",\"view\"]",
+              "applyPolicies": "[\"chat-user-role-policy\"]"
+            }
+          },
+          {
+            "name": "skill-invoke-access",
+            "description": "Chat users can view and invoke skills",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"skill\"]",
+              "scopes": "[\"view\",\"invoke\"]",
+              "applyPolicies": "[\"chat-user-role-policy\"]"
+            }
+          },
+          {
+            "name": "slack-access",
+            "description": "Chat users can use Slack features",
+            "type": "scope",
+            "logic": "POSITIVE",
+            "decisionStrategy": "UNANIMOUS",
+            "config": {
+              "resources": "[\"slack\"]",
+              "scopes": "[\"view\",\"invoke\"]",
+              "applyPolicies": "[\"chat-user-role-policy\"]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "clientId": "caipe-slack-bot",
+      "name": "CAIPE Slack Bot",
+      "description": "Confidential client — service account with token-exchange permission for OBO (FR-018, FR-021)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "caipe-slack-bot-dev-secret",
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      }
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "profile",
+      "description": "OpenID Connect built-in scope: profile",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "${profileScopeConsentText}"
+      },
+      "protocolMappers": [
+        {
+          "name": "profile",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "profile",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "profile",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "email",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "email",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "caipe-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "lightweight.claim": "true",
+            "introspection.token.claim": "true",
+            "access.token.claim": "true",
+            "included.custom.audience": "caipe-platform",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "introspection.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "given name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "firstName",
+            "claim.name": "given_name",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "family name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "lastName",
+            "claim.name": "family_name",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "full name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-full-name-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "roles",
+      "description": "Realm roles claim mapper — carries resolved realm roles in JWT",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "groups",
+      "description": "Upstream IdP groups in JWT — maps idp_groups user attribute into groups claim (FR-010)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "idp-groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "idp_groups",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "org",
+      "description": "Organization / tenant claim mapper — carries org attribute in JWT (FR-020)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "org-attribute",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "false",
+            "userinfo.token.claim": "true",
+            "user.attribute": "org",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "org",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "email",
+      "description": "OpenID Connect built-in scope: email",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "${emailScopeConsentText}"
+      },
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "email",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "email",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "email verified",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "user.attribute": "emailVerified",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "email_verified",
+            "jsonType.label": "boolean"
+          }
+        }
+      ]
+    },
+    {
+      "name": "offline_access",
+      "description": "OpenID Connect built-in scope: offline_access",
+      "protocol": "openid-connect",
+      "attributes": {
+        "consent.screen.text": "${offlineAccessScopeConsentText}",
+        "display.on.consent.screen": "true"
+      }
+    }
+  ],
+  "defaultDefaultClientScopes": [
+    "profile",
+    "email",
+    "roles",
+    "groups",
+    "org"
+  ],
+  "defaultOptionalClientScopes": [
+    "offline_access"
+  ],
+  "browserSecurityHeaders": {
+    "contentSecurityPolicyReportOnly": "",
+    "xContentTypeOptions": "nosniff",
+    "xRobotsTag": "none",
+    "xFrameOptions": "SAMEORIGIN",
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self'; object-src 'none';",
+    "xXSSProtection": "1; mode=block",
+    "strictTransportSecurity": "max-age=31536000; includeSubDomains"
+  },
+  "smtpServer": {},
+  "eventsEnabled": true,
+  "eventsListeners": [
+    "jboss-logging"
+  ],
+  "enabledEventTypes": [
+    "LOGIN",
+    "LOGIN_ERROR",
+    "LOGOUT",
+    "CODE_TO_TOKEN",
+    "CODE_TO_TOKEN_ERROR",
+    "CLIENT_LOGIN",
+    "CLIENT_LOGIN_ERROR",
+    "TOKEN_EXCHANGE",
+    "TOKEN_EXCHANGE_ERROR",
+    "PERMISSION_TOKEN",
+    "PERMISSION_TOKEN_ERROR"
+  ],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true,
+  "identityProviders": [
+    {
+      "alias": "okta-oidc",
+      "displayName": "Okta (OIDC)",
+      "providerId": "oidc",
+      "enabled": false,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "OKTA_CLIENT_ID_PLACEHOLDER",
+        "clientSecret": "OKTA_CLIENT_SECRET_PLACEHOLDER",
+        "tokenUrl": "https://your-okta-domain.okta.com/oauth2/v1/token",
+        "authorizationUrl": "https://your-okta-domain.okta.com/oauth2/v1/authorize",
+        "userInfoUrl": "https://your-okta-domain.okta.com/oauth2/v1/userinfo",
+        "issuer": "https://your-okta-domain.okta.com",
+        "defaultScope": "openid email profile groups",
+        "syncMode": "IMPORT"
+      }
+    },
+    {
+      "alias": "okta-saml",
+      "displayName": "Okta (SAML)",
+      "providerId": "saml",
+      "enabled": false,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "singleSignOnServiceUrl": "https://your-okta-domain.okta.com/app/SAML_APP_ID/sso/saml",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "postBindingResponse": "true",
+        "postBindingAuthnRequest": "true",
+        "wantAssertionsSigned": "true",
+        "wantAuthnRequestsSigned": "true",
+        "syncMode": "IMPORT"
+      }
+    },
+    {
+      "alias": "entra-oidc",
+      "displayName": "Microsoft Entra ID (OIDC)",
+      "providerId": "oidc",
+      "enabled": false,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "ENTRA_CLIENT_ID_PLACEHOLDER",
+        "clientSecret": "ENTRA_CLIENT_SECRET_PLACEHOLDER",
+        "tokenUrl": "https://login.microsoftonline.com/YOUR_TENANT_ID/oauth2/v2.0/token",
+        "authorizationUrl": "https://login.microsoftonline.com/YOUR_TENANT_ID/oauth2/v2.0/authorize",
+        "issuer": "https://login.microsoftonline.com/YOUR_TENANT_ID/v2.0",
+        "defaultScope": "openid email profile",
+        "syncMode": "IMPORT"
+      }
+    },
+    {
+      "alias": "entra-saml",
+      "displayName": "Microsoft Entra ID (SAML)",
+      "providerId": "saml",
+      "enabled": false,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "singleSignOnServiceUrl": "https://login.microsoftonline.com/YOUR_TENANT_ID/saml2",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        "postBindingResponse": "true",
+        "postBindingAuthnRequest": "true",
+        "wantAssertionsSigned": "true",
+        "wantAuthnRequestsSigned": "true",
+        "syncMode": "IMPORT"
+      }
+    }
+  ],
+  "identityProviderMappers": [
+    {
+      "name": "okta-oidc-groups-importer",
+      "identityProviderAlias": "okta-oidc",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "claim": "groups",
+        "user.attribute": "idp_groups"
+      }
+    },
+    {
+      "name": "okta-oidc-platform-admin-role",
+      "identityProviderAlias": "okta-oidc",
+      "identityProviderMapper": "hardcoded-role-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "role": "admin",
+        "claim": "groups",
+        "claim.value": "platform-admin"
+      }
+    },
+    {
+      "name": "okta-oidc-team-member-role",
+      "identityProviderAlias": "okta-oidc",
+      "identityProviderMapper": "hardcoded-role-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "role": "team_member",
+        "claim": "groups",
+        "claim.value": "team-a-eng"
+      }
+    },
+    {
+      "name": "okta-oidc-kb-admin-role",
+      "identityProviderAlias": "okta-oidc",
+      "identityProviderMapper": "hardcoded-role-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "role": "kb_admin",
+        "claim": "groups",
+        "claim.value": "kb-admins"
+      }
+    },
+    {
+      "name": "okta-saml-groups-importer",
+      "identityProviderAlias": "okta-saml",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "attribute.name": "groups",
+        "user.attribute": "idp_groups"
+      }
+    },
+    {
+      "name": "okta-saml-platform-admin-role",
+      "identityProviderAlias": "okta-saml",
+      "identityProviderMapper": "saml-role-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "role": "admin",
+        "attribute.name": "groups",
+        "attribute.value": "platform-admin"
+      }
+    },
+    {
+      "name": "entra-oidc-groups-importer",
+      "identityProviderAlias": "entra-oidc",
+      "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "claim": "groups",
+        "user.attribute": "idp_groups"
+      }
+    },
+    {
+      "name": "entra-oidc-platform-admin-role",
+      "identityProviderAlias": "entra-oidc",
+      "identityProviderMapper": "hardcoded-role-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "role": "admin",
+        "claim": "groups",
+        "claim.value": "ENTRA_ADMIN_GROUP_GUID_PLACEHOLDER"
+      }
+    },
+    {
+      "name": "entra-saml-groups-importer",
+      "identityProviderAlias": "entra-saml",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "attribute.name": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
+        "user.attribute": "idp_groups"
+      }
+    },
+    {
+      "name": "entra-saml-platform-admin-role",
+      "identityProviderAlias": "entra-saml",
+      "identityProviderMapper": "saml-role-idp-mapper",
+      "config": {
+        "syncMode": "INHERIT",
+        "role": "admin",
+        "attribute.name": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
+        "attribute.value": "ENTRA_ADMIN_GROUP_GUID_PLACEHOLDER"
+      }
+    }
+  ],
+  "components": {
+    "org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy": [
+      {
+        "name": "Consent Required",
+        "providerId": "consent-required",
+        "subType": "anonymous",
+        "subComponents": {},
+        "config": {}
+      },
+      {
+        "name": "Full Scope Disabled",
+        "providerId": "scope",
+        "subType": "anonymous",
+        "subComponents": {},
+        "config": {}
+      },
+      {
+        "name": "Max Clients Limit",
+        "providerId": "max-clients",
+        "subType": "anonymous",
+        "subComponents": {},
+        "config": {
+          "max-clients": [
+            "200"
+          ]
+        }
+      },
+      {
+        "name": "Allowed Protocol Mapper Types",
+        "providerId": "allowed-protocol-mappers",
+        "subType": "authenticated",
+        "subComponents": {},
+        "config": {
+          "allowed-protocol-mapper-types": [
+            "saml-role-list-mapper",
+            "oidc-usermodel-attribute-mapper",
+            "oidc-usermodel-property-mapper",
+            "oidc-address-mapper",
+            "saml-user-attribute-mapper",
+            "oidc-full-name-mapper",
+            "saml-user-property-mapper",
+            "oidc-sha256-pairwise-sub-mapper"
+          ]
+        }
+      },
+      {
+        "name": "Allowed Client Scopes",
+        "providerId": "allowed-client-templates",
+        "subType": "authenticated",
+        "subComponents": {},
+        "config": {
+          "allow-default-scopes": [
+            "true"
+          ]
+        }
+      },
+      {
+        "name": "Allowed Protocol Mapper Types",
+        "providerId": "allowed-protocol-mappers",
+        "subType": "anonymous",
+        "subComponents": {},
+        "config": {
+          "allowed-protocol-mapper-types": [
+            "oidc-usermodel-property-mapper",
+            "oidc-sha256-pairwise-sub-mapper",
+            "oidc-usermodel-attribute-mapper",
+            "saml-user-property-mapper",
+            "oidc-full-name-mapper",
+            "oidc-address-mapper",
+            "saml-role-list-mapper",
+            "saml-user-attribute-mapper"
+          ]
+        }
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "admin-user",
+      "enabled": true,
+      "email": "admin@example.com",
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin"
+        }
+      ],
+      "realmRoles": [
+        "admin",
+        "chat_user",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
+    },
+    {
+      "username": "standard-user",
+      "enabled": true,
+      "email": "standard@example.com",
+      "emailVerified": true,
+      "firstName": "Standard",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "standard"
+        }
+      ],
+      "realmRoles": [
+        "chat_user",
+        "team_member",
+        "kb_reader:kb-team-a",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
+    },
+    {
+      "username": "kb-admin-user",
+      "enabled": true,
+      "email": "kbadmin@example.com",
+      "emailVerified": true,
+      "firstName": "KB Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "kbadmin"
+        }
+      ],
+      "realmRoles": [
+        "chat_user",
+        "team_member",
+        "kb_admin",
+        "kb_reader:*",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
+    },
+    {
+      "username": "denied-user",
+      "enabled": true,
+      "email": "denied@example.com",
+      "emailVerified": true,
+      "firstName": "Denied",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "denied"
+        }
+      ],
+      "realmRoles": [
+        "offline_access"
+      ],
+      "attributes": {
+        "org": [
+          "acme"
+        ]
+      }
+    },
+    {
+      "username": "org-b-user",
+      "enabled": true,
+      "email": "orgb@example.com",
+      "emailVerified": true,
+      "firstName": "Org-B",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "orgb"
+        }
+      ],
+      "realmRoles": [
+        "chat_user",
+        "offline_access",
+        "uma_authorization"
+      ],
+      "attributes": {
+        "org": [
+          "globex"
+        ]
+      }
+    },
+    {
+      "username": "service-account-caipe-platform",
+      "enabled": true,
+      "serviceAccountClientId": "caipe-platform",
+      "realmRoles": [
+        "admin",
+        "chat_user"
+      ],
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "manage-users"
+        ]
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "admin",
+        "description": "Platform administrator — full access to all CAIPE components",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "chat_user",
+        "description": "Standard chat user — can invoke supervisor, tools, MCP, A2A, skills",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "team_member",
+        "description": "Team member — can create/manage team-scoped RAG tools",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "kb_admin",
+        "description": "Knowledge base administrator — can administer and ingest KBs",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "offline_access",
+        "description": "Offline access",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "uma_authorization",
+        "description": "User-Managed Access",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "kb_reader:*",
+        "description": "Read all knowledge bases (wildcard)",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "kb_reader:kb-platform",
+        "description": "Read kb-platform KB",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "kb_reader:kb-team-a",
+        "description": "Read kb-team-a KB",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "kb_ingestor:kb-team-a",
+        "description": "Ingest into kb-team-a KB",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      },
+      {
+        "name": "kb_admin:kb-ops",
+        "description": "Admin kb-ops KB",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "caipe"
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-caipe",
+    "description": "${role_default-roles}",
+    "composite": true,
+    "composites": {
+      "realm": [
+        "offline_access"
+      ],
+      "client": {
+        "account": [
+          "view-profile",
+          "manage-account"
+        ]
+      }
+    }
+  },
+  "groups": [],
+  "userManagedAccessAllowed": true
+}

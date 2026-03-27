@@ -558,3 +558,6 @@ export async function deleteIdpMapper(alias: string, mapperId: string): Promise<
   });
   await assertOk(response, "deleteIdpMapper");
 }
+
+/** Alias for callers that expect the name `getKeycloakAdminToken` (098 RBAC resource sync). */
+export { getAdminToken as getKeycloakAdminToken };

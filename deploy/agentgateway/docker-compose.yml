@@ -23,6 +23,26 @@ services:
       - /tmp
     networks:
       - keycloak_default
+    depends_on:
+      github-mcp:
+        condition: service_started
+    healthcheck:
+      disable: true
+
+  github-mcp:
+    image: ghcr.io/github/github-mcp-server
+    container_name: github-mcp
+    restart: unless-stopped
+    command: ["--transport", "sse"]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "8000:8000"
+    environment:
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+    networks:
+      - keycloak_default
     healthcheck:
       disable: true
 

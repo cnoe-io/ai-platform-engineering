@@ -834,12 +834,13 @@ class TestGraphBuilderStoreParam:
         sig = inspect.signature(create_deep_agent)
         assert "store" in sig.parameters
 
-    def test_async_create_deep_agent_accepts_store(self):
+    def test_create_deep_agent_is_sync_factory(self):
         import inspect
-        from deepagents import async_create_deep_agent
+        from deepagents import create_deep_agent
 
-        sig = inspect.signature(async_create_deep_agent)
+        sig = inspect.signature(create_deep_agent)
         assert "store" in sig.parameters
+        assert not inspect.iscoroutinefunction(create_deep_agent)
 
 
 # ============================================================================

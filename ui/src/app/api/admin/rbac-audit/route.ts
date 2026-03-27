@@ -42,7 +42,7 @@ function documentToAuditEvent(doc: AuthorizationDecisionDocument): AuditEvent {
   };
 }
 
-export const GET = withErrorHandler(async (request: NextRequest) => {
+export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   if (!isMongoDBConfigured) {
     return NextResponse.json(
       {
@@ -54,13 +54,24 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const session = await getServerSession(authOptions);
+  const session = (await getServerSession(authOptions)) as {
+    accessToken?: string;
+    sub?: string;
+    org?: string;
+    user?: { email?: string | null };
+  } | null;
+
   if (!session?.user?.email) {
     throw new ApiError("Unauthorized", 401);
   }
 
   await requireRbacPermission(
-    { accessToken: session.accessToken, sub: session.sub, org: session.org },
+    {
+      accessToken: session.accessToken,
+      sub: session.sub,
+      org: session.org,
+      user: { email: session.user.email ?? undefined },
+    },
     "admin_ui",
     "audit.view",
   );

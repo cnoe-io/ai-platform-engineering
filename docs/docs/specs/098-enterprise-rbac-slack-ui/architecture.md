@@ -927,6 +927,410 @@ flowchart TD
 
 ---
 
+## FR-038: Team-Based KB RBAC + Agent Gateway MCP Routing
+
+### Overview
+
+FR-038 introduces team-based KB access control with Agent Gateway MCP routing, OBO token propagation, and per-session auth-aware supervisor tools.
+
+### Architecture Diagram
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                         CAIPE UI (Next.js)                         │
+│  ┌────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
+│  │ KB Browser  │  │ Admin Teams  │  │ Agent Chat (A2A SDK)     │   │
+│  │ (IngestView)│  │ (KB Assign)  │  │ accessToken in Bearer    │   │
+│  └─────┬──────┘  └──────┬───────┘  └────────────┬─────────────┘   │
+│        │                │                        │                  │
+└────────┼────────────────┼────────────────────────┼──────────────────┘
+         │ REST            │ REST                   │ A2A JSON-RPC
+         ▼                ▼                        ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                     BFF API Routes (Next.js)                       │
+│  ┌───────────────┐ ┌──────────────────┐ ┌──────────────────────┐  │
+│  │ /api/rag/kb/* │ │ /api/admin/teams │ │ /api/a2a/…           │  │
+│  │ adds X-Team-Id│ │ /[id]/kb-assign  │ │ forwards Bearer      │  │
+│  │ header        │ │ CRUD on MongoDB  │ │ to supervisor         │  │
+│  └───────┬───────┘ └──────┬───────────┘ └─────────┬────────────┘  │
+│          │                │                        │               │
+│          ▼                ▼                        │               │
+│    ┌───────────┐   ┌──────────────┐               │               │
+│    │ RAG Server│   │   MongoDB    │               │               │
+│    │ REST API  │   │ team_kb_     │               │               │
+│    │ (direct)  │   │ ownership    │               │               │
+│    └───────────┘   └──────────────┘               │               │
+└───────────────────────────────────────────────────┼───────────────┘
+                                                    │
+                                                    ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                    Supervisor (A2A Server)                          │
+│  ┌─────────────┐  ┌────────────────────────────┐                  │
+│  │ Extract user │  │ OBO Token Exchange          │                │
+│  │ Bearer from  │──│ POST /realms/…/protocol/    │                │
+│  │ HTTP request │  │ openid-connect/token         │                │
+│  │              │  │ grant_type=token-exchange     │                │
+│  └──────────────┘  │ subject_token=user_jwt       │                │
+│                    │ → OBO JWT (sub=user,act=svc) │                │
+│                    └──────────┬─────────────────┘                  │
+│                               │                                    │
+│  ┌────────────────────────────▼────────────────────────────────┐   │
+│  │          Auth-Aware Proxy Tools (wrap_rag_tools_with_auth)  │   │
+│  │  ┌──────────────────────┐                                   │   │
+│  │  │ Original RAG Tool    │  Reads obo_token from             │   │
+│  │  │ (from compiled graph)│  RunnableConfig.configurable      │   │
+│  │  │ name + schema kept   │  ──► per-invocation MCP client    │   │
+│  │  └──────────────────────┘       with Bearer auth            │   │
+│  └─────────────────────────────────────┬───────────────────────┘   │
+│                                        │                           │
+└────────────────────────────────────────┼───────────────────────────┘
+                                         │
+                                         ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                    Agent Gateway (AG)                               │
+│  ┌──────────────┐  ┌────────────────┐  ┌────────────────────────┐ │
+│  │ JWT Validate  │  │ CEL Policy     │  │ Target: rag            │ │
+│  │ (Keycloak     │  │ Evaluation     │  │ mcp:                   │ │
+│  │  JWKS)        │  │ (tool-level    │  │   host: rag_server:    │ │
+│  │               │  │  authz)        │  │         9446/mcp       │ │
+│  └──────┬───────┘  └───────┬────────┘  └─────────┬──────────────┘ │
+│         │                  │                      │                │
+│         └──────────────────┴──────────────────────┘                │
+│                            │ Authorized                            │
+│                            ▼                                       │
+└────────────────────────────┼───────────────────────────────────────┘
+                             │
+                             ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                    RAG Server                                      │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ rbac.py:                                                     │  │
+│  │  - Extract team_id from JWT roles or X-Team-Id header        │  │
+│  │  - Query MongoDB team_kb_ownership for allowed datasources   │  │
+│  │  - Filter /v1/datasources and MCP tool responses             │  │
+│  │  - Fail closed: if MongoDB unreachable → empty results       │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────┘
+
+
+┌────────────────────────────────────────────────────────────────────┐
+│                    Dynamic Agents                                   │
+│  ┌──────────────┐  ┌─────────────────────────────────────────┐    │
+│  │ AgentRuntime  │  │ MCP Client (per-session)                │    │
+│  │ auth_bearer = │──│ agent_gateway_url = AGENT_GATEWAY_URL   │    │
+│  │ user OBO JWT  │  │ headers: Authorization: Bearer <obo>    │    │
+│  └──────────────┘  └──────────────────┬──────────────────────┘    │
+│                                       │                            │
+│  Sub-agents inherit auth_bearer       │                            │
+│  and agent_gateway_url                │                            │
+└───────────────────────────────────────┼────────────────────────────┘
+                                        │
+                                        ▼
+                                   Agent Gateway
+                                   (same as above)
+```
+
+### Data Flow: Team-Scoped KB Query via Supervisor
+
+1. **User sends chat** → UI attaches `accessToken` as Bearer header
+2. **BFF** forwards Bearer to supervisor A2A endpoint
+3. **Supervisor** extracts user JWT from request, performs **OBO token exchange** with Keycloak (RFC 8693): `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, `subject_token=<user_jwt>` → receives OBO JWT with `sub=user, act.sub=caipe-platform`
+4. **Auth-aware proxy tool** is invoked by LangGraph; it reads `obo_token` from `RunnableConfig.configurable`, creates an ephemeral MCP client with `Authorization: Bearer <obo_token>`, connects to AG
+5. **Agent Gateway** validates the OBO JWT via Keycloak JWKS, evaluates CEL tool-level policies, forwards the MCP request to RAG server target
+6. **RAG server** extracts team membership from JWT roles (`team_member(<id>)`), queries `team_kb_ownership` in MongoDB for allowed datasource IDs, filters results, returns only team-authorized data
+
+### Data Flow: Team-Scoped KB Ingest via UI
+
+1. **User navigates** to KB → IngestView; UI calls `GET /api/rag/kb/v1/datasources`
+2. **BFF proxy** adds `X-Team-Id` header (from session JWT roles) and proxies to RAG server
+3. **RAG server** checks `team_kb_ownership` — if user's team has `ingest` or `admin` on the target datasource, allow; otherwise deny
+4. **UI** hides ingest/delete buttons for KBs where the user's team lacks matching permissions; shows team-ownership badges
+
+### Fallback Behavior
+
+| Condition | Behavior |
+|-----------|----------|
+| `AGENT_GATEWAY_URL` unset | Supervisor + dynamic agents connect directly to MCP servers (no AG, no OBO) |
+| OBO exchange fails | Supervisor falls back to service-account token (reduced access) |
+| MongoDB `team_kb_ownership` unreachable | RAG server returns empty results (fail-closed) |
+| AG down | MCP calls denied; UI REST path unaffected |
+
+---
+
+## FR-038h: KB UI Team Assignment Architecture
+
+The Knowledge Base UI provides inline team access management through a reusable
+`KbTeamAccessPanel` React component that operates in two modes (`compact` and `full`),
+plus an optional team selector in the ingest form.
+
+### Component Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         IngestView.tsx                                   │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐       │
+│  │  Ingest Form                                                  │       │
+│  │  ┌────────────┐  ┌─────────────┐  ┌────────────────┐        │       │
+│  │  │ URL input   │  │ Share with: │  │ Permission:    │        │       │
+│  │  │             │  │ <select>    │  │ <select>       │        │       │
+│  │  │             │  │ (optional)  │  │ read/ingest/   │        │       │
+│  │  │             │  │             │  │ admin          │        │       │
+│  │  └────────────┘  └─────────────┘  └────────────────┘        │       │
+│  │                                                               │       │
+│  │  On success: POST ingest → PUT /api/admin/teams/{id}/        │       │
+│  │              kb-assignments (assign new datasource)           │       │
+│  └──────────────────────────────────────────────────────────────┘       │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐       │
+│  │  Datasource Row                                               │       │
+│  │  ┌───────────┐ ┌───────┐ ┌──────────────────────┐ ┌──────┐  │       │
+│  │  │ Name      │ │Badges │ │KbTeamAccessPanel     │ │Type  │  │       │
+│  │  │           │ │(teams)│ │mode="compact"         │ │badge │  │       │
+│  │  │           │ │       │ │(Users icon→popover)   │ │      │  │       │
+│  │  └───────────┘ └───────┘ └──────────────────────┘ └──────┘  │       │
+│  └──────────────────────────────────────────────────────────────┘       │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────┐       │
+│  │  Expanded Datasource Detail                                   │       │
+│  │  ┌────────────────────────────────────────────────────────┐   │       │
+│  │  │ KbTeamAccessPanel mode="full"                          │   │       │
+│  │  │ ┌────────────────────────────────────────────────────┐ │   │       │
+│  │  │ │ Team Access                                        │ │   │       │
+│  │  │ │ ┌────────────┬──────────┬────────┐                 │ │   │       │
+│  │  │ │ │ Team Name  │ Perm     │ Remove │                 │ │   │       │
+│  │  │ │ ├────────────┼──────────┼────────┤                 │ │   │       │
+│  │  │ │ │ Platform   │ Ingest ▼ │   🗑   │                 │ │   │       │
+│  │  │ │ │ DataSci    │ Read   ▼ │   🗑   │                 │ │   │       │
+│  │  │ │ └────────────┴──────────┴────────┘                 │ │   │       │
+│  │  │ │ ┌──────────────┬──────────┬──────┐                 │ │   │       │
+│  │  │ │ │ Add team...▼ │ Perm   ▼ │  +   │                 │ │   │       │
+│  │  │ │ └──────────────┴──────────┴──────┘                 │ │   │       │
+│  │  │ └────────────────────────────────────────────────────┘ │   │       │
+│  │  └────────────────────────────────────────────────────────┘   │       │
+│  └──────────────────────────────────────────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow: KB UI Team Assignment
+
+```
+User clicks Share icon (compact) or views expanded detail (full)
+    │
+    ▼
+KbTeamAccessPanel
+    │
+    ├──► GET /api/admin/teams → list all teams
+    │
+    ├──► GET /api/admin/teams/{id}/kb-assignments (per team)
+    │    → build: which teams have this datasource assigned?
+    │
+    ├──► User adds team:
+    │    GET  /api/admin/teams/{id}/kb-assignments  (current state)
+    │    PUT  /api/admin/teams/{id}/kb-assignments  (append datasource)
+    │    → calls onUpdate() → reloadTeamKb()
+    │
+    ├──► User removes team:
+    │    DELETE /api/admin/teams/{id}/kb-assignments?datasource_id=...
+    │    → calls onUpdate() → reloadTeamKb()
+    │
+    └──► User changes permission:
+         GET  /api/admin/teams/{id}/kb-assignments  (current state)
+         PUT  /api/admin/teams/{id}/kb-assignments  (update kb_permissions)
+         → calls onUpdate() → reloadTeamKb()
+```
+
+### Data Flow: Post-Ingest Team Assignment
+
+```
+User fills ingest form + selects team + permission
+    │
+    ▼
+handleIngest()
+    │
+    ├──► POST /api/rag/kb/v1/ingest  (create datasource + job)
+    │    → returns { datasource_id, job_id }
+    │
+    └──► If ingestTeamId is set:
+         GET  /api/admin/teams/{id}/kb-assignments  (current state)
+         PUT  /api/admin/teams/{id}/kb-assignments  (append new datasource_id)
+         → reloadTeamKb()
+```
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `ui/src/components/rag/KbTeamAccessPanel.tsx` | Reusable panel (compact popover + full inline) for managing team-KB assignments per datasource |
+
+### Modified Files
+
+| File | Changes |
+|------|---------|
+| `ui/src/components/rag/IngestView.tsx` | Import KbTeamAccessPanel; add compact Share button per row; add full panel in detail; add team/permission selectors in ingest form; post-ingest team assignment |
+| `ui/src/hooks/useTeamKbOwnership.ts` | Already exports `reload` (used as `reloadTeamKb`) |
+
+---
+
+## FR-038d: AG End-to-End + RAG MCP RBAC Enforcement Architecture
+
+### Problem
+
+Team-based KB scoping was enforced only on the **UI REST path** (BFF sets `X-Team-Id`, RAG server calls `inject_kb_filter`). The **Slack/supervisor MCP path** bypassed all RBAC because:
+
+1. `AGENT_GATEWAY_URL` was not set, so auth-aware proxy tools were not activated
+2. `KEYCLOAK_SUPERVISOR_CLIENT_SECRET` was not mapped, so OBO exchange could not work
+3. `MCPAuthMiddleware` validated auth but discarded `UserContext`
+4. MCP tool functions called `vector_db_query_service.query()` with no team filtering
+
+### MCP RBAC Data Flow (After Fix)
+
+```
+┌──────────┐   JWT    ┌──────────────┐   OBO Token    ┌───────────────┐
+│ Slack    │ ──────→  │ Supervisor   │  ───────────→   │ Agent Gateway │
+│ User     │          │ (caipe-sup)  │                 │ (AG)          │
+└──────────┘          └──────┬───────┘                 └──────┬────────┘
+                             │                                │
+                    wraps tools via                   validates JWT,
+                    auth_mcp_tools.py                 applies CEL,
+                    (OBO exchange)                    proxies to RAG
+                             │                                │
+                             └────────────────────────────────┘
+                                                              │
+                                                              ▼
+                                              ┌───────────────────────────┐
+                                              │ RAG Server (/mcp)        │
+                                              │                          │
+                                              │ MCPAuthMiddleware        │
+                                              │  ├─ validate Bearer JWT  │
+                                              │  ├─ build UserContext    │
+                                              │  └─ set contextvars      │
+                                              │                          │
+                                              │ MCP Tool (search, etc.)  │
+                                              │  ├─ read UserContext     │
+                                              │  ├─ extract team_id     │
+                                              │  ├─ get_accessible_kb_ids│
+                                              │  └─ filter query results │
+                                              └───────────────────────────┘
+```
+
+### Changes Made
+
+#### `docker-compose.dev.yaml`
+- Set `AGENT_GATEWAY_URL` default to `http://agentgateway:4000` for supervisor and dynamic-agents
+- Map `KEYCLOAK_SUPERVISOR_CLIENT_ID` and `KEYCLOAK_SUPERVISOR_CLIENT_SECRET` for OBO exchange
+
+#### `ai_platform_engineering/knowledge_bases/rag/server/src/server/restapi.py`
+- Added `mcp_user_context_var: ContextVar[Optional[UserContext]]`
+- Modified `MCPAuthMiddleware.dispatch()` to store `UserContext` on `request.state.user` and set the context variable for both JWT-authenticated and trusted-network requests
+- Context variable is properly reset after each request using `try/finally`
+
+#### `ai_platform_engineering/knowledge_bases/rag/server/src/server/tools.py`
+- Added `_get_mcp_user_context()`: reads `UserContext` from `mcp_user_context_var`
+- Added `_extract_team_id()`: parses `team_member(<id>)` from realm roles
+- Added `_resolve_accessible_kb_ids()`: resolves accessible KB IDs via `get_accessible_kb_ids()`, returns None for unrestricted access
+- Modified `search()`: applies datasource_id filter before querying
+- Modified `fetch_document()`: adds datasource_id filter to document fetch
+- Modified `list_datasources_and_entity_types()`: filters returned datasource list
+- Modified `_make_search_fn` / `_execute()`: intersects per-search datasource_ids with RBAC-accessible IDs
+
+---
+
+---
+
+## FR-039: AG Dynamic CEL Policy Management Architecture
+
+### Overview
+
+Agent Gateway reads CEL authorization rules from `config.yaml` (file-watched for hot-reload). The Admin UI stores policies in MongoDB. A **config-bridge sidecar** synchronizes policies from MongoDB to AG's config file, enabling zero-downtime policy updates from the Admin UI.
+
+### Component Architecture
+
+```mermaid
+flowchart LR
+    AdminUI["Admin UI\nAG MCP Policies Editor"] -->|"PUT /api/rbac/ag-policies\n(CEL validated)"| BFF["BFF API Route\n/api/rbac/ag-policies"]
+    BFF -->|"upsert + bump\npolicy_generation"| MongoDB["MongoDB\nag_mcp_policies\nag_mcp_backends\nag_sync_state"]
+    Bridge["Config Bridge\nPython sidecar"] -->|"poll every 5s"| MongoDB
+    Bridge -->|"render Jinja2\natomic write"| ConfigFile["config.yaml\n(shared volume)"]
+    Bridge -->|"update\nbridge_generation"| MongoDB
+    ConfigFile -->|"file-watch\nhot-reload"| AG["Agent Gateway"]
+    AdminUI -->|"GET /api/rbac/ag-sync-status"| BFF
+    BFF -->|"compare generations"| MongoDB
+```
+
+### Hot-Reload Flow
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin UI
+    participant BFF as BFF API
+    participant Mongo as MongoDB
+    participant Bridge as Config Bridge
+    participant AG as Agent Gateway
+
+    Admin ->> BFF: PUT /api/rbac/ag-policies
+    Note over BFF: CEL dry-run validation
+    BFF ->> Mongo: upsert ag_mcp_policies
+    BFF ->> Mongo: $inc policy_generation
+    BFF -->> Admin: success, sync_status=pending
+    Admin ->> Admin: Show Syncing spinner
+    Bridge ->> Mongo: poll ag_mcp_policies
+    Bridge ->> Bridge: render config.yaml.j2
+    Bridge ->> AG: atomic write config.yaml
+    Bridge ->> Mongo: set bridge_generation=N
+    AG ->> AG: file-watch hot-reload
+    Admin ->> BFF: GET /api/rbac/ag-sync-status
+    BFF ->> Mongo: read ag_sync_state
+    BFF -->> Admin: synced=true, generation=N
+    Admin ->> Admin: Show Live badge
+```
+
+### CEL Validation Strategy
+
+Two-layer validation prevents invalid policies from reaching Agent Gateway:
+
+1. **Client-side (live)**: The `AgMcpPoliciesEditor` component uses `cel-js` (via `@/lib/rbac/cel-evaluator`) to validate expressions as the admin types (debounced 300ms). A mock AG context with `jwt.realm_access.roles`, `mcp.tool.name`, and `request.headers` is used for dry-run evaluation, showing whether the expression would allow or deny the mock request.
+
+2. **Server-side (on save)**: The BFF route (`/api/rbac/ag-policies` PUT) runs `evalCel(expression, agDryContext)` before upserting to MongoDB. Invalid expressions return HTTP 400 with the parse error.
+
+### MongoDB Collections
+
+| Collection | Purpose | Key Fields |
+|---|---|---|
+| `ag_mcp_policies` | CEL rules per backend/tool pattern | `backend_id`, `tool_pattern`, `expression`, `enabled` |
+| `ag_mcp_backends` | MCP upstream targets | `id`, `upstream_url`, `description`, `enabled` |
+| `ag_sync_state` | Generation counter for sync tracking | `policy_generation`, `bridge_generation`, `bridge_last_sync`, `bridge_error` |
+
+### Deployment Models
+
+**Docker dev** (docker-compose.dev.yaml):
+- `ag-config-bridge` container shares `ag_config` named volume with `agentgateway`
+- Bridge writes to `/etc/agentgateway/config.yaml`; AG reads from the same path
+- Bridge polls MongoDB every 5 seconds (configurable via `AG_POLL_INTERVAL`)
+
+**Kubernetes prod** (future):
+- Option A: Sidecar in AG pod + `emptyDir` shared volume
+- Option B: If kgateway is adopted, migrate to `AgentgatewayPolicy` CRDs via K8s operator
+
+### Files Changed
+
+| File | Change |
+|---|---|
+| `deploy/agentgateway/config.yaml.j2` | New — Jinja2 template for AG config |
+| `deploy/agentgateway/config-bridge.py` | New — Python sidecar with MongoDB poll + template render |
+| `deploy/agentgateway/Dockerfile.config-bridge` | New — Container image for bridge |
+| `deploy/agentgateway/requirements.txt` | New — pymongo + jinja2 |
+| `ui/src/app/api/rbac/ag-policies/route.ts` | New — BFF CRUD with CEL validation |
+| `ui/src/app/api/rbac/ag-sync-status/route.ts` | New — Sync status endpoint |
+| `ui/src/components/admin/AgMcpPoliciesEditor.tsx` | New — Admin UI editor with validation + hot-reload |
+| `ui/src/lib/rbac/types.ts` | Added `AgMcpPolicy`, `AgMcpBackend`, `AgSyncState` types |
+| `ui/src/lib/mongodb.ts` | Added indexes for new collections |
+| `ui/src/app/api/rbac/admin-tab-gates/route.ts` | Added `ag_policies` tab gate |
+| `ui/src/app/(app)/admin/page.tsx` | Added AG MCP Policies tab to Security & Policy category |
+| `docker-compose.dev.yaml` | Added `ag-config-bridge` service + `ag_config` shared volume |
+
+---
+
 ## Related Documents
 
 - [spec.md](./spec.md) — Feature specification (098)

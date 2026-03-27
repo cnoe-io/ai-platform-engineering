@@ -35,34 +35,57 @@ RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
 if RBAC_ENABLED:
     import asyncio
-    from utils.rbac_middleware import TEAM_ROLE_MISMATCH_MESSAGE
     from utils.identity_linker import resolve_slack_user, generate_linking_url
-    from utils.channel_team_mapper import (
-        resolve_effective_team_for_user,
-        user_has_team_member_role,
-    )
-    from utils.keycloak_admin import fetch_user_realm_role_names
+    from utils.channel_team_mapper import resolve_effective_team_for_user
+    from utils.obo_exchange import impersonate_user, OboExchangeError
 
-    async def _rbac_enrich_context(body, slack_user_id, context):
+    CHANNEL_NOT_MAPPED_MESSAGE = (
+        "This channel hasn't been set up for CAIPE yet. "
+        "Ask your admin to add a channel-to-team mapping in the CAIPE Admin panel."
+    )
+
+    TEAM_ROLE_MISSING_MESSAGE = (
+        "You don't have access to CAIPE in this channel. "
+        "Ask your admin to add you to the team for this channel."
+    )
+
+    async def _rbac_enrich_context(body, slack_user_id, context, *, require_team: bool = True):
+        """Resolve identity and enrich Bolt context.
+
+        Returns 'unlinked', ('deny', message), or 'ok'.
+        When *require_team* is False (e.g. @mentions), a missing channel-
+        to-team mapping is not a hard deny — the request proceeds without
+        team scope.
+        """
         keycloak_user_id = await resolve_slack_user(slack_user_id)
         if keycloak_user_id is None:
             return "unlinked"
+
+        context["keycloak_user_id"] = keycloak_user_id
+
         channel_id = (
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
         )
-        eff = await resolve_effective_team_for_user(channel_id, keycloak_user_id)
-        if eff.user_denial_message:
-            return ("deny", eff.user_denial_message)
-        if not eff.team_id:
-            return ("deny", eff.user_denial_message or TEAM_ROLE_MISMATCH_MESSAGE)
-        roles = await fetch_user_realm_role_names(keycloak_user_id)
-        if not user_has_team_member_role(roles, eff.team_id):
-            return ("deny", TEAM_ROLE_MISMATCH_MESSAGE)
-        context["keycloak_user_id"] = keycloak_user_id
-        context["platform_team_id"] = eff.team_id
         if channel_id:
             context["slack_channel_id"] = channel_id
+
+        eff = await resolve_effective_team_for_user(channel_id, keycloak_user_id)
+        if eff.team_id:
+            # Channel is mapped — trust the mapping, set team context
+            context["platform_team_id"] = eff.team_id
+        elif require_team:
+            return ("deny", eff.user_denial_message or CHANNEL_NOT_MAPPED_MESSAGE)
+        else:
+            logger.debug("No team for channel=%s user=%s — @mention, allowing", channel_id, slack_user_id)
+
+        try:
+            obo = await impersonate_user(keycloak_user_id)
+            context["obo_token"] = obo.access_token
+            logger.info("OBO impersonation succeeded for user %s", keycloak_user_id)
+        except OboExchangeError:
+            logger.warning("OBO impersonation failed for user %s — downstream calls will use bot identity", keycloak_user_id)
+
         return "ok"
 
     logger.info("Enterprise RBAC enforcement enabled for Slack bot")
@@ -76,6 +99,21 @@ def _platform_team_id_from_context(context):
     try:
         tid = context.get("platform_team_id")
         return tid if isinstance(tid, str) and tid else None
+    except AttributeError:
+        return None
+
+
+def _obo_token_from_context(context):
+    """Extract OBO JWT from Bolt context (FR-019).
+
+    Returns the user-scoped OBO token set by ``_rbac_enrich_context``,
+    or ``None`` when RBAC is disabled or the OBO exchange failed.
+    """
+    if not RBAC_ENABLED or context is None:
+        return None
+    try:
+        tok = context.get("obo_token")
+        return tok if isinstance(tok, str) and tok else None
     except AttributeError:
         return None
 
@@ -140,8 +178,25 @@ for attempt in range(1, max_retries + 1):
 # =============================================================================
 # 098 RBAC Global Middleware
 # =============================================================================
+# Deduplicate Slack event retries (Socket Mode delivers retries as new events)
+_seen_events: dict[str, float] = {}
+_SEEN_TTL = 30.0  # seconds
+
 @app.middleware
 def rbac_global_middleware(body, context, next, logger):
+    # Deduplicate retried events
+    event_id = body.get("event_id")
+    if event_id:
+        import time as _time
+        now = _time.time()
+        # Prune old entries
+        stale = [k for k, v in _seen_events.items() if now - v > _SEEN_TTL]
+        for k in stale:
+            _seen_events.pop(k, None)
+        if event_id in _seen_events:
+            logger.debug("Ignoring duplicate event_id=%s", event_id)
+            return
+        _seen_events[event_id] = now
     """Enterprise RBAC enforcement checkpoint (098).
 
     When SLACK_RBAC_ENABLED=true:
@@ -157,8 +212,19 @@ def rbac_global_middleware(body, context, next, logger):
         next()
         return
 
+    # Skip system/bot messages (joins, leaves, topic changes, etc.)
+    event = body.get("event", {})
+    subtype = event.get("subtype", "")
+    if subtype in (
+        "channel_join", "channel_leave", "channel_topic", "channel_purpose",
+        "channel_name", "bot_message", "message_changed", "message_deleted",
+        "group_join", "group_leave",
+    ):
+        next()
+        return
+
     slack_user_id = (
-        body.get("event", {}).get("user")
+        event.get("user")
         or body.get("user", {}).get("id")
         or body.get("user_id")
     )
@@ -170,12 +236,29 @@ def rbac_global_middleware(body, context, next, logger):
     context["rbac_enabled"] = True
     context["slack_user_id"] = slack_user_id
 
+    # @mentions work in any channel; Q&A messages require a channel-to-team mapping
+    is_mention = event.get("type") == "app_mention"
+
     try:
         loop = asyncio.new_event_loop()
-        rbac_status = loop.run_until_complete(_rbac_enrich_context(body, slack_user_id, context))
-    except Exception:
-        logger.warning("Failed to resolve Slack user %s — allowing pass-through", slack_user_id)
-        next()
+        rbac_status = loop.run_until_complete(
+            _rbac_enrich_context(body, slack_user_id, context, require_team=not is_mention)
+        )
+    except Exception as exc:
+        logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
+        channel = (
+            body.get("event", {}).get("channel")
+            or body.get("channel", {}).get("id")
+        )
+        if channel:
+            try:
+                context["client"].chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    text="Identity verification is temporarily unavailable. Please try again later.",
+                )
+            except Exception:
+                logger.warning("Could not send RBAC error message to %s", slack_user_id)
         return
     finally:
         loop.close()
@@ -199,20 +282,21 @@ def rbac_global_middleware(body, context, next, logger):
                 )
             except Exception:
                 logger.warning("Could not send linking prompt to %s", slack_user_id)
-        next()
         return
 
     if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
         msg = rbac_status[1]
         if channel:
+            msg += f"\n_Channel: <#{channel}>_"
             try:
-                context["client"].chat_postEphemeral(
+                thread_ts = body.get("event", {}).get("thread_ts") or body.get("event", {}).get("ts")
+                context["client"].chat_postMessage(
                     channel=channel,
-                    user=slack_user_id,
+                    thread_ts=thread_ts,
                     text=msg,
                 )
             except Exception:
-                logger.warning("Could not send RBAC denial to %s", slack_user_id)
+                logger.warning("Could not send RBAC denial to %s in %s", slack_user_id, channel)
         return
 
     next()
@@ -306,6 +390,7 @@ def handle_mention(event, say, client, context=None):
             metadata=request_metadata if request_metadata else None,
             session_manager=session_manager,
             platform_team_id=_platform_team_id_from_context(context),
+            obo_token=_obo_token_from_context(context),
         )
 
         if isinstance(result, dict) and result.get("retry_needed"):
@@ -405,6 +490,7 @@ def handle_qanda_message(event, say, client, context=None):
             session_manager=session_manager,
             overthink_mode=channel_config.qanda.overthink,
             platform_team_id=_platform_team_id_from_context(context),
+            obo_token=_obo_token_from_context(context),
         )
 
         if isinstance(result, dict) and result.get("skipped"):
@@ -491,6 +577,7 @@ def handle_dm_message(event, say, client, context=None):
             metadata=request_metadata if request_metadata else None,
             session_manager=session_manager,
             platform_team_id=_platform_team_id_from_context(context),
+            obo_token=_obo_token_from_context(context),
         )
 
         if isinstance(result, dict) and result.get("retry_needed"):
@@ -624,6 +711,7 @@ def handle_message_events(body, say, client, context=None):
             session_manager,
             custom_prompt=channel_config.ai_alerts.custom_prompt,
             platform_team_id=_platform_team_id_from_context(context),
+            obo_token=_obo_token_from_context(context),
         )
 
 

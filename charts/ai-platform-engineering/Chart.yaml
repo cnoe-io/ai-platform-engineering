@@ -201,3 +201,8 @@ dependencies:
     version: 0.2.42 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
+  # Keycloak Identity Provider — RBAC, token exchange, identity federation
+  - name: keycloak
+    version: 0.2.42 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    tags:
+      - keycloak

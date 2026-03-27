@@ -11,6 +11,7 @@ import type {
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT || "caipe-098-audit";
 
 const AUTHORIZATION_DECISION_RECORDS = "authorization_decision_records";
+const AUDIT_EVENTS = "audit_events";
 
 /**
  * Persist audit row shape for MongoDB (`ts` as BSON Date per data-model.md).
@@ -42,6 +43,44 @@ function persistAuthzDecisionToMongo(event: AuditEvent): void {
   })();
 }
 
+/**
+ * Dual-write: also persist to the unified ``audit_events`` collection (FR-037).
+ */
+function persistToUnifiedAuditEvents(event: AuditEvent, email?: string): void {
+  if (!isMongoDBConfigured) {
+    return;
+  }
+
+  const doc = {
+    ts: new Date(event.ts),
+    type: "auth" as const,
+    tenant_id: event.tenant_id,
+    subject_hash: event.subject_hash,
+    action: event.capability,
+    outcome: event.outcome,
+    reason_code: event.reason_code,
+    correlation_id: event.correlation_id,
+    component: event.component,
+    resource_ref: event.resource_ref,
+    pdp: event.pdp,
+    source: "bff" as const,
+    ...(event.actor_hash ? { actor_hash: event.actor_hash } : {}),
+    ...(email ? { user_email: email } : {}),
+  };
+
+  void (async () => {
+    try {
+      const coll = await getCollection(AUDIT_EVENTS);
+      await coll.insertOne(doc);
+    } catch (err) {
+      console.warn(
+        "[rbac/audit] Failed to persist to audit_events:",
+        err,
+      );
+    }
+  })();
+}
+
 function hashSubject(sub: string): string {
   return `sha256:${createHash("sha256").update(`${SUBJECT_SALT}:${sub}`).digest("hex")}`;
 }
@@ -57,6 +96,7 @@ export interface LogAuthzDecisionParams {
   pdp: AuditPdp;
   resourceRef?: string;
   correlationId?: string;
+  email?: string;
 }
 
 /**
@@ -81,5 +121,6 @@ export function logAuthzDecision(params: LogAuthzDecisionParams): AuditEvent {
 
   console.log(JSON.stringify(event));
   persistAuthzDecisionToMongo(event);
+  persistToUnifiedAuditEvents(event, params.email);
   return event;
 }

@@ -525,6 +525,112 @@ Fetches `CHANGELOG.md` from the upstream GitHub raw URL, with local file fallbac
 
 ---
 
+## Skills catalog & API keys (UI Backend API)
+
+### GET `/api/skills`
+
+**Auth:** Session **or** `Authorization: Bearer` (validated via `getAuthFromBearerOrSession`).
+
+Merged skills catalog: prefers proxy to Python `GET {BACKEND_SKILLS_URL}/skills` when configured; otherwise aggregates filesystem templates, MongoDB `agent_skills`, and enabled `skill_hubs`.
+
+**Query parameters:** `q`, `source` (`default` \| `agent_skills` \| `hub`), `tags` (comma-separated), `include_content`, `page`, `page_size`, `visibility`.
+
+**Response `200`:** `{ "skills": [...], "meta": { "total", "page?", "page_size?", "has_more?", "sources_loaded", "unavailable_sources" } }`
+
+**Errors:** `401` unauthorized; `503` `{ "error": "skills_unavailable", "message": "..." }` on aggregation failure.
+
+---
+
+### POST `/api/skills/refresh`
+
+**Auth:** Session + **`requireAdmin`**.
+
+Proxies to Python `POST /skills/refresh` (catalog invalidation / supervisor graph rebuild). Requires `BACKEND_SKILLS_URL`.
+
+**Response:** Pass-through status and JSON from backend; `503` if backend URL unset; `502` if unreachable.
+
+---
+
+### POST `/api/skills/token`
+
+**Auth:** Session (`withAuth`).
+
+Mints an HS256 JWT for programmatic catalog reads (`scope: skills:read`, `role: user`).
+
+**Body (optional):** `{ "expires_in_days": 30 | 60 | 90 }` (default 90, max 90).
+
+**Response `200`:** `{ "token", "token_type": "Bearer", "expires_in", "scope": "skills:read" }`
+
+---
+
+### GET `/api/skills/supervisor-status`
+
+**Auth:** Session.
+
+Proxies to Python `GET /internal/supervisor/skills-status`. If `BACKEND_SKILLS_URL` is unset, returns `200` with null fields and an explanatory `message`.
+
+---
+
+### GET `/api/catalog-api-keys`
+
+**Auth:** Session.
+
+Proxies to Python `GET /catalog-api-keys`. `503` with `{ "error": "backend_not_configured", "keys": [] }` if no backend URL.
+
+---
+
+### POST `/api/catalog-api-keys`
+
+**Auth:** Session.
+
+Proxies key minting to Python `POST /catalog-api-keys`.
+
+---
+
+### DELETE `/api/catalog-api-keys/[keyId]`
+
+**Auth:** Session.
+
+Proxies `DELETE /catalog-api-keys/{keyId}` on the Python backend.
+
+---
+
+## Skill hubs (UI Backend API)
+
+### GET `/api/skill-hubs`
+
+**Auth:** Session + **`requireAdmin`**. Returns `{ "hubs": [...] }` (MongoDB). Empty hubs if MongoDB off.
+
+---
+
+### POST `/api/skill-hubs`
+
+**Auth:** Session + **`requireAdmin`**.
+
+**Body:** `type` (`github` \| `gitlab`), `location` (`owner/repo` or URL). Optional fields per implementation.
+
+---
+
+### PATCH `/api/skill-hubs/[id]`
+
+**Auth:** Session + **`requireAdmin`**. Update `enabled`, `location`, `credentials_ref`.
+
+---
+
+### DELETE `/api/skill-hubs/[id]`
+
+**Auth:** Session + **`requireAdmin`**.
+
+---
+
+### POST `/api/skill-hubs/crawl`
+
+**Auth:** Session + **`requireAdmin`**.
+
+Preview crawl for a repo; proxies to Python when `BACKEND_SKILLS_URL` is set.
+
+---
+
 ## Skill Templates
 
 ### GET `/api/skill-templates`

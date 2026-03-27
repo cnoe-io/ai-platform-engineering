@@ -7,15 +7,32 @@ import {
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
-import { getCollection } from "@/lib/mongodb";
 import { getRealmUserById, mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
 
-const NONCE_TTL_MS = 10 * 60 * 1000;
+const HMAC_TTL_SECONDS = 600;
 
 function readSlackId(attrs: unknown): string | undefined {
   if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) return undefined;
   const a = attrs as Record<string, string[]>;
   return a.slack_user_id?.[0]?.trim() || undefined;
+}
+
+function generateHmacUrl(slackUserId: string): { url: string; expiresAt: Date } {
+  const secret = process.env.SLACK_LINK_HMAC_SECRET?.trim()
+    || process.env.SLACK_SIGNING_SECRET?.trim()
+    || "";
+  if (!secret) throw new ApiError("HMAC secret not configured", 500);
+
+  const ts = Math.floor(Date.now() / 1000);
+  const sig = crypto
+    .createHmac("sha256", secret)
+    .update(`${slackUserId}:${ts}`)
+    .digest("hex");
+
+  const base = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
+  const url = `${base}/api/auth/slack-link?slack_user_id=${encodeURIComponent(slackUserId)}&ts=${ts}&sig=${sig}`;
+  const expiresAt = new Date((ts + HMAC_TTL_SECONDS) * 1000);
+  return { url, expiresAt };
 }
 
 export const POST = withErrorHandler(async (
@@ -25,7 +42,7 @@ export const POST = withErrorHandler(async (
   const params = await context.params;
   const keycloakUserId = decodeURIComponent(params.id);
 
-  return withAuth(request, async (_req, user, session) => {
+  return withAuth(request, async (_req, _user, session) => {
     requireAdmin(session);
 
     const kcUser = await getRealmUserById(keycloakUserId);
@@ -34,20 +51,7 @@ export const POST = withErrorHandler(async (
       throw new ApiError("User has no Slack ID to re-link", 400);
     }
 
-    const nonce = crypto.randomBytes(24).toString("base64url");
-    const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
-    const coll = await getCollection("slack_link_nonces");
-    await coll.insertOne({
-      nonce,
-      slack_user_id: slackUserId,
-      expires_at: expiresAt,
-      created_by: user.email,
-      created_at: new Date(),
-      consumed: false,
-    });
-
-    const base = (process.env.NEXTAUTH_URL || "").replace(/\/$/, "");
-    const relinkUrl = `${base}/api/auth/slack-link?nonce=${encodeURIComponent(nonce)}&slack_user_id=${encodeURIComponent(slackUserId)}`;
+    const { url: relinkUrl, expiresAt } = generateHmacUrl(slackUserId);
 
     return successResponse({
       relink_url: relinkUrl,

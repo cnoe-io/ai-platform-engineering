@@ -42,7 +42,7 @@ export const PATCH = withErrorHandler(async (
     const users = await getCollection<User>('users');
 
     const isEmail = identifier.includes('@');
-    const filter = isEmail ? { email: identifier } : { _id: identifier };
+    const filter = isEmail ? { email: identifier } : { _id: identifier } as Record<string, unknown>;
 
     const targetUser = await users.findOne(filter);
 

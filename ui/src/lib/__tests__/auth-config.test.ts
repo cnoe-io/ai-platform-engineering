@@ -3,7 +3,7 @@
  * Tests OIDC configuration, token refresh, and group authorization
  */
 
-import { hasRequiredGroup, isAdminUser, canViewAdminDashboard } from '../auth-config'
+import { hasRequiredGroup, isAdminUser } from '../auth-config'
 
 // Note: We don't test the full authOptions NextAuth config here
 // as it requires complex NextAuth mocking. Instead, we focus on
@@ -116,7 +116,7 @@ describe('auth-config', () => {
       process.env = originalEnv
     })
 
-    it('should include offline_access scope when refresh tokens enabled', () => {
+    it('should request groups scope when refresh tokens enabled (no offline_access)', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'true'
 
       jest.isolateModules(() => {
@@ -125,11 +125,12 @@ describe('auth-config', () => {
 
         const provider = authOptions.providers[0]
         const scope = provider.authorization.params.scope
-        expect(scope).toContain('offline_access')
+        expect(scope).toContain('groups')
+        expect(scope).not.toContain('offline_access')
       })
     })
 
-    it('should not include offline_access scope when refresh tokens disabled', () => {
+    it('should still request groups scope when refresh tokens disabled', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'false'
 
       jest.isolateModules(() => {
@@ -138,6 +139,7 @@ describe('auth-config', () => {
 
         const provider = authOptions.providers[0]
         const scope = provider.authorization.params.scope
+        expect(scope).toContain('groups')
         expect(scope).not.toContain('offline_access')
       })
     })
@@ -160,6 +162,7 @@ describe('auth-config', () => {
         expect(scope).toContain('openid')
         expect(scope).toContain('email')
         expect(scope).toContain('profile')
+        expect(scope).toContain('groups')
       })
     })
   })
@@ -275,18 +278,6 @@ describe('auth-config', () => {
       const groups = ['backstage-admins', 'backstage-access']
       // Since env var is not set in test, it defaults to empty string
       expect(isAdminUser([])).toBe(false)
-    })
-  })
-
-  describe('canViewAdminDashboard', () => {
-    it('returns true when OIDC_REQUIRED_ADMIN_VIEW_GROUP is not set (default)', () => {
-      // Default is empty string = all authenticated users can view
-      const groups = ['some-group']
-      expect(canViewAdminDashboard(groups)).toBe(true)
-    })
-
-    it('returns true even with empty groups when no view group configured', () => {
-      expect(canViewAdminDashboard([])).toBe(true)
     })
   })
 })

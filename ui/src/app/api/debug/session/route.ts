@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       ssoEnabled: process.env.NEXT_PUBLIC_SSO_ENABLED,
       requiredGroup: process.env.OIDC_REQUIRED_GROUP,
       requiredAdminGroup: process.env.OIDC_REQUIRED_ADMIN_GROUP,
-      requiredAdminViewGroup: process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP,
+      bootstrapAdminEmails: process.env.BOOTSTRAP_ADMIN_EMAILS ? '(configured)' : '(not set)',
     }
   }, { status: 200 });
 }

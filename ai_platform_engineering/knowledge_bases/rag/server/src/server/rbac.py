@@ -1056,6 +1056,41 @@ def _enforce_cel_kb_access(
     raise HTTPException(status_code=403, detail="CEL policy denied access to this knowledge base")
 
 
+async def _get_team_kb_ownership_from_mongo(
+  team_id: str,
+  tenant_id: str,
+) -> Optional[Dict[str, Any]]:
+  """Query MongoDB ``team_kb_ownership`` for a single team. Returns None on error (fail-closed)."""
+  if not RBAC_MONGODB_URI or not RBAC_MONGODB_DATABASE:
+    logger.warning("RBAC MongoDB not configured — cannot load team KB ownership")
+    return None
+  try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    client: AsyncIOMotorClient = AsyncIOMotorClient(
+      RBAC_MONGODB_URI, serverSelectionTimeoutMS=5000
+    )
+    db = client[RBAC_MONGODB_DATABASE]
+    return await db["team_kb_ownership"].find_one(
+      {"team_id": team_id, "tenant_id": tenant_id}
+    )
+  except Exception as e:
+    logger.error("MongoDB error resolving team KB access for team=%s: %s", team_id, e)
+    return None
+
+
+async def get_global_read_kb_ids(tenant_id: str = "default") -> List[str]:
+  """
+  Return datasource IDs from the ``global`` pseudo-team (FR-038).
+
+  These KBs are readable by all authenticated users.
+  """
+  ownership = await _get_team_kb_ownership_from_mongo("global", tenant_id)
+  if not ownership:
+    return []
+  return [str(kb) for kb in ownership.get("kb_ids", [])]
+
+
 async def get_accessible_kb_ids(
   user_context: UserContext,
   scope: str,
@@ -1068,6 +1103,7 @@ async def get_accessible_kb_ids(
 
   ``Role.ADMIN`` or realm role ``kb_admin`` yields full access (``["*"]``).
   Merges per-KB realm roles with ``TeamKbOwnership.kb_ids`` when ``team_id`` is set.
+  Global-read KBs (pseudo-team ``global``) are always included for ``read`` scope.
   """
   if user_context.email.startswith("client:"):
     return ["*"]
@@ -1085,27 +1121,23 @@ async def get_accessible_kb_ids(
     if kb_scope_satisfies(perm.scope, scope):
       ids.add(perm.kb_id)
 
-  if team_id and RBAC_TEAM_SCOPE_ENABLED:
-    if not RBAC_MONGODB_URI or not RBAC_MONGODB_DATABASE:
-      logger.warning("RBAC team scope enabled but MongoDB not configured — cannot load team KB ownership")
-    else:
-      try:
-        from motor.motor_asyncio import AsyncIOMotorClient
-
-        client: AsyncIOMotorClient = AsyncIOMotorClient(
-          RBAC_MONGODB_URI, serverSelectionTimeoutMS=5000
-        )
-        db = client[RBAC_MONGODB_DATABASE]
-        ownership = await db["team_kb_ownership"].find_one(
-          {"team_id": team_id, "tenant_id": tenant_id}
-        )
-      except Exception as e:
-        logger.error("MongoDB error resolving team KB access: %s", e)
+  if RBAC_TEAM_SCOPE_ENABLED:
+    if team_id:
+      ownership = await _get_team_kb_ownership_from_mongo(team_id, tenant_id)
+      if ownership is None and RBAC_MONGODB_URI:
         return []
-      else:
-        if ownership:
-          for kb in ownership.get("kb_ids", []):
-            ids.add(str(kb))
+      if ownership:
+        kb_perms = ownership.get("kb_permissions", {})
+        for kb in ownership.get("kb_ids", []):
+          kb_str = str(kb)
+          perm_level = kb_perms.get(kb_str, "read")
+          if kb_scope_satisfies(perm_level, scope):
+            ids.add(kb_str)
+
+    if scope == "read":
+      global_kbs = await get_global_read_kb_ids(tenant_id)
+      for kb in global_kbs:
+        ids.add(kb)
 
   if "*" in ids:
     return ["*"]

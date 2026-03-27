@@ -36,9 +36,11 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
+from contextvars import ContextVar
 from server.rbac import (
   get_user_or_anonymous,
   require_role,
+  require_authenticated_user,
   has_permission,
   get_permissions,
   is_trusted_request,
@@ -47,8 +49,13 @@ from server.rbac import (
   get_auth_manager,
   _authenticate_from_token,
   check_kb_datasource_access,
+  get_accessible_kb_ids,
   inject_kb_filter,
+  RBAC_TEAM_SCOPE_ENABLED,
+  TRUSTED_NETWORK_DEFAULT_ROLE,
 )
+
+mcp_user_context_var: ContextVar[Optional[UserContext]] = ContextVar("mcp_user_context", default=None)
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
@@ -264,7 +271,6 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
     if not request.url.path.startswith("/mcp"):
       return await call_next(request)
 
-    # Allow OPTIONS (CORS preflight) without auth
     if request.method == "OPTIONS":
       return await call_next(request)
 
@@ -275,11 +281,25 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
       auth_manager = get_auth_manager()
       user = await _authenticate_from_token(request, auth_manager)
       if user:
-        return await call_next(request)
+        request.state.user = user
+        token = mcp_user_context_var.set(user)
+        try:
+          return await call_next(request)
+        finally:
+          mcp_user_context_var.reset(token)
       return self._unauthorized("Invalid or expired token.", request)
 
     if is_trusted_request(request):
-      return await call_next(request)
+      trusted_user = UserContext(
+        email="trusted-network", groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE,
+        is_authenticated=False, kb_permissions=[], realm_roles=[],
+      )
+      request.state.user = trusted_user
+      token = mcp_user_context_var.set(trusted_user)
+      try:
+        return await call_next(request)
+      finally:
+        mcp_user_context_var.reset(token)
 
     return self._unauthorized("Missing or malformed Authorization header.", request)
 
@@ -482,14 +502,32 @@ async def delete_datasource(
 
 
 @app.get("/v1/datasources")
-async def list_datasources(ingestor_id: Optional[str] = None, user: UserContext = Depends(require_role(Role.READONLY))):
-  """List all stored datasources"""
+async def list_datasources(
+  request: Request,
+  ingestor_id: Optional[str] = None,
+  user: UserContext = Depends(require_role(Role.READONLY)),
+):
+  """List all stored datasources, filtered by team-KB access when enabled."""
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   try:
     datasources = await metadata_storage.fetch_all_datasource_info()
     if ingestor_id:
       datasources = [ds for ds in datasources if ds.ingestor_id == ingestor_id]
+
+    if RBAC_TEAM_SCOPE_ENABLED and user.is_authenticated:
+      team_id = request.headers.get("X-Team-Id")
+      tenant_id = request.headers.get("X-Tenant-Id") or "default"
+      accessible = await get_accessible_kb_ids(
+        user, "read", tenant_id, team_id=team_id, request=request,
+      )
+      if "*" not in accessible:
+        datasources = [
+          ds for ds in datasources
+          if getattr(ds, "datasource_id", None) in accessible
+          or getattr(ds, "id", None) in accessible
+        ]
+
     return {"success": True, "datasources": datasources, "count": len(datasources)}
   except Exception as e:
     logger.error(f"Failed to list datasources: {e}")

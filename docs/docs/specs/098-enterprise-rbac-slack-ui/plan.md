@@ -1,205 +1,257 @@
-# Implementation Plan: Admin UI User Detail View + Slack Identity Linking
+# Implementation Plan: Enterprise RBAC for Slack and CAIPE UI
 
-**Branch**: `098-enterprise-rbac-slack-ui` | **Date**: 2026-03-25 | **Spec**: [spec.md](./spec.md)
-**Input**: Feature specification — FR-033 (User Detail View) + FR-025 clarifications (Slack Identity Linking)
+**Branch**: `098-enterprise-rbac-slack-ui` | **Date**: 2026-04-03 | **Spec**: [spec.md](./spec.md)  
+**Last plan update**: 2026-03-26 — documentation closure T120–T124 (operator guide, matrix, quickstart validation, security review, spec/plan cross-links)
+
+**Input**: Feature specification from `docs/docs/specs/098-enterprise-rbac-slack-ui/spec.md`
+
+### Documentation status (final artifacts)
+
+| Artifact | Status | Notes |
+|----------|--------|--------|
+| [operator-guide.md](./operator-guide.md) | **Done** | FR-017 — sourced from `deploy/keycloak/realm-config.json`, `deploy/agentgateway/config.yaml`, BFF/RAG code |
+| [permission-matrix.md](./permission-matrix.md) | **Done** | FR-008/FR-014 — tasks, skills, chat/BFF, Keycloak cross-ref, export alignment note |
+| [security-review.md](./security-review.md) | **Done** | FR-002, FR-013, FR-019 — checklist tied to `api-middleware.ts` / `keycloak-authz.ts` |
+| [quickstart.md](./quickstart.md) §7 | **Done** | SC-003 — five personas + optional regression |
+| [spec.md](./spec.md) | **Updated** | Status, FR-014/FR-017/SC-001 cross-references |
 
 ## Summary
 
-Two complementary increments:
+Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Supervisor, RAG, sub-agents, tools, skills, A2A, and MCP** (FR-008, FR-014), grounded in **IdP directory groups** (Okta, Entra ID) federated through **Keycloak** (required OIDC broker and PDP), with **OBO token exchange** for end-to-end user identity delegation (FR-018–FR-021, absorbed from 093), **Agent Gateway** as the required MCP/A2A/agent data-plane gateway, **RAG server Keycloak integration** with **per-KB access control** (FR-026, FR-027) providing defense-in-depth enforcement at the data layer, **dynamic agent RBAC** with three-layer Keycloak resource + per-agent roles + MongoDB visibility (FR-028), **CEL as the mandated policy engine** at all enforcement points (FR-029), **deepagent MCP routing through Agent Gateway** (FR-030), **Slack channel-to-team scope mapping** (FR-031) so bot commands are automatically scoped to the linked team's KBs/agents/tools, and an **Admin UI Slack Management Dashboard** (FR-032) with full operational Slack user bootstrapping view and channel-to-team mapping manager.
 
-1. **FR-033 — Admin UI User Detail View**: Replace the inline user grid in `admin/page.tsx` with a **server-side paginated** user table sourced from Keycloak Admin API, a **full filter bar** (text search, role, team, IdP, Slack status, enabled), and a **modal dialog** showing each user's full RBAC profile with **inline editing** (assign/remove roles and team memberships).
+**Technical approach**: Dual-PDP architecture:
+- **Keycloak Authorization Services** — PDP for UI/Slack paths (FR-022). The 098 permission matrix is modeled as Keycloak resources, scopes, and role-based policies. BFF and Slack bot call Keycloak AuthZ for every protected operation.
+- **Agent Gateway** — PDP for MCP/A2A/agent paths (FR-013). AG validates JWTs issued by Keycloak and applies [CEL](https://agentgateway.dev/docs/reference/cel/) policy rules aligned with the 098 matrix.
 
-2. **FR-025 — Slack Identity Linking Implementation**: Build the end-to-end identity linking flow: Slack bot generates nonce-protected URL → BFF callback at `/api/auth/slack-link` handles Keycloak OIDC code exchange → stores `slack_user_id ↔ keycloak_sub` via Keycloak Admin API → sends confirmation DM via Slack Web API (`SLACK_BOT_TOKEN`). Nonces stored in MongoDB with 10-minute TTL.
+**Identity flow**: Enterprise IdP (Okta/Entra) → Keycloak (federation + claim mappers: groups → roles at token issuance) → JWT (sub, act, groups, roles, scope, org) → consumed by all enforcement points. Slack identity linking stores `slack_user_id` as a Keycloak user attribute (no MongoDB dependency for the bot). OBO token exchange (RFC 8693) ensures downstream agents act as the user, not the bot.
+
+**Architecture reference**: [architecture.md](./architecture.md)
 
 ## Technical Context
 
-**Language/Version**: TypeScript (Next.js 16, React 19) + Python 3.11+ (Slack bot)
-**Primary Dependencies**: NextAuth.js, Keycloak Admin REST API, MongoDB, Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui
-**Storage**: Keycloak (users, roles, attributes, sessions) + MongoDB (teams, slack_link_nonces, slack_user_metrics)
-**Testing**: Jest (React Testing Library)
-**Target Platform**: Web (CAIPE Admin UI) + Slack bot backend
-**Project Type**: Web application (BFF + SPA) + Python bot
-**Performance Goals**: < 500ms page load for 20-user pages; < 200ms filter operations; < 2s identity linking callback
-**Constraints**: Server-side pagination (Keycloak `first`/`max`); admin-only access; 10-minute nonce TTL; HTTPS-only linking URLs
-**Scale/Scope**: Hundreds to thousands of realm users; 6 filter dimensions; 8 data sections in modal; single-use nonces
+**Language/Version**: Python 3.11+ (supervisor, agents, slack-bot); TypeScript / Next.js 16 (CAIPE UI, BFF API routes)
+**Primary Dependencies**:
+- **Keycloak** (required) — OIDC broker, token issuance, Authorization Services (PDP), OBO token exchange, identity link storage (user attributes)
+- **Agent Gateway** (required) — MCP/A2A/agent data-plane gateway, JWT validation, CEL policy
+- **NextAuth.js** — OIDC integration with Keycloak for UI sessions
+- **Slack Bolt** — Slack bot event handling
+- **MongoDB** — team/KB ownership assignments, app metadata, ASP tool policies
+**Storage**: Hybrid — **Keycloak** for authz policies (resources, scopes, permissions), realm roles, user attributes (slack_user_id); **MongoDB** for team/KB assignments, app metadata, operational state (FR-023)
+**Testing**: `pytest` (Python), Jest/`npm test` (UI), integration via `make test` / `make caipe-ui-tests` per constitution
+**Target Platform**: Linux containers (Kubernetes), browser clients
+**Project Type**: Web application (UI + BFF) with Slack bot integration and Python backend services
+**Performance Goals**: Keycloak AuthZ PDP decision p95 **< 5 ms** in-process (FR-022); permission propagation within **15 minutes** of IdP group change (SC-002)
+**Constraints**: Default deny (FR-002); no secrets in repo; same canonical group claims across all paths (FR-012); OWASP-aligned UI; fail-closed when Keycloak or AG unavailable; Agent Gateway required for MCP/A2A/agent traffic (FR-013); permission matrix covers all FR-008/FR-014 components
+**Scale/Scope**: Multi-tenant org model (FR-020); permission matrix for Slack, Admin UI, Supervisor, RAG, sub-agents, tools, skills, A2A, MCP; team-scoped RAG tool admin (FR-009); OBO delegation chains (FR-018–FR-019)
 
 ## Constitution Check
 
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+
 | Principle | Status | Notes |
-|-----------|--------|-------|
-| I. Specs as Source of Truth | PASS | FR-033 + FR-025 clarifications fully specified |
-| II. Agent-First Architecture | PASS | No agent changes; Slack bot nonce generation is utility code |
-| III. MCP Server Pattern | N/A | No MCP changes |
-| IV. LangGraph-Based Agents | N/A | No agent changes |
-| V. A2A Protocol Compliance | N/A | No inter-agent changes |
-| VI. Skills over Ad-Hoc Prompts | N/A | No prompt changes |
-| VII. Test-First Quality Gates | PASS | Jest tests planned for new components |
-| VIII. Structured Documentation | PASS | This plan + data-model update + research update |
-| IX. Security and Compliance | PASS | Admin-only access; single-use nonces; HTTPS linking; Slack token as env secret |
-| X. Simplicity / YAGNI | PASS | Scope limited to FR-033 + FR-025; no speculative features |
+|-----------|--------|--------|
+| I. Specifications as source of truth | **Pass** | [spec.md](./spec.md) + this plan + [architecture.md](./architecture.md) drive implementation |
+| II. Agent-first | **Pass** | RBAC gates **before** supervisor/sub-agent dispatch; does not redefine graph semantics |
+| III. MCP security | **Pass** | MCP tool list/invoke gated by Agent Gateway; least-privilege tool exposure via 098 matrix |
+| IV. LangGraph | **N/A** | No new graph requirement |
+| V. A2A | **Pass** | A2A operations are matrix rows; protocol unchanged; OBO JWT forwarded through chain |
+| VI. Skills | **Pass** | Skills in FR-014 scope where product exposes them |
+| VII. Test-first | **Pass** | Matrix scenarios → automated tests before merge; acceptance criteria from spec drive test cases |
+| VIII. Structured documentation | **Pass** | All artifacts under this feature directory |
+| IX. Security by default | **Pass** | Deny by default, audit records, least privilege, no cross-team tool edits, HTTPS-only linking URLs |
+| X. Simplicity | **Pass (with justification)** | Keycloak is a new required service but consolidates OIDC brokering, OBO, PDP, and identity link storage — avoiding a custom `caipe-authorization-server`. AG is required upstream infrastructure for MCP/A2A security. See Complexity Tracking below. |
+
+**Post–Phase 1 re-check**: Design artifacts ([data-model.md](./data-model.md), [contracts/](./contracts/)) align with dual-PDP model. No unjustified new microservice beyond Keycloak (required broker) and AG (required gateway).
+
+**Post–Phase 10 addition (Session 2026-03-24)**: RAG server Keycloak JWT integration (FR-026) and per-KB access control (FR-027) added as Phase 10 / User Story 7 (P1). Defense-in-depth: BFF coarse AuthZ + RAG server fine-grained per-KB enforcement + query-time filtering. See [architecture.md § Map RAG RBAC to Keycloak](./architecture.md#map-rag-rbac-to-keycloak--per-kb-access-control-architecture-overview).
+
+**Post–Phase 11 addition (Session 2026-03-25)**: Dynamic agent RBAC (FR-028), CEL as mandated policy engine (FR-029), and deepagent MCP routing through AG (FR-030) added as Phase 11 / User Story 8 (P1). Three-layer Keycloak resource + per-agent roles + MongoDB visibility model. CEL evaluators embedded in all services (AG, RAG, dynamic agents, BFF). See [architecture.md § Dynamic Agent RBAC](./architecture.md#dynamic-agent-rbac-architecture-fr-028-fr-029-fr-030).
+
+**Post–Phase 12 addition (Session 2026-03-25)**: Slack channel-to-team scope mapping (FR-031) and Admin UI Slack Management Dashboard (FR-032) added as Phase 12 / User Story 9 (P2). Slack channels act as team selectors (context only, not permission grants); Keycloak roles remain sole authority. Admin UI provides full operational view of Slack user bootstrapping (linking status, OBO counts, roles) and CRUD for channel-to-team mappings. Bot caches mappings with 60s TTL. See [architecture.md § Slack Channel RBAC](./architecture.md#slack-channel-to-team-rbac-fr-031-fr-032).
 
 ## Project Structure
 
-### Documentation
+### Documentation (this feature)
 
 ```text
-specs/098-enterprise-rbac-slack-ui/
+docs/docs/specs/098-enterprise-rbac-slack-ui/
 ├── plan.md              # This file
-├── spec.md              # Feature specification (FR-033 + FR-025 updated)
-├── research.md          # Phase 0 output (FR-033 + FR-025 addenda)
-├── data-model.md        # Phase 1 output (nonce entity + API contracts)
+├── spec.md              # Feature specification (36 FRs, 15 SCs, 8 user stories)
+├── architecture.md      # Canonical architecture diagrams and flow tables
+├── research.md          # Phase 0: decisions (PDP placement, IdP claims, AG mandate)
+├── data-model.md        # Phase 1: entities (principals, roles, audit, Keycloak AuthZ model)
+├── quickstart.md        # Phase 1: local verification of RBAC matrix
 ├── contracts/
-│   └── rbac-authorization-v1.md
-├── architecture.md      # Updated with linking flow
-├── tasks.md             # Phase 2 output (generated by /speckit.tasks)
-└── quickstart.md        # Existing
+│   └── rbac-authorization-v1.md  # Internal authorization check contract (dual-PDP)
+├── checklists/
+│   └── requirements.md  # Specification quality checklist
+├── permission-matrix.md # 098 permission matrix (FR-008, FR-014) — generated during implementation
+├── operator-guide.md    # FR-017 deployment documentation — generated during implementation
+└── tasks.md             # Task list (/speckit.tasks output)
 ```
 
-### Source Code
+### Source Code (repository root)
 
 ```text
-ui/src/
-├── app/(app)/admin/
-│   └── page.tsx                        # MODIFIED: replace inline user table with UserManagementTab
-├── app/api/admin/users/
-│   ├── route.ts                        # MODIFIED: server-side pagination + filtering via Keycloak
-│   └── [id]/
-│       ├── route.ts                    # NEW: GET user detail, PUT enable/disable
-│       ├── roles/
-│       │   └── route.ts               # NEW: GET/POST/DELETE user role mappings
-│       └── teams/
-│           └── route.ts               # NEW: GET/POST/DELETE user team memberships
-├── app/api/auth/
-│   └── slack-link/
-│       └── route.ts                   # MODIFIED: handle OAuth callback, nonce validation, Slack DM
-├── components/admin/
-│   ├── UserManagementTab.tsx           # NEW: paginated table + filter bar
-│   └── UserDetailModal.tsx             # NEW: full-profile modal with inline editing
-└── lib/rbac/
-    └── keycloak-admin.ts              # MODIFIED: add search, filter, count, session, role assign/remove
+ui/
+├── src/
+│   ├── app/api/auth/[...nextauth]/route.ts   # NextAuth + Keycloak OIDC
+│   ├── app/api/rbac/permissions/route.ts      # BFF: user capabilities endpoint
+│   ├── app/api/admin/audit/route.ts           # Audit query/export API
+│   ├── app/api/admin/roles/route.ts           # Role CRUD (FR-024)
+│   ├── app/api/admin/roles/[name]/route.ts    # Role detail/delete
+│   ├── app/api/admin/role-mappings/route.ts   # Group-to-role mapping CRUD (FR-024)
+│   ├── app/api/admin/role-mappings/[id]/route.ts  # Mapping delete
+│   ├── app/api/admin/teams/[id]/roles/route.ts    # Team role assignment
+│   ├── app/api/admin/slack/users/route.ts         # Slack user bootstrapping data (FR-032)
+│   ├── app/api/admin/slack/channel-mappings/route.ts  # Channel-to-team mapping CRUD (FR-031, FR-032)
+│   ├── app/api/rag/                           # RAG tool CRUD (team-scoped RBAC)
+│   ├── app/(app)/admin/                       # Admin pages (RBAC-gated)
+│   ├── app/(app)/knowledge-bases/             # KB management (team-scoped)
+│   ├── lib/api-middleware.ts                  # BFF middleware (extend for Keycloak AuthZ)
+│   ├── lib/auth-config.ts                     # NextAuth OIDC config (Keycloak provider)
+│   ├── lib/rbac/
+│   │   ├── keycloak-authz.ts                  # Keycloak Authorization Services client
+│   │   ├── keycloak-admin.ts                  # Keycloak Admin REST API client (FR-024)
+│   │   ├── types.ts                           # Permission matrix TypeScript types
+│   │   ├── error-responses.ts                 # Denied-action feedback
+│   │   └── audit.ts                           # Structured audit event logger
+│   ├── hooks/useRbacPermissions.ts            # React hook for capability-based UI
+│   ├── components/auth-guard.tsx              # Conditional rendering guard
+│   └── components/admin/
+│       ├── RolesAccessTab.tsx                 # Admin tab: roles, mappings, team assignments (FR-024)
+│       ├── CreateRoleDialog.tsx               # New role dialog
+│       ├── GroupRoleMappingDialog.tsx         # New group-to-role mapping dialog
+│       ├── SlackUsersTab.tsx                  # Slack user bootstrapping dashboard — full operational view (FR-032)
+│       └── SlackChannelMappingTab.tsx         # Channel-to-team mapping CRUD manager (FR-031, FR-032)
+└── tests/
 
-ai_platform_engineering/integrations/slack_bot/
+ai_platform_engineering/
+├── knowledge_bases/rag/
+│   ├── server/src/server/
+│   │   ├── rbac.py                              # Extended: Keycloak role mapper, per-KB access, query filter (FR-026, FR-027)
+│   │   └── restapi.py                           # Extended: per-KB access dependencies on KB endpoints
+│   └── common/src/common/models/
+│       └── rbac.py                              # Extended: KeycloakRole constants, KbPermission model, UserContext.kb_permissions
+├── dynamic_agents/src/dynamic_agents/
+│   ├── auth/
+│   │   ├── access.py                              # Extended: CEL-based access evaluation replacing can_view_agent/can_use_agent (FR-028, FR-029)
+│   │   └── auth.py                                # Extended: Keycloak role mapper, per-agent role extraction from JWT (FR-028)
+│   ├── services/
+│   │   └── agent_runtime.py                       # Extended: OBO JWT forwarding through LangGraph to MCP client (FR-030)
+│   └── models.py                                  # Extended: Keycloak resource sync on agent create/delete (FR-028)
+├── integrations/slack_bot/
+│   ├── app.py                                 # Slack bot entry (identity linking callback, RBAC middleware)
+│   └── utils/
+│       ├── keycloak_admin.py                  # Keycloak Admin API client (user attribute ops)
+│       ├── keycloak_authz.py                  # Keycloak AuthZ Services client (PDP)
+│       ├── identity_linker.py                 # Slack identity linking (FR-025)
+│       ├── obo_exchange.py                    # OBO token exchange (RFC 8693)
+│       ├── rbac_middleware.py                 # RBAC enforcement middleware
+│       ├── channel_team_mapper.py             # Channel-to-team scope resolution + 60s TTL cache (FR-031)
+│       └── audit.py                           # Structured audit event logger
+├── multi_agents/platform_engineer/
+│   └── protocol_bindings/a2a/agent_executor.py  # OBO JWT forwarding through delegation chain
+├── knowledge_bases/rag/
+│   ├── server/src/server/rbac.py              # RAG server RBAC (extend for team/KB scope)
+│   └── common/src/common/models/rbac.py       # RBAC data models
 └── utils/
-    └── identity_linker.py             # MODIFIED: generate nonce-protected linking URL pointing to BFF
+
+deploy/
+├── keycloak/
+│   ├── docker-compose.yml                     # Keycloak dev instance
+│   └── realm-config.json                      # Realm export: IdP brokers, mappers, roles, AuthZ
+└── agentgateway/
+    ├── docker-compose.yml                     # AG dev instance
+    └── config.yaml                            # AG config with Keycloak OIDC + inline CEL rules (098 matrix)
 ```
 
-## Phase 0: Research
-
-### R-FR033-1: Keycloak Admin API for user management with filters
-
-**Decision**: Use Keycloak Admin REST API `GET /admin/realms/{realm}/users` with query parameters for server-side search and pagination. Keycloak supports `search` (text), `first`/`max` (pagination), `enabled` (boolean). Role filtering uses `GET /admin/realms/{realm}/roles/{role-name}/users`.
-
-**Rationale**: Native API support; no custom indexing needed.
-
-**Alternatives considered**: Client-side pagination (rejected — doesn't scale); custom MongoDB user index (adds sync complexity).
-
-### R-FR033-2: Keycloak API for user sessions (last login)
-
-**Decision**: Use `GET /admin/realms/{realm}/users/{id}/sessions` for active sessions. Keycloak user representation includes `createdTimestamp`.
-
-**Rationale**: Keycloak stores session data natively.
-
-### R-FR033-3: User role assignment/removal
-
-**Decision**: `POST /admin/realms/{realm}/users/{id}/role-mappings/realm` to assign, `DELETE` to remove. Both accept role representation arrays.
-
-**Rationale**: Standard Keycloak Admin API; already partially implemented.
-
-### R-FR033-4: IdP source resolution
-
-**Decision**: Keycloak user representation includes `federatedIdentities` array with `identityProvider` alias.
-
-**Rationale**: Native data; no additional API calls.
-
-### R-FR025-1: Slack identity linking callback architecture
-
-**Decision**: The callback endpoint lives at `/api/auth/slack-link` in the Next.js BFF. The bot generates a linking URL containing a single-use nonce and `slack_user_id`. The BFF handles Keycloak OIDC code exchange, stores the mapping via Keycloak Admin API, renders a browser success page, and posts a confirmation DM via Slack Web API using `SLACK_BOT_TOKEN`.
-
-**Rationale**: BFF already has Keycloak OIDC integration; avoids adding HTTP capabilities to the Python bot. Direct Slack API call avoids inter-service dependency for a single DM.
-
-**Alternatives considered**: Bot backend callback (rejected — adds HTTP server to bot); webhook notification (rejected — adds complexity); lazy detection (rejected — no immediate in-Slack feedback).
-
-### R-FR025-2: Nonce storage and TTL
-
-**Decision**: Nonces stored in MongoDB `slack_link_nonces` collection with a 10-minute TTL (MongoDB TTL index). Each nonce document contains: `nonce` (unique), `slack_user_id`, `created_at`, `consumed` (boolean).
-
-**Rationale**: MongoDB TTL indexes auto-expire documents; 10 minutes allows MFA completion while limiting interception window.
-
-**Alternatives considered**: Redis (rejected — not in current stack for this use); in-memory (rejected — doesn't survive restarts); 5 minutes (too short for MFA); 30 minutes (too long).
-
-## Phase 1: Design & Contracts
-
-### New BFF API Routes
-
-#### FR-033: User Management
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/api/admin/users` | GET | Paginated user list with 6 filters |
-| `/api/admin/users/[id]` | GET | Full user profile for modal |
-| `/api/admin/users/[id]` | PUT | Enable/disable user |
-| `/api/admin/users/[id]/roles` | POST | Assign realm roles |
-| `/api/admin/users/[id]/roles` | DELETE | Remove realm roles |
-| `/api/admin/users/[id]/teams` | POST | Add to CAIPE team |
-| `/api/admin/users/[id]/teams` | DELETE | Remove from CAIPE team |
-
-#### FR-025: Slack Identity Linking
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/api/auth/slack-link` | GET | OAuth callback: validate nonce → Keycloak OIDC → store mapping → Slack DM → success page |
-
-### New Keycloak Admin Client Functions (`keycloak-admin.ts`)
-
-| Function | Purpose |
-|----------|---------|
-| `searchRealmUsers(params)` | Paginated search with text/enabled filters |
-| `countRealmUsers(params)` | Total count for pagination |
-| `getUserSessions(userId)` | Last login timestamp |
-| `getUserFederatedIdentities(userId)` | IdP source |
-| `assignRealmRolesToUser(userId, roles)` | POST role mappings |
-| `removeRealmRolesFromUser(userId, roles)` | DELETE role mappings |
-| `updateUser(userId, data)` | PUT user (enable/disable) |
-| `listUsersWithRole(roleName, first?, max?)` | Role filter |
-
-### New MongoDB Collection: `slack_link_nonces`
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `nonce` | string | Unique, cryptographically random (32 bytes hex) |
-| `slack_user_id` | string | Slack user who initiated linking |
-| `created_at` | datetime | UTC; TTL index expires after 600s (10 min) |
-| `consumed` | boolean | Set to `true` after successful use; prevents replay |
-
-**Indexes**: unique on `nonce`; TTL on `created_at` (600s).
-
-### UI Components
-
-#### UserManagementTab
-
-- Replaces inline user grid in `admin/page.tsx`
-- Filter bar: search + role dropdown + team dropdown + IdP dropdown + Slack status dropdown + enabled toggle
-- Paginated table: Name, Email, Roles (badges), Teams, IdP, Slack, Status
-- Click row → `UserDetailModal`
-- Pagination footer: page number, total, prev/next
-
-#### UserDetailModal
-
-- Centered modal (shadcn/ui Dialog)
-- Sections: Header (name, email, IdP, status toggle), Realm Roles (editable), Teams (editable), Per-KB Roles (read-only parsed), Per-Agent Roles (read-only parsed), Identity (IdP, Slack link), Account (enabled toggle, dates)
-
-### Slack Bot Changes (`identity_linker.py`)
-
-- `generate_linking_url(slack_user_id)`: creates nonce, stores in MongoDB, returns BFF URL with nonce + slack_user_id as query params
-- URL format: `https://{BFF_HOST}/api/auth/slack-link?nonce={nonce}&slack_user_id={id}`
-
-### Environment Variables (new)
-
-| Variable | Service | Purpose |
-|----------|---------|---------|
-| `SLACK_BOT_TOKEN` | UI BFF | Post confirmation DM after identity linking |
-| `SLACK_LINK_BASE_URL` | Slack bot | BFF base URL for generating linking URLs |
+**Structure decision**: Extend existing UI BFF (`ui/src/lib/`) and Slack bot (`ai_platform_engineering/integrations/slack_bot/`) with Keycloak AuthZ clients. New `ui/src/lib/rbac/` directory for authorization utilities. Agent Gateway and Keycloak configs under `deploy/`. No new microservices — Keycloak and AG are external required infrastructure.
 
 ## Complexity Tracking
 
-No constitution violations. Both increments follow existing patterns. The only cross-service addition is `SLACK_BOT_TOKEN` shared with the BFF for the linking confirmation DM — justified by simplicity (avoids webhook infrastructure).
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|-------------------------------------|
+| Keycloak as required infrastructure (Principle X) | Consolidates OIDC brokering, OBO token exchange, groups→roles mapping, Authorization Services (PDP), and Slack identity link storage into one proven component | Custom `caipe-authorization-server` rejected — would duplicate Keycloak AuthZ functionality; direct Okta/Entra without broker rejected — no OBO, no unified PDP (Session 2026-04-03) |
+| Agent Gateway as required infrastructure (Principle X) | Centralizes JWT validation + policy for all MCP/A2A/agent traffic; solves remote-MCP and auth-less-MCP gaps | No AG: leaves MCP/A2A without uniform auth gateway; per-agent JWT validation: inconsistent, harder to audit (Session 2026-04-01) |
+| CEL as mandated policy engine (Principle X) | Provides consistent, configurable, sandboxed policy evaluation across all enforcement points (AG, RAG, dynamic agents, BFF) with a shared context schema | Code-based checks rejected — not configurable, not auditable, inconsistent across services; OPA/Rego rejected — heavier runtime, different from AG's built-in CEL (Session 2026-03-25) |
+
+## Generated artifacts (Phases 0–1)
+
+| Phase | Artifact | Purpose |
+|-------|----------|---------|
+| 0 | [research.md](./research.md) | Decisions: PDP placement (Keycloak AuthZ), IdP claims, Slack parity, OBO split, AG mandate, hybrid store |
+| 1 | [data-model.md](./data-model.md) | Entities: principals, roles, audit records, Keycloak AuthZ model, OBO tokens, team/KB assignments |
+| 1 | [contracts/rbac-authorization-v1.md](./contracts/rbac-authorization-v1.md) | Dual-PDP authorization check contract (Keycloak AuthZ for UI/Slack; AG for MCP/A2A) |
+| 1 | [quickstart.md](./quickstart.md) | Local verification with Keycloak + AG dev environment |
+
+## Post–Phase 13 addition (Session 2026-03-25): Keycloak Role Unification
+
+**Task Builder** and **Skills Gateway** share the same RBAC granularity as **Dynamic Agents** (FR-028 updated): `view`/`invoke`/`configure`/`delete` scoped by roles and team visibility. They are user-created platform resources with the same lifecycle, so the three-layer model (Keycloak resource + per-resource realm roles + MongoDB visibility with CEL) applies uniformly.
+
+## Post–Phase 14 addition (Session 2026-03-25): Test Coverage Improvement (FR-035)
+
+**Goal**: Fix all existing test failures (218 UI + 217 supervisor) and raise both test suites to ≥70% statement coverage.
+
+**Baseline**:
+- UI: 24.5% statement coverage, 218 tests failing across 25 suites (1,876 passing)
+- Supervisor: coverage unknown (`pytest-cov` not installed), 217 tests failing (mostly missing `pytest-asyncio`), 372 passing
+
+| Step | Description | Component |
+|------|-------------|-----------|
+| 14a | Install `pytest-asyncio`, `pytest-cov` in supervisor workspace | Python |
+| 14b | Add `tests/` to `testpaths` in `pyproject.toml` | Python |
+| 14c | Fix supervisor async test failures (217 tests) | Python |
+| 14d | Fix UI test failures (218 tests across 25 suites) | TypeScript |
+| 14e | Write new tests targeting uncovered modules to reach ≥70% | Both |
+
+**No new CI gate** — the existing `make caipe-ui-tests` and `make test-supervisor` pass/fail gates are sufficient. The goal is test quality improvement, not threshold enforcement.
+
+## Post–Phase 15 addition (Session 2026-03-25): User Self-Service RBAC Posture (FR-036)
+
+**Goal**: Display authenticated user's full RBAC posture in the user system menu (read-only).
+
+The panel mirrors the admin user detail view (FR-033) but as a self-service read-only panel: **Keycloak realm roles**, **CAIPE team memberships**, **per-KB roles** (`kb_reader:X`, `kb_ingestor:X`, `kb_admin:X`), **per-agent roles** (`agent_user:X`, `agent_admin:X`), and **identity provider source**.
+
+| Step | Description | Component |
+|------|-------------|-----------|
+| 15a | Add RBAC posture API route (`/api/auth/my-roles`) | UI BFF |
+| 15b | Build user menu panel (realm roles, teams, per-KB, per-agent, IdP) | UI |
+| 15c | Integrate into layout (AppHeader/Sidebar user menu area) | UI |
+
+## Workstream Summary (all phases)
+
+| Phase | Scope | FRs | Status |
+|-------|-------|-----|--------|
+| 1–9 | Core RBAC, Keycloak, matrix, OBO, Admin UI, Slack, API docs | FR-001–FR-034 | In progress (see `tasks.md`; partial merge on branch) |
+| 10 | RAG server Keycloak + per-KB access | FR-026, FR-027 | In progress / partial (RAG `rbac.py` CEL + Keycloak paths exist) |
+| 11 | Dynamic agent RBAC + CEL mandate | FR-028–FR-030 | In progress / partial |
+| 12 | Slack channel-to-team mapping + Admin dashboard | FR-031, FR-032 | In progress / partial |
+| 13 | Task Builder & Skills Gateway RBAC unification | FR-028 (updated) | In progress (matrix + docs; full enforcement varies by route) |
+| 14 | Test coverage improvement (≥70%) | FR-035 | Open |
+| 15 | User self-service RBAC posture view | FR-036 | In progress / partial (`/api/auth/my-roles`, user menu) |
+| **Docs** | Operator guide, security review, matrix finalization, quickstart validation | FR-017, FR-008, FR-014, SC-001, SC-003 | **Done** (2026-03-26, T120–T124) |
+
+## Dependency Graph
+
+```text
+Phase 14 (Tests) ──────────────────────────────────────────────────┐
+Phase 2 (Keycloak) ──┬── Phase 3 (Matrix) ──┬── Phase 10 (RAG)    │
+                     │                       ├── Phase 11 (Agents) │
+                     │                       ├── Phase 13 (TB/SG)  ├─ Phase 9 (API Docs)
+                     ├── Phase 6 (OBO)       ├── Phase 12 (Slack)  │
+                     └── Phase 8 (Admin UI) ─┴── Phase 15 (Self)   │
+                                                                    │
+Phase 14 is independent — can start immediately ───────────────────┘
+```
+
+## Next step
+
+1. Continue implementation from [tasks.md](./tasks.md) until remaining FRs reach acceptance; run persona checklist in [quickstart.md](./quickstart.md) §7 before release candidates.
+2. Re-run **`/speckit.tasks`** if scope changes materially (tasks file already lists 100+ items across phases 1–15).
+
+**Paths (relative to repository root)**
+
+- **FEATURE_SPEC**: `docs/docs/specs/098-enterprise-rbac-slack-ui/spec.md`
+- **IMPL_PLAN**: `docs/docs/specs/098-enterprise-rbac-slack-ui/plan.md`
+- **SPECS_DIR**: `docs/docs/specs/098-enterprise-rbac-slack-ui`

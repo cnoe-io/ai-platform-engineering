@@ -92,12 +92,12 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/admin/feedback` | `requireAdminView` | Paginated feedback list with conversation titles |
+| `GET` | `/api/admin/feedback` | `withAuth` | Paginated feedback list with conversation titles |
 | `POST` | `/api/nps` | authenticated | Submit NPS response (score 0–10, optional comment, campaign_id) |
 | `GET` | `/api/nps/active` | authenticated | Check for active NPS campaign |
-| `GET` | `/api/admin/nps` | `requireAdminView` | NPS analytics (filterable by campaign_id) |
+| `GET` | `/api/admin/nps` | `withAuth` | NPS analytics (filterable by campaign_id) |
 | `POST` | `/api/admin/nps/campaigns` | `requireAdmin` | Create NPS campaign |
-| `GET` | `/api/admin/nps/campaigns` | `requireAdminView` | List campaigns with response counts and status |
+| `GET` | `/api/admin/nps/campaigns` | `withAuth` | List campaigns with response counts and status |
 | `PATCH` | `/api/admin/nps/campaigns` | `requireAdmin` | Stop campaign early |
 | `PATCH` | `/api/chat/conversations/[id]/share` | owner | Update user/team permission |
 
@@ -146,7 +146,7 @@ Admin page reads `?tab=` from query params via `useSearchParams()`. Valid tabs: 
 
 ## Security Considerations
 
-1. **Admin-only access**: All admin feedback/NPS endpoints check `requireAdminView` or `requireAdmin` — returns 403 for non-admin users
+1. **Authenticated access**: All admin feedback/NPS read endpoints require authentication; write endpoints require `requireAdmin` — returns 403 for unauthenticated users
 2. **Read-only audit**: Admin audit access blocks message creation (403); admins cannot modify conversations they audit
 3. **Authenticated NPS submission**: NPS submissions require a valid session; anonymous submissions are rejected
 4. **Campaign overlap prevention**: Server-side check prevents overlapping active campaigns

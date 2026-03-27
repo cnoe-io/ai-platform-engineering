@@ -6,6 +6,7 @@ from typing import Callable, Optional, List, Dict, Any
 from common.utils import get_logger
 from common.graph_db.base import GraphDB
 from common.metadata_storage import MetadataStorage
+from common.models.rbac import UserContext
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
@@ -19,6 +20,7 @@ from common.models.graph import Entity, EntityIdentifier
 import traceback
 from server.query_service import VectorDBQueryService
 from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch
+from server.rbac import get_accessible_kb_ids, RBAC_TEAM_SCOPE_ENABLED
 from fastmcp import FastMCP
 from common.utils import json_encode
 
@@ -37,6 +39,53 @@ class AgentTools:
         self.metadata_storage: MetadataStorage = metadata_storage
         self.data_graphdb: Optional[GraphDB] = data_graph_db
         self.ontology_graphdb: Optional[GraphDB] = ontology_graph_db
+
+    @staticmethod
+    def _get_mcp_user_context() -> Optional[UserContext]:
+        """Read the UserContext set by MCPAuthMiddleware via contextvars."""
+        try:
+            from server.restapi import mcp_user_context_var
+            return mcp_user_context_var.get(None)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_team_id(user_context: UserContext) -> Optional[str]:
+        """Parse ``team_member(<id>)`` from realm roles to find the user's team."""
+        for role in (user_context.realm_roles or []):
+            m = re.match(r"^team_member\((.+)\)$", str(role).strip())
+            if m:
+                return m.group(1)
+        return None
+
+    async def _resolve_accessible_kb_ids(
+        self,
+        scope: str = "read",
+    ) -> Optional[List[str]]:
+        """
+        Resolve accessible KB IDs for the current MCP request user.
+
+        Returns None when RBAC is inactive or the user has unrestricted access
+        (so the caller should skip filtering).  Returns a list of datasource IDs
+        when filtering is required; an empty list means nothing is accessible.
+        """
+        if not RBAC_TEAM_SCOPE_ENABLED:
+            return None
+        user = self._get_mcp_user_context()
+        if user is None:
+            return None
+        if user.email == "trusted-network" or user.email.startswith("trusted:"):
+            return None
+        if user.email.startswith("client:"):
+            return None
+
+        team_id = self._extract_team_id(user)
+        accessible = await get_accessible_kb_ids(
+            user, scope, "default", team_id=team_id,
+        )
+        if "*" in accessible:
+            return None
+        return accessible
 
     # Tool IDs permanently managed by the server — never register from custom config
     _SKIP_TOOL_IDS = {"search", "fetch_document", "list_datasources_and_entity_types"}
@@ -123,6 +172,15 @@ class AgentTools:
             f"[search] query={query!r}, limit={limit}, "
             f"keyword_search={keyword_search}, filters={filters}, thought={thought!r}"
         )
+
+        accessible = await self._resolve_accessible_kb_ids("read")
+        if accessible is not None:
+            if not accessible:
+                return {"text_documents": [], "graph_entity_documents": []}
+            filters = dict(filters) if filters else {}
+            filters["datasource_id"] = accessible if len(accessible) > 1 else accessible[0]
+            logger.info(f"[search] RBAC filter applied: accessible datasources={accessible}")
+
         weights = [0.0, 1.0] if keyword_search else [0.5, 0.5]
 
         async def _run_one(is_graph_entity: bool) -> List[Dict[str, Any]]:
@@ -229,6 +287,10 @@ class AgentTools:
                 f"thought={thought!r}"
             )
 
+            rbac_accessible = await self._resolve_accessible_kb_ids("read")
+            if rbac_accessible is not None and not rbac_accessible:
+                return {ps.label: [] for ps in parallel_searches}
+
             async def _run_one(ps: ParallelSearch) -> List[Dict[str, Any]]:
                 weights = [0.0, 1.0] if keyword_search else [ps.semantic_weight, 1.0 - ps.semantic_weight]
                 q_filters: Dict[str, Any] = {}
@@ -238,7 +300,14 @@ class AgentTools:
                 if ps.is_graph_entity is not None:
                     q_filters["is_graph_entity"] = ps.is_graph_entity
                 if ps.datasource_ids:
-                    q_filters["datasource_id"] = list(ps.datasource_ids)
+                    if rbac_accessible is not None:
+                        q_filters["datasource_id"] = [
+                            d for d in ps.datasource_ids if d in rbac_accessible
+                        ]
+                    else:
+                        q_filters["datasource_id"] = list(ps.datasource_ids)
+                elif rbac_accessible is not None:
+                    q_filters["datasource_id"] = rbac_accessible if len(rbac_accessible) > 1 else rbac_accessible[0]
                 results = await self.vector_db_query_service.query(
                     query=query,
                     filters=q_filters or None,
@@ -314,10 +383,16 @@ class AgentTools:
         logger.info(f"Fetching document with ID: {document_id}, Thought: {thought}")
         
         try:
-            # Query vector DB for the specific document
+            fetch_filters: Dict[str, Any] = {"document_id": document_id}
+            accessible = await self._resolve_accessible_kb_ids("read")
+            if accessible is not None:
+                if not accessible:
+                    return f"Error: Document with ID '{document_id}' not found (no accessible knowledge bases)."
+                fetch_filters["datasource_id"] = accessible if len(accessible) > 1 else accessible[0]
+
             results = await self.vector_db_query_service.query(
-                query="",  # Empty query, we're filtering by ID
-                filters={"document_id": document_id},
+                query="",
+                filters=fetch_filters,
                 limit=100,
                 ranker="weighted",
                 ranker_params={"weights": [1.0, 0.0]}
@@ -350,9 +425,14 @@ class AgentTools:
         }
         
         try:
-            # Get datasources from metadata storage
             datasources_info = await self.metadata_storage.fetch_all_datasource_info()
-            result["datasources"] = [ds.datasource_id for ds in datasources_info]
+            all_ids = [ds.datasource_id for ds in datasources_info]
+
+            accessible = await self._resolve_accessible_kb_ids("read")
+            if accessible is not None:
+                all_ids = [ds_id for ds_id in all_ids if ds_id in accessible]
+
+            result["datasources"] = all_ids
             
             # Get entity types from ontology DB if available==
             if self.ontology_graphdb is not None:

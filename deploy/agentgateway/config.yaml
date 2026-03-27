@@ -98,6 +98,16 @@ binds:
                "team_member" in jwt.realm_access.roles ||
                "chat_user" in jwt.realm_access.roles)
 
+            # ── GitHub operations ──────────────────────────────────
+            # chat_user+ can invoke GitHub MCP tools
+            - |
+              ("chat_user" in jwt.realm_access.roles ||
+               "team_member" in jwt.realm_access.roles ||
+               "kb_admin" in jwt.realm_access.roles ||
+               "admin" in jwt.realm_access.roles) &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("github_")
+
             # ── General MCP tool invocation (FR-016) ────────────────
             # chat_user+ can invoke non-admin, non-rag tools
             - |
@@ -111,14 +121,13 @@ binds:
               !(mcp.tool.name.startsWith("supervisor_config"))
 
         mcp:
-          # Placeholder targets — configure actual backend URLs per environment
-          # - name: argocd
-          #   mcp:
-          #     host: http://argocd-mcp:8080/mcp
-          # - name: github
-          #   mcp:
-          #     host: http://github-mcp:8080/mcp
-          targets: []
+          targets:
+          - name: github
+            mcp:
+              host: http://github-mcp:8000/sse
+          - name: rag
+            mcp:
+              host: http://rag_server:9446/mcp
 
 config:
   # Default is localhost-only; use 0.0.0.0 so Docker can publish :15000 to the host.

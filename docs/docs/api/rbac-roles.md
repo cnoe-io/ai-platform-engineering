@@ -464,7 +464,7 @@ Returns a coarse **UI role** string: `admin` or `user` (default). Uses `session.
 
 **Auth:** Session (admin view) | **Since:** v1.0
 
-Loads the **default** named policy document (`name: "default"`) from MongoDB. Requires **admin** **or** `session.canViewAdmin === true` (OIDC admin-view group). Requires MongoDB.
+Loads the **default** named policy document (`name: "default"`) from MongoDB. Requires authentication (all authenticated users can read). Requires MongoDB.
 
 **Query Parameters:**
 
@@ -509,7 +509,7 @@ Loads the **default** named policy document (`name: "default"`) from MongoDB. Re
 | Status | Code | Description |
 |--------|------|-------------|
 | 401 | _(none)_ | No valid session. |
-| 403 | _(none)_ | Not admin and not admin-view group. |
+| 403 | _(none)_ | Not authenticated. |
 | 503 | _(none)_ | MongoDB not configured. |
 | 500 | _(none)_ | Unexpected error. |
 
@@ -725,6 +725,171 @@ Reads paginated **authorization decision** records from MongoDB collection `auth
 
 ---
 
+## `GET /api/admin/audit-events` — Unified Audit Events (FR-037)
+
+Paginated query across **all** audit event types (auth decisions, tool actions, agent delegations) stored in the `audit_events` MongoDB collection.
+
+**Auth:** Requires valid session + `requireRbacPermission(admin_ui, audit.view)`.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `type` | `auth` \| `tool_action` \| `agent_delegation` | _(all)_ | Filter by event type. |
+| `from` | ISO 8601 | `-24h` | Start of date range. |
+| `to` | ISO 8601 | `now` | End of date range. |
+| `outcome` | `allow` \| `deny` \| `success` \| `error` | _(all)_ | Filter by outcome. |
+| `agent_name` | string | _(all)_ | Filter by agent name (exact match). |
+| `tool_name` | string | _(all)_ | Filter by tool name (exact match). |
+| `user_email` | string | _(all)_ | Filter by user email (case-insensitive substring). |
+| `component` | string | _(all)_ | Filter by component (e.g., `admin_ui`, `supervisor`). |
+| `correlation_id` | string | _(all)_ | Filter by correlation / trace id. |
+| `page` | integer ≥ 1 | `1` | Page number. |
+| `limit` | 1–200 | `50` | Results per page. |
+
+**Response (200):**
+
+```json
+{
+  "records": [
+    {
+      "ts": "2026-03-25T18:30:00.000Z",
+      "type": "tool_action",
+      "tenant_id": "default",
+      "subject_hash": "sha256:abc123...",
+      "user_email": "alice@example.com",
+      "action": "argocd_list_applications",
+      "agent_name": "argocd",
+      "tool_name": "argocd_list_applications",
+      "outcome": "success",
+      "duration_ms": 1234.56,
+      "correlation_id": "trace-abc-def",
+      "context_id": "conv-123",
+      "component": "argocd",
+      "source": "supervisor"
+    }
+  ],
+  "total": 500,
+  "page": 1,
+  "limit": 50
+}
+```
+
+**Errors:**
+
+| Status | Code | Description |
+|--------|------|-------------|
+| 400 | `VALIDATION_ERROR` | Invalid filter values (`type`, `outcome`, dates, `page`, `limit`). |
+| 401 | _(none)_ | No session or missing email. |
+| 403 | `admin_ui#audit.view` | Keycloak / RBAC denied. |
+| 503 | `MONGODB_NOT_CONFIGURED` | MongoDB not configured. |
+
+---
+
+## Admin tab visibility (CEL)
+
+Admin UI tabs can be gated by **CEL expressions** stored in MongoDB collection `admin_tab_policies`. Evaluated context includes `user.email`, `user.roles` (JWT `realm_access.roles` plus session/bootstrap admin), and `user.teams` (currently often empty in this path). Feature flags (`feedbackEnabled`, `npsEnabled`, `auditLogsEnabled`, `actionAuditEnabled`) are **AND**ed with CEL for the corresponding tabs.
+
+### `GET /api/rbac/admin-tab-gates`
+
+**Description:** Returns `{ gates: Record<tab_key, boolean> }` for all known admin tabs (`users`, `teams`, `roles`, `slack`, `skills`, `feedback`, `nps`, `stats`, `metrics`, `health`, `audit_logs`, `action_audit`, `policy`).
+
+**Authorization:** Valid NextAuth session with `user.email`. Unauthenticated → `401`.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| _(none)_ | — | — | — |
+
+**Response** (`200`):
+
+```json
+{
+  "gates": {
+    "users": true,
+    "roles": false,
+    "slack": false
+  }
+}
+```
+
+**Errors:**
+
+| Code | Description |
+|------|-------------|
+| `401` | `{ "error": "Unauthorized" }` |
+
+**Notes:** If MongoDB is unavailable, default policies from code are used for evaluation. Missing tab keys are back-filled from defaults on first read.
+
+---
+
+### `PUT /api/rbac/admin-tab-gates`
+
+**Description:** Upserts one CEL expression for a tab. Body is validated with a dry-run evaluation before persist.
+
+**Authorization:** `session.role === "admin"` (NextAuth coarse admin). Not Keycloak UMA.
+
+**Parameters (JSON body):**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `tab_key` | string | Yes | One of the known tab keys (see GET). |
+| `expression` | string | Yes | CEL expression (e.g. `'admin' in user.roles`). |
+
+**Response** (`200`):
+
+```json
+{
+  "success": true,
+  "tab_key": "stats",
+  "expression": "'admin' in user.roles"
+}
+```
+
+**Errors:**
+
+| Code | Description |
+|------|-------------|
+| `400` | Invalid JSON, missing fields, unknown `tab_key`, or invalid CEL |
+| `401` | Not signed in |
+| `403` | `{ "error": "Admin access required" }` |
+| `500` | MongoDB update failure |
+
+---
+
+### `GET /api/rbac/admin-tab-policies`
+
+**Description:** Returns raw stored policies for the Policy tab editor: `tab_key`, `expression`, `updated_by`, `updated_at`.
+
+**Authorization:** `session.role === "admin"` + MongoDB configured.
+
+**Response** (`200`):
+
+```json
+{
+  "policies": [
+    {
+      "tab_key": "users",
+      "expression": "true",
+      "updated_by": "alice@example.com",
+      "updated_at": "2026-03-25T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+**Errors:**
+
+| Code | Description |
+|------|-------------|
+| `401` | Not signed in |
+| `403` | Not admin |
+| `503` | `{ "error": "MongoDB not configured" }` |
+| `500` | Database error |
+
+---
+
 ## Related implementation
 
 | Area | Location |
@@ -733,3 +898,9 @@ Reads paginated **authorization decision** records from MongoDB collection `auth
 | Permission check & effective permissions | `ui/src/lib/rbac/keycloak-authz.ts` |
 | Types (`RbacResource`, `RbacScope`, audit) | `ui/src/lib/rbac/types.ts` |
 | Session, admin gates, `requireRbacPermission` | `ui/src/lib/api-middleware.ts` |
+| Python audit logger (supervisor) | `ai_platform_engineering/utils/audit_logger.py` |
+| Python audit callback handler | `ai_platform_engineering/utils/audit_callback.py` |
+| BFF dual-write (auth → audit_events) | `ui/src/lib/rbac/audit.ts` |
+| Unified audit API route | `ui/src/app/api/admin/audit-events/route.ts` |
+| Admin tab CEL gates / policies | `ui/src/app/api/rbac/admin-tab-gates/route.ts`, `ui/src/app/api/rbac/admin-tab-policies/route.ts` |
+| Unified audit UI component | `ui/src/components/admin/UnifiedAuditTab.tsx` |

@@ -19,7 +19,8 @@ from .keycloak_authz import RbacCheckRequest, check_permission
 logger = logging.getLogger("caipe.slack_bot.rbac")
 
 TEAM_ROLE_MISMATCH_MESSAGE = (
-    "You don't have the required team role for this channel's team. Contact your admin."
+    "You don't have access to CAIPE in this channel. "
+    "Ask your admin to add you to the team for this channel."
 )
 
 # Human-readable action labels for Slack ephemeral messages

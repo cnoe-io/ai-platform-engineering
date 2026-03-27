@@ -1,131 +1,118 @@
-# Research: Enterprise RBAC for Slack and CAIPE UI (098)
+# Research: Enterprise RBAC for Slack and CAIPE UI
 
-## R-1: Where should authorization decisions run?
+**Phase 0 Output** | **Date**: 2026-03-25 | **Plan**: [plan.md](./plan.md)
 
-**Decision (updated 2026-04-03)**: **Dual-PDP architecture** with enforcement at component boundaries (**spec FR-008**):
+## R-01: Keycloak Authorization Services vs Code-Based RBAC
 
-- **UI / Slack / Webex paths** → **Keycloak Authorization Services** as PDP (FR-022). BFF and Slack bot call Keycloak AuthZ (UMA / resource-based permissions) for every protected operation.
-- **MCP / A2A / Agent paths** → **Agent Gateway** as PDP (FR-013). AG validates JWT issued by Keycloak and applies [CEL](https://agentgateway.dev/docs/reference/cel/) policy.
-- **RAG server** retains forwarded-identity checks aligned to the same matrix.
+**Decision**: Keycloak Authorization Services as PDP for UI/Slack paths (FR-022).
 
-The 098 permission matrix is modeled as Keycloak **resources** (components), **scopes** (capabilities), and **policies** (role-based).
+**Rationale**: Keycloak AuthZ provides resources, scopes, and policies natively — no custom PDP needed. Already partially implemented in `ui/src/lib/rbac/keycloak-authz.ts`. Sub-5ms decision latency achievable with local policy cache. Eliminates the previously considered `caipe-authorization-server` fallback.
 
-**Rationale**: Keycloak is already required as OIDC broker (FR-011, Session 2026-04-03); its Authorization Services provide a production-grade PDP without building a custom `caipe-authorization-server`. AG centralizes agent-side JWT validation.
+**Alternatives considered**:
+- Custom PDP service (`caipe-authorization-server`) — rejected; adds deployment complexity, Keycloak is already required
+- OPA/Rego sidecar — rejected; CEL mandated (FR-029), adding OPA creates dual-engine maintenance
+- Pure code-based checks — rejected; doesn't meet configurable policy requirement (FR-029)
 
-**Alternatives considered**: Shared authorization helper / thin internal HTTP endpoint (original R-1 decision — **superseded** by Keycloak AuthZ mandate, Session 2026-04-03); central PDP microservice (rejected—Keycloak serves this role); client-only RBAC (rejected—unsafe).
+## R-02: CEL Evaluator Library Selection
 
-> **Supersedes**: Original R-1 (shared authorization helper pattern, "avoids a separate PDP microservice"). Keycloak AuthZ is the PDP; constitution Principle X justified in plan.md Complexity Tracking.
+**Decision**: `cel-python` (Python), `cel-js` (TypeScript) — already in use across the codebase.
 
----
+**Rationale**: Both libraries are already imported and operational in 4 services:
+- UI: `ui/src/lib/rbac/cel-evaluator.ts` (cel-js)
+- Python shared: `ai_platform_engineering/utils/cel_evaluator.py` (celpy)
+- RAG server: `ai_platform_engineering/knowledge_bases/rag/server/src/cel_evaluator.py`
+- Dynamic agents: `ai_platform_engineering/dynamic_agents/src/dynamic_agents/cel_evaluator.py`
 
-## R-2: Canonical source of group membership for RBAC
+**Shared CEL context schema** (FR-029): `user.roles`, `user.teams`, `user.email`, `user.org`, `resource.id`, `resource.type`, `resource.visibility`, `resource.owner_id`, `resource.shared_with_teams`.
 
-**Decision (updated 2026-04-03)**: Use **Keycloak-issued JWT claims** as the canonical source. Enterprise IdP groups (Okta, Entra ID) are **federated into Keycloak** via identity brokering. Keycloak **IdP mappers** (Attribute Importer for SAML, Claim to User Attribute for OIDC) import groups, and **Hardcoded Role** / **SAML Attribute to Role** mappers convert them to Keycloak realm roles. **Protocol mappers** emit `groups`, `roles`, `scope`, and `org` claims in the JWT at token issuance time. The platform resolves authorization from **JWT claims only** — no runtime SCIM or directory lookups (FR-010, Session 2026-04-03).
+**Alternatives considered**:
+- Google CEL-Go with WASM — rejected; adds compilation step, not needed when native libraries work
+- Custom expression parser — rejected; violates FR-029 (CEL mandated)
 
-For **Slack**, `slack_user_id ↔ keycloak_sub` mapping is stored as a **Keycloak user attribute** (FR-025). The bot resolves identity via **Keycloak Admin API** (find user by attribute), then performs **OBO token exchange** (RFC 8693) to obtain a JWT scoped to the commanding user.
+## R-03: OBO Token Exchange with Keycloak
 
-**Rationale**: Keycloak is required (FR-011); storing identity links in Keycloak eliminates MongoDB as a Slack bot dependency. OIDC claims mapping at token issuance avoids hot-path directory lookups.
+**Decision**: OAuth 2.0 Token Exchange (RFC 8693) via Keycloak's built-in token exchange endpoint.
 
-**Alternatives considered**: Generic OIDC userinfo claims (original R-2 — **superseded** by Keycloak-specific JWT with claim mappers); MongoDB-only roles (rejected—duplicates enterprise directory); SCIM sync as sole source (deferred—optional acceleration).
+**Rationale**: Keycloak supports token exchange natively (`/realms/{realm}/protocol/openid-connect/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`). The resulting token carries `sub` (user), `act` (bot/agent), `scope`, `roles`, and `org` claims. Requires enabling the token-exchange feature on the Keycloak realm and granting the bot service account the `token-exchange` client role.
 
-> **Supersedes**: Original R-2 (generic OIDC claims + `AUTH_GROUP_CLAIM`). Now Keycloak-specific with IdP mappers and user attribute storage.
+**Key configuration**:
+- Enable `token-exchange` feature flag on Keycloak realm
+- Create `caipe-bot` client (confidential, service account enabled)
+- Grant `token-exchange` permission to `caipe-bot` for `caipe-ui` client
+- Bot exchanges Slack user identity → Keycloak OBO token → forwarded to AG/supervisor
 
----
+**Alternatives considered**:
+- Custom JWT minting in bot backend — rejected; violates RFC 8693, not verifiable by AG
+- Passing Slack user context as metadata without token — rejected; AG requires JWT validation
 
-## R-3: Team-scoped RAG tool ownership storage
+## R-04: Agent Gateway Deployment with Keycloak
 
-**Decision**: Store **`team_id` / `owner_scope` + allowed datasource IDs** on the **RAG tool configuration document** (or equivalent MongoDB collection the UI already uses for MCP/custom tools), indexed for query by team. **UI API** checks **capability** + **scope** before create/update/delete; **RAG server** rejects bind to datasources outside allowed list.
+**Decision**: Deploy AG as a standalone sidecar or Kubernetes service, configured with Keycloak as OIDC provider.
 
-**Rationale**: **FR-009** requires no global editable pool; colocating scope with tool config prevents orphan references.
+**Rationale**: AG already has a [Keycloak tutorial](https://agentgateway.dev/docs/kubernetes/latest/mcp/auth/keycloak/) for MCP auth. AG validates JWT `iss` against Keycloak JWKS endpoint, applies CEL policy rules. For local dev, AG runs as a Docker container alongside Keycloak.
 
-**Alternatives considered**: Separate ACL collection only (kept as optional normalization later if queries grow).
+**Key configuration**:
+- AG OIDC provider: Keycloak realm JWKS endpoint
+- CEL policy rules mirror the 098 permission matrix rows for MCP tool invocation
+- Fail-closed: if AG is down, MCP/A2A/agent requests are denied
 
----
+**Alternatives considered**:
+- Envoy + ext-authz — rejected; AG is purpose-built for MCP/A2A, Envoy is generic
+- No gateway (direct MCP) — rejected; FR-013 mandates AG for MCP/A2A/agent traffic
 
-## R-4: Relationship to OBO and Global Tool Authorization (093)
+## R-05: Slack Identity Linking Flow
 
-**Decision (updated 2026-04-02)**: **093 normative requirements absorbed into 098** (Session 2026-04-02). OBO token exchange (FR-018), multi-hop delegation (FR-019), multi-tenant isolation (FR-020), and bot service account authorization (FR-021) are now **098 functional requirements**. 093 research documents remain as references. **098** maps enterprise roles to capabilities per component; **ASP / tool policy** implements how tool execution is constrained. Composition: **default deny** at each layer; **deny wins** when 098 and ASP both apply (FR-012).
+**Decision**: Interactive OAuth account linking via BFF callback at `/api/auth/slack-link` (FR-025).
 
-**Rationale**: Single specification simplifies tracking; 098 owns the unified capability matrix, OBO delegation chain, and multi-tenant isolation.
+**Rationale**: The BFF already has NextAuth/Keycloak integration. The flow:
+1. Bot generates linking URL with single-use nonce (10min TTL) + `slack_user_id`
+2. User clicks URL → redirected to Keycloak OIDC login (via federated IdP)
+3. BFF callback handles auth code exchange → extracts `keycloak_sub`
+4. BFF stores `slack_user_id` as Keycloak user attribute via Admin API
+5. BFF posts confirmation DM via Slack Web API
+6. Subsequent commands: bot queries Keycloak Admin API (find user by `slack_user_id` attribute) → OBO exchange
 
-**Alternatives considered**: Keep 093/098 separate (rejected—caused cross-spec dependency confusion); merge RBAC into ASP only (rejected—IdP group lifecycle differs from tool policy).
+**Nonce storage**: MongoDB `slack_link_nonces` collection (ephemeral, 10min TTL index).
 
----
+**Alternatives considered**:
+- Slack bot hosts its own HTTP server for callback — rejected; adds HTTP capability to Python bot, duplicates BFF
+- Store link mapping in MongoDB instead of Keycloak — rejected; centralizes identity in Keycloak, removes MongoDB dependency from Slack bot identity path
 
-## R-5: Audit and privacy
+## R-06: Supervisor Test Failures (217 failures)
 
-**Decision**: Log **structured authorization events** with **hashed or opaque user id**, **capability key**, **component** (`admin_ui` | `slack` | `supervisor` | `rag` | `sub_agent` | `tool` | `skill` | `a2a` | `mcp`), **allow/deny**, **correlation id**; **no** raw PII in info-level logs. Retention per org policy.
+**Decision**: Install `pytest-asyncio` as dev dependency; most failures are missing async test support.
 
-**Rationale**: **FR-005** and OWASP logging guidance.
+**Rationale**: The error message shows `Failed: async def functions are not natively supported. You need to install a suitable plugin for your async framework, for example: pytest-asyncio`. This is a dependency gap, not test logic bugs. After installing, remaining failures (if any) will be individual test issues.
 
-**Alternatives considered**: Full JWT logging (rejected).
+**Additional findings**:
+- `pytest-cov` is not installed — needed for coverage measurement
+- Root `tests/` directory is NOT in `pyproject.toml` `testpaths` — tests only run when explicitly invoked via `pytest tests/`
+- The `pyproject.toml` `testpaths` only lists `ai_platform_engineering/utils` and `ai_platform_engineering/multi_agents`
 
----
+**Action**: Add `pytest-asyncio`, `pytest-cov` to dev dependencies; add `tests/` to `testpaths`.
 
-## R-6: Is AgentGateway required for 098?
+## R-07: UI Test Failures (218 failures across 25 suites)
 
-**Decision (updated 2026-04-01)**: **[Agent Gateway](https://agentgateway.dev/)** is **required** for **MCP tool calls**, **A2A inter-agent traffic**, and **agent/sub-agent dispatch** (**FR-013**, Session 2026-04-01). AG validates **JWT** from the tenant OIDC provider ([Keycloak tutorial](https://agentgateway.dev/docs/kubernetes/latest/mcp/auth/keycloak/), Okta, Entra) and enforces **[CEL](https://agentgateway.dev/docs/reference/cel/)**-based authorization rules. **Slack** and **Admin UI** stay on **BFF/bot** enforcement. If AG is **unavailable**, MCP/A2A/agent traffic MUST **fail closed**.
+**Decision**: Triage and fix by category — most failures are likely mock/import issues from recent code changes.
 
-**Rationale**: Centralizes **JWT validation + policy** for all **agent-side** traffic; solves **remote MCP** and **auth-less MCP** gaps with a single component; keeps **Slack/UI** path simple and AG-independent.
+**Rationale**: With 1,876 passing tests and 218 failing, the failures are concentrated in 25 of 105 suites. Common causes in Next.js test suites:
+- Module mock mismatches after refactoring (e.g., `canViewAdmin` removal)
+- Async timing issues in `waitFor` assertions
+- Missing mock providers or changed API signatures
 
-**Alternatives considered**: AG optional (superseded Sessions 2026-03-26, 2026-03-30); AG for all entry points (rejected—over-couples Slack/UI to infra); no AG at all (rejected—leaves MCP/A2A without uniform auth gateway).
+**Action**: Run each failing suite individually, categorize failures, fix in batches. Priority: API tests (admin, auth) → component tests → hook tests.
 
----
+## R-08: User Self-Service RBAC Posture View
 
-## R-7: Scope vs supervisor, RAG runtime, sub-agents, tools, skills, Admin, A2A, MCP
+**Decision**: New API route `/api/auth/my-roles` + read-only panel in user menu (FR-036).
 
-**Decision** (**updated 2026-03-28**): **098** enterprise RBAC **includes** **Admin**, **Slack**, **Supervisor**, **RAG** (admin + data-plane entry points), **sub-agents**, **tools** (config + runtime), **skills**, **A2A**, and **MCP**—each with **matrix rows** and **default deny** (**spec FR-008**, **FR-014**, Session 2026-03-28). **093** / **ASP** remain authoritative for **OBO** and **policy-engine** implementation; **capability keys** MUST **align** to avoid silent conflict.
+**Rationale**: The admin user detail modal (FR-033) already aggregates realm roles, teams, per-KB roles, per-agent roles, and IdP source. The self-service view reuses the same data fetching but scoped to the authenticated user's own `keycloak_sub`. No Keycloak Admin API access needed for the frontend — the BFF route fetches from Keycloak Admin API server-side and returns only the current user's data.
 
-**Rationale**: Stakeholder direction for **one** auditable RBAC model across the stack.
+**Data sources**:
+- Keycloak Admin API: realm roles, per-KB/agent roles (parsed from role names), IdP source, account status
+- MongoDB: team memberships (from team documents)
+- Session: email, name, sub (already available)
 
-**Alternatives considered**: UI/Slack-only matrix (**superseded**—Session 2026-03-27).
-
----
-
-## R-8: Keycloak as required OIDC broker and PDP
-
-**Decision (2026-04-03)**: **Keycloak** is the **required** OIDC / authorization layer for the CAIPE platform (FR-011, Session 2026-04-03). Enterprise customers federate their existing IdP (Okta, Entra ID, SAML) into Keycloak via identity brokering. Keycloak provides: OBO / token exchange (RFC 8693), Authorization Services as PDP for UI/Slack RBAC (FR-022), groups → roles mapping at token issuance (FR-010), JWT issuance, and Slack identity link storage as user attributes (FR-025).
-
-**Rationale**: Consolidates OIDC brokering, OBO, PDP, identity linking, and group mapping into one proven component. Eliminates the need for a custom `caipe-authorization-server`. The Slack bot becomes stateless with respect to MongoDB — all identity state lives in Keycloak.
-
-**Alternatives considered**: Keycloak optional with direct Okta/Entra (original Session 2026-03-24 Q3 — **superseded**); custom `caipe-authorization-server` as PDP fallback (eliminated — Keycloak handles this); Keycloak as sole IdP (rejected — broker mode preserves existing customer IdPs).
-
----
-
-## R-9: Hybrid RBAC configuration store
-
-**Decision (2026-04-03)**: **Keycloak** stores authorization policies (resources, scopes, role-based policies) and Slack identity links (user attributes). **MongoDB** stores team/KB ownership assignments, app metadata, ASP tool policies, and operational RBAC state (FR-023, Session 2026-04-03). The Admin UI writes to both via Keycloak Admin API + MongoDB.
-
-**Rationale**: Keycloak is the natural home for authz policies (it evaluates them); MongoDB is the natural home for team/KB assignments (already used by the UI and RAG server). Avoids duplicating policies across stores.
-
-**Alternatives considered**: Keycloak-only (rejected—team/KB assignments and ASP policies don't fit Keycloak's AuthZ model well); MongoDB-only (rejected—would require building a PDP from scratch).
-
----
-
-## R-10: Admin UI User Detail View — Keycloak API strategy (FR-033)
-
-**Decision (2026-03-25)**: Use Keycloak Admin REST API for server-side user pagination (`GET /users?search=&first=&max=&enabled=`), user count (`GET /users/count`), role mapping management (`GET/POST/DELETE /users/{id}/role-mappings/realm`), user session retrieval (`GET /users/{id}/sessions`), and federated identity lookup (`GET /users/{id}/federated-identity`). Role-based filtering uses `GET /roles/{name}/users`. Team and Slack link filters cross-reference MongoDB and Keycloak user attributes respectively via BFF-side joins.
-
-**Rationale**: Keycloak's Admin API natively supports paginated user search, enabled/disabled filter, and per-user role mapping management — no custom indexing needed. Role filtering via the role-users endpoint avoids fetching all users. Team membership and Slack link status require MongoDB/attribute lookups but the dataset is smaller after Keycloak-side pagination narrows results.
-
-**Alternatives considered**: Client-side pagination (rejected — doesn't scale to 1000+ users); custom user index in MongoDB (rejected — adds sync complexity and dual-write risk); GraphQL layer over Keycloak (over-engineering for current needs).
-
----
-
-## R-11: Slack identity linking callback architecture (FR-025)
-
-**Decision (2026-03-25)**: The OAuth callback for Slack identity linking lives at **`/api/auth/slack-link`** in the **Next.js BFF**. The Slack bot generates a linking URL containing a **single-use nonce** (32 bytes, hex-encoded) and `slack_user_id` as query parameters. The BFF validates the nonce against MongoDB (`slack_link_nonces`), initiates Keycloak OIDC authorization code flow, exchanges the code for tokens, extracts `keycloak_sub`, stores the `slack_user_id ↔ keycloak_sub` mapping as a Keycloak user attribute via Admin API, marks the nonce as consumed, renders a success page in the browser, and posts a confirmation DM to the user via the **Slack Web API** using `SLACK_BOT_TOKEN`.
-
-**Rationale**: The BFF already has Keycloak OIDC integration (NextAuth). Hosting the callback there avoids adding HTTP server capabilities to the Python Slack bot. Direct Slack API call for the confirmation DM avoids inter-service webhook infrastructure. The bot remains a pure Slack Bolt app with no inbound HTTP requirements.
-
-**Alternatives considered**: Bot backend callback (rejected — adds HTTP server to bot); webhook from BFF to bot for DM (rejected — adds inter-service dependency); lazy detection on next command (rejected — no immediate in-Slack feedback); dedicated linking microservice (over-engineering).
-
----
-
-## R-12: Nonce storage and TTL for identity linking (FR-025)
-
-**Decision (2026-03-25)**: Nonces are stored in MongoDB collection `slack_link_nonces` with a **10-minute TTL** via MongoDB TTL index on `created_at`. Each document contains `nonce` (unique), `slack_user_id`, `created_at`, and `consumed` (boolean). On callback, the BFF validates: (1) nonce exists, (2) not consumed, (3) not expired. After successful use, `consumed` is set to `true` (prevents replay even before TTL expiry).
-
-**Rationale**: MongoDB TTL indexes auto-expire documents — no cron or cleanup needed. 10 minutes allows for MFA prompts and browser switching while limiting the interception window. Single-use + consumed flag prevents replay attacks.
-
-**Alternatives considered**: Redis TTL (rejected — not in current stack for this use case); in-memory store (rejected — doesn't survive BFF restarts); 5-minute TTL (too short for MFA); 30-minute TTL (unnecessarily long exposure).
+**Alternatives considered**:
+- Extract from JWT claims only — rejected; JWT doesn't contain team memberships or per-KB/agent role details
+- Link to Keycloak Account Console — rejected; poor UX, requires separate login, doesn't show CAIPE teams

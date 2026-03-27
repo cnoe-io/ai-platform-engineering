@@ -38,7 +38,20 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
+  '@/lib/rbac/keycloak-authz'
+).checkPermission;
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
@@ -90,6 +103,15 @@ function makeRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
 }
 
+/** Minimal JWT body so requireRbacPermission can decode realm_access.roles. */
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 /**
  * Admin session via OIDC role — getAuthenticatedUser sees session.role === 'admin'
  * and skips the MongoDB fallback check entirely.
@@ -98,6 +120,7 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -109,6 +132,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
@@ -116,6 +140,11 @@ function resetMocks() {
   mockGetServerSession.mockReset();
   mockGetCollection.mockClear();
   mockIsMongoDBConfigured = true;
+  mockCheckPermission.mockReset();
+  mockCheckPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -164,7 +193,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('returns 403 when user lacks admin_ui#view (no admin realm role / PDP deny)', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
@@ -175,37 +204,13 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin view access required');
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
-  it('allows non-admin users with view access to read stats (readonly)', async () => {
-    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
-
-    const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue(null);
-    usersCol.countDocuments.mockResolvedValue(5);
-    usersCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['users'] = usersCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(10);
-    convCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['conversations'] = convCol;
-
-    const msgCol = createMockCollection();
-    msgCol.countDocuments.mockResolvedValue(50);
-    msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['messages'] = msgCol;
-
-    const req = makeRequest('/api/admin/stats');
-    const res = await GET(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
-  });
-
-  it('grants access when user is admin via MongoDB fallback', async () => {
-    // Session says 'user' but MongoDB has admin role
+  it('grants access when user is admin via MongoDB fallback (PDP allows view)', async () => {
+    // Session OIDC role is user; MongoDB promotes to admin for app session; PDP must allow
+    // admin_ui#view because token realm roles alone do not include admin.
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
     mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
@@ -231,6 +236,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
 
   it('returns 503 when MongoDB is not configured', async () => {
     mockIsMongoDBConfigured = false;
+    mockGetServerSession.mockResolvedValue(adminSession());
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(503);

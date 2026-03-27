@@ -15,6 +15,7 @@ dependencies = [
   "loguru",
   "pydantic",
   "pymongo",
+  "motor",
   "pyyaml",
   "langfuse",
 ]

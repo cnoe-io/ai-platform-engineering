@@ -9,7 +9,11 @@ const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
-jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
 
 let mockNpsEnabled = true;
 jest.mock('@/lib/config', () => ({
@@ -66,19 +70,11 @@ function makeRequest(url: string, options: RequestInit = {}): NextRequest {
 const adminSession = {
   user: { email: 'admin@example.com', name: 'Admin' },
   role: 'admin',
-  canViewAdmin: true,
 };
 
 const userSession = {
   user: { email: 'user@example.com', name: 'User' },
   role: 'user',
-  canViewAdmin: false,
-};
-
-const viewerSession = {
-  user: { email: 'viewer@example.com', name: 'Viewer' },
-  role: 'user',
-  canViewAdmin: true,
 };
 
 describe('POST /api/admin/nps/campaigns', () => {
@@ -134,7 +130,7 @@ describe('POST /api/admin/nps/campaigns', () => {
   });
 
   it('returns 403 when user is not admin (viewer can\'t create)', async () => {
-    mockGetServerSession.mockResolvedValue(viewerSession);
+    mockGetServerSession.mockResolvedValue(userSession);
     const res = await POST(
       makeRequest('/api/admin/nps/campaigns', {
         method: 'POST',
@@ -308,10 +304,21 @@ describe('GET /api/admin/nps/campaigns', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view access', async () => {
+  it('returns 200 for authenticated non-admin (GET lists campaigns)', async () => {
     mockGetServerSession.mockResolvedValue(userSession);
+    const campaignsCol = createMockCollection();
+    campaignsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['nps_campaigns'] = campaignsCol;
+    mockCollections['nps_responses'] = createMockCollection();
     const res = await GET(makeRequest('/api/admin/nps/campaigns'));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.campaigns).toEqual([]);
   });
 
   it('returns empty campaigns array when none exist', async () => {
@@ -364,8 +371,8 @@ describe('GET /api/admin/nps/campaigns', () => {
     expect(body.data.campaigns[0].status).toBeDefined();
   });
 
-  it('admin viewer (canViewAdmin=true) can list campaigns', async () => {
-    mockGetServerSession.mockResolvedValue(viewerSession);
+  it('authenticated non-admin user can list campaigns', async () => {
+    mockGetServerSession.mockResolvedValue(userSession);
     const campaignsCol = createMockCollection();
     campaignsCol.find.mockReturnValue({
       sort: jest.fn().mockReturnValue({
@@ -482,7 +489,7 @@ describe('PATCH /api/admin/nps/campaigns', () => {
   });
 
   it('returns 403 when user is not admin', async () => {
-    mockGetServerSession.mockResolvedValue(viewerSession);
+    mockGetServerSession.mockResolvedValue(userSession);
     const res = await PATCH(makeRequest('/api/admin/nps/campaigns', {
       method: 'PATCH',
       body: JSON.stringify({ campaign_id: new ObjectId().toString() }),

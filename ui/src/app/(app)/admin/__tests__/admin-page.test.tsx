@@ -115,30 +115,33 @@ const mockStatsResponse = {
   },
 };
 
-const mockUsersResponse = {
-  success: true,
-  data: {
-    users: [
-      {
-        email: 'admin@example.com',
-        name: 'Admin User',
-        role: 'admin',
-        created_at: new Date().toISOString(),
-        last_login: new Date().toISOString(),
-        last_activity: new Date().toISOString(),
-        stats: { conversations: 30, messages: 250 },
-      },
-      {
-        email: 'user@example.com',
-        name: 'Regular User',
-        role: 'user',
-        created_at: new Date().toISOString(),
-        last_login: new Date().toISOString(),
-        last_activity: new Date().toISOString(),
-        stats: { conversations: 10, messages: 80 },
-      },
-    ],
-  },
+/** Shape from GET /api/admin/users (Keycloak list — UserManagementTab) */
+const mockUsersListResponse = {
+  users: [
+    {
+      id: 'kc-admin',
+      username: 'admin',
+      email: 'admin@example.com',
+      firstName: 'Admin',
+      lastName: 'User',
+      enabled: true,
+      attributes: {} as Record<string, string[]>,
+      roles: ['admin'],
+    },
+    {
+      id: 'kc-user',
+      username: 'user',
+      email: 'user@example.com',
+      firstName: 'Regular',
+      lastName: 'User',
+      enabled: true,
+      attributes: {} as Record<string, string[]>,
+      roles: ['user'],
+    },
+  ],
+  total: 2,
+  page: 1,
+  pageSize: 20,
 };
 
 const mockTeamsResponse = {
@@ -185,8 +188,31 @@ const mockConfigResponse = {
   data: { npsEnabled: false },
 };
 
+const allGatesOpen = {
+  users: true,
+  teams: true,
+  roles: true,
+  slack: true,
+  skills: true,
+  feedback: true,
+  nps: true,
+  stats: true,
+  metrics: true,
+  health: true,
+  audit_logs: true,
+  action_audit: true,
+  policy: true,
+};
+
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
+    if (url.includes('/api/rbac/admin-tab-gates')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ gates: overrides.tabGates ?? allGatesOpen }),
+      });
+    }
     if (url.includes('/api/admin/stats') && !url.includes('skills')) {
       return Promise.resolve({
         ok: true,
@@ -198,7 +224,25 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(overrides.users || mockUsersResponse),
+        json: () => Promise.resolve(overrides.usersList ?? mockUsersListResponse),
+      });
+    }
+    if (url.includes('/api/admin/roles')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            overrides.roles ?? {
+              success: true,
+              data: {
+                roles: [
+                  { id: 'r1', name: 'admin', clientRole: false },
+                  { id: 'r2', name: 'user', clientRole: false },
+                ],
+              },
+            }
+          ),
       });
     }
     if (url.includes('/api/admin/teams')) {
@@ -337,14 +381,15 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByText('Remove Admin')).not.toBeInTheDocument();
     });
 
-    it('shows view-only description for user management', async () => {
+    it('shows user management filters in read-only mode', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(
-          screen.getByText(/view user access.*roles.*and activity/i)
-        ).toBeInTheDocument();
+        expect(screen.getByText('admin@example.com')).toBeInTheDocument();
       });
+
+      // Roles filter uses a button summary (MultiSelectFilter), not an input placeholder
+      expect(screen.getByText('All roles')).toBeInTheDocument();
     });
   });
 
@@ -374,28 +419,29 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('shows Actions column header in users tab', async () => {
+    it('shows UserManagementTab column headers', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Actions')).toBeInTheDocument();
+        expect(screen.getByText('admin@example.com')).toBeInTheDocument();
       });
+
+      const table = screen.getByRole('table');
+      expect(within(table).getByText('Name')).toBeInTheDocument();
+      expect(within(table).getByText('Email')).toBeInTheDocument();
+      expect(within(table).getByText('Roles')).toBeInTheDocument();
     });
 
-    it('shows Make Admin button for regular users', async () => {
+    it('shows Keycloak role badges for listed users', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Make Admin')).toBeInTheDocument();
+        expect(screen.getByText('user@example.com')).toBeInTheDocument();
       });
-    });
 
-    it('shows Remove Admin button for admin users', async () => {
-      render(<AdminPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Remove Admin')).toBeInTheDocument();
-      });
+      const table = screen.getByRole('table');
+      expect(within(table).getByText('admin')).toBeInTheDocument();
+      expect(within(table).getByText('user')).toBeInTheDocument();
     });
   });
 

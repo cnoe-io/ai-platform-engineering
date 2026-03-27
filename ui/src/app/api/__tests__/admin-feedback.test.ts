@@ -33,6 +33,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 let mockFeedbackEnabled = true;
@@ -100,7 +102,6 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin' },
     role: 'admin',
-    canViewAdmin: true,
   };
 }
 
@@ -108,7 +109,6 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'User' },
     role: 'user',
-    canViewAdmin: false,
   };
 }
 
@@ -164,10 +164,17 @@ describe('GET /api/admin/feedback', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user is not admin', async () => {
+  it('returns 200 for any authenticated user (no admin gate on route)', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
+    const messagesCol = createMockCollection();
+    messagesCol.aggregate.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+    });
+    mockCollections['messages'] = messagesCol;
     const res = await GET(makeRequest('/api/admin/feedback'));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 
   it('returns 503 when MongoDB is not configured', async () => {

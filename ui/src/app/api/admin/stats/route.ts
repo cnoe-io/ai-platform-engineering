@@ -6,7 +6,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 
 /** Parse ?range= query param into number of days. */
@@ -34,8 +34,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
-
+    await requireRbacPermission(session, 'admin_ui', 'view');
     const { searchParams } = new URL(request.url);
     const days = rangeDays(searchParams.get('range'));
 

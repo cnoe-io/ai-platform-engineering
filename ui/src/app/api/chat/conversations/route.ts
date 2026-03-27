@@ -12,6 +12,7 @@ import {
   validateRequired,
   getPaginationParams,
   getUserTeamIds,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import type { Conversation, CreateConversationRequest } from '@/types/mongodb';
 
@@ -98,7 +99,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
+    await requireRbacPermission(session, 'supervisor', 'invoke');
+
     const body: CreateConversationRequest = await request.json();
 
     validateRequired(body, ['title']);

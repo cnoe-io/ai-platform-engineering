@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
@@ -6,6 +7,7 @@ import { mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
 import type { ObjectId } from "mongodb";
 
 const NONCE_TTL_MS = 10 * 60 * 1000;
+const HMAC_TTL_SECONDS = 600; // 10 minutes
 
 type NonceDoc = {
   _id: ObjectId;
@@ -25,6 +27,33 @@ function isNonceExpired(doc: NonceDoc): boolean {
     return doc.created_at.getTime() + NONCE_TTL_MS < now;
   }
   return true;
+}
+
+function validateHmac(slackUserId: string, ts: string, sig: string): boolean {
+  const secret = process.env.SLACK_LINK_HMAC_SECRET?.trim()
+    || process.env.SLACK_SIGNING_SECRET?.trim()
+    || "";
+  if (!secret) return false;
+
+  const tsNum = parseInt(ts, 10);
+  if (isNaN(tsNum)) return false;
+
+  const elapsed = Math.floor(Date.now() / 1000) - tsNum;
+  if (elapsed < 0 || elapsed > HMAC_TTL_SECONDS) return false;
+
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(`${slackUserId}:${ts}`)
+    .digest("hex");
+
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(sig, "utf8"),
+      Buffer.from(expected, "utf8")
+    );
+  } catch {
+    return false;
+  }
 }
 
 const LINK_SUCCESS_HTML = `<!DOCTYPE html>
@@ -63,48 +92,70 @@ async function sendSlackLinkConfirmationDm(slackUserId: string): Promise<void> {
 }
 
 export async function GET(request: NextRequest) {
-  const nonce = request.nextUrl.searchParams.get("nonce")?.trim();
   const slackUserIdParam = request.nextUrl.searchParams.get("slack_user_id")?.trim();
-  if (!nonce) {
-    return NextResponse.json({ error: "missing nonce" }, { status: 400 });
-  }
+  const sig = request.nextUrl.searchParams.get("sig")?.trim();
+  const ts = request.nextUrl.searchParams.get("ts")?.trim();
+  const nonce = request.nextUrl.searchParams.get("nonce")?.trim();
+
   if (!slackUserIdParam) {
     return NextResponse.json({ error: "missing slack_user_id" }, { status: 400 });
   }
 
+  // Determine validation mode: HMAC-signed (new) or nonce-based (legacy)
+  const isHmacFlow = !!(sig && ts);
+  const isNonceFlow = !!nonce;
+
+  if (!isHmacFlow && !isNonceFlow) {
+    return NextResponse.json(
+      { error: "missing sig+ts or nonce parameters" },
+      { status: 400 }
+    );
+  }
+
   try {
-    const coll = await getCollection<NonceDoc>("slack_link_nonces");
-    const doc = await coll.findOne({ nonce });
-    if (!doc || doc.consumed === true || isNonceExpired(doc) || doc.slack_user_id !== slackUserIdParam) {
-      return new NextResponse("This link is invalid or has expired.", {
-        status: 400,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
+    // --- Validate the link ---
+    if (isHmacFlow) {
+      if (!validateHmac(slackUserIdParam, ts!, sig!)) {
+        return new NextResponse("This link is invalid or has expired.", {
+          status: 400,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+    } else {
+      // Legacy nonce flow
+      const coll = await getCollection<NonceDoc>("slack_link_nonces");
+      const doc = await coll.findOne({ nonce });
+      if (!doc || doc.consumed === true || isNonceExpired(doc) || doc.slack_user_id !== slackUserIdParam) {
+        return new NextResponse("This link is invalid or has expired.", {
+          status: 400,
+          headers: { "content-type": "text/plain; charset=utf-8" },
+        });
+      }
+      // Consume the nonce
+      await coll.updateOne(
+        { _id: doc._id, consumed: { $ne: true } },
+        { $set: { consumed: true } },
+      );
     }
 
+    // --- Ensure the user is authenticated via OIDC ---
     const session = await getServerSession(authOptions);
     if (!session?.sub) {
       const base = (process.env.NEXTAUTH_URL || request.nextUrl.origin || "").replace(/\/$/, "");
-      const qs = new URLSearchParams({
-        nonce,
-        slack_user_id: slackUserIdParam,
-      });
-      const cb = encodeURIComponent(`/api/auth/slack-link?${qs.toString()}`);
-      return NextResponse.redirect(`${base}/api/auth/signin/oidc?callbackUrl=${cb}`);
+      const qs = new URLSearchParams();
+      qs.set("slack_user_id", slackUserIdParam);
+      if (isHmacFlow) {
+        qs.set("ts", ts!);
+        qs.set("sig", sig!);
+      } else {
+        qs.set("nonce", nonce!);
+      }
+      const cb = encodeURIComponent(`${base}/api/auth/slack-link?${qs.toString()}`);
+      return NextResponse.redirect(`${base}/login?callbackUrl=${cb}`);
     }
 
-    await mergeUserAttributes(session.sub, { slack_user_id: [doc.slack_user_id] });
-    const consumed = await coll.updateOne(
-      { _id: doc._id, consumed: { $ne: true } },
-      { $set: { consumed: true } },
-    );
-    if (consumed.matchedCount === 0) {
-      return new NextResponse("This link is invalid or has expired.", {
-        status: 400,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
-    }
-
+    // --- Link the identity ---
+    await mergeUserAttributes(session.sub, { slack_user_id: [slackUserIdParam] });
     await sendSlackLinkConfirmationDm(slackUserIdParam);
 
     return new NextResponse(LINK_SUCCESS_HTML, {

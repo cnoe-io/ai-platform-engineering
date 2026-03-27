@@ -4,7 +4,6 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
   ApiError,
 } from "@/lib/api-middleware";
 import {
@@ -36,7 +35,6 @@ export const GET = withErrorHandler(
     context: { params: Promise<{ id: string }> }
   ) => {
     return withAuth(request, async (_req, _user, session) => {
-      requireAdminView(session);
       const params = await context.params;
       const id = params.id;
 
@@ -115,7 +113,6 @@ export const PUT = withErrorHandler(
     context: { params: Promise<{ id: string }> }
   ) => {
     return withAuth(request, async (req, _user, session) => {
-      requireAdminView(session);
       const params = await context.params;
       const id = params.id;
 

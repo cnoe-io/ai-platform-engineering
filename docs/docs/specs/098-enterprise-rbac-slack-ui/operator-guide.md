@@ -1,429 +1,281 @@
-# 098 Enterprise RBAC — Operator Guide
+# Operator Guide: Enterprise RBAC (098)
 
-Operational procedures for **098 Enterprise RBAC** (Keycloak, OBO token exchange, Authorization Services, Agent Gateway, policy authoring, composition, fail-closed behavior, and day-two tasks). Maps to implementation tasks **T070–T077**.
+**Audience**: Platform operators deploying CAIPE with Keycloak, Agent Gateway, and the CAIPE UI BFF.  
+**Sources of truth**: `deploy/keycloak/realm-config.json`, `deploy/agentgateway/config.yaml`, `ui/src/lib/api-middleware.ts`, `ui/src/lib/rbac/`, RAG server `rbac.py`.
 
-**Related artifacts**
+## 1. Keycloak realm setup (`caipe`)
 
-- Realm template: [`deploy/keycloak/realm-config.json`](../../../../deploy/keycloak/realm-config.json)
-- Permission matrix: [permission-matrix.md](./permission-matrix.md)
-- Agent Gateway sample: [`deploy/agentgateway/config.yaml`](../../../../deploy/agentgateway/config.yaml)
-- Slack OBO client: [`ai_platform_engineering/integrations/slack_bot/utils/obo_exchange.py`](../../../../ai_platform_engineering/integrations/slack_bot/utils/obo_exchange.py)
+### 1.1 Import and dev stack
 
----
+- Realm export: `deploy/keycloak/realm-config.json` is bind-mounted into the Keycloak container by `deploy/keycloak/docker-compose.yml` as `--import-realm` data (see that compose file for ports; quickstart uses `http://localhost:7080`).
+- After import, verify realm **`caipe`** is enabled and clients exist (below).
 
-## 1. Keycloak Realm Setup (T070)
+### 1.2 Realm roles (global)
 
-### 1.1 Create realm `caipe`
+Defined under `roles.realm` in `realm-config.json`:
 
-**Dev / import**
+| Role | Purpose (from export descriptions) |
+|------|-------------------------------------|
+| `admin` | Full platform administration |
+| `chat_user` | Invoke supervisor, tools, MCP, A2A, skills (baseline chat user) |
+| `team_member` | Create/manage team-scoped RAG tools |
+| `kb_admin` | KB administration and ingest |
+| `offline_access` | Refresh tokens (OIDC) |
+| `uma_authorization` | UMA / Authorization Services participation |
 
-```bash
-# From repo root — Keycloak imports realm on start (see deploy/keycloak/docker-compose.yml)
-docker compose -f deploy/keycloak/docker-compose.yml up -d keycloak
-```
+**Note**: `denied` in the permission matrix is a *test persona* (user with no chat roles), not a realm role in the export.
 
-The import file sets `"realm": "caipe"` and clients, roles, IdP stubs, and mappers. For **production**, use the same JSON as a baseline and manage drift via your GitOps / Keycloak operator workflow.
+### 1.3 Per-resource and per-KB realm roles (conventions)
 
-**Admin Console**
+The export includes **examples** of fine-grained KB roles; production deployments add more the same way:
 
-1. **Create realm** → Name: `caipe` → Create.
-2. Or **Import** → select `deploy/keycloak/realm-config.json` (review secrets and placeholders first).
+| Pattern | Meaning |
+|---------|---------|
+| `kb_reader:<kb-id>` | Read/query KB `<kb-id>` |
+| `kb_ingestor:<kb-id>` | Ingest into `<kb-id>` |
+| `kb_admin:<kb-id>` | Admin for `<kb-id>` |
+| `kb_reader:*` | Read all KBs (wildcard) |
 
-### 1.2 Configure IdP brokers
+**Agent / task / skill** roles follow the spec (FR-028): `agent_user:<id>`, `agent_admin:<id>`, and analogously **`task_user:<id>`**, **`task_admin:<id>`**, **`skill_user:<id>`**, **`skill_admin:<id>`** with wildcards `:*` where appropriate. These are **not** all pre-created in `realm-config.json`; assign them via Admin UI / Keycloak Admin API when provisioning resources.
 
-Enable and fill in one or more of the stub identity providers defined in the template:
+### 1.4 Keycloak Authorization Services resources
 
-| Alias        | Protocol | Template section in `realm-config.json` |
-|-------------|----------|-------------------------------------------|
-| `okta-oidc` | OIDC     | `identityProviders` → Okta URLs, client id/secret |
-| `okta-saml` | SAML 2.0 | SSO URL, certs, NameID format |
-| `entra-oidc`| OIDC     | Microsoft tenant URLs + app registration |
-| `entra-saml`| SAML 2.0 | Entra SAML endpoints |
+Client **`caipe-platform`** has `authorizationServicesEnabled: true` and defines **resources** (type `caipe:component`) with scopes:
 
-**Checklist per IdP**
+| Resource | Scopes (subset) |
+|----------|-----------------|
+| `admin_ui` | `view`, `configure`, `admin`, `audit.view` |
+| `slack` | `view`, `invoke`, `admin` |
+| `supervisor` | `invoke`, `configure`, `admin` |
+| `rag` | `query`, `ingest`, `admin`, `tool.create`, `tool.update`, `tool.delete`, `tool.view`, `kb.admin`, `kb.ingest`, `kb.query` |
+| `sub_agent` | `invoke`, `configure`, `admin` |
+| `tool` | `invoke`, `configure`, `admin` |
+| `skill` | `view`, `invoke`, `configure`, `delete` |
+| `a2a` | `create`, `view`, `configure`, `delete`, `admin` |
+| `mcp` | `invoke`, `view`, `admin` |
 
-- Set **Client ID / secret** (OIDC) or **metadata / URLs / signing** (SAML).
-- **Trust email** if your HR source of truth is the IdP.
-- **First broker login** flow: decide link-only vs auto-link vs review profile (enterprise policy).
-- Turn **`enabled`: true** after validation (template ships `enabled: false` for stubs).
+**Policies** in the export map realm roles to these scopes (e.g. `admin-role-policy`, `chat-user-role-policy`, `team-member-role-policy`, `kb-admin-role-policy` plus composite scope policies such as `rag-query-access`, `rag-team-tool-access`, `slack-access`). Operators should extend policies when product matrix rows require roles beyond what the sample export grants (see [permission-matrix.md](./permission-matrix.md) § Keycloak export alignment).
 
-### 1.3 Attribute importers (claim → user attribute)
+### 1.5 Clients
 
-Map IdP group or claim data into Keycloak user attributes so you can audit and optionally drive secondary logic.
+| Client ID | Purpose | Notes from export |
+|-----------|---------|-------------------|
+| **`caipe-ui`** | Next.js / NextAuth OIDC | Confidential, standard flow, `authorizationServicesEnabled: false`, redirect `http://localhost:3000/*` (adjust for prod) |
+| **`caipe-platform`** | Resource server + PDP for UMA | Authorization Services **enabled**; used as **audience** for permission checks and Agent Gateway JWT audience |
+| **`caipe-slack-bot`** | Bot service account + OBO | `serviceAccountsEnabled: true`, `standardFlowEnabled: false`, `directAccessGrantsEnabled: false`, attribute `oidc.token.exchange.enabled: true` |
 
-Examples already in `realm-config.json` under `identityProviderMappers`:
+### 1.6 Client scopes and protocol mappers
 
-- **Okta OIDC**: `oidc-user-attribute-idp-mapper` — `claim` `groups` → `user.attribute` `idp_groups`.
-- **Okta SAML**: `saml-user-attribute-idp-mapper` — SAML `groups` → `idp_groups`.
-- **Entra OIDC / SAML**: same pattern; Entra SAML often uses `http://schemas.microsoft.com/ws/2008/06/identity/claims/groups`.
+Default realm client scopes (`defaultDefaultClientScopes`): `profile`, `email`, `roles`, `groups`, `org`.
 
-**Admin Console path**: Realm **Identity providers** → *your IdP* → **Mappers** → Add mapper → *OIDC attribute* or *SAML attribute*.
+Important mappers:
 
-### 1.4 Group → realm role mappers
+- **`roles` scope** — `realm-roles` → JWT claim **`roles`** (multivalued string), also on userinfo/id token per mapper config.
+- **`groups` scope** — maps user attribute **`idp_groups`** → claim **`groups`** (FR-010; populated by IdP / broker mappers).
+- **`org` scope** — user attribute **`org`** → claim **`org`** (tenant hint, FR-020).
+- **`profile` scope** — includes **`caipe-audience`** mapper adding custom audience **`caipe-platform`** to tokens so resource-server and AG validation can accept them.
 
-Realm roles used by CAIPE: **`admin`**, **`chat_user`**, **`team_member`**, **`kb_admin`**.
+Identity provider mappers (Okta / Entra examples in export) illustrate importing groups into `idp_groups` and optional hardcoded role assignment from IdP group values.
 
-| IdP group (example)   | Keycloak realm role |
-|-----------------------|---------------------|
-| `platform-admin`      | `admin`             |
-| `backstage-access`    | `chat_user`         |
-| `team-{name}-eng`     | `team_member`       |
-| `kb-admins`           | `kb_admin`          |
+### 1.7 Sample users
 
-**OIDC**: use **Hardcoded role** (`hardcoded-role-idp-mapper`) with `claim` + `claim.value`, or Advanced claim → role if you need pattern matching.
-
-**SAML**: use **SAML Attribute to Role** (`saml-role-idp-mapper`) with `attribute.name` + `attribute.value`.
-
-The template includes examples (e.g. `platform-admin` → `admin`, `team-a-eng` → `team_member`, `kb-admins` → `kb_admin`). **Duplicate mappers** per team group or use a single mapper type your IdP supports (e.g. regex / script) per Keycloak version.
-
-### 1.5 Protocol mappers for JWT claims `groups`, `roles`, `org`
-
-Defined as **client scopes** in `realm-config.json`:
-
-| Scope   | Claim(s) | Mechanism |
-|---------|----------|-----------|
-| `roles` | `roles`  | `oidc-usermodel-realm-role-mapper` (multivalued) |
-| `groups`| `groups` | `oidc-group-membership-mapper` |
-| `org`   | `org`    | `oidc-usermodel-attribute-mapper` on user attribute `org` |
-
-Clients **`caipe-ui`**, **`caipe-platform`**, **`caipe-slack-bot`** attach: `profile`, `email`, `roles`, `groups`, `org`.
-
-Populate **`org`** via user attribute (federation mapper or admin API) for multi-tenant checks (e.g. AG header vs JWT — see Agent Gateway config).
-
-### 1.6 Realm roles (reference)
-
-Ensure these **realm roles** exist (included in template):
-
-- `admin`, `chat_user`, `team_member`, `kb_admin` (+ `offline_access`, `uma_authorization` as needed).
+`realm-config.json` includes seed users (e.g. `admin@example.com`, `standard@example.com`, `kbadmin@example.com`, `denied@example.com`, `orgb@example.com`) with differing realm roles for testing—**change passwords before any non-local use**.
 
 ---
 
-## 2. OBO Token Exchange (T071)
+## 2. Agent Gateway deployment
 
-Slack (and other bots) use **OAuth 2.0 Token Exchange** ([RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html)) so the bot acts **on behalf of** the linked user. The implementation posts to Keycloak’s token endpoint with grant type `urn:ietf:params:oauth:grant-type:token-exchange`.
+### 2.1 Layout
 
-### 2.1 Confidential client `caipe-slack-bot`
+- Compose: `deploy/agentgateway/docker-compose.yml`
+- Config: `deploy/agentgateway/config.yaml`
 
-In `realm-config.json` the client is:
+### 2.2 JWT validation (strict mode)
 
-- **Confidential**, **service accounts enabled**
-- **`oidc.token.exchange.enabled`**: `true`
-- **`fullScopeAllowed`**: `false` (scope ceiling enforced by Keycloak + your policies)
+From `config.yaml`:
 
-**Production**: replace dev secret; store in a secret manager; wire env:
+- Listener **`jwtAuth`**: `mode: strict`
+- **`issuer`**: `http://localhost:7080/realms/caipe` (set to your realm issuer in each environment)
+- **`audiences`**: `[caipe-platform]`
+- **`jwks.url`**: realm JWKS (compose uses `http://keycloak:7080/realms/caipe/protocol/openid-connect/certs` for in-network Keycloak)
 
-```bash
-export KEYCLOAK_URL=https://keycloak.example.com
-export KEYCLOAK_REALM=caipe
-export KEYCLOAK_BOT_CLIENT_ID=caipe-slack-bot
-export KEYCLOAK_BOT_CLIENT_SECRET='<rotated-secret>'
-```
+### 2.3 HTTP route CEL (tenant + subject)
 
-### 2.2 Enable token exchange permission
+Authorization rules on the HTTP route:
 
-In Keycloak **26.x** (adjust for your minor version):
+- Deny if no `jwt.sub`
+- Deny if `jwt.org` and header `x_tenant_id` both present and differ (tenant mismatch)
+- Allow if `jwt.sub` present
 
-1. **Realm settings** → **Tokens** → enable **OAuth 2.0 Token Exchange** (if presented as a realm toggle).
-2. **Clients** → `caipe-slack-bot` → **Service account roles** / **Permissions**: ensure the service account may perform token exchange **from** user tokens **to** an access token for the intended audience (often `caipe-platform` for AG).
+### 2.4 MCP authorization CEL (`mcpAuthorization.rules`)
 
-Exact UI labels vary; if using fine-grained client permissions, grant **`token-exchange`** to the bot client for subjects in realm `caipe`.
+Rules are **allow-if-any-match** (documented inline in config). They gate tool names by prefix and realm roles in **`jwt.realm_access.roles`**, including:
 
-### 2.3 Scope ceiling (FR-021)
+- Admin-only: `admin_*`, `supervisor_config*`
+- RAG: `rag_query*`, `rag_ingest*`, `rag_tool*`
+- Team tools: `team_*` (with `admin` / `kb_admin` / `team_member` branches)
+- Dynamic agent tools: names starting with `dynamic_agent_` for chat/team/kb_admin/admin roles
+- General tools: chat-capable roles excluding admin/rag_ingest/supervisor_config prefixes
 
-The **effective OBO scope** must be the **intersection** of:
+**`mcp.targets`** is empty in the sample—set real MCP backend URLs per environment.
 
-- What the **user** is allowed (realm roles + optional client scopes), and  
-- What the **bot client** is allowed to request (**scope ceiling**).
+### 2.5 Production checklist
 
-Operational rules:
-
-- Keep **`fullScopeAllowed`** off on `caipe-slack-bot`.
-- Assign **only** the client scopes needed for AG + AuthZ (e.g. `profile`, `email`, `roles`, `groups`, `org` — no unnecessary optional scopes).
-- Document **`scope_ceiling`** per tenant in your runbook (see [data-model.md](./data-model.md) *Bot service account*).
-
-### 2.4 Verify with curl (RFC 8693)
-
-After the user has a normal **access token** (`$USER_ACCESS_TOKEN`):
-
-```bash
-KC_HOST=http://localhost:7080
-REALM=caipe
-
-curl -s "$KC_HOST/realms/$REALM/protocol/openid-connect/token" \
-  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
-  -d "subject_token=$USER_ACCESS_TOKEN" \
-  -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
-  -d "requested_token_type=urn:ietf:params:oauth:token-type:access_token" \
-  -d "client_id=caipe-slack-bot" \
-  -d "client_secret=<secret>"
-```
-
-Decode the JWT: expect **`sub`** = end user, **`act.sub`** = bot client identifier (per your Keycloak config). On failure, check **Events** for `TOKEN_EXCHANGE` / `TOKEN_EXCHANGE_ERROR`.
+- TLS termination and correct **issuer** / **JWKS** URLs for your Keycloak hostname
+- Rotate secrets; do not use dev client secrets from the repo export
+- Align CEL rules with [permission-matrix.md](./permission-matrix.md) and your IdP role names
 
 ---
 
-## 3. Keycloak Authorization Services (T072)
+## 3. CEL policy rules (where they live)
 
-**Resource server client**: `caipe-platform` — **`authorizationServicesEnabled`: true**, **`policyEnforcementMode`**: `ENFORCING`.
+### 3.1 Admin UI tab gates (`admin_tab_policies`)
 
-### 3.1 Resources (permission matrix components)
+- **Storage**: MongoDB collection **`admin_tab_policies`**
+- **API**: `GET/PUT` via BFF routes under `ui/src/app/api/rbac/admin-tab-gates/` and policies listing `admin-tab-policies`
+- **Behavior**: CEL runs per tab; context includes `user.email`, `user.roles` (JWT realm roles plus session/bootstrap admin), `user.teams`, and feature flags are **AND**ed with CEL for several tabs (see `docs/docs/api/rbac-roles.md`)
 
-| Resource     | Type              | Purpose (summary)        |
-|-------------|-------------------|---------------------------|
-| `admin_ui`  | `caipe:component` | UI dashboard / config     |
-| `slack`     | `caipe:component` | Slack surfaces            |
-| `supervisor`| `caipe:component` | Supervisor routing        |
-| `rag`       | `caipe:component` | RAG / KB / tools          |
-| `sub_agent` | `caipe:component` | Sub-agent dispatch        |
-| `tool`      | `caipe:component` | Tool abstraction          |
-| `skill`     | `caipe:component` | Skills                    |
-| `a2a`       | `caipe:component` | A2A tasks                 |
-| `mcp`       | `caipe:component` | MCP                       |
+### 3.2 BFF route CEL (`CEL_RBAC_EXPRESSIONS`)
 
-Full scope lists are in `realm-config.json` under `authorizationSettings.resources` (e.g. `admin_ui`: `view`, `configure`, `admin`, `audit.view`; `rag`: `query`, `ingest`, `tool.*`, `kb.*`, etc.).
+- **Env**: `CEL_RBAC_EXPRESSIONS` — JSON map of **`resource#scope`** → CEL expression string
+- **Applied in**: `requireRbacPermission()` in `ui/src/lib/api-middleware.ts` **after** Keycloak allows or role-fallback allows
+- **Evaluator**: `ui/src/lib/rbac/cel-evaluator.ts` — failures **fail closed** (deny)
 
-### 3.2 Role-based policies
+### 3.3 Agent Gateway
 
-Template policies (positive, role-based):
+- Inline CEL in `deploy/agentgateway/config.yaml` (see §2)
 
-- `admin-role-policy` → realm role `admin`
-- `chat-user-role-policy` → `chat_user`
-- `team-member-role-policy` → `team_member`
-- `kb-admin-role-policy` → `kb_admin`
+### 3.4 RAG server (optional CEL layer)
 
-### 3.3 Scope permissions
+- **Env**: `CEL_KB_ACCESS_EXPRESSION`, `CEL_KB_ACCESS_EXPRESSIONS` (JSON map per KB/datasource)
+- **Code**: `ai_platform_engineering/knowledge_bases/rag/server/src/server/rbac.py`
+- If expressions are set but `cel_evaluator` is unavailable, KB filtering **denies** (fail-closed) or returns 503 when enforcement is required—see code paths `_filter_kb_ids_by_cel` / `_enforce_cel_kb_access`
 
-**Scope permissions** bind resources + scopes to those policies (e.g. `rag-query-access` → `rag` scopes `query`, `tool.view`, `kb.query` + `chat_user`).
-
-### 3.4 Decision strategy: UNANIMOUS
-
-`authorizationSettings.decisionStrategy` is **`UNANIMOUS`**: every applicable policy must agree **positively** for allow (aligns with stricter default — confirm any custom deny policies with your security team).
-
-**Admin Console**: **Clients** → `caipe-platform` → **Authorization** → **Settings** → Decision strategy.
+Per-KB access also uses Keycloak roles and MongoDB team ownership **without** requiring CEL to be configured (CEL is an additional configurable layer per FR-029).
 
 ---
 
-## 4. Agent Gateway Deployment (T073)
+## 4. ASP tool policy composition (FR-012)
 
-### 4.1 Docker (repo layout)
+Enterprise RBAC (Keycloak / AG realm roles + matrix) and **ASP / Global Tool Authorization** are separate layers:
 
-```bash
-# Start Keycloak first so network keycloak_default exists
-docker compose -f deploy/keycloak/docker-compose.yml up -d
+1. RBAC evaluated first (BFF Keycloak UMA or AG CEL).
+2. If RBAC **denies** → request denied.
+3. If RBAC **allows** → ASP still applies where wired (e.g. supervisor tool filtering).
+4. If ASP **denies** → **deny wins** (effective access = **intersection**).
 
-docker compose -f deploy/agentgateway/docker-compose.yml up -d
-```
-
-- **Port**: `4000` (configurable in `config.yaml`).
-- **JWKS**: init container fetches `http://keycloak:7080/realms/caipe/protocol/openid-connect/certs` into a shared volume; AG reads `/etc/agentgateway/jwks.json`.
-
-### 4.2 Kubernetes
-
-Follow upstream Keycloak + AG integration: [Agent Gateway — Keycloak auth (Kubernetes)](https://agentgateway.dev/docs/kubernetes/latest/mcp/auth/keycloak/).
-
-**Operator checklist**
-
-- Mount **config** analogous to `deploy/agentgateway/config.yaml`.
-- Set **`jwtAuth.issuer`** to your realm issuer (e.g. `https://<keycloak>/realms/caipe`).
-- Set **`jwtAuth.audiences`** to include the audience present on tokens (template uses **`caipe-platform`** via audience mapper on `profile` scope).
-- **JWKS URI**: sync or sidecar-fetch from `.../realms/caipe/protocol/openid-connect/certs`; rotate on Keycloak cert rollover.
-
-### 4.3 OIDC parameters (reference)
-
-From `deploy/agentgateway/config.yaml`:
-
-```yaml
-jwtAuth:
-  mode: strict
-  issuer: http://keycloak:7080/realms/caipe   # replace in prod
-  audiences: [caipe-platform]
-  jwks:
-    file: /etc/agentgateway/jwks.json
-```
-
-Adjust **issuer** and **audiences** for every environment; mismatch causes **401/403** on all AG routes.
+Documented in [permission-matrix.md](./permission-matrix.md) § Composition with ASP.
 
 ---
 
-## 5. AG Policy Authoring (T074)
+## 5. Fail-closed behavior
 
-CEL rules should **mirror** [permission-matrix.md](./permission-matrix.md) for MCP, A2A, and agent traffic. AG evaluates **allow** rules (implementation-specific: first match or any-match — align with your AG version; the sample stacks role checks for MCP tools).
+### 5.1 Keycloak unavailable (BFF / UI path)
 
-### 5.1 Principles
+- `checkPermission()` in `ui/src/lib/rbac/keycloak-authz.ts` returns `DENY_PDP_UNAVAILABLE` on network/HTTP errors.
+- `requireRbacPermission()` then **does not** use role fallback for that outcome: it logs and throws **503** *"Authorization service unavailable — access denied (fail-closed)"*.
+- When Keycloak returns a normal **403** denial, the user gets **403** with the standard denial payload.
 
-- One **logical rule** per matrix row (or grouped rows with the same role pattern).
-- Use JWT claims exposed by AG (e.g. `jwt.realm_access.roles`, `jwt.sub`, `jwt.org`).
-- Prefer **deny-by-default**: only listed allow patterns pass (plus HTTP-level `authorization` rules in config).
+**Role fallback** applies only when PDP returns a negative result that is **not** classified as PDP unavailable (see code: fallback for `admin_ui`/`supervisor`/`rag` minimum roles)—intended for gradual rollout, not for bypassing a down PDP.
 
-### 5.2 Example — MCP tool invocation (`mcp#invoke`)
+### 5.2 Agent Gateway unavailable
 
-Illustrative CEL (pattern from `deploy/agentgateway/config.yaml`):
+- MCP/A2A/agent traffic cannot be validated or proxied → requests **fail** (connection errors). Product expectation (FR-013): **fail closed**—no silent bypass around AG for those paths.
 
-```cel
-("chat_user" in jwt.realm_access.roles ||
- "team_member" in jwt.realm_access.roles ||
- "kb_admin" in jwt.realm_access.roles ||
- "admin" in jwt.realm_access.roles) &&
-has(mcp.tool) &&
-!(mcp.tool.name.startsWith("admin_")) &&
-!(mcp.tool.name.startsWith("rag_ingest"))
-```
+### 5.3 MongoDB unavailable
 
-### 5.3 Example — A2A task creation (`a2a#create`)
+- **Admin tab CEL gates**: depend on MongoDB for `admin_tab_policies`; failures should not grant tabs (implementation returns safe defaults / denies—verify in `admin-tab-gates` route when operating).
+- **Team-scoped data** (teams collection, ownership): `getUserTeamIds` and similar helpers catch errors and may return empty lists—can narrow access or break features; do not assume elevated access.
+- **RAG**: if team ownership lookup cannot run where required, spec requires **fail closed** for query filtering (FR-027)—see RAG `rbac.py` implementation.
 
-If your AG route exposes an A2A-specific context (pseudo-variables — align with [Agent Gateway policy docs](https://agentgateway.dev/docs/standalone/latest/configuration/security/)):
+### 5.4 CEL evaluation errors (BFF)
 
-```cel
-("chat_user" in jwt.realm_access.roles ||
- "team_member" in jwt.realm_access.roles ||
- "kb_admin" in jwt.realm_access.roles ||
- "admin" in jwt.realm_access.roles) &&
-has(a2a.task) &&
-a2a.task.operation == "create"
-```
-
-**Admin-only** A2A:
-
-```cel
-"admin" in jwt.realm_access.roles &&
-has(a2a.task) &&
-a2a.task.operation in ["admin", "delete_namespace"]
-```
-
-Keep names (`a2a.task.operation`, etc.) consistent with your **actual** AG extension fields.
-
-### 5.4 Tenant header vs `org` claim
-
-Sample HTTP rule from config:
-
-```cel
-has(jwt.org) && has(request.headers.x_tenant_id) && jwt.org != request.headers.x_tenant_id
-```
-
-→ **deny** if header tenant disagrees with JWT `org`.
+- `cel-evaluator.ts`: parse/runtime errors → **false** (deny).
 
 ---
 
-## 6. Composition & Precedence (T075)
+## 6. Bootstrap admin (`BOOTSTRAP_ADMIN_EMAILS`)
 
-Four layers (see permission matrix **§ Composition**):
-
-| Order | Layer              | Where enforced              |
-|-------|--------------------|-----------------------------|
-| 1     | **AG CEL**         | Agent Gateway               |
-| 2     | **Keycloak AuthZ** | UI BFF, Slack bot (UMA/RPT) |
-| 3     | **ASP**            | RAG / supervisor tool policy (MongoDB) |
-| 4     | **Team-scope**     | BFF + RAG (ownership, datasource binding) |
-
-### 6.1 Deny-wins
-
-```
-effective_access = AG_allows ∧ keycloak_allows ∧ asp_allows ∧ team_scope_allows
-```
-
-Any **deny** or **unavailable PDP** → **deny** (see §7).
-
-### 6.2 Worked example
-
-**Goal**: `team_member` for team A creates a RAG tool scoped to team A.
-
-1. **AG**: MCP tool name matches `rag_tool` pattern; roles include `team_member` → allow at edge.
-2. **Keycloak**: Permission `rag#tool.create` granted to `team_member` → allow.
-3. **ASP**: Tool not on global deny list → allow.
-4. **Team-scope**: `team_id` on payload = A and datasources ⊆ team A allow-list → allow.
-
-**Result**: **allow**. If step 4 fails (cross-team id) → **deny** even if 1–3 allowed.
+- **Purpose**: Comma-separated list of emails treated as **admin** on login when IdP group → role mapping is not yet configured.
+- **Implementation**: `ui/src/lib/auth-config.ts` (`isBootstrapAdmin`), also used from `getAuthenticatedUser` / `requireRbacPermission` role fallback for `admin_ui` when email matches.
+- **Operational guidance**: Remove or empty the variable after realm roles and group mappers are correct; it is a **break-glass bootstrap**, not a long-term RBAC model.
 
 ---
 
-## 7. Fail-Closed Behavior (T076)
+## 7. Environment variables (CAIPE UI / BFF)
 
-| Failure | Symptom | Policy |
-|---------|---------|--------|
-| **Keycloak down** | No OIDC login, token refresh fails, AuthZ errors | **No new sessions**; treat as **deny** for protected APIs. |
-| **AG down / unreachable** | MCP/A2A/agent via AG fail | **Deny** agent-plane traffic; **Slack/UI** paths that only use Keycloak AuthZ may still work if KC healthy and design does not route those through AG. |
-| **MongoDB unavailable** | Team-scope / ASP reads fail | PDP returns **deny** or **503**; **never** implicit allow. Audit reason e.g. `DENY_PDP_UNAVAILABLE`, `DENY_SCOPE`. |
+Copy from **`ui/.env.example`** and **`ui/env.example`** into `.env.local`. Below is a consolidated **name + description** list (no secret values).
 
-### 7.3 Runbooks (short)
+### OIDC / NextAuth
 
-**Keycloak outage**
+| Variable | Description |
+|----------|-------------|
+| `NEXTAUTH_SECRET` | NextAuth session encryption secret |
+| `NEXTAUTH_URL` | Public base URL of the UI (callbacks) |
+| `NEXT_PUBLIC_SSO_ENABLED` | Enable SSO UI paths (`true`/`false`) |
+| `OIDC_ISSUER` | Keycloak realm issuer URL |
+| `OIDC_CLIENT_ID` | OIDC client (typically `caipe-ui`) |
+| `OIDC_CLIENT_SECRET` | Client secret |
+| `OIDC_REQUIRED_GROUP` | Optional: require group membership to use app |
+| `OIDC_REQUIRED_ADMIN_GROUP` | Optional: map matching **realm role name** in token to admin session role |
+| `OIDC_GROUP_CLAIM` | Optional: claim name(s) for groups |
+| `OIDC_ENABLE_REFRESH_TOKEN` | Optional: disable refresh if IdP lacks `offline_access` |
 
-1. Page identity on-call; capture realm logs and `LOGIN_ERROR` / `TOKEN_EXCHANGE_ERROR` events.
-2. Enable maintenance page for UI if sessions cannot refresh.
-3. Do **not** disable AuthZ checks in app config “temporarily” without explicit risk acceptance.
+### Keycloak Admin API (FR-024)
 
-**AG outage**
+| Variable | Description |
+|----------|-------------|
+| `KEYCLOAK_URL` | Keycloak base URL |
+| `KEYCLOAK_REALM` | Realm name (`caipe`) |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | Admin API client (`admin-cli` dev or dedicated client prod) |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | Optional; empty may trigger password grant in dev (see comments in `.env.example`) |
 
-1. Route emergency traffic or disable agent features that **require** AG; do not bypass JWT validation.
-2. Restore JWKS volume / fix issuer URL; verify a sample MCP call with a valid OBO token.
+### Keycloak Authorization Services client (UMA checks)
 
-**MongoDB outage**
+| Variable | Description |
+|----------|-------------|
+| `KEYCLOAK_RESOURCE_SERVER_ID` | Audience / resource server client id (default `caipe-platform`) |
+| `KEYCLOAK_CLIENT_SECRET` | Secret for **`caipe-platform`** when required by your token exchange / setup |
 
-1. BFF/RAG return errors for team-scoped writes; verify alerts on connection pool.
-2. After recovery, reconcile any in-flight writes (idempotent APIs preferred).
+### RBAC / CEL (BFF)
 
----
+| Variable | Description |
+|----------|-------------|
+| `RBAC_CACHE_TTL_SECONDS` | TTL for permission decision cache (default 60; 0 disables) |
+| `CEL_RBAC_EXPRESSIONS` | JSON map `resource#scope` → CEL string for supplementary checks |
 
-## 8. Day-Two Operations (T077)
+### Bootstrap
 
-### 8.1 Adding new IdP groups
+| Variable | Description |
+|----------|-------------|
+| `BOOTSTRAP_ADMIN_EMAILS` | Comma-separated emails with bootstrap admin |
 
-1. Create group in Okta / Entra.
-2. Add **IdP mapper** in Keycloak (hardcoded role or attribute → role).
-3. Confirm user login shows **realm role** under **Users** → *user* → **Role mapping**.
-4. Validate JWT at [jwt.io](https://jwt.io) (dev) or `jq` decode: `roles`, `groups`, `org`.
+### Data / URLs
 
-### 8.2 Creating new roles
+| Variable | Description |
+|----------|-------------|
+| `MONGODB_URI` / `MONGODB_DATABASE` | MongoDB connection and DB name |
+| `NEXT_PUBLIC_MONGODB_ENABLED` | Client hint for Mongo mode |
+| `NEXT_PUBLIC_CAIPE_URL` / `NEXT_PUBLIC_A2A_BASE_URL` | Supervisor / A2A base URL |
+| `NEXT_PUBLIC_RAG_URL` | RAG server URL |
 
-1. Add realm role in Keycloak.
-2. Update **AuthZ policies** on `caipe-platform` (new role policy + scope permission).
-3. Update **AG CEL** in `config.yaml` (Git-reviewed).
-4. Update [permission-matrix.md](./permission-matrix.md) and consuming apps.
+### Feature flags (admin tabs, audit, tickets, …)
 
-### 8.3 Onboarding a new team / KB
+See `ui/src/lib/config.ts` for full list: e.g. `FEEDBACK_ENABLED`, `NPS_ENABLED`, `AUDIT_LOGS_ENABLED`, `ACTION_AUDIT_ENABLED`, `REPORT_PROBLEM_ENABLED`, ticket integration vars, workflow runner, etc.
 
-1. **IdP**: add group `team-<new>-eng` → `team_member` mapper.
-2. **MongoDB**: create team record, allowed datasources, KB bindings (per [data-model.md](./data-model.md)).
-3. **RAG**: verify `rag#tool.*` and datasource validation for that `team_id`.
-4. Smoke test: UI BFF + optional AG MCP path.
+### Slack linking (BFF)
 
-### 8.4 Rotating `caipe-slack-bot` client secret
+| Variable | Description |
+|----------|-------------|
+| `SLACK_BOT_TOKEN` | Used by BFF to post Slack DM after identity link (FR-025) |
 
-1. Keycloak **Clients** → `caipe-slack-bot` → **Credentials** → **Regenerate secret**.
-2. Update secret in vault / k8s Secret / Slack bot deployment env **`KEYCLOAK_BOT_CLIENT_SECRET`**.
-3. Roll pods; verify OBO exchange curl (§2.4).
-
-### 8.5 Upgrading AG policy
-
-1. Change CEL in Git → review against permission matrix.
-2. Roll AG deployment; run **canary** route if supported.
-3. Watch AG JSON logs for denials; spot-check `chat_user` vs `admin` tool paths.
-
-### 8.6 Monitoring audit logs
-
-- **Keycloak**: Admin events + `TOKEN_EXCHANGE`, `PERMISSION_TOKEN` (enabled in template).
-- **Application**: authorization decision records (component, capability, `pdp`, `reason_code`) per data model.
-- Correlate with **correlation_id** across BFF, bot, and AG.
-
-### 8.7 Re-linking invalidated Slack accounts
-
-If a user is **disabled**, **deleted**, or **mapper** changed such that the link is wrong:
-
-1. Bot denies RBAC commands until re-link (FR-025).
-2. Remove stale **`slack_user_id`** attribute on the old Keycloak user (Admin API or console) if the user record still exists.
-3. User completes **Link your account** flow again; bot writes fresh `slack_user_id` on the correct user.
-4. Verify **OBO** exchange and a single protected command.
+Docker Compose may set additional names (`KEYCLOAK_BOT_CLIENT_*` for bot, etc.)—see `docker-compose.dev.yaml` for the slack-bot and caipe-ui services.
 
 ---
 
-## Quick reference — client IDs
+## Related documents
 
-| Client             | Use |
-|--------------------|-----|
-| `caipe-ui`         | Public OIDC — Admin UI |
-| `caipe-platform`   | Resource server + **Authorization Services** |
-| `caipe-slack-bot`  | Confidential — **OBO token exchange** |
-
----
-
-*Document version: aligned with spec **098-enterprise-rbac-slack-ui** and repo templates as of task authoring (T070–T077).*
+- [permission-matrix.md](./permission-matrix.md) — FR-008 / FR-014 capability matrix  
+- [security-review.md](./security-review.md) — verification checklist  
+- [quickstart.md](./quickstart.md) — local bring-up  
+- [spec.md](./spec.md) — normative requirements  

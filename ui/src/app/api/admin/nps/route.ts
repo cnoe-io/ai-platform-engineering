@@ -7,7 +7,6 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
 } from '@/lib/api-middleware';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -30,8 +29,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
-
     const url = new URL(request.url);
     const campaignIdFilter = url.searchParams.get('campaign_id') || undefined;
 

@@ -272,6 +272,11 @@ class AIPlatformEngineerMAS:
                                 if self.rag_tools:
                                     logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools at startup")
                                     logger.info(f"📋 RAG tool names: {[t.name for t in self.rag_tools]}")
+                                    try:
+                                        from ai_platform_engineering.utils.auth_mcp_tools import wrap_rag_tools_with_auth
+                                        self.rag_tools = wrap_rag_tools_with_auth(self.rag_tools)
+                                    except Exception as wrap_err:
+                                        logger.warning(f"Failed to wrap RAG tools with auth: {wrap_err}")
                                 else:
                                     logger.warning("No RAG tools loaded (empty list returned)")
                             except Exception as e:

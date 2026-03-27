@@ -3,11 +3,23 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-config';
+import { authOptions, isBootstrapAdmin, REQUIRED_ADMIN_GROUP } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function decodeJwtPayloadForAuth(accessToken: string): Record<string, unknown> {
+  const parts = accessToken.split('.');
+  if (parts.length < 2) return {};
+  const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const json = Buffer.from(b64, 'base64').toString('utf8');
+  return JSON.parse(json) as Record<string, unknown>;
+}
 
 // ============================================================================
 // Authentication Middleware
@@ -51,15 +63,46 @@ export async function getAuthenticatedUser(
     const { allowAnonymous = false } = options;
     if (allowAnonymous && !getConfig('ssoEnabled')) {
       const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role: 'user' };
-      return { user: fallbackUser, session: { role: 'user', canViewAdmin: false } };
+      return { user: fallbackUser, session: { role: 'user' } };
     }
     throw new ApiError('Unauthorized', 401);
   }
 
   let role = session.role || 'user'; // Get role from OIDC session first
 
-  // Fallback: Check MongoDB user profile if not admin via OIDC
   if (role !== 'admin') {
+    // Fallback 1: Check access token realm_access.roles for the admin group.
+    // session.role is only set during initial sign-in; if the user signed in
+    // before the admin role was assigned, the stale JWT still says 'user'.
+    // Reading the live access token is authoritative.
+    if (session.accessToken) {
+      try {
+        const payload = decodeJwtPayloadForAuth(session.accessToken);
+        const realmRoles: string[] =
+          (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
+        if (
+          REQUIRED_ADMIN_GROUP &&
+          realmRoles.some((r: string) => r.toLowerCase() === REQUIRED_ADMIN_GROUP.toLowerCase())
+        ) {
+          role = 'admin';
+          console.log(`[Auth] User ${session.user.email} is admin via access-token realm role`);
+        }
+      } catch {
+        // Token decode failed — continue with other fallbacks
+      }
+    }
+  }
+
+  if (role !== 'admin') {
+    // Fallback 2: Bootstrap admin emails (env-based, for initial setup)
+    if (isBootstrapAdmin(session.user.email)) {
+      role = 'admin';
+      console.log(`[Auth] User ${session.user.email} is admin via BOOTSTRAP_ADMIN_EMAILS`);
+    }
+  }
+
+  if (role !== 'admin') {
+    // Fallback 3: Check MongoDB user profile
     try {
       const users = await getCollection<User>('users');
       const dbUser = await users.findOne({ email: session.user.email });
@@ -69,7 +112,6 @@ export async function getAuthenticatedUser(
         console.log(`[Auth] User ${session.user.email} is admin via MongoDB profile`);
       }
     } catch (error) {
-      // MongoDB not available or error - continue with OIDC role
       console.warn('[Auth] Could not check MongoDB for admin role:', error);
     }
   }
@@ -80,7 +122,7 @@ export async function getAuthenticatedUser(
     role,
   };
 
-  return { user, session: { ...session, role, canViewAdmin: session.canViewAdmin ?? false } };
+  return { user, session: { ...session, role } };
 }
 
 /**
@@ -124,7 +166,7 @@ export async function getAuthFromBearerOrSession(
     if (localIdentity) {
       return {
         user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
-        session: { role: 'user', canViewAdmin: false },
+        session: { role: 'user' },
       };
     }
 
@@ -132,7 +174,7 @@ export async function getAuthFromBearerOrSession(
     const identity = await validateBearerJWT(token);
     // Bearer users get 'user' role by default; admin escalation is session-only
     const user = { email: identity.email, name: identity.name, role: 'user' };
-    return { user, session: { role: 'user', canViewAdmin: false } };
+    return { user, session: { role: 'user' } };
   }
 
   // Path 2: Session cookie (existing NextAuth flow)
@@ -150,18 +192,6 @@ export function requireAdmin(session: { role?: string }): void {
   }
 }
 
-/**
- * Require admin view access for read-only admin endpoints.
- * Checks session.canViewAdmin (set from OIDC_REQUIRED_ADMIN_VIEW_GROUP).
- * Admin users always have view access.
- * Throws 403 if user lacks the required group.
- */
-export function requireAdminView(session: { role?: string; canViewAdmin?: boolean }): void {
-  if (session.role === 'admin') return;
-  if (session.canViewAdmin !== true) {
-    throw new ApiError('Admin view access required - must be member of admin view group', 403);
-  }
-}
 
 // ============================================================================
 // Enterprise RBAC (098) — Keycloak Authorization Services
@@ -236,19 +266,57 @@ function buildRbacCelContext(
 }
 
 /**
+ * Minimum realm role required per resource when falling back from Keycloak
+ * AuthZ Services to token-based role checking.
+ */
+const RESOURCE_ROLE_FALLBACK: Partial<Record<RbacResource, string>> = {
+  admin_ui: 'admin',
+  supervisor: 'chat_user',
+  rag: 'chat_user',
+};
+
+/**
+ * Check whether the access token's realm_access.roles (or bootstrap emails)
+ * satisfy the minimum role required for the given resource.
+ */
+function hasRoleFallback(
+  accessToken: string,
+  resource: RbacResource,
+  email?: string,
+): boolean {
+  const requiredRole = RESOURCE_ROLE_FALLBACK[resource];
+  if (!requiredRole) return false;
+
+  if (requiredRole === 'admin' && isBootstrapAdmin(email)) return true;
+
+  try {
+    const payload = decodeJwtPayloadForAuth(accessToken);
+    const realmRoles: string[] =
+      (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
+    return realmRoles.some((r: string) => r.toLowerCase() === requiredRole.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Require a specific RBAC permission via Keycloak AuthZ Services (PDP-1).
  *
  * Calls Keycloak's UMA ticket grant to verify the user's access token has
- * the required {resource}#{scope} permission. Logs an audit event for every
- * allow/deny decision. Throws 403 on deny, 503 if Keycloak is unreachable.
+ * the required {resource}#{scope} permission. When the PDP is unavailable or
+ * the Authorization Services are not configured, falls back to checking the
+ * access token's realm_access.roles for the minimum required role. This
+ * allows gradual rollout of fine-grained AuthZ without breaking access for
+ * existing admins. Logs an audit event for every allow/deny decision.
  */
 export async function requireRbacPermission(
-  session: { accessToken?: string; sub?: string; org?: string },
+  session: { accessToken?: string; sub?: string; org?: string; user?: { email?: string } },
   resource: RbacResource,
   scope: RbacScope,
   celContext?: Record<string, unknown>
 ): Promise<void> {
   const accessToken = session.accessToken;
+  const email = session.user?.email;
 
   if (!accessToken) {
     logAuthzDecision({
@@ -259,36 +327,65 @@ export async function requireRbacPermission(
       outcome: 'deny',
       reasonCode: 'DENY_NO_TOKEN',
       pdp: 'keycloak',
+      email,
     });
     throw new ApiError('Authentication required', 401);
   }
 
   const result = await checkPermission({ resource, scope, accessToken });
 
-  const outcome = result.allowed ? 'allow' : 'deny';
-  const reasonCode = result.allowed
-    ? 'OK'
-    : (result.reason === 'DENY_PDP_UNAVAILABLE' ? 'DENY_PDP_UNAVAILABLE' : 'DENY_NO_CAPABILITY');
-
-  logAuthzDecision({
-    tenantId: session.org ?? 'unknown',
-    sub: session.sub ?? 'unknown',
-    resource,
-    scope,
-    outcome,
-    reasonCode,
-    pdp: 'keycloak',
-  });
-
-  if (result.reason === 'DENY_PDP_UNAVAILABLE') {
-    throw new ApiError('Authorization service unavailable — access denied (fail-closed)', 503);
+  if (result.allowed) {
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: session.sub ?? 'unknown',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK',
+      pdp: 'keycloak',
+      email,
+    });
+  } else {
+    // PDP denied or unavailable — attempt role-based fallback so that
+    // environments without Keycloak AuthZ Services still work.
+    const fallbackAllowed = hasRoleFallback(accessToken, resource, email);
+    if (fallbackAllowed) {
+      logAuthzDecision({
+        tenantId: session.org ?? 'unknown',
+        sub: session.sub ?? 'unknown',
+        resource,
+        scope,
+        outcome: 'allow',
+        reasonCode: 'OK_ROLE_FALLBACK',
+        pdp: 'local',
+        email,
+      });
+      console.log(
+        `[RBAC] Keycloak AuthZ denied/unavailable for ${resource}#${scope} — ` +
+        `allowed via role fallback (${RESOURCE_ROLE_FALLBACK[resource]})`
+      );
+    } else {
+      const reasonCode = result.reason === 'DENY_PDP_UNAVAILABLE'
+        ? 'DENY_PDP_UNAVAILABLE' : 'DENY_NO_CAPABILITY';
+      logAuthzDecision({
+        tenantId: session.org ?? 'unknown',
+        sub: session.sub ?? 'unknown',
+        resource,
+        scope,
+        outcome: 'deny',
+        reasonCode,
+        pdp: 'keycloak',
+        email,
+      });
+      if (result.reason === 'DENY_PDP_UNAVAILABLE') {
+        throw new ApiError('Authorization service unavailable — access denied (fail-closed)', 503);
+      }
+      const denial = deniedApiResponse(resource, scope);
+      throw new ApiError(denial.message, 403, denial.capability);
+    }
   }
 
-  if (!result.allowed) {
-    const denial = deniedApiResponse(resource, scope);
-    throw new ApiError(denial.message, 403, denial.capability);
-  }
-
+  // Supplementary CEL policy layer (applied after PDP or role-fallback allow)
   const celMap = parseCelRbacExpressions();
   const celKey = `${resource}#${scope}`;
   const celExpr = celMap[celKey];
@@ -304,6 +401,7 @@ export async function requireRbacPermission(
         outcome: 'deny',
         reasonCode: 'DENY_CEL',
         pdp: 'keycloak',
+        email,
       });
       throw new ApiError('Policy denied (CEL)', 403, 'CEL_DENIED');
     }
@@ -534,7 +632,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<any>,
-  session?: { role?: string; canViewAdmin?: boolean }
+  session?: { role?: string }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -612,7 +710,7 @@ export async function requireConversationAccess(
   }
 
   // Admins get read-only audit access to any conversation
-  if (session?.role === 'admin' || session?.canViewAdmin === true) {
+  if (session?.role === 'admin') {
     return { conversation, access_level: 'admin_audit' };
   }
 

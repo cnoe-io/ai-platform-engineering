@@ -83,6 +83,56 @@ async def exchange_token(
     if cfg.bot_client_secret:
         data["client_secret"] = cfg.bot_client_secret
 
+    return await _do_exchange(endpoint, data)
+
+
+async def impersonate_user(
+    keycloak_user_id: str,
+    config: OboExchangeConfig | None = None,
+) -> OboToken:
+    """Obtain a token on behalf of a user via Keycloak impersonation.
+
+    Uses the bot's client credentials + ``requested_subject`` to mint a
+    token as-if the user logged in.  The resulting JWT carries the user's
+    ``sub``, ``roles``, and ``groups`` — allowing downstream services to
+    authorize based on the user's identity.
+
+    This is the correct approach for the Slack bot, which resolves the
+    user's Keycloak ID from identity linking but does **not** have the
+    user's access token (no OIDC session).
+
+    Requires Keycloak token-exchange + impersonation permissions on the
+    ``caipe-slack-bot`` client.
+
+    Args:
+        keycloak_user_id: The user's Keycloak ``sub`` (UUID).
+        config: Optional override for Keycloak connection details.
+
+    Returns:
+        An ``OboToken`` with the user's identity and roles.
+
+    Raises:
+        OboExchangeError: If the exchange/impersonation fails.
+    """
+    cfg = config or _default_config
+    endpoint = (
+        f"{cfg.server_url}/realms/{cfg.realm}/protocol/openid-connect/token"
+    )
+
+    data: dict[str, str] = {
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "requested_subject": keycloak_user_id,
+        "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+        "client_id": cfg.bot_client_id,
+    }
+    if cfg.bot_client_secret:
+        data["client_secret"] = cfg.bot_client_secret
+
+    return await _do_exchange(endpoint, data)
+
+
+async def _do_exchange(endpoint: str, data: dict[str, str]) -> OboToken:
+    """Shared token exchange request logic."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(endpoint, data=data)
 

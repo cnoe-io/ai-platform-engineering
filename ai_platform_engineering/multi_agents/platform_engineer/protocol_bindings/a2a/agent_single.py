@@ -395,6 +395,14 @@ class AIPlatformEngineerA2ABinding:
           else:
               logging.debug("No trace_id available from parameter or context")
 
+      # Inject OBO token into configurable so auth-aware proxy tools can read it (FR-038e)
+      obo_token = getattr(self, '_obo_token', None)
+      if obo_token:
+          if 'configurable' not in config:
+              config['configurable'] = {}
+          config['configurable']['obo_token'] = obo_token
+          logging.info("Injected obo_token into config.configurable for AG routing")
+
       logging.debug(f"Created tracing config: {config}")
 
       # ========================================================================

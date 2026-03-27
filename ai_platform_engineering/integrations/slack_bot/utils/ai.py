@@ -11,6 +11,7 @@ This module handles all interactions with the CAIPE supervisor, including:
 """
 
 import os
+import re
 import time
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -78,6 +79,12 @@ class StreamBuffer:
 
     def _send(self, text):
         """Send *text* to Slack and update bookkeeping."""
+        # Strip [FINAL ANSWER] marker that may have been reassembled from
+        # multiple tiny streaming chunks (e.g. '[', 'FINAL', ' ANSWER', ']').
+        text = _FINAL_ANSWER_RE.sub("", text)
+        if not text.strip():
+            self._last_flush = time.monotonic()
+            return True  # nothing to send after stripping
         self._last_flush = time.monotonic()
         try:
             self.slack_client.chat_appendStream(
@@ -128,6 +135,7 @@ def stream_a2a_response(
     additional_footer=None,
     overthink_mode=False,
     platform_team_id=None,
+    obo_token=None,
 ):
     """
     Stream an A2A response to Slack.
@@ -152,6 +160,8 @@ def stream_a2a_response(
         overthink_mode: If True, check response for [DEFER] or [LOW_CONFIDENCE] markers
             and skip posting if found. Returns {"skipped": True, "reason": "..."} in that case.
         platform_team_id: CAIPE Mongo team id for ``X-Team-Id`` on A2A requests (FR-031).
+        obo_token: OBO JWT (sub=user, act=bot) for user-level authorization (FR-019).
+            When provided, the supervisor sees the request as the user, not the bot.
 
     Returns:
         List of Slack blocks for the final response, or dict with retry_needed=True on recoverable errors,
@@ -284,6 +294,7 @@ def stream_a2a_response(
             message_text=message_text,
             context_id=context_id,
             metadata=metadata,
+            obo_token=obo_token,
             x_team_id=platform_team_id,
         ):
             if thread_deleted:
@@ -374,6 +385,10 @@ def stream_a2a_response(
                     _start_stream_if_needed()
                     if stream_buf:
                         text = parsed.text_content
+                        # Strip [FINAL ANSWER] marker from streamed chunks
+                        text = _FINAL_ANSWER_RE.sub("", text)
+                        if not text.strip():
+                            continue
                         if needs_separator and stream_buf.has_flushed:
                             text = "\n\n" + text
                             needs_separator = False
@@ -799,6 +814,21 @@ def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
     return None
 
 
+# Regex to match [FINAL ANSWER] / [FINAL_ANSWER] with optional surrounding
+# whitespace/newlines/markdown formatting (e.g. **[FINAL ANSWER]**).
+_FINAL_ANSWER_RE = re.compile(
+    r"\*{0,2}\[FINAL[_ ]ANSWER\]\*{0,2}\s*", re.IGNORECASE
+)
+
+
+def _strip_final_answer_marker(text: str) -> str:
+    """Strip [FINAL ANSWER] / [FINAL_ANSWER] marker and everything before it."""
+    m = _FINAL_ANSWER_RE.search(text)
+    if m:
+        return text[m.end():].strip()
+    return text
+
+
 def _get_final_text(
     final_result_text, partial_result_text, final_message_text, artifacts, thread_ts
 ):
@@ -813,17 +843,17 @@ def _get_final_text(
     # Priority 1: FINAL_RESULT text (authoritative)
     if final_result_text and final_result_text.strip():
         logger.info(f"[{thread_ts}] Using FINAL_RESULT as response source")
-        return final_result_text.strip()
+        return _strip_final_answer_marker(final_result_text.strip())
 
     # Priority 2: PARTIAL_RESULT text (matches CAIPE UI behavior)
     if partial_result_text and partial_result_text.strip():
         logger.info(f"[{thread_ts}] Using PARTIAL_RESULT as response source (no FINAL_RESULT)")
-        return partial_result_text.strip()
+        return _strip_final_answer_marker(partial_result_text.strip())
 
     # Priority 3: Last MESSAGE text
     if final_message_text and final_message_text.strip():
         logger.info(f"[{thread_ts}] Using MESSAGE as response source (no FINAL_RESULT)")
-        return final_message_text.strip()
+        return _strip_final_answer_marker(final_message_text.strip())
 
     # Priority 4: Extract from any collected artifact (fallback)
     # Tool/plan artifacts are already filtered out in skip_patterns, so whatever
@@ -836,7 +866,7 @@ def _get_final_text(
                 text = part["text"].strip()
                 if text:
                     logger.info(f"[{thread_ts}] Using artifact '{name}' as response source")
-                    return text
+                    return _strip_final_answer_marker(text)
 
     # Final fallback
     logger.warning(f"[{thread_ts}] No content extracted from response - using default message")
@@ -970,6 +1000,7 @@ def handle_ai_alert_processing(
     session_manager,
     custom_prompt=None,
     platform_team_id=None,
+    obo_token=None,
 ):
     """AI-powered alert processing."""
     alert_text = event.get("text", "")
@@ -1032,6 +1063,7 @@ def handle_ai_alert_processing(
         },
         session_manager=session_manager,
         platform_team_id=platform_team_id,
+        obo_token=obo_token,
     )
 
     logger.info(f"[{thread_ts}] AI processed alert from {bot_username}")

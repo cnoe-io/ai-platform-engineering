@@ -4,7 +4,7 @@ sidebar_position: 2
 
 # Admin & User Management API
 
-Next.js App Router UI Backend API routes under `/api/admin/*`, `/api/users/*`, and `/api/user/*`. Most handlers use `withAuth` (NextAuth session); admin capabilities split into **full admin** (`requireAdmin`: OIDC admin group or MongoDB `metadata.role === 'admin'`) and **admin view** (`requireAdminView`: admin **or** `session.canViewAdmin` from the admin-view OIDC group).
+Next.js App Router UI Backend API routes under `/api/admin/*`, `/api/users/*`, and `/api/user/*`. Most handlers use `withAuth` (NextAuth session). **Per-route authorization varies:** some endpoints use only `withAuth`, others require Keycloak UMA (`requireRbacPermission` on `admin_ui`, etc.), and many writes require **`requireAdmin`** (OIDC admin group / bootstrap emails / MongoDB `metadata.role === 'admin'`). See each endpoint below.
 
 **Response shapes**
 
@@ -21,7 +21,7 @@ Next.js App Router UI Backend API routes under `/api/admin/*`, `/api/users/*`, a
 
 ### GET `/api/admin/users`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (any authenticated user). The handler uses `withAuth` only (no `requireAdmin`). | **Since:** v1.0
 
 Lists Keycloak realm users with optional filters and pagination. Enriched with realm role names. Does **not** use the `{ success, data }` wrapper.
 
@@ -71,7 +71,6 @@ _(none)_
 | Status | Code | Description |
 |--------|------|-------------|
 | 401 | — | No session |
-| 403 | — | Missing admin view permission |
 | 400 | — | Invalid `enabled`, `slackStatus`, `page`, or `pageSize` |
 | 503 | `MONGODB_NOT_CONFIGURED` | Team filter requested but MongoDB unavailable; body is `{ "error", "code" }` (no `success` field) |
 
@@ -79,7 +78,7 @@ _(none)_
 
 ### GET `/api/admin/users/[id]`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (any authenticated user). `withAuth` only. | **Since:** v1.0
 
 Returns a single user from Keycloak plus sessions, federated identities, realm roles, Slack link status, and team rows from `team_kb_ownership` (if MongoDB configured).
 
@@ -150,7 +149,6 @@ _(none)_
 | Status | Code | Description |
 |--------|------|-------------|
 | 401 | — | Unauthorized |
-| 403 | — | Admin view required |
 | 404 | — | Keycloak user not found (from admin client) |
 | 500 | — | Upstream Keycloak errors |
 
@@ -158,7 +156,7 @@ _(none)_
 
 ### PUT `/api/admin/users/[id]`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (any authenticated user). **Note:** The route uses `withAuth` only — it does **not** call `requireAdmin`. Tighten at the edge or in code if only admins should mutate Keycloak users. | **Since:** v1.0
 
 Merges JSON body with the existing Keycloak user representation and calls Keycloak Admin API `updateUser`. Use Keycloak user fields (e.g. `firstName`, `lastName`, `email`, `enabled`, `attributes`).
 
@@ -196,7 +194,6 @@ _(none)_
 |--------|------|-------------|
 | 400 | — | Invalid JSON body |
 | 401 | — | Unauthorized |
-| 403 | — | Admin view required |
 
 ---
 
@@ -433,7 +430,7 @@ Imports conversations (and messages) from client-local payloads into MongoDB, ow
 
 ### GET `/api/admin/teams`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session + Keycloak UMA **`admin_ui#view`** (`requireRbacPermission`). | **Since:** v1.0
 
 Lists all MongoDB `teams` documents, newest first.
 
@@ -480,14 +477,14 @@ _(none)_
 | Status | Code | Description |
 |--------|------|-------------|
 | 401 | — | Unauthorized |
-| 403 | — | Admin view required |
+| 403 | — | Keycloak / CEL denied `admin_ui#view` |
 | 503 | — | MongoDB not configured |
 
 ---
 
 ### POST `/api/admin/teams`
 
-**Auth:** Session (admin) | **Since:** v1.0
+**Auth:** NextAuth session + **`admin_ui#admin`** + `requireAdmin` (OIDC/MongoDB/bootstrap admin). | **Since:** v1.0
 
 Creates a team. Creator is always added as `owner`. Optional `members` become `member` role entries.
 
@@ -534,7 +531,7 @@ Creates a team. Creator is always added as `owner`. Optional `members` become `m
 
 ### GET `/api/admin/teams/[id]`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session + Keycloak UMA **`admin_ui#view`**. | **Since:** v1.0
 
 `[id]` is a MongoDB ObjectId string.
 
@@ -562,6 +559,8 @@ Creates a team. Creator is always added as `owner`. Optional `members` become `m
 | Status | Code | Description |
 |--------|------|-------------|
 | 400 | — | Invalid ObjectId |
+| 401 | — | No session |
+| 403 | — | Keycloak / CEL denied `admin_ui#view` |
 | 404 | — | Team not found |
 | 503 | — | MongoDB not configured |
 
@@ -569,7 +568,7 @@ Creates a team. Creator is always added as `owner`. Optional `members` become `m
 
 ### PATCH `/api/admin/teams/[id]`
 
-**Auth:** Session (admin) | **Since:** v1.0
+**Auth:** NextAuth session + **`admin_ui#admin`** + `requireAdmin`. | **Since:** v1.0
 
 Updates `name` and/or `description`.
 
@@ -612,7 +611,7 @@ Updates `name` and/or `description`.
 
 ### DELETE `/api/admin/teams/[id]`
 
-**Auth:** Session (admin) | **Since:** v1.0
+**Auth:** NextAuth session + **`admin_ui#admin`** + `requireAdmin`. | **Since:** v1.0
 
 Deletes the team and best-effort removes its id from conversations’ `sharing.shared_with_teams`.
 
@@ -638,7 +637,7 @@ Deletes the team and best-effort removes its id from conversations’ `sharing.s
 
 ### POST `/api/admin/teams/[id]/members`
 
-**Auth:** Session (admin) | **Since:** v1.0
+**Auth:** NextAuth session + **`admin_ui#admin`** + `requireAdmin`. | **Since:** v1.0
 
 **Request Body:**
 
@@ -684,7 +683,7 @@ Deletes the team and best-effort removes its id from conversations’ `sharing.s
 
 ### DELETE `/api/admin/teams/[id]/members`
 
-**Auth:** Session (admin) | **Since:** v1.0
+**Auth:** NextAuth session + **`admin_ui#admin`** + `requireAdmin`. | **Since:** v1.0
 
 **Query Parameters:**
 
@@ -722,7 +721,7 @@ _(none)_
 
 ### GET `/api/admin/teams/[id]/roles`
 
-**Auth:** Session (admin) | **Since:** v1.0
+**Auth:** NextAuth session + **`admin_ui#view`** + `requireAdmin`. | **Since:** v1.0
 
 Returns `keycloak_roles` from the team document.
 
@@ -747,7 +746,7 @@ Returns `keycloak_roles` from the team document.
 
 ### PUT `/api/admin/teams/[id]/roles`
 
-**Auth:** Session (admin) | **Since:** v1.0
+**Auth:** NextAuth session + **`admin_ui#admin`** + `requireAdmin`. | **Since:** v1.0
 
 Replaces `keycloak_roles` on the team.
 
@@ -788,7 +787,7 @@ Replaces `keycloak_roles` on the team.
 
 ### GET `/api/admin/stats`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session + Keycloak UMA **`admin_ui#view`**. | **Since:** v1.0
 
 Aggregated platform analytics from MongoDB (`users`, `conversations`, `messages`).
 
@@ -857,13 +856,15 @@ Aggregated platform analytics from MongoDB (`users`, `conversations`, `messages`
 
 | Status | Code | Description |
 |--------|------|-------------|
+| 401 | — | No session |
+| 403 | — | Keycloak / CEL denied `admin_ui#view` |
 | 503 | `MONGODB_NOT_CONFIGURED` | MongoDB unavailable |
 
 ---
 
 ### GET `/api/admin/stats/checkpoints`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (`withAuth` only; no `requireRbacPermission` in this handler). | **Since:** v1.0
 
 LangGraph checkpoint collections (`checkpoints_*`, `checkpoint_writes_*`) stats.
 
@@ -923,7 +924,7 @@ LangGraph checkpoint collections (`checkpoints_*`, `checkpoint_writes_*`) stats.
 
 ### GET `/api/admin/stats/skills`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (`withAuth` only; no `requireRbacPermission` in this handler). | **Since:** v1.0
 
 Skill (`agent_configs`) and workflow run aggregates.
 
@@ -973,7 +974,7 @@ Skill (`agent_configs`) and workflow run aggregates.
 
 ### GET `/api/admin/metrics`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (`withAuth` only; no `requireRbacPermission` in this handler). | **Since:** v1.0
 
 Proxies to Prometheus HTTP API (`PROMETHEUS_URL`).
 
@@ -1019,7 +1020,7 @@ Proxies to Prometheus HTTP API (`PROMETHEUS_URL`).
 
 **Auth:** Session (authenticated) | **Since:** v1.0
 
-Batch PromQL: up to 20 queries. **Note:** Handler uses `withAuth` only (no `requireAdminView` in code).
+Batch PromQL: up to 20 queries. Handler uses `withAuth` (any authenticated user).
 
 **Request Body:**
 
@@ -1068,7 +1069,7 @@ Batch PromQL: up to 20 queries. **Note:** Handler uses `withAuth` only (no `requ
 
 ### GET `/api/admin/feedback`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (`withAuth` only; no `requireRbacPermission` in this handler). | **Since:** v1.0
 
 Lists messages that have `feedback.rating`, with conversation titles.
 
@@ -1120,7 +1121,7 @@ Lists messages that have `feedback.rating`, with conversation titles.
 
 ### GET `/api/admin/nps`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (`withAuth` only; no `requireRbacPermission` in this handler). | **Since:** v1.0
 
 NPS analytics when `npsEnabled` is true.
 
@@ -1189,7 +1190,7 @@ NPS analytics when `npsEnabled` is true.
 
 ### GET `/api/admin/nps/campaigns`
 
-**Auth:** Session (admin view) | **Since:** v1.0
+**Auth:** NextAuth session (`withAuth` only; no `requireRbacPermission` in this handler). | **Since:** v1.0
 
 Lists campaigns with `response_count` and `status` (`active` | `ended` | `scheduled`).
 
@@ -1808,5 +1809,5 @@ Returns a truncated list of all MongoDB users (intended for development/debuggin
 
 ## Related
 
-- Shared UI Backend API helpers: `ui/src/lib/api-middleware.ts` (`withAuth`, `requireAdmin`, `requireAdminView`, `successResponse`, `paginatedResponse`, `ApiError`).
+- Shared UI Backend API helpers: `ui/src/lib/api-middleware.ts` (`withAuth`, `requireAdmin`, `successResponse`, `paginatedResponse`, `ApiError`).
 - Keycloak admin calls: `ui/src/lib/rbac/keycloak-admin.ts`.

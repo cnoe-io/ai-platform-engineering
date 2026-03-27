@@ -87,7 +87,7 @@ _Not applicable_
 
 ### POST `/api/chat/conversations`
 
-**Auth:** Session (authenticated) | **Since:** v1.0
+**Auth:** NextAuth session + Keycloak UMA **`supervisor#invoke`**. | **Since:** v1.0
 
 Creates a conversation. Server sets `owner_id` from the session, timestamps, default `metadata`, `sharing`, `is_archived`, and `is_pinned`. Optional client `id` (UUID) is accepted so client and server share the same `_id`.
 
@@ -474,7 +474,7 @@ _Not applicable_
 
 ### POST `/api/chat/conversations/[id]/messages`
 
-**Auth:** Session (authenticated) | **Since:** v1.0
+**Auth:** NextAuth session + Keycloak UMA **`supervisor#invoke`**. | **Since:** v1.0
 
 Upserts a message by `(message_id, conversation_id)`. If the row exists, content/metadata/events are updated and `200` is returned; on first insert, `201` and `metadata.total_messages` on the conversation may increment. **Blocked** for `access_level` `admin_audit` or `shared_readonly` (`403`). For `role: "user"`, sender fields default from the session if omitted.
 

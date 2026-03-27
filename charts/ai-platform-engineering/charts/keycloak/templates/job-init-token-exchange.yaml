@@ -1,0 +1,54 @@
+{{- if .Values.tokenExchange.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "keycloak.fullname" . }}-init-token-exchange
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "keycloak.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init-token-exchange
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-token-exchange
+          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          command: ["/bin/sh", "/scripts/init-token-exchange.sh"]
+          env:
+            - name: KC_URL
+              value: "http://{{ include "keycloak.fullname" . }}:{{ .Values.service.port }}"
+            - name: KEYCLOAK_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.adminSecretName" . }}
+                  key: username
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.adminSecretName" . }}
+                  key: password
+            - name: KC_REALM
+              value: {{ .Values.realm.name | quote }}
+            - name: KC_BOT_CLIENT_ID
+              value: {{ .Values.tokenExchange.botClientId | quote }}
+            - name: KC_SSL_REQUIRED
+              value: {{ .Values.realm.sslRequired | quote }}
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: {{ include "keycloak.fullname" . }}-init-scripts
+            defaultMode: 0755
+{{- end }}
