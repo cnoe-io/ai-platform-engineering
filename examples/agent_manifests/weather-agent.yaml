@@ -1,0 +1,81 @@
+# Weather Agent Manifest Example
+# This demonstrates an agent with external API integration
+
+manifest_version: "1.0"
+
+metadata:
+  name: "weather"
+  display_name: "Weather Agent"
+  version: "0.1.0"
+  description: "An intelligent weather agent that provides real-time weather information, forecasts, and climate data analysis"
+  author: "CNOE Contributors"
+  author_email: "info@cnoe.io"
+  license: "Apache-2.0"
+  tags:
+    - "weather"
+    - "forecast"
+    - "climate"
+    - "api"
+
+protocols:
+  - a2a
+
+transports:
+  - http
+
+skills:
+  - id: "weather_query"
+    name: "Weather Information"
+    description: "Get current weather conditions for any location worldwide"
+    tags:
+      - "weather"
+      - "current"
+      - "conditions"
+    examples:
+      - "What's the weather like in San Francisco?"
+      - "Tell me the current temperature in Tokyo"
+      - "Is it raining in London right now?"
+      - "What's the weather forecast for New York?"
+  
+  - id: "forecast"
+    name: "Weather Forecast"
+    description: "Provide detailed weather forecasts for multiple days"
+    tags:
+      - "forecast"
+      - "prediction"
+    examples:
+      - "What's the 5-day forecast for Seattle?"
+      - "Will it rain this weekend in Boston?"
+      - "Should I bring an umbrella tomorrow?"
+
+dependencies:
+  - source: "pypi"
+    name: "requests"
+    version: ">=2.31.0"
+  
+  - source: "pypi"
+    name: "python-dotenv"
+    version: ">=1.0.0"
+
+environment:
+  - name: "WEATHER_API_KEY"
+    description: "API key for weather service (e.g., OpenWeatherMap)"
+    required: true
+  
+  - name: "WEATHER_API_URL"
+    description: "Base URL for weather API"
+    required: false
+    default: "https://api.openweathermap.org/data/2.5"
+  
+  - name: "WEATHER_UNITS"
+    description: "Unit system for weather data (metric, imperial, standard)"
+    required: false
+    default: "metric"
+
+capabilities:
+  streaming: true
+  pushNotifications: true
+
+docker_config:
+  base_image: "python:3.13-slim"
+
