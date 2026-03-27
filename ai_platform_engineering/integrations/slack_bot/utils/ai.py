@@ -663,9 +663,13 @@ def stream_a2a_response(
             # For plan flows: only streaming_final_answer means the answer was streamed
             #   (pre-plan chatter sets streamed_any_text but isn't the answer).
             # For no-plan flows: streamed_any_text means the answer was streamed.
+            # Exception: when a clean final_result was received, always prefer it —
+            # the streamed content may include raw LLM output with structured
+            # response metadata (is_task_complete, was_task_successful, …).
             stop_chunks = []
             already_streamed = streaming_final_answer or (not plan_steps and streamed_any_text)
-            needs_final = not already_streamed
+            has_authoritative_final = bool(final_result_text and final_result_text.strip())
+            needs_final = not already_streamed or (has_authoritative_final and streaming_final_answer)
             if needs_final and final_text:
                 stop_chunks.append({"type": "markdown_text", "text": final_text})
 

@@ -353,6 +353,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
 
     accumulated_text: list[str] = []
     tool_errors: list[str] = []  # Track tool errors to bubble them up
+    artifacts_streamed = False  # True once any artifact-update is forwarded to the supervisor
 
     async for chunk in self._client.send_message_streaming(streaming_request):
       try:
@@ -421,6 +422,7 @@ class A2ARemoteAgentConnectTool(BaseTool):
                 # Artifacts are always streamed so supervisor can forward them to clients
                 if text or data:
                   writer({"type": "artifact-update", "result": result, "source_agent": self.name})
+                  artifacts_streamed = True
                   content_type = "DataPart" if data else "TextPart"
                   artifact_name = artifact.get('name', '')
                   logger.debug(f"✅ Streamed artifact-update event: {artifact_name} ({content_type})")
@@ -505,7 +507,12 @@ class A2ARemoteAgentConnectTool(BaseTool):
         "type": "a2a_event",
         "data": "⚠️ Remote agent returned no content."
       })
-    else:
+    elif not artifacts_streamed:
+      # Only write the accumulated response when no artifact-update events
+      # were forwarded.  When artifacts were streamed individually, the
+      # executor already received each chunk — re-sending the full blob
+      # duplicates content and can leak structured response metadata
+      # (is_task_complete, was_task_successful, …) into user-visible output.
       writer({
         "type": "a2a_event",
         "data": final_response
