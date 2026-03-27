@@ -240,6 +240,47 @@ ingestors: []
   #       cpu: 500m
   #       memory: 512Mi
 
+  # Example Jira Ingestor
+  # - name: jira-workspace
+  #   type: jira                             # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #
+  #   # Jira-specific configuration
+  #   env:
+  #     JIRA_URL: https://mycompany.atlassian.net  # JIRA_URL (required)
+  #     JIRA_EMAIL: bot@mycompany.com        # JIRA_EMAIL (required)
+  #     JIRA_INCLUDE_COMMENTS: "true"        # JIRA_INCLUDE_COMMENTS
+  #     JIRA_INCLUDE_LINKS: "true"           # JIRA_INCLUDE_LINKS
+  #     JIRA_PAGE_SIZE: "100"                # JIRA_PAGE_SIZE
+  #     JIRA_CUSTOM_FIELDS: "{}"             # JIRA_CUSTOM_FIELDS (JSON)
+  #     JIRA_PROJECTS: |                     # JIRA_PROJECTS (JSON)
+  #       {
+  #         "PROJ": {
+  #           "name": "My Project",
+  #           "lookback_days": 30
+  #         },
+  #         "OPS": {
+  #           "name": "Operations",
+  #           "jql": "project = OPS AND status != Done ORDER BY updated DESC",
+  #           "lookback_days": 90
+  #         }
+  #       }
+  #
+  #   # Jira API token from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: jira-credentials           # Must contain JIRA_API_TOKEN (or ATLASSIAN_TOKEN)
+  #
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
   # Example Confluence Ingestor
   # - name: confluence-wiki
   #   type: confluence                        # INGESTOR_TYPE
