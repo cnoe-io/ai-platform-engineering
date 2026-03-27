@@ -26,6 +26,7 @@ from a2a_client import A2AClient
 from utils.session_manager import SessionManager
 from utils.langfuse_client import FeedbackClient
 from utils.scoring import submit_feedback_score
+from utils.config_models import get_escalation_config
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -147,7 +148,13 @@ def handle_mention(event, say, client):
             session_manager.clear_skipped(thread_ts)
 
         if is_humble_followup:
-            mention_prompt = config.defaults.humble_followup_prompt
+            # Use per-channel followup prompt from overthink config, fall back to global default
+            followup = (
+                channel_config.qanda.overthink.followup_prompt
+                or channel_config.ai_alerts.overthink.followup_prompt
+                or config.defaults.humble_followup_prompt
+            )
+            mention_prompt = followup
         elif channel_config.custom_prompt:
             mention_prompt = channel_config.custom_prompt
         else:
@@ -164,6 +171,9 @@ def handle_mention(event, say, client):
 
         team_id = event.get("team")
 
+        default_config = channel_config.default if channel_config.default else {}
+        esc_config = get_escalation_config(default_config)
+
         result = ai.stream_a2a_response(
             a2a_client=a2a_client,
             slack_client=client,
@@ -175,6 +185,7 @@ def handle_mention(event, say, client):
             context_id=context_id,
             metadata=request_metadata if request_metadata else None,
             session_manager=session_manager,
+            escalation_config=esc_config,
         )
 
         if isinstance(result, dict) and result.get("retry_needed"):
@@ -261,6 +272,8 @@ def handle_qanda_message(event, say, client):
             final_message = f"The user email is {user_email}\n\n{final_message}"
             request_metadata["user_email"] = user_email
 
+        esc_config = get_escalation_config(default_config)
+
         result = ai.stream_a2a_response(
             a2a_client=a2a_client,
             slack_client=client,
@@ -272,7 +285,8 @@ def handle_qanda_message(event, say, client):
             context_id=context_id,
             metadata=request_metadata,
             session_manager=session_manager,
-            overthink_mode=channel_config.qanda.overthink,
+            overthink_config=channel_config.qanda.overthink if channel_config.qanda.overthink.enabled else None,
+            escalation_config=esc_config,
         )
 
         if isinstance(result, dict) and result.get("skipped"):
@@ -481,7 +495,8 @@ def handle_message_events(body, say, client):
         if not default_config or not isinstance(default_config, dict):
             raise ValueError(f"Channel {channel_id} is missing required 'default' config")
 
-        ai.handle_ai_alert_processing(
+        alerts_overthink = channel_config.ai_alerts.overthink
+        result = ai.handle_ai_alert_processing(
             a2a_client,
             client,
             event,
@@ -490,7 +505,14 @@ def handle_message_events(body, say, client):
             default_config,
             session_manager,
             custom_prompt=channel_config.ai_alerts.custom_prompt,
+            overthink_config=alerts_overthink if alerts_overthink.enabled else None,
         )
+
+        if isinstance(result, dict) and result.get("skipped"):
+            reason = result.get("reason", "unknown")
+            alert_ts = event.get("ts", "unknown")
+            logger.info(f"[{alert_ts}] Overthink: skipped alert processing ({reason})")
+            session_manager.set_skipped(alert_ts, True)
 
 
 # =============================================================================
@@ -676,6 +698,84 @@ def handle_caipe_retry(ack, body, client):
         )
     except Exception as e:
         logger.exception(f"Error handling retry: {e}")
+
+
+# =============================================================================
+# Escalation Action Handlers
+# =============================================================================
+@app.action("caipe_escalation_get_help")
+def handle_escalation_get_help(ack, body, client):
+    ack()
+    try:
+        from utils.escalation import execute_escalation
+
+        user_id = body.get("user", {}).get("id")
+        action = body.get("actions", [{}])[0]
+        parts = action.get("value", "").split("|")
+        channel_id = parts[0] if len(parts) > 0 else None
+        thread_ts = parts[1] if len(parts) > 1 else None
+        if not channel_id or not thread_ts:
+            return
+
+        # Track escalation in feedback
+        submit_feedback_score(
+            thread_ts=thread_ts, user_id=user_id, channel_id=channel_id,
+            feedback_value="escalation_requested", slack_client=client,
+            session_manager=session_manager, config=config,
+            feedback_client=feedback_client,
+        )
+
+        client.chat_postEphemeral(
+            channel=channel_id, user=user_id, thread_ts=thread_ts,
+            text="Got it! Connecting you with a human...",
+        )
+
+        # Get escalation config for this channel
+        channel_config = config.channels.get(channel_id)
+        if not channel_config:
+            return
+        esc_config = get_escalation_config(channel_config.default or {})
+        if not esc_config:
+            return
+
+        # Determine the parent message ts (root of thread)
+        message = body.get("message", {})
+        parent_ts = message.get("thread_ts") or thread_ts
+
+        execute_escalation(
+            slack_client=client, a2a_client=a2a_client,
+            channel_id=channel_id, thread_ts=thread_ts,
+            parent_ts=parent_ts, user_id=user_id,
+            escalation_config=esc_config,
+        )
+    except Exception as e:
+        logger.exception(f"Error handling escalation: {e}")
+
+
+@app.action("caipe_delete_message")
+def handle_delete_message(ack, body, client):
+    ack()
+    try:
+        user_id = body.get("user", {}).get("id")
+        channel_id = body.get("channel", {}).get("id")
+        message = body.get("message", {})
+        message_ts = message.get("ts")
+        thread_ts = message.get("thread_ts") or message_ts
+
+        if not channel_id or not message_ts:
+            return
+
+        submit_feedback_score(
+            thread_ts=thread_ts, user_id=user_id, channel_id=channel_id,
+            feedback_value="message_deleted", slack_client=client,
+            session_manager=session_manager, config=config,
+            feedback_client=feedback_client,
+        )
+
+        client.chat_delete(channel=channel_id, ts=message_ts)
+        logger.info(f"[{thread_ts}] Message {message_ts} deleted by <@{user_id}>")
+    except Exception as e:
+        logger.exception(f"Error handling message delete: {e}")
 
 
 def _open_feedback_modal(ack, body, client, feedback_type):

@@ -205,8 +205,8 @@ function AdminPage() {
   const rangeLabel = statsRange === "1d" ? "24 Hours" : statsRange === "7d" ? "7 Days" : statsRange === "90d" ? "90 Days" : "30 Days";
 
   useEffect(() => {
-    // Only fetch admin data once the user is authenticated
-    if (status === "authenticated") {
+    // Fetch admin data when authenticated or when SSO is disabled (local dev)
+    if (status === "authenticated" || !getConfig('ssoEnabled')) {
       loadAdminData();
     }
   }, [status]);
@@ -216,7 +216,7 @@ function AdminPage() {
   useEffect(() => {
     if (statsRangeRef.current === statsRange) return; // skip initial
     statsRangeRef.current = statsRange;
-    if (status !== "authenticated") return;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     (async () => {
       try {
         const res = await fetch(`/api/admin/stats?range=${statsRange}`);
