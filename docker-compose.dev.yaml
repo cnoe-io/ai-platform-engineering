@@ -1827,6 +1827,41 @@ services:
       - all-integrations
 
   ####################################################################################################
+  #                                 Webex Bot Integration                                            #
+  ####################################################################################################
+  webex-bot:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.webex-bot
+    container_name: webex-bot
+    volumes:
+      - ./ai_platform_engineering/integrations/webex_bot:/app/webex_bot
+    env_file: [.env]
+    environment:
+      - WEBEX_BOT_TOKEN=${WEBEX_BOT_TOKEN}
+      - WEBEX_INTEGRATION_ENABLE_AUTH=${WEBEX_INTEGRATION_ENABLE_AUTH:-false}
+      - WEBEX_INTEGRATION_AUTH_TOKEN_URL=${WEBEX_INTEGRATION_AUTH_TOKEN_URL:-}
+      - WEBEX_INTEGRATION_AUTH_CLIENT_ID=${WEBEX_INTEGRATION_AUTH_CLIENT_ID:-}
+      - WEBEX_INTEGRATION_AUTH_CLIENT_SECRET=${WEBEX_INTEGRATION_AUTH_CLIENT_SECRET:-}
+      - WEBEX_INTEGRATION_AUTH_SCOPE=${WEBEX_INTEGRATION_AUTH_SCOPE:-}
+      - WEBEX_INTEGRATION_AUTH_AUDIENCE=${WEBEX_INTEGRATION_AUTH_AUDIENCE:-}
+      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
+      - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
+      - MONGODB_DATABASE=caipe
+      - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
+      - LANGFUSE_SCORING_ENABLED=${LANGFUSE_SCORING_ENABLED:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - WEBEX_SPACE_AUTH_CACHE_TTL=${WEBEX_SPACE_AUTH_CACHE_TTL:-300}
+    depends_on:
+      - caipe-supervisor
+      - caipe-mongodb
+    profiles:
+      - webex-bot
+      - all-integrations
+
+  ####################################################################################################
   #                       LangGraph Persistence Backends                                         #
   ####################################################################################################
   # Redis Stack, PostgreSQL, and MongoDB for testing LangGraph checkpointer + store persistence.

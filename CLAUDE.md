@@ -125,6 +125,9 @@ See [skills/README.md](./skills/README.md) for full documentation.
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)
+- Python 3.11+ (websockets, webexteamssdk, pymongo, pydantic, loguru) — Webex bot integration (098-webex-bot-integration)
+- MongoDB (authorized_webex_spaces collection, webex_sessions collection) — Webex space authorization (098-webex-bot-integration)
 
 ## Recent Changes
 - 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router
+- 098-webex-bot-integration: Added Python (websockets, webexteamssdk) Webex bot, MongoDB space authorization, CAIPE UI admin integration

@@ -18,6 +18,7 @@ APP_NAME ?= ai-platform-engineering
 	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
+	test-webex-bot lint-webex-bot \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
@@ -311,6 +312,14 @@ test-mcp-slack: ## Slack MCP is external (korotovsky/slack-mcp-server) - no loca
 test-mcp-splunk: ## Run Splunk MCP tests
 	@echo "Running Splunk MCP tests..."
 	@cd ai_platform_engineering/agents/splunk/mcp && $(MAKE) test
+
+test-webex-bot: ## Run Webex bot unit tests (excludes integration)
+	@echo "Running Webex bot tests..."
+	@PYTHONPATH=. uv run pytest ai_platform_engineering/integrations/webex_bot/tests/ -v -m "not integration"
+
+lint-webex-bot: ## Lint Webex bot integration code
+	@echo "Linting Webex bot..."
+	@uv run ruff check ai_platform_engineering/integrations/webex_bot/
 
 test-agents: test-mcp-argocd test-mcp-jira ## Run tests for all agents (in their own environments)
 	@echo ""
