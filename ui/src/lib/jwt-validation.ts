@@ -61,9 +61,8 @@ export async function validateBearerJWT(
 ): Promise<JWTIdentity> {
   const issuer = process.env.OIDC_ISSUER;
 
-  // Dev mode bypass — no OIDC configured
   if (!issuer) {
-    return { email: 'bearer@local', name: 'Bearer User', groups: [] };
+    throw new Error('OIDC_ISSUER is not configured — Bearer JWT validation is unavailable');
   }
 
   const jwks = await getJWKS();
