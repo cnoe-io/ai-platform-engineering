@@ -56,6 +56,9 @@ from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
 )
+from ai_platform_engineering.utils.deepagents_custom.tool_error_handling import (
+    wrap_tools_with_error_handling,
+)
 
 # Skills middleware: upstream SkillsMiddleware + custom catalog layer
 from deepagents.middleware.skills import SkillsMiddleware
@@ -674,6 +677,7 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
             # Retry with the base class helper that suppresses these.
             mcp_tools = await agent._load_mcp_tools_with_cleanup_handling(client, name)
         mcp_tools = agent._filter_mcp_tools(mcp_tools)
+        mcp_tools = wrap_tools_with_error_handling(mcp_tools, agent_name=name)
         logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via local go run")
     except (ValueError, FileNotFoundError) as e:
         logger.warning(f"{name}: Cannot start local MCP server: {e}")

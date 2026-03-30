@@ -1,0 +1,176 @@
+# Copyright 2025 CNOE Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+"""Standalone utility to wrap tools with error handling for subagent resilience.
+
+When MCP tools (or any tools) are passed to subagents via SubAgentMiddleware,
+tool failures raise exceptions that propagate through LangGraph's ToolNode
+(which only catches ToolInvocationError by default).  This crashes the entire
+subagent graph and marks the deterministic task step as failed — even when the
+LLM could have recovered by trying a different approach.
+
+This module provides ``wrap_tools_with_error_handling`` to catch tool exceptions
+and return error strings to the LLM, giving it a chance to self-correct.
+
+NOTE: This is a copy of ai_platform_engineering/utils/deepagents_custom/tool_error_handling.py
+kept in sync manually because dynamic_agents has its own venv and cannot import
+from the parent ai_platform_engineering package.
+"""
+
+import asyncio
+import logging
+from functools import wraps
+
+from langchain_core.tools import BaseTool, StructuredTool
+
+logger = logging.getLogger(__name__)
+
+MAX_TOOL_OUTPUT_CHARS = 15_000
+
+
+def _format_tool_error(tool_name: str, exc: Exception) -> str:
+    """Build an informative but concise error string for the LLM."""
+    error_text = str(exc).strip()
+    if not error_text:
+        error_text = type(exc).__name__
+    return (
+        f"Tool '{tool_name}' failed: {error_text}\n"
+        f"You can retry with different arguments or use a different approach."
+    )
+
+
+def _truncate(result: str, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS) -> str:
+    if isinstance(result, str) and len(result) > max_chars:
+        logger.warning(f"Tool '{tool_name}' output truncated from {len(result)} to {max_chars} chars")
+        return result[:max_chars] + f"\n... [truncated, {len(result) - max_chars} chars omitted]"
+    return result
+
+
+def wrap_tools_with_error_handling(
+    tools: list[BaseTool],
+    agent_name: str = "subagent",
+) -> list[BaseTool]:
+    """Wrap tools with error handling so exceptions become LLM-visible messages.
+
+    This prevents MCP tool failures from crashing subagent graphs. The LLM
+    receives the error text and can decide to retry or take a different path.
+
+    Args:
+        tools: LangChain tools (typically from MultiServerMCPClient.get_tools())
+        agent_name: Label used in log messages
+
+    Returns:
+        New list of tools with error-handling wrappers applied.
+    """
+    wrapped: list[BaseTool] = []
+
+    for tool in tools:
+        try:
+            tool_name = tool.name
+            has_sync = hasattr(tool, "func") and tool.func is not None
+            has_async = hasattr(tool, "coroutine") and tool.coroutine is not None
+
+            if has_async and not has_sync:
+                original_coro = tool.coroutine
+
+                async def _safe_coro(
+                    *args,
+                    _orig=original_coro,
+                    _name=tool_name,
+                    **kwargs,
+                ):
+                    try:
+                        result = await _orig(*args, **kwargs)
+                        if isinstance(result, str):
+                            result = _truncate(result, _name)
+                        return result
+                    except Exception as e:
+                        msg = _format_tool_error(_name, e)
+                        logger.warning(f"[{agent_name}] {msg}")
+                        return msg
+
+                def _sync_fallback(
+                    *args,
+                    _async_fn=_safe_coro,
+                    _name=tool_name,
+                    **kwargs,
+                ):
+                    try:
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            loop = None
+
+                        if loop and loop.is_running():
+                            import nest_asyncio
+                            nest_asyncio.apply()
+                            return loop.run_until_complete(_async_fn(*args, **kwargs))
+                        return asyncio.run(_async_fn(*args, **kwargs))
+                    except Exception as e:
+                        msg = _format_tool_error(_name, e)
+                        logger.warning(f"[{agent_name}] sync fallback: {msg}")
+                        return msg
+
+                new_tool = StructuredTool(
+                    name=tool.name,
+                    description=tool.description or "",
+                    args_schema=tool.args_schema,
+                    func=_sync_fallback,
+                    coroutine=_safe_coro,
+                    response_format=getattr(tool, "response_format", "content"),
+                    metadata=tool.metadata,
+                )
+                wrapped.append(new_tool)
+            else:
+                original_run = getattr(tool, "_run", None)
+                original_arun = getattr(tool, "_arun", None)
+
+                if original_run:
+                    @wraps(original_run)
+                    def _safe_run(
+                        *args,
+                        _orig=original_run,
+                        _name=tool_name,
+                        **kwargs,
+                    ):
+                        try:
+                            result = _orig(*args, **kwargs)
+                            if isinstance(result, str):
+                                result = _truncate(result, _name)
+                            return result
+                        except Exception as e:
+                            msg = _format_tool_error(_name, e)
+                            logger.warning(f"[{agent_name}] {msg}")
+                            return msg
+
+                    tool._run = _safe_run  # type: ignore[method-assign]
+
+                if original_arun:
+                    @wraps(original_arun)
+                    async def _safe_arun(
+                        *args,
+                        _orig=original_arun,
+                        _name=tool_name,
+                        **kwargs,
+                    ):
+                        try:
+                            result = await _orig(*args, **kwargs)
+                            if isinstance(result, str):
+                                result = _truncate(result, _name)
+                            return result
+                        except Exception as e:
+                            msg = _format_tool_error(_name, e)
+                            logger.warning(f"[{agent_name}] {msg}")
+                            return msg
+
+                    tool._arun = _safe_arun  # type: ignore[method-assign]
+
+                wrapped.append(tool)
+        except Exception as e:
+            logger.error(f"Failed to wrap tool {tool.name}: {e}", exc_info=True)
+            wrapped.append(tool)
+
+    logger.info(
+        f"[{agent_name}] Wrapped {len(wrapped)} tools with error handling"
+    )
+    return wrapped
