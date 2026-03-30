@@ -48,9 +48,15 @@ class AIPlatformEngineerA2ABinding:
   def __init__(self):
       self._mas_instance = AIPlatformEngineerMAS()
       set_mas_instance(self._mas_instance)
-      self.graph = self._mas_instance.get_graph()
+      self.graph = None  # Lazy — initialized on first stream() via _ensure_graph_initialized()
       self.tracing = TracingManager()
       self._execution_plan_sent = False
+
+  async def _ensure_graph_initialized(self) -> None:
+      """Initialize the graph lazily on first request."""
+      if self.graph is None:
+          await self._mas_instance.ensure_initialized()
+          self.graph = self._mas_instance.get_graph()
 
   async def _repair_orphaned_tool_calls(self, config: dict) -> None:
       """
@@ -197,6 +203,9 @@ class AIPlatformEngineerA2ABinding:
 
   @trace_agent_stream("platform_engineer", update_input=True)
   async def stream(self, query, context_id, trace_id=None, user_id=None) -> AsyncIterable[dict[str, Any]]:
+      # Lazy graph initialization — safe to call on every request (no-op after first call)
+      await self._ensure_graph_initialized()
+
       # user_email is passed via _pending_user_email to avoid the
       # trace_agent_stream decorator stripping unknown kwargs.
       user_email = getattr(self, '_pending_user_email', None)
