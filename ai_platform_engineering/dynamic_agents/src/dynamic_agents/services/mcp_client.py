@@ -39,6 +39,8 @@ def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
             config["args"] = server.args
         if server.env:
             config["env"] = server.env
+        if server.cwd:
+            config["cwd"] = server.cwd
         return config
 
 

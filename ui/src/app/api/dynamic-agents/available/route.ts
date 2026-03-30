@@ -37,13 +37,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // 2. Team agents where user is a member OR owned by user
     // 3. Private agents owned by this user
     // Use type assertion to satisfy MongoDB's strict Filter types
+    const ownerIds = [userEmail, "dev@localhost"].filter(Boolean);
     const query: Filter<DynamicAgentConfig> = {
       enabled: true,
       $or: [
         { visibility: "global" as const },
         { visibility: "team" as const, shared_with_teams: { $in: userTeams } },
-        { visibility: "team" as const, owner_id: userEmail },
-        { visibility: "private" as const, owner_id: userEmail },
+        { visibility: "team" as const, owner_id: { $in: ownerIds } },
+        { visibility: "private" as const, owner_id: { $in: ownerIds } },
       ],
     };
 

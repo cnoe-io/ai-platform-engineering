@@ -29,6 +29,8 @@ import type {
   DADoneSegment,
   DAStatusSegment,
   DAToolInfo,
+  DASandboxDenialSegment,
+  DASandboxToolExecSegment,
 } from "@/types/dynamic-agent-timeline";
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
@@ -382,6 +384,10 @@ function DASegmentRenderer({
         return "amber";
       case "error":
         return "red";
+      case "sandbox_denial":
+        return "amber";
+      case "sandbox_tool_exec":
+        return segment.exit_code === 0 ? "emerald" : "red";
       case "status":
         return segment.status === "done" ? "emerald" : "amber";
       case "done":
@@ -420,6 +426,12 @@ function DASegmentRenderer({
       )}
       {segment.type === "done" && (
         <DADoneSegmentView segment={segment} isNested={isNested} />
+      )}
+      {segment.type === "sandbox_denial" && (
+        <DASandboxDenialView segment={segment} isNested={isNested} />
+      )}
+      {segment.type === "sandbox_tool_exec" && (
+        <DASandboxToolExecView segment={segment} isNested={isNested} />
       )}
     </div>
   );
@@ -807,6 +819,60 @@ function DAErrorSegmentView({ segment, isNested = false }: { segment: DAErrorSeg
     )}>
       <XCircle className={cn("shrink-0 mt-0.5", isNested ? "h-2.5 w-2.5" : "h-3.5 w-3.5")} />
       <span>{segment.message}</span>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sandbox Denial Segment
+// ═══════════════════════════════════════════════════════════════
+
+function DASandboxDenialView({ segment, isNested = false }: { segment: DASandboxDenialSegment; isNested?: boolean }) {
+  const stageLabel = segment.stage === "l4_deny" ? "Network" :
+                     segment.stage === "l7_deny" ? "HTTP" :
+                     segment.stage === "ssrf" ? "SSRF" :
+                     segment.stage || "Policy";
+  return (
+    <div className={cn(
+      "flex items-start gap-1.5 text-amber-500 rounded-md bg-amber-500/10 border border-amber-500/25",
+      isNested ? "text-[10px] px-2 py-1" : "text-xs px-3 py-2"
+    )}>
+      <AlertTriangle className={cn("shrink-0 mt-0.5", isNested ? "h-2.5 w-2.5" : "h-3.5 w-3.5")} />
+      <div className="min-w-0">
+        <span className="font-medium">Sandbox {stageLabel} Denied: </span>
+        <code className="font-mono">{segment.host || "unknown"}:{segment.port || "?"}</code>
+        {segment.reason && <span className="text-amber-400/80 ml-1">({segment.reason})</span>}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sandbox Tool Exec Segment
+// ═══════════════════════════════════════════════════════════════
+
+function DASandboxToolExecView({ segment, isNested = false }: { segment: DASandboxToolExecSegment; isNested?: boolean }) {
+  const isSuccess = segment.exit_code === 0;
+  const isError = segment.exit_code !== undefined && segment.exit_code !== 0;
+  return (
+    <div className={cn(
+      "rounded-md border bg-muted/30",
+      isError ? "border-red-500/25" : "border-border/50",
+      isNested ? "text-[10px] px-2 py-1" : "text-xs px-3 py-2"
+    )}>
+      <div className="flex items-center gap-1.5">
+        <Wrench className={cn("shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
+        <span className="font-medium">{segment.tool_name}</span>
+        {segment.sandbox_name && <span className="text-muted-foreground">in {segment.sandbox_name}</span>}
+        {isSuccess && <span className="ml-auto text-emerald-500">exit 0</span>}
+        {isError && <span className="ml-auto text-red-500">exit {segment.exit_code}</span>}
+        {segment.truncated && <span className="text-amber-500 ml-1">(truncated)</span>}
+      </div>
+      {segment.command && (
+        <code className="block font-mono text-muted-foreground mt-1 break-all">
+          {segment.command}
+        </code>
+      )}
     </div>
   );
 }

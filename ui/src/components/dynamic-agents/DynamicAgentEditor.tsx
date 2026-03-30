@@ -16,6 +16,8 @@ import type {
   SubAgentRef,
   BuiltinToolsConfig,
   AgentUIConfig,
+  SandboxConfig,
+  SandboxPolicyTemplate,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
@@ -86,6 +88,11 @@ const STEPS = [
     id: "subagents" as const, 
     label: "Subagents", 
     hint: "Delegate tasks to other agents (optional)" 
+  },
+  {
+    id: "sandbox" as const,
+    label: "Sandbox",
+    hint: "Run agent code in an isolated OpenShell sandbox (optional)",
   },
 ];
 
@@ -166,6 +173,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
   const [modelProvider, setModelProvider] = React.useState(source?.model_provider || "");
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default"
+  );
+  const [sandboxEnabled, setSandboxEnabled] = React.useState(
+    source?.sandbox?.enabled || false
+  );
+  const [sandboxName, setSandboxName] = React.useState(
+    source?.sandbox?.sandbox_name || ""
+  );
+  const [sandboxPolicyTemplate, setSandboxPolicyTemplate] = React.useState<SandboxPolicyTemplate>(
+    source?.sandbox?.policy_template || "permissive"
+  );
+  const [sandboxPolicyYaml, setSandboxPolicyYaml] = React.useState(
+    source?.sandbox?.policy_yaml || ""
   );
 
   const [loading, setLoading] = React.useState(false);
@@ -280,8 +299,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
     }
   };
 
+  const canAdvancePast = (stepId: StepId): boolean => {
+    if (stepId === "instructions" && !systemPrompt.trim()) return false;
+    return true;
+  };
+
   const goToNextStep = () => {
-    if (currentStepIndex < STEPS.length - 1) {
+    if (currentStepIndex < STEPS.length - 1 && canAdvancePast(activeStep)) {
       setActiveStep(STEPS[currentStepIndex + 1].id);
     }
   };
@@ -318,6 +342,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
         ? { gradient_theme: gradientTheme }
         : undefined;
 
+      // Build sandbox config
+      const sandboxConfig: SandboxConfig | undefined = sandboxEnabled
+        ? {
+            enabled: true,
+            sandbox_name: sandboxName || undefined,
+            policy_template: sandboxPolicyTemplate,
+            policy_yaml: sandboxPolicyTemplate === "custom" ? sandboxPolicyYaml : undefined,
+          }
+        : undefined;
+
       if (isEditing) {
         // Update existing agent
         const updateData: DynamicAgentConfigUpdate = {
@@ -328,6 +362,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
+          sandbox: sandboxConfig,
           subagents: subagents.length > 0 ? subagents : undefined,
           model_id: modelId,
           model_provider: modelProvider,
@@ -355,6 +390,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
+          sandbox: sandboxConfig,
           subagents: subagents.length > 0 ? subagents : undefined,
           model_id: modelId,
           model_provider: modelProvider,
@@ -407,10 +443,15 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Step Indicator */}
-          <StepIndicator 
-            steps={STEPS} 
-            currentStep={activeStep} 
-            onStepClick={setActiveStep} 
+          <StepIndicator
+            steps={STEPS}
+            currentStep={activeStep}
+            onStepClick={(stepId) => {
+              const targetIndex = STEPS.findIndex((s) => s.id === stepId);
+              const instructionsIndex = STEPS.findIndex((s) => s.id === "instructions");
+              if (targetIndex > instructionsIndex && !systemPrompt.trim()) return;
+              setActiveStep(stepId);
+            }}
           />
 
           {/* Step hint */}
@@ -646,6 +687,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                 value={builtinTools}
                 onChange={setBuiltinTools}
                 disabled={loading}
+                sandboxEnabled={sandboxEnabled}
               />
 
               {/* MCP Tools */}
@@ -691,6 +733,106 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
             </div>
           )}
 
+          {/* Sandbox Step */}
+          {activeStep === "sandbox" && (
+            <div className="space-y-4 pt-2">
+              <div>
+                <Label>OpenShell Sandbox</Label>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Run agent tools in an isolated Linux sandbox with policy-governed filesystem,
+                  network, and process access. Sandbox denials are streamed to the chat in real time.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg border">
+                <div>
+                  <p className="text-sm font-medium">Enable Sandbox</p>
+                  <p className="text-xs text-muted-foreground">
+                    Execute agent commands in an isolated OpenShell environment
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={sandboxEnabled}
+                  onClick={() => setSandboxEnabled(!sandboxEnabled)}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                    sandboxEnabled ? "bg-primary" : "bg-muted"
+                  )}
+                  disabled={loading}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                      sandboxEnabled ? "translate-x-6" : "translate-x-1"
+                    )}
+                  />
+                </button>
+              </div>
+
+              {sandboxEnabled && (
+                <div className="space-y-4 pl-2 border-l-2 border-primary/20 ml-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="sandboxName">Sandbox Name</Label>
+                    <Input
+                      id="sandboxName"
+                      placeholder="Auto-generated from agent name"
+                      value={sandboxName}
+                      onChange={(e) => setSandboxName(e.target.value)}
+                      disabled={loading}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Persistent sandbox identifier. Leave empty to auto-generate.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Policy Template</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(["permissive", "restrictive", "custom"] as const).map((tmpl) => (
+                        <button
+                          key={tmpl}
+                          type="button"
+                          onClick={() => setSandboxPolicyTemplate(tmpl)}
+                          className={cn(
+                            "p-3 rounded-lg border text-left transition-colors",
+                            sandboxPolicyTemplate === tmpl
+                              ? "border-primary bg-primary/5"
+                              : "border-muted hover:border-primary/50"
+                          )}
+                          disabled={loading}
+                        >
+                          <p className="text-sm font-medium capitalize">{tmpl}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {tmpl === "permissive" && "PyPI, npm, GitHub, AWS, Azure pre-allowed"}
+                            {tmpl === "restrictive" && "Filesystem only, no network access"}
+                            {tmpl === "custom" && "Provide your own policy YAML"}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {sandboxPolicyTemplate === "custom" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="sandboxPolicyYaml">Custom Policy YAML</Label>
+                      <Textarea
+                        id="sandboxPolicyYaml"
+                        value={sandboxPolicyYaml}
+                        onChange={(e) => setSandboxPolicyYaml(e.target.value)}
+                        rows={12}
+                        className="font-mono text-xs"
+                        placeholder={"version: 1\nfilesystem_policy:\n  include_workdir: true\n  read_write:\n    - /sandbox\n    - /tmp"}
+                        disabled={loading}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Error */}
           {error && (
             <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
@@ -714,7 +856,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
               type="button" 
               variant="outline" 
               onClick={goToNextStep}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
+              disabled={currentStepIndex === STEPS.length - 1 || loading || !canAdvancePast(activeStep)}
               size="sm"
             >
               Next
@@ -729,6 +871,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
         <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
           {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
           {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+          {sandboxEnabled ? ", sandbox on" : ""}
         </div>
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           Cancel

@@ -95,6 +95,15 @@ from ai_platform_engineering.multi_agents.tools import (
     jq,
     yq,
 )
+from ai_platform_engineering.multi_agents.tools.session_tools import (
+    sessions_list,
+    sessions_history,
+    session_status,
+    sessions_send,
+    sessions_spawn,
+    sessions_yield,
+    subagents as subagents_tool,
+)
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1076,6 +1085,22 @@ class PlatformEngineerDeepAgent:
         # All supervisor tools
         all_tools = utility_tools + [invoke_task_tool]
 
+        # Session management tools (only when Dynamic Agents backend is configured)
+        if os.getenv("DYNAMIC_AGENTS_URL"):
+            session_tools = [
+                sessions_list,
+                sessions_history,
+                session_status,
+                sessions_send,
+                sessions_spawn,
+                sessions_yield,
+                subagents_tool,
+            ]
+            all_tools.extend(session_tools)
+            logger.info(
+                f"🔌 Session management tools enabled (DYNAMIC_AGENTS_URL={os.getenv('DYNAMIC_AGENTS_URL')})"
+            )
+
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
             logger.info("Performing RAG connectivity check...")
@@ -1252,6 +1277,38 @@ Each todo item's `content` MUST include the subagent name in square brackets, e.
 - `[ArgoCD] List deployed applications`
 
 This format is required so the UI can display agent stickers next to each task.
+"""
+
+        # Append session management instructions when tools are available
+        if os.getenv("DYNAMIC_AGENTS_URL"):
+            system_prompt += """
+
+## Dynamic Agent Session Management
+
+You have tools to delegate tasks to custom (dynamic) agents and monitor their sessions:
+
+### Tool overview
+- **subagents**: List available dynamic agents and their configurations. Use FIRST to discover agent IDs.
+- **sessions_list**: List existing conversations with their full conversation_id. Use to discover valid IDs before calling other session tools. NEVER fabricate a conversation_id.
+- **sessions_spawn**: Create a NEW session with a dynamic agent and send a task. Returns immediately with a conversation_id (default). The sub-agent works in the background.
+- **sessions_send**: Send a follow-up message to an EXISTING session. Blocks until the agent responds.
+- **sessions_history**: Read the full message transcript of a session. Use to check results after spawning.
+- **sessions_yield**: Block until a spawned session finishes and return its final response.
+- **session_status**: Quick status check for a session (message counts, state).
+
+### Important patterns
+1. **Delegating a task**: Call `sessions_spawn(agent_id="...", message="...")`. It returns immediately with a conversation_id. Then either:
+   - Use `sessions_yield(conversation_id="...", agent_id="...")` to wait for the full result (recommended for most tasks), OR
+   - Wait at least 30-60 seconds, then call `sessions_history` to check progress.
+2. **Quick questions**: For simple tasks where you need the answer right away, use `sessions_spawn(..., wait=True)` to block until done.
+3. **Resuming a conversation**: Call `sessions_list` first to get the conversation_id, then `sessions_send`.
+4. **Reading results**: Use `sessions_history` to see the complete transcript including tool outputs. The sub-agent may produce tool results (git, code execution) that aren't in the text response.
+
+### Timing guidance
+- Sub-agents typically take **30-120 seconds** for simple tasks and **2-5 minutes** for complex ones (cloning repos, running builds, writing code).
+- After `sessions_spawn`, **do NOT immediately** call `sessions_history` or `sessions_yield`. Give the sub-agent at least 30 seconds to start working.
+- Prefer `sessions_yield` over repeated `sessions_history` polling — yield handles the waiting automatically.
+- If you need to check on multiple spawned sessions, use `sessions_yield` for the one you need most urgently, then check others.
 """
 
         logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")

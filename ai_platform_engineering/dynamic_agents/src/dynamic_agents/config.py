@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     # Seed configuration path (for MCP servers and agents loaded at startup)
     seed_config_path: str | None = None
 
+    # OpenShell sandbox
+    openshell_gateway: str | None = None  # Override: connect directly to this endpoint
+    openshell_gateway_name: str = "openshell"  # Gateway name used by auto-start
+    openshell_default_timeout: int = 1800  # Default command timeout (30 min)
+
 
 @lru_cache
 def get_settings() -> Settings:

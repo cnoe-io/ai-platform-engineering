@@ -90,6 +90,8 @@ export interface BuiltinToolDefinition {
   name: string;           // Display name
   description: string;    // What the tool does
   enabled_by_default: boolean;
+  runs_in_sandbox: boolean;       // Whether the tool executes inside the sandbox
+  sandbox_warning?: string | null; // Warning when sandbox is on and tool runs outside
   config_fields: BuiltinToolConfigField[];
 }
 
@@ -157,6 +159,20 @@ export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
 };
 
 // =============================================================================
+// Sandbox Config
+// =============================================================================
+
+export type SandboxPolicyTemplate = 'permissive' | 'restrictive' | 'custom';
+
+export interface SandboxConfig {
+  enabled: boolean;
+  sandbox_name?: string;
+  gateway_url?: string;
+  policy_template: SandboxPolicyTemplate;
+  policy_yaml?: string;
+}
+
+// =============================================================================
 // Agent UI Config
 // =============================================================================
 
@@ -189,6 +205,7 @@ export interface DynamicAgentConfig {
   system_prompt: string;
   allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
+  sandbox?: SandboxConfig;
   model_id: string;  // Required: LLM model identifier
   model_provider: string;  // Required: LLM provider (anthropic-claude, openai, etc.)
   visibility: VisibilityType;
@@ -210,6 +227,7 @@ export interface DynamicAgentConfigCreate {
   system_prompt: string;
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
+  sandbox?: SandboxConfig;
   model_id: string;  // Required: LLM model identifier
   model_provider: string;  // Required: LLM provider
   visibility?: VisibilityType;
@@ -225,6 +243,7 @@ export interface DynamicAgentConfigUpdate {
   system_prompt?: string;
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
+  sandbox?: SandboxConfig;
   model_id?: string;
   model_provider?: string;
   visibility?: VisibilityType;

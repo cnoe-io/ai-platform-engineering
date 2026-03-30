@@ -15,7 +15,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
-import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData, isToolStartData, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData, type SandboxDenialData, type SandboxToolExecData, isToolStartData, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import { SandboxDenialCard } from "@/components/dynamic-agents/SandboxDenialCard";
+import { SandboxToolCard } from "@/components/dynamic-agents/SandboxToolCard";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
@@ -697,7 +699,9 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         const isImportantArtifact = 
              sseEvent.type === "tool_start" ||
              sseEvent.type === "tool_end" ||
-             sseEvent.type === "error";
+             sseEvent.type === "error" ||
+             sseEvent.type === "sandbox_denial" ||
+             sseEvent.type === "sandbox_tool_exec";
 
         if (isImportantArtifact && eventBuffer.length > 0) {
           flushEventBuffer();
@@ -1750,7 +1754,9 @@ type StreamSegment =
   | { type: "tool"; id: string; data: ToolCall }
   | { type: "subagent"; id: string; data: SubagentCall }
   | { type: "warning"; id: string; data: WarningEvent }
-  | { type: "error"; id: string; data: ErrorEvent };
+  | { type: "error"; id: string; data: ErrorEvent }
+  | { type: "sandbox_denial"; id: string; data: SandboxDenialData }
+  | { type: "sandbox_tool_exec"; id: string; data: SandboxToolExecData };
 
 /**
  * Parse SSE events into ordered stream segments for interleaved rendering.
@@ -1867,6 +1873,27 @@ function parseStreamSegments(events: SSEAgentEvent[], isStreaming: boolean): Str
             message: event.displayContent || event.content || "An error occurred",
           },
         });
+        break;
+
+      case "sandbox_denial":
+        flushContent();
+        if (event.sandboxDenialData) {
+          segments.push({
+            type: "sandbox_denial",
+            id: event.sandboxDenialData.id || `denial-${idx}`,
+            data: event.sandboxDenialData,
+          });
+        }
+        break;
+
+      case "sandbox_tool_exec":
+        if (event.sandboxToolExecData) {
+          segments.push({
+            type: "sandbox_tool_exec",
+            id: event.sandboxToolExecData.id || `sandbox-tool-${idx}`,
+            data: event.sandboxToolExecData,
+          });
+        }
         break;
     }
   });
@@ -2121,9 +2148,10 @@ interface StreamingViewProps {
   message: ChatMessageType;
   isStreaming?: boolean;
   turnEvents?: SSEAgentEvent[];
+  agentId?: string;
 }
 
-function StreamingView({ message, isStreaming = false, turnEvents = [] }: StreamingViewProps) {
+function StreamingView({ message, isStreaming = false, turnEvents = [], agentId }: StreamingViewProps) {
   // Parse events into ordered segments for interleaved rendering
   const segments = useMemo(
     () => parseStreamSegments(turnEvents, isStreaming),
@@ -2133,7 +2161,7 @@ function StreamingView({ message, isStreaming = false, turnEvents = [] }: Stream
   // Check if we have any content or events
   const hasContent = segments.some((s) => s.type === "content");
   const hasEvents = segments.some(
-    (s) => s.type === "tool" || s.type === "subagent" || s.type === "warning" || s.type === "error"
+    (s) => s.type === "tool" || s.type === "subagent" || s.type === "warning" || s.type === "error" || s.type === "sandbox_denial" || s.type === "sandbox_tool_exec"
   );
 
   return (
@@ -2205,6 +2233,23 @@ function StreamingView({ message, isStreaming = false, turnEvents = [] }: Stream
                 type="error"
                 name="Error"
                 message={segment.data.message}
+              />
+            );
+
+          case "sandbox_denial":
+            return (
+              <SandboxDenialCard
+                key={segment.id}
+                denial={segment.data}
+                agentId={agentId || ""}
+              />
+            );
+
+          case "sandbox_tool_exec":
+            return (
+              <SandboxToolCard
+                key={segment.id}
+                data={segment.data}
               />
             );
 

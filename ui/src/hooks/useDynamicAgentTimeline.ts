@@ -123,6 +123,18 @@ export function useDynamicAgentTimeline(
             manager.pushError(event.content);
           }
           break;
+
+        case "sandbox_denial":
+          if (event.sandboxDenialData) {
+            manager.pushSandboxDenial(event.sandboxDenialData);
+          }
+          break;
+
+        case "sandbox_tool_exec":
+          if (event.sandboxToolExecData) {
+            manager.pushSandboxToolExec(event.sandboxToolExecData);
+          }
+          break;
       }
     }
 

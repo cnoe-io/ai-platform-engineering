@@ -26,6 +26,17 @@ from ai_platform_engineering.multi_agents.tools.workspace_ops import (
     clear_workspace
 )
 
+# Session management tools for dynamic agent orchestration
+from ai_platform_engineering.multi_agents.tools.session_tools import (
+    sessions_list,
+    sessions_history,
+    session_status,
+    sessions_send,
+    sessions_spawn,
+    sessions_yield,
+    subagents as subagents_tool,
+)
+
 # Command-line tools from utils/agent_tools/ (available to all agents)
 from ai_platform_engineering.utils.agent_tools import (
     git,
@@ -70,4 +81,13 @@ __all__ = [
     'write_file',   # write_file("/tmp/out.json", content)
     'append_file',  # append_file("/tmp/log.txt", "entry\n")
     'list_files',   # list_files("/tmp/repo", pattern="*.yaml")
+
+    # Session management tools (dynamic agent orchestration)
+    'sessions_list',
+    'sessions_history',
+    'session_status',
+    'sessions_send',
+    'sessions_spawn',
+    'sessions_yield',
+    'subagents_tool',
 ]

@@ -16,9 +16,19 @@ import {
   Bot,
   AlertCircle,
   Archive,
+  ChevronRight,
+  ArrowLeft,
 } from "lucide-react";
 import { getGradientStyle } from "@/lib/gradient-themes";
+import { cn } from "@/lib/utils";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
+
+interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string | null;
+}
 
 interface ConversationItem {
   id: string;
@@ -58,6 +68,10 @@ export function ConversationsTab() {
   const [totalPages, setTotalPages] = React.useState(1);
   const [total, setTotal] = React.useState(0);
   const [clearingId, setClearingId] = React.useState<string | null>(null);
+  const [selectedConv, setSelectedConv] = React.useState<ConversationItem | null>(null);
+  const [messages, setMessages] = React.useState<ConversationMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = React.useState(false);
+  const [messagesError, setMessagesError] = React.useState<string | null>(null);
   const { toast } = useToast();
 
   // Fetch agents once on mount to build lookup map
@@ -102,7 +116,13 @@ export function ConversationsTab() {
 
       if (data.success && data.data) {
         const paginated = data.data as PaginatedResponse;
-        setConversations(paginated.items || []);
+        const items = paginated.items || [];
+        if (!agentFilter) {
+          items.sort((a: ConversationItem, b: ConversationItem) =>
+            (a.agent_id || "").localeCompare(b.agent_id || "")
+          );
+        }
+        setConversations(items);
         setTotalPages(paginated.total_pages || 1);
         setTotal(paginated.total || 0);
       } else {
@@ -174,6 +194,134 @@ export function ConversationsTab() {
       minute: "2-digit",
     });
   };
+
+  const openConversation = async (conv: ConversationItem) => {
+    setSelectedConv(conv);
+    setMessages([]);
+    setMessagesError(null);
+    setMessagesLoading(true);
+    try {
+      const params = new URLSearchParams({ agent_id: conv.agent_id || "" });
+      const res = await fetch(
+        `/api/dynamic-agents/conversations/${conv.id}/messages?${params}`
+      );
+      const data = await res.json();
+      if (data.success && data.data?.messages) {
+        setMessages(data.data.messages);
+      } else if (data.data?.messages) {
+        setMessages(data.data.messages);
+      } else {
+        setMessagesError(data.error || "No messages returned");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch messages";
+      setMessagesError(msg);
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
+
+  if (selectedConv) {
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => setSelectedConv(null)}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 flex-1">
+              <CardTitle className="text-base truncate">
+                {selectedConv.title}
+              </CardTitle>
+              <CardDescription className="font-mono text-xs">
+                {selectedConv.id}
+                {selectedConv.agent_id && (
+                  <span className="ml-2 text-purple-500">
+                    {getAgentName(selectedConv.agent_id)}
+                  </span>
+                )}
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openConversation(selectedConv)}
+              disabled={messagesLoading}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${messagesLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {messagesLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : messagesError ? (
+            <div className="text-center py-12">
+              <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-3" />
+              <p className="text-sm text-destructive">{messagesError}</p>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="text-center py-12">
+              <MessageSquare className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No messages in this conversation yet.</p>
+            </div>
+          ) : (
+            <div className="max-h-[600px] overflow-y-auto">
+              <div className="space-y-4 pr-3">
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      "flex gap-3",
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    )}
+                  >
+                    {msg.role === "assistant" && (
+                      <div className="h-7 w-7 rounded-full bg-purple-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                        <Bot className="h-4 w-4 text-purple-500" />
+                      </div>
+                    )}
+                    <div
+                      className={cn(
+                        "rounded-lg px-3.5 py-2.5 text-sm max-w-[80%] whitespace-pre-wrap break-words",
+                        msg.role === "user"
+                          ? "bg-blue-500/15 text-foreground"
+                          : "bg-muted/60 text-foreground"
+                      )}
+                    >
+                      {msg.content || (
+                        <span className="italic text-muted-foreground text-xs">
+                          (tool calls only — no text content)
+                        </span>
+                      )}
+                      {msg.timestamp && (
+                        <div className="text-[10px] text-muted-foreground mt-1.5">
+                          {formatDate(msg.timestamp)}
+                        </div>
+                      )}
+                    </div>
+                    {msg.role === "user" && (
+                      <div className="h-7 w-7 rounded-full bg-blue-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                        <User className="h-4 w-4 text-blue-500" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -256,110 +404,143 @@ export function ConversationsTab() {
             <div className="space-y-3">
               {/* Header */}
               <div className="grid grid-cols-12 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground px-2">
-                <div className="col-span-4">Conversation</div>
+                <div className="col-span-5">Conversation</div>
                 <div className="col-span-2">Owner</div>
                 <div className="col-span-2">Agent</div>
-                <div className="col-span-1">Checkpoints</div>
                 <div className="col-span-1">Status</div>
                 <div className="col-span-1">Updated</div>
                 <div className="col-span-1 text-right">Actions</div>
               </div>
 
-              {/* Rows */}
-              {conversations.map((conv) => (
-                <div
-                  key={conv.id}
-                  className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
-                    conv.deleted_at ? "opacity-60" : ""
-                  }`}
-                >
-                  <div className="col-span-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
-                        <MessageSquare className="h-5 w-5 text-blue-500" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-sm truncate">{conv.title}</div>
-                        <div className="text-xs text-muted-foreground font-mono break-all">
-                          {conv.id}
+              {/* Rows (with agent group headers when unfiltered) */}
+              {(() => {
+                let lastAgentId = "";
+                return conversations.map((conv) => {
+                  const showGroupHeader =
+                    !agentFilter && conv.agent_id !== lastAgentId;
+                  if (conv.agent_id) lastAgentId = conv.agent_id;
+
+                  return (
+                    <React.Fragment key={conv.id}>
+                      {showGroupHeader && conv.agent_id && (
+                        <div className="flex items-center gap-2 pt-4 pb-1.5 px-2 border-t border-border/30 first:border-t-0 first:pt-0">
+                          {(() => {
+                            const gradient = getAgentGradient(conv.agent_id);
+                            const gradientStyle = gradient ? getGradientStyle(gradient) : null;
+                            return gradientStyle ? (
+                              <div
+                                className="h-5 w-5 rounded-full flex items-center justify-center shrink-0"
+                                style={gradientStyle}
+                              >
+                                <Bot className="h-3 w-3 text-white" />
+                              </div>
+                            ) : (
+                              <Bot className="h-4 w-4 text-purple-500" />
+                            );
+                          })()}
+                          <span className="text-xs font-semibold text-foreground">
+                            {getAgentName(conv.agent_id)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            ({conv.agent_id})
+                          </span>
+                        </div>
+                      )}
+                      <div
+                        className={cn(
+                          "grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer transition-colors",
+                          conv.deleted_at && "opacity-60"
+                        )}
+                        onClick={() => openConversation(conv)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === "Enter") openConversation(conv); }}
+                      >
+                        <div className="col-span-5">
+                          <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+                              <MessageSquare className="h-5 w-5 text-blue-500" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium text-sm truncate">{conv.title}</div>
+                              <div className="text-xs text-muted-foreground font-mono break-all">
+                                {conv.id}
+                              </div>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                          </div>
+                        </div>
+
+                        <div className="col-span-2">
+                          <div className="flex items-center gap-1.5">
+                            <User className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-sm truncate">{conv.owner_id}</span>
+                          </div>
+                        </div>
+
+                        <div className="col-span-2">
+                          <div className="flex items-center gap-1.5">
+                            {(() => {
+                              const gradient = getAgentGradient(conv.agent_id);
+                              const gradientStyle = gradient ? getGradientStyle(gradient) : null;
+                              return gradientStyle ? (
+                                <div
+                                  className="h-4 w-4 rounded-full flex items-center justify-center shrink-0"
+                                  style={gradientStyle}
+                                >
+                                  <Bot className="h-2.5 w-2.5 text-white" />
+                                </div>
+                              ) : (
+                                <Bot className="h-3 w-3 text-purple-500" />
+                              );
+                            })()}
+                            <span className="text-sm truncate">{getAgentName(conv.agent_id)}</span>
+                          </div>
+                        </div>
+
+                        <div className="col-span-1">
+                          {conv.deleted_at ? (
+                            <Badge variant="outline" className="gap-1 text-orange-600 border-orange-300">
+                              <Archive className="h-3 w-3" />
+                              Trash
+                            </Badge>
+                          ) : conv.is_archived ? (
+                            <Badge variant="outline" className="gap-1 text-muted-foreground">
+                              <Archive className="h-3 w-3" />
+                              Archived
+                            </Badge>
+                          ) : (
+                            <span className="text-sm text-green-600">Active</span>
+                          )}
+                        </div>
+
+                        <div className="col-span-1">
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(conv.updated_at)}
+                          </span>
+                        </div>
+
+                        <div className="col-span-1 flex items-center justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => { e.stopPropagation(); handleClear(conv.id); }}
+                            disabled={clearingId === conv.id}
+                            title="Clear checkpoint data"
+                          >
+                            {clearingId === conv.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
                         </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="col-span-2">
-                    <div className="flex items-center gap-1.5">
-                      <User className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-sm truncate">{conv.owner_id}</span>
-                    </div>
-                  </div>
-
-                  <div className="col-span-2">
-                    <div className="flex items-center gap-1.5">
-                      {(() => {
-                        const gradient = getAgentGradient(conv.agent_id);
-                        const gradientStyle = gradient ? getGradientStyle(gradient) : null;
-                        return gradientStyle ? (
-                          <div 
-                            className="h-4 w-4 rounded-full flex items-center justify-center shrink-0"
-                            style={gradientStyle}
-                          >
-                            <Bot className="h-2.5 w-2.5 text-white" />
-                          </div>
-                        ) : (
-                          <Bot className="h-3 w-3 text-purple-500" />
-                        );
-                      })()}
-                      <span className="text-sm truncate">{getAgentName(conv.agent_id)}</span>
-                    </div>
-                  </div>
-
-                  <div className="col-span-1">
-                    <span className="text-sm text-muted-foreground">
-                      {conv.checkpoint_count}
-                    </span>
-                  </div>
-
-                  <div className="col-span-1">
-                    {conv.deleted_at ? (
-                      <Badge variant="outline" className="gap-1 text-orange-600 border-orange-300">
-                        <Archive className="h-3 w-3" />
-                        Trash
-                      </Badge>
-                    ) : conv.is_archived ? (
-                      <Badge variant="outline" className="gap-1 text-muted-foreground">
-                        <Archive className="h-3 w-3" />
-                        Archived
-                      </Badge>
-                    ) : (
-                      <span className="text-sm text-green-600">Active</span>
-                    )}
-                  </div>
-
-                  <div className="col-span-1">
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(conv.updated_at)}
-                    </span>
-                  </div>
-
-                  <div className="col-span-1 flex items-center justify-end">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => handleClear(conv.id)}
-                      disabled={clearingId === conv.id}
-                      title="Clear checkpoint data"
-                    >
-                      {clearingId === conv.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                    </React.Fragment>
+                  );
+                });
+              })()}
             </div>
 
             {/* Pagination */}

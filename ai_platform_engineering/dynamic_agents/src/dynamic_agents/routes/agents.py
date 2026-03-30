@@ -2,10 +2,11 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from dynamic_agents.auth.access import can_view_agent
 from dynamic_agents.auth.auth import UserContext, get_current_user, require_admin
+from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import (
     ApiResponse,
     DynamicAgentConfigCreate,
@@ -15,6 +16,7 @@ from dynamic_agents.models import (
     VisibilityType,
 )
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
+from dynamic_agents.services.sandbox import get_sandbox_manager
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +109,16 @@ async def list_agents(
 @router.post("", response_model=ApiResponse)
 async def create_agent(
     config: DynamicAgentConfigCreate,
+    background_tasks: BackgroundTasks,
     user: UserContext = Depends(require_admin),
     mongo: MongoDBService = Depends(get_mongo_service),
+    settings: Settings = Depends(get_settings),
 ) -> ApiResponse:
     """Create a new dynamic agent configuration.
 
-    Requires admin role.
+    Requires admin role.  When sandbox is enabled the OpenShell gateway
+    and sandbox container are provisioned in the background so they are
+    ready by the time the user opens a chat.
     """
     # Validate subagent visibility compatibility
     if config.subagents:
@@ -132,10 +138,53 @@ async def create_agent(
 
     logger.info(f"Created dynamic agent '{config.name}' ({agent.id}) by {user.email}")
 
+    if config.sandbox and config.sandbox.enabled:
+        sandbox_name = config.sandbox.sandbox_name or f"da-{agent.id}"
+        template = config.sandbox.policy_template.value if config.sandbox.policy_template else "permissive"
+        custom_yaml = config.sandbox.policy_yaml
+        background_tasks.add_task(
+            _provision_sandbox, sandbox_name, template, custom_yaml, settings
+        )
+
     return ApiResponse(
         success=True,
         data=agent.model_dump(by_alias=True),
     )
+
+
+def _provision_sandbox(
+    sandbox_name: str,
+    template: str,
+    custom_yaml: str | None,
+    settings: Settings,
+) -> None:
+    """Provision an OpenShell sandbox in the background.
+
+    Ensures the gateway is running, creates the named sandbox, and
+    applies the initial policy so everything is ready before the first
+    chat message.
+    """
+    try:
+        mgr = get_sandbox_manager(settings)
+        mgr.get_or_create_sandbox(sandbox_name)
+        policy_result = mgr.initialize_policy(
+            sandbox_name, template=template, custom_yaml=custom_yaml,
+        )
+        policy_status = policy_result.get("status", "unknown")
+        if policy_status == "loaded":
+            logger.info(
+                "[sandbox] Provisioned sandbox '%s' at agent creation time",
+                sandbox_name,
+            )
+        else:
+            logger.error(
+                "[sandbox] Sandbox '%s' provisioned but policy failed: %s — %s",
+                sandbox_name,
+                policy_status,
+                policy_result.get("error", "unknown"),
+            )
+    except Exception:
+        logger.exception("[sandbox] Background provisioning failed for '%s'", sandbox_name)
 
 
 @router.get("/{agent_id}", response_model=ApiResponse)

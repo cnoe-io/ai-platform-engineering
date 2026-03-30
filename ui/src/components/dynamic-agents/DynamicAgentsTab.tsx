@@ -19,6 +19,7 @@ import {
   Ban,
   Download,
   CopyPlus,
+  Shield,
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
@@ -315,24 +316,36 @@ export function DynamicAgentsTab() {
                 </div>
 
                 <div className="col-span-2">
-                  <button
-                    onClick={() => !agent.config_driven && handleToggleEnabled(agent)}
-                    className={`flex items-center gap-1.5 ${agent.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
-                    disabled={agent.config_driven}
-                    title={agent.config_driven ? "Config-driven agents cannot be modified" : undefined}
-                  >
-                    {agent.enabled ? (
-                      <>
-                        <ToggleRight className="h-5 w-5 text-green-500" />
-                        <span className="text-xs text-green-600 dark:text-green-400">Active</span>
-                      </>
-                    ) : (
-                      <>
-                        <ToggleLeft className="h-5 w-5 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">Disabled</span>
-                      </>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => !agent.config_driven && handleToggleEnabled(agent)}
+                      className={`flex items-center gap-1.5 ${agent.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
+                      disabled={agent.config_driven}
+                      title={agent.config_driven ? "Config-driven agents cannot be modified" : undefined}
+                    >
+                      {agent.enabled ? (
+                        <>
+                          <ToggleRight className="h-5 w-5 text-green-500" />
+                          <span className="text-xs text-green-600 dark:text-green-400">Active</span>
+                        </>
+                      ) : (
+                        <>
+                          <ToggleLeft className="h-5 w-5 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">Disabled</span>
+                        </>
+                      )}
+                    </button>
+                    {agent.sandbox?.enabled && (
+                      <Badge
+                        variant="outline"
+                        className="gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                        title="OpenShell sandbox enabled"
+                      >
+                        <Shield className="h-3 w-3" />
+                        Sandbox
+                      </Badge>
                     )}
-                  </button>
+                  </div>
                 </div>
 
                 <div className="col-span-2 flex items-center justify-end gap-1">

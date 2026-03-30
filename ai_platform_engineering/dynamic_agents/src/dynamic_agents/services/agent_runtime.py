@@ -5,6 +5,7 @@ Creates and manages DeepAgent instances with MCP tools.
 
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import AsyncGenerator, Callable
@@ -22,6 +23,7 @@ from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef, UserContext
+from dynamic_agents.services.sandbox import SandboxManager, get_sandbox_manager
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
@@ -100,6 +102,10 @@ class AgentRuntime:
         )
         # Cancellation flag for graceful stream termination
         self._cancelled: bool = False
+        # OpenShell sandbox state
+        self._sandbox_manager: SandboxManager | None = None
+        self._sandbox_backend = None
+        self._sandbox_name: str | None = None
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -178,26 +184,38 @@ class AgentRuntime:
                 f"Agent '{self.config.name}': resolved {len(subagents)} subagents: {[s['name'] for s in subagents]}"
             )
 
-        # 8. Create the agent graph
+        # 8. Set up OpenShell sandbox backend if enabled
+        sandbox_backend_factory = None
+        if self.config.sandbox and self.config.sandbox.enabled:
+            sandbox_backend_factory = self._setup_sandbox_backend()
+
+        # 9. Create the agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
         safe_name = _sanitize_agent_name(self.config.name)
-        self._graph = create_deep_agent(
-            model=llm,
-            tools=tools,
-            system_prompt=system_prompt,
-            context_schema=AgentContext,
-            checkpointer=self._checkpointer,
-            name=safe_name,
-            subagents=subagents if subagents else None,
-            interrupt_on={"request_user_input": True},
-        )
+
+        deep_agent_kwargs: dict[str, Any] = {
+            "model": llm,
+            "tools": tools,
+            "system_prompt": system_prompt,
+            "context_schema": AgentContext,
+            "checkpointer": self._checkpointer,
+            "name": safe_name,
+            "subagents": subagents if subagents else None,
+            "interrupt_on": {"request_user_input": True},
+        }
+
+        if sandbox_backend_factory:
+            deep_agent_kwargs["backend"] = sandbox_backend_factory
+
+        self._graph = create_deep_agent(**deep_agent_kwargs)
 
         self._initialized = True
+        sandbox_info = f", sandbox={self._sandbox_name}" if self._sandbox_name else ""
         logger.info(
             f"[agent] Agent '{self.config.name}' initialized: "
-            f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
+            f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}{sandbox_info}"
         )
 
     def _build_builtin_tools(
@@ -222,12 +240,23 @@ class AgentRuntime:
         if not config.builtin_tools:
             return tools
 
-        # fetch_url tool (disabled by default)
+        sandbox_on = config.sandbox and config.sandbox.enabled
+
+        # fetch_url tool (disabled by default).
+        # Runs in the host Python process, NOT inside the sandbox.
+        # When sandbox is enabled, warn the operator.
         fetch_url_config = config.builtin_tools.fetch_url
         if fetch_url_config and fetch_url_config.enabled:
             allowed_domains = fetch_url_config.allowed_domains or "*"
             tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
             config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
+            if sandbox_on:
+                logger.warning(
+                    "[sandbox] Agent '%s': fetch_url runs outside the sandbox "
+                    "and is NOT subject to sandbox network policies. "
+                    "Restrict via allowed_domains or disable when strict isolation is needed.",
+                    config.name,
+                )
 
         # current_datetime tool (enabled by default)
         current_datetime_config = config.builtin_tools.current_datetime
@@ -261,6 +290,91 @@ class AgentRuntime:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
 
         return tools
+
+    def _setup_sandbox_backend(self) -> Any:
+        """Set up the OpenShell sandbox backend for this agent.
+
+        Creates or connects to a persistent sandbox and builds a
+        CompositeBackend with the OpenShellBackend as the default.
+
+        Returns:
+            Backend factory callable for create_deep_agent().
+        """
+        from deepagents.backends import CompositeBackend
+
+        from dynamic_agents.services.openshell_backend import OpenShellBackend
+
+        sandbox_config = self.config.sandbox
+        self._sandbox_manager = get_sandbox_manager(self.settings)
+
+        sandbox_name = sandbox_config.sandbox_name or f"da-{self.config.id}"
+        self._sandbox_name = sandbox_name
+
+        session = self._sandbox_manager.get_or_create_sandbox(sandbox_name)
+        timeout = self.settings.openshell_default_timeout
+
+        self._sandbox_backend = OpenShellBackend(session, default_timeout=timeout)
+
+        policy_result = self._sandbox_manager.initialize_policy(
+            sandbox_name,
+            template=sandbox_config.policy_template.value,
+            custom_yaml=sandbox_config.policy_yaml,
+        )
+
+        policy_status = policy_result.get("status", "unknown")
+        if policy_status not in ("loaded",):
+            policy_err = policy_result.get("error", "unknown error")
+            logger.error(
+                "[sandbox] Policy failed to load for agent '%s' sandbox '%s': %s",
+                self.config.name,
+                sandbox_name,
+                policy_err,
+            )
+        else:
+            logger.info(
+                "[sandbox] Sandbox '%s' ready for agent '%s' "
+                "(policy=%s)",
+                sandbox_name,
+                self.config.name,
+                sandbox_config.policy_template.value,
+            )
+
+        # Inject credentials and SSL config into the sandbox so git/curl work
+        self._configure_sandbox_env(self._sandbox_backend)
+
+        backend = self._sandbox_backend
+
+        def _backend_factory(runtime: Any) -> CompositeBackend:
+            return CompositeBackend(default=backend, routes={})
+
+        return _backend_factory
+
+    def _configure_sandbox_env(self, backend: Any) -> None:
+        """Inject host credentials and env config into the sandbox.
+
+        Sets up git credential helper with the GitHub PAT (if available)
+        and disables SSL verification to work with the OpenShell proxy.
+        """
+        setup_lines: list[str] = []
+
+        github_pat = os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN", "")
+        if github_pat:
+            setup_lines.append(
+                f'git config --global url."https://{github_pat}@github.com/".insteadOf "https://github.com/"'
+            )
+
+        if not setup_lines:
+            return
+
+        setup_cmd = " && ".join(setup_lines)
+        try:
+            result = backend.execute(setup_cmd, timeout=15)
+            if result.exit_code != 0:
+                logger.warning("[sandbox] Failed to configure sandbox env: %s", result.output)
+            else:
+                logger.info("[sandbox] Sandbox git/SSL configured for agent '%s'", self.config.name)
+        except Exception as exc:
+            logger.warning("[sandbox] Error configuring sandbox env: %s", exc)
 
     async def _resolve_subagents(
         self,

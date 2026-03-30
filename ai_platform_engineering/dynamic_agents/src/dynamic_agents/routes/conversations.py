@@ -81,6 +81,43 @@ class FileContentResponse(BaseModel):
     content: str
 
 
+@router.get("/by-agent")
+async def list_conversations_by_agent(
+    agent_id: str = Query(..., description="Dynamic agent ID"),
+    limit: int = Query(20, ge=1, le=100),
+    user: UserContext = Depends(get_current_user),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> dict:
+    """List recent conversations for a given agent.
+
+    Returns conversation metadata (id, title, timestamps) sorted by
+    most recently updated first.
+    """
+    if mongo._client is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    db = mongo._db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    conversations_coll = db["conversations"]
+    query: dict = {"agent_id": agent_id}
+
+    if not getattr(user, "is_admin", False):
+        query["owner_id"] = user.email
+
+    cursor = (
+        conversations_coll.find(query, {"_id": 1, "title": 1, "created_at": 1, "updated_at": 1, "agent_id": 1})
+        .sort("updated_at", -1)
+        .limit(limit)
+    )
+    conversations = []
+    for doc in cursor:
+        doc["id"] = doc.pop("_id", doc.get("id"))
+        conversations.append(doc)
+
+    return {"conversations": conversations}
+
+
 @router.get("/{conversation_id}/messages", response_model=ConversationMessagesResponse)
 async def get_conversation_messages(
     conversation_id: str,

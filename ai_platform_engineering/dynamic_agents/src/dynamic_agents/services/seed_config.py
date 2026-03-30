@@ -129,6 +129,7 @@ def seed_mcp_servers(mongo: "MongoDBService", servers: list[dict[str, Any]]) -> 
             "command": server_data.get("command"),
             "args": server_data.get("args"),
             "env": server_data.get("env"),
+            "cwd": server_data.get("cwd"),
             "enabled": server_data.get("enabled", True),
             "config_driven": True,
         }

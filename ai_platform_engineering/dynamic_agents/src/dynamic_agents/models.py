@@ -57,6 +57,7 @@ class MCPServerConfigBase(BaseModel):
     command: str | None = Field(None, description="Command for stdio transport")
     args: list[str] | None = Field(None, description="Args for stdio transport")
     env: dict[str, str] | None = Field(None, description="Env vars for stdio transport")
+    cwd: str | None = Field(None, description="Working directory for stdio transport")
     enabled: bool = Field(True, description="Whether the server is enabled")
 
 
@@ -76,6 +77,7 @@ class MCPServerConfigUpdate(BaseModel):
     command: str | None = None
     args: list[str] | None = None
     env: dict[str, str] | None = None
+    cwd: str | None = None
     enabled: bool | None = None
 
 
@@ -143,6 +145,15 @@ class BuiltinToolDefinition(BaseModel):
     name: str = Field(..., description="Display name")
     description: str = Field(..., description="What the tool does")
     enabled_by_default: bool = Field(True, description="Whether enabled by default for new agents")
+    runs_in_sandbox: bool = Field(
+        True,
+        description="Whether the tool runs inside the sandbox. "
+        "False means it runs on the host and bypasses sandbox policies.",
+    )
+    sandbox_warning: str | None = Field(
+        None,
+        description="Warning text shown when sandbox is enabled and this tool runs outside it.",
+    )
     config_fields: list[BuiltinToolConfigField] = Field(
         default_factory=list,
         description="Configurable fields for this tool",
@@ -254,6 +265,41 @@ class InputField(BaseModel):
 
 
 # =============================================================================
+# Sandbox Config
+# =============================================================================
+
+
+class SandboxPolicyTemplate(str, Enum):
+    """Available sandbox policy templates."""
+
+    PERMISSIVE = "permissive"
+    RESTRICTIVE = "restrictive"
+    CUSTOM = "custom"
+
+
+class SandboxConfig(BaseModel):
+    """OpenShell sandbox configuration for isolated agent execution."""
+
+    enabled: bool = Field(False, description="Enable OpenShell sandbox for this agent")
+    sandbox_name: str | None = Field(
+        None,
+        description="Persistent sandbox name. Auto-generated from agent name if not provided.",
+    )
+    gateway_url: str | None = Field(
+        None,
+        description="OpenShell gateway URL. Uses platform default if not provided.",
+    )
+    policy_template: SandboxPolicyTemplate = Field(
+        SandboxPolicyTemplate.PERMISSIVE,
+        description="Starting policy template (permissive pre-allows common tools, restrictive is minimal)",
+    )
+    policy_yaml: str | None = Field(
+        None,
+        description="Custom policy YAML. Only used when policy_template is 'custom'.",
+    )
+
+
+# =============================================================================
 # Agent UI Config
 # =============================================================================
 
@@ -296,6 +342,10 @@ class DynamicAgentConfigBase(BaseModel):
         None,
         description="Configuration for built-in tools (fetch_url, etc.)",
     )
+    sandbox: SandboxConfig | None = Field(
+        None,
+        description="OpenShell sandbox configuration for isolated execution",
+    )
     ui: AgentUIConfig | None = Field(
         None,
         description="UI configuration (gradient theme, etc.)",
@@ -322,6 +372,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     shared_with_teams: list[str] | None = None
     subagents: list[SubAgentRef] | None = None
     builtin_tools: BuiltinToolsConfig | None = None
+    sandbox: SandboxConfig | None = None
     ui: AgentUIConfig | None = None
     enabled: bool | None = None
 

@@ -403,7 +403,10 @@ export class DynamicAgentClient {
       event === "tool_end" ||
       event === "todo_update" ||
       event === "input_required" ||
-      event === "warning"
+      event === "warning" ||
+      event === "sandbox_denial" ||
+      event === "sandbox_policy_update" ||
+      event === "sandbox_tool_exec"
     ) {
       try {
         // All events are now JSON (content is wrapped as {text, namespace})
