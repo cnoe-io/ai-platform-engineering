@@ -4,10 +4,12 @@
 # Development setup with local builds and file mounts. Supports two modes:
 #
 #   Single-node (MCP tools in-process, builds from source):
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-single-node up --build
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one up --build
+#     Service: caipe-supervisor-all-in-one
 #
-#   Multi-agent (separate agent containers per A2A sub-agent):
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-multi-agent --profile aws --profile github ... up --build
+#   Multi-node (separate agent containers per A2A sub-agent):
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-distributed --profile aws --profile github ... up --build
+#     Service: caipe-supervisor-distributed
 #
 # MongoDB starts for both modes (no profile required).
 # The CAIPE agent reads task configs from MongoDB (primary) with YAML fallback.
@@ -31,11 +33,11 @@ services:
   ####################################################################################################
   #                                    CAIPE Deep Agent (Single-Node)                               #
   ####################################################################################################
-  caipe:
+  caipe-supervisor-all-in-one:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: caipe-dev
+    container_name: caipe-supervisor-all-in-one
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
@@ -65,6 +67,8 @@ services:
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
       - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
+      # Single-node mode: agents run as local MCP tools, no remote A2A registry needed
+      - ENABLE_AGENT_REGISTRY=false
       - ENABLE_ARTIFACT_STREAMING=true
       - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
 
@@ -88,6 +92,19 @@ services:
       - NETUTILS_AGENT_HOST=agent-netutils
       - JARVIS_AGENT_HOST=agent-jarvis
       - JARVIS_AGENT_PORT=58000
+
+      # MCP server hostname mappings for single-node (all-in-one) mode.
+      # In this mode, agents run in-process and must connect to MCP servers by container name.
+      - ARGOCD_MCP_HOST=mcp-argocd
+      - BACKSTAGE_MCP_HOST=mcp-backstage
+      - CONFLUENCE_MCP_HOST=mcp-confluence
+      - JIRA_MCP_HOST=mcp-jira
+      - KOMODOR_MCP_HOST=mcp-komodor
+      - PAGERDUTY_MCP_HOST=mcp-pagerduty
+      - SLACK_MCP_HOST=mcp-slack
+      - SLACK_MCP_PORT=3001
+      - SPLUNK_MCP_HOST=mcp-splunk
+      - WEBEX_MCP_HOST=mcp-webex
 
       # The following ENABLE_* environment variables control which agents are active.
       # In .env file, set each variable to 'true' to enable the corresponding agent.
@@ -179,16 +196,16 @@ services:
         condition: service_healthy
     command: platform-engineer-single
     profiles:
-      - caipe-supervisor-single-node
+      - caipe-supervisor-all-in-one
 
   ####################################################################################################
   #                                 CAIPE Supervisor (Multi-Agent)                                  #
   ####################################################################################################
-  caipe-supervisor:
+  caipe-supervisor-distributed:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: caipe-supervisor
+    container_name: caipe-supervisor-distributed
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
@@ -290,7 +307,7 @@ services:
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
     profiles:
-      - caipe-supervisor-multi-agent
+      - caipe-supervisor-distributed
 
   ####################################################################################################
   #                                          MongoDB                                                 #
@@ -1181,8 +1198,8 @@ services:
   # Configuration:
   #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
   #   - Default (dev): http://localhost:8000
-  #   - Default (single-node): http://caipe-dev:8000
-  #   - Default (multi-agent): http://caipe-supervisor:8000
+  #   - Default (single-node): http://caipe-supervisor-all-in-one:8000
+  #   - Default (multi-agent): http://caipe-supervisor-distributed:8000
   #   - Override with: CAIPE_URL=http://your-host:port
   caipe-ui:
     build:
@@ -1966,7 +1983,7 @@ services:
       - SLACK_INTEGRATION_AUTH_CLIENT_SECRET=${SLACK_INTEGRATION_AUTH_CLIENT_SECRET:-}
       - SLACK_INTEGRATION_AUTH_SCOPE=${SLACK_INTEGRATION_AUTH_SCOPE:-}
       - SLACK_INTEGRATION_AUTH_AUDIENCE=${SLACK_INTEGRATION_AUTH_AUDIENCE:-}
-      - CAIPE_URL=${CAIPE_URL:-http://caipe-dev:8000}
+      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor-all-in-one:8000}
       - MONGODB_URI=mongodb://admin:changeme@caipe-ui-mongodb:27017
       - MONGODB_DATABASE=caipe
       - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
