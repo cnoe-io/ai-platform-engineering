@@ -29,6 +29,13 @@ app.add_middleware(
 mas_graph = AIPlatformEngineerMAS()
 set_mas_instance(mas_graph)
 
+
+@app.on_event("startup")
+async def startup_event():
+    """Eagerly initialize the graph at startup (loads registry/MCP tools)."""
+    await mas_graph.ensure_initialized()
+
+
 # Skills catalog API (GET /skills, POST /skills/refresh, supervisor status, hub crawl)
 app.include_router(skills_router)
 

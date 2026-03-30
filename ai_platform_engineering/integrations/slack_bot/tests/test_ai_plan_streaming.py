@@ -435,9 +435,12 @@ class TestToolEndNoTaskUpdate:
 
 
 class TestStreamWithoutPlanStreamsMarkdown:
-    """When no plan exists, STREAMING_RESULT streams markdown_text normally."""
+    """When no plan exists, STREAMING_RESULT is buffered (not streamed live) to avoid
+    leaking intermediate tool outputs or response metadata into Slack.
+    The clean FINAL_RESULT is delivered via stopStream instead."""
 
-    def test_markdown_streamed_without_plan(self):
+    def test_no_plan_streaming_result_buffered_final_result_in_stop_chunks(self):
+        """No-plan flow: STREAMING_RESULT events are buffered; FINAL_RESULT goes in stopStream."""
         events = [
             _task_event(),
             _streaming_result("Hello "),
@@ -458,24 +461,61 @@ class TestStreamWithoutPlanStreamsMarkdown:
             user_id="U123",
         )
 
-        # appendStream should have been called with markdown_text chunks
-        # (StreamBuffer may batch multiple tokens into fewer API calls)
+        # STREAMING_RESULT events should NOT be streamed via appendStream (no live markdown)
         markdown_texts = []
         for c in mock_slack.chat_appendStream.call_args_list:
             chunks = c.kwargs.get("chunks", [])
             for chunk in chunks:
                 if chunk.get("type") == "markdown_text":
                     markdown_texts.append(chunk["text"])
+        assert len(markdown_texts) == 0, (
+            "No-plan STREAMING_RESULT events must not be streamed live to avoid metadata leak"
+        )
 
-        combined = "".join(markdown_texts)
-        assert "Hello " in combined
-        assert "world" in combined
-        assert len(markdown_texts) >= 1
-
-        # stopStream should NOT carry final text since text was already streamed
+        # stopStream MUST carry the clean FINAL_RESULT text
         stop_call = mock_slack.chat_stopStream.call_args
         chunks = stop_call.kwargs.get("chunks")
-        assert chunks is None, "stopStream should not duplicate already-streamed text"
+        assert chunks is not None, "stopStream should carry the FINAL_RESULT text"
+        assert any("Hello world" in c.get("text", "") for c in chunks), (
+            "stopStream chunks should contain the FINAL_RESULT text"
+        )
+
+    def test_no_plan_fallback_to_buffered_streaming_when_no_final_result(self):
+        """No-plan flow without FINAL_RESULT: buffered STREAMING_RESULT used as fallback."""
+        events = [
+            _task_event(),
+            _streaming_result("Fallback "),
+            _streaming_result("content"),
+        ]
+        mock_a2a = Mock()
+        mock_a2a.send_message_stream.return_value = iter(events)
+        mock_slack = _mock_slack()
+
+        stream_a2a_response(
+            a2a_client=mock_a2a,
+            slack_client=mock_slack,
+            channel_id="C1",
+            thread_ts="t1",
+            message_text="hi",
+            team_id="T1",
+            user_id="U123",
+        )
+
+        # No live streaming
+        markdown_texts = []
+        for c in mock_slack.chat_appendStream.call_args_list:
+            chunks = c.kwargs.get("chunks", [])
+            for chunk in chunks:
+                if chunk.get("type") == "markdown_text":
+                    markdown_texts.append(chunk["text"])
+        assert len(markdown_texts) == 0
+
+        # stopStream should use the buffered streaming content as fallback
+        stop_call = mock_slack.chat_stopStream.call_args
+        chunks = stop_call.kwargs.get("chunks")
+        assert chunks is not None, "stopStream should carry buffered content as fallback"
+        combined = "".join(c.get("text", "") for c in chunks)
+        assert "Fallback" in combined and "content" in combined
 
 
 class TestStreamBuffer:

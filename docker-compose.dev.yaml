@@ -1,25 +1,211 @@
 # ============================================================================
 # CAIPE DOCKER COMPOSE DEV CONFIGURATION
 # ============================================================================
-# Development version of docker-compose.yaml with local builds and file mounts.
-# For setup instructions and agent orchestration details, refer to:
-#   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
+# Development setup with local builds and file mounts. Supports two modes:
 #
-# This docker-compose file supports P2P and SLIM transport via profiles.
-# Agent selection and configuration are controlled through environment variables
-# in the .env file—see documentation for full list and descriptions.
+#   Single-node (MCP tools in-process, builds from source):
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one up --build
+#     Service: caipe-supervisor-all-in-one
+#
+#   Multi-node (separate agent containers per A2A sub-agent):
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-distributed --profile aws --profile github ... up --build
+#     Service: caipe-supervisor-distributed
+#
+# MongoDB starts for both modes (no profile required).
+# The CAIPE agent reads task configs from MongoDB (primary) with YAML fallback.
+# The UI writes task configs to MongoDB via the Task Builder.
+#
+# Additional optional profiles:
+#   - caipe-ui: Enable CAIPE web UI (Task Builder + Chat)
+#   - slack-bot: Enable Slack bot integration
+#   - dynamic-agents: Enable dynamic agents service
+#   - rag / rag_no_graph / graph_rag: Enable RAG knowledge base
+#   - tracing: Enable Langfuse tracing
+#   - slim: Enable SLIM transport
+#   - weather: Enable remote Weather agent
+#   - aws / github / argocd / jira / ...: Individual remote A2A agent containers
+#   - all-agents: All remote A2A agent containers
+#   - langgraph-redis / langgraph-postgres / langgraph-mongodb: LangGraph persistence
 # ============================================================================
 
 services:
 
   ####################################################################################################
-  #                                 CAIPE Supervisor Deep Agent                                      #
+  #                                    CAIPE Deep Agent (Single-Node)                               #
   ####################################################################################################
-  caipe-supervisor:
+  caipe-supervisor-all-in-one:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: caipe-supervisor
+    container_name: caipe-supervisor-all-in-one
+    volumes:
+      - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
+      - ./ai_platform_engineering:/app/ai_platform_engineering
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    environment:
+      # Prompt configuration file path
+      - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
+      # Task config file path (self-service workflows)
+      - TASK_CONFIG_PATH=/app/task_config.yaml
+
+      # MongoDB - primary source for task configs (UI writes here, backend reads)
+      - MONGODB_URI=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # Disable cache so UI edits are reflected immediately in the agent
+      - TASK_CONFIG_CACHE_TTL=${TASK_CONFIG_CACHE_TTL:-0}
+
+      # A2A transport configuration (p2p or slim)
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+
+      # Slim dataplane endpoint configuration
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+
+      # Agent connectivity configuration
+      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
+      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
+      # Single-node mode: agents run as local MCP tools, no remote A2A registry needed
+      - CAIPE_DISTRIBUTED_AGENTS=false
+      - ENABLE_ARTIFACT_STREAMING=true
+      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
+
+      # Remote A2A agent hostname mappings (used when individual agent containers are started)
+      - ARGOCD_AGENT_HOST=agent-argocd
+      - AWS_AGENT_HOST=agent-aws
+      - BACKSTAGE_AGENT_HOST=agent-backstage
+      - CONFLUENCE_AGENT_HOST=agent-confluence
+      - GITLAB_AGENT_HOST=agent-gitlab
+      - GITHUB_AGENT_HOST=agent-github
+      - JIRA_AGENT_HOST=agent-jira
+      - KOMODOR_AGENT_HOST=agent-komodor
+      - PAGERDUTY_AGENT_HOST=agent-pagerduty
+      - PETSTORE_AGENT_HOST=agent-petstore
+      - SLACK_AGENT_HOST=agent-slack
+      - SPLUNK_AGENT_HOST=agent-splunk
+      - WEATHER_AGENT_HOST=agent-weather
+      - WEATHER_AGENT_PORT=8000
+      - VICTOROPS_AGENT_HOST=agent-victorops
+      - WEBEX_AGENT_HOST=agent-webex
+      - NETUTILS_AGENT_HOST=agent-netutils
+      - JARVIS_AGENT_HOST=agent-jarvis
+      - JARVIS_AGENT_PORT=58000
+
+      # MCP server hostname mappings for single-node (all-in-one) mode.
+      # In this mode, agents run in-process and must connect to MCP servers by container name.
+      - ARGOCD_MCP_HOST=mcp-argocd
+      - BACKSTAGE_MCP_HOST=mcp-backstage
+      - CONFLUENCE_MCP_HOST=mcp-confluence
+      - JIRA_MCP_HOST=mcp-jira
+      - KOMODOR_MCP_HOST=mcp-komodor
+      - PAGERDUTY_MCP_HOST=mcp-pagerduty
+      - SLACK_MCP_HOST=mcp-slack
+      - SLACK_MCP_PORT=3001
+      - SPLUNK_MCP_HOST=mcp-splunk
+      - WEBEX_MCP_HOST=mcp-webex
+
+      # The following ENABLE_* environment variables control which agents are active.
+      # In .env file, set each variable to 'true' to enable the corresponding agent.
+      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
+      - ENABLE_AWS=${ENABLE_AWS:-false}
+      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
+      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
+      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
+      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
+      - ENABLE_JIRA=${ENABLE_JIRA:-false}
+      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
+      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
+      - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
+      - ENABLE_RAG=${ENABLE_RAG:-false}
+      - ENABLE_SLACK=${ENABLE_SLACK:-false}
+      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
+      - ENABLE_VICTOROPS=${ENABLE_VICTOROPS:-false}
+      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
+      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
+      - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
+
+      # RAG Service Configuration
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+
+      # GitHub Token for git operations
+      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+
+      # Cross-Thread Store Configuration
+      - LANGGRAPH_STORE_TYPE=${LANGGRAPH_STORE_TYPE:-memory}
+      - LANGGRAPH_STORE_REDIS_URL=${LANGGRAPH_STORE_REDIS_URL:-}
+      - LANGGRAPH_STORE_POSTGRES_DSN=${LANGGRAPH_STORE_POSTGRES_DSN:-}
+      - LANGGRAPH_STORE_MONGODB_URI=${LANGGRAPH_STORE_MONGODB_URI:-}
+      - LANGGRAPH_STORE_TTL_MINUTES=${LANGGRAPH_STORE_TTL_MINUTES:-10080}
+      - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-}
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-}
+      - LANGGRAPH_STORE_EMBEDDINGS_DIMS=${LANGGRAPH_STORE_EMBEDDINGS_DIMS:-}
+      - ENABLE_FACT_EXTRACTION=${ENABLE_FACT_EXTRACTION:-false}
+      - FACT_EXTRACTION_MODEL=${FACT_EXTRACTION_MODEL:-}
+
+      # In-Thread Checkpoint Persistence Configuration
+      - LANGGRAPH_CHECKPOINT_TYPE=${LANGGRAPH_CHECKPOINT_TYPE:-memory}
+      - LANGGRAPH_CHECKPOINT_REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
+      - LANGGRAPH_CHECKPOINT_POSTGRES_DSN=${LANGGRAPH_CHECKPOINT_POSTGRES_DSN:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${LANGGRAPH_CHECKPOINT_MONGODB_URI:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=${LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION:-}
+      - LANGGRAPH_CHECKPOINT_TTL_MINUTES=${LANGGRAPH_CHECKPOINT_TTL_MINUTES:-0}
+      - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
+
+      # Self-service task configuration
+      - DEFAULT_GITHUB_ORG=${DEFAULT_GITHUB_ORG:-}
+      - GITHUB_ORGS=${GITHUB_ORGS:-}
+      - GROUPS_AUTOMATION_REPO=${GROUPS_AUTOMATION_REPO:-}
+      - GROUPS_TEAMS_PATH=${GROUPS_TEAMS_PATH:-}
+      - ORG_MEMBERSHIP_FILE_PATTERN=${ORG_MEMBERSHIP_FILE_PATTERN:-}
+      - EMAIL_DOMAIN=${EMAIL_DOMAIN:-}
+      - JARVIS_WORKFLOWS_REPO=${JARVIS_WORKFLOWS_REPO:-}
+      - ADMIN_REPO=${ADMIN_REPO:-}
+      - TERRAFORM_INFRA_REPO=${TERRAFORM_INFRA_REPO:-}
+      - JIRA_ASSIGNEE=${JIRA_ASSIGNEE:-}
+      - WEBEX_ROOM_ID=${WEBEX_ROOM_ID:-}
+      - DEFAULT_CLUSTER_NAME=${DEFAULT_CLUSTER_NAME:-}
+      - DEFAULT_CLUSTER_ADDRESS=${DEFAULT_CLUSTER_ADDRESS:-}
+
+      # Per-subagent LLM model overrides (provider:model-name format)
+      - OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}
+
+      # Vault configuration for secure LLM key storage
+      - VAULT_ADDR=${VAULT_ADDR:-}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_ROLE_ID=${VAULT_ROLE_ID:-}
+      - VAULT_SECRET_ID=${VAULT_SECRET_ID:-}
+      - VAULT_MOUNT_POINT=${VAULT_MOUNT_POINT:-secret}
+      - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
+      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
+
+      # Tracing configuration
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
+      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+    depends_on:
+      caipe-ui-mongodb:
+        condition: service_healthy
+    command: platform-engineer-single
+    profiles:
+      - caipe-supervisor-all-in-one
+
+  ####################################################################################################
+  #                                 CAIPE Supervisor (Multi-Agent)                                  #
+  ####################################################################################################
+  caipe-supervisor-distributed:
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+    container_name: caipe-supervisor-distributed
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
@@ -43,8 +229,6 @@ services:
       - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
 
       # Agent hostname mappings for agent connectivity.
-      # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
-      # If you add new agents/services, include a corresponding *_AGENT_HOST assignment below.
       - ARGOCD_AGENT_HOST=agent-argocd
       - AWS_AGENT_HOST=agent-aws
       - BACKSTAGE_AGENT_HOST=agent-backstage
@@ -64,45 +248,7 @@ services:
       - JARVIS_AGENT_HOST=agent-jarvis
       - JARVIS_AGENT_PORT=58000
 
-      # Cross-Thread Store Configuration
-      - LANGGRAPH_STORE_TYPE=${LANGGRAPH_STORE_TYPE:-memory}
-      - LANGGRAPH_STORE_REDIS_URL=${LANGGRAPH_STORE_REDIS_URL:-}
-      - LANGGRAPH_STORE_POSTGRES_DSN=${LANGGRAPH_STORE_POSTGRES_DSN:-}
-      - LANGGRAPH_STORE_MONGODB_URI=${LANGGRAPH_STORE_MONGODB_URI:-}
-      - LANGGRAPH_STORE_TTL_MINUTES=${LANGGRAPH_STORE_TTL_MINUTES:-10080}
-      # Embeddings for semantic memory search (shared with RAG stack via EMBEDDINGS_*)
-      # LANGGRAPH_STORE_EMBEDDINGS_* overrides take precedence over EMBEDDINGS_*
-      - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-}
-      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-}
-      - LANGGRAPH_STORE_EMBEDDINGS_DIMS=${LANGGRAPH_STORE_EMBEDDINGS_DIMS:-}
-      - ENABLE_FACT_EXTRACTION=${ENABLE_FACT_EXTRACTION:-false}
-      - FACT_EXTRACTION_MODEL=${FACT_EXTRACTION_MODEL:-}
-
-      # In-Thread Checkpoint Persistence Configuration
-      - LANGGRAPH_CHECKPOINT_TYPE=${LANGGRAPH_CHECKPOINT_TYPE:-memory}
-      - LANGGRAPH_CHECKPOINT_REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
-      - LANGGRAPH_CHECKPOINT_POSTGRES_DSN=${LANGGRAPH_CHECKPOINT_POSTGRES_DSN:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${LANGGRAPH_CHECKPOINT_MONGODB_URI:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=${LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION:-}
-      - LANGGRAPH_CHECKPOINT_TTL_MINUTES=${LANGGRAPH_CHECKPOINT_TTL_MINUTES:-0}
-      # REDIS_URL is required by redisvl (used internally by langgraph-checkpoint-redis)
-      - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
-
-      # RAG Service Configuration
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - ENABLE_RAG=${ENABLE_RAG:-false}
-
-      # GitHub Token for git operations
-      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
-
-      # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
-      # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
-      # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
-      # These flags allow you to fine-tune which domain-specific agents are available as tools to the main platform engineer agent at runtime.
-      # Update these variables as needed based on your deployment requirements, security posture, or available agent containers.
-
+      # Agent enable flags
       - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
       - ENABLE_AWS=${ENABLE_AWS:-false}
       - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
@@ -122,7 +268,36 @@ services:
       - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
       - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
 
-      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
+      # Cross-Thread Store Configuration
+      - LANGGRAPH_STORE_TYPE=${LANGGRAPH_STORE_TYPE:-memory}
+      - LANGGRAPH_STORE_REDIS_URL=${LANGGRAPH_STORE_REDIS_URL:-}
+      - LANGGRAPH_STORE_POSTGRES_DSN=${LANGGRAPH_STORE_POSTGRES_DSN:-}
+      - LANGGRAPH_STORE_MONGODB_URI=${LANGGRAPH_STORE_MONGODB_URI:-}
+      - LANGGRAPH_STORE_TTL_MINUTES=${LANGGRAPH_STORE_TTL_MINUTES:-10080}
+      - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-}
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-}
+      - LANGGRAPH_STORE_EMBEDDINGS_DIMS=${LANGGRAPH_STORE_EMBEDDINGS_DIMS:-}
+      - ENABLE_FACT_EXTRACTION=${ENABLE_FACT_EXTRACTION:-false}
+      - FACT_EXTRACTION_MODEL=${FACT_EXTRACTION_MODEL:-}
+
+      # In-Thread Checkpoint Persistence Configuration
+      - LANGGRAPH_CHECKPOINT_TYPE=${LANGGRAPH_CHECKPOINT_TYPE:-memory}
+      - LANGGRAPH_CHECKPOINT_REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
+      - LANGGRAPH_CHECKPOINT_POSTGRES_DSN=${LANGGRAPH_CHECKPOINT_POSTGRES_DSN:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${LANGGRAPH_CHECKPOINT_MONGODB_URI:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=${LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION:-}
+      - LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION:-}
+      - LANGGRAPH_CHECKPOINT_TTL_MINUTES=${LANGGRAPH_CHECKPOINT_TTL_MINUTES:-0}
+      - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
+
+      # RAG Service Configuration
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+
+      # GitHub Token for git operations
+      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+
+      # Tracing configuration
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
@@ -132,17 +307,17 @@ services:
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
     profiles:
-      - caipe-supervisor
+      - caipe-supervisor-distributed
 
   ####################################################################################################
   #                                          MongoDB                                                 #
   ####################################################################################################
-  # MongoDB for CAIPE UI chat history and user settings
+  # MongoDB for CAIPE UI chat history, user settings, and task config persistence.
   # Note: Default password "changeme" is for local development only. For production, use
   # the Helm chart and External Secrets to store the MongoDB secret in an external secrets manager.
-  caipe-mongodb:
+  caipe-ui-mongodb:
     image: mongo:7.0
-    container_name: caipe-mongodb-dev
+    container_name: caipe-ui-mongodb
     ports:
       - "27017:27017"
     environment:
@@ -151,7 +326,6 @@ services:
       - MONGO_INITDB_DATABASE=${MONGODB_DATABASE:-caipe}
     volumes:
       - mongodb_data:/data/db
-      - mongodb_config:/data/configdb
     command: ["mongod", "--quiet", "--logpath", "/dev/null"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
@@ -159,9 +333,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
-    profiles:
-      - caipe-mongodb
-      - deps
 
   # MongoDB Admin UI
   caipe-ui-mongo-express:
@@ -1027,7 +1198,8 @@ services:
   # Configuration:
   #   CAIPE_URL: URL of the CAIPE supervisor A2A endpoint
   #   - Default (dev): http://localhost:8000
-  #   - Default (docker): http://caipe-supervisor:8000
+  #   - Default (single-node): http://caipe-supervisor-all-in-one:8000
+  #   - Default (multi-agent): http://caipe-supervisor-distributed:8000
   #   - Override with: CAIPE_URL=http://your-host:port
   caipe-ui:
     build:
@@ -1080,10 +1252,11 @@ services:
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
-      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-ui-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
     depends_on:
-      - caipe-supervisor
+      caipe-ui-mongodb:
+        condition: service_healthy
     profiles:
       - caipe-ui
 
@@ -1112,7 +1285,7 @@ services:
     env_file: [.env]
     environment:
       # MongoDB (same as CAIPE UI)
-      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Authentication (same OIDC config as CAIPE UI)
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -1133,7 +1306,7 @@ services:
       # Omitted here to use Pydantic default ["*"]
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
-      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
@@ -1810,8 +1983,8 @@ services:
       - SLACK_INTEGRATION_AUTH_CLIENT_SECRET=${SLACK_INTEGRATION_AUTH_CLIENT_SECRET:-}
       - SLACK_INTEGRATION_AUTH_SCOPE=${SLACK_INTEGRATION_AUTH_SCOPE:-}
       - SLACK_INTEGRATION_AUTH_AUDIENCE=${SLACK_INTEGRATION_AUTH_AUDIENCE:-}
-      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
-      - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
+      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor-all-in-one:8000}
+      - MONGODB_URI=mongodb://admin:changeme@caipe-ui-mongodb:27017
       - MONGODB_DATABASE=caipe
       - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
       - LANGFUSE_SCORING_ENABLED=${LANGFUSE_SCORING_ENABLED:-false}
@@ -1820,8 +1993,8 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
-      - caipe-supervisor
-      - caipe-mongodb
+      caipe-ui-mongodb:
+        condition: service_healthy
     profiles:
       - slack-bot
       - all-integrations
@@ -1856,7 +2029,7 @@ services:
   #
   #   Mixed (MongoDB checkpointer + Redis store, sharing UI MongoDB):
   #     LANGGRAPH_CHECKPOINT_TYPE=mongodb \
-  #     LANGGRAPH_CHECKPOINT_MONGODB_URI="mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin" \
+  #     LANGGRAPH_CHECKPOINT_MONGODB_URI="mongodb://admin:changeme@caipe-ui-mongodb:27017/caipe?authSource=admin" \
   #     LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=caipe \
   #     LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=checkpoints_conversation \
   #     LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=checkpoint_writes_conversation \
@@ -1918,8 +2091,6 @@ services:
 
 volumes:
   mongodb_data:
-    driver: local
-  mongodb_config:
     driver: local
   langfuse_postgres_data:
     driver: local

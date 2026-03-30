@@ -221,6 +221,7 @@ class AgentRegistry:
             subagents.append({
                 "name": sanitized_name,
                 "description": description,
+                "system_prompt": prompt,
                 "graph": subagent_graph  # CustomSubAgent with pre-created graph
             })
         return subagents

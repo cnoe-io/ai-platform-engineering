@@ -15,7 +15,7 @@ from a2a.types import (
     TaskArtifactUpdateEvent,
     TaskStatusUpdateEvent,
 )
-from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
 )
@@ -170,9 +170,16 @@ class AIPlatformEngineerA2ABinding:
                   )
 
           if ai_msg_ids_to_remove:
-              # Remove only the problematic AIMessages
+              # Remove the problematic AIMessages and add a clean placeholder so
+              # the graph's routing function (model_to_tools) always finds an
+              # AIMessage in state and doesn't raise UnboundLocalError.
               remove_messages = [RemoveMessage(id=msg_id) for msg_id in ai_msg_ids_to_remove]
-              await self.graph.aupdate_state(config, {"messages": remove_messages})
+              placeholder = AIMessage(content="[Previous request was interrupted. Ready for new request.]")
+              await self.graph.aupdate_state(
+                  config,
+                  {"messages": remove_messages + [placeholder]},
+                  as_node="model",
+              )
               logging.info(
                   f"✅ Supervisor: Removed {len(ai_msg_ids_to_remove)} AIMessage(s) with orphaned tool calls. "
                   f"Earlier conversation history preserved."
@@ -1612,7 +1619,7 @@ class AIPlatformEngineerA2ABinding:
                   await self.graph.aupdate_state(
                       config,
                       {"messages": [AIMessage(content=error_summary)]},
-                      as_node="agent",
+                      as_node="model",
                   )
 
                   async for item_type, item in self.graph.astream(

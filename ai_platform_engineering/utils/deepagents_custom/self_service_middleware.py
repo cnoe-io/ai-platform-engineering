@@ -57,7 +57,7 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
     def _build_workflow_prompt_section(self, user_email: Optional[str] = None) -> str:
         """Query MongoDB/YAML for workflow names visible to *user_email*."""
         try:
-            from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
+            from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
                 load_task_config,
             )
 
