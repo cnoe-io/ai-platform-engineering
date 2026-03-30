@@ -34,7 +34,7 @@ from dynamic_agents.services.mcp_client import (
     filter_tools_by_allowed,
     get_tools_with_resilience,
 )
-from ai_platform_engineering.utils.deepagents_custom.tool_error_handling import (
+from dynamic_agents.services.tool_error_handling import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.stream_events import (
