@@ -67,6 +67,11 @@ from ai_platform_engineering.utils.deepagents_custom.exceptions import (
     ToolError,
 )
 
+# Export tool error handling
+from ai_platform_engineering.utils.deepagents_custom.tool_error_handling import (
+    wrap_tools_with_error_handling,
+)
+
 __all__ = [
     # Official deepagents
     "create_deep_agent",
@@ -94,4 +99,6 @@ __all__ = [
     # Exceptions
     "AgentStopRequestedError",
     "ToolError",
+    # Tool error handling
+    "wrap_tools_with_error_handling",
 ]
