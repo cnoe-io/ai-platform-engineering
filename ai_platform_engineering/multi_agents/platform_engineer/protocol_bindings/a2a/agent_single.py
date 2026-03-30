@@ -15,7 +15,7 @@ from a2a.types import (
     TaskArtifactUpdateEvent,
     TaskStatusUpdateEvent,
 )
-from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
 )

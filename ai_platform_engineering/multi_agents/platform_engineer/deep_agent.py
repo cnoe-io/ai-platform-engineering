@@ -1,551 +1,1636 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Platform Engineer Deep Agent using the deepagents library.
+
+This agent orchestrates self-service workflows defined in task_config.yaml
+using specialized subagents for GitHub, AWS, ArgoCD, AIGateway, Backstage, Jira, and Webex.
+
+Note: MyID operations (group management, GitHub org invitations) are handled through
+GitHub workflows triggered via the GitHub subagent, not a dedicated MyID subagent.
+"""
+
 import logging
 import uuid
 import os
 import threading
 import asyncio
 import time
+import yaml
 import httpx
-import traceback
-from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, Dict, Any, List, Annotated, Union
+import operator
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.language_models import LanguageModelLike
+from langchain_core.tools import tool, StructuredTool, InjectedToolCallId
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.checkpoint.memory import InMemorySaver
+from ai_platform_engineering.utils.checkpointer import create_checkpointer
+from ai_platform_engineering.utils.store import create_store
+from langgraph.types import Command
 from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
+from langchain.tools.tool_node import InjectedState
 
-from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
-from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
-from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
+from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
+
+# Upstream deepagents package (pip-installed)
+from deepagents import create_deep_agent
+
+# Custom middleware and utilities from our package
+from ai_platform_engineering.utils.deepagents_custom.middleware import (
+    DeterministicTaskMiddleware,
+)
+from ai_platform_engineering.utils.deepagents_custom.file_arg_middleware import (
+    CallToolWithFileArgMiddleware,
+)
+from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
+    PolicyMiddleware,
+)
+from ai_platform_engineering.utils.deepagents_custom.self_service_middleware import (
+    SelfServiceWorkflowMiddleware,
+)
+from ai_platform_engineering.utils.deepagents_custom.tools import (
+    tool_result_to_file,
+    wait,
+)
+
+# Skills middleware: upstream SkillsMiddleware + custom catalog layer
+from deepagents.middleware.skills import SkillsMiddleware
+from deepagents.backends.state import StateBackend
+from ai_platform_engineering.skills_middleware import (
+    get_merged_skills,
+    build_skills_files,
+)
+from ai_platform_engineering.utils.agent_tools.terraform_fmt_tool import terraform_fmt
+from ai_platform_engineering.utils.deepagents_custom.state import DeepAgentState
+
+# Import agent classes for subagent definition creation
+# SubAgent dicts are built by SubAgentMiddleware with shared StateBackend for filesystem state sharing
+from ai_platform_engineering.agents.github.agent_github.protocol_bindings.a2a_server.agent import GitHubAgent
+from ai_platform_engineering.agents.backstage.agent_backstage.protocol_bindings.a2a_server.agent import BackstageAgent
+from ai_platform_engineering.agents.jira.agent_jira.protocol_bindings.a2a_server.agent import JiraAgent
+from ai_platform_engineering.agents.webex.agent_webex.protocol_bindings.a2a_server.agent import WebexAgent
+from ai_platform_engineering.agents.argocd.agent_argocd.protocol_bindings.a2a_server.agent import ArgoCDAgent
+from ai_platform_engineering.agents.aigateway.agent_aigateway.protocol_bindings.a2a_server.agent import AIGatewayAgent
+from ai_platform_engineering.agents.pagerduty.agent_pagerduty.protocol_bindings.a2a_server.agent import PagerDutyAgent
+from ai_platform_engineering.agents.slack.agent_slack.protocol_bindings.a2a_server.agent import SlackAgent
+from ai_platform_engineering.agents.splunk.agent_splunk.protocol_bindings.a2a_server.agent import SplunkAgent
+from ai_platform_engineering.agents.komodor.agent_komodor.protocol_bindings.a2a_server.agent import KomodorAgent
+from ai_platform_engineering.agents.confluence.agent_confluence.protocol_bindings.a2a_server.agent import ConfluenceAgent
+
+# Prompt configuration utilities
+from ai_platform_engineering.utils.prompt_config import (
+    load_platform_config,
+    generate_platform_system_prompt,
+)
+
 from ai_platform_engineering.multi_agents.tools import (
     reflect_on_output,
     format_markdown,
     fetch_url,
     get_current_date,
-    request_user_input,
-    write_workspace_file,
-    read_workspace_file,
-    list_workspace_files,
-    clear_workspace,
-    # Command-line tools
-    git,        # git("git clone https://...", cwd=...)
-    curl,       # curl("curl -s https://...")
-    wget,       # wget("wget -O file.txt https://...")
-    # Data processing tools
-    jq,         # jq("jq '.items[].name' data.json")
-    yq,         # yq("yq '.spec.replicas' deployment.yaml")
+    jq,
+    yq,
 )
-from deepagents import create_deep_agent
-from ai_platform_engineering.skills_middleware import get_merged_skills, build_skills_files
-from ai_platform_engineering.utils.store import create_store
-from ai_platform_engineering.utils.checkpointer import create_checkpointer
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# RAG Configuration
-ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() == "true"
+# Remote A2A agent tool
+from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import A2ARemoteAgentConnectTool
+
+# Configuration
+ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
+
+def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
+    """Create an LLM via LLMFactory using prefixed environment variables.
+
+    Looks for ``<env_prefix>LLM_PROVIDER`` (e.g. ``SUBAGENT_GITHUB_LLM_PROVIDER``).
+    When found, collects every ``<env_prefix>*`` env var, strips the prefix to
+    produce the standard env var names that LLMFactory expects, temporarily
+    overrides the process environment, and delegates to LLMFactory.
+
+    This mirrors the ``.env`` pattern used in multi-node containers so that
+    every provider LLMFactory supports (OpenAI, Azure, Bedrock, Anthropic,
+    Google Gemini, Vertex AI) works identically in single-node per-agent
+    overrides.
+
+    Returns None when ``<env_prefix>LLM_PROVIDER`` is not set.
+    """
+    provider = os.getenv(f"{env_prefix}LLM_PROVIDER")
+    if not provider:
+        return None
+
+    overrides: Dict[str, str] = {}
+    for key, value in os.environ.items():
+        if key.startswith(env_prefix):
+            standard_key = key[len(env_prefix):]
+            overrides[standard_key] = value
+
+    logger.info(
+        f"LLM override via LLMFactory: {env_prefix}LLM_PROVIDER={provider}, "
+        f"overriding {len(overrides)} env var(s)"
+    )
+
+    saved: Dict[str, Optional[str]] = {}
+    try:
+        for key, value in overrides.items():
+            saved[key] = os.environ.get(key)
+            os.environ[key] = value
+        return LLMFactory(provider).get_llm()
+    finally:
+        for key, old_value in saved.items():
+            if old_value is not None:
+                os.environ[key] = old_value
+            elif key in os.environ:
+                del os.environ[key]
+
+
+def _get_subagent_model(name: str) -> Optional[Union[str, LanguageModelLike]]:
+    """Resolve a per-subagent LLM model override from environment variables.
+
+    Resolution order:
+
+    1. ``SUBAGENT_<NAME>_LLM_PROVIDER`` — full LLMFactory override using
+       ``SUBAGENT_<NAME>_*`` env vars (same ``.env`` format as multi-node,
+       supports every provider).
+    2. ``SUBAGENT_<NAME>_MODEL`` — lightweight ``provider:model-name`` string
+       for langchain's init_chat_model (e.g. ``"openai:gpt-4o-mini"``).
+       Uses global credentials.
+    3. Neither — returns None (fall back to parent agent's model).
+    """
+    env_prefix = f"SUBAGENT_{name.upper()}_"
+
+    llm = _build_llm_from_prefixed_env(env_prefix)
+    if llm is not None:
+        return llm
+
+    model = os.getenv(f"{env_prefix}MODEL")
+    if model:
+        logger.info(f"Per-subagent model override: {env_prefix}MODEL={model}")
+        return model
+
+    return None
+
 # Structured Response Configuration
 # When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
-USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "true").lower() == "true"
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
 
-class AIPlatformEngineerMAS:
-  def __init__(self):
-    # Use existing platform_registry and enable dynamic monitoring
-    platform_registry.enable_dynamic_monitoring(on_change_callback=self._on_agents_changed)
+# Multi-node mode: CAIPE_DISTRIBUTED_AGENTS=true means agents are discovered via remote A2A registry
+# (multi-node, separate containers). false = single-node (all-in-one, local MCP sidecars).
+CAIPE_DISTRIBUTED_AGENTS = os.getenv("CAIPE_DISTRIBUTED_AGENTS", "true").lower() == "true"
 
-    # Thread safety for graph access
-    self._graph_lock = threading.RLock()
-    self._graph = None
-    self._graph_generation = 0  # Track graph version for debugging
-    self._skills_merged_at: str | None = None  # ISO-8601 UTC after last successful merge (FR-016)
-    self._skills_loaded_count: int = 0
-    self._last_built_catalog_generation: int | None = None  # catalog gen snapshot after last _build_graph (FR-026)
+# Remote A2A agents (run as separate containers, communicate via A2A protocol)
+ENABLE_WEATHER = os.getenv("ENABLE_WEATHER", "false").lower() in ("true", "1", "yes")
 
-    # RAG-related instance variables
-    self.rag_enabled = ENABLE_RAG # if the server is not reachable, this will be set to False
-    self.rag_config: Optional[Dict[str, Any]] = None # the rag config returned from the server
-    self.rag_config_timestamp: Optional[float] = None # the timestamp of the last time the rag config was fetched
-    self.rag_mcp_client: Optional[MultiServerMCPClient] = None # the mcp client for the rag server
-    self.rag_tools: List[Any] = [] # the MCP tools returned from the rag server, loaded at startup
 
-    # Build initial graph
-    self._build_graph()
+def _is_agent_enabled(name: str) -> bool:
+    """Check if an agent is enabled via ENABLE_<NAME> env var (defaults to true)."""
+    return os.getenv(f"ENABLE_{name.upper()}", "true").lower() in ("true", "1", "yes")
 
-    logger.info(f"AIPlatformEngineerMAS initialized with {len(platform_registry.agents)} agents")
-    if self.rag_enabled:
-      logger.info(f"✅📚 RAG is ENABLED - will attempt to connect to {RAG_SERVER_URL}")
-    else:
-      logger.info("❌📚 RAG is DISABLED")
 
-  def get_graph(self) -> CompiledStateGraph:
-    """
-    Returns the current compiled LangGraph instance.
-    Thread-safe access to the graph.
+def replace(old, new):
+    """Replacement reducer for state updates."""
+    return new
 
-    Returns:
-        CompiledStateGraph: The current compiled LangGraph instance.
-    """
-    with self._graph_lock:
-      return self._graph
 
-  def _on_agents_changed(self):
-    """Callback triggered when agent registry detects changes."""
-    logger.info("Agent registry change detected, rebuilding graph...")
-    self._rebuild_graph()
+class ParentState(DeepAgentState):
+    """State schema for the platform engineer deep agent."""
+    inputs: Annotated[list[dict], replace]
+    results: Annotated[list[dict], operator.add]
 
-  def _rebuild_graph(self) -> bool:
-    """
-    Rebuild the graph with current agents from registry.
 
-    Returns:
-        bool: True if graph was rebuilt successfully
-    """
-    try:
-      with self._graph_lock:
-        old_generation = self._graph_generation
-        self._build_graph()
-        logger.info(f"Graph successfully rebuilt (generation {old_generation} → {self._graph_generation})")
-        return True
-    except Exception as e:
-      logger.error(f"Failed to rebuild graph: {e}")
-      return False
+# =============================================================================
+# CAIPE Structured Response Models (for Human-in-the-Loop forms)
+# =============================================================================
 
-  def force_refresh_agents(self) -> bool:
-    """
-    Force immediate refresh of agent connectivity and rebuild graph if needed.
+class InputField(BaseModel):
+    """Model for input field requirements extracted from tool responses."""
+    field_name: str = Field(description="The name of the field that should be provided.")
+    field_description: str = Field(description="A description of what this field represents.")
+    field_values: Optional[List[str]] = Field(default=None, description="Possible values for the field, if any.")
+    default_value: Optional[str] = Field(default=None, description="Pre-populated default value for the field.")
+    required: bool = Field(default=False, description="Whether this field is required (mandatory).")
+    value: Optional[str] = Field(default=None, description="The user-provided value for this field.")
 
-    Returns:
-        bool: True if changes were detected and graph was rebuilt
-    """
-    logger.info("Force refresh requested")
-    return platform_registry.force_refresh()
 
-  def get_status(self) -> dict:
-    """Get current status for monitoring/debugging."""
-    with self._graph_lock:
-      status = {
-        "graph_generation": self._graph_generation,
-        "registry_status": platform_registry.get_registry_status()
-      }
-      if self.rag_enabled:
-        status["rag_enabled"] = True
-        status["rag_connected"] = self.rag_config is not None
-        status["rag_config_age_seconds"] = (
-          time.time() - self.rag_config_timestamp
-          if self.rag_config_timestamp else None
-        )
-      else:
-        status["rag_enabled"] = False
-      return status
+class Metadata(BaseModel):
+    """Model for response metadata."""
+    input_fields: Optional[List[InputField]] = Field(default=None, description="List of input fields required from the user, if any.")
 
-  def _apply_skill_summary_cap(self, skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Limit skills passed into SkillsMiddleware when MAX_SKILL_SUMMARIES_IN_PROMPT > 0 (FR-024)."""
-    raw = os.getenv("MAX_SKILL_SUMMARIES_IN_PROMPT", "0").strip()
-    try:
-      n = int(raw)
-    except ValueError:
-      n = 0
-    if n <= 0 or len(skills) <= n:
-      return skills
-    sorted_skills = sorted(
-      skills,
-      key=lambda s: (str(s.get("source", "")), str(s.get("name", "")).lower()),
+
+class CAIPEAgentResponse(BaseModel):
+    """Structured response format for CAIPE (Cisco AI Platform Engineering) user input collection."""
+    response: str = Field(default="", description="A friendly summary of what information the user needs to provide and why. This is shown in the chat as a text message alongside the form.")
+    metadata: Metadata = Field(description="Metadata containing input fields. When requesting input, populate field_name/field_description/required. When returning values, populate the value field.")
+
+
+def create_caipe_agent_response_tool():
+    """Create a tool from CAIPEAgentResponse schema for structured user input collection."""
+
+    def caipe_agent_response(metadata: Metadata, response: str = "") -> str:
+        """Request user input when needed. Returns status based on input fields.
+
+        This tool triggers a Human-in-the-Loop interrupt to collect user input via a form.
+        """
+        input_fields = metadata.input_fields or []
+
+        # Constraint: Must provide input_fields
+        if not input_fields:
+            return "ERROR: No input_fields provided. You must specify input_fields with field_name, field_description, and required properties."
+
+        # Separate fields by required status
+        required_fields = [f for f in input_fields if f.required]
+        optional_fields = [f for f in input_fields if not f.required]
+
+        # Check which required fields have values
+        required_with_values = [f for f in required_fields if f.value is not None]
+        required_missing = [f for f in required_fields if f.value is None]
+        optional_with_values = [f for f in optional_fields if f.value is not None]
+
+        # Constraint: If no values at all, waiting for user input
+        all_with_values = required_with_values + optional_with_values
+        if not all_with_values:
+            return "Waiting for user input"
+
+        # Constraint: If required fields are missing, return error explaining what's needed
+        if required_missing:
+            missing_names = [f.field_name for f in required_missing]
+            return f"ERROR: Missing required fields: {', '.join(missing_names)}. Keep calling this tool until all required fields are provided."
+
+        # All required fields provided — user has submitted the form
+        result = "USER_FORM_SUBMITTED\n"
+        for f in required_with_values + optional_with_values:
+            result += f"  {f.field_name}={f.value}\n"
+
+        return result.strip()
+
+    return StructuredTool.from_function(
+        func=caipe_agent_response,
+        name="CAIPEAgentResponse",
+        description="Request user input when needed. Use this to collect structured input from users via forms.",
+        args_schema=CAIPEAgentResponse,
     )
-    logger.info(
-      "MAX_SKILL_SUMMARIES_IN_PROMPT=%d: using %d of %d merged skills for supervisor prompt/backends",
-      n,
-      n,
-      len(skills),
-    )
-    return sorted_skills[:n]
 
-  def get_skills_status(self) -> dict:
-    """Snapshot of skills load metadata for operators (FR-016, FR-026)."""
-    from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
 
-    with self._graph_lock:
-      cache_gen = get_catalog_cache_generation()
-      last_built = self._last_built_catalog_generation
-      if last_built is None:
-        sync_status = "unknown"
-      elif last_built == cache_gen:
-        sync_status = "in_sync"
-      else:
-        sync_status = "supervisor_stale"
-      return {
-        "graph_generation": self._graph_generation,
-        "skills_loaded_count": self._skills_loaded_count,
-        "skills_merged_at": self._skills_merged_at,
-        "catalog_cache_generation": cache_gen,
-        "last_built_catalog_generation": last_built,
-        "sync_status": sync_status,
-      }
+# =============================================================================
+# Task Config Loading
+# =============================================================================
 
-  def get_rag_tool_names(self) -> set[str]:
-    """Get the set of RAG tool names loaded from the MCP server."""
-    if not self.rag_tools:
-      return set()
-    return {t.name for t in self.rag_tools}
+def get_task_config_filename() -> str:
+    """Get the task config filename path.
 
-  async def _load_rag_tools(self) -> List[Any]:
+    Uses TASK_CONFIG_PATH env var if set (for Helm/K8s ConfigMap mounts),
+    otherwise falls back to task_config.yaml in the repo root.
     """
-    Load RAG MCP tools from the server.
-    Returns list of tools or empty list if unavailable.
-    """
-    if not self.rag_enabled or self.rag_config is None:
-      return []
+    env_path = os.getenv("TASK_CONFIG_PATH")
+    if env_path:
+        return env_path
+    current_dir = Path(__file__).parent
+    repo_root = current_dir.parent.parent.parent
+    return str(repo_root / "task_config.yaml")
 
+
+def _substitute_env_vars(content: str) -> str:
+    """Substitute ${VAR_NAME} patterns with environment variable values.
+
+    Args:
+        content: String content with ${VAR_NAME} patterns
+
+    Returns:
+        Content with environment variables substituted
+    """
+    import re
+
+    def replace_env_var(match):
+        var_name = match.group(1)
+        value = os.getenv(var_name, "")
+        if not value:
+            logger.warning(f"Environment variable {var_name} not set, using empty string")
+        return value
+
+    # Match ${VAR_NAME} pattern
+    pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
+    return re.sub(pattern, replace_env_var, content)
+
+
+def _load_task_config_from_yaml() -> dict:
+    """Load task configuration from task_config.yaml file (fallback).
+
+    Supports environment variable substitution using ${VAR_NAME} syntax.
+    """
+    config_path = get_task_config_filename()
     try:
-      # Initialize MCP client if not already done
-      if self.rag_mcp_client is None:
-        logger.info(f"Initializing RAG MCP client for {RAG_SERVER_URL}/mcp")
-        self.rag_mcp_client = MultiServerMCPClient({
-          "rag": {
-            "url": f"{RAG_SERVER_URL}/mcp",
-            "transport": "streamable_http",
-          }
-        })
+        with open(config_path, 'r') as f:
+            content = f.read()
 
-      # Fetch tools from MCP server
-      logger.info("Loading RAG tools from MCP server...")
-      tools = await self.rag_mcp_client.get_tools()
-      logger.info(f"✅ Loaded {len(tools)} RAG tools: {[t.name for t in tools]}")
-      return tools
+        content = _substitute_env_vars(content)
 
+        config = yaml.safe_load(content)
+        logger.info(f"Loaded {len(config)} tasks from {config_path}")
+        return config or {}
     except Exception as e:
-      logger.error(f"Error loading RAG tools: {e}")
-      logger.error(traceback.format_exc())
-      return []
+        logger.error(f"Failed to load task config from YAML: {e}")
+        return {}
 
 
-  def _build_graph(self) -> None:
+def _substitute_env_vars_in_configs(configs: dict) -> dict:
+    """Apply env var substitution to llm_prompt fields in task configs.
+
+    System workflows seeded from task_config.yaml into MongoDB retain
+    ``${VAR_NAME}`` placeholders.  This resolves them at load time using
+    the supervisor's environment, matching the YAML-loaded behaviour.
     """
-    Internal method to construct and compile a DeepAgents graph with current agents.
-    Updates self._graph and increments generation counter.
+    for task_def in configs.values():
+        tasks = task_def.get("tasks")
+        if not tasks:
+            continue
+        for task in tasks:
+            prompt = task.get("llm_prompt")
+            if prompt and "${" in prompt:
+                task["llm_prompt"] = _substitute_env_vars(prompt)
+    return configs
+
+
+def load_task_config(user_email: Optional[str] = None) -> dict:
+    """Load task configs from MongoDB (primary), YAML file (fallback).
+
+    When MONGODB_URI is configured, reads from the ``task_configs`` MongoDB
+    collection via a shared pymongo client with an in-memory TTL cache.
+    Falls back to reading ``task_config.yaml`` from disk when MongoDB is
+    unavailable or the collection is empty.
+
+    When *user_email* is provided, only configs visible to that user are
+    returned (system/global configs + configs owned by the user).  When
+    ``None``, only system/global configs are returned from MongoDB.
+
+    Environment variable substitution (``${VAR_NAME}``) is applied to both
+    YAML-sourced and MongoDB-sourced configs so that system workflows seeded
+    with ``${JARVIS_WORKFLOWS_REPO}`` etc. resolve at runtime.
     """
-    logger.debug(f"Building deep agent (generation {self._graph_generation + 1})...")
-
-    base_model = LLMFactory().get_llm()
-
-    # Dynamically generate system prompt and subagents from current registry
-    current_agents = platform_registry.agents
-
-    # Do RAG connectivity check and initial tool loading synchronously at startup
-    if self.rag_enabled and self.rag_config is None:
-        logger.info("Performing initial RAG setup...")
+    mongodb_uri = os.getenv("MONGODB_URI")
+    if mongodb_uri:
         try:
-            # Use httpx synchronous client for connectivity check
-            logger.info(f"Checking RAG server connectivity at {RAG_SERVER_URL}...")
+            from ai_platform_engineering.utils.mongodb_client import (
+                get_task_configs_for_user,
+            )
 
+            configs = get_task_configs_for_user(user_email)
+            if configs:
+                return _substitute_env_vars_in_configs(configs)
+        except Exception as e:
+            logger.warning(f"MongoDB unavailable, falling back to YAML: {e}")
+
+    return _load_task_config_from_yaml()
+
+
+def get_available_task_names(user_email: Optional[str] = None) -> List[str]:
+    """Get list of available task names from config."""
+    config = load_task_config(user_email=user_email)
+    return list(config.keys())
+
+
+# =============================================================================
+# Invoke Self-Service Task Tool
+# =============================================================================
+
+@tool
+def list_self_service_workflows(
+    state: Annotated[dict, InjectedState],
+) -> str:
+    """List all available self-service workflows that can be invoked.
+
+    Returns the current set of workflow names from the task configuration
+    database. Call this tool to discover which workflows are available
+    before invoking one with ``invoke_self_service_task``.
+    """
+    user_email = state.get("user_email") if isinstance(state, dict) else None
+    config = load_task_config(user_email=user_email)
+    if not config:
+        return "No self-service workflows are currently configured."
+
+    names = list(config.keys())
+    lines = [f"- {name}" for name in names]
+    return (
+        f"Available self-service workflows ({len(names)}):\n"
+        + "\n".join(lines)
+        + "\n\nUse invoke_self_service_task(task_name=\"<name>\") to start one."
+    )
+
+
+def create_invoke_self_service_task_tool():
+    """Create the invoke_self_service_task tool for deterministic workflow execution.
+
+    This tool sets up state for task_config.yaml workflows:
+    1. Populates state.tasks and state.todos
+    2. Sets task_execution_pending=True flag
+    3. Returns a simple ToolMessage
+
+    The DeterministicTaskMiddleware.before_model hook then:
+    1. Detects the pending flag
+    2. Injects AIMessage(task) and jumps to tools
+    3. SHORT-CIRCUITS the model call so it never sees incomplete tool pairs
+    """
+
+    @tool
+    def invoke_self_service_task(
+        task_name: str,
+        state: Annotated[dict, InjectedState],
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> Command:
+        """
+        Invoke a self-service workflow task defined in task_config.yaml.
+
+        This tool starts a multi-step workflow where each step is delegated to
+        a specialized subagent. The workflow executes DETERMINISTICALLY via
+        the DeterministicTaskMiddleware - no LLM involvement in task sequencing.
+
+        Flow:
+        1. CAIPE subagent collects user input via HITL form
+        2. Subsequent subagents execute operations (GitHub, AWS, etc.)
+        3. Notification is sent upon completion
+
+        Args:
+            task_name: Name of the task (e.g., "Create GitHub Repo")
+
+        Returns:
+            Command that sets up state for deterministic execution.
+        """
+        user_email = state.get("user_email") if isinstance(state, dict) else None
+        config = load_task_config(user_email=user_email)
+
+        if task_name not in config:
+            available = ", ".join(config.keys())
+            return ToolMessage(
+                content=f"Task '{task_name}' not found. Available tasks: {available}",
+                tool_call_id=tool_call_id,
+            )
+
+        task_def = config[task_name]
+        tasks = task_def.get("tasks", [])
+
+        if not tasks:
+            return ToolMessage(
+                content=f"Task '{task_name}' has no steps defined.",
+                tool_call_id=tool_call_id,
+            )
+
+        # Add task IDs for tracking
+        for i, task in enumerate(tasks):
+            task["id"] = i
+
+        # Create todos from tasks (all pending initially)
+        # Include [SubagentName] prefix so the UI can render agent stickers
+        todos = []
+        for task in tasks:
+            subagent_name = task.get("subagent", "Agent").title()
+            display = task.get("display_text") or f"Step {task['id'] + 1}"
+            todos.append({
+                "id": task["id"],
+                "content": f"[{subagent_name}] {display}",
+                "status": "pending",
+            })
+
+        logger.info(f"Invoking self-service task: {task_name} with {len(tasks)} steps")
+
+        # Build step list for display
+        step_list = "\n".join([f"{i+1}. {t.get('display_text', 'Step')}" for i, t in enumerate(tasks)])
+
+        # Determine if this is a system workflow or custom with tool restrictions
+        is_system = task_def.get("is_system", True)
+        allowed_tools = task_def.get("allowed_tools") if not is_system else None
+
+        update_dict: dict = {
+            "tasks": tasks,
+            "todos": todos,
+            "task_execution_pending": True,
+            "messages": [
+                ToolMessage(
+                    content=f"Starting workflow: {task_name}\n\nThe following {len(tasks)} steps will be executed:\n{step_list}",
+                    tool_call_id=tool_call_id,
+                ),
+            ],
+        }
+
+        if allowed_tools:
+            update_dict["task_allowed_tools"] = allowed_tools
+
+        return Command(update=update_dict)
+
+    return invoke_self_service_task
+
+
+
+# =============================================================================
+# Subagent Creation Functions - Using SubAgent dict format
+# =============================================================================
+# All subagents are created as SubAgent dicts (not CompiledSubAgent runnables).
+# This allows SubAgentMiddleware to build them with shared StateBackend for
+# filesystem state sharing. The pattern:
+# 1. Load MCP tools from agent._load_mcp_tools()
+# 2. Get system prompt from agent._get_system_instruction_with_date()
+# 3. Return SubAgent dict with {name, description, system_prompt, tools}
+# 4. SubAgentMiddleware adds FilesystemMiddleware with shared StateBackend
+
+def create_user_input_subagent_def() -> dict:
+    """Create the user input collection subagent definition.
+
+    The subagent collects user input via forms and writes results to filesystem
+    for downstream agents to consume.
+
+    Using SubAgent dict format allows SubAgentMiddleware to build it with
+    shared StateBackend for filesystem state sharing between all subagents.
+    """
+    config = load_subagent_prompt_config("user_input")
+    system_prompt = config.raw_config.get("system_prompt") or config.get_system_instruction()
+    response_tool = create_caipe_agent_response_tool()
+
+    # Include utility tools for filesystem operations
+    tools = [
+        response_tool,
+        tool_result_to_file,  # Save tool output to filesystem
+        wait,  # Async sleep for waiting scenarios
+    ]
+
+    subagent_def = {
+        "name": "user_input",
+        "description": "Collects user input via forms, writes to filesystem for downstream agents",
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "interrupt_on": {"CAIPEAgentResponse": True},
+        "middleware": [
+            PolicyMiddleware(agent_name="user_input", agent_type="subagent"),
+        ],
+    }
+
+    model_override = _get_subagent_model("user_input")
+    if model_override:
+        subagent_def["model"] = model_override
+
+    return subagent_def
+
+
+async def create_subagent_def(agent_instance, name: str, description: str, prompt_config: dict = None) -> dict:
+    """Create a SubAgent dict for use with create_deep_agent.
+
+    Using SubAgent dict format (instead of CompiledSubAgent) allows SubAgentMiddleware
+    to build the subagent with shared StateBackend for filesystem state sharing.
+
+    System prompts always use the agent's built-in get_system_instruction(),
+    matching multi-node (standalone) mode. The prompt_config.agent_prompts
+    entries are routing hints for the supervisor, not subagent system prompts.
+
+    Per-subagent model overrides are resolved from SUBAGENT_<NAME>_MODEL env vars.
+    The value should be a provider:model-name string (e.g. "openai:gpt-4o-mini")
+    supported by langchain's init_chat_model. When not set, the subagent inherits
+    the parent agent's model.
+
+    Args:
+        agent_instance: The agent instance with get_mcp_tools() and SYSTEM_INSTRUCTION
+        name: Subagent name for routing
+        description: Description for LLM routing decisions
+        prompt_config: Optional prompt configuration dict (used for model overrides only)
+
+    Returns:
+        SubAgent dict with name, description, system_prompt, tools, middleware,
+        and optionally model
+    """
+    # Load MCP tools – pass include_fallback=False so _load_mcp_tools returns
+    # an empty list on failure instead of silently substituting gh_cli_execute.
+    # In single-node mode, subagents MUST use MCP tools only — no CLI fallbacks.
+    tools = await agent_instance._load_mcp_tools({}, include_fallback=False)
+
+    if tools:
+        logger.info(f"{name}: {len(tools)} MCP tools loaded")
+    else:
+        logger.warning(f"{name}: MCP tools unavailable — subagent will have no domain tools (MCP-only mode)")
+
+    # Add utility tools available to all subagents
+    # - tool_result_to_file: Save tool output to filesystem for downstream agents
+    # - wait: Async sleep for polling/waiting scenarios
+    # Note: FilesystemMiddleware provides read_file, write_file, etc. separately
+    tools.extend([tool_result_to_file, wait])
+
+    # Always use the agent's built-in system prompt — it matches what the agent
+    # uses in multi-node (standalone) mode and contains rich operational details
+    # (tool usage SOPs, account lists, URL patterns, etc.).
+    # prompt_config.agent_prompts entries are routing hints for the supervisor,
+    # not subagent system prompts.
+    system_prompt = agent_instance._get_system_instruction_with_date()
+    logger.info(f"📝 Using built-in system_prompt for {name} subagent")
+
+    subagent_def = {
+        "name": name,
+        "description": description,
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "middleware": [
+            PolicyMiddleware(agent_name=name, agent_type="subagent"),
+        ],
+    }
+
+    model_override = _get_subagent_model(name)
+    if model_override:
+        subagent_def["model"] = model_override
+
+    logger.info(
+        f"📦 Created SubAgent def for {name} with {len(tools)} tools"
+        f"{f', model={model_override}' if model_override else ''}"
+    )
+
+    return subagent_def
+
+
+async def create_github_subagent_def(prompt_config: dict = None) -> dict:
+    """Create GitHub subagent definition with local MCP server and gh CLI fallback.
+
+    Tool loading bypasses the base _load_mcp_tools because:
+    1. It prefers get_mcp_http_config() → Copilot HTTP API (not wanted in single-node)
+    2. Its STDIO path auto-derives a Python server_path that doesn't exist
+       (GitHub MCP is a Go project at mcp/mcp_github/, not Python)
+
+    Instead, we call get_mcp_config() directly which launches the local
+    Go MCP server via ``go run``. The gh CLI tool is always added alongside
+    MCP tools — policy.lp controls which tools are allowed:
+    - readonly MCP tools (get_file_contents, etc.) are always allowed
+    - write MCP tools (push_files, create_branch, etc.) require self_service_mode
+    - gh_cli_execute is allowed in both modes (policy marks it readonly + self_service)
+    """
+    agent = GitHubAgent()
+    name = "github"
+
+    mcp_tools = []
+    try:
+        mcp_config = agent.get_mcp_config()
+        client = MultiServerMCPClient({name: mcp_config})
+        try:
+            mcp_tools = await client.get_tools()
+        except ExceptionGroup:
+            # Go MCP servers often raise cleanup errors after tools are loaded.
+            # Retry with the base class helper that suppresses these.
+            mcp_tools = await agent._load_mcp_tools_with_cleanup_handling(client, name)
+        mcp_tools = agent._filter_mcp_tools(mcp_tools)
+        logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via local go run")
+    except (ValueError, FileNotFoundError) as e:
+        logger.warning(f"{name}: Cannot start local MCP server: {e}")
+    except Exception as e:
+        logger.warning(f"{name}: Failed to load MCP tools from local server: {e}", exc_info=True)
+
+    tools = list(mcp_tools)
+
+    # gh CLI as fallback for when MCP is unavailable or for simple operations
+    gh_tool = agent.get_additional_tools()
+    if gh_tool:
+        tools.extend(gh_tool)
+        logger.info(f"{name}: Added gh CLI fallback tool")
+
+    tools.extend([tool_result_to_file, wait, terraform_fmt])
+
+    # Always use the agent's built-in system prompt (matches multi-node mode)
+    system_prompt = agent._get_system_instruction_with_date()
+    logger.info(f"📝 Using built-in system_prompt for {name} subagent")
+
+    subagent_def = {
+        "name": name,
+        "description": "GitHub: repository operations, workflows, PRs",
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "middleware": [
+            PolicyMiddleware(agent_name=name, agent_type="subagent"),
+        ],
+    }
+
+    model_override = _get_subagent_model(name)
+    if model_override:
+        subagent_def["model"] = model_override
+
+    logger.info(
+        f"📦 Created SubAgent def for {name} with {len(tools)} tools "
+        f"({len(mcp_tools)} MCP + {len(gh_tool)} CLI)"
+        f"{f', model={model_override}' if model_override else ''}"
+    )
+    return subagent_def
+
+
+async def create_aigateway_subagent_def(prompt_config: dict = None) -> dict:
+    """Create AIGateway subagent definition with built-in tools (no MCP server)."""
+    agent = AIGatewayAgent()
+    subagent_def = await create_subagent_def(agent, "aigateway", "AIGateway: LLM API keys, usage tracking", prompt_config)
+    subagent_def["tools"] = agent.get_additional_tools() + subagent_def["tools"]
+    return subagent_def
+
+
+async def create_backstage_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Backstage subagent definition with shared filesystem."""
+    agent = BackstageAgent()
+    return await create_subagent_def(agent, "backstage", "Backstage: catalog queries, component management", prompt_config)
+
+
+async def create_jira_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Jira subagent definition with shared filesystem."""
+    agent = JiraAgent()
+    return await create_subagent_def(agent, "jira", "Jira: ticket management, issue tracking", prompt_config)
+
+
+async def create_webex_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Webex subagent definition with shared filesystem."""
+    agent = WebexAgent()
+    return await create_subagent_def(agent, "webex", "Webex: messaging, notifications", prompt_config)
+
+
+async def create_argocd_subagent_def(prompt_config: dict = None) -> dict:
+    """Create ArgoCD subagent definition with shared filesystem."""
+    agent = ArgoCDAgent()
+    return await create_subagent_def(agent, "argocd", "ArgoCD: application deployment, sync management", prompt_config)
+
+
+async def create_aws_subagent_def(prompt_config: dict = None) -> dict:
+    """Create AWS subagent definition with MCP tools and AWS CLI/kubectl tools.
+
+    Unlike most subagents that only use MCP tools, AWS also needs the CLI tools
+    because the standalone AWS agent (multi-node) uses aws_cli_execute and
+    eks_kubectl_execute as its primary tools. In single-node mode, MCP tools
+    alone may not cover all operations — the CLI tools fill the gap.
+    """
+    from ai_platform_engineering.agents.aws.agent_aws.agent_langgraph import AWSAgentLangGraph
+    from ai_platform_engineering.agents.aws.agent_aws.tools import get_aws_cli_tool, get_eks_kubectl_tool
+
+    agent = AWSAgentLangGraph()
+    name = "aws"
+
+    # Load MCP tools via standard path (HTTP to mcp-aws sidecar or STDIO)
+    mcp_tools = await agent._load_mcp_tools({}, include_fallback=False)
+    if mcp_tools:
+        logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded")
+    else:
+        logger.warning(f"{name}: MCP tools unavailable — will rely on CLI tools only")
+
+    tools = list(mcp_tools)
+
+    # Add AWS CLI tool (reads USE_AWS_CLI_AS_TOOL env var, default true)
+    aws_cli_tool = get_aws_cli_tool()
+    if aws_cli_tool:
+        tools.append(aws_cli_tool)
+        logger.info(f"{name}: Added AWS CLI tool (aws_cli_execute)")
+
+    # Add EKS kubectl tool for Kubernetes resource inspection
+    try:
+        eks_kubectl_tool = get_eks_kubectl_tool()
+        if eks_kubectl_tool:
+            tools.append(eks_kubectl_tool)
+            logger.info(f"{name}: Added EKS kubectl tool (eks_kubectl_execute)")
+    except Exception as e:
+        logger.warning(f"{name}: Failed to load EKS kubectl tool: {e}")
+
+    tools.extend([tool_result_to_file, wait])
+
+    if not any(t for t in tools if t not in (tool_result_to_file, wait)):
+        logger.error(f"{name}: No domain tools available — check MCP config and USE_AWS_CLI_AS_TOOL")
+
+    # Always use the agent's built-in system prompt — it contains dynamically
+    # generated account details, profile names, and tool usage patterns from
+    # get_system_instruction(). The prompt_config.agent_prompts.aws entry is a
+    # routing hint for the supervisor, not an actual subagent system prompt.
+    system_prompt = agent._get_system_instruction_with_date()
+    logger.info(f"📝 Using built-in system_prompt for {name} subagent (has account/profile details)")
+
+    cli_count = sum(1 for t in tools if t not in (tool_result_to_file, wait) and t not in mcp_tools)
+    subagent_def = {
+        "name": name,
+        "description": "AWS: EC2, EKS, S3 resource management",
+        "system_prompt": system_prompt,
+        "tools": tools,
+        "middleware": [
+            PolicyMiddleware(agent_name=name, agent_type="subagent"),
+        ],
+    }
+
+    model_override = _get_subagent_model(name)
+    if model_override:
+        subagent_def["model"] = model_override
+
+    logger.info(
+        f"📦 Created SubAgent def for {name} with {len(tools)} tools "
+        f"({len(mcp_tools)} MCP + {cli_count} CLI)"
+        f"{f', model={model_override}' if model_override else ''}"
+    )
+    return subagent_def
+
+
+async def create_pagerduty_subagent_def(prompt_config: dict = None) -> dict:
+    """Create PagerDuty subagent definition with shared filesystem."""
+    agent = PagerDutyAgent()
+    return await create_subagent_def(agent, "pagerduty", "PagerDuty: on-call schedules, incident management", prompt_config)
+
+
+async def create_slack_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Slack subagent definition with shared filesystem."""
+    agent = SlackAgent()
+    return await create_subagent_def(agent, "slack", "Slack: messaging, channel management", prompt_config)
+
+
+async def create_splunk_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Splunk subagent definition with shared filesystem."""
+    agent = SplunkAgent()
+    return await create_subagent_def(agent, "splunk", "Splunk: log analysis, alerting", prompt_config)
+
+
+async def create_komodor_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Komodor subagent definition with shared filesystem."""
+    agent = KomodorAgent()
+    return await create_subagent_def(agent, "komodor", "Komodor: Kubernetes monitoring, troubleshooting", prompt_config)
+
+
+async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Confluence subagent definition with shared filesystem."""
+    agent = ConfluenceAgent()
+    return await create_subagent_def(agent, "confluence", "Confluence: wiki documentation", prompt_config)
+
+
+# Registry of in-process subagents for single-node mode.
+# Each entry maps agent name to its creation function.
+# Agents are loaded only when ENABLE_<NAME> env var is "true" (default).
+SINGLE_NODE_AGENTS = [
+    ("github", create_github_subagent_def),
+    ("aigateway", create_aigateway_subagent_def),
+    ("backstage", create_backstage_subagent_def),
+    ("jira", create_jira_subagent_def),
+    ("webex", create_webex_subagent_def),
+    ("argocd", create_argocd_subagent_def),
+    ("aws", create_aws_subagent_def),
+    ("pagerduty", create_pagerduty_subagent_def),
+    ("slack", create_slack_subagent_def),
+    ("splunk", create_splunk_subagent_def),
+    ("komodor", create_komodor_subagent_def),
+    ("confluence", create_confluence_subagent_def),
+]
+
+
+# =============================================================================
+# Remote A2A Subagents
+# =============================================================================
+
+def _infer_remote_agent_url(name: str) -> str:
+    """Infer the URL for a remote A2A agent from environment variables."""
+    url = os.getenv(f"{name.upper()}_AGENT_URL")
+    if url:
+        return url
+    host = os.getenv(f"{name.upper()}_AGENT_HOST", "localhost")
+    port = os.getenv(f"{name.upper()}_AGENT_PORT", "8000")
+    return f"http://{host}:{port}"
+
+
+async def create_weather_remote_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Weather subagent that delegates to a remote A2A weather agent."""
+    agent_url = _infer_remote_agent_url("weather")
+    logger.info(f"Creating remote weather subagent pointing to {agent_url}")
+
+    a2a_tool = A2ARemoteAgentConnectTool(
+        name="weather_a2a",
+        remote_agent_card=agent_url,
+        skill_id="",
+        description="Query weather conditions and forecasts via the remote weather agent",
+    )
+
+    system_prompt = "You are a weather assistant. Use the weather_a2a tool to answer weather questions."
+    if prompt_config:
+        agent_cfg = prompt_config.get("agents", {}).get("weather", {})
+        if agent_cfg.get("system_prompt"):
+            system_prompt = agent_cfg["system_prompt"]
+
+    return {
+        "name": "weather",
+        "description": "Weather: current conditions, forecasts, and alerts",
+        "system_prompt": system_prompt,
+        "tools": [a2a_tool],
+    }
+
+
+# =============================================================================
+# Platform Engineer MAS
+# =============================================================================
+
+class PlatformEngineerDeepAgent:
+    """
+    Platform Engineer Multi-Agent System using deepagents.
+
+    Orchestrates self-service workflows using specialized subagents.
+
+    Note: Use `await ensure_initialized()` before first use to load MCP tools.
+    """
+
+    def __init__(self):
+        self._graph_lock = threading.RLock()
+        self._graph = None
+        self._graph_generation = 0
+        self._initialized = False
+        self._subagent_tools: Dict[str, List[str]] = {}
+
+        # Skills catalog state (used by both single-node and multi-node paths)
+        self._skills_merged_at: str | None = None
+        self._skills_loaded_count: int = 0
+        self._last_built_catalog_generation: int | None = None
+
+        # RAG-related instance variables
+        self.rag_enabled = ENABLE_RAG
+        self.rag_config: Optional[Dict[str, Any]] = None
+        self.rag_config_timestamp: Optional[float] = None
+        self.rag_mcp_client: Optional[MultiServerMCPClient] = None
+        self.rag_tools: List[Any] = []
+
+        # Don't build graph in __init__ - use ensure_initialized() instead
+        # This allows async init for both single-node (MCP) and multi-node (registry) paths
+        mode = "multi-node (A2A registry)" if CAIPE_DISTRIBUTED_AGENTS else "single-node (local MCP)"
+        logger.info(f"PlatformEngineerDeepAgent created in {mode} mode (not yet initialized)")
+        if self.rag_enabled:
+            logger.info(f"✅📚 RAG is ENABLED - will attempt to connect to {RAG_SERVER_URL}")
+        else:
+            logger.info("❌📚 RAG is DISABLED")
+
+    async def ensure_initialized(self) -> None:
+        """Ensure the agent is initialized. Safe to call multiple times.
+
+        Branches on CAIPE_DISTRIBUTED_AGENTS:
+          - true  → multi-node: loads subagents from remote A2A registry
+          - false → single-node: loads subagents from local MCP sidecars
+        """
+        if self._initialized:
+            return
+
+        if CAIPE_DISTRIBUTED_AGENTS:
+            await self._build_graph_multi_node()
+        else:
+            await self._build_graph_async()
+        self._initialized = True
+        logger.info(f"PlatformEngineerDeepAgent initialized (generation {self._graph_generation})")
+
+    def get_graph(self) -> CompiledStateGraph:
+        """Returns the current compiled LangGraph instance."""
+        if not self._initialized:
+            raise RuntimeError("Agent not initialized. Call 'await ensure_initialized()' first.")
+        with self._graph_lock:
+            return self._graph
+
+    async def _rebuild_graph_async(self) -> bool:
+        """Rebuild the graph asynchronously."""
+        try:
+            with self._graph_lock:
+                old_generation = self._graph_generation
+                await self._build_graph_async()
+                logger.info(f"Graph rebuilt (generation {old_generation} → {self._graph_generation})")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to rebuild graph: {e}")
+            return False
+
+    def get_status(self) -> dict:
+        """Get current status for monitoring/debugging."""
+        with self._graph_lock:
+            status = {
+                "graph_generation": self._graph_generation,
+                "rag_enabled": self.rag_enabled,
+                "rag_connected": self.rag_config is not None,
+            }
+            if self.rag_config_timestamp:
+                status["rag_config_age_seconds"] = time.time() - self.rag_config_timestamp
+            return status
+
+
+    def get_rag_tool_names(self) -> set[str]:
+        """Get the set of RAG tool names loaded from the MCP server."""
+        if not self.rag_tools:
+            return set()
+        return {t.name for t in self.rag_tools}
+
+    def get_subagent_tools(self) -> Dict[str, List[str]]:
+        """Return tool names per subagent, captured at graph build time."""
+        with self._graph_lock:
+            return dict(self._subagent_tools)
+
+    async def _load_rag_tools(self) -> List[Any]:
+        """Load RAG MCP tools from the server."""
+        if not self.rag_enabled or self.rag_config is None:
+            return []
+
+        try:
+            if self.rag_mcp_client is None:
+                logger.info(f"Initializing RAG MCP client for {RAG_SERVER_URL}/mcp")
+                self.rag_mcp_client = MultiServerMCPClient({
+                    "rag": {
+                        "url": f"{RAG_SERVER_URL}/mcp",
+                        "transport": "streamable_http",
+                    }
+                })
+
+            tools = await self.rag_mcp_client.get_tools()
+            logger.info(f"✅ Loaded {len(tools)} RAG tools: {[t.name for t in tools]}")
+            return tools
+        except Exception as e:
+            logger.error(f"Error loading RAG tools: {e}")
+            return []
+
+
+    # -------------------------------------------------------------------------
+    # Multi-node graph builder (CAIPE_DISTRIBUTED_AGENTS=true)
+    # -------------------------------------------------------------------------
+
+    def _apply_skill_summary_cap(self, skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Limit skills passed into SkillsMiddleware when MAX_SKILL_SUMMARIES_IN_PROMPT > 0."""
+        raw = os.getenv("MAX_SKILL_SUMMARIES_IN_PROMPT", "0").strip()
+        try:
+            n = int(raw)
+        except ValueError:
+            n = 0
+        if n <= 0 or len(skills) <= n:
+            return skills
+        sorted_skills = sorted(
+            skills,
+            key=lambda s: (str(s.get("source", "")), str(s.get("name", "")).lower()),
+        )
+        logger.info(
+            "MAX_SKILL_SUMMARIES_IN_PROMPT=%d: using %d of %d merged skills",
+            n, n, len(skills),
+        )
+        return sorted_skills[:n]
+
+    def _on_agents_changed(self) -> None:
+        """Callback triggered when agent registry detects changes (multi-node)."""
+        logger.info("Agent registry change detected, rebuilding graph...")
+        asyncio.get_event_loop().create_task(self._rebuild_graph_async())
+
+    def force_refresh_agents(self) -> bool:
+        """Force immediate refresh of agent connectivity and rebuild if needed (multi-node)."""
+        from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+        logger.info("Force refresh requested")
+        return platform_registry.force_refresh()
+
+    def get_skills_status(self) -> dict:
+        """Snapshot of skills load metadata for operators."""
+        from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
+        with self._graph_lock:
+            cache_gen = get_catalog_cache_generation()
+            last_built = self._last_built_catalog_generation
+            if last_built is None:
+                sync_status = "unknown"
+            elif last_built == cache_gen:
+                sync_status = "in_sync"
+            else:
+                sync_status = "supervisor_stale"
+            return {
+                "graph_generation": self._graph_generation,
+                "skills_loaded_count": self._skills_loaded_count,
+                "skills_merged_at": self._skills_merged_at,
+                "catalog_cache_generation": cache_gen,
+                "last_built_catalog_generation": last_built,
+                "sync_status": sync_status,
+            }
+
+    async def _build_graph_multi_node(self) -> None:
+        """Build the deep agent graph using the remote A2A agent registry (multi-node mode).
+
+        This is the async equivalent of the old ``AIPlatformEngineerMAS._build_graph()``
+        in ``deep_agent.py``.  Graph init is lazy (deferred to first request) so the
+        server starts quickly even when registry probing would block startup.
+        """
+        from datetime import datetime, timezone
+        from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+        from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
+            agent_prompts,
+            generate_system_prompt,
+        )
+
+        logger.info(f"Building deep agent — multi-node mode (generation {self._graph_generation + 1})...")
+
+        # Hook registry change notifications so graph is rebuilt when agents join/leave
+        platform_registry.enable_dynamic_monitoring(on_change_callback=self._on_agents_changed)
+
+        base_model = LLMFactory().get_llm()
+        current_agents = platform_registry.agents
+
+        # RAG connectivity check (async, no thread pool needed here)
+        if self.rag_enabled and self.rag_config is None:
+            logger.info("Performing initial RAG setup...")
             for attempt in range(1, RAG_CONNECTIVITY_RETRIES + 1):
                 try:
-                    with httpx.Client() as client:
-                        response = client.get(f"{RAG_SERVER_URL}/healthz", timeout=5.0)
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(f"{RAG_SERVER_URL}/healthz", timeout=5.0)
                         if response.status_code == 200:
-                            logger.info(f"✅ RAG server connected successfully on attempt {attempt}")
-
-                            # Fetch initial config synchronously
+                            logger.info(f"✅ RAG server connected on attempt {attempt}")
                             data = response.json()
                             self.rag_config = data.get("config", {})
                             self.rag_config_timestamp = time.time()
+                            self.rag_tools = await self._load_rag_tools()
+                            if self.rag_tools:
+                                logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools")
+                            break
+                        else:
+                            logger.warning(f"RAG server returned {response.status_code} on attempt {attempt}")
+                except Exception as e:
+                    logger.warning(f"RAG connection attempt {attempt} failed: {e}")
+                if attempt < RAG_CONNECTIVITY_RETRIES:
+                    logger.info(f"Retrying RAG in {RAG_CONNECTIVITY_WAIT_SECONDS}s...")
+                    await asyncio.sleep(RAG_CONNECTIVITY_WAIT_SECONDS)
+            if self.rag_config is None:
+                logger.error(f"❌ Failed to connect to RAG after {RAG_CONNECTIVITY_RETRIES} attempts. Disabled.")
+                self.rag_enabled = False
 
-                            logger.info(f"RAG Server returned config: {self.rag_config}")
+        system_prompt = generate_system_prompt(current_agents, self.rag_config, USE_STRUCTURED_RESPONSE)
+        logger.info(f"📝 Generated system prompt: {len(system_prompt)} chars")
 
-                            # Load MCP tools using a thread pool to avoid event loop conflicts
-                            try:
-                                import concurrent.futures
-                                logger.info("Loading RAG MCP tools...")
+        # Load skills catalog
+        try:
+            skills = get_merged_skills(include_content=True)
+            skills = self._apply_skill_summary_cap(skills)
+            self._skills_files, self._skills_sources = build_skills_files(skills)
+            self._skills_loaded_count = len(skills)
+            self._skills_merged_at = datetime.now(timezone.utc).isoformat()
+            logger.info(f"📚 Loaded {len(skills)} skills ({len(self._skills_sources)} sources)")
+        except Exception as e:
+            logger.warning(f"Failed to load skills catalog: {e}")
+            self._skills_files = {}
+            self._skills_sources = []
+            self._skills_loaded_count = 0
 
-                                # Run async code in a separate thread with its own event loop
-                                with concurrent.futures.ThreadPoolExecutor() as executor:
-                                    future = executor.submit(asyncio.run, self._load_rag_tools())
-                                    self.rag_tools = future.result(timeout=10)
+        from ai_platform_engineering.multi_agents.tools import (
+            reflect_on_output, format_markdown, fetch_url, get_current_date,
+            request_user_input, write_workspace_file, read_workspace_file,
+            list_workspace_files, clear_workspace, git, curl, wget, jq as jq_tool, yq as yq_tool,
+        )
 
+        all_agents = platform_registry.get_all_agents()
+        all_tools = all_agents + [
+            reflect_on_output, format_markdown, fetch_url, get_current_date,
+            *([request_user_input] if not USE_STRUCTURED_RESPONSE else []),
+            write_workspace_file, read_workspace_file, list_workspace_files, clear_workspace,
+            git, curl, wget, jq_tool, yq_tool,
+        ]
+        if self.rag_tools:
+            all_tools.extend(self.rag_tools)
+            logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools")
+
+        subagents = platform_registry.generate_subagents(agent_prompts, base_model)
+        logger.info(f"🔧 Building with {len(all_tools)} tools and {len(subagents)} subagents")
+
+        skills_middleware_list = []
+        if self._skills_sources:
+            skills_middleware_list.append(
+                SkillsMiddleware(backend=lambda rt: StateBackend(rt), sources=self._skills_sources)
+            )
+
+        deep_agent_kwargs = dict(
+            tools=all_tools,
+            system_prompt=system_prompt,
+            subagents=subagents,
+            model=base_model,
+            middleware=[
+                PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
+                *skills_middleware_list,
+            ],
+            skills=self._skills_sources if self._skills_sources else None,
+        )
+
+        if USE_STRUCTURED_RESPONSE:
+            from langchain.agents.structured_output import ToolStrategy
+            deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
+            logger.info("Structured response mode enabled (multi-node)")
+
+        try:
+            store = create_store()
+            if store is not None:
+                deep_agent_kwargs["store"] = store
+                logger.info("Cross-thread store attached to deep agent (multi-node)")
+        except Exception as e:
+            logger.warning(f"Failed to create cross-thread store: {e}")
+
+        deep_agent = create_deep_agent(**deep_agent_kwargs)
+
+        if not os.getenv("LANGGRAPH_DEV"):
+            deep_agent.checkpointer = create_checkpointer()
+
+        with self._graph_lock:
+            self._graph = deep_agent
+            self._graph_generation += 1
+
+        try:
+            from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
+            self._last_built_catalog_generation = get_catalog_cache_generation()
+        except Exception:
+            self._last_built_catalog_generation = None
+
+        logger.info(f"✅ Deep agent (multi-node) created (generation {self._graph_generation})")
+
+    # -------------------------------------------------------------------------
+    # Single-node graph builder (CAIPE_DISTRIBUTED_AGENTS=false)
+    # -------------------------------------------------------------------------
+
+    async def _build_graph_async(self) -> None:
+        """Build the deep agent graph with subagents (async to load MCP tools)."""
+        logger.info(f"Building deep agent (generation {self._graph_generation + 1})...")
+
+        # Resolve the supervisor model.
+        # 1. SUPERVISOR_LLM_PROVIDER + SUPERVISOR_* env vars → full
+        #    LLMFactory override (same .env format as multi-node).
+        # 2. SUPERVISOR_MODEL only → provider:model-name string
+        #    (e.g. "openai:gpt-4o"), global credentials used.
+        # 3. Neither → LLMFactory with global LLM_PROVIDER / OPENAI_*
+        #    env vars (backward compatible).
+        supervisor_llm = _build_llm_from_prefixed_env("SUPERVISOR_")
+        if supervisor_llm is not None:
+            base_model = supervisor_llm
+        elif os.getenv("SUPERVISOR_MODEL"):
+            base_model = os.getenv("SUPERVISOR_MODEL")
+            logger.info(f"Supervisor model override: SUPERVISOR_MODEL={base_model}")
+        else:
+            base_model = LLMFactory().get_llm()
+
+        # Load task configuration
+        task_config = load_task_config()
+
+        # Load prompt configuration from prompt_config.yaml
+        prompt_config = load_platform_config()
+
+        # Build system prompt dynamically from subagent definitions
+        # We'll populate agent descriptions after creating subagents (below)
+        # For now, store a reference to update later
+        self._prompt_config = prompt_config
+        self._task_config = task_config
+
+        # Utility tools
+        utility_tools = [
+            reflect_on_output,
+            format_markdown,
+            fetch_url,
+            get_current_date,
+            jq,
+            yq,
+            # Filesystem utility tool for tool output capture
+            tool_result_to_file,
+            # Wait tool for polling and async operations
+            wait,
+        ]
+
+        # Self-service task tools
+        invoke_task_tool = create_invoke_self_service_task_tool()
+
+        # All supervisor tools
+        all_tools = utility_tools + [invoke_task_tool]
+
+        # RAG connectivity check and tool loading
+        if self.rag_enabled and self.rag_config is None:
+            logger.info("Performing RAG connectivity check...")
+            try:
+                logger.info(f"Checking RAG server connectivity at {RAG_SERVER_URL}...")
+
+                for attempt in range(1, RAG_CONNECTIVITY_RETRIES + 1):
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            response = await client.get(f"{RAG_SERVER_URL}/healthz", timeout=5.0)
+                            if response.status_code == 200:
+                                logger.info(f"✅ RAG server connected successfully on attempt {attempt}")
+
+                                # Fetch initial config
+                                data = response.json()
+                                self.rag_config = data.get("config", {})
+                                self.rag_config_timestamp = time.time()
+
+                                logger.info(f"RAG Server returned config: {self.rag_config}")
+
+                                # Load RAG MCP tools
+                                self.rag_tools = await self._load_rag_tools()
                                 if self.rag_tools:
-                                    logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools at startup")
+                                    logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools")
                                     logger.info(f"📋 RAG tool names: {[t.name for t in self.rag_tools]}")
                                 else:
                                     logger.warning("No RAG tools loaded (empty list returned)")
-                            except Exception as e:
-                                logger.error(f"Failed to load RAG tools: {e}")
-                                import traceback
-                                logger.error(traceback.format_exc())
-                                self.rag_tools = []
+                                break
+                            else:
+                                logger.warning(f"⚠️  RAG server returned status {response.status_code} on attempt {attempt}")
+                    except Exception as e:
+                        logger.warning(f"❌ RAG server connection attempt {attempt} failed: {e}")
 
-                            break
-                        else:
-                            logger.warning(f"⚠️  RAG server returned status {response.status_code} on attempt {attempt}")
-                except Exception as e:
-                    logger.warning(f"❌ RAG server connection attempt {attempt} failed: {e}")
+                    # Wait before retry if not last attempt
+                    if attempt < RAG_CONNECTIVITY_RETRIES:
+                        logger.info(f"Retrying in {RAG_CONNECTIVITY_WAIT_SECONDS} seconds... ({attempt}/{RAG_CONNECTIVITY_RETRIES})")
+                        await asyncio.sleep(RAG_CONNECTIVITY_WAIT_SECONDS)
 
-                # Wait with countdown if not last attempt
-                if attempt < RAG_CONNECTIVITY_RETRIES:
-                    logger.info(f"Retrying in {RAG_CONNECTIVITY_WAIT_SECONDS} seconds... ({attempt}/{RAG_CONNECTIVITY_RETRIES})")
-                    for countdown in range(RAG_CONNECTIVITY_WAIT_SECONDS, 0, -1):
-                        logger.info(f"  ⏳ {countdown}...")
-                        time.sleep(1)
+                # If still not connected, disable RAG
+                if self.rag_config is None:
+                    logger.error(f"❌ Failed to connect to RAG server after {RAG_CONNECTIVITY_RETRIES} attempts. RAG disabled.")
+                    self.rag_enabled = False
 
-            # If still not connected, disable RAG
-            if self.rag_config is None:
-                logger.error(f"❌ Failed to connect to RAG server after {RAG_CONNECTIVITY_RETRIES} attempts. RAG disabled.")
+            except Exception as e:
+                logger.error(f"Error during RAG setup: {e}")
                 self.rag_enabled = False
 
-        except Exception as e:
-            logger.error(f"Error during RAG setup: {e}")
-            self.rag_enabled = False
+        # Add RAG tools if loaded
+        if self.rag_tools:
+            all_tools.extend(self.rag_tools)
+            logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor: {[t.name for t in self.rag_tools]}")
 
-    system_prompt = generate_system_prompt(current_agents, self.rag_config, USE_STRUCTURED_RESPONSE)
+        # Build subagent definitions (async to load MCP tools)
+        # Using SubAgent dict format for state sharing:
+        # SubAgentMiddleware builds these with shared StateBackend, ensuring
+        # filesystem state is accessible across all subagents.
+        # System prompts are loaded from prompt_config.yaml when available.
+        logger.info("Loading subagent definitions with MCP tools...")
 
-    logger.info(f"📝 Generated system prompt: {len(system_prompt)} chars")
+        # Pass prompt_config to use system prompts from prompt_config.yaml
+        prompt_config = self._prompt_config
 
-    # Load skills catalog and build StateBackend files for SkillsMiddleware (FR-015)
-    try:
-        skills = get_merged_skills(include_content=True)
-        skills = self._apply_skill_summary_cap(skills)
-        self._skills_files, self._skills_sources = build_skills_files(skills)
-        self._skills_loaded_count = len(skills)
-        self._skills_merged_at = datetime.now(timezone.utc).isoformat()
-        logger.info(f"📚 Loaded {len(skills)} skills for supervisor ({len(self._skills_sources)} sources)")
-    except Exception as e:
-        logger.warning(f"Failed to load skills catalog: {e}")
-        self._skills_files = {}
-        self._skills_sources = []
-        self._skills_loaded_count = 0
+        # Filter agents by ENABLE_<NAME> env vars
+        enabled_agents = [(name, fn) for name, fn in SINGLE_NODE_AGENTS if _is_agent_enabled(name)]
+        disabled_agents = [name for name, fn in SINGLE_NODE_AGENTS if not _is_agent_enabled(name)]
+        if disabled_agents:
+            logger.info(f"⏭️ Disabled agents (via ENABLE_* env vars): {disabled_agents}")
+        logger.info(f"✅ Enabled agents: {[name for name, _ in enabled_agents]}")
 
-    # Skills sources are passed to create_deep_agent's `skills` parameter,
-    # which places SkillsMiddleware before FilesystemMiddleware in the stack.
+        # Load enabled subagent definitions in parallel
+        # Note: MyID operations are handled through task_config GitHub workflows
+        mcp_subagent_results = await asyncio.gather(
+            *[fn(prompt_config) for _, fn in enabled_agents],
+            return_exceptions=True,
+        )
 
-    # Get fresh tools from registry (for tool notifications and visibility)
-    all_agents = platform_registry.get_all_agents()
+        # Add user input subagent (uses local tools, no MCP)
+        user_input_subagent = create_user_input_subagent_def()
 
-    # Add utility tools: reflection, markdown, URL, date, workspace, user input, and command-line tools
-    # NOTE: read_file, write_file, ls, grep, glob, edit_file are provided by
-    # deepagents' built-in FilesystemMiddleware (operates on StateBackend).
-    # Do NOT add custom duplicates here — they shadow the built-in tools and
-    # break SkillsMiddleware which needs StateBackend access.
-    all_tools = all_agents + [
-        reflect_on_output,
-        format_markdown,
-        fetch_url,
-        get_current_date,
-        *([request_user_input] if not USE_STRUCTURED_RESPONSE else []),  # Only in unstructured mode; structured mode uses PlatformEngineerResponse.metadata instead
-        write_workspace_file,
-        read_workspace_file,
-        list_workspace_files,
-        clear_workspace,
-        # Command-line tools
-        git,        # git("git clone https://...", cwd=...)
-        curl,       # curl("curl -s https://...")
-        wget,       # wget("wget -O file.txt https://...")
-        # Data processing tools
-        jq,         # jq("jq '.items[].name' data.json")
-        yq,         # yq("yq '.spec.replicas' deployment.yaml")
-    ]
+        # Filter out any failures and build final list
+        subagent_defs = [user_input_subagent]  # user_input always succeeds (no MCP)
+        for i, result in enumerate(mcp_subagent_results):
+            if isinstance(result, Exception):
+                agent_name = enabled_agents[i][0]
+                logger.warning(f"Failed to create subagent '{agent_name}': {result}")
+            else:
+                subagent_defs.append(result)
 
-    # Add RAG tools if initially loaded
-    if self.rag_tools:
-      all_tools.extend(self.rag_tools)
-      logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor")
+        # Add remote A2A subagents (run as separate containers)
+        if ENABLE_WEATHER:
+            try:
+                weather_def = await create_weather_remote_subagent_def(prompt_config)
+                subagent_defs.append(weather_def)
+                logger.info("🌤️ Weather remote A2A subagent enabled")
+            except Exception as e:
+                logger.warning(f"Failed to create weather remote subagent: {e}")
 
-    # Generate CustomSubAgents (pre-created react agents with A2A tools)
-    subagents = platform_registry.generate_subagents(agent_prompts, base_model)
+        # Capture tool names per subagent for the /tools API
+        subagent_tools_snapshot: Dict[str, List[str]] = {}
+        for sd in subagent_defs:
+            sa_name = sd.get("name")
+            sa_tools = sd.get("tools", [])
+            if sa_name and sa_tools:
+                subagent_tools_snapshot[sa_name] = [t.name for t in sa_tools]
+        self._subagent_tools = subagent_tools_snapshot
 
-    logger.info(f'🔧 Rebuilding with {len(all_tools)} tools and {len(subagents)} subagents')
-    logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
-    logger.info(f'🤖 Subagents: {[s["name"] for s in subagents]}')
+        # Build agents_for_prompt dict for generating system prompt
+        agents_for_prompt = {}
+        for subagent_def in subagent_defs:
+            name = subagent_def.get("name")
+            if name:
+                agents_for_prompt[name] = {
+                    "description": subagent_def.get("description", f"{name} agent")
+                }
 
-    # Create the Deep Agent with CUSTOM SUBAGENT architecture
-    # Each A2A agent is a pre-created react agent (CustomSubAgent) with ONE A2ARemoteAgentConnectTool
-    # Benefits:
-    # - Main supervisor has NO direct A2A tools (avoids conflicts with write_todos)
-    # - Proper task delegation via task() tool (supervisor manages TODOs, delegates to subagents)
-    # - Token-by-token streaming from subagents
-    # - A2A protocol maintained (each subagent uses its A2ARemoteAgentConnectTool)
-
-    logger.info("🎨 Creating deep agent with system prompt")
-
-    # Build deep agent kwargs
-    deep_agent_kwargs = {
-      "tools": all_tools,
-      "system_prompt": system_prompt,
-      "subagents": subagents,
-      "model": base_model,
-      "skills": self._skills_sources if self._skills_sources else None,
-    }
-
-    if USE_STRUCTURED_RESPONSE:
-      from langchain.agents.structured_output import ToolStrategy
-      deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
-      logger.info("Structured response mode enabled (ToolStrategy + PlatformEngineerResponse)")
-
-    # Create cross-thread store for long-term memory
-    try:
-      store = create_store()
-      if store is not None:
-        deep_agent_kwargs["store"] = store
-        logger.info("Cross-thread store attached to deep agent")
-    except Exception as e:
-      logger.warning(f"Failed to create cross-thread store: {e}")
-
-    deep_agent = create_deep_agent(**deep_agent_kwargs)
-
-    if not os.getenv("LANGGRAPH_DEV"):
-      checkpointer = create_checkpointer()
-      deep_agent.checkpointer = checkpointer
-
-    # Atomically update graph and increment generation
-    self._graph = deep_agent
-    self._graph_generation += 1
-
-    try:
-      from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
-
-      self._last_built_catalog_generation = get_catalog_cache_generation()
-    except Exception:
-      self._last_built_catalog_generation = None
-
-    logger.debug(f"Deep agent created successfully (generation {self._graph_generation})")
-    logger.info(f"✅ Deep agent updated with {len(all_agents)} tools and {len(subagents)} subagents")
-
-
-  async def serve(self, prompt: str):
-    """
-    Processes the input prompt and returns a response from the graph.
-    Args:
-        prompt (str): The input prompt to be processed by the graph.
-    Returns:
-        str: The response generated by the graph based on the input prompt.
-    """
-    try:
-      logger.debug(f"Received prompt: {prompt}")
-      if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("Prompt must be a non-empty string.")
-
-      # Auto-inject current date into every query
-      # This eliminates need for supervisor to call get_current_date() tool
-      from datetime import datetime
-      current_date = datetime.now().strftime("%Y-%m-%d")
-      current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-      date_enhanced_prompt = f"{prompt}\n\n[Current date: {current_date}, Current date/time: {current_datetime}]"
-
-      graph = self.get_graph()
-      state_dict = {
-          "messages": [
-              {
-                  "role": "user",
-                  "content": date_enhanced_prompt
-              }
-          ],
-      }
-      # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
-      if getattr(self, "_skills_files", None):
-          state_dict["files"] = dict(self._skills_files)
-      result = await graph.ainvoke(
-          state_dict,
-          {"configurable": {"thread_id": uuid.uuid4()}}
-      )
-
-      messages = result.get("messages", [])
-      if not messages:
-        raise RuntimeError("No messages found in the graph response.")
-
-      # Find the last AIMessage with non-empty content
-      for message in reversed(messages):
-        if isinstance(message, AIMessage) and message.content.strip():
-          logger.debug(f"Valid AIMessage found: {message.content.strip()}")
-          return message.content.strip()
-
-      raise RuntimeError("No valid AIMessage found in the graph response.")
-    except ValueError as ve:
-      logger.error(f"ValueError in serve method: {ve}")
-      raise ValueError(str(ve))
-    except Exception as e:
-      logger.error(f"Error in serve method: {e}")
-      raise Exception(str(e))
-
-  async def serve_stream(self, prompt: str):
-    """
-    Processes the input prompt and streams responses from the graph.
-    This allows the UI to show the todo list as it's created, before tool calls are made.
-
-    Args:
-        prompt (str): The input prompt to be processed by the graph.
-    Yields:
-        dict: Streaming events from the graph including agent responses and tool calls.
-    """
-    try:
-      logger.warning(f"Received streaming prompt: {prompt}")
-      if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("Prompt must be a non-empty string.")
-
-      graph = self.get_graph()
-      thread_id = str(uuid.uuid4())
-
-      state_dict = {
-          "messages": [
-              {
-                  "role": "user",
-                  "content": prompt
-              }
-          ],
-      }
-      # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
-      if getattr(self, "_skills_files", None):
-          state_dict["files"] = dict(self._skills_files)
-
-      # Stream events from the graph
-      async for event in graph.astream_events(
-          state_dict,
-          {"configurable": {"thread_id": thread_id}},
-          version="v2"
-      ):
-
-        logger.error(f"Streaming event: {event}")
-        # Stream agent response chunks (includes todo list planning)
-        if event["event"] == "on_chat_model_stream":
-          chunk = event.get("data", {}).get("chunk")
-          if chunk and hasattr(chunk, "content") and chunk.content:
-            yield {
-              "type": "content",
-              "data": chunk.content
+        # Add RAG to agents_for_prompt when RAG tools are loaded
+        # This ensures the system prompt generator includes the RAG agent section
+        # from prompt_config.yaml (routing instructions, source citation rules, etc.)
+        if self.rag_tools:
+            agents_for_prompt["rag"] = {
+                "description": "RAG: knowledge base search, documentation, runbooks, architecture"
             }
+            logger.info("📚 Added RAG to agents_for_prompt for system prompt generation")
 
-        # Stream tool call start events
-        elif event["event"] == "on_tool_start":
-          tool_name = event.get("name", "unknown")
-          yield {
-            "type": "tool_start",
-            "tool": tool_name,
-            "data": f"\n\n🔧 Calling {tool_name}...\n"
-          }
+        logger.info(f'🔧 Building with {len(all_tools)} tools and {len(subagent_defs)} subagents')
+        logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
+        logger.info(f'🤖 Subagents: {list(agents_for_prompt.keys())}')
 
-        # Stream tool results
-        elif event["event"] == "on_tool_end":
-          tool_name = event.get("name", "unknown")
-          yield {
-            "type": "tool_end",
-            "tool": tool_name,
-            "data": f"✅ {tool_name} completed\n"
-          }
+        # Build RAG instructions if RAG is enabled
+        rag_instructions = ""
+        if self.rag_enabled and self.rag_tools:
+            rag_instructions = """
+When users ask questions about platform policies, procedures, or documentation:
+1. Use the RAG tools to search the knowledge base first
+2. Synthesize information from multiple sources when available
+3. Cite sources when providing answers from the knowledge base
+"""
 
-    except ValueError as ve:
-      logger.error(f"ValueError in serve_stream method: {ve}")
-      yield {
-        "type": "error",
-        "data": str(ve)
-      }
-    except Exception as e:
-      logger.error(f"Error in serve_stream method: {e}")
-      yield {
-        "type": "error",
-        "data": str(e)
-      }
+        # Generate system prompt dynamically using prompt_config.yaml
+        # This ensures all subagents are included with proper routing instructions
+        system_prompt = generate_platform_system_prompt(
+            self._prompt_config,
+            agents_for_prompt
+        )
 
+        # Append RAG instructions if RAG is enabled and tools are loaded
+        if rag_instructions:
+            system_prompt += f"\n\n## RAG Knowledge Base\n{rag_instructions}"
+
+        system_prompt += """
+
+## Self-Service Workflows (CRITICAL)
+
+**MANDATORY BEHAVIOR**: When a user requests an operation that matches one of the available
+self-service workflows (listed at the end of this prompt), you MUST call
+`invoke_self_service_task(task_name="<exact name>")` with the exact workflow name.
+DO NOT try to perform these operations directly with subagents.
+
+**Workflow Execution:**
+1. When `invoke_self_service_task` is called, it triggers a multi-step workflow
+2. The CAIPE subagent will present a HITL form to collect required user input
+3. After user submits the form, subsequent steps execute automatically (GitHub, AWS, ArgoCD, etc.)
+4. A notification is sent to the user via Webex upon completion
+
+**DO NOT skip `invoke_self_service_task`** for these operations.
+
+## Task Planning (write_todos format)
+
+When delegating work to subagents via the `task` tool, ALWAYS call `write_todos` first to announce the execution plan.
+Each todo item's `content` MUST include the subagent name in square brackets, e.g.:
+- `[Jira] Search for user's tickets`
+- `[GitHub] List recent pull requests`
+- `[AWS] Query EC2 instances`
+- `[ArgoCD] List deployed applications`
+
+This format is required so the UI can display agent stickers next to each task.
+"""
+
+        logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")
+
+        # Load skills catalog and build StateBackend files for SkillsMiddleware (FR-015)
+        try:
+            skills = get_merged_skills(include_content=True)
+            self._skills_files, self._skills_sources = build_skills_files(skills)
+            logger.info(f"📚 Loaded {len(skills)} skills for supervisor ({len(self._skills_sources)} sources)")
+        except Exception as e:
+            logger.warning(f"Failed to load skills catalog: {e}")
+            self._skills_files = {}
+            self._skills_sources = []
+
+        # Build SkillsMiddleware with sources from catalog
+        skills_middleware_list = []
+        if self._skills_sources:
+            skills_middleware_list.append(
+                SkillsMiddleware(
+                    backend=lambda rt: StateBackend(rt),
+                    sources=self._skills_sources,
+                )
+            )
+
+        # Create the deep agent with middleware for deterministic task execution
+        #
+        # Middleware:
+        # 1. SkillsMiddleware: Injects skills into system prompt (progressive disclosure)
+        # 2. DeterministicTaskMiddleware:
+        #    - before_model: Injects write_todos + task tool calls for next step
+        #    - after_model: Updates todos, pops completed task, loops if more tasks
+        #
+        # Subagent state sharing:
+        # - Using SubAgent dict format, SubAgentMiddleware builds subagents with shared StateBackend
+        # - All subagents share filesystem state (read_file/write_file work across subagents)
+        # - CAIPE's interrupt_on is defined in its subagent dict for HITL form handling
+        #
+        # Built-in deepagents tools (auto-attached):
+        # - write_todos: From TodoListMiddleware
+        # - task: From SubAgentMiddleware
+        # - read_file, write_file, ls, grep, glob, edit_file: From FilesystemMiddleware
+        deep_agent_kwargs = dict(
+            tools=all_tools,
+            system_prompt=system_prompt,
+            subagents=subagent_defs,
+            model=base_model,
+            middleware=[
+                PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
+                *skills_middleware_list,
+                DeterministicTaskMiddleware(),
+                CallToolWithFileArgMiddleware(),
+                SelfServiceWorkflowMiddleware(),
+            ],
+        )
+
+        if USE_STRUCTURED_RESPONSE:
+            from langchain.agents.structured_output import ToolStrategy
+            deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
+            logger.info("✅ Structured response mode enabled (ToolStrategy + PlatformEngineerResponse)")
+        else:
+            logger.info("❌ Structured response mode disabled - using [FINAL ANSWER] marker")
+
+        # Create cross-thread store for long-term memory
+        try:
+            store = create_store()
+            if store is not None:
+                deep_agent_kwargs["store"] = store
+                logger.info("Cross-thread store attached to deep agent")
+        except Exception as e:
+            logger.warning(f"Failed to create cross-thread store: {e}")
+
+        deep_agent = create_deep_agent(**deep_agent_kwargs)
+
+        # Attach checkpointer if not in dev mode
+        if not os.getenv("LANGGRAPH_DEV"):
+            deep_agent.checkpointer = create_checkpointer()
+
+        # Update graph atomically
+        self._graph = deep_agent
+        self._graph_generation += 1
+
+        logger.info(f"✅ Deep agent created (generation {self._graph_generation})")
+
+    async def serve(self, prompt: str, user_email: str = "") -> str:
+        """Process prompt and return response."""
+        try:
+            logger.debug(f"Received prompt: {prompt}")
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("Prompt must be a non-empty string.")
+
+            # Ensure agent is initialized with MCP tools
+            await self.ensure_initialized()
+
+            # Auto-inject current date and user context
+            from datetime import datetime
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            context_parts = []
+            if user_email:
+                context_parts.append(f"Authenticated user email: {user_email}")
+            context_parts.append(f"Current date: {current_date}, Current date/time: {current_datetime}")
+            enhanced_prompt = f"{prompt}\n\n[{', '.join(context_parts)}]"
+
+            graph = self.get_graph()
+            state_dict = {"messages": [{"role": "user", "content": enhanced_prompt}]}
+            if user_email:
+                state_dict["user_email"] = user_email
+            # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
+            if getattr(self, "_skills_files", None):
+                state_dict["files"] = dict(self._skills_files)
+            result = await graph.ainvoke(
+                state_dict,
+                {"configurable": {"thread_id": uuid.uuid4()}}
+            )
+
+            messages = result.get("messages", [])
+            if not messages:
+                raise RuntimeError("No messages found in response.")
+
+            for message in reversed(messages):
+                if isinstance(message, AIMessage) and message.content.strip():
+                    return message.content.strip()
+
+            raise RuntimeError("No valid AIMessage found in response.")
+        except Exception as e:
+            logger.error(f"Error in serve: {e}")
+            raise
+
+    async def serve_stream(self, prompt: str, user_email: str = ""):
+        """Process prompt and stream responses."""
+        try:
+            logger.info(f"Received streaming prompt: {prompt}")
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("Prompt must be a non-empty string.")
+
+            # Ensure agent is initialized with MCP tools
+            await self.ensure_initialized()
+
+            graph = self.get_graph()
+            thread_id = str(uuid.uuid4())
+
+            state_dict = {"messages": [{"role": "user", "content": prompt}]}
+            if user_email:
+                state_dict["user_email"] = user_email
+            # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
+            if getattr(self, "_skills_files", None):
+                state_dict["files"] = dict(self._skills_files)
+
+            async for event in graph.astream_events(
+                state_dict,
+                {"configurable": {"thread_id": thread_id}},
+                version="v2"
+            ):
+                if event["event"] == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk and hasattr(chunk, "content") and chunk.content:
+                        yield {"type": "content", "data": chunk.content}
+
+                elif event["event"] == "on_tool_start":
+                    tool_name = event.get("name", "unknown")
+                    yield {"type": "tool_start", "tool": tool_name, "data": f"\n\n🔧 Calling {tool_name}...\n"}
+
+                elif event["event"] == "on_tool_end":
+                    tool_name = event.get("name", "unknown")
+                    yield {"type": "tool_end", "tool": tool_name, "data": f"✅ {tool_name} completed\n"}
+
+        except Exception as e:
+            logger.error(f"Error in serve_stream: {e}")
+            yield {"type": "error", "data": str(e)}
+
+
+# Alias for backwards compatibility
+AIPlatformEngineerMAS = PlatformEngineerDeepAgent

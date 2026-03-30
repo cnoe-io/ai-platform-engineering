@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 # Agent Registry — skip in single-node mode
 # =====================================================
 # In single-node mode agents run as local MCP tools; no remote A2A agents exist.
-# Set ENABLE_AGENT_REGISTRY=false to skip connectivity checks and use a null registry.
+# Set CAIPE_DISTRIBUTED_AGENTS=false to skip connectivity checks and use a null registry.
 
-_REGISTRY_ENABLED = os.getenv("ENABLE_AGENT_REGISTRY", "true").lower() != "false"
+_REGISTRY_ENABLED = os.getenv("CAIPE_DISTRIBUTED_AGENTS", "true").lower() != "false"
 
 
 class _NullAgentRegistry:
@@ -69,5 +69,5 @@ if _REGISTRY_ENABLED:
   for agent_name in platform_registry.AGENT_NAMES:
     logger.info("🤖 Agent enabled: %s", agent_name)
 else:
-  logger.info("Agent registry disabled (ENABLE_AGENT_REGISTRY=false) — using null registry for single-node mode")
+  logger.info("Agent registry disabled (CAIPE_DISTRIBUTED_AGENTS=false) — using null registry for single-node mode")
   platform_registry = _NullAgentRegistry()
