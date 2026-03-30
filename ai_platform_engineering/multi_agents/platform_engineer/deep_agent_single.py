@@ -524,6 +524,71 @@ def create_invoke_self_service_task_tool():
     return invoke_self_service_task
 
 
+def create_get_workflow_definition_tool():
+    """Create a tool that returns the full definition of a self-service workflow.
+
+    This lets the LLM inspect the steps, prompts, and subagent assignments for
+    any configured workflow before (or instead of) invoking it.
+    """
+
+    @tool
+    def get_workflow_definition(
+        task_name: str,
+        state: Annotated[dict, InjectedState],
+    ) -> str:
+        """Return the full definition of a self-service workflow (task config).
+
+        Shows all steps including display text, the LLM prompt template
+        (with environment variables already substituted), and which subagent
+        runs each step.  Useful for understanding what a workflow does before
+        invoking it, or for answering user questions about available workflows.
+
+        Args:
+            task_name: Exact name of the workflow (e.g. "Create GitHub Repo").
+        """
+        user_email = state.get("user_email") if isinstance(state, dict) else None
+        config = load_task_config(user_email=user_email)
+
+        if not config:
+            return "No workflows are currently configured."
+
+        if task_name not in config:
+            available = ", ".join(config.keys())
+            return f"Workflow '{task_name}' not found. Available workflows: {available}"
+
+        task_def = config[task_name]
+        tasks = task_def.get("tasks", [])
+
+        if not tasks:
+            return f"Workflow '{task_name}' exists but has no steps defined."
+
+        lines = [f"## Workflow: {task_name}", f"Steps: {len(tasks)}"]
+
+        visibility = task_def.get("visibility", "global")
+        owner = task_def.get("owner_id", "system")
+        is_system = task_def.get("is_system", True)
+        lines.append(f"Type: {'system' if is_system else 'custom'} | Visibility: {visibility} | Owner: {owner}")
+
+        allowed_tools = task_def.get("allowed_tools")
+        if allowed_tools:
+            lines.append(f"Allowed tools: {allowed_tools}")
+
+        lines.append("")
+
+        for i, step in enumerate(tasks):
+            display = step.get("display_text", f"Step {i + 1}")
+            subagent = step.get("subagent", "general-purpose")
+            prompt = step.get("llm_prompt", "(no prompt)")
+
+            lines.append(f"### Step {i + 1}: {display}")
+            lines.append(f"Subagent: `{subagent}`")
+            lines.append(f"Prompt:\n```\n{prompt.strip()}\n```")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    return get_workflow_definition
+
 
 # =============================================================================
 # Subagent Creation Functions - Using SubAgent dict format
@@ -1072,9 +1137,10 @@ class PlatformEngineerDeepAgent:
 
         # Self-service task tools
         invoke_task_tool = create_invoke_self_service_task_tool()
+        get_workflow_def_tool = create_get_workflow_definition_tool()
 
         # All supervisor tools
-        all_tools = utility_tools + [invoke_task_tool]
+        all_tools = utility_tools + [invoke_task_tool, get_workflow_def_tool]
 
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
