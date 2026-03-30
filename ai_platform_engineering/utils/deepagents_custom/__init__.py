@@ -61,6 +61,11 @@ from ai_platform_engineering.utils.deepagents_custom.state import (
     file_reducer,
 )
 
+# Export tool error handling
+from ai_platform_engineering.utils.deepagents_custom.tool_error_handling import (
+    wrap_tools_with_error_handling,
+)
+
 # Export exceptions
 from ai_platform_engineering.utils.deepagents_custom.exceptions import (
     AgentStopRequestedError,
@@ -91,6 +96,8 @@ __all__ = [
     "Todo",
     "Task",
     "file_reducer",
+    # Tool error handling
+    "wrap_tools_with_error_handling",
     # Exceptions
     "AgentStopRequestedError",
     "ToolError",
