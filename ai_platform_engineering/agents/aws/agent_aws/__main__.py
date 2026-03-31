@@ -34,7 +34,7 @@ from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
 
 load_dotenv()
 
-METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
 
 @click.command()

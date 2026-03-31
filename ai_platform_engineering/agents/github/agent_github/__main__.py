@@ -48,7 +48,7 @@ load_dotenv()
 
 A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
 SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
-METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
 # We can't use click decorators for async functions so we wrap the main function in a sync function
 @click.command()
