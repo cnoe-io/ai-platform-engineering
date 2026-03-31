@@ -1,6 +1,6 @@
 # Jira Ingestor
 
-Ingests issues from Jira Cloud projects as documents into the RAG system. Each project becomes a datasource, and each issue becomes a document containing the full ticket context: description, linked issues (action items), custom fields (e.g. service), and comments.
+Ingests issues from Jira Cloud projects as documents into the RAG system. Each project key maps to one or more datasource configs, allowing multiple JQL queries per project with independent settings. Each issue becomes a document containing the full ticket context: description, linked issues (action items), custom fields (e.g. service), and comments.
 
 ## Supported Features
 
@@ -9,7 +9,7 @@ Ingests issues from Jira Cloud projects as documents into the RAG system. Each p
 - Custom field extraction — map arbitrary Jira custom field IDs to friendly names included in document content
 - Linked issue support — outward/inward links are included so action item tickets appear in the document
 - Comment ingestion — all issue comments are included (configurable)
-- Incremental-friendly — `updated >= -Nd` JQL keeps syncs fast after initial load
+- Incremental-friendly — use `updated >= -Nd` in your JQL to keep syncs fast after initial load
 
 ## Required Environment Variables
 
@@ -23,58 +23,61 @@ Ingests issues from Jira Cloud projects as documents into the RAG system. Each p
 
 ## JIRA_PROJECTS Format
 
+Each project key maps to a **list** of datasource configs. A single dict is also accepted for convenience and is normalised to a one-element list.
+
 ```json
 {
-  "FE": {
-    "name": "Frontend",
-    "jql": "project = FE AND issuetype = 'frontend' ORDER BY updated DESC",
-    "lookback_days": 730
-  },
-  "INFRA": {
-    "name": "Infrastructure",
-    "lookback_days": 365
-  }
+  "FE": [
+    {
+      "name": "Frontend",
+      "jql": "project = FE AND issuetype = 'frontend' ORDER BY updated DESC",
+      "custom_fields": {"severity": "customfield_10202"},
+      "include_comments": true,
+      "include_links": true
+    }
+  ],
+  "OPS": [
+    {
+      "name": "untriaged",
+      "jql": "project = OPS AND status = Open ORDER BY updated DESC"
+    },
+    {
+      "name": "all-issues",
+      "jql": "project = OPS AND updated >= -365d ORDER BY updated DESC",
+      "include_comments": false
+    }
+  ]
 }
 ```
 
-If `jql` is omitted, the ingestor defaults to:
-```
-project = "<KEY>" AND updated >= -<lookback_days>d ORDER BY updated DESC
-```
+### Per-datasource config fields
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `jql` | **yes** | | JQL query string |
+| `name` | no | project key | Friendly name (used in datasource ID and logs) |
+| `custom_fields` | no | `{}` | Map of friendly name to Jira field ID (e.g. `{"severity": "customfield_10202"}`) |
+| `include_comments` | no | `true` | Include issue comments in document content |
+| `include_links` | no | `true` | Include linked issues in document content |
+
+To find custom field IDs, browse to:
+`https://your-org.atlassian.net/rest/api/3/field`
 
 ## Optional Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `JIRA_CUSTOM_FIELDS` | `{}` | JSON map of friendly name → Jira field ID |
-| `JIRA_INCLUDE_COMMENTS` | `true` | Include issue comments in document content |
-| `JIRA_INCLUDE_LINKS` | `true` | Include linked issues in document content |
 | `JIRA_PAGE_SIZE` | `100` | Number of issues per API request (max 100) |
 | `SYNC_INTERVAL` | `86400` | Sync interval in seconds (default 24h) |
 | `INIT_DELAY_SECONDS` | `0` | Delay before first sync in seconds |
 | `LOG_LEVEL` | `INFO` | Logging level |
-
-## JIRA_CUSTOM_FIELDS Format
-
-Map friendly names (used as document headings) to Jira custom field IDs:
-
-```json
-{
-  "affected_services": "customfield_10200",
-  "affected_products": "customfield_10201",
-  "severity": "customfield_10202"
-}
-```
-
-To find custom field IDs, browse to:
-`https://your-org.atlassian.net/rest/api/3/field`
 
 ## Document Structure
 
 - **Document ID:** `jira-issue-{KEY}` (e.g. `jira-issue-FE-1047`)
 - **Title:** `[KEY] Summary text`
 - **Content:** Markdown-formatted document with all ticket fields
-- **Datasource ID:** `jira-project-{key}` (e.g. `jira-project-fe`)
+- **Datasource ID:** `jira-{project}-{name}` (e.g. `jira-fe-frontend`)
 - **Metadata:** `issue_key`, `issue_type`, `status`, `priority`, `assignee`, `created`, `updated`, `source_uri`
 
 ## Running with Docker Compose
@@ -84,7 +87,7 @@ export RAG_SERVER_URL=http://host.docker.internal:9446
 export JIRA_URL=https://your-org.atlassian.net
 export JIRA_EMAIL=svc-account@your-org.com
 export ATLASSIAN_TOKEN=your-api-token
-export JIRA_PROJECTS='{"FE":{"name":"Frontend","lookback_days":730}}'
+export JIRA_PROJECTS='{"FE":[{"name":"Frontend","jql":"project = FE AND updated >= -730d ORDER BY updated DESC"}]}'
 docker compose --profile jira up --build jira_ingestor
 ```
 

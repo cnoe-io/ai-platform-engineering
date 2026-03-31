@@ -39,26 +39,48 @@ JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN") or os.environ.get("ATLASSIAN_T
 if not JIRA_API_TOKEN:
     raise ValueError("JIRA_API_TOKEN (or ATLASSIAN_TOKEN) environment variable is required")
 
-# JSON config for projects and their JQL filters
-# Format: {"FE": {"name": "Frontend", "jql": "project = FE AND issuetype = 'frontend'", "lookback_days": 365}}
+# JSON config for projects and their JQL filters.
+# Each project key maps to a list of datasource configs. A single dict is also
+# accepted for convenience and is normalised to a one-element list.
+#
+# Format:
+#   {
+#     "SDPL": [
+#       {"name": "untriaged", "jql": "project = SDPL AND status = Open ORDER BY updated DESC",
+#        "custom_fields": {"slo": "customfield_123"}, "include_comments": true},
+#       {"name": "user-requests", "jql": "project = SDPL AND type = 'User Request'"}
+#     ],
+#     "FE": {"name": "Frontend", "jql": "project = FE ORDER BY updated DESC"}
+#   }
+#
+# Required per-datasource fields:
+#   jql: JQL query string
+# Optional per-datasource fields (defaults):
+#   name: project key
+#   custom_fields: {}
+#   include_comments: true
+#   include_links: true
 projects_json = os.environ.get("JIRA_PROJECTS", "{}")
-projects: Dict[str, Dict[str, Any]] = json.loads(projects_json)
-if not projects:
+_raw_projects: Dict[str, Any] = json.loads(projects_json)
+if not _raw_projects:
     raise ValueError("No projects configured. Set JIRA_PROJECTS environment variable.")
 
-# Custom fields to extract (maps friendly name -> Jira field ID)
-# Format: {"slo_impact": "customfield_12345", "affected_products": "customfield_67890"}
-custom_fields_json = os.environ.get("JIRA_CUSTOM_FIELDS", "{}")
-custom_fields: Dict[str, str] = json.loads(custom_fields_json)
+# Normalise: ensure every value is a list of datasource configs
+projects: Dict[str, List[Dict[str, Any]]] = {}
+for _pk, _val in _raw_projects.items():
+    if isinstance(_val, dict):
+        projects[_pk] = [_val]
+    elif isinstance(_val, list):
+        projects[_pk] = _val
+    else:
+        raise ValueError(f"Invalid config for project {_pk}: expected dict or list, got {type(_val).__name__}")
+    # Validate that every datasource entry has a jql field
+    for _ds in projects[_pk]:
+        if not _ds.get("jql"):
+            raise ValueError(f"Datasource config for project {_pk} is missing required 'jql' field")
 
 # Max results per page for Jira API pagination
 PAGE_SIZE = int(os.environ.get("JIRA_PAGE_SIZE", "100"))
-
-# Whether to include issue comments in document content
-INCLUDE_COMMENTS = os.environ.get("JIRA_INCLUDE_COMMENTS", "true").lower() == "true"
-
-# Whether to include linked issues in document content
-INCLUDE_LINKS = os.environ.get("JIRA_INCLUDE_LINKS", "true").lower() == "true"
 
 
 class JiraClient:
@@ -77,20 +99,25 @@ class JiraClient:
         response.raise_for_status()
         return response.json()
 
-    def search_issues(self, jql: str, fields: List[str], next_page_token: Optional[str] = None) -> Dict[str, Any]:
-        """Run a JQL search and return paginated results.
-
-        Uses the /rest/api/3/search/jql endpoint (Atlassian deprecated /rest/api/3/search).
-        Response uses token-based pagination: {issues, nextPageToken, isLast}.
-        """
-        params: Dict[str, Any] = {
-            "jql": jql,
-            "maxResults": PAGE_SIZE,
-            "fields": ",".join(fields),
-        }
-        if next_page_token:
-            params["nextPageToken"] = next_page_token
-        return self._get("/rest/api/3/search/jql", params=params)
+    def search_issues(self, jql: str, fields: List[str]) -> List[Dict[str, Any]]:
+        """Run a JQL search and return all matching issues, handling pagination internally."""
+        all_issues: List[Dict[str, Any]] = []
+        next_page_token: Optional[str] = None
+        while True:
+            params: Dict[str, Any] = {
+                "jql": jql,
+                "maxResults": PAGE_SIZE,
+                "fields": ",".join(fields),
+            }
+            if next_page_token:
+                params["nextPageToken"] = next_page_token
+            result = self._get("/rest/api/3/search/jql", params=params)
+            batch = result.get("issues", [])
+            all_issues.extend(batch)
+            if result.get("isLast", True) or not batch:
+                break
+            next_page_token = result.get("nextPageToken")
+        return all_issues
 
     def get_issue_comments(self, issue_key: str) -> List[Dict[str, Any]]:
         """Fetch all comments for a given issue key."""
@@ -165,6 +192,9 @@ def _build_issue_document(
     jira_url: str,
     datasource_id: str,
     ingestor_id: str,
+    custom_fields: Optional[Dict[str, str]] = None,
+    include_comments: bool = True,
+    include_links: bool = True,
 ) -> Document:
     """
     Build a RAG Document from a Jira issue dict.
@@ -220,7 +250,7 @@ def _build_issue_document(
         lines.append(f"**Components:** {components}")
 
     # Custom fields
-    for friendly_name, field_id in custom_fields.items():
+    for friendly_name, field_id in (custom_fields or {}).items():
         value = fields.get(field_id)
         if value is not None:
             text = _format_adf_field(value)
@@ -235,7 +265,7 @@ def _build_issue_document(
 
     # Linked issues (action items, related incidents, etc.)
     issue_links = fields.get("issuelinks") or []
-    if INCLUDE_LINKS and issue_links:
+    if include_links and issue_links:
         lines.append("")
         lines.append("## Linked Issues")
         for link in issue_links:
@@ -254,7 +284,7 @@ def _build_issue_document(
                 lines.append(f"- **{link_type} (outward):** [{outward_key}] {outward_summary} ({outward_status})")
 
     # Comments
-    if INCLUDE_COMMENTS and comments:
+    if include_comments and comments:
         lines.append("")
         lines.append("## Comments")
         for comment in comments:
@@ -274,7 +304,7 @@ def _build_issue_document(
         document_type="jira_issue",
         document_ingested_at=int(time.time()),
         document_id=f"jira-issue-{key}",
-        fresh_until=sync_interval * 3,
+        fresh_until=utils.get_default_fresh_until(),
         title=f"[{key}] {summary}",
         metadata={
             "issue_key": key,
@@ -299,7 +329,14 @@ async def sync_jira_projects(client: Client) -> None:
     """Sync function that processes all configured Jira projects."""
     jira = JiraClient(JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN)
 
-    # Build the list of fields to request from Jira
+    # Fetch existing datasources so we can skip recently-synced ones
+    existing_datasources: Dict[str, DataSourceInfo] = {}
+    try:
+        for ds in await client.list_datasources(ingestor_id=client.ingestor_id):
+            existing_datasources[ds.datasource_id] = ds
+    except Exception as e:
+        logger.warning(f"Could not fetch existing datasources, will sync all: {e}")
+
     standard_fields = [
         "summary",
         "issuetype",
@@ -315,131 +352,136 @@ async def sync_jira_projects(client: Client) -> None:
         "components",
         "issuelinks",
     ]
-    all_fields = standard_fields + list(custom_fields.values())
 
-    for project_key, config in projects.items():
-        project_name = config.get("name", project_key)
-        jql_override = config.get("jql", "")
-        lookback_days = config.get("lookback_days", 365)
+    now = int(time.time())
 
-        logger.info(f"Processing Jira project: {project_name} ({project_key})")
+    for project_key, datasource_configs in projects.items():
+        for ds_config in datasource_configs:
+            ds_name = ds_config.get("name", project_key)
+            jql = ds_config["jql"]
+            ds_custom_fields: Dict[str, str] = ds_config.get("custom_fields", {})
+            ds_include_comments: bool = ds_config.get("include_comments", True)
+            ds_include_links: bool = ds_config.get("include_links", True)
 
-        datasource_id = f"jira-project-{project_key.lower()}"
+            logger.info(f"Processing Jira datasource: {ds_name} ({project_key})")
 
-        # Build JQL: use override if provided, otherwise default to project + lookback window
-        if jql_override:
-            jql = jql_override
-        else:
-            jql = f'project = "{project_key}" AND updated >= -{lookback_days}d ORDER BY updated DESC'
+            # Build a datasource ID that is unique per project + datasource name
+            ds_slug = ds_name.lower().replace(" ", "-")
+            datasource_id = f"jira-{project_key.lower()}-{ds_slug}"
 
-        logger.info(f"JQL: {jql}")
+            # Skip if this datasource was recently synced (within sync_interval)
+            existing = existing_datasources.get(datasource_id)
+            if existing and existing.last_updated and (now - existing.last_updated) < sync_interval:
+                logger.info(
+                    f"Skipping {project_key}/{ds_name}: last synced {now - existing.last_updated}s ago "
+                    f"(interval: {sync_interval}s)"
+                )
+                continue
 
-        # Paginate through all matching issues (token-based pagination)
-        all_issues: List[Dict[str, Any]] = []
-        next_page_token: Optional[str] = None
-        while True:
+            # Build the list of fields to request (standard + this datasource's custom fields)
+            all_fields = standard_fields + list(ds_custom_fields.values())
+
+            logger.info(f"JQL: {jql}")
+
             try:
-                result = jira.search_issues(jql, all_fields, next_page_token=next_page_token)
+                all_issues = jira.search_issues(jql, all_fields)
             except requests.HTTPError as e:
-                logger.error(f"Jira search failed for {project_key}: {e}")
-                break
+                logger.error(f"Jira search failed for {project_key}/{ds_name}: {e}")
+                continue
 
-            batch = result.get("issues", [])
-            all_issues.extend(batch)
-            logger.info(f"Fetched {len(all_issues)} issues so far for {project_key}")
+            logger.info(f"Fetched {len(all_issues)} issues for {project_key}/{ds_name}")
 
-            if result.get("isLast", True) or not batch:
-                break
-            next_page_token = result.get("nextPageToken")
+            if not all_issues:
+                logger.info(f"No issues found for {project_key}/{ds_name}, updating datasource timestamp")
+                datasource = DataSourceInfo(
+                    datasource_id=datasource_id,
+                    ingestor_id=client.ingestor_id or "",
+                    description=f"Jira issues: {ds_name} ({project_key})",
+                    source_type="jira",
+                    last_updated=int(time.time()),
+                    metadata={
+                        "project_key": project_key,
+                        "datasource_name": ds_name,
+                        "jira_url": JIRA_URL,
+                        "jql": jql,
+                        "reload_interval": sync_interval,
+                    },
+                )
+                await client.upsert_datasource(datasource)
+                continue
 
-        if not all_issues:
-            logger.info(f"No issues found for {project_key}, updating datasource timestamp")
+            # Build documents (fetch comments per issue if enabled)
+            documents: List[Document] = []
+            for issue in all_issues:
+                key = issue.get("key", "UNKNOWN")
+                comments: List[Dict[str, Any]] = []
+                if ds_include_comments:
+                    comments = jira.get_issue_comments(key)
+
+                try:
+                    doc = _build_issue_document(
+                        issue=issue,
+                        comments=comments,
+                        jira_url=JIRA_URL,
+                        datasource_id=datasource_id,
+                        ingestor_id=client.ingestor_id or "",
+                        custom_fields=ds_custom_fields,
+                        include_comments=ds_include_comments,
+                        include_links=ds_include_links,
+                    )
+                    documents.append(doc)
+                except Exception as e:
+                    logger.warning(f"Failed to build document for {key}: {e}")
+
+            logger.info(f"Built {len(documents)} documents for {project_key}/{ds_name}")
+
+            # Upsert datasource
             datasource = DataSourceInfo(
                 datasource_id=datasource_id,
                 ingestor_id=client.ingestor_id or "",
-                description=f"Jira issues from project {project_name} ({project_key})",
+                description=f"Jira issues: {ds_name} ({project_key})",
                 source_type="jira",
                 last_updated=int(time.time()),
                 metadata={
                     "project_key": project_key,
-                    "project_name": project_name,
+                    "datasource_name": ds_name,
                     "jira_url": JIRA_URL,
                     "jql": jql,
+                    "issue_count": len(documents),
                     "reload_interval": sync_interval,
                 },
             )
             await client.upsert_datasource(datasource)
-            continue
 
-        # Build documents (fetch comments per issue if enabled)
-        documents: List[Document] = []
-        for issue in all_issues:
-            key = issue.get("key", "UNKNOWN")
-            comments: List[Dict[str, Any]] = []
-            if INCLUDE_COMMENTS:
-                comments = jira.get_issue_comments(key)
+            # Create ingestion job
+            job_response = await client.create_job(
+                datasource_id=datasource_id,
+                job_status=JobStatus.IN_PROGRESS,
+                message=f"Ingesting {len(documents)} issues from {ds_name}",
+                total=len(documents),
+            )
+            job_id = job_response["job_id"]
 
             try:
-                doc = _build_issue_document(
-                    issue=issue,
-                    comments=comments,
-                    jira_url=JIRA_URL,
+                await client.ingest_documents(
+                    job_id=job_id,
                     datasource_id=datasource_id,
-                    ingestor_id=client.ingestor_id or "",
+                    documents=documents,
                 )
-                documents.append(doc)
+                await client.update_job(
+                    job_id=job_id,
+                    job_status=JobStatus.COMPLETED,
+                    message=f"Successfully ingested {len(documents)} issues from {ds_name}",
+                )
+                logger.info(f"✓ Ingested {len(documents)} issues from {project_key}/{ds_name}")
             except Exception as e:
-                logger.warning(f"Failed to build document for {key}: {e}")
-
-        logger.info(f"Built {len(documents)} documents for {project_key}")
-
-        # Upsert datasource
-        datasource = DataSourceInfo(
-            datasource_id=datasource_id,
-            ingestor_id=client.ingestor_id or "",
-            description=f"Jira issues from project {project_name} ({project_key})",
-            source_type="jira",
-            last_updated=int(time.time()),
-            metadata={
-                "project_key": project_key,
-                "project_name": project_name,
-                "jira_url": JIRA_URL,
-                "jql": jql,
-                "issue_count": len(documents),
-                "reload_interval": sync_interval,
-            },
-        )
-        await client.upsert_datasource(datasource)
-
-        # Create ingestion job
-        job_response = await client.create_job(
-            datasource_id=datasource_id,
-            job_status=JobStatus.IN_PROGRESS,
-            message=f"Ingesting {len(documents)} issues from {project_name}",
-            total=len(documents),
-        )
-        job_id = job_response["job_id"]
-
-        try:
-            await client.ingest_documents(
-                job_id=job_id,
-                datasource_id=datasource_id,
-                documents=documents,
-            )
-            await client.update_job(
-                job_id=job_id,
-                job_status=JobStatus.COMPLETED,
-                message=f"Successfully ingested {len(documents)} issues from {project_name}",
-            )
-            logger.info(f"✓ Ingested {len(documents)} issues from {project_key}")
-        except Exception as e:
-            logger.error(f"Ingestion failed for {project_key}: {e}")
-            await client.add_job_error(job_id, [str(e)])
-            await client.update_job(
-                job_id=job_id,
-                job_status=JobStatus.FAILED,
-                message=f"Failed to ingest issues: {e}",
-            )
+                logger.error(f"Ingestion failed for {project_key}/{ds_name}: {e}")
+                await client.add_job_error(job_id, [str(e)])
+                await client.update_job(
+                    job_id=job_id,
+                    job_status=JobStatus.FAILED,
+                    message=f"Failed to ingest issues: {e}",
+                )
 
 
 def main() -> None:

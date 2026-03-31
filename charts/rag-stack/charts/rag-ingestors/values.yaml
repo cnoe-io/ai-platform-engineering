@@ -251,21 +251,28 @@ ingestors: []
   #   env:
   #     JIRA_URL: https://mycompany.atlassian.net  # JIRA_URL (required)
   #     JIRA_EMAIL: bot@mycompany.com        # JIRA_EMAIL (required)
-  #     JIRA_INCLUDE_COMMENTS: "true"        # JIRA_INCLUDE_COMMENTS
-  #     JIRA_INCLUDE_LINKS: "true"           # JIRA_INCLUDE_LINKS
   #     JIRA_PAGE_SIZE: "100"                # JIRA_PAGE_SIZE
-  #     JIRA_CUSTOM_FIELDS: "{}"             # JIRA_CUSTOM_FIELDS (JSON)
   #     JIRA_PROJECTS: |                     # JIRA_PROJECTS (JSON)
   #       {
-  #         "PROJ": {
-  #           "name": "My Project",
-  #           "lookback_days": 30
-  #         },
-  #         "OPS": {
-  #           "name": "Operations",
-  #           "jql": "project = OPS AND status != Done ORDER BY updated DESC",
-  #           "lookback_days": 90
-  #         }
+  #         "PROJ": [
+  #           {
+  #             "name": "My Project",
+  #             "jql": "project = PROJ AND updated >= -30d ORDER BY updated DESC",
+  #             "include_comments": true,
+  #             "include_links": true
+  #           }
+  #         ],
+  #         "OPS": [
+  #           {
+  #             "name": "untriaged",
+  #             "jql": "project = OPS AND status = Open ORDER BY updated DESC",
+  #             "custom_fields": {"slo": "customfield_12345"}
+  #           },
+  #           {
+  #             "name": "all-issues",
+  #             "jql": "project = OPS AND status != Done ORDER BY updated DESC"
+  #           }
+  #         ]
   #       }
   #
   #   # Jira API token from secret
