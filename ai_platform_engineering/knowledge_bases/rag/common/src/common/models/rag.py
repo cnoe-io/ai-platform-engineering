@@ -2,6 +2,8 @@
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 
+from common.constants import DEFAULT_RELOAD_INTERVAL
+
 # ============================================================================
 # Models for vector DB metadata
 # ============================================================================
@@ -42,7 +44,24 @@ class DataSourceInfo(BaseModel):
   last_updated: Optional[int] = Field(..., description="When the data source was last updated")
   default_chunk_size: Optional[int] = Field(default=10000, description="Default chunk size for this data source, applies to all documents unless overridden")
   default_chunk_overlap: Optional[int] = Field(default=2000, description="Default chunk overlap for this data source, applies to all documents unless overridden")
+  reload_interval: int = Field(default=DEFAULT_RELOAD_INTERVAL, description="Reload interval in seconds. Used to calculate fresh_until and next reload time.")
   metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+
+  @model_validator(mode="before")
+  @classmethod
+  def migrate_reload_interval(cls, values: Any) -> Any:
+    """
+    Migration: If reload_interval not in input, check metadata for legacy value.
+    This handles existing datasources that stored reload_interval in metadata.
+    """
+    if not isinstance(values, dict):
+      return values
+    if values.get("reload_interval") is None:
+      metadata = values.get("metadata") or {}
+      legacy_value = metadata.get("reload_interval")
+      if legacy_value is not None:
+        values["reload_interval"] = legacy_value
+    return values
 
 
 class DocumentMetadata(BaseModel):

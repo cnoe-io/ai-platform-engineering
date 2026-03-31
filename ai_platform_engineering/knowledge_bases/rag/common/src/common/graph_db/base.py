@@ -231,9 +231,15 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def remove_stale_entities(self):
+  async def remove_stale_entities(self, datasource_id: str | None = None) -> int:
     """
-    Removes all entities that are stale (not updated for a long time)
+    Removes all entities that are stale (not updated for a long time).
+
+    Args:
+      datasource_id: Optional filter to only clean specific datasource.
+
+    Returns:
+      Number of entities deleted.
     """
     raise NotImplementedError("Subclasses must implement this method.")
 
