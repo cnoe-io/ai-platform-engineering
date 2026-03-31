@@ -317,6 +317,7 @@ async def sync_argocd_entities(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={"argocd_url": SERVER_URL, "filter_projects": FILTER_PROJECTS, "verify_ssl": ARGOCD_VERIFY_SSL, "ignore_fields": IGNORE_FIELD_LIST},
   )
   await client.upsert_datasource(datasource_info)
@@ -392,7 +393,7 @@ async def sync_argocd_entities(client: Client):
         # If batch is large enough, ingest it and start a new batch
         if len(current_batch) >= INGEST_BATCH_SIZE:
           logging.info(f"Batch reached {len(current_batch)} entities, ingesting...")
-          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
           await client.increment_job_progress(job_id, len(current_batch))
           logging.info(f"Ingested batch of {len(current_batch)} entities")
 
@@ -424,7 +425,7 @@ async def sync_argocd_entities(client: Client):
 
         # Batch ingest if needed
         if len(current_batch) >= INGEST_BATCH_SIZE:
-          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
           await client.increment_job_progress(job_id, len(current_batch))
           logging.info(f"Ingested batch of {len(current_batch)} entities")
           current_batch = []
@@ -451,7 +452,7 @@ async def sync_argocd_entities(client: Client):
 
         # Batch ingest if needed
         if len(current_batch) >= INGEST_BATCH_SIZE:
-          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
           await client.increment_job_progress(job_id, len(current_batch))
           logging.info(f"Ingested batch of {len(current_batch)} entities")
           current_batch = []
@@ -464,7 +465,7 @@ async def sync_argocd_entities(client: Client):
     # 9. Ingest any remaining entities in the final batch
     if current_batch:
       logging.info(f"Ingesting final batch of {len(current_batch)} entities...")
-      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
       await client.increment_job_progress(job_id, len(current_batch))
       logging.info(f"Ingested final batch of {len(current_batch)} entities")
 

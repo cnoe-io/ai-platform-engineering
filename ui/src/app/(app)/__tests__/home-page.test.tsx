@@ -80,6 +80,7 @@ jest.mock('lucide-react', () => ({
 
 jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
+  formatRelativeTimeCompact: (date: any) => 'Just now',
 }))
 
 let mockStorageMode = 'mongodb'

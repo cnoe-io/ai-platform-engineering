@@ -499,7 +499,7 @@ async def ensure_account_entity_exists(client: Client, account_id: str, datasour
 
     account_entity = Entity(entity_type="AwsAccount", primary_key_properties=["account_id"], all_properties={"account_id": account_id})
 
-    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=[account_entity], fresh_until=utils.get_default_fresh_until())
+    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=[account_entity], fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
     logging.info(f"Ingested AwsAccount entity: {account_id}")
 
   except Exception as e:
@@ -566,7 +566,7 @@ async def sync_resource_type(client: Client, account_id: str, resource_type: str
 
     # Ingest entities
     if entities:
-      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=entities, fresh_until=utils.get_default_fresh_until())
+      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=entities, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
       await client.increment_job_progress(job_id, len(entities))
       logging.info(f"Ingested {len(entities)} {resource_type} entities from region {region}")
 
@@ -604,6 +604,7 @@ async def sync_aws_resources(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={
       "account_id": account_id,
       "resource_types": RESOURCE_TYPES,

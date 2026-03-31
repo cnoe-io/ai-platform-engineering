@@ -339,20 +339,17 @@ class Client:
         logger.error(f"Periodic ping failed for ingestor {self.ingestor_name}: {e}")
         # Continue trying even if ping fails
 
-  async def ingest_entities(self, job_id: str, datasource_id: str, entities: List[Entity], fresh_until: Optional[int] = None):
+  async def ingest_entities(self, job_id: str, datasource_id: str, entities: List[Entity], fresh_until: int):
     """
     Ingest entities into the RAG system as documents with automatic batching
     :param job_id: ID of the ingestion job
     :param datasource_id: ID of the datasource
     :param entities: List of entities to ingest
-    :param fresh_until: Optional fresh until timestamp
+    :param fresh_until: Timestamp until which data is considered fresh (epoch seconds)
     :return: Response from server (last batch response if batching used)
     """
     if self.ingestor_id is None:
       raise ValueError("Ingestor not initialized. Call initialize() first to get ingestor_id.")
-
-    if fresh_until is None:
-      fresh_until = utils.get_default_fresh_until()
 
     # Convert entities to documents
     documents = []
@@ -382,20 +379,17 @@ class Client:
     # Use batching logic by calling ingest_documents
     return await self.ingest_documents(job_id, datasource_id, documents, fresh_until)
 
-  async def ingest_documents(self, job_id: str, datasource_id: str, documents: List[Document], fresh_until: Optional[int] = None):
+  async def ingest_documents(self, job_id: str, datasource_id: str, documents: List[Document], fresh_until: int):
     """
     Ingest documents into the RAG system with automatic batching
     :param job_id: ID of the ingestion job
     :param datasource_id: ID of the datasource
     :param documents: List of documents to ingest
-    :param fresh_until: Optional fresh until timestamp
+    :param fresh_until: Timestamp until which data is considered fresh (epoch seconds)
     :return: Response from server (last batch response if batching used)
     """
     if self.ingestor_id is None:
       raise ValueError("Ingestor not initialized. Call initialize() first to get ingestor_id.")
-
-    if fresh_until is None:
-      fresh_until = utils.get_default_fresh_until()
 
     logger.info(f"Ingesting {len(documents)} documents with max_docs_per_ingest: {self.max_docs_per_ingest()}")
     # Check if we need to batch the documents

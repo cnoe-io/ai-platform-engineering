@@ -8,12 +8,19 @@ export type HealthStatus = "checking" | "connected" | "disconnected";
 
 const POLL_INTERVAL_MS = 30000; // 30 seconds
 
+interface CleanupConfig {
+  enabled: boolean;
+  interval_seconds: number;
+  last_cleanup: number | null;
+}
+
 interface UseRAGHealthResult {
   status: HealthStatus;
   url: string;
   lastChecked: Date | null;
   secondsUntilNextCheck: number;
   graphRagEnabled: boolean;
+  cleanupConfig: CleanupConfig | null;
   checkNow: () => void;
 }
 
@@ -27,6 +34,7 @@ export function useRAGHealth(): UseRAGHealthResult {
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
   const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
+  const [cleanupConfig, setCleanupConfig] = useState<CleanupConfig | null>(null);
   const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
   const hasInitialCheckCompleted = useRef<boolean>(false);
   const url = config.ragUrl;
@@ -44,6 +52,9 @@ export function useRAGHealth(): UseRAGHealthResult {
       if (data.status === "healthy") {
         setStatus("connected");
         setGraphRagEnabled(data.config?.graph_rag_enabled ?? true);
+        if (data.config?.cleanup) {
+          setCleanupConfig(data.config.cleanup);
+        }
       } else {
         setStatus("disconnected");
       }
@@ -93,6 +104,7 @@ export function useRAGHealth(): UseRAGHealthResult {
     lastChecked,
     secondsUntilNextCheck,
     graphRagEnabled,
+    cleanupConfig,
     checkNow: checkHealth,
   };
 }

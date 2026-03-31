@@ -14,7 +14,9 @@ DURATION_DAY = 60 * 60 * 24
 DURATION_HOUR = 60 * 60
 DURATION_MINUTE = 60
 
-DEFAULT_FRESH_UNTIL = int(os.getenv("DEFAULT_FRESH_UNTIL_SECONDS", DURATION_DAY * 7))  # Default TTL is one week
+# Buffer factor for fresh_until calculation: fresh_until = now + (reload_interval * buffer)
+# 1.5x provides grace period for ingestion delays while ensuring cleanup happens reasonably soon after missed reloads
+FRESH_UNTIL_BUFFER_FACTOR = float(os.getenv("FRESH_UNTIL_BUFFER_FACTOR", "1.5"))
 
 
 class ObjEncoder(JSONEncoder):
@@ -195,12 +197,26 @@ def hash_dict(d: dict) -> str:
   return str(h.hexdigest())
 
 
-def get_default_fresh_until() -> int:
+def get_fresh_until(reload_interval: int) -> int:
   """
-  Get the default fresh until timestamp (one week)
-  :return: fresh until timestamp
+  Calculate fresh_until timestamp based on reload interval.
+
+  The fresh_until timestamp determines when data should be considered stale
+  and eligible for cleanup. It's calculated as: now + (reload_interval * buffer_factor)
+
+  Args:
+      reload_interval: Reload interval in seconds. Must be > 0.
+
+  Returns:
+      Epoch timestamp when data should be considered stale.
+
+  Examples:
+      - reload_interval=6h  -> fresh_until = now + 9h  (with 1.5x buffer)
+      - reload_interval=24h -> fresh_until = now + 36h (with 1.5x buffer)
   """
-  return int(time.time()) + DEFAULT_FRESH_UNTIL
+  if reload_interval <= 0:
+    raise ValueError(f"reload_interval must be positive, got {reload_interval}")
+  return int(time.time()) + int(reload_interval * FRESH_UNTIL_BUFFER_FACTOR)
 
 
 def get_uuid():

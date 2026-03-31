@@ -14,7 +14,7 @@ import asyncio
 import common.utils as utils
 
 from common.graph_db.base import GraphDB
-from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, PRIMARY_ID_KEY, ENTITY_TYPE_KEY, PROP_DELIMITER, FRESH_UNTIL_KEY, RELATION_PK_KEY
+from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, PRIMARY_ID_KEY, ENTITY_TYPE_KEY, PROP_DELIMITER, FRESH_UNTIL_KEY, RELATION_PK_KEY, DATASOURCE_ID_KEY
 
 from common.models.graph import Entity, EntityIdentifier, Relation
 from common.models.ontology import ValueMatchType
@@ -1146,18 +1146,39 @@ class Neo4jDB(GraphDB):
     async with self.driver.session(database=self.database) as session:
       await session.run(query)  # type: ignore
 
-  async def remove_stale_entities(self):
+  async def remove_stale_entities(self, datasource_id: str | None = None) -> int:
     """
-    Periodically clean up the database by removing entities that are older than the fresh until timestamp
+    Periodically clean up the database by removing entities that are older than the fresh until timestamp.
+
+    Args:
+      datasource_id: Optional filter to only clean specific datasource.
+
+    Returns:
+      True if cleanup completed successfully.
     """
-    logger.debug("Removing stale entities from the database")
-    query = f"""
-        MATCH (n:{self.tenant_label}) WHERE n.{FRESH_UNTIL_KEY}<{int(time.time())} DETACH DELETE n
-        """
+    logger.debug(f"Removing stale entities from the database (datasource_id={datasource_id})")
+    now = int(time.time())
+
+    if datasource_id:
+      query = f"""
+          MATCH (n:{self.tenant_label}) 
+          WHERE n.{FRESH_UNTIL_KEY} < {now} AND n.{DATASOURCE_ID_KEY} = $datasource_id
+          DETACH DELETE n
+          """
+      params = {"datasource_id": datasource_id}
+    else:
+      query = f"""
+          MATCH (n:{self.tenant_label}) 
+          WHERE n.{FRESH_UNTIL_KEY} < {now}
+          DETACH DELETE n
+          """
+      params = {}
+
     logger.debug(query)
     async with self.driver.session(database=self.database) as session:
-      await session.run(query)  # type: ignore
-      logger.info("Removed stale entities from the database")
+      await session.run(query, params)  # type: ignore
+      logger.info(f"Cleaned up stale entities from the database (datasource_id={datasource_id})")
+      return True
 
   async def relate_entities_by_property(self, entity_a_type: str, entity_b_type: str, relation_type: str, matching_properties: dict, relation_pk: str, relation_properties: (dict | None) = None):
     """

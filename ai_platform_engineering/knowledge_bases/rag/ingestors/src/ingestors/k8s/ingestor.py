@@ -134,7 +134,7 @@ async def ensure_cluster_entity_exists(client: Client, cluster_name: str, dataso
 
     cluster_entity = Entity(entity_type="K8sCluster", primary_key_properties=["name"], all_properties={"name": cluster_name})
 
-    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=[cluster_entity], fresh_until=utils.get_default_fresh_until())
+    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=[cluster_entity], fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
     logging.info(f"Ingested K8sCluster entity: {cluster_name}")
 
   except Exception as e:
@@ -207,6 +207,7 @@ async def sync_k8s_resources(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={
       "cluster_name": CLUSTER_NAME,
       "resource_types": list(RESOURCE_LIST),
@@ -322,7 +323,7 @@ async def sync_k8s_resources(client: Client):
     if all_entities:
       logging.info(f"Ingesting {len(all_entities)} entities with automatic batching")
 
-      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=all_entities, fresh_until=utils.get_default_fresh_until())
+      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=all_entities, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
 
       # Update progress
       await client.increment_job_progress(job_id, len(all_entities))

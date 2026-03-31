@@ -8,7 +8,7 @@ from common.ingestor import IngestorBuilder, Client
 from common.models.graph import Entity
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobStatus
-import common.utils as utils
+from common.utils import get_fresh_until
 
 """
 This is a dummy plugin that creates a number of dummy entities and relations using the new IngestorBuilder pattern.
@@ -17,6 +17,9 @@ It loads entities from a JSON file and ingests them with automatic batching and 
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
+
+# Sync interval from environment
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL_SECONDS", "300"))
 
 
 class EntityList(BaseModel):
@@ -47,6 +50,7 @@ async def sync_entities(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={"file_path": file_path},
   )
   await client.upsert_datasource(datasource_info)
@@ -62,7 +66,7 @@ async def sync_entities(client: Client):
     logging.info(f"Ingesting {len(entities)} entities with automatic batching")
 
     # Use the client's ingest_entities method which handles batching automatically
-    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=entities, fresh_until=utils.get_default_fresh_until())
+    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=entities, fresh_until=get_fresh_until(SYNC_INTERVAL))
 
     # Update job progress to reflect all entities processed
     await client.increment_job_progress(job_id, len(entities))
@@ -83,12 +87,11 @@ if __name__ == "__main__":
   try:
     logging.info("Starting dummy graph ingestor using IngestorBuilder...")
 
-    sync_interval = int(os.getenv("SYNC_INTERVAL_SECONDS", "300"))
     init_delay = int(os.getenv("INIT_DELAY_SECONDS", "0"))
 
     # Use IngestorBuilder for simplified ingestor creation
-    IngestorBuilder().name("test_dummy_graph").type("test").description("Ingestor for dummy graph entities").metadata({"source_file": os.getenv("DUMMY_ENTITIES_FILE", "entities_dummy.json"), "sync_interval": sync_interval, "init_delay": init_delay}).sync_with_fn(sync_entities).every(
-      sync_interval
+    IngestorBuilder().name("test_dummy_graph").type("test").description("Ingestor for dummy graph entities").metadata({"source_file": os.getenv("DUMMY_ENTITIES_FILE", "entities_dummy.json"), "sync_interval": SYNC_INTERVAL, "init_delay": init_delay}).sync_with_fn(sync_entities).every(
+      SYNC_INTERVAL
     ).with_init_delay(init_delay).run()
 
   except KeyboardInterrupt:

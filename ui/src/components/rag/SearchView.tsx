@@ -20,6 +20,7 @@ import { getMCPTools } from '@/lib/rag-api';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { formatFreshUntil } from '@/lib/utils';
 
 // Fast animation transition
 const fastTransition = { duration: 0.1 };
@@ -152,7 +153,9 @@ function ResultCard({ result, index }: { result: SearchResultItem; index: number
                                         <div key={key} className="flex items-start gap-2">
                                             <span className="text-muted-foreground min-w-[80px]">{key}:</span>
                                             <span className="font-mono text-foreground break-all">
-                                                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                                {key === 'fresh_until' && typeof value === 'number'
+                                                    ? formatFreshUntil(value)
+                                                    : typeof value === 'object' ? JSON.stringify(value) : String(value)}
                                             </span>
                                         </div>
                                     ))

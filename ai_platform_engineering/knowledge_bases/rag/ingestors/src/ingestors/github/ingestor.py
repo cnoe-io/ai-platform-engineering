@@ -515,6 +515,7 @@ async def sync_github_entities(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={"github_api_url": GITHUB_API_URL, "organizations": org_logins},
   )
   await client.upsert_datasource(datasource_info)
@@ -862,7 +863,7 @@ async def sync_github_entities(client: Client):
       if all_entities:
         logging.info(f"Ingesting {len(all_entities)} entities with automatic batching")
         await client.update_job(job_id=job_id, job_status=JobStatus.IN_PROGRESS, message=f"Ingesting {len(all_entities)} entities into RAG system...")
-        await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=all_entities, fresh_until=utils.get_default_fresh_until())
+        await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=all_entities, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
         logging.info(f"Successfully ingested {len(all_entities)} entities")
 
       # Mark job as complete

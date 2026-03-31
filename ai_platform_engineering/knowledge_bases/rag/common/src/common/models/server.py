@@ -204,3 +204,50 @@ class MCPToolInvokeResponse(BaseModel):
   success: bool = Field(..., description="Whether the tool invocation succeeded")
   result: Optional[Any] = Field(None, description="Result returned by the tool (if successful)")
   error: Optional[str] = Field(None, description="Error message (if failed)")
+
+
+# ============================================================================
+# Models for Document/Chunk Listing
+# ============================================================================
+class ChunkInfo(BaseModel):
+  """Information about a single chunk (without content)."""
+
+  id: str = Field(..., description="Unique chunk ID")
+  chunk_index: int = Field(..., description="Index of the chunk within the document")
+  total_chunks: int = Field(..., description="Total number of chunks in the document")
+  metadata: Dict[str, Any] = Field(default_factory=dict, description="Chunk metadata (fresh_until, document_type, etc.)")
+
+
+class DocumentInfo(BaseModel):
+  """Information about a document with its chunks."""
+
+  document_id: str = Field(..., description="Unique document ID")
+  title: str = Field(default="", description="Document title")
+  chunks: List[ChunkInfo] = Field(default_factory=list, description="List of chunks in this document")
+
+
+class DatasourceDocumentsResponse(BaseModel):
+  """Response for listing documents in a datasource."""
+
+  datasource_id: str = Field(..., description="The datasource ID")
+  documents: List[DocumentInfo] = Field(default_factory=list, description="List of documents with their chunks")
+  total_documents: int = Field(..., description="Number of unique documents in this response")
+  total_chunks: int = Field(..., description="Number of chunks in this response")
+  offset: int = Field(..., description="Current offset (number of chunks skipped)")
+  limit: int = Field(..., description="Requested limit")
+  has_more: bool = Field(..., description="Whether more chunks exist beyond this batch")
+
+
+class ChunkContentResponse(BaseModel):
+  """Response for fetching chunk content."""
+
+  id: str = Field(..., description="Chunk ID")
+  text_content: str = Field(..., description="The text content of the chunk")
+
+
+class CleanupResponse(BaseModel):
+  """Response for cleanup operations."""
+
+  datasource_id: Optional[str] = Field(None, description="Datasource ID (for per-datasource cleanup)")
+  success: bool = Field(..., description="Whether cleanup completed successfully")
+  message: str = Field(..., description="Status message")

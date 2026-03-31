@@ -433,6 +433,15 @@ class ScrapyWorkerPool:
 
 # Global pool instance (lazy initialized)
 _pool: Optional[ScrapyWorkerPool] = None
+_pool_lock: asyncio.Lock | None = None
+
+
+def _get_pool_lock() -> asyncio.Lock:
+  """Get or create the pool lock (must be called from async context)."""
+  global _pool_lock
+  if _pool_lock is None:
+    _pool_lock = asyncio.Lock()
+  return _pool_lock
 
 
 async def get_worker_pool() -> ScrapyWorkerPool:
@@ -440,12 +449,14 @@ async def get_worker_pool() -> ScrapyWorkerPool:
   Get the global worker pool instance.
 
   Creates and starts the pool if it doesn't exist.
+  Thread-safe via asyncio lock to prevent race conditions during startup.
   """
   global _pool
 
-  if _pool is None:
-    _pool = ScrapyWorkerPool()
-    await _pool.start()
+  async with _get_pool_lock():
+    if _pool is None:
+      _pool = ScrapyWorkerPool()
+      await _pool.start()
 
   return _pool
 
@@ -454,6 +465,7 @@ async def shutdown_worker_pool():
   """Shutdown the global worker pool."""
   global _pool
 
-  if _pool is not None:
-    await _pool.shutdown()
-    _pool = None
+  async with _get_pool_lock():
+    if _pool is not None:
+      await _pool.shutdown()
+      _pool = None
