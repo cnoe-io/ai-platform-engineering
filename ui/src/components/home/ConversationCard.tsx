@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { MessageSquare, Users2, Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTimeCompact } from "@/lib/utils";
 
 interface ConversationCardProps {
   id: string;
@@ -13,21 +13,6 @@ interface ConversationCardProps {
   isShared?: boolean;
   sharedBy?: string;
   teamName?: string;
-}
-
-function formatRelativeTime(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return d.toLocaleDateString();
 }
 
 export function ConversationCard({
@@ -60,7 +45,7 @@ export function ConversationCard({
           <div className="flex items-center gap-2 mt-1.5">
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
-              {formatRelativeTime(updatedAt)}
+              {formatRelativeTimeCompact(updatedAt)}
             </span>
             {totalMessages != null && totalMessages > 0 && (
               <span className="text-xs text-muted-foreground">
@@ -85,5 +70,3 @@ export function ConversationCard({
     </Link>
   );
 }
-
-export { formatRelativeTime };
