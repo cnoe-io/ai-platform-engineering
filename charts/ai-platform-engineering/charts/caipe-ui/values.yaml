@@ -201,6 +201,10 @@ config:
   # GITHUB_TICKET_REPO: "org/repo"
   # GITHUB_TICKET_LABEL: "caipe-reported"
 
+# Task config content passed from the parent chart.
+# Used only for computing a checksum annotation so the pod restarts on config changes.
+taskConfig: ""
+
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).
 # The secret is mounted via envFrom.secretRef alongside the config ConfigMap.

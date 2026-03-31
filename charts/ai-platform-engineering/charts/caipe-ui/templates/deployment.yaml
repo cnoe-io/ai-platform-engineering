@@ -16,10 +16,11 @@ spec:
       {{- include "caipe-ui.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/task-config: {{ .Values.taskConfig | default "" | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "caipe-ui.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
