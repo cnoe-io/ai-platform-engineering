@@ -1555,6 +1555,7 @@ export default function IngestView() {
                       
                       // Get reload interval (first-class field or default)
                       const dsReloadInterval = ds.reload_interval ?? DEFAULT_RELOAD_INTERVAL
+                      const hasReloadInterval = ds.reload_interval !== undefined && ds.reload_interval !== null
                       const isOverdue = isRefreshOverdue(ds.last_updated, dsReloadInterval)
                       
                       // Find latest completed job for metrics display
@@ -1597,7 +1598,7 @@ export default function IngestView() {
                               </div>
                               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                                 <span>Updated {formatRelativeTime(ds.last_updated)}</span>
-                                {supportsReload && (
+                                {hasReloadInterval && (
                                   <>
                                     <span className="text-border">|</span>
                                     <span className={isOverdue ? "text-amber-500" : ""}>
