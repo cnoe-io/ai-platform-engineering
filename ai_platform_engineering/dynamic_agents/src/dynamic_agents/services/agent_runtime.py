@@ -23,7 +23,6 @@ from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef, UserContext
-from dynamic_agents.services.sandbox import SandboxManager, get_sandbox_manager
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
@@ -36,12 +35,13 @@ from dynamic_agents.services.mcp_client import (
     filter_tools_by_allowed,
     get_tools_with_resilience,
 )
-from dynamic_agents.services.tool_error_handling import (
-    wrap_tools_with_error_handling,
-)
+from dynamic_agents.services.sandbox import SandboxManager, get_sandbox_manager
 from dynamic_agents.services.stream_events import (
     make_input_required_event,
     transform_stream_chunk,
+)
+from dynamic_agents.services.tool_error_handling import (
+    wrap_tools_with_error_handling,
 )
 
 if TYPE_CHECKING:
@@ -353,31 +353,92 @@ class AgentRuntime:
         return _backend_factory
 
     def _configure_sandbox_env(self, backend: Any) -> None:
-        """Inject host credentials and env config into the sandbox.
+        """Inject host credentials, CA certs, and env config into the sandbox.
 
-        Sets up git credential helper with the GitHub PAT (if available)
-        and disables SSL verification to work with the OpenShell proxy.
+        Runs once per sandbox init to set up:
+        1. OpenShell proxy CA certificate so git/curl trust TLS-intercepted connections
+        2. Git credential helper with the GitHub PAT for authenticated operations
+        3. GIT_TERMINAL_PROMPT=0 to prevent git from hanging on auth prompts
         """
-        setup_lines: list[str] = []
+        self._inject_ca_cert(backend)
+        self._inject_git_credentials(backend)
 
-        github_pat = os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN", "")
-        if github_pat:
-            setup_lines.append(
-                f'git config --global url."https://{github_pat}@github.com/".insteadOf "https://github.com/"'
-            )
+    def _inject_ca_cert(self, backend: Any) -> None:
+        """Install the OpenShell gateway CA cert into the sandbox trust store.
 
-        if not setup_lines:
+        The OpenShell proxy performs TLS interception on network traffic.
+        Without its CA cert in the trust store, git/curl/pip fail with
+        'server certificate verification failed'.
+        """
+        from pathlib import Path
+
+        gw_name = self.settings.openshell_gateway_name or "openshell"
+        ca_path = Path.home() / ".config" / "openshell" / "gateways" / gw_name / "mtls" / "ca.crt"
+
+        if not ca_path.exists():
+            logger.debug("[sandbox] No gateway CA cert found at %s, skipping", ca_path)
             return
 
-        setup_cmd = " && ".join(setup_lines)
+        ca_pem = ca_path.read_text()
+        sandbox_ca_path = "/usr/local/share/ca-certificates/openshell-proxy.crt"
+        sandbox_bundle = "/etc/ssl/certs/ca-certificates.crt"
+
+        install_script = f"""
+mkdir -p /usr/local/share/ca-certificates 2>/dev/null
+cat > {sandbox_ca_path} << 'CERT'
+{ca_pem.strip()}
+CERT
+if command -v update-ca-certificates >/dev/null 2>&1; then
+  update-ca-certificates 2>/dev/null
+elif [ -f {sandbox_bundle} ]; then
+  cat {sandbox_ca_path} >> {sandbox_bundle}
+fi
+git config --global http.sslCAInfo {sandbox_bundle}
+"""
         try:
-            result = backend.execute(setup_cmd, timeout=15)
+            result = backend.execute(install_script, timeout=30)
             if result.exit_code != 0:
-                logger.warning("[sandbox] Failed to configure sandbox env: %s", result.output)
+                logger.warning("[sandbox] CA cert install returned non-zero: %s", result.output)
             else:
-                logger.info("[sandbox] Sandbox git/SSL configured for agent '%s'", self.config.name)
+                logger.info("[sandbox] OpenShell CA cert installed for agent '%s'", self.config.name)
         except Exception as exc:
-            logger.warning("[sandbox] Error configuring sandbox env: %s", exc)
+            logger.warning("[sandbox] Failed to install CA cert: %s", exc)
+
+    def _inject_git_credentials(self, backend: Any) -> None:
+        """Configure git credentials and environment inside the sandbox.
+
+        Uses a git credential helper script that returns the PAT,
+        avoiding url.insteadOf which can cause password prompt issues.
+        """
+        github_pat = os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN", "")
+        if not github_pat:
+            logger.debug("[sandbox] No GITHUB_PERSONAL_ACCESS_TOKEN set, skipping git credential setup")
+            return
+
+        credential_script = f"""
+mkdir -p /sandbox/.git-credentials 2>/dev/null
+cat > /sandbox/.git-credentials/helper.sh << 'HELPER'
+#!/bin/bash
+echo "protocol=https"
+echo "host=github.com"
+echo "username=x-access-token"
+echo "password={github_pat}"
+HELPER
+chmod +x /sandbox/.git-credentials/helper.sh
+git config --global credential.helper '/sandbox/.git-credentials/helper.sh'
+git config --global credential.https://github.com.helper '/sandbox/.git-credentials/helper.sh'
+export GIT_TERMINAL_PROMPT=0
+echo 'export GIT_TERMINAL_PROMPT=0' >> ~/.bashrc 2>/dev/null
+echo 'export GIT_TERMINAL_PROMPT=0' >> ~/.profile 2>/dev/null
+"""
+        try:
+            result = backend.execute(credential_script, timeout=15)
+            if result.exit_code != 0:
+                logger.warning("[sandbox] Git credential setup returned non-zero: %s", result.output)
+            else:
+                logger.info("[sandbox] Git credentials configured for agent '%s'", self.config.name)
+        except Exception as exc:
+            logger.warning("[sandbox] Failed to configure git credentials: %s", exc)
 
     async def _resolve_subagents(
         self,

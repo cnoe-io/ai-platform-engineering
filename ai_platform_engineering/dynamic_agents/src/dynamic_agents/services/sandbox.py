@@ -43,6 +43,8 @@ class SandboxManager:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
+        self._cli = self._settings.openshell_cli_path
+        self._gw_name = self._settings.openshell_gateway_name or "openshell"
         self._client: SandboxClient | None = None
         self._sessions: dict[str, SandboxSession] = {}
         self._policies: dict[str, dict[str, Any]] = {}
@@ -50,12 +52,38 @@ class SandboxManager:
         self._subscribers: dict[str, set[asyncio.Queue]] = {}
         self._watch_tasks: dict[str, asyncio.Task] = {}
 
+    def _cli_env(self) -> dict[str, str]:
+        """Build a clean env for CLI subprocesses.
+
+        Strips OPENSHELL_GATEWAY to prevent the CLI from
+        interpreting a URL as a gateway name.
+        """
+        import os
+        env = os.environ.copy()
+        env.pop("OPENSHELL_GATEWAY", None)
+        return env
+
     def _get_client(self) -> SandboxClient:
         if self._client is None:
             if self._settings.openshell_gateway:
-                self._client = SandboxClient(endpoint=self._settings.openshell_gateway)
+                endpoint = self._settings.openshell_gateway
+                from urllib.parse import urlparse
+
+                parsed = urlparse(endpoint)
+                if parsed.scheme in ("https", "http") and parsed.hostname:
+                    host = parsed.hostname
+                    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                    grpc_endpoint = f"{host}:{port}"
+
+                    if parsed.scheme == "https":
+                        gw_name = self._settings.openshell_gateway_name or "openshell"
+                        self._client = SandboxClient.from_active_cluster(cluster=gw_name)
+                    else:
+                        self._client = SandboxClient(endpoint=grpc_endpoint)
+                else:
+                    self._client = SandboxClient(endpoint=endpoint)
             else:
-                gw_name = self._ensure_gateway()
+                gw_name = self._settings.openshell_gateway_name or "openshell"
                 self._client = SandboxClient.from_active_cluster(cluster=gw_name)
         return self._client
 
@@ -73,8 +101,9 @@ class SandboxManager:
         gw_name = self._settings.openshell_gateway_name or "openshell"
 
         probe = subprocess.run(
-            ["openshell", "gateway", "info", "--gateway", gw_name],
+            [self._cli, "gateway", "info", "--gateway", gw_name],
             capture_output=True, text=True, timeout=10,
+            env=self._cli_env(),
         )
         if probe.returncode == 0:
             logger.info("[sandbox] OpenShell gateway '%s' already running", gw_name)
@@ -85,8 +114,9 @@ class SandboxManager:
             gw_name,
         )
         result = subprocess.run(
-            ["openshell", "gateway", "start", "--name", gw_name],
+            [self._cli, "gateway", "start", "--name", gw_name],
             capture_output=True, text=True, timeout=180,
+            env=self._cli_env(),
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -169,10 +199,11 @@ class SandboxManager:
 
         try:
             result = subprocess.run(
-                ["openshell", "policy", "get", sandbox_name, "--format", "yaml"],
+                [self._cli, "policy", "get", sandbox_name, "--gateway", self._gw_name, "--format", "yaml"],
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=self._cli_env(),
             )
             if result.returncode == 0 and result.stdout.strip():
                 policy = yaml.safe_load(result.stdout)
@@ -206,10 +237,11 @@ class SandboxManager:
                 tmp_path = f.name
 
             result = subprocess.run(
-                ["openshell", "policy", "set", sandbox_name, "--policy", tmp_path, "--wait"],
+                [self._cli, "policy", "set", sandbox_name, "--gateway", self._gw_name, "--policy", tmp_path, "--wait"],
                 capture_output=True,
                 text=True,
                 timeout=60,
+                env=self._cli_env(),
             )
 
             if result.returncode == 0:
@@ -495,10 +527,11 @@ class SandboxManager:
         """
         try:
             result = subprocess.run(
-                ["openshell", "policy", "get", sandbox_name],
+                [self._cli, "policy", "get", sandbox_name, "--gateway", self._gw_name],
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=self._cli_env(),
             )
             if result.returncode != 0:
                 return ("unknown", result.stderr.strip() or None)
