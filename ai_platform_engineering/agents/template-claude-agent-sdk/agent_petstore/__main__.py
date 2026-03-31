@@ -6,10 +6,12 @@ import os
 import click
 import httpx
 import uvicorn
+from starlette.middleware.cors import CORSMiddleware
 
 from agent_petstore.protocol_bindings.a2a_server.agent import PetStoreAgent # type: ignore[import-untyped]
 from agent_petstore.protocol_bindings.a2a_server.agent_executor import PetStoreAgentExecutor # type: ignore[import-untyped]
 from dotenv import load_dotenv
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -26,6 +28,8 @@ from a2a.types import (
 
 
 load_dotenv()
+
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
 
 @click.command()
@@ -57,7 +61,24 @@ def main(host: str, port: int):
     agent_card=get_agent_card(host, port), http_handler=request_handler
   )
 
-  uvicorn.run(server.build(), host=host, port=port)
+  app = server.build()
+
+  app.add_middleware(
+      CORSMiddleware,
+      allow_origins=["*"],
+      allow_methods=["*"],
+      allow_headers=["*"],
+  )
+
+  if METRICS_ENABLED:
+      app.add_middleware(
+          PrometheusMetricsMiddleware,
+          excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/healthz", "/ready"],
+          metrics_path="/metrics",
+          agent_name="petstore",
+      )
+
+  uvicorn.run(app, host=host, port=port)
 
 
 def get_agent_card(host: str, port: int):
