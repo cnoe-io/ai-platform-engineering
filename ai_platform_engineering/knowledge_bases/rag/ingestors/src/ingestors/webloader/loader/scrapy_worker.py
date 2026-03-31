@@ -32,7 +32,7 @@ from scrapy.exceptions import CloseSpider
 from scrapy.http import Response
 from scrapy.utils.log import configure_logging
 
-from common import utils as common_utils
+from common.utils import get_fresh_until
 from common.models.server import ScrapySettings, CrawlMode
 
 from .worker_types import (
@@ -484,8 +484,8 @@ class WorkerSpider(Spider):
       if result.content and len(result.content.strip()) >= 10:
         # Create document
         now = int(time.time())
-        # Use the system default freshness (configurable via DEFAULT_FRESH_UNTIL_SECONDS env var)
-        fresh_until = common_utils.get_default_fresh_until()
+        # Calculate fresh_until based on datasource reload_interval
+        fresh_until = get_fresh_until(self.crawl_request.reload_interval)
 
         doc = {
           "id": self._generate_doc_id(response.url),

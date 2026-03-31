@@ -17,12 +17,12 @@ from langchain_core.documents import Document
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.job_manager import JobStatus
-from common import utils
+from common.utils import get_logger, get_fresh_until
 
-logger = utils.get_logger(__name__)
+logger = get_logger(__name__)
 
 
-# Get sync interval
+# Sync interval (also used to calculate fresh_until)
 sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
@@ -351,6 +351,7 @@ async def sync_slack_channels(client: Client):
       description=f"Slack conversations from #{channel_name}",
       source_type="slack",
       last_updated=int(time.time()),
+      reload_interval=sync_interval,
       metadata={
         "channel_id": channel_id,
         "channel_name": channel_name,
@@ -379,8 +380,8 @@ async def sync_slack_channels(client: Client):
     job_id = job_response["job_id"]
 
     try:
-      # Ingest documents with fresh_until timestamp
-      fresh_until = int(float(newest_ts))
+      # Ingest documents with fresh_until based on sync interval (not message timestamp)
+      fresh_until = get_fresh_until(sync_interval)
       await client.ingest_documents(job_id=job_id, datasource_id=datasource_id, documents=documents, fresh_until=fresh_until)
 
       # Update job status

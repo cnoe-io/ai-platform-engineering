@@ -105,6 +105,7 @@ async def sync_backstage_entities(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={
       "backstage_url": BACKSTAGE_URL,
       "ignored_types": IGNORE_TYPES,
@@ -143,7 +144,7 @@ async def sync_backstage_entities(client: Client):
       logging.info(f"Ingesting {len(entities)} entities with automatic batching")
 
       # Use the client's ingest_entities method which handles batching automatically
-      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=entities, fresh_until=utils.get_default_fresh_until())
+      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=entities, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
 
       # Update job progress to reflect all entities processed
       await client.increment_job_progress(job_id, len(entities))

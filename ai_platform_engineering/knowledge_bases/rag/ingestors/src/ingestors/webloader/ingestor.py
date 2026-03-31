@@ -357,6 +357,11 @@ async def periodic_reload(client: Client):
   Called periodically by IngestorBuilder or on-demand via Redis.
   """
   logger.info("Starting datasource reload check...")
+
+  # Ensure worker pool is running before attempting any reloads
+  # This handles the race condition where periodic_reload is called before redis_listener has started the pool
+  await get_worker_pool()
+
   job_manager = JobManager(redis_client)
   current_time = int(time.time())
 

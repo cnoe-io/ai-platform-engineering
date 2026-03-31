@@ -64,6 +64,7 @@ class CrawlRequest:
   # Metadata for document creation
   ingestor_id: str = ""
   datasource_name: str = ""
+  reload_interval: int = 86400  # Used to calculate fresh_until for documents
 
 
 @dataclass
