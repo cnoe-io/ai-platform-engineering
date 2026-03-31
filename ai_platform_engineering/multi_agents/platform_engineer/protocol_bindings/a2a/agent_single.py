@@ -80,9 +80,19 @@ class AIPlatformEngineerA2ABinding:
       """
       CRITICAL: Repair orphaned tool calls in message history.
 
-      Bedrock/Anthropic requires ToolMessages to appear IMMEDIATELY after
-      the AIMessage with tool_use. If we can't properly repair the ordering,
-      we remove the problematic AIMessages entirely.
+      Bedrock/Anthropic requires a ToolMessage (tool_result) to appear immediately
+      after the AIMessage that contains the matching tool_use block. When a session
+      is interrupted mid-tool-call, the checkpoint holds an AIMessage with unresolved
+      tool_call_ids and no corresponding ToolMessages.
+
+      Strategy: inject a synthetic ToolMessage for each orphaned tool_call_id.
+      This keeps the AIMessage intact (Bedrock adjacency requirement satisfied) and
+      routes the graph to the `tools` node next (tools→model), so the new user query
+      is processed correctly.
+
+      Do NOT remove the AIMessage and replace with a placeholder (old approach):
+      that caused the graph to route to END instead of model, leaking the placeholder
+      text directly to users.
 
       This is essential for recovery when:
       - A sub-agent call fails mid-stream (e.g., context overflow)
@@ -93,8 +103,6 @@ class AIPlatformEngineerA2ABinding:
           config: Runnable configuration with thread_id
       """
       try:
-          from langchain_core.messages import RemoveMessage
-
           state = await self.graph.aget_state(config)
           if not state or not state.values:
               return
@@ -150,45 +158,49 @@ class AIPlatformEngineerA2ABinding:
               f"IDs: {list(orphaned.keys())}, Names: {orphaned_names}"
           )
 
-          # STRATEGY: Remove ONLY the AIMessages that have orphaned tool calls.
-          # This preserves earlier conversation history while eliminating the problematic
-          # messages that would cause Bedrock validation errors.
+          # STRATEGY: Inject synthetic ToolMessages for each orphaned tool call.
           #
-          # We cannot simply append ToolMessages at the end because Bedrock requires
-          # tool_result immediately after tool_use. And we cannot remove ALL messages
-          # because that triggers IndexError when LangGraph's should_continue runs.
+          # We keep the AIMessage intact and append a synthetic ToolMessage for
+          # each unresolved tool_call_id. This satisfies Bedrock's requirement
+          # that every tool_use block is followed by a matching tool_result,
+          # and it routes the graph to the `tools` node next (tools→model) so
+          # the model processes the new user query correctly.
+          #
+          # Previous approach (remove AIMessage + inject placeholder with
+          # as_node="model") was broken: a placeholder AIMessage with no
+          # tool_calls caused LangGraph to set checkpoint next-node=END, so
+          # the new query was never processed and the placeholder leaked to users.
 
-          # Get the IDs of AIMessages that have orphaned tool calls
-          ai_msg_ids_to_remove = set()
+          from langchain_core.messages import ToolMessage as _ToolMessage
+
+          synthetic_tool_msgs = []
           for tool_call_id, (msg_idx, tool_name, ai_msg_id) in orphaned.items():
-              if ai_msg_id:
-                  ai_msg_ids_to_remove.add(ai_msg_id)
-                  logging.info(
-                      f"🔧 Will remove AIMessage with orphaned tool_call: "
-                      f"msg_id={ai_msg_id[:20] if ai_msg_id else 'None'}..., "
-                      f"tool={tool_name}, tool_call_id={tool_call_id[:20]}..."
+              synthetic_tool_msgs.append(
+                  _ToolMessage(
+                      content=f"Tool '{tool_name}' did not complete (session was interrupted).",
+                      tool_call_id=tool_call_id,
+                      name=tool_name,
                   )
-
-          if ai_msg_ids_to_remove:
-              # Remove the problematic AIMessages and add a clean placeholder so
-              # the graph's routing function (model_to_tools) always finds an
-              # AIMessage in state and doesn't raise UnboundLocalError.
-              remove_messages = [RemoveMessage(id=msg_id) for msg_id in ai_msg_ids_to_remove]
-              placeholder = AIMessage(content="[Previous request was interrupted. Ready for new request.]")
-              await self.graph.aupdate_state(
-                  config,
-                  {"messages": remove_messages + [placeholder]},
-                  as_node="model",
               )
               logging.info(
-                  f"✅ Supervisor: Removed {len(ai_msg_ids_to_remove)} AIMessage(s) with orphaned tool calls. "
-                  f"Earlier conversation history preserved."
+                  f"🔧 Adding synthetic ToolMessage for orphaned tool: "
+                  f"{tool_name} (tool_call_id={tool_call_id[:20]}...)"
+              )
+
+          if synthetic_tool_msgs:
+              await self.graph.aupdate_state(
+                  config,
+                  {"messages": synthetic_tool_msgs},
+                  as_node="tools",
+              )
+              logging.info(
+                  f"✅ Supervisor: Repaired {len(synthetic_tool_msgs)} orphaned tool call(s) "
+                  f"with synthetic ToolMessages. Graph will route to model node next."
               )
           else:
-              # No message IDs found - fall back to just logging
               logging.warning(
-                  f"⚠️ Supervisor: Found orphaned tool calls but no message IDs to remove. "
-                  f"Orphaned tools: {orphaned_names}"
+                  f"⚠️ Supervisor: Found orphaned tool calls but could not build synthetic "
+                  f"ToolMessages. Orphaned tools: {orphaned_names}"
               )
 
       except Exception as e:
@@ -371,9 +383,10 @@ class AIPlatformEngineerA2ABinding:
       config = self.tracing.create_config(context_id)
 
       # Set recursion limit - LangGraph default is 25 which is too low for
-      # deterministic task workflows (e.g. S3 creation has 8 steps, each with
-      # model + tools cycles). Match the multi-node agent's limit of 100.
-      config['recursion_limit'] = 100
+      # deterministic task workflows. deepagents defaults to 1000; we use 500
+      # as a safe ceiling for complex multi-agent workflows while still
+      # preventing infinite loops.
+      config['recursion_limit'] = 500
 
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
@@ -1600,40 +1613,41 @@ class AIPlatformEngineerA2ABinding:
                   error_str = str(retry_err)
 
           # ==============================================================
-          # Phase 2: Wrap-up -- if retry was skipped (recursion limit) or
-          # retry didn't produce a structured response, re-invoke the
-          # graph's generate_structured_response node. We inject an
-          # AIMessage describing the error (as_node="agent") so the
-          # graph routes to structured response generation using its
-          # own system prompt and the full conversation context.
+          # Phase 2: Wrap-up -- extract last meaningful AIMessage from
+          # graph state and use it as the response. The previous approach
+          # looked for a 'generate_structured_response' node that does not
+          # exist in the deepagents graph (the node is 'model'), so it
+          # always fell through to the hardcoded error message. Instead, we
+          # read the committed graph state directly.
           # ==============================================================
           if not response_format_result:
-              logging.info(f"Phase 2 wrap-up via generate_structured_response (error: {error_str[:120]}...)")
+              logging.info(f"Phase 2 wrap-up: reading last AIMessage from graph state (error: {error_str[:120]}...)")
               try:
                   await self._repair_orphaned_tool_calls(config)
 
-                  error_summary = (
-                      f"I encountered an error and need to wrap up: {error_str[:500]}\n\n"
-                      "I will now summarize what was accomplished so far and provide my final response."
-                  )
-                  await self.graph.aupdate_state(
-                      config,
-                      {"messages": [AIMessage(content=error_summary)]},
-                      as_node="model",
-                  )
-
-                  async for item_type, item in self.graph.astream(
-                      None, config,
-                      stream_mode=['updates'],
-                  ):
-                      if item_type == 'updates' and isinstance(item, dict) and 'generate_structured_response' in item:
-                          structured_resp = item['generate_structured_response'].get('structured_response')
-                          if structured_resp is not None:
-                              parsed = self.handle_structured_response(structured_resp)
+                  graph_state = await self.graph.aget_state(config)
+                  if graph_state and graph_state.values:
+                      state_messages = graph_state.values.get('messages', [])
+                      for msg in reversed(state_messages):
+                          if not (isinstance(msg, AIMessage) and not isinstance(msg, AIMessageChunk)):
+                              continue
+                          if getattr(msg, 'tool_calls', None):
+                              continue  # skip tool-calling messages
+                          content = msg.content if hasattr(msg, 'content') else ""
+                          if isinstance(content, list):
+                              content = ''.join(
+                                  item.get('text', '') if isinstance(item, dict) else str(item)
+                                  for item in content
+                              )
+                          elif not isinstance(content, str):
+                              content = str(content) if content else ''
+                          if content.strip():
+                              parsed = self.handle_structured_response(content)
                               parsed['from_response_format_tool'] = True
                               response_format_result = parsed
-                              logging.info(f"Phase 2 structured response captured (content_len={len(parsed.get('content', ''))})")
+                              logging.info(f"Phase 2 extracted last AIMessage ({len(content)} chars)")
                               yield parsed
+                              break
               except Exception as wrapup_err:
                   logging.error(f"Phase 2 wrap-up failed: {wrapup_err}")
 
