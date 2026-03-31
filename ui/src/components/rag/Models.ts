@@ -40,6 +40,7 @@ export type DataSourceInfo = {
 	source_type: string
 	default_chunk_size: number
 	default_chunk_overlap: number
+	reload_interval: number  // Reload interval in seconds (default: 86400 = 24h)
 	last_updated: number
 	metadata?: Record<string, unknown>
 }

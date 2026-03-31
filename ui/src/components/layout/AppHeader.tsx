@@ -21,7 +21,7 @@ import {
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
@@ -41,6 +41,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+/** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
+function formatInterval(seconds: number): string {
+  if (seconds >= 3600) {
+    const hours = seconds / 3600;
+    return hours % 1 === 0 ? `${hours}h` : `${hours.toFixed(1)}h`;
+  }
+  if (seconds >= 60) {
+    const minutes = Math.round(seconds / 60);
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
 
 function GuardedLink({
   href,
@@ -128,7 +141,8 @@ export function AppHeader() {
     status: ragStatus,
     url: ragUrl,
     secondsUntilNextCheck: ragNextCheck,
-    graphRagEnabled
+    graphRagEnabled,
+    cleanupConfig
   } = useRAGHealth();
 
   // Check if RAG is enabled in config
@@ -551,6 +565,35 @@ export function AppHeader() {
                             {graphRagEnabled ? "ON" : "OFF"}
                           </div>
                         </div>
+
+                        {/* Auto-Cleanup Status */}
+                        {cleanupConfig && (
+                          <div className="bg-muted/20 rounded px-2 py-1.5 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-muted-foreground">Auto-Cleanup</div>
+                              <div className={cn(
+                                "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                                cleanupConfig.enabled
+                                  ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                                  : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
+                              )}>
+                                {cleanupConfig.enabled ? formatInterval(cleanupConfig.interval_seconds) : "OFF"}
+                              </div>
+                            </div>
+                            {cleanupConfig.enabled && (
+                              <div className="text-[10px] text-muted-foreground">
+                                {cleanupConfig.last_cleanup ? (
+                                  <>
+                                    <div>Last: {formatRelativeTime(cleanupConfig.last_cleanup)}</div>
+                                    <div>Next: {formatRelativeTime(cleanupConfig.last_cleanup + cleanupConfig.interval_seconds)}</div>
+                                  </>
+                                ) : (
+                                  <>Waiting for first cleanup...</>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
