@@ -50,9 +50,6 @@ dev = [
     "pytest-asyncio>=1.3.0",
 ]
 
-[tool.uv.sources]
-common = { path = "../common" }
-
 [tool.ruff]
 line-length = 300
 indent-width = 2
@@ -65,3 +62,6 @@ ignore = ["F403"]
 "src/ingestors/webloader/loader/scrapy_worker.py" = ["E402"]
 "src/ingestors/webloader/loader/worker_pool.py" = ["E402"]
 "tests/webloader/test_ingestor.py" = ["E402"]
+
+[tool.uv.sources]
+common = { path = "../common" }
