@@ -9,7 +9,6 @@ import time
 import uuid
 from urllib.parse import urlparse
 from common.models.graph import Entity
-from common.constants import DEFAULT_RELOAD_INTERVAL
 
 DURATION_DAY = 60 * 60 * 24
 DURATION_HOUR = 60 * 60
