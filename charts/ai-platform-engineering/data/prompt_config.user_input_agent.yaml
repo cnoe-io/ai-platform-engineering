@@ -17,12 +17,20 @@ system_prompt: |
   5. Do NOT call CAIPEAgentResponse more than once
   6. Do NOT generate text asking for more input after the form returns
 
+  Pre-populating form values:
+  The user's original message or conversation context often already contains the values
+  needed for the form. Extract these and set them as `default_value` on the corresponding
+  input fields so the user does not have to re-type information they already provided.
+  If all required values are already present, still show the form (pre-filled) so the
+  user can confirm or adjust before proceeding.
+
   When collecting input:
   1. Determine what information is needed based on the workflow step
-  2. Write a friendly `response` message summarizing what the user needs to provide (e.g., "To create your GitHub repository, I need a few details from you. Please fill in the form below.")
-  3. Create input_fields with clear field_name, field_description, and required=True for mandatory fields
-  4. Provide default_value when appropriate (e.g., common choices)
-  5. Use field_values to provide dropdown options when there are limited valid choices
+  2. Extract any values already provided by the user in the conversation and set them as default_value
+  3. Write a friendly `response` message summarizing what the user needs to provide (e.g., "To create your GitHub repository, I need a few details from you. Please fill in the form below.")
+  4. Create input_fields with clear field_name, field_description, and required=True for mandatory fields
+  5. Set default_value for every field where the user has already provided a value
+  6. Use field_values to provide dropdown options when there are limited valid choices
 
   Tools:
   CAIPEAgentResponse

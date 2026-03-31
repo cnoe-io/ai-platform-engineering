@@ -26,7 +26,7 @@ import logging
 import uuid
 from typing import Any, Awaitable, Callable, Literal, NotRequired
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from typing_extensions import TypedDict
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, hook_config
@@ -112,6 +112,19 @@ class DeterministicTaskMiddleware(AgentMiddleware):
     
     state_schema = TaskOrchestrationState
     
+    @staticmethod
+    def _extract_user_request(state: TaskOrchestrationState) -> str | None:
+        """Extract the last human message before the workflow was invoked.
+
+        Walks messages in reverse to find the most recent HumanMessage,
+        which is the user's original request that triggered the workflow.
+        """
+        messages = state.get("messages") or []
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage) and isinstance(msg.content, str) and msg.content.strip():
+                return msg.content.strip()
+        return None
+
     def _build_task_injection(self, state: TaskOrchestrationState) -> dict[str, Any] | None:
         """Build the state update to inject task execution.
         
@@ -135,8 +148,18 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         subagent = task.get("subagent", "general-purpose")
         display_text = task.get("display_text", f"Step {task_id}")
         
+        # Inject the user's original request so subagents can extract
+        # values the user already provided (e.g., emails, group names)
+        user_request = self._extract_user_request(state)
+        if user_request:
+            llm_prompt = (
+                llm_prompt
+                + f"\n\n[USER REQUEST] The user's original message was: \"{user_request}\"\n"
+                f"Extract any values already provided and use them as default_value on form fields."
+            )
+            logger.info(f"[DeterministicTaskMiddleware] Injected user request into task {task_id} prompt")
+
         # Inject authenticated user email context into task prompts
-        # This allows tasks to pre-fill user_email and requested_by fields
         user_email = state.get("user_email", "")
         if user_email:
             user_context = (
