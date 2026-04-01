@@ -393,7 +393,7 @@ class ConfluenceLoader:
             document_type="confluence_page",
             document_ingested_at=int(time.time()),
             fresh_until=0,
-            is_graph_entity=False,
+            is_structured_entity=False,
             metadata=additional_metadata,
           )
 

@@ -2092,8 +2092,8 @@ export default function IngestView() {
                                                                               {chunk.metadata.document_ingested_at && (
                                                                                 <span>Ingested: {formatRelativeTime(chunk.metadata.document_ingested_at)}</span>
                                                                               )}
-                                                                              {chunk.metadata.is_graph_entity && (
-                                                                                <Badge variant="outline" className="text-[8px] h-4 px-1">Graph</Badge>
+                                                                              {chunk.metadata.is_structured_entity && (
+                                                                                <Badge variant="outline" className="text-[8px] h-4 px-1">Structured</Badge>
                                                                               )}
                                                                               {chunk.metadata.source && (
                                                                                 <span className="truncate max-w-[200px]" title={chunk.metadata.source}>

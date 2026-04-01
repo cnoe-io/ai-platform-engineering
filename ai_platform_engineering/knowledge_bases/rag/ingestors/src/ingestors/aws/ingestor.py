@@ -6,7 +6,7 @@ import boto3
 from typing import List, Any, Dict, Optional
 
 from common.ingestor import IngestorBuilder, Client
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobStatus
 import common.utils as utils
@@ -497,7 +497,7 @@ async def ensure_account_entity_exists(client: Client, account_id: str, datasour
   try:
     logging.info(f"Ingesting AwsAccount entity for account: {account_id}")
 
-    account_entity = Entity(entity_type="AwsAccount", primary_key_properties=["account_id"], all_properties={"account_id": account_id})
+    account_entity = StructuredEntity(entity_type="AwsAccount", primary_key_properties=["account_id"], all_properties={"account_id": account_id})
 
     await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=[account_entity], fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
     logging.info(f"Ingested AwsAccount entity: {account_id}")
@@ -561,7 +561,7 @@ async def sync_resource_type(client: Client, account_id: str, resource_type: str
         if all(key in props for key in additional_key_property):
           additional_key_properties_verified.append(additional_key_property)
 
-      entity = Entity(entity_type=resource_type_to_entity_type(resource_type), primary_key_properties=config["primary_key"], additional_key_properties=additional_key_properties_verified, all_properties=props)
+      entity = StructuredEntity(entity_type=resource_type_to_entity_type(resource_type), primary_key_properties=config["primary_key"], additional_key_properties=additional_key_properties_verified, all_properties=props)
       entities.append(entity)
 
     # Ingest entities

@@ -53,7 +53,6 @@ const TOOL_ID_REGEX = /^[a-z0-9_]+$/;
 const DEFAULT_PARALLEL_SEARCH: ParallelSearch = {
   label: "results",
   datasource_ids: [],
-  is_graph_entity: null,
   extra_filters: {},
   semantic_weight: 0.5,
 };
@@ -228,12 +227,6 @@ function ParallelSearchRow({ value, index, canRemove, availableDatasources, onCh
     }
   };
 
-  const isGraphEntityOptions: { label: string; value: boolean | null; hint: string }[] = [
-    { label: "All", value: null, hint: "No filter on entity type" },
-    { label: "Docs", value: false, hint: "Regular documents only" },
-    { label: "Graph", value: true, hint: "Graph entities only" },
-  ];
-
   return (
     <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
       {/* Header: index + label + remove */}
@@ -272,34 +265,6 @@ function ParallelSearchRow({ value, index, canRemove, availableDatasources, onCh
           onChange={(ids) => onChange({ ...value, datasource_ids: ids })}
         />
         <p className="text-[11px] text-muted-foreground">Leave empty to search all datasources.</p>
-      </div>
-
-      {/* is_graph_entity selector */}
-      <div className="space-y-1">
-        <p className="text-xs text-muted-foreground font-medium">Entity type filter</p>
-        <div className="flex gap-1">
-          {isGraphEntityOptions.map((opt) => (
-            <button
-              key={String(opt.value)}
-              type="button"
-              title={opt.hint}
-              onClick={() => onChange({ ...value, is_graph_entity: opt.value })}
-              className={cn(
-                "px-3 py-1 rounded text-xs font-medium border transition-colors",
-                value.is_graph_entity === opt.value
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:bg-muted"
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          {value.is_graph_entity === null && "No filter — returns both documents and graph entities."}
-          {value.is_graph_entity === false && "Regular documents only (is_graph_entity=false)."}
-          {value.is_graph_entity === true && "Graph entity documents only (is_graph_entity=true)."}
-        </p>
       </div>
 
       {/* Semantic weight */}
@@ -767,12 +732,6 @@ function ToolCard({ tool, canEdit, onEdit, onDelete, onToggleEnabled }: ToolCard
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground font-mono">{i + 1}.</span>
                     <Badge variant="outline" className="text-xs font-mono">{ps.label}</Badge>
-                    {ps.is_graph_entity === false && (
-                      <Badge variant="secondary" className="text-xs">docs</Badge>
-                    )}
-                    {ps.is_graph_entity === true && (
-                      <Badge variant="secondary" className="text-xs">graph</Badge>
-                    )}
                     <span className="text-xs text-muted-foreground ml-auto font-mono">
                       s={ps.semantic_weight.toFixed(2)} k={(1 - ps.semantic_weight).toFixed(2)}
                     </span>

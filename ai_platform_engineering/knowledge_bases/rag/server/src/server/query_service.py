@@ -32,7 +32,7 @@ class VectorDBQueryService:
     Query the vector database with optional filters and ranking.
     :param query: The query string.
     :param filters: Optional filters to apply (e.g., datasource_id, connector_id,
-                    graph_entity_type).
+                    structured_entity_type).
     :param limit: Number of results to return.
     :param ranker: Type of ranker to use ('weighted', 'recency', etc.).
     :param ranker_params: Parameters for the ranker.

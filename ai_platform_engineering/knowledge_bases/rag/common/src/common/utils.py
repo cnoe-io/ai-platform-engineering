@@ -8,7 +8,7 @@ import hashlib
 import time
 import uuid
 from urllib.parse import urlparse
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 
 DURATION_DAY = 60 * 60 * 24
 DURATION_HOUR = 60 * 60
@@ -173,7 +173,7 @@ async def gather(n: int, *coros: asyncio.Future, logger: logging.Logger):
   logger.info(f"All {len(coros)} tasks finished")
 
 
-def hash_entity_properties(entity: Entity):
+def hash_entity_properties(entity: StructuredEntity):
   """
   Hashes the properties of an entity
   """

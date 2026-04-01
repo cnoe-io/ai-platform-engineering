@@ -241,7 +241,6 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
     const [supportedDocTypes, setSupportedDocTypes] = useState<string[]>([]);
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
     const [filterValue, setFilterValue] = useState('');
-    const [isGraphEntityFilter, setIsGraphEntityFilter] = useState<'all' | 'true' | 'false'>('all');
 
     // Data sources count for empty state
     const [dataSourcesCount, setDataSourcesCount] = useState<number | null>(null);
@@ -351,9 +350,6 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
             // Add filters if the tool supports them
             if (toolSupportsFilters) {
                 const combinedFilters: Record<string, string | boolean> = { ...filters };
-                if (isGraphEntityFilter !== 'all') {
-                    combinedFilters['is_graph_entity'] = isGraphEntityFilter === 'true';
-                }
                 if (Object.keys(combinedFilters).length > 0) {
                     mcpArgs.filters = combinedFilters;
                 }
@@ -464,28 +460,6 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Filters</span>
                     
                     <div className="mt-2 flex flex-wrap items-center gap-3">
-                        {/* Entity Type filter */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">Type:</span>
-                            <div className="flex gap-1">
-                                {(['all', 'true', 'false'] as const).map((value) => (
-                                    <button
-                                        key={value}
-                                        onClick={() => setIsGraphEntityFilter(value)}
-                                        className={`px-2 py-1 text-xs rounded border transition-colors ${
-                                            isGraphEntityFilter === value
-                                                ? 'bg-primary text-primary-foreground border-primary'
-                                                : 'bg-background text-foreground border-border hover:bg-muted'
-                                        }`}
-                                    >
-                                        {value === 'all' ? 'All' : value === 'true' ? 'Graph' : 'Docs'}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="h-4 w-px bg-border" />
-
                         {/* Custom filter input */}
                         <div className="flex items-center gap-2">
                             <select
@@ -494,7 +468,7 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                                 className="rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
                             >
                                 <option value="">Add filter...</option>
-                                {validFilterKeys.filter(key => key !== 'is_graph_entity').map(key => (
+                                {validFilterKeys.map(key => (
                                     <option key={key} value={key}>{key}</option>
                                 ))}
                             </select>
