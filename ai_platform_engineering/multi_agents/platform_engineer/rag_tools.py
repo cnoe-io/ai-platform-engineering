@@ -112,9 +112,8 @@ class FetchDocumentCapWrapper(BaseTool):
 
     Reads the current thread_id from the LangGraph runtime config, checks/
     increments the counter, and delegates to the original tool if under the cap.
-    Raises _FetchDocumentCapExhausted (a ToolInvocationError) if the cap is
-    exceeded — this creates an is_error=True ToolMessage via ToolNode's default
-    error handler, stopping the retry loop.
+    Returns a hard-stop instruction string when the cap is exceeded — phrased as
+    a directive so the model treats it as a mandatory stop, not a retriable error.
     """
     config = get_config()
     thread_id = config.get("configurable", {}).get("thread_id", "__default__") if config else "__default__"
@@ -125,12 +124,13 @@ class FetchDocumentCapWrapper(BaseTool):
       if count >= self.max_calls:
         logger.warning(
           f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}. "
-          "Raising _FetchDocumentCapExhausted to create is_error=True ToolMessage."
+          "Returning hard-stop instruction to model."
         )
-        raise _FetchDocumentCapExhausted(
-          f"fetch_document limit ({self.max_calls}) reached for this query. "
-          "Stop calling fetch_document. Synthesize your final answer now using only "
-          "the search result snippets already retrieved."
+        return (
+          f"[HARD LIMIT] fetch_document quota exhausted ({self.max_calls} calls used). "
+          "You MUST NOT call fetch_document again for any document in this query. "
+          "Synthesize your final answer RIGHT NOW using only the search snippets and "
+          "documents already retrieved. Do not search further."
         )
       self._counts[thread_id] = count + 1
       self._timestamps[thread_id] = time.time()

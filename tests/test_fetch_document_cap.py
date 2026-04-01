@@ -70,69 +70,63 @@ class TestFetchDocumentCapWrapper:
 
     @pytest.mark.asyncio
     async def test_cap_enforced_after_max_calls(self):
-        """The (max_calls+1)th call raises ToolException and does NOT call original."""
-        from langchain_core.tools import ToolException
+        """The (max_calls+1)th call returns hard-stop string and does NOT call original."""
         wrapper, original = _make_wrapper(max_calls=3)
         with _patch_config("thread-cap"):
             for _ in range(3):
                 await wrapper._arun(document_id="doc-1")
-            with pytest.raises(ToolException) as exc_info:
-                await wrapper._arun(document_id="doc-2")
-        assert "fetch_document limit" in str(exc_info.value)
-        assert "3" in str(exc_info.value)
+            result = await wrapper._arun(document_id="doc-2")
+        assert "HARD LIMIT" in result
+        assert "3" in result
         assert original.arun.call_count == 3  # 4th call did NOT reach original
 
     @pytest.mark.asyncio
     async def test_limit_message_format(self):
-        """ToolException message contains the cap count and guidance text."""
-        from langchain_core.tools import ToolException
+        """Hard-stop message contains the cap count and guidance text."""
         wrapper, _ = _make_wrapper(max_calls=2)
         with _patch_config("thread-msg"):
             await wrapper._arun(document_id="doc-1")
             await wrapper._arun(document_id="doc-2")
-            with pytest.raises(ToolException) as exc_info:
-                await wrapper._arun(document_id="doc-3")
-        assert "fetch_document limit (2)" in str(exc_info.value)
-        assert "Synthesize" in str(exc_info.value)
+            result = await wrapper._arun(document_id="doc-3")
+        assert "2" in result
+        assert "Synthesize" in result
 
     @pytest.mark.asyncio
     async def test_independent_counters_per_thread_id(self):
         """Two different thread_ids each have their own independent max_calls budget."""
-        from langchain_core.tools import ToolException
         wrapper, original = _make_wrapper(max_calls=2)
 
         # Exhaust thread-A
         with _patch_config("thread-A"):
             await wrapper._arun(document_id="doc-1")
             await wrapper._arun(document_id="doc-2")
-            with pytest.raises(ToolException):
-                await wrapper._arun(document_id="doc-3")
+            result_a = await wrapper._arun(document_id="doc-3")
+        assert "HARD LIMIT" in result_a
 
         # thread-B should still have full budget
         with _patch_config("thread-B"):
             for i in range(2):
                 result_b = await wrapper._arun(document_id=f"doc-{i}")
                 assert result_b == "full document content"
-            with pytest.raises(ToolException):
-                await wrapper._arun(document_id="doc-3")
+            result_b_cap = await wrapper._arun(document_id="doc-3")
+        assert "HARD LIMIT" in result_b_cap
 
         # thread-A is still capped
         with _patch_config("thread-A"):
-            with pytest.raises(ToolException):
-                await wrapper._arun(document_id="doc-4")
+            result_a2 = await wrapper._arun(document_id="doc-4")
+        assert "HARD LIMIT" in result_a2
 
     @pytest.mark.asyncio
     async def test_counter_resets_after_stale_ttl(self):
         """After the stale TTL expires, the counter is cleaned up and resets."""
         from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as rag_module
-        from langchain_core.tools import ToolException
         wrapper, original = _make_wrapper(max_calls=1)
 
         with _patch_config("thread-stale"):
             await wrapper._arun(document_id="doc-1")
-            # Should be capped now — raises ToolException
-            with pytest.raises(ToolException):
-                await wrapper._arun(document_id="doc-2")
+            # Should be capped now — returns hard-stop string
+            result = await wrapper._arun(document_id="doc-2")
+        assert "HARD LIMIT" in result
 
         # Manually backdate timestamp to simulate TTL expiry
         with wrapper._lock:
@@ -146,40 +140,37 @@ class TestFetchDocumentCapWrapper:
     @pytest.mark.asyncio
     async def test_custom_max_calls_via_from_tool(self):
         """max_calls=1 passed to from_tool limits to exactly 1 call."""
-        from langchain_core.tools import ToolException
         wrapper, original = _make_wrapper(max_calls=1)
         with _patch_config("thread-custom"):
             r1 = await wrapper._arun(document_id="doc-1")
-            with pytest.raises(ToolException):
-                await wrapper._arun(document_id="doc-2")
+            r2 = await wrapper._arun(document_id="doc-2")
         assert r1 == "full document content"
+        assert "HARD LIMIT" in r2
         assert original.arun.call_count == 1
 
     @pytest.mark.asyncio
     async def test_max_calls_zero_blocks_all(self):
-        """max_calls=0 raises ToolException immediately on every call."""
-        from langchain_core.tools import ToolException
+        """max_calls=0 returns hard-stop string immediately on every call."""
         wrapper, original = _make_wrapper(max_calls=0)
         with _patch_config("thread-zero"):
-            with pytest.raises(ToolException) as exc_info:
-                await wrapper._arun(document_id="doc-1")
-        assert "(0)" in str(exc_info.value)
+            result = await wrapper._arun(document_id="doc-1")
+        assert "HARD LIMIT" in result
+        assert "0 calls used" in result
         original.arun.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_thread_safety_concurrent_calls(self):
         """Concurrent calls from the same thread_id respect the cap exactly."""
-        from langchain_core.tools import ToolException
         wrapper, original = _make_wrapper(max_calls=3)
 
         results = []
         async def call():
             with _patch_config("thread-concurrent"):
-                try:
-                    r = await wrapper._arun(document_id="doc-x")
+                r = await wrapper._arun(document_id="doc-x")
+                if "HARD LIMIT" in r:
+                    results.append(("cap", r))
+                else:
                     results.append(("ok", r))
-                except ToolException as e:
-                    results.append(("cap", str(e)))
 
         await asyncio.gather(*[call() for _ in range(10)])
 
@@ -224,7 +215,6 @@ class TestFetchDocumentCapWrapper:
     @pytest.mark.asyncio
     async def test_missing_thread_id_uses_default(self):
         """When get_config returns no thread_id, falls back to '__default__' key."""
-        from langchain_core.tools import ToolException
         wrapper, original = _make_wrapper(max_calls=2)
         with patch(
             "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.get_config",
@@ -232,8 +222,8 @@ class TestFetchDocumentCapWrapper:
         ):
             await wrapper._arun(document_id="doc-1")
             await wrapper._arun(document_id="doc-2")
-            with pytest.raises(ToolException):
-                await wrapper._arun(document_id="doc-3")
+            result = await wrapper._arun(document_id="doc-3")
+        assert "HARD LIMIT" in result
         assert original.arun.call_count == 2
 
     def test_get_call_count_returns_current_count(self):
@@ -264,29 +254,18 @@ class TestFetchDocumentCapWrapper:
             wrapper._run(document_id="doc-1")
 
     @pytest.mark.asyncio
-    async def test_cap_raises_fetch_document_cap_exhausted_subclass(self):
-        """Cap raises _FetchDocumentCapExhausted, which is a ToolInvocationError subclass.
+    async def test_cap_returns_hard_stop_string(self):
+        """Cap returns a hard-stop instruction string (not an exception).
 
-        This is the critical regression test that the original unit tests lacked: they
-        called _arun() directly and only checked for ToolException. But in production,
-        LangGraph's ToolNode default handler (_default_handle_tool_errors) only catches
-        ToolInvocationError — plain ToolException is re-raised, crashing stream.py.
-
-        By raising _FetchDocumentCapExhausted(ToolInvocationError), the default handler
-        catches it and creates an is_error=True ToolMessage instead of crashing.
+        Returning a soft string (normal ToolMessage) is intentional: when the model
+        receives is_error=True it treats the cap as a transient per-document failure
+        and retries with the next document_id, looping indefinitely. A soft string
+        phrased as a mandatory stop instruction is read as a directive and respected.
         """
-        from langchain_core.tools import ToolException
-        from langgraph.prebuilt.tool_node import ToolInvocationError
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
-            _FetchDocumentCapExhausted,
-        )
         wrapper, _ = _make_wrapper(max_calls=1)
         with _patch_config("thread-subclass"):
             await wrapper._arun(document_id="doc-1")  # exhaust cap
-            with pytest.raises(_FetchDocumentCapExhausted) as exc_info:
-                await wrapper._arun(document_id="doc-2")
-        # Must be both a ToolInvocationError (for ToolNode) and a ToolException
-        assert isinstance(exc_info.value, ToolInvocationError)
-        assert isinstance(exc_info.value, ToolException)
-        assert hasattr(exc_info.value, "message")
-        assert "fetch_document limit" in exc_info.value.message
+            result = await wrapper._arun(document_id="doc-2")
+        assert isinstance(result, str)
+        assert "HARD LIMIT" in result
+        assert "MUST NOT" in result
