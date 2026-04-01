@@ -170,8 +170,24 @@ Search and exploration tools support metadata filters:
 | `ingestor_id` | Filter by ingestor | `"k8s-ingestor"` |
 | `is_structured_entity` | Only structured entities | `true` |
 | `document_type` | Filter by document type | `"runbook"`, `"structured:Pod"` |
+| `metadata.<key>` | Filter by nested metadata | `metadata.structured_entity_type` |
 
 For structured entities, `document_type` is prefixed with `structured:` followed by the entity type (e.g., `"structured:Pod"`, `"structured:Deployment"`). To filter for a specific entity type, use `document_type` with this prefix.
+
+### Nested Metadata Filters
+
+You can also filter by custom metadata fields stored in the `metadata` dict using dot notation:
+
+```json
+{
+  "filters": {
+    "metadata.structured_entity_type": "Pod",
+    "metadata.custom_field": "value"
+  }
+}
+```
+
+This is useful for filtering by ingestor-specific metadata that isn't a top-level field.
 
 Filters are combined with AND logic.
 

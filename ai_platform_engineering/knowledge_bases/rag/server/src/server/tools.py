@@ -111,7 +111,8 @@ class AgentTools:
     if not (graph_rag_enabled and has_structured_entity_search):
       valid_filter_keys = [k for k in valid_filter_keys if "structured_entity" not in k]
 
-    filters_line = f"    filters (dict): Optional metadata filters. Valid keys: {valid_filter_keys}.\n" if config.allow_runtime_filters else ""
+    # Add note about nested metadata filters
+    filters_line = f"    filters (dict): Optional metadata filters. Valid keys: {valid_filter_keys}. Also supports nested metadata filters like metadata.custom_field.\n" if config.allow_runtime_filters else ""
 
     labels = [ps.label for ps in config.parallel_searches]
     keys_str = ", ".join(f'"{lbl}"' for lbl in labels)
