@@ -168,8 +168,8 @@ Search and exploration tools support metadata filters:
 |------------|-------------|---------|
 | `datasource_id` | Filter by data source | `"aws-production"` |
 | `ingestor_id` | Filter by ingestor | `"k8s-ingestor"` |
-| `is_graph_entity` | Only graph entities | `true` |
-| `graph_entity_type` | Filter by entity type | `"Pod"` |
+| `is_structured_entity` | Only structured entities | `true` |
+| `structured_entity_type` | Filter by entity type | `"Pod"` |
 | `document_type` | Filter by document type | `"runbook"` |
 
 Filters are combined with AND logic.
@@ -192,7 +192,7 @@ Here's how an AI agent might use these tools to answer "What pods are running on
 
 3. **Find the node:**
    ```
-   search(query="worker-1", filters={"graph_entity_type": "Node"})
+   search(query="worker-1", filters={"structured_entity_type": "Node"})
    → Gets Node entity ID
    ```
 

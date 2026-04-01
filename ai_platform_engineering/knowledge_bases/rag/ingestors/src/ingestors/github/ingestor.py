@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from common.ingestor import IngestorBuilder, Client
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobStatus
 import common.utils as utils
@@ -522,7 +522,7 @@ async def sync_github_entities(client: Client):
   logging.info(f"Created/updated datasource: {datasource_id}")
 
   # 2. Fetch all entities from GitHub
-  all_entities: List[Entity] = []
+  all_entities: List[StructuredEntity] = []
 
   for org_login in org_logins:
     logging.info(f"Processing organization: {org_login}")
@@ -588,7 +588,7 @@ async def sync_github_entities(client: Client):
       # Create Organization entity
       logging.info(f"Creating organization entity for {org_login}")
       await client.update_job(job_id=job_id, job_status=JobStatus.IN_PROGRESS, message="Converting organization metadata...")
-      org_entity = Entity(
+      org_entity = StructuredEntity(
         entity_type="GitHubOrganization",
         all_properties={
           "github_instance": github_instance_name,
@@ -648,7 +648,7 @@ async def sync_github_entities(client: Client):
           if vuln_data and isinstance(vuln_data, dict):
             vulnerability_count = vuln_data.get("totalCount", 0)
 
-          repo_entity = Entity(
+          repo_entity = StructuredEntity(
             entity_type="GitHubRepository",
             all_properties={
               "github_instance": github_instance_name,
@@ -693,7 +693,7 @@ async def sync_github_entities(client: Client):
             logging.info(f"Progress: {repos_converted}/{len(repos_data)} repositories converted")
 
         except Exception as e:
-          logging.error(f"Error converting repository to Entity: {e}", exc_info=True)
+          logging.error(f"Error converting repository to StructuredEntity: {e}", exc_info=True)
           await client.add_job_error(job_id, [f"Error converting repository: {str(e)}"])
           await client.increment_job_failure(job_id, 1)
 
@@ -750,7 +750,7 @@ async def sync_github_entities(client: Client):
             if not FETCH_TEAM_DETAILS:
               logging.debug(f"Skipping detailed member/repo fetch for team {team_slug} (FETCH_TEAM_DETAILS=false)")
 
-          team_entity = Entity(
+          team_entity = StructuredEntity(
             entity_type="GitHubTeam",
             all_properties={
               "github_instance": github_instance_name,
@@ -780,7 +780,7 @@ async def sync_github_entities(client: Client):
             logging.info(f"Progress: {teams_converted}/{len(teams_data)} teams converted")
 
         except Exception as e:
-          logging.error(f"Error converting team to Entity: {e}", exc_info=True)
+          logging.error(f"Error converting team to StructuredEntity: {e}", exc_info=True)
           await client.add_job_error(job_id, [f"Error converting team: {str(e)}"])
           await client.increment_job_failure(job_id, 1)
 
@@ -837,7 +837,7 @@ async def sync_github_entities(client: Client):
               if org_email:
                 additional_keys.append([org_email])
 
-          user_entity = Entity(entity_type="GitHubUser", all_properties=user_properties, primary_key_properties=["github_instance", "id"], additional_key_properties=additional_keys)
+          user_entity = StructuredEntity(entity_type="GitHubUser", all_properties=user_properties, primary_key_properties=["github_instance", "id"], additional_key_properties=additional_keys)
           all_entities.append(user_entity)
           users_converted += 1
 
@@ -847,7 +847,7 @@ async def sync_github_entities(client: Client):
             logging.info(f"Progress: {users_converted}/{len(members_data)} users converted")
 
         except Exception as e:
-          logging.error(f"Error converting user to Entity: {e}", exc_info=True)
+          logging.error(f"Error converting user to StructuredEntity: {e}", exc_info=True)
           await client.add_job_error(job_id, [f"Error converting user: {str(e)}"])
           await client.increment_job_failure(job_id, 1)
 
@@ -857,7 +857,7 @@ async def sync_github_entities(client: Client):
         await client.increment_job_progress(job_id, remaining_users)
       logging.info(f"Completed converting {users_converted} users")
 
-      logging.info(f"Converted {len(all_entities)} GitHub items to Entity objects total")
+      logging.info(f"Converted {len(all_entities)} GitHub items to StructuredEntity objects total")
 
       # 4. Ingest entities using automatic batching
       if all_entities:

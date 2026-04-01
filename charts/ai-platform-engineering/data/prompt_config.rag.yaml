@@ -20,13 +20,13 @@ search_tool_prompt: |
   The search automatically returns BOTH types in a dictionary:
   ```
   {
-    "graph_entity_documents": [structured entities from knowledge graph],
+    "structured_entity_documents": [structured entities from knowledge graph],
     "text_documents": [regular docs, wikis, Slack/Webex threads]
   }
   ```
 
   **Key Metadata:**
-  - **Graph entities**: `graph_entity_type`, `graph_entity_pk` (or `_entity_pk`), `document_id`
+  - **Structured entities**: `structured_entity_type`, `structured_entity_pk` (or `_entity_pk`), `document_id`
   - **Text docs**: `document_id`, `title`, `datasource_id`, `document_type`, `source_url`, `source`
 
   **Recommended Workflow:**
@@ -57,7 +57,7 @@ graph_tools_prompt: |
 
   ### Workflow:
 
-  1. **Search first** → Get entities with `graph_entity_type` and `graph_entity_pk` in metadata
+  1. **Search first** → Get entities with `structured_entity_type` and `structured_entity_pk` in metadata
   2. **Understand schema** (if needed) → Use `graph_explore_ontology_entity` to see properties and relations
   3. **Explore entities** → Use `graph_explore_data_entity` with type and pk from search. Set `depth` (1-3) for neighbors
   4. **Complex queries** → Use `graph_raw_query_data` for counts, filtering, aggregations
@@ -81,7 +81,7 @@ graph_raw_query_notes: |
 
   **BEFORE Writing Queries:**
   1. Explore schema with `graph_explore_ontology_entity` to get EXACT property names (case-sensitive!)
-  2. Get entity identifiers from search results (`graph_entity_pk` or `_entity_pk`)
+  2. Get entity identifiers from search results (`structured_entity_pk` or `_entity_pk`)
 
   **Query Rules:**
   - Use backticks: `MATCH (a:AWSAccount) RETURN a.\`accountId\`` ✅ (not `a.accountId` ❌)

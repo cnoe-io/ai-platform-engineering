@@ -163,7 +163,7 @@ async def run_safe_bulk_cleanup() -> tuple[int, int, int]:
         try:
           await data_graph_db.remove_stale_entities(datasource_id=ds.datasource_id)
         except Exception as e:
-          logger.warning(f"Failed to delete stale graph entities for datasource {ds.datasource_id}: {e}")
+          logger.warning(f"Failed to delete stale structured entities for datasource {ds.datasource_id}: {e}")
           # Don't fail the whole operation if graph cleanup fails
 
       datasources_cleaned += 1
@@ -648,7 +648,7 @@ async def cleanup_datasource_stale(
     try:
       await data_graph_db.remove_stale_entities(datasource_id=datasource_id)
     except Exception as e:
-      logger.warning(f"Failed to delete stale graph entities for datasource {datasource_id}: {e}")
+      logger.warning(f"Failed to delete stale structured entities for datasource {datasource_id}: {e}")
       # Don't fail the whole operation if graph cleanup fails
 
   logger.info(f"Cleanup completed for datasource {datasource_id}")
@@ -734,7 +734,7 @@ async def list_datasource_documents(
     results = vector_db.client.query(
       collection_name=default_collection_name_docs,
       filter=f"datasource_id == '{datasource_id}'",
-      output_fields=["id", "document_id", "title", "chunk_index", "total_chunks", "fresh_until", "document_type", "document_ingested_at", "is_graph_entity", "source"],
+      output_fields=["id", "document_id", "title", "chunk_index", "total_chunks", "fresh_until", "document_type", "document_ingested_at", "is_structured_entity", "source"],
       offset=offset,
       limit=limit + 1,
     )
@@ -760,7 +760,7 @@ async def list_datasource_documents(
         "fresh_until": chunk.get("fresh_until"),
         "document_type": chunk.get("document_type"),
         "document_ingested_at": chunk.get("document_ingested_at"),
-        "is_graph_entity": chunk.get("is_graph_entity", False),
+        "is_structured_entity": chunk.get("is_structured_entity", False),
         "source": chunk.get("source"),
       }
 
@@ -1646,7 +1646,7 @@ async def health_check():
       config["graph_db"] = {
         "data_graph": {"type": data_graph_db.database_type, "query_language": data_graph_db.query_language, "uri": neo4j_addr, "tenant_label": data_graph_db.tenant_label},
         "ontology_graph": {"type": ontology_graph_db.database_type, "query_language": ontology_graph_db.query_language, "uri": neo4j_addr, "tenant_label": ontology_graph_db.tenant_label},
-        "graph_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
+        "structured_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
       }
 
   response = {"status": health_status, "timestamp": int(time.time()), "details": health_details, "config": config}

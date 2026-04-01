@@ -3,10 +3,9 @@ import asyncio
 import time
 from typing import List, Optional, Dict, Any, Callable
 import aiohttp
-from common.models.rag import DataSourceInfo, DocumentMetadata
+from common.models.rag import DataSourceInfo, DocumentMetadata, StructuredEntity
 from common.models.server import DocumentIngestRequest, IngestorPingRequest, ExploreDataEntityRequest
 from common.job_manager import JobStatus, JobInfo
-from common.models.graph import Entity
 from common.constants import DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
 from langchain_core.documents import Document
 import common.utils as utils
@@ -339,7 +338,7 @@ class Client:
         logger.error(f"Periodic ping failed for ingestor {self.ingestor_name}: {e}")
         # Continue trying even if ping fails
 
-  async def ingest_entities(self, job_id: str, datasource_id: str, entities: List[Entity], fresh_until: int):
+  async def ingest_entities(self, job_id: str, datasource_id: str, entities: List[StructuredEntity], fresh_until: int):
     """
     Ingest entities into the RAG system as documents with automatic batching
     :param job_id: ID of the ingestion job
@@ -355,7 +354,7 @@ class Client:
     documents = []
     for entity in entities:
       # Extract a meaningful title based on entity properties
-      title = self._extract_graph_entity_title(entity, entity.get_external_properties())
+      title = self._extract_structured_entity_title(entity, entity.get_external_properties())
 
       document_metadata = DocumentMetadata(
         document_id="",  # Will get populated by server based on entity primary key
@@ -363,11 +362,11 @@ class Client:
         datasource_id=datasource_id,
         ingestor_id=self.ingestor_id,
         title=title,
-        description=f"Graph entity of type {entity.entity_type}",
-        is_graph_entity=True,
+        description=f"Structured entity of type {entity.entity_type}",
+        is_structured_entity=True,
         document_ingested_at=None,  # Will get populated by server
         fresh_until=fresh_until,
-        metadata={},  # Will be populated by server with graph_entity_type and graph_entity_pk
+        metadata={},  # Will be populated by server with structured_entity_type and structured_entity_pk
       ).model_dump()
 
       # Use Pydantic's own JSON serialization to preserve all fields including additional_key_properties
@@ -414,7 +413,7 @@ class Client:
 
     return last_response
 
-  def _extract_graph_entity_title(self, entity: Entity, entity_properties: Dict[str, Any]) -> str:
+  def _extract_structured_entity_title(self, entity: StructuredEntity, entity_properties: Dict[str, Any]) -> str:
     """
     Extract a meaningful title from entity properties by checking common fields
     :param entity: The entity object
@@ -436,7 +435,7 @@ class Client:
           return f"{entity.entity_type}: {title}"
 
     # Fallback: Just the entity type
-    return f"Graph Entity {entity.entity_type}"
+    return f"Structured Entity {entity.entity_type}"
 
   async def _ingest_documents_batch(self, job_id: str, datasource_id: str, documents: List[Document], fresh_until: int) -> Dict[str, Any]:
     """
@@ -604,10 +603,10 @@ class Client:
 
   async def graph_find_entity(self, entity_type: str, entity_pk: str) -> Dict[str, Any]:
     """
-    Find a graph entity by type and primary key
+    Find a structured entity by type and primary key using the graph database
     :param entity_type: Type of the entity
     :param entity_pk: Primary key of the entity
-    :return: Entity and relations information
+    :return: StructuredEntity and relations information
     """
     explore_request = ExploreDataEntityRequest(entity_type=entity_type, entity_pk=entity_pk)
 
@@ -636,7 +635,7 @@ class IngestorBuilder:
             client.upsert_datasource(datasource)
             
             # Ingest entities
-            entities = [Entity(entity_id="1", entity_type="Document", properties={"title": "Test"})]
+            entities = [StructuredEntity(entity_id="1", entity_type="Document", properties={"title": "Test"})]
             client.ingest_entities("my-datasource", entities)
         
         # Run ingestor
