@@ -8,7 +8,7 @@ import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
 from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
-from common.models.graph import EntityIdentifier
+from common.models.rag import StructuredEntityId
 import traceback
 import httpx
 
@@ -30,22 +30,22 @@ MAX_QUERY_TOKENS = 80000
 
 
 @tool
-async def search(query: str, graph_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.3, thought: str = "") -> str:
+async def search(query: str, structured_entity_type: Optional[str] = "", datasource_id: Optional[str] = "", limit: int = 5, similarity_threshold: float = 0.3, thought: str = "") -> str:
   """
-  Search for relevant documents and graph entities using semantic search in the vector databases.
-  The scores for graph entity and documents are separate
+  Search for relevant documents and structured entities using semantic search in the vector databases.
+  The scores for structured entity and documents are separate
 
   Args:
       query (str): The search query
-      graph_entity_type (str): (Optional) Filter for the type of graph entity to search, doesnt affect documents
+      structured_entity_type (str): (Optional) Filter for the type of structured entity to search, doesnt affect documents
       limit (int): Maximum number of results to return (default: 5)
       similarity_threshold (float): Minimum similarity score threshold (default: 0.3)
       thought (str): Your thoughts for choosing this tool
 
   Returns:
-      str: JSON encoded search results containing both documents and graph entities
+      str: JSON encoded search results containing both documents and structured entities
   """
-  logger.info(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, graph_entity_type: {graph_entity_type}, datasource_id: {datasource_id}, Thought: {thought}")
+  logger.info(f"Search query: {query}, Limit: {limit}, Similarity Threshold: {similarity_threshold}, structured_entity_type: {structured_entity_type}, datasource_id: {datasource_id}, Thought: {thought}")
 
   try:
     # Prepare the request payload for the REST API
@@ -53,7 +53,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
       "query": query,
       "limit": limit,
       "similarity_threshold": similarity_threshold,
-      "graph_entity_type": graph_entity_type if graph_entity_type else None,
+      "structured_entity_type": structured_entity_type if structured_entity_type else None,
       "datasource_id": datasource_id if datasource_id else None,
     }
 
@@ -67,12 +67,12 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
     for result in api_results.get("results", []):  # Fixed: was "results_docs"
       doc_results.append({"type": "document", "content": result["document"]["page_content"], "metadata": result["document"]["metadata"], "score": result["score"]})
 
-    graph_results = []
-    for result in api_results.get("results_graph", []):
-      graph_results.append({"type": "graph_entity", "content": result["document"]["page_content"], "metadata": result["document"]["metadata"], "score": result["score"]})
+    structured_results = []
+    for result in api_results.get("results_structured", []):
+      structured_results.append({"type": "structured_entity", "content": result["document"]["page_content"], "metadata": result["document"]["metadata"], "score": result["score"]})
 
     if graph_rag_enabled:
-      results = {"query": query, "documents": doc_results, "graph_entities": graph_results, "total_documents": len(doc_results), "total_graph_entities": len(graph_results)}
+      results = {"query": query, "documents": doc_results, "structured_entities": structured_results, "total_documents": len(doc_results), "total_structured_entities": len(structured_results)}
     else:
       results = {"query": query, "documents": doc_results, "total_documents": len(doc_results)}
   except Exception as e:
@@ -80,7 +80,7 @@ async def search(query: str, graph_entity_type: Optional[str] = "", datasource_i
     logger.error(f"Error during search: {e}")
     return f"Error during search: {e}"
 
-  logger.info(f"search results: total_documents {len(results.get('documents', []))}, total_graph_entities {len(results.get('graph_entities', []))}")
+  logger.info(f"search results: total_documents {len(results.get('documents', []))}, total_structured_entities {len(results.get('structured_entities', []))}")
   return json_encode(results)
 
 
@@ -250,8 +250,8 @@ async def graph_get_relation_path_between_entity_types(entity_type_1: str, entit
     if ontology_version_id is None:
       return "Error: the ontology is not generated yet, this tool is unavailable"
     ontology_version_id = ontology_version_id
-    entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
-    entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
+    entity_a_id = StructuredEntityId(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
+    entity_b_id = StructuredEntityId(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
 
     paths = await ontology_graphdb.shortest_path(
       entity_a=entity_a_id,

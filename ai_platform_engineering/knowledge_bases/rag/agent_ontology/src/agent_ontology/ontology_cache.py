@@ -3,7 +3,7 @@ Lightweight cache for entity types and properties discovered during heuristics p
 """
 
 from typing import Dict, Set, List
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.graph_db.base import GraphDB
 from common import constants
 from common import utils
@@ -24,7 +24,7 @@ class OntologyCache:
     self.sub_entity_parent_types: Dict[str, str] = {}  # sub_entity_type -> parent_entity_type
     self.sub_entity_candidates: List[Dict] = []  # Sub-entity evaluation data to create
 
-  def add_entity(self, entity: Entity):
+  def add_entity(self, entity: StructuredEntity):
     """
     Record entity type and its properties locally (no DB write).
     Also tracks if the entity type is a sub-entity.
@@ -38,7 +38,7 @@ class OntologyCache:
       self.entity_properties[entity.entity_type] = set()
 
     # Check if this is a sub-entity type
-    is_sub_entity = entity.additional_labels and constants.SUB_ENTITY_LABEL in entity.additional_labels
+    is_sub_entity = entity.additional_types and constants.SUB_ENTITY_LABEL in entity.additional_types
 
     # Record properties for schema
     for prop_name in entity.all_properties.keys():
@@ -74,10 +74,10 @@ class OntologyCache:
       properties = self.entity_properties.get(entity_type, set())
 
       # Build additional labels - include entity type name and sub-entity label if applicable
-      additional_labels = {entity_type}
+      additional_types = {entity_type}
       is_sub_entity = entity_type in self.sub_entity_types
       if is_sub_entity:
-        additional_labels.add(constants.SUB_ENTITY_LABEL)
+        additional_types.add(constants.SUB_ENTITY_LABEL)
 
       # Build properties dict
       all_props = {
@@ -98,7 +98,7 @@ class OntologyCache:
         else:
           logger.warning(f"Sub-entity '{entity_type}' has no parent type, skipping schema creation")
           continue
-      entity = Entity(entity_type=entity_type, primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties=all_props, additional_labels=additional_labels)
+      entity = StructuredEntity(entity_type=entity_type, primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties=all_props, additional_types=additional_types)
       entities.append(entity)
 
     try:
