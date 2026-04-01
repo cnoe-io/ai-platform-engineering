@@ -11,7 +11,7 @@ fetch_document MCP tool to prevent runaway fetching in deep-research mode.
 import logging
 import threading
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from langchain_core.tools import BaseTool
 from langgraph.config import get_config
@@ -74,16 +74,18 @@ class FetchDocumentCapWrapper(BaseTool):
   args_schema: Any  # raw JSON schema dict from MCP (StructuredTool accepts this)
   max_calls: int = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS
 
+  # Class-level counters shared across all instances and graph rebuilds.
+  # Graph rebuilds create new FetchDocumentCapWrapper instances, but the
+  # per-thread_id call counts must survive those rebuilds so the cap cannot
+  # be bypassed by a mid-query registry change that triggers _rebuild_graph().
+  _global_counts: ClassVar[dict] = {}       # thread_id -> int
+  _global_timestamps: ClassVar[dict] = {}  # thread_id -> float (last call time)
+  _global_lock: ClassVar[threading.Lock] = threading.Lock()
+
   _original_tool: Any = PrivateAttr()
-  _counts: dict = PrivateAttr()        # thread_id -> int
-  _timestamps: dict = PrivateAttr()   # thread_id -> float (last call time)
-  _lock: threading.Lock = PrivateAttr()
 
   def __init__(self, **kwargs: Any):
     super().__init__(**kwargs)
-    self._counts = {}
-    self._timestamps = {}
-    self._lock = threading.Lock()
     self._original_tool = None
 
   @classmethod
@@ -103,7 +105,10 @@ class FetchDocumentCapWrapper(BaseTool):
       max_calls=max_calls,
     )
     wrapper._original_tool = original
-    logger.info(f"FetchDocumentCapWrapper created (max_calls={max_calls})")
+    logger.info(
+      f"FetchDocumentCapWrapper created (max_calls={max_calls}, "
+      f"active_threads={len(cls._global_counts)})"
+    )
     return wrapper
 
   async def _arun(self, document_id: str, thought: str = "", **kwargs: Any) -> str:
@@ -114,13 +119,17 @@ class FetchDocumentCapWrapper(BaseTool):
     increments the counter, and delegates to the original tool if under the cap.
     Returns a hard-stop instruction string when the cap is exceeded — phrased as
     a directive so the model treats it as a mandatory stop, not a retriable error.
+
+    Counters are class-level so they survive graph rebuilds: a mid-query
+    _rebuild_graph() (triggered by agent registry changes) creates a new wrapper
+    instance but must not reset the per-thread_id call budget.
     """
     config = get_config()
     thread_id = config.get("configurable", {}).get("thread_id", "__default__") if config else "__default__"
 
-    with self._lock:
+    with self._global_lock:
       self._cleanup_stale()
-      count = self._counts.get(thread_id, 0)
+      count = self._global_counts.get(thread_id, 0)
       if count >= self.max_calls:
         logger.warning(
           f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}. "
@@ -132,8 +141,8 @@ class FetchDocumentCapWrapper(BaseTool):
           "Synthesize your final answer RIGHT NOW using only the search snippets and "
           "documents already retrieved. Do not search further."
         )
-      self._counts[thread_id] = count + 1
-      self._timestamps[thread_id] = time.time()
+      self._global_counts[thread_id] = count + 1
+      self._global_timestamps[thread_id] = time.time()
       logger.debug(f"fetch_document call {count + 1}/{self.max_calls} for thread_id={thread_id}")
 
     return await self._original_tool.arun({"document_id": document_id, "thought": thought})
@@ -144,17 +153,17 @@ class FetchDocumentCapWrapper(BaseTool):
   def _cleanup_stale(self) -> None:
     """
     Remove counter entries older than _STALE_ENTRY_TTL_SECONDS.
-    Must be called under self._lock.
+    Must be called under self._global_lock.
     """
     cutoff = time.time() - _STALE_ENTRY_TTL_SECONDS
-    stale_keys = [k for k, v in self._timestamps.items() if v < cutoff]
+    stale_keys = [k for k, v in self._global_timestamps.items() if v < cutoff]
     for k in stale_keys:
-      self._counts.pop(k, None)
-      self._timestamps.pop(k, None)
+      self._global_counts.pop(k, None)
+      self._global_timestamps.pop(k, None)
     if stale_keys:
       logger.debug(f"FetchDocumentCapWrapper: cleaned up {len(stale_keys)} stale thread_id entries")
 
   def get_call_count(self, thread_id: str) -> int:
     """Return current call count for a thread_id. Useful for testing."""
-    with self._lock:
-      return self._counts.get(thread_id, 0)
+    with self._global_lock:
+      return self._global_counts.get(thread_id, 0)

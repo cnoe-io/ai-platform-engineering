@@ -129,8 +129,8 @@ class TestFetchDocumentCapWrapper:
         assert "HARD LIMIT" in result
 
         # Manually backdate timestamp to simulate TTL expiry
-        with wrapper._lock:
-            wrapper._timestamps["thread-stale"] = time.time() - (rag_module._STALE_ENTRY_TTL_SECONDS + 1)
+        with wrapper._global_lock:
+            wrapper._global_timestamps["thread-stale"] = time.time() - (rag_module._STALE_ENTRY_TTL_SECONDS + 1)
 
         # Next call triggers cleanup, counter resets
         with _patch_config("thread-stale"):
@@ -190,17 +190,17 @@ class TestFetchDocumentCapWrapper:
             await wrapper._arun(document_id="doc-1")
 
         # Add a stale entry manually
-        with wrapper._lock:
-            wrapper._counts["thread-old"] = 3
-            wrapper._timestamps["thread-old"] = time.time() - (rag_module._STALE_ENTRY_TTL_SECONDS + 1)
+        with wrapper._global_lock:
+            wrapper._global_counts["thread-old"] = 3
+            wrapper._global_timestamps["thread-old"] = time.time() - (rag_module._STALE_ENTRY_TTL_SECONDS + 1)
 
         # Trigger cleanup via a new call
         with _patch_config("thread-fresh"):
             await wrapper._arun(document_id="doc-2")
 
-        with wrapper._lock:
-            assert "thread-fresh" in wrapper._counts   # preserved
-            assert "thread-old" not in wrapper._counts  # cleaned up
+        with wrapper._global_lock:
+            assert "thread-fresh" in wrapper._global_counts   # preserved
+            assert "thread-old" not in wrapper._global_counts  # cleaned up
 
     @pytest.mark.asyncio
     async def test_arun_passes_document_id_and_thought_to_original(self):
@@ -231,9 +231,9 @@ class TestFetchDocumentCapWrapper:
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
         original = _make_mock_original_tool()
         wrapper = FetchDocumentCapWrapper.from_tool(original, max_calls=5)
-        with wrapper._lock:
-            wrapper._counts["thread-x"] = 2
-            wrapper._timestamps["thread-x"] = time.time()
+        with wrapper._global_lock:
+            wrapper._global_counts["thread-x"] = 2
+            wrapper._global_timestamps["thread-x"] = time.time()
         assert wrapper.get_call_count("thread-x") == 2
         assert wrapper.get_call_count("thread-unknown") == 0
 
