@@ -49,6 +49,9 @@ global:
 
   agentgateway:
     enabled: false
+    # Set to true only if Istio CRDs are NOT already present in the cluster.
+    # If Istio is already installed (any version), leave this false to avoid conflicts.
+    installIstioCrds: false
 
   # LangGraph Redis for checkpoint and cross-thread store persistence.
   # Two deployment options:
