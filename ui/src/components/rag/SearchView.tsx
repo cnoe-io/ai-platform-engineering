@@ -240,7 +240,9 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
     const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
     const [supportedDocTypes, setSupportedDocTypes] = useState<string[]>([]);
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
+    const [customFilterKey, setCustomFilterKey] = useState('');
     const [filterValue, setFilterValue] = useState('');
+    const [showCustomInput, setShowCustomInput] = useState(false);
 
     // Data sources count for empty state
     const [dataSourcesCount, setDataSourcesCount] = useState<number | null>(null);
@@ -318,13 +320,27 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
 
     // Filter management functions
     const addFilter = () => {
-        if (selectedFilterKey && filterValue.trim()) {
+        const keyToUse = showCustomInput ? customFilterKey.trim() : selectedFilterKey;
+        if (keyToUse && filterValue.trim()) {
             setFilters(prev => ({
                 ...prev,
-                [selectedFilterKey]: filterValue.trim()
+                [keyToUse]: filterValue.trim()
             }));
             setSelectedFilterKey('');
+            setCustomFilterKey('');
             setFilterValue('');
+            setShowCustomInput(false);
+        }
+    };
+
+    const handleFilterKeyChange = (value: string) => {
+        if (value === '__custom__') {
+            setShowCustomInput(true);
+            setSelectedFilterKey('');
+        } else {
+            setShowCustomInput(false);
+            setSelectedFilterKey(value);
+            setCustomFilterKey('');
         }
     };
 
@@ -457,22 +473,49 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
             {/* Row 3: Filters - boxed section, only show if tool supports filters */}
             {toolSupportsFilters && (
                 <div className="p-3 rounded-lg border border-border bg-muted/30">
-                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Filters</span>
+                    <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Filters</span>
+                        <span className="text-xs text-muted-foreground">Supports metadata.* for custom fields</span>
+                    </div>
                     
                     <div className="mt-2 flex flex-wrap items-center gap-3">
-                        {/* Custom filter input */}
+                        {/* Filter key selector */}
                         <div className="flex items-center gap-2">
-                            <select
-                                value={selectedFilterKey}
-                                onChange={(e) => setSelectedFilterKey(e.target.value)}
-                                className="rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
-                            >
-                                <option value="">Add filter...</option>
-                                {validFilterKeys.map(key => (
-                                    <option key={key} value={key}>{key}</option>
-                                ))}
-                            </select>
-                            {selectedFilterKey && (
+                            {!showCustomInput ? (
+                                <select
+                                    value={selectedFilterKey}
+                                    onChange={(e) => handleFilterKeyChange(e.target.value)}
+                                    className="rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
+                                >
+                                    <option value="">Add filter...</option>
+                                    {validFilterKeys.map(key => (
+                                        <option key={key} value={key}>{key}</option>
+                                    ))}
+                                    <option value="__custom__">Custom key (metadata.*)</option>
+                                </select>
+                            ) : (
+                                <div className="flex items-center gap-1">
+                                    <input
+                                        type="text"
+                                        placeholder="metadata.field_name"
+                                        value={customFilterKey}
+                                        onChange={(e) => setCustomFilterKey(e.target.value)}
+                                        className="w-36 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground font-mono"
+                                        autoFocus
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            setShowCustomInput(false);
+                                            setCustomFilterKey('');
+                                        }}
+                                        className="p-1 text-muted-foreground hover:text-foreground"
+                                        title="Cancel custom key"
+                                    >
+                                        <X className="h-3 w-3" />
+                                    </button>
+                                </div>
+                            )}
+                            {(selectedFilterKey || (showCustomInput && customFilterKey)) && (
                                 <>
                                     <input
                                         type="text"
