@@ -396,7 +396,9 @@ class Client:
     if total_documents <= self.max_docs_per_ingest():
       # Single batch - process all documents at once
       logger.info(f"Ingesting {total_documents} documents in a single batch")
-      return await self._ingest_documents_batch(job_id, datasource_id, documents, fresh_until)
+      result = await self._ingest_documents_batch(job_id, datasource_id, documents, fresh_until)
+      await self.increment_document_count(job_id, total_documents)
+      return result
 
     # Multiple batches - split documents into chunks
     logger.info(f"Ingesting {total_documents} documents in batches of {self.max_docs_per_ingest()}")
@@ -410,6 +412,7 @@ class Client:
 
       logger.info(f"Processing batch {batch_num}/{total_batches} with {len(batch_documents)} documents")
       last_response = await self._ingest_documents_batch(job_id, datasource_id, batch_documents, fresh_until)
+      await self.increment_document_count(job_id, len(batch_documents))
 
     return last_response
 
@@ -575,6 +578,20 @@ class Client:
 
     async with aiohttp.ClientSession() as session:
       async with session.post(url=f"{self.server_addr}/v1/job/{job_id}/increment-failure", headers=headers, params={"increment": increment}) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+  async def increment_document_count(self, job_id: str, increment: int = 1) -> Dict[str, Any]:
+    """
+    Increment job document count
+    :param job_id: Job ID
+    :param increment: Amount to increment by
+    :return: Updated document count information
+    """
+    headers = await self._get_auth_headers()
+
+    async with aiohttp.ClientSession() as session:
+      async with session.post(url=f"{self.server_addr}/v1/job/{job_id}/increment-document-count", headers=headers, params={"increment": increment}) as resp:
         resp.raise_for_status()
         return await resp.json()
 

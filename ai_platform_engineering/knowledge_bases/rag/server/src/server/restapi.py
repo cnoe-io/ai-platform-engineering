@@ -985,6 +985,20 @@ async def increment_job_failure(job_id: str, increment: int = 1, user: UserConte
   return {"job_id": job_id, "failed_counter": new_value}
 
 
+@app.post("/v1/job/{job_id}/increment-document-count")
+async def increment_job_document_count(job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+  """Increment the document count for a job."""
+  if not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  new_value = await jobmanager.increment_document_count(job_id, increment)
+  if new_value == -1:
+    raise HTTPException(status_code=400, detail="Cannot increment document count - job is terminated")
+
+  logger.debug(f"Incremented document count for job {job_id} by {increment}, new value: {new_value}")
+  return {"job_id": job_id, "document_count": new_value}
+
+
 @app.post("/v1/job/{job_id}/add-errors")
 async def add_job_errors(job_id: str, error_messages: List[str], user: UserContext = Depends(require_role(Role.INGESTONLY))):
   """Add error messages to a job."""
