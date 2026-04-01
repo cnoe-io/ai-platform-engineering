@@ -266,11 +266,34 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             ]
         }
 
+    _STRUCTURED_RESPONSE_RE = re.compile(
+        r"(?:Returning structured response:\s*)?"
+        r"is_task_complete=\w+\s+"
+        r"require_user_input=\w+\s+"
+        r"(?:was_task_successful=\w+\s+)?"
+        r"content='",
+        re.DOTALL,
+    )
+
+    def _strip_structured_response_wrapper(self, content: str) -> str:
+        """Strip leaked structured response metadata wrapper, returning only the content value."""
+        m = self._STRUCTURED_RESPONSE_RE.search(content)
+        if not m:
+            return content
+        inner = content[m.end():]
+        # The content value ends with a trailing single-quote (may be truncated)
+        if inner.endswith("'"):
+            inner = inner[:-1]
+        logger.info(f"Stripped structured response wrapper ({m.end()} header chars)")
+        return inner
+
     def _extract_final_answer(self, content: str) -> str:
         """
         Extract content after [FINAL ANSWER] marker.
         If marker not found, return original content.
+        Also strips leaked structured response metadata wrappers.
         """
+        content = self._strip_structured_response_wrapper(content)
         marker = "[FINAL ANSWER]"
         if marker in content:
             # Extract everything after the marker
