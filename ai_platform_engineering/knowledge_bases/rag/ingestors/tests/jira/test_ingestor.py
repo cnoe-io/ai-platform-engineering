@@ -99,7 +99,7 @@ _common_job_manager = _make_stub("common.job_manager", JobStatus=_JobStatus)
 _common_utils = _make_stub(
     "common.utils",
     get_logger=MagicMock(return_value=MagicMock()),
-    get_default_fresh_until=lambda: int(__import__("time").time()) + 7 * 86400,
+    get_fresh_until=lambda reload_interval: int(__import__("time").time()) + int(reload_interval * 1.5),
 )
 
 # common (parent)

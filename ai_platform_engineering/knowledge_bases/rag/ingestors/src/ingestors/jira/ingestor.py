@@ -304,7 +304,7 @@ def _build_issue_document(
         document_type="jira_issue",
         document_ingested_at=int(time.time()),
         document_id=f"jira-issue-{key}",
-        fresh_until=utils.get_default_fresh_until(),
+        fresh_until=utils.get_fresh_until(sync_interval),
         title=f"[{key}] {summary}",
         metadata={
             "issue_key": key,
