@@ -17,9 +17,12 @@
 #   - rag: Enable RAG services
 #   - graph_rag: Enable RAG with graph database
 #   - caipe-ui: Enable CAIPE web UI (Task Builder + Chat)
+#   - github-mcp: Enable GitHub MCP server as separate HTTP pod
 #   - weather: Enable remote Weather agent
 #
 # Example: docker compose -f docker-compose.single-node.dev.yaml --profile caipe-ui up --build
+# GitHub MCP: docker compose -f docker-compose.single-node.dev.yaml --profile caipe-ui --profile github-mcp up --build
+#   (set GITHUB_MCP_MODE=http in .env to route supervisor requests to the MCP pod)
 # ============================================================================
 
 services:
@@ -103,6 +106,11 @@ services:
       # Structured response format (ResponseFormat tool instead of [FINAL ANSWER] marker)
       - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
 
+      # GitHub MCP (separate HTTP pod - enable with --profile github-mcp)
+      - GITHUB_MCP_MODE=${GITHUB_MCP_MODE:-stdio}
+      - GITHUB_MCP_HOST=${GITHUB_MCP_HOST:-github-mcp}
+      - GITHUB_MCP_PORT=${GITHUB_MCP_PORT:-8000}
+
       # Remote A2A agents
       - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
       - WEATHER_AGENT_HOST=agent-weather
@@ -132,6 +140,19 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+
+  ####################################################################################################
+  #                               GitHub MCP Server                                                #
+  ####################################################################################################
+  github-mcp:
+    build:
+      context: .
+      dockerfile: ai_platform_engineering/agents/github/build/Dockerfile.mcp
+    container_name: github-mcp
+    ports:
+      - "8010:8000"
+    profiles:
+      - github-mcp
 
   ####################################################################################################
   #                               Remote A2A Agents                                                #
