@@ -81,8 +81,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const users = await getCollection('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');
-    let slackInteractionsColl: Awaited<ReturnType<typeof getCollection>> | null = null;
-    try { slackInteractionsColl = await getCollection('slack_interactions'); } catch { /* may not exist */ }
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -108,8 +106,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       sourceFilter !== 'slack'
         ? messages.countDocuments({ ...msgOwnerFilter })
         : Promise.resolve(0),
-      sourceFilter !== 'web' && slackInteractionsColl
-        ? slackInteractionsColl.countDocuments({})
+      sourceFilter !== 'web'
+        ? messages.countDocuments({ 'metadata.source': 'slack' })
         : Promise.resolve(0),
       // DAU/MAU: derive from conversations when filters are applied, otherwise from users
       hasFilters
@@ -130,8 +128,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       sourceFilter !== 'slack'
         ? messages.countDocuments({ created_at: { $gte: today }, ...msgOwnerFilter })
         : Promise.resolve(0),
-      sourceFilter !== 'web' && slackInteractionsColl
-        ? slackInteractionsColl.countDocuments({ timestamp: { $gte: today } })
+      sourceFilter !== 'web'
+        ? messages.countDocuments({ 'metadata.source': 'slack', created_at: { $gte: today } })
         : Promise.resolve(0),
       conversations.countDocuments({
         ...convSourceFilter,
@@ -197,12 +195,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             },
           ]).toArray()
         : Promise.resolve([]),
-      sourceFilter !== 'web' && slackInteractionsColl
-        ? slackInteractionsColl.aggregate([
-            { $match: { timestamp: { $gte: rangeStart } } },
+      sourceFilter !== 'web'
+        ? messages.aggregate([
+            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart } } },
             {
               $group: {
-                _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+                _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
                 messages: { $sum: 1 },
               },
             },
@@ -537,10 +535,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
-      sourceFilter !== 'web' && slackInteractionsColl
-        ? slackInteractionsColl.aggregate([
-            { $match: { timestamp: { $gte: rangeStart } } },
-            { $group: { _id: { $hour: '$timestamp' }, count: { $sum: 1 } } },
+      sourceFilter !== 'web'
+        ? messages.aggregate([
+            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart } } },
+            { $addFields: { _ts: { $toDate: '$created_at' } } },
+            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
     ]);
@@ -555,13 +554,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }));
 
     // ═══════════════════════════════════════════════════════════════
-    // SLACK STATS (data-driven — included when slack_interactions has data)
+    // SLACK STATS (data-driven — from conversations with source: "slack")
     // ═══════════════════════════════════════════════════════════════
     let slack: any = undefined;
 
     try {
-      const slackInteractions = await getCollection('slack_interactions');
-      const slackHasData = await slackInteractions.countDocuments({}, { limit: 1 });
+      const slackFilter = { source: 'slack', created_at: { $gte: rangeStart } };
+      const slackHasData = await conversations.countDocuments({ source: 'slack' }, { limit: 1 });
 
       if (slackHasData > 0) {
         const platformConfig = await getCollection('platform_config');
@@ -570,47 +569,47 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           await Promise.all([
             // Channel config
             platformConfig.findOne({ _id: 'channel_stats' as any }),
-            // Total interactions in range
-            slackInteractions.countDocuments({ timestamp: { $gte: rangeStart } }),
+            // Total interactions (threads) in range
+            conversations.countDocuments(slackFilter),
             // Unique Slack users
-            slackInteractions.aggregate([
-              { $match: { timestamp: { $gte: rangeStart } } },
-              { $group: { _id: '$user_id' } },
+            conversations.aggregate([
+              { $match: slackFilter },
+              { $group: { _id: '$slack_meta.user_id' } },
               { $count: 'total' },
             ]).toArray(),
             // Resolution stats (non-escalated = resolved)
-            slackInteractions.aggregate([
-              { $match: { timestamp: { $gte: rangeStart } } },
+            conversations.aggregate([
+              { $match: slackFilter },
               {
                 $group: {
                   _id: null,
                   total_threads: { $sum: 1 },
-                  escalated_threads: { $sum: { $cond: ['$escalated', 1, 0] } },
+                  escalated_threads: { $sum: { $cond: ['$slack_meta.escalated', 1, 0] } },
                 },
               },
             ]).toArray(),
             // Daily breakdown
-            slackInteractions.aggregate([
-              { $match: { timestamp: { $gte: rangeStart } } },
+            conversations.aggregate([
+              { $match: slackFilter },
               {
                 $group: {
-                  _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+                  _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
                   interactions: { $sum: 1 },
-                  unique_users: { $addToSet: '$user_id' },
-                  resolved: { $sum: { $cond: [{ $not: '$escalated' }, 1, 0] } },
-                  escalated: { $sum: { $cond: ['$escalated', 1, 0] } },
+                  unique_users: { $addToSet: '$slack_meta.user_id' },
+                  resolved: { $sum: { $cond: [{ $not: '$slack_meta.escalated' }, 1, 0] } },
+                  escalated: { $sum: { $cond: ['$slack_meta.escalated', 1, 0] } },
                 },
               },
               { $sort: { _id: 1 } },
             ]).toArray(),
             // Top channels
-            slackInteractions.aggregate([
-              { $match: { timestamp: { $gte: rangeStart }, channel_name: { $ne: null } } },
+            conversations.aggregate([
+              { $match: { ...slackFilter, 'slack_meta.channel_name': { $ne: null } } },
               {
                 $group: {
-                  _id: '$channel_name',
+                  _id: '$slack_meta.channel_name',
                   interactions: { $sum: 1 },
-                  resolved: { $sum: { $cond: [{ $not: '$escalated' }, 1, 0] } },
+                  resolved: { $sum: { $cond: [{ $not: '$slack_meta.escalated' }, 1, 0] } },
                 },
               },
               { $sort: { interactions: -1 } },
@@ -625,7 +624,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           : 0;
 
         // ── Per-thread hours estimation ─────────────────────────────
-        // Join slack_interactions with feedback to determine time saved:
+        // Join conversations (source: "slack") with feedback to determine time saved:
         //   positive feedback  → 4h
         //   negative feedback  → 0h
         //   no feedback, not escalated (self-resolved) → 4h
@@ -634,12 +633,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         const POSITIVE_FEEDBACK_HOURS = 4;
         const NO_FEEDBACK_MINUTES = 10;
 
-        const slackHoursAgg = await slackInteractions.aggregate([
-          { $match: { timestamp: { $gte: rangeStart } } },
+        const slackHoursAgg = await conversations.aggregate([
+          { $match: slackFilter },
           {
             $lookup: {
               from: 'feedback',
-              let: { convId: { $concat: ['slack-', '$thread_ts'] } },
+              let: { convId: '$_id' },
               pipeline: [
                 { $match: { $expr: { $eq: ['$conversation_id', '$$convId'] }, source: 'slack' } },
                 { $sort: { created_at: -1 } },
@@ -664,7 +663,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
                     // Positive feedback → 4h
                     { case: { $eq: ['$fb_rating', 'positive'] }, then: POSITIVE_FEEDBACK_HOURS },
                     // No feedback + not escalated (self-resolved) → 4h
-                    { case: { $and: [{ $not: '$fb_rating' }, { $not: '$escalated' }] }, then: SELF_RESOLVED_HOURS },
+                    { case: { $and: [{ $not: '$fb_rating' }, { $not: '$slack_meta.escalated' }] }, then: SELF_RESOLVED_HOURS },
                   ],
                   // No feedback + escalated → 10 min
                   default: NO_FEEDBACK_MINUTES / 60,
@@ -724,8 +723,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         };
       }
     } catch (err) {
-      // Slack collections may not exist yet — silently skip
-      console.warn('Slack stats query failed (collections may not exist yet):', err);
+      // Slack data may not exist yet — silently skip
+      console.warn('Slack stats query failed:', err);
     }
 
     // ═══════════════════════════════════════════════════════════════

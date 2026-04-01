@@ -135,22 +135,6 @@ def stream_a2a_response(
     1. Throttled updates during processing (tools, execution plan)
     2. Stream final output using Slack's streaming API
 
-    Args:
-        a2a_client: A2AClient instance
-        slack_client: Slack Client instance
-        channel_id: Slack channel ID
-        thread_ts: Thread timestamp
-        message_text: Message to send to CAIPE
-        team_id: Slack team ID (required for streaming)
-        user_id: Slack user ID (required for streaming)
-        context_id: Optional A2A context ID
-        metadata: Optional metadata
-        session_manager: Optional session manager
-        triggered_by_user_id: Optional user ID who triggered this request (for feedback attribution)
-        additional_footer: Optional additional text to append to footer
-        overthink_mode: If True, check response for [DEFER] or [LOW_CONFIDENCE] markers
-            and skip posting if found. Returns {"skipped": True, "reason": "..."} in that case.
-
     Returns:
         List of Slack blocks for the final response, or dict with retry_needed=True on recoverable errors,
         or dict with skipped=True if overthink_mode filtered the response

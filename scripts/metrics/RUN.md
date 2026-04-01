@@ -109,13 +109,12 @@ db.feedback.aggregate([{$match: {source: "slack"}}, {$group: {_id: "$rating", co
 '
 ```
 
-### Step 3: Backfill Slack interactions, conversations, and users
+### Step 3: Backfill Slack conversations and users
 
-Crawls Slack channel history for threads where the bot replied. For each thread, resolves user profiles (email + name via `users.info` API) and writes to three collections:
+Crawls Slack channel history for threads where the bot replied. For each thread, resolves user profiles (email + name via `users.info` API) and writes to two collections:
 
-- **`conversations`**: One doc per thread (`_id: "slack-{thread_ts}"`, `source: "slack"`, `message_count` = Forge-involved messages only)
+- **`conversations`**: One doc per thread (`_id: "slack-{thread_ts}"`, `source: "slack"`, `message_count` = Forge-involved messages only, embedded `slack_meta` with escalation, interaction type, channel info)
 - **`users`**: One doc per unique user (keyed by email, `source: "slack"`)
-- **`slack_interactions`**: Sidecar with escalation, interaction_type, channel metadata
 
 ```bash
 # All channels the bot is a member of (full backfill)
@@ -146,7 +145,6 @@ Total interactions found: K
 Done.
   conversations: K inserted, 0 skipped
   users: P upserted
-  slack_interactions: K inserted, 0 skipped
 ```
 
 **Verify:**
@@ -158,16 +156,58 @@ print("total: " + db.conversations.countDocuments());
 db.conversations.aggregate([{$group: {_id: "$source", count: {$sum: 1}}}]).forEach(function(r) { print("  " + r._id + ": " + r.count); });
 var mc = db.conversations.aggregate([{$match: {source: "slack"}}, {$group: {_id: null, total: {$sum: "$message_count"}}}]).toArray()[0];
 if (mc) print("  slack message_count total: " + mc.total);
+print("  with slack_meta: " + db.conversations.countDocuments({"slack_meta": {$exists: true}}));
+print("  escalated: " + db.conversations.countDocuments({"slack_meta.escalated": true}));
 
 print("\n=== users ===");
 print("total: " + db.users.countDocuments());
 db.users.aggregate([{$group: {_id: "$source", count: {$sum: 1}}}]).forEach(function(r) { print("  " + (r._id || "null") + ": " + r.count); });
-
-print("\n=== slack_interactions ===");
-print("total: " + db.slack_interactions.countDocuments());
-print("escalated: " + db.slack_interactions.countDocuments({escalated: true}));
-print("resolved: " + db.slack_interactions.countDocuments({escalated: false}));
 '
+```
+
+## Data Model
+
+### conversations (Slack entries)
+
+```json
+{
+  "_id": "slack-1775078704.485889",
+  "title": "#ask-forge thread",
+  "owner_id": "user@company.com",
+  "source": "slack",
+  "message_count": 4,
+  "created_at": "2025-03-15T...",
+  "updated_at": "2025-03-15T...",
+  "slack_meta": {
+    "thread_ts": "1775078704.485889",
+    "channel_id": "C010J2FQFLK",
+    "channel_name": "ask-forge",
+    "user_id": "U12345",
+    "user_email": "user@company.com",
+    "interaction_type": "qanda",
+    "escalated": false,
+    "trace_id": "...",
+    "context_id": "...",
+    "response_time_ms": null
+  }
+}
+```
+
+### messages (Slack lightweight entries, written per bot response)
+
+```json
+{
+  "message_id": "slack-1775078704.485889-a1b2c3d4",
+  "conversation_id": "slack-1775078704.485889",
+  "owner_id": "user@company.com",
+  "role": "assistant",
+  "content": null,
+  "metadata": {
+    "source": "slack"
+  },
+  "created_at": "2025-03-15T...",
+  "updated_at": "2025-03-15T..."
+}
 ```
 
 ## Notes
@@ -178,3 +218,4 @@ print("resolved: " + db.slack_interactions.countDocuments({escalated: false}));
 - The `--dump-json` / `--from-json` workflow is recommended for the Slack backfill — it avoids re-crawling the Slack API if you need to re-run the MongoDB write phase.
 - `message_count` on Slack conversations counts only Forge-involved messages (bot replies + original asker messages), not all thread participants.
 - Escalation = a human other than the original asker replied in the thread after Forge responded.
+- The `slack_interactions` collection is **no longer used** — all Slack-specific metadata is embedded as `slack_meta` on the `conversations` collection. If you have an old `slack_interactions` collection from a prior version, it can be safely dropped after verifying conversations have `slack_meta`.

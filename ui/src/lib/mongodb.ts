@@ -252,10 +252,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'feedback', { channel_name: 1, created_at: -1 }),
     safeCreateIndex(db, 'feedback', { trace_id: 1 }),
 
-    // Slack interactions collection (one doc per Slack thread)
-    safeCreateIndex(db, 'slack_interactions', { thread_ts: 1, channel_id: 1 }, { unique: true }),
-    safeCreateIndex(db, 'slack_interactions', { timestamp: -1 }),
-    safeCreateIndex(db, 'slack_interactions', { channel_id: 1, timestamp: -1 }),
+    // Slack metadata on conversations (for stats queries filtering by source)
+    safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
+    safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
+    safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

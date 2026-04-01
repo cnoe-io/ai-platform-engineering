@@ -502,19 +502,20 @@ def handle_message_events(body, say, client):
     if not event.get("bot_id"):
         # ── Escalation detection ─────────────────────────────────
         # A non-bot user replied inside a thread. If this thread is
-        # tracked in slack_interactions AND the replier is not the
-        # original asker, mark the thread as escalated.
+        # tracked in conversations (source: "slack") AND the replier
+        # is not the original asker, mark the thread as escalated.
         thread_ts = event.get("thread_ts")
         if thread_ts and is_thread:
             user_id = event.get("user")
             try:
                 db = session_manager.get_db()
                 if db is not None:
-                    doc = db["slack_interactions"].find_one(
-                        {"thread_ts": thread_ts, "channel_id": channel_id},
-                        {"user_id": 1},
+                    conversation_id = f"slack-{thread_ts}"
+                    doc = db["conversations"].find_one(
+                        {"_id": conversation_id, "source": "slack"},
+                        {"slack_meta.user_id": 1},
                     )
-                    if doc and doc.get("user_id") != user_id:
+                    if doc and doc.get("slack_meta", {}).get("user_id") != user_id:
                         interaction_tracker.mark_escalated(thread_ts, channel_id)
             except Exception as e:
                 logger.debug(f"Escalation check failed for {thread_ts}: {e}")

@@ -2,10 +2,11 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Backfill historical Slack interactions from the Slack API → MongoDB slack_interactions collection.
+Backfill historical Slack interactions from the Slack API → MongoDB.
 
 Crawls channel history for threads where the bot replied, then upserts
-into the `slack_interactions` collection.
+into the ``conversations`` collection (with embedded ``slack_meta``)
+and the ``users`` collection.
 
 Modes:
   --dump-json FILE    Fetch from Slack and save interaction data to a JSON file (no MongoDB needed)
@@ -290,10 +291,9 @@ def main():
         return
 
     # --- Write to MongoDB ---
-    # Populates 3 collections:
-    #   conversations  — one doc per Slack thread (source: "slack"), powers DAU/conversation charts
+    # Populates 2 collections:
+    #   conversations  — one doc per Slack thread (source: "slack") with embedded slack_meta
     #   users          — one doc per unique Slack user, powers user counts / DAU / MAU
-    #   slack_interactions — sidecar with Slack-only metadata (escalation, interaction_type, channel)
     from pymongo import MongoClient
 
     mongodb_uri = get_required_env("MONGODB_URI")
@@ -303,12 +303,9 @@ def main():
     db = mongo_client[mongodb_db]
     conversations_coll = db["conversations"]
     users_coll = db["users"]
-    interactions_coll = db["slack_interactions"]
 
     conv_inserted = 0
     conv_skipped = 0
-    interaction_inserted = 0
-    interaction_skipped = 0
     users_seen = set()
 
     for doc in all_docs:
@@ -327,7 +324,7 @@ def main():
 
         now = datetime.now(timezone.utc)
 
-        # --- conversations collection ---
+        # --- conversations collection (with embedded slack_meta) ---
         conv_doc = {
             "_id": conv_id,
             "title": f"#{channel_name} thread",
@@ -346,6 +343,18 @@ def main():
             },
             "tags": [],
             "is_archived": False,
+            "slack_meta": {
+                "thread_ts": thread_ts,
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "user_id": user_id,
+                "user_email": user_email,
+                "interaction_type": doc.get("interaction_type", "unknown"),
+                "escalated": doc.get("escalated", False),
+                "trace_id": doc.get("trace_id"),
+                "context_id": doc.get("context_id"),
+                "response_time_ms": doc.get("response_time_ms"),
+            },
         }
 
         result = conversations_coll.update_one(
@@ -379,40 +388,9 @@ def main():
                 upsert=True,
             )
 
-        # --- slack_interactions sidecar ---
-        updated_at = doc.get("updated_at", now)
-        if isinstance(updated_at, str):
-            updated_at = datetime.fromisoformat(updated_at)
-
-        interaction_doc = {
-            "thread_ts": thread_ts,
-            "conversation_id": conv_id,
-            "channel_id": channel_id,
-            "channel_name": channel_name,
-            "user_id": user_id,
-            "timestamp": ts,
-            "interaction_type": doc.get("interaction_type", "unknown"),
-            "escalated": doc.get("escalated", False),
-            "trace_id": doc.get("trace_id"),
-            "context_id": doc.get("context_id"),
-            "response_time_ms": doc.get("response_time_ms"),
-            "updated_at": updated_at,
-        }
-
-        result = interactions_coll.update_one(
-            {"thread_ts": thread_ts, "channel_id": channel_id},
-            {"$setOnInsert": interaction_doc},
-            upsert=True,
-        )
-        if result.upserted_id:
-            interaction_inserted += 1
-        else:
-            interaction_skipped += 1
-
     print(f"Done.")
     print(f"  conversations: {conv_inserted} inserted, {conv_skipped} skipped")
     print(f"  users: {len(users_seen)} upserted")
-    print(f"  slack_interactions: {interaction_inserted} inserted, {interaction_skipped} skipped")
     mongo_client.close()
 
 

@@ -3,13 +3,14 @@
 """
 Slack Interaction Tracker
 
-Records one document per Slack thread where the bot participated,
-stored in the `slack_interactions` MongoDB collection. Also upserts
-into `conversations` (source: "slack") and `users` collections so
-that Slack activity is visible alongside web data in the admin dashboard.
+Records Slack thread metadata directly on the ``conversations`` collection
+(via an embedded ``slack_meta`` sub-document) and upserts ``users``.
+Also writes lightweight ``messages`` docs (no content, just metadata)
+for per-response tracking (message counts, daily/hourly activity).
 """
 
 import datetime
+import uuid
 from typing import Optional
 from loguru import logger
 
@@ -18,15 +19,16 @@ from .session_manager import SessionManager
 
 class InteractionTracker:
     """
-    Records Slack thread interactions to MongoDB for platform statistics.
+    Records Slack interactions to MongoDB for platform statistics.
 
-    Each thread gets a single document in `slack_interactions`, upserted
-    on (thread_ts, channel_id). Escalation is tracked separately when a
-    non-bot, non-asker human replies in the thread.
+    Each Slack thread maps to a ``conversations`` doc with ``source: "slack"``
+    and an embedded ``slack_meta`` field holding Slack-specific metadata
+    (escalation, interaction type, channel info, etc.).
 
-    On every response the bot sends it also:
-    - Upserts a `conversations` doc keyed by ``slack-{thread_ts}``
-    - Upserts a `users` doc keyed by the user's email
+    On every bot response it also:
+    - Upserts a ``users`` doc keyed by the user's email
+    - Writes a lightweight ``messages`` doc (no content, just metadata)
+      for per-response message counts and activity tracking
     """
 
     def __init__(self, session_manager: SessionManager):
@@ -48,8 +50,7 @@ class InteractionTracker:
     ) -> None:
         """Record or update an interaction for a Slack thread.
 
-        Also upserts the ``conversations`` and ``users`` collections so
-        that Slack data appears alongside web data in admin stats.
+        Upserts ``conversations`` (with embedded ``slack_meta``) and ``users``.
         """
         if self._db is None:
             return
@@ -58,35 +59,9 @@ class InteractionTracker:
         ts = event_timestamp or now
         conversation_id = f"slack-{thread_ts}"
 
-        # ── slack_interactions ───────────────────────────────────────
+        # ── conversations (source: "slack", with embedded slack_meta) ──
         try:
-            self._db["slack_interactions"].update_one(
-                {"thread_ts": thread_ts, "channel_id": channel_id},
-                {
-                    "$set": {
-                        "channel_name": channel_name,
-                        "user_email": user_email,
-                        "interaction_type": interaction_type,
-                        "trace_id": trace_id,
-                        "context_id": context_id,
-                        "response_time_ms": response_time_ms,
-                        "conversation_id": conversation_id,
-                        "updated_at": now,
-                    },
-                    "$setOnInsert": {
-                        "user_id": user_id,
-                        "timestamp": ts,
-                        "escalated": False,
-                    },
-                },
-                upsert=True,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to record interaction for {thread_ts}: {e}")
-
-        # ── conversations (source: "slack") ──────────────────────────
-        try:
-            title = f"#{channel_name} thread" if channel_name else f"Slack thread"
+            title = f"#{channel_name} thread" if channel_name else "Slack thread"
             self._db["conversations"].update_one(
                 {"_id": conversation_id},
                 {
@@ -94,15 +69,27 @@ class InteractionTracker:
                         "title": title,
                         "owner_id": user_email or user_id,
                         "source": "slack",
-                        "channel_id": channel_id,
-                        "channel_name": channel_name,
                         "created_at": ts,
                         "sharing": {"shared_with": [], "is_shared": False},
                         "tags": [],
                         "is_archived": False,
                     },
                     "$inc": {"message_count": 2},  # +1 user question, +1 bot reply
-                    "$set": {"updated_at": now},
+                    "$set": {
+                        "updated_at": now,
+                        "slack_meta": {
+                            "thread_ts": thread_ts,
+                            "channel_id": channel_id,
+                            "channel_name": channel_name,
+                            "user_id": user_id,
+                            "user_email": user_email,
+                            "interaction_type": interaction_type,
+                            "escalated": False,
+                            "trace_id": trace_id,
+                            "context_id": context_id,
+                            "response_time_ms": response_time_ms,
+                        },
+                    },
                 },
                 upsert=True,
             )
@@ -130,17 +117,36 @@ class InteractionTracker:
             except Exception as e:
                 logger.warning(f"Failed to upsert user {user_email}: {e}")
 
+        # ── messages (lightweight, no content — for message counts) ──
+        try:
+            message_id = f"slack-{thread_ts}-{uuid.uuid4().hex[:8]}"
+            self._db["messages"].insert_one({
+                "message_id": message_id,
+                "conversation_id": conversation_id,
+                "owner_id": user_email or user_id,
+                "role": "assistant",
+                "content": None,
+                "metadata": {
+                    "source": "slack",
+                },
+                "created_at": now,
+                "updated_at": now,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to write message for {thread_ts}: {e}")
+
     def mark_escalated(self, thread_ts: str, channel_id: str) -> None:
         """Mark a thread as escalated (a non-bot, non-asker human replied)."""
         if self._db is None:
             return
 
+        conversation_id = f"slack-{thread_ts}"
         try:
-            self._db["slack_interactions"].update_one(
-                {"thread_ts": thread_ts, "channel_id": channel_id},
+            self._db["conversations"].update_one(
+                {"_id": conversation_id, "source": "slack"},
                 {
                     "$set": {
-                        "escalated": True,
+                        "slack_meta.escalated": True,
                         "updated_at": datetime.datetime.utcnow(),
                     },
                 },
