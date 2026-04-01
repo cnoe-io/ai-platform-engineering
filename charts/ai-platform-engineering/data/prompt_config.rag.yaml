@@ -34,13 +34,15 @@ search_tool_prompt: |
   2. **Review both result types**:
      - Graph entities = structured data with relationships
      - Text documents = documentation and procedures
-  3. **Dive deeper**:
+  3. **Dive deeper (selectively)**:
      - Entities: Use `graph_explore_data_entity` with type/pk to see relationships
-     - Documents: Use `fetch_document` with document_id for full content
+     - Documents: Use `fetch_document` for the **top 3 most relevant** document_ids only — search excerpts are often sufficient; only fetch full content when the excerpt is incomplete or ambiguous
      - Slack/Webex: Extract info and speak naturally like a colleague
   4. **Combine insights** - Best answers often use BOTH structured entities AND documentation
 
-  **BE PERSISTENT - Minimum 3 approaches:**
+  **Document Fetch Limit:** Fetch at most **3 documents** with `fetch_document` per search round. Do NOT fetch every document returned — use the search excerpts to identify the 1-3 most relevant ones, then fetch only those.
+
+  **BE PERSISTENT - Minimum 3 search approaches (NOT 3 fetch rounds):**
   - Vary search terms: synonyms ("kubernetes"↔"k8s", "deploy"↔"deployment"), abbreviations ("CI/CD"↔"continuous integration"), broader/narrower ("errors"→"HTTP errors"→"404 errors")
   - Toggle semantic/keyword modes - if sentences don't work, try keyword search for: error codes ("ERROR-404"), IPs ("10.0.1.5"), exact names ("prod-deployment-abc"), stack traces
   - Try different datasource filters
@@ -158,24 +160,23 @@ start_rag_prompt: |
   **Knowledge Base Access:**
   Text docs (wikis, Confluence, PDFs, Slack/Webex) + Graph entities (structured data: AWS, ArgoCD, infrastructure)
 
-  **Start:** Call `fetch_datasources_and_entity_types` to discover available datasources and entity types
+  **Start:** Call `list_datasources_and_entity_types` to discover available datasources and entity types
 
-  **BE PERSISTENT - MINIMUM 3 APPROACHES:**
-  ❌ NEVER give up after 1 search! ✅ Try 3+ different strategies:
+  **Search Strategy (3 searches max, 3 fetches max total):**
+  ❌ NEVER fetch every document returned — use excerpts first, fetch only the top 1-3 most relevant
+  ✅ Use search results' text excerpts to assess relevance before deciding to fetch full content
 
-  1. **Vary terms**: Synonyms, broader/narrower scope, toggle semantic/keyword modes
-  2. **Different datasources**: Filter by datasource_id
-  3. **Change granularity**: Broad→narrow or narrow→broad
-  4. **Explore graph**: Check ontology, use raw queries
-  5. **Related info**: Parent concepts, Slack threads with different keywords
+  1. **Vary search terms**: Synonyms, broader/narrower scope, toggle semantic/keyword modes
+  2. **Different datasources**: Filter by datasource_id if first search is too broad
+  3. **Change granularity**: Broad→narrow or narrow→broad if needed
 
   **Example - ArgoCD sync timeout:**
-  ❌ Bad: 1 search → no results → give up
-  ✅ Good: Try "sync timeout" (semantic) → "sync failures" (broader) → "timeout" keyword in argocd datasource → "troubleshooting" → check graph → find Slack thread → answer!
+  ❌ Bad: search → fetch all 10 results → search again → fetch all again
+  ✅ Good: search "sync timeout" → read excerpts → fetch 2 most relevant docs → answer
 
   **Stay Grounded:**
   - Only use tool results - NO hallucinations
-  - After 3+ attempts with no results: "I searched multiple datasources but couldn't find X"
+  - After 3+ search attempts with no results: "I searched multiple datasources but couldn't find X"
   - DON'T invent, assume, or provide general knowledge
 
 # ============================================================================
