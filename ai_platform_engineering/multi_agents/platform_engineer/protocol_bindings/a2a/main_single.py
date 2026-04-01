@@ -13,9 +13,14 @@ import httpx
 from pathlib import Path
 from dotenv import load_dotenv
 
+from ai_platform_engineering.utils.auth.jwt_context import (
+    extract_user_context_from_token,
+    set_jwt_user_context,
+)
 from ai_platform_engineering.utils.logging_config import configure_logging
 from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
 
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -192,6 +197,7 @@ app.routes.append(Route("/tools", _tools_endpoint, methods=["GET"]))
 ################################################################################
 A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
+ENABLE_USER_INFO_TOOL = os.getenv('ENABLE_USER_INFO_TOOL', 'false').lower() in ('true', '1', 'yes')
 
 if A2A_AUTH_SHARED_KEY:
     logger.info("Using shared key authentication")
@@ -211,6 +217,24 @@ elif A2A_AUTH_OAUTH2:
     )
 else:
     logger.info("Using no authentication")
+
+################################################################################
+# JWT user context middleware (populates contextvar for the executor)
+################################################################################
+class JwtUserContextMiddleware(BaseHTTPMiddleware):
+    """Extract user claims from the JWT and store in a contextvar."""
+
+    async def dispatch(self, request, call_next):
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            ctx = extract_user_context_from_token(token)
+            set_jwt_user_context(ctx)
+        return await call_next(request)
+
+if ENABLE_USER_INFO_TOOL:
+    app.add_middleware(JwtUserContextMiddleware)
+    logger.info("JWT user context middleware enabled (ENABLE_USER_INFO_TOOL=true)")
 
 # Add CORSMiddleware to allow requests from any origin
 app.add_middleware(
