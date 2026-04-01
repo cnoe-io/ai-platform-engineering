@@ -31,6 +31,10 @@ from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
+
+import os
+ENABLE_USER_INFO_TOOL = os.getenv("ENABLE_USER_INFO_TOOL", "false").lower() in ("true", "1", "yes")
 
 logger = logging.getLogger(__name__)
 
@@ -1066,14 +1070,30 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     query = None  # Don't use query when resuming
                     logger.info(f"📦 Constructed resume Command from form text for task {task.id}")
 
-        # Extract user email from "by user: email\n\n..." prefix injected by UI
+        # Extract user identity — prefer server-side JWT claims (ENABLE_USER_INFO_TOOL=true),
+        # fall back to the "by user: email" prefix injected by the UI.
         user_email = None
-        raw_query = context.get_user_input() or ""
-        if raw_query.startswith("by user: "):
-            first_line = raw_query.split("\n", 1)[0]
-            user_email = first_line.replace("by user: ", "").strip()
-            if user_email:
-                logger.info(f"📧 Extracted user email from message: {user_email}")
+        user_name = None
+        user_groups = None
+
+        if ENABLE_USER_INFO_TOOL:
+            jwt_ctx = get_jwt_user_context()
+            if jwt_ctx and jwt_ctx.email != "unknown":
+                user_email = jwt_ctx.email
+                user_name = jwt_ctx.name
+                user_groups = jwt_ctx.groups
+                logger.info(
+                    f"📧 User context from JWT: email={user_email}, "
+                    f"name={user_name}, groups_count={len(user_groups or [])}"
+                )
+
+        if not user_email:
+            raw_query = context.get_user_input() or ""
+            if raw_query.startswith("by user: "):
+                first_line = raw_query.split("\n", 1)[0]
+                user_email = first_line.replace("by user: ", "").strip()
+                if user_email:
+                    logger.info(f"📧 Extracted user email from message prefix: {user_email}")
 
         # Extract user_id from A2A message metadata (set by client or gateway),
         # falling back to the email extracted from the query prefix.

@@ -149,6 +149,8 @@ export interface Config {
   ticketProvider: 'jira' | 'github' | null;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
+  /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
+  userInfoToolEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +221,7 @@ const DEFAULT_CONFIG: Config = {
   ticketEnabled: false,
   ticketProvider: null,
   oidcRequiredGroup: 'backstage-access',
+  userInfoToolEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -302,6 +305,7 @@ export function getServerConfig(): Config {
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const userInfoToolEnabled = env('USER_INFO_TOOL_ENABLED') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -374,6 +378,7 @@ export function getServerConfig(): Config {
     ticketEnabled,
     ticketProvider,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
+    userInfoToolEnabled,
   };
 }
 
