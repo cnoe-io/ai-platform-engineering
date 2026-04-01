@@ -45,7 +45,7 @@ from common.models.rbac import Role, UserContext, UserInfoResponse
 from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL, DEFAULT_RELOAD_INTERVAL
+from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
 from common.embeddings_factory import EmbeddingsFactory
 import redis.asyncio as redis
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -1307,9 +1307,8 @@ async def ingest_documents(ingest_request: DocumentIngestRequest, user: UserCont
     return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": f"Number of documents exceeds the maximum limit of {max_documents_per_ingest} per ingestion request."})
 
   if ingest_request.fresh_until is None or ingest_request.fresh_until == 0:
-    # Get reload_interval from datasource metadata, or use default
-    reload_interval = (datasource_info.metadata.get("reload_interval") if datasource_info.metadata else None) or DEFAULT_RELOAD_INTERVAL
-    ingest_request.fresh_until = get_fresh_until(reload_interval)
+    # Calculate fresh_until from datasource reload_interval
+    ingest_request.fresh_until = get_fresh_until(datasource_info.reload_interval)
 
   if datasource_info.default_chunk_overlap is None:
     datasource_info.default_chunk_overlap = 0
