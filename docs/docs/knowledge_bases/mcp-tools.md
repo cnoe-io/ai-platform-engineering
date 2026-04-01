@@ -169,8 +169,9 @@ Search and exploration tools support metadata filters:
 | `datasource_id` | Filter by data source | `"aws-production"` |
 | `ingestor_id` | Filter by ingestor | `"k8s-ingestor"` |
 | `is_structured_entity` | Only structured entities | `true` |
-| `structured_entity_type` | Filter by entity type | `"Pod"` |
-| `document_type` | Filter by document type | `"runbook"` |
+| `document_type` | Filter by document type | `"runbook"`, `"structured:Pod"` |
+
+For structured entities, `document_type` is prefixed with `structured:` followed by the entity type (e.g., `"structured:Pod"`, `"structured:Deployment"`). To filter for a specific entity type, use `document_type` with this prefix.
 
 Filters are combined with AND logic.
 
@@ -192,7 +193,7 @@ Here's how an AI agent might use these tools to answer "What pods are running on
 
 3. **Find the node:**
    ```
-   search(query="worker-1", filters={"structured_entity_type": "Node"})
+   search(query="worker-1", filters={"document_type": "structured:Node"})
    → Gets Node entity ID
    ```
 
