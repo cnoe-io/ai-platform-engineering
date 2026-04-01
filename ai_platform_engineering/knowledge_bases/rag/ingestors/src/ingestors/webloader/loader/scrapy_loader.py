@@ -186,10 +186,9 @@ class ScrapyLoader:
             documents=documents,
             fresh_until=fresh_until,
           )
+          # Note: document_count is auto-incremented by Client.ingest_documents()
 
           documents_ingested += len(documents)
-          await self.job_manager.increment_document_count(job_id, len(documents))
-
           self.logger.info(f"Ingested batch {docs.batch_number} ({len(documents)} documents, {documents_ingested} total)")
           return True  # Continue crawling
 
@@ -353,10 +352,8 @@ class ScrapyLoader:
             documents=batch,
             fresh_until=fresh_until,
           )
+          # Note: document_count is auto-incremented by Client.ingest_documents()
           self.logger.info(f"Ingested final batch {batch_num}/{total_batches} ({len(batch)} documents)")
-
-          # Track document count
-          await self.job_manager.increment_document_count(job_id, len(batch))
 
         except Exception as e:
           error_msg = f"Failed to ingest final batch {batch_num}/{total_batches}: {e}"

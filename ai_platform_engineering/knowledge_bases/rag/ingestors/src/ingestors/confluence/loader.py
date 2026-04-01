@@ -18,7 +18,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from common.job_manager import JobManager, JobStatus
 from common.models.rag import DataSourceInfo, DocumentMetadata
-from common.utils import get_logger
+from common.utils import get_logger, get_fresh_until
 
 logger = get_logger(__name__)
 
@@ -330,6 +330,9 @@ class ConfluenceLoader:
         pages: List of page metadata dicts (must include 'id' field)
         job_id: Job ID for tracking progress
     """
+    # Calculate fresh_until based on datasource reload_interval
+    fresh_until = get_fresh_until(self.datasource_info.reload_interval)
+
     all_documents = []
 
     for page in pages:
@@ -392,7 +395,7 @@ class ConfluenceLoader:
             description=f"Chunk {i + 1}/{len(chunks)} from {page_title}",
             document_type="confluence_page",
             document_ingested_at=int(time.time()),
-            fresh_until=0,
+            fresh_until=fresh_until,
             is_structured_entity=False,
             metadata=additional_metadata,
           )
@@ -406,11 +409,10 @@ class ConfluenceLoader:
 
           # Batch ingestion
           if len(all_documents) >= CONFLUENCE_BATCH_SIZE:
-            await self._ingest_batch(all_documents, job_id)
+            await self._ingest_batch(all_documents, job_id, fresh_until)
             all_documents = []
 
-        # Update progress
-        await self.job_manager.increment_document_count(job_id, 1)
+        # Update progress (document_count is auto-incremented by Client.ingest_documents)
         await self.job_manager.increment_progress(job_id)
         await self.job_manager.upsert_job(job_id, message=f"Processed page: {page.get('title', page_id)}")
 
@@ -423,7 +425,7 @@ class ConfluenceLoader:
 
     # Ingest remaining documents
     if all_documents:
-      await self._ingest_batch(all_documents, job_id)
+      await self._ingest_batch(all_documents, job_id, fresh_until)
 
     # Set final job status with message
     job = await self.job_manager.get_job(job_id)
@@ -452,18 +454,20 @@ class ConfluenceLoader:
         message=f"Processed: {job.total} pages",
       )
 
-  async def _ingest_batch(self, documents: List[Document], job_id: str):
+  async def _ingest_batch(self, documents: List[Document], job_id: str, fresh_until: int):
     """Send batch of documents to RAG server.
 
     Args:
         documents: List of Document objects to ingest
         job_id: Job ID for tracking
+        fresh_until: Timestamp until which data is considered fresh (epoch seconds)
     """
     try:
       await self.rag_client.ingest_documents(
         job_id=job_id,
         datasource_id=self.datasource_info.datasource_id,
         documents=documents,
+        fresh_until=fresh_until,
       )
       self.logger.debug(f"Ingested batch of {len(documents)} documents")
     except Exception as e:
