@@ -166,6 +166,10 @@ class AgentTools:
             query=query,
             max_total_length=search_result_truncate_length,
           )
+          if len(result.document.page_content) > search_result_truncate_length:
+            doc_id = result.document.metadata.get("document_id", "")
+            if doc_id:
+              text += f"\n\n[Content truncated. Use fetch_document with document_id='{doc_id}' to get full content if needed.]"
           output.append(
             {
               "text_content": text,
