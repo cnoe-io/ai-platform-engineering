@@ -6,7 +6,7 @@ description: Parent chart to deploy multiple agent subcharts as different platfo
 sources:
   - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.2.42-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+version: 0.2.42-rc.helm.2 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
@@ -201,3 +201,24 @@ dependencies:
     version: 0.2.42 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
+  # Agentgateway - AI gateway for agent routing
+  # https://kgateway.dev/docs/agentgateway/main/install/helm/
+  # Prerequisites (install cluster-wide before enabling, or use the toggles below):
+  #   1. Gateway API CRDs v1.4.0+: kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
+  #      (No official Helm chart exists for Gateway API CRDs)
+  #   2. Istio CRDs v1.18+: Set global.agentgateway.installIstioCrds=true to install via this chart,
+  #      or install manually: helm install istio-base istio/base --version 1.24.0 -n istio-system
+  #      Skip if Istio is already installed in the cluster.
+  - name: base
+    version: 1.24.0
+    repository: https://istio-release.storage.googleapis.com/charts
+    alias: istio-base
+    condition: global.agentgateway.installIstioCrds
+  - name: agentgateway-crds
+    version: v2.2.0-beta.6
+    repository: oci://ghcr.io/kgateway-dev/charts
+    condition: global.agentgateway.enabled
+  - name: agentgateway
+    version: v2.2.0-beta.6
+    repository: oci://ghcr.io/kgateway-dev/charts
+    condition: global.agentgateway.enabled

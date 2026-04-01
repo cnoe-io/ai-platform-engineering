@@ -112,6 +112,8 @@ RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
+ENABLE_USER_INFO_TOOL = os.getenv("ENABLE_USER_INFO_TOOL", "false").lower() in ("true", "1", "yes")
+
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
     """Create an LLM via LLMFactory using prefixed environment variables.
@@ -130,7 +132,15 @@ def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]
     """
     provider = os.getenv(f"{env_prefix}LLM_PROVIDER")
     if not provider:
-        return None
+        has_prefixed_vars = any(k.startswith(env_prefix) for k in os.environ if k != f"{env_prefix}LLM_PROVIDER")
+        if not has_prefixed_vars:
+            return None
+        provider = os.getenv("LLM_PROVIDER")
+        if not provider:
+            return None
+        logger.info(
+            f"{env_prefix}LLM_PROVIDER not set, defaulting to global LLM_PROVIDER={provider}"
+        )
 
     overrides: Dict[str, str] = {}
     for key, value in os.environ.items():
@@ -591,6 +601,38 @@ def create_get_workflow_definition_tool():
         return "\n".join(lines)
 
     return get_workflow_definition
+
+
+def create_supervisor_user_info_tool():
+    """Create a user_info tool that reads user context from graph state.
+
+    The tool is added once at graph build time but returns per-request data
+    because the user fields (email, name, groups) are populated in the
+    graph state dict on every invocation.
+    """
+
+    @tool
+    def user_info(
+        state: Annotated[dict, InjectedState],
+    ) -> dict:
+        """Get information about the current user.
+
+        Use this tool when you need to personalize responses, check user identity,
+        or access user group memberships for authorization decisions.
+
+        Returns:
+            Dictionary with user information:
+            - email: User's email address
+            - name: User's display name (may be null)
+            - groups: List of group names the user belongs to
+        """
+        return {
+            "email": state.get("user_email", "unknown"),
+            "name": state.get("user_name"),
+            "groups": state.get("user_groups", []),
+        }
+
+    return user_info
 
 
 # =============================================================================
@@ -1146,6 +1188,10 @@ class PlatformEngineerDeepAgent:
         # All supervisor tools
         all_tools = utility_tools + [invoke_task_tool, get_workflow_def_tool]
 
+        if ENABLE_USER_INFO_TOOL:
+            all_tools.append(create_supervisor_user_info_tool())
+            logger.info("✅ user_info tool enabled (ENABLE_USER_INFO_TOOL=true)")
+
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
             logger.info("Performing RAG connectivity check...")
@@ -1396,7 +1442,13 @@ This format is required so the UI can display agent stickers next to each task.
 
         logger.info(f"✅ Deep agent created (generation {self._graph_generation})")
 
-    async def serve(self, prompt: str, user_email: str = "") -> str:
+    async def serve(
+        self,
+        prompt: str,
+        user_email: str = "",
+        user_name: Optional[str] = None,
+        user_groups: Optional[List[str]] = None,
+    ) -> str:
         """Process prompt and return response."""
         try:
             logger.debug(f"Received prompt: {prompt}")
@@ -1417,10 +1469,13 @@ This format is required so the UI can display agent stickers next to each task.
             enhanced_prompt = f"{prompt}\n\n[{', '.join(context_parts)}]"
 
             graph = self.get_graph()
-            state_dict = {"messages": [{"role": "user", "content": enhanced_prompt}]}
+            state_dict: Dict[str, Any] = {"messages": [{"role": "user", "content": enhanced_prompt}]}
             if user_email:
                 state_dict["user_email"] = user_email
-            # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
+            if user_name is not None:
+                state_dict["user_name"] = user_name
+            if user_groups is not None:
+                state_dict["user_groups"] = user_groups
             if getattr(self, "_skills_files", None):
                 state_dict["files"] = dict(self._skills_files)
             result = await graph.ainvoke(
@@ -1441,7 +1496,13 @@ This format is required so the UI can display agent stickers next to each task.
             logger.error(f"Error in serve: {e}")
             raise
 
-    async def serve_stream(self, prompt: str, user_email: str = ""):
+    async def serve_stream(
+        self,
+        prompt: str,
+        user_email: str = "",
+        user_name: Optional[str] = None,
+        user_groups: Optional[List[str]] = None,
+    ):
         """Process prompt and stream responses."""
         try:
             logger.info(f"Received streaming prompt: {prompt}")
@@ -1454,10 +1515,13 @@ This format is required so the UI can display agent stickers next to each task.
             graph = self.get_graph()
             thread_id = str(uuid.uuid4())
 
-            state_dict = {"messages": [{"role": "user", "content": prompt}]}
+            state_dict: Dict[str, Any] = {"messages": [{"role": "user", "content": prompt}]}
             if user_email:
                 state_dict["user_email"] = user_email
-            # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
+            if user_name is not None:
+                state_dict["user_name"] = user_name
+            if user_groups is not None:
+                state_dict["user_groups"] = user_groups
             if getattr(self, "_skills_files", None):
                 state_dict["files"] = dict(self._skills_files)
 
