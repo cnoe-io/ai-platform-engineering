@@ -35,6 +35,17 @@ def _format_tool_error(tool_name: str, exc: Exception) -> str:
     )
 
 
+def _make_error_response(msg: str, tool_name: str, exc: Exception, response_format: str):
+    """Return the error in the format expected by the tool's response_format.
+
+    Tools with response_format='content_and_artifact' require a (content, artifact)
+    tuple; returning a plain string crashes LangChain's ToolNode validation.
+    """
+    if response_format == "content_and_artifact":
+        return (msg, {"error": str(exc), "tool": tool_name})
+    return msg
+
+
 def _truncate(result: str, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS) -> str:
     if isinstance(result, str) and len(result) > max_chars:
         logger.warning(f"Tool '{tool_name}' output truncated from {len(result)} to {max_chars} chars")
@@ -63,6 +74,7 @@ def wrap_tools_with_error_handling(
     for tool in tools:
         try:
             tool_name = tool.name
+            resp_fmt = getattr(tool, "response_format", "content")
             has_sync = hasattr(tool, "func") and tool.func is not None
             has_async = hasattr(tool, "coroutine") and tool.coroutine is not None
 
@@ -73,6 +85,7 @@ def wrap_tools_with_error_handling(
                     *args,
                     _orig=original_coro,
                     _name=tool_name,
+                    _resp_fmt=resp_fmt,
                     **kwargs,
                 ):
                     try:
@@ -83,12 +96,13 @@ def wrap_tools_with_error_handling(
                     except Exception as e:
                         msg = _format_tool_error(_name, e)
                         logger.warning(f"[{agent_name}] {msg}")
-                        return msg
+                        return _make_error_response(msg, _name, e, _resp_fmt)
 
                 def _sync_fallback(
                     *args,
                     _async_fn=_safe_coro,
                     _name=tool_name,
+                    _resp_fmt=resp_fmt,
                     **kwargs,
                 ):
                     try:
@@ -105,7 +119,7 @@ def wrap_tools_with_error_handling(
                     except Exception as e:
                         msg = _format_tool_error(_name, e)
                         logger.warning(f"[{agent_name}] sync fallback: {msg}")
-                        return msg
+                        return _make_error_response(msg, _name, e, _resp_fmt)
 
                 new_tool = StructuredTool(
                     name=tool.name,
@@ -113,7 +127,7 @@ def wrap_tools_with_error_handling(
                     args_schema=tool.args_schema,
                     func=_sync_fallback,
                     coroutine=_safe_coro,
-                    response_format=getattr(tool, "response_format", "content"),
+                    response_format=resp_fmt,
                     metadata=tool.metadata,
                 )
                 wrapped.append(new_tool)
@@ -127,6 +141,7 @@ def wrap_tools_with_error_handling(
                         *args,
                         _orig=original_run,
                         _name=tool_name,
+                        _resp_fmt=resp_fmt,
                         **kwargs,
                     ):
                         try:
@@ -137,7 +152,7 @@ def wrap_tools_with_error_handling(
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
                             logger.warning(f"[{agent_name}] {msg}")
-                            return msg
+                            return _make_error_response(msg, _name, e, _resp_fmt)
 
                     tool._run = _safe_run  # type: ignore[method-assign]
 
@@ -147,6 +162,7 @@ def wrap_tools_with_error_handling(
                         *args,
                         _orig=original_arun,
                         _name=tool_name,
+                        _resp_fmt=resp_fmt,
                         **kwargs,
                     ):
                         try:
@@ -157,7 +173,7 @@ def wrap_tools_with_error_handling(
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
                             logger.warning(f"[{agent_name}] {msg}")
-                            return msg
+                            return _make_error_response(msg, _name, e, _resp_fmt)
 
                     tool._arun = _safe_arun  # type: ignore[method-assign]
 
