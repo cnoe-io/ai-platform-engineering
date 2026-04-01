@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Any
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, ToolException
 from langgraph.config import get_config
 from pydantic import PrivateAttr
 
@@ -31,8 +31,12 @@ class FetchDocumentCapWrapper(BaseTool):
 
   Uses the LangGraph thread_id (from get_config()) to track how many times
   fetch_document has been called within a single graph invocation. Once the
-  cap is reached, returns a guidance message instead of calling the real tool,
-  preventing runaway fetch loops in deep-research mode.
+  cap is reached, raises ToolException instead of calling the real tool.
+
+  Raising ToolException (rather than returning a soft string) is critical: it
+  creates an is_error=True ToolMessage that the agent treats as a hard failure,
+  stopping the retry loop. Returning a string message leaves the agent free to
+  call the tool again indefinitely.
 
   The counter is automatically cleaned up after _STALE_ENTRY_TTL_SECONDS to
   avoid memory leaks from long-running supervisor processes.
@@ -70,6 +74,7 @@ class FetchDocumentCapWrapper(BaseTool):
       description=original.description,
       args_schema=original.args_schema,
       max_calls=max_calls,
+      handle_tool_error=True,  # convert ToolException to error ToolMessage; prevents graph crash
     )
     wrapper._original_tool = original
     logger.info(f"FetchDocumentCapWrapper created (max_calls={max_calls})")
@@ -92,11 +97,12 @@ class FetchDocumentCapWrapper(BaseTool):
       if count >= self.max_calls:
         logger.warning(
           f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}. "
-          "Returning limit message instead of calling the tool."
+          "Raising ToolException to stop the agent loop."
         )
-        return (
-          f"[fetch_document limit ({self.max_calls}) reached for this query. "
-          "Use the search result snippets already retrieved to formulate your answer.]"
+        raise ToolException(
+          f"fetch_document limit ({self.max_calls}) reached for this query. "
+          "Stop calling fetch_document. Synthesize your final answer now using only "
+          "the search result snippets already retrieved."
         )
       self._counts[thread_id] = count + 1
       self._timestamps[thread_id] = time.time()
