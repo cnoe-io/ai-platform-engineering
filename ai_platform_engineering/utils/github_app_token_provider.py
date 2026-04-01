@@ -387,18 +387,6 @@ def get_github_token() -> Optional[str]:
     return token
 
 
-def get_github_pat() -> Optional[str]:
-    """Get the GitHub PAT directly, bypassing GitHub App mode.
-
-    Use this for tools that specifically need a PAT (e.g., gh CLI)
-    rather than an auto-refreshing App installation token.
-
-    Returns:
-        PAT string, or None if no PAT is configured
-    """
-    return os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
-
-
 def is_github_app_mode() -> bool:
     """
     Check if GitHub App authentication is configured and active.
