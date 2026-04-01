@@ -1,4 +1,6 @@
-import React from "react";
+"use client";
+
+import React, { useState, useRef } from "react";
 
 interface DataPoint {
   label: string;
@@ -20,6 +22,12 @@ export function SimpleLineChart({
   showGrid = true,
   title,
 }: SimpleLineChartProps) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [dragStart, setDragStart] = useState<number | null>(null);
+  const [dragEnd, setDragEnd] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted-foreground">
@@ -34,7 +42,6 @@ export function SimpleLineChart({
   const innerWidth = chartWidth - padding.left - padding.right;
   const innerHeight = chartHeight - padding.top - padding.bottom;
 
-  // Calculate scales
   const maxValue = Math.max(...data.map((d) => d.value));
   const minValue = Math.min(...data.map((d) => d.value));
   const valueRange = maxValue - minValue || 1;
@@ -43,7 +50,15 @@ export function SimpleLineChart({
   const yScale = (value: number) =>
     chartHeight - padding.bottom - ((value - minValue) / valueRange) * innerHeight;
 
-  // Generate path
+  // Resolve SVG x coordinate → nearest data index
+  const xToIndex = (clientX: number): number => {
+    if (!svgRef.current) return 0;
+    const rect = svgRef.current.getBoundingClientRect();
+    const svgX = ((clientX - rect.left) / rect.width) * chartWidth;
+    const ratio = Math.max(0, Math.min(1, (svgX - padding.left) / innerWidth));
+    return Math.round(ratio * (data.length - 1));
+  };
+
   const pathData = data
     .map((point, index) => {
       const x = xScale(index);
@@ -52,24 +67,92 @@ export function SimpleLineChart({
     })
     .join(" ");
 
-  // Generate area path (for fill under line)
   const areaPathData = `${pathData} L ${xScale(data.length - 1)} ${chartHeight - padding.bottom} L ${xScale(0)} ${chartHeight - padding.bottom} Z`;
 
-  // Y-axis ticks
   const yTicks = 5;
   const yTickValues = Array.from({ length: yTicks }, (_, i) => {
     const value = minValue + (valueRange / (yTicks - 1)) * i;
     return Math.round(value);
   });
 
+  // Drag selection (normalize so lo <= hi)
+  const selLo = dragStart !== null && dragEnd !== null ? Math.min(dragStart, dragEnd) : null;
+  const selHi = dragStart !== null && dragEnd !== null ? Math.max(dragStart, dragEnd) : null;
+  const hasDragSelection = selLo !== null && selHi !== null && selLo !== selHi;
+
+  // % change: always from left point to right point
+  let pctChange: number | null = null;
+  if (hasDragSelection) {
+    const startVal = data[selLo!].value;
+    const endVal = data[selHi!].value;
+    pctChange = startVal !== 0 ? ((endVal - startVal) / startVal) * 100 : endVal > 0 ? 100 : 0;
+  }
+
+  // Tooltip display index: during drag show the end of drag, otherwise hovered
+  const tooltipIndex = isDragging ? dragEnd : hoveredIndex;
+  const tooltipPoint = tooltipIndex !== null ? data[tooltipIndex] : null;
+  const tooltipX = tooltipIndex !== null ? xScale(tooltipIndex) : 0;
+  const tooltipY = tooltipIndex !== null ? yScale(data[tooltipIndex].value) : 0;
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const idx = xToIndex(e.clientX);
+    setDragStart(idx);
+    setDragEnd(idx);
+    setIsDragging(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const idx = xToIndex(e.clientX);
+    setHoveredIndex(idx);
+    if (isDragging) {
+      setDragEnd(idx);
+    }
+  };
+
+  const handleMouseUp = () => {
+    if (isDragging) {
+      setIsDragging(false);
+      // If it was just a click (no real drag), clear the selection
+      if (dragStart === dragEnd) {
+        setDragStart(null);
+        setDragEnd(null);
+      }
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredIndex(null);
+    if (isDragging) {
+      setIsDragging(false);
+    }
+  };
+
+  // Click to clear selection when not starting a new drag
+  const handleClick = () => {
+    if (!isDragging && hasDragSelection) {
+      setDragStart(null);
+      setDragEnd(null);
+    }
+  };
+
+  const isPositive = pctChange !== null && pctChange >= 0;
+  const selColor = isPositive ? "rgb(34, 197, 94)" : "rgb(239, 68, 68)"; // green-500 / red-500
+
   return (
     <div className="w-full">
       {title && <h4 className="text-sm font-medium mb-4">{title}</h4>}
       <svg
+        ref={svgRef}
         width="100%"
         height={chartHeight}
         viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-        className="overflow-visible"
+        className="overflow-visible select-none"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
+        style={{ cursor: isDragging ? "col-resize" : "crosshair" }}
       >
         {/* Grid lines */}
         {showGrid && (
@@ -86,6 +169,18 @@ export function SimpleLineChart({
               />
             ))}
           </g>
+        )}
+
+        {/* Drag selection highlight */}
+        {hasDragSelection && (
+          <rect
+            x={xScale(selLo!)}
+            y={padding.top}
+            width={xScale(selHi!) - xScale(selLo!)}
+            height={innerHeight}
+            fill={selColor}
+            fillOpacity="0.08"
+          />
         )}
 
         {/* Area under line */}
@@ -105,20 +200,141 @@ export function SimpleLineChart({
           strokeLinejoin="round"
         />
 
+        {/* Drag selection boundary lines */}
+        {hasDragSelection && (
+          <>
+            <line
+              x1={xScale(selLo!)} y1={padding.top}
+              x2={xScale(selLo!)} y2={chartHeight - padding.bottom}
+              stroke={selColor} strokeWidth="1.5" strokeDasharray="4 2" opacity="0.6"
+            />
+            <line
+              x1={xScale(selHi!)} y1={padding.top}
+              x2={xScale(selHi!)} y2={chartHeight - padding.bottom}
+              stroke={selColor} strokeWidth="1.5" strokeDasharray="4 2" opacity="0.6"
+            />
+          </>
+        )}
+
+        {/* Hover vertical guide line (only when not dragging or in selection) */}
+        {!hasDragSelection && !isDragging && hoveredIndex !== null && (
+          <line
+            x1={tooltipX}
+            y1={padding.top}
+            x2={tooltipX}
+            y2={chartHeight - padding.bottom}
+            stroke={color}
+            strokeWidth="1"
+            strokeDasharray="4 2"
+            opacity="0.4"
+          />
+        )}
+
         {/* Data points */}
-        {data.map((point, index) => (
-          <g key={index}>
+        {data.map((point, index) => {
+          const isInSelection = hasDragSelection && index >= selLo! && index <= selHi!;
+          const isEndpoint = hasDragSelection && (index === selLo || index === selHi);
+          const isHovered = hoveredIndex === index;
+          const highlight = isEndpoint || isHovered;
+          return (
             <circle
+              key={index}
               cx={xScale(index)}
               cy={yScale(point.value)}
-              r="4"
-              fill={color}
-              className="hover:r-6 transition-all cursor-pointer"
-            >
-              <title>{`${point.label}: ${point.value}`}</title>
-            </circle>
-          </g>
-        ))}
+              r={highlight ? 6 : isInSelection ? 4.5 : 4}
+              fill={isInSelection ? selColor : color}
+              stroke={highlight ? "white" : "none"}
+              strokeWidth={highlight ? 2 : 0}
+              className="transition-all duration-100"
+              style={{ pointerEvents: "none" }}
+            />
+          );
+        })}
+
+        {/* % change badge (centered in selection) */}
+        {hasDragSelection && pctChange !== null && (
+          (() => {
+            const midX = (xScale(selLo!) + xScale(selHi!)) / 2;
+            const sign = pctChange >= 0 ? "+" : "";
+            const arrow = pctChange >= 0 ? "\u25B2" : "\u25BC";
+            const pctText = `${arrow} ${sign}${pctChange.toFixed(1)}%`;
+            const rangeText = `${data[selLo!].label} \u2192 ${data[selHi!].label}`;
+            const boxWidth = 160;
+            const boxHeight = 44;
+            const clampedX = Math.max(padding.left + boxWidth / 2, Math.min(chartWidth - padding.right - boxWidth / 2, midX));
+            return (
+              <g style={{ pointerEvents: "none" }}>
+                <rect
+                  x={clampedX - boxWidth / 2}
+                  y={padding.top - 2}
+                  width={boxWidth}
+                  height={boxHeight}
+                  rx={8}
+                  fill="hsl(var(--popover))"
+                  stroke={selColor}
+                  strokeWidth="1.5"
+                  filter="drop-shadow(0 2px 4px rgba(0,0,0,0.15))"
+                />
+                <text
+                  x={clampedX}
+                  y={padding.top + 16}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill={selColor}
+                  fontSize="15"
+                  fontWeight="700"
+                >
+                  {pctText}
+                </text>
+                <text
+                  x={clampedX}
+                  y={padding.top + 30}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="hsl(var(--muted-foreground))"
+                  fontSize="11"
+                >
+                  {rangeText}
+                </text>
+              </g>
+            );
+          })()
+        )}
+
+        {/* Single-point hover tooltip (only when not dragging and no selection) */}
+        {!hasDragSelection && !isDragging && tooltipPoint && tooltipIndex !== null && (() => {
+          const labelText = tooltipPoint.label;
+          const valueText = tooltipPoint.value.toLocaleString();
+          const totalChars = labelText.length + valueText.length + 3;
+          const boxWidth = Math.max(totalChars * 7.5 + 20, 80);
+          const halfBox = boxWidth / 2;
+          const clampedX = Math.max(padding.left + halfBox, Math.min(chartWidth - padding.right - halfBox, tooltipX));
+          return (
+            <g style={{ pointerEvents: "none" }}>
+              <rect
+                x={clampedX - halfBox}
+                y={tooltipY - 44}
+                width={boxWidth}
+                height={34}
+                rx={6}
+                fill="hsl(var(--popover))"
+                stroke="hsl(var(--border))"
+                strokeWidth="1"
+                filter="drop-shadow(0 1px 2px rgba(0,0,0,0.1))"
+              />
+              <text
+                x={clampedX}
+                y={tooltipY - 27}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize="12"
+              >
+                <tspan fill="hsl(var(--muted-foreground))">{labelText}  </tspan>
+                <tspan fill="hsl(var(--popover-foreground))" fontWeight="700" fontSize="13">{valueText}</tspan>
+              </text>
+            </g>
+          );
+        })()}
 
         {/* Y-axis */}
         <line
@@ -156,11 +372,10 @@ export function SimpleLineChart({
           className="opacity-30"
         />
 
-        {/* X-axis labels (show every few labels to avoid crowding) */}
+        {/* X-axis labels */}
         {data.map((point, index) => {
           const showLabel = data.length <= 10 || index % Math.ceil(data.length / 7) === 0;
           if (!showLabel) return null;
-
           return (
             <text
               key={`x-label-${index}`}

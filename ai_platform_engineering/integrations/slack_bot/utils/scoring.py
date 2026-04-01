@@ -5,6 +5,7 @@ Scoring utilities for submitting user feedback to Langfuse.
 """
 
 import os
+import datetime
 from typing import Optional
 from loguru import logger
 
@@ -32,16 +33,8 @@ def submit_feedback_score(
       2. Aggregated Slack score (name: "all slack channels")
       3. Aggregated cross-client score (name: "all") — shared with the web UI
     """
-    if feedback_client is None:
-        logger.debug("Langfuse feedback scoring disabled, skipping")
-        return True
-
     trace_id = session_manager.get_trace_id(thread_ts)
     context_id = session_manager.get_context_id(thread_ts)
-
-    if not trace_id:
-        logger.warning(f"No trace_id found for thread {thread_ts}, skipping Langfuse feedback")
-        return False
 
     # Get user email for author tracking
     user_email = None
@@ -73,49 +66,92 @@ def submit_feedback_score(
     else:
         slack_permalink = None
 
-    # Score 1: Channel-specific score
-    # For DMs, use "DM" as the score name; for unknown channels, fall back to "all slack channels"
-    channel_score_name = channel_name if channel_name else ("DM" if is_dm else "all slack channels")
     display_channel_name = channel_name or ("DM" if is_dm else None)
-    success_channel = feedback_client.submit_feedback(
-        trace_id=trace_id,
-        score_name=channel_score_name,
-        value=feedback_value,
-        user_id=user_id,
-        user_email=user_email,
-        comment=comment,
-        session_id=context_id,
-        channel_id=channel_id,
-        channel_name=display_channel_name,
-        slack_permalink=slack_permalink,
-    )
 
-    # Score 2: Aggregated score for all Slack channels
-    success_all_slack = feedback_client.submit_feedback(
-        trace_id=trace_id,
-        score_name="all slack channels",
-        value=feedback_value,
-        user_id=user_id,
-        user_email=user_email,
-        comment=comment,
-        session_id=context_id,
-        channel_id=channel_id,
-        channel_name=display_channel_name,
-        slack_permalink=slack_permalink,
-    )
+    # ── Langfuse scores ──────────────────────────────────────────────
+    langfuse_ok = True
+    if feedback_client is None:
+        logger.debug("Langfuse feedback scoring disabled, skipping Langfuse scores")
+    elif not trace_id:
+        logger.warning(f"No trace_id found for thread {thread_ts}, skipping Langfuse feedback")
+        langfuse_ok = False
+    else:
+        # Score 1: Channel-specific score
+        channel_score_name = channel_name if channel_name else ("DM" if is_dm else "all slack channels")
+        success_channel = feedback_client.submit_feedback(
+            trace_id=trace_id,
+            score_name=channel_score_name,
+            value=feedback_value,
+            user_id=user_id,
+            user_email=user_email,
+            comment=comment,
+            session_id=context_id,
+            channel_id=channel_id,
+            channel_name=display_channel_name,
+            slack_permalink=slack_permalink,
+        )
 
-    # Score 3: Aggregated score across all clients (Slack + Web UI)
-    success_all = feedback_client.submit_feedback(
-        trace_id=trace_id,
-        score_name="all",
-        value=feedback_value,
-        user_id=user_id,
-        user_email=user_email,
-        comment=comment,
-        session_id=context_id,
-        channel_id=channel_id,
-        channel_name=display_channel_name,
-        slack_permalink=slack_permalink,
-    )
+        # Score 2: Aggregated score for all Slack channels
+        success_all_slack = feedback_client.submit_feedback(
+            trace_id=trace_id,
+            score_name="all slack channels",
+            value=feedback_value,
+            user_id=user_id,
+            user_email=user_email,
+            comment=comment,
+            session_id=context_id,
+            channel_id=channel_id,
+            channel_name=display_channel_name,
+            slack_permalink=slack_permalink,
+        )
 
-    return success_channel and success_all_slack and success_all
+        # Score 3: Aggregated score across all clients (Slack + Web UI)
+        success_all = feedback_client.submit_feedback(
+            trace_id=trace_id,
+            score_name="all",
+            value=feedback_value,
+            user_id=user_id,
+            user_email=user_email,
+            comment=comment,
+            session_id=context_id,
+            channel_id=channel_id,
+            channel_name=display_channel_name,
+            slack_permalink=slack_permalink,
+        )
+        langfuse_ok = success_channel and success_all_slack and success_all
+
+    # ── Write to unified feedback collection in MongoDB ──────────────
+    # Upsert keyed on (thread_ts, user_id, source) so that refinement
+    # actions (wrong_answer, other, etc.) update the initial thumbs_down
+    # rather than creating a duplicate entry.
+    try:
+        db = session_manager.get_db()
+        if db is not None:
+            now = datetime.datetime.utcnow()
+            feedback_coll = db["feedback"]
+            feedback_coll.update_one(
+                {"thread_ts": thread_ts, "user_id": user_id, "source": "slack"},
+                {
+                    "$set": {
+                        "trace_id": trace_id,
+                        "rating": "positive" if feedback_value == "thumbs_up" else "negative",
+                        "value": feedback_value,
+                        "comment": comment,
+                        "user_email": user_email,
+                        "conversation_id": f"slack-{thread_ts}",
+                        "channel_id": channel_id,
+                        "channel_name": display_channel_name,
+                        "slack_permalink": slack_permalink,
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {
+                        "message_id": None,
+                        "created_at": now,
+                    },
+                },
+                upsert=True,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to write feedback to MongoDB: {e}")
+
+    return langfuse_ok

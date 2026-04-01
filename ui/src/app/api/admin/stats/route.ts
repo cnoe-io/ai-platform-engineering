@@ -9,15 +9,32 @@ import {
   requireAdminView,
 } from '@/lib/api-middleware';
 
-/** Parse ?range= query param into number of days. */
-function rangeDays(range: string | null): number {
-  switch (range) {
-    case '1d': return 1;
-    case '7d': return 7;
-    case '30d': return 30;
-    case '90d': return 90;
-    default: return 30;
+/** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
+function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number } {
+  const now = new Date();
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
+
+  if (fromParam) {
+    const from = new Date(fromParam);
+    const to = toParam ? new Date(toParam) : now;
+    const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)));
+    return { rangeStart: from, days };
   }
+
+  const range = searchParams.get('range');
+  let ms: number;
+  switch (range) {
+    case '1h':  ms = 60 * 60 * 1000; break;
+    case '12h': ms = 12 * 60 * 60 * 1000; break;
+    case '24h':
+    case '1d':  ms = 24 * 60 * 60 * 1000; break;
+    case '7d':  ms = 7 * 24 * 60 * 60 * 1000; break;
+    case '90d': ms = 90 * 24 * 60 * 60 * 1000; break;
+    case '30d':
+    default:    ms = 30 * 24 * 60 * 60 * 1000; break;
+  }
+  return { rangeStart: new Date(now.getTime() - ms), days: Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000))) };
 }
 
 // GET /api/admin/stats
@@ -37,16 +54,39 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     requireAdminView(session);
 
     const { searchParams } = new URL(request.url);
-    const days = rangeDays(searchParams.get('range'));
+    const { rangeStart, days } = parseRange(searchParams);
+
+    // Optional filters
+    const sourceFilter = searchParams.get('source'); // 'web' | 'slack' | null (all)
+    const userFilter = searchParams.get('user'); // comma-separated emails | null (all)
+    const userEmails = userFilter ? userFilter.split(',').map((u) => u.trim()).filter(Boolean) : [];
+
+    // Build reusable filter fragments for conversations and messages
+    const hasFilters = !!sourceFilter || userEmails.length > 0;
+    const convSourceFilter: Record<string, any> = {};
+    const msgOwnerFilter: Record<string, any> = {};
+    if (sourceFilter === 'web') {
+      convSourceFilter.source = { $ne: 'slack' };
+    } else if (sourceFilter === 'slack') {
+      convSourceFilter.source = 'slack';
+    }
+    if (userEmails.length === 1) {
+      convSourceFilter.owner_id = userEmails[0];
+      msgOwnerFilter.owner_id = userEmails[0];
+    } else if (userEmails.length > 1) {
+      convSourceFilter.owner_id = { $in: userEmails };
+      msgOwnerFilter.owner_id = { $in: userEmails };
+    }
 
     const users = await getCollection('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');
+    let slackInteractionsColl: Awaited<ReturnType<typeof getCollection>> | null = null;
+    try { slackInteractionsColl = await getCollection('slack_interactions'); } catch { /* may not exist */ }
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const rangeStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
     // ═══════════════════════════════════════════════════════════════
     // OVERVIEW STATS (parallel queries for speed)
@@ -54,21 +94,47 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const [
       totalUsers,
       totalConversations,
-      totalMessages,
+      webTotalMessages,
+      slackTotalMessages,
       dau,
       mau,
       conversationsToday,
-      messagesToday,
+      webMessagesToday,
+      slackMessagesToday,
       sharedConversations,
     ] = await Promise.all([
       users.countDocuments({}),
-      conversations.countDocuments({}),
-      messages.countDocuments({}),
-      users.countDocuments({ last_login: { $gte: today } }),
-      users.countDocuments({ last_login: { $gte: thisMonth } }),
-      conversations.countDocuments({ created_at: { $gte: today } }),
-      messages.countDocuments({ created_at: { $gte: today } }),
+      conversations.countDocuments({ ...convSourceFilter }),
+      sourceFilter !== 'slack'
+        ? messages.countDocuments({ ...msgOwnerFilter })
+        : Promise.resolve(0),
+      sourceFilter !== 'web' && slackInteractionsColl
+        ? slackInteractionsColl.countDocuments({})
+        : Promise.resolve(0),
+      // DAU/MAU: derive from conversations when filters are applied, otherwise from users
+      hasFilters
+        ? conversations.aggregate([
+            { $match: { updated_at: { $gte: today }, ...convSourceFilter } },
+            { $group: { _id: '$owner_id' } },
+            { $count: 'total' },
+          ]).toArray().then((r) => r[0]?.total || 0)
+        : users.countDocuments({ last_login: { $gte: today } }),
+      hasFilters
+        ? conversations.aggregate([
+            { $match: { updated_at: { $gte: thisMonth }, ...convSourceFilter } },
+            { $group: { _id: '$owner_id' } },
+            { $count: 'total' },
+          ]).toArray().then((r) => r[0]?.total || 0)
+        : users.countDocuments({ last_login: { $gte: thisMonth } }),
+      conversations.countDocuments({ created_at: { $gte: today }, ...convSourceFilter }),
+      sourceFilter !== 'slack'
+        ? messages.countDocuments({ created_at: { $gte: today }, ...msgOwnerFilter })
+        : Promise.resolve(0),
+      sourceFilter !== 'web' && slackInteractionsColl
+        ? slackInteractionsColl.countDocuments({ timestamp: { $gte: today } })
+        : Promise.resolve(0),
       conversations.countDocuments({
+        ...convSourceFilter,
         $or: [
           { 'sharing.is_public': true },
           { 'sharing.shared_with.0': { $exists: true } },
@@ -77,22 +143,39 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       }),
     ]);
 
+    const totalMessages = webTotalMessages + slackTotalMessages;
+    const messagesToday = webMessagesToday + slackMessagesToday;
+
     // ═══════════════════════════════════════════════════════════════
     // DAILY ACTIVITY — single aggregation per collection instead of
     // 30 sequential countDocuments queries (90 round-trips → 3)
     // ═══════════════════════════════════════════════════════════════
-    const dailyUserActivity = await users.aggregate([
-      { $match: { last_login: { $gte: rangeStart } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$last_login' } },
-          active_users: { $sum: 1 },
-        },
-      },
-    ]).toArray();
+    // When filters are active, derive active users from conversations instead of users collection
+    const dailyUserActivity = hasFilters
+      ? await conversations.aggregate([
+          { $match: { updated_at: { $gte: rangeStart }, ...convSourceFilter } },
+          {
+            $group: {
+              _id: {
+                date: { $dateToString: { format: '%Y-%m-%d', date: '$updated_at' } },
+                user: '$owner_id',
+              },
+            },
+          },
+          { $group: { _id: '$_id.date', active_users: { $sum: 1 } } },
+        ]).toArray()
+      : await users.aggregate([
+          { $match: { last_login: { $gte: rangeStart } } },
+          {
+            $group: {
+              _id: { $dateToString: { format: '%Y-%m-%d', date: '$last_login' } },
+              active_users: { $sum: 1 },
+            },
+          },
+        ]).toArray();
 
     const dailyConvActivity = await conversations.aggregate([
-      { $match: { created_at: { $gte: rangeStart } } },
+      { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
@@ -101,20 +184,40 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       },
     ]).toArray();
 
-    const dailyMsgActivity = await messages.aggregate([
-      { $match: { created_at: { $gte: rangeStart } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
-          messages: { $sum: 1 },
-        },
-      },
-    ]).toArray();
+    // Web messages (from messages collection) + Slack messages (message_count on conversations)
+    const [dailyWebMsgActivity, dailySlackMsgActivity] = await Promise.all([
+      sourceFilter !== 'slack'
+        ? messages.aggregate([
+            { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+            {
+              $group: {
+                _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
+                messages: { $sum: 1 },
+              },
+            },
+          ]).toArray()
+        : Promise.resolve([]),
+      sourceFilter !== 'web' && slackInteractionsColl
+        ? slackInteractionsColl.aggregate([
+            { $match: { timestamp: { $gte: rangeStart } } },
+            {
+              $group: {
+                _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+                messages: { $sum: 1 },
+              },
+            },
+          ]).toArray()
+        : Promise.resolve([]),
+    ]);
+
+    // Merge web + slack daily message counts
+    const msgMap = new Map<string, number>();
+    for (const d of dailyWebMsgActivity) msgMap.set(d._id, (msgMap.get(d._id) || 0) + d.messages);
+    for (const d of dailySlackMsgActivity) msgMap.set(d._id, (msgMap.get(d._id) || 0) + d.messages);
 
     // Build lookup maps
     const userMap = new Map(dailyUserActivity.map((d) => [d._id, d.active_users]));
     const convMap = new Map(dailyConvActivity.map((d) => [d._id, d.conversations]));
-    const msgMap = new Map(dailyMsgActivity.map((d) => [d._id, d.messages]));
 
     // Assemble N-day array
     const dailyActivity = [];
@@ -136,6 +239,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Top users by conversation count (direct — conversations have owner_id)
     const topUsersByConversations = await conversations.aggregate([
+      { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
       { $group: { _id: '$owner_id', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 10 },
@@ -144,6 +248,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Top users by message count — $lookup through conversations for old
     // messages that lack owner_id, $coalesce with direct owner_id for new ones.
     const topUsersByMessages = await messages.aggregate([
+      { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
       {
         $lookup: {
           from: 'conversations',
@@ -175,6 +280,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         $match: {
           role: 'assistant',
           'metadata.agent_name': { $exists: true, $ne: null },
+          created_at: { $gte: rangeStart },
+          ...msgOwnerFilter,
         },
       },
       { $group: { _id: '$metadata.agent_name', count: { $sum: 1 } } },
@@ -182,18 +289,144 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       { $limit: 10 },
     ]).toArray();
 
-    // Feedback summary (positive vs negative across all messages)
-    const feedbackAgg = await messages.aggregate([
-      { $match: { 'feedback.rating': { $exists: true } } },
-      { $group: { _id: '$feedback.rating', count: { $sum: 1 } } },
-    ]).toArray();
+    // ═══════════════════════════════════════════════════════════════
+    // ENHANCED FEEDBACK SUMMARY (from unified feedback collection)
+    // Falls back to messages.feedback if feedback collection is empty
+    // ═══════════════════════════════════════════════════════════════
+    let feedbackSummary: any;
+    try {
+      const feedbackColl = await getCollection('feedback');
+      const feedbackCount = await feedbackColl.countDocuments({});
 
-    const feedbackMap = new Map(feedbackAgg.map((f) => [f._id, f.count]));
-    const feedbackSummary = {
-      positive: feedbackMap.get('positive') || 0,
-      negative: feedbackMap.get('negative') || 0,
-      total: (feedbackMap.get('positive') || 0) + (feedbackMap.get('negative') || 0),
-    };
+      if (feedbackCount > 0) {
+        // Build feedback filter
+        const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
+        if (sourceFilter === 'web') fbFilter.source = 'web';
+        else if (sourceFilter === 'slack') fbFilter.source = 'slack';
+        if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
+        else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
+
+        // Use unified feedback collection
+        const [fbOverall, fbBySource, fbCategories, fbDaily] = await Promise.all([
+          // Overall counts
+          feedbackColl.aggregate([
+            { $match: fbFilter },
+            { $group: { _id: '$rating', count: { $sum: 1 } } },
+          ]).toArray(),
+          // By source
+          feedbackColl.aggregate([
+            { $match: fbFilter },
+            { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
+          ]).toArray(),
+          // Negative feedback category breakdown
+          feedbackColl.aggregate([
+            { $match: { ...fbFilter, rating: 'negative' } },
+            { $group: { _id: '$value', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+          ]).toArray(),
+          // Daily feedback trend
+          feedbackColl.aggregate([
+            { $match: fbFilter },
+            {
+              $group: {
+                _id: {
+                  date: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
+                  rating: '$rating',
+                },
+                count: { $sum: 1 },
+              },
+            },
+          ]).toArray(),
+        ]);
+
+        const fbMap = new Map(fbOverall.map((f) => [f._id, f.count]));
+        const positive = fbMap.get('positive') || 0;
+        const negative = fbMap.get('negative') || 0;
+        const total = positive + negative;
+
+        // Build by_source breakdown
+        const bySource: Record<string, { positive: number; negative: number }> = {};
+        for (const row of fbBySource) {
+          const src = row._id.source || 'unknown';
+          if (!bySource[src]) bySource[src] = { positive: 0, negative: 0 };
+          bySource[src][row._id.rating as 'positive' | 'negative'] = row.count;
+        }
+
+        // Build categories array
+        const categories = fbCategories.map((c) => ({
+          category: c._id || 'unknown',
+          count: c.count,
+        }));
+
+        // Build daily trend
+        const dailyFbMap = new Map<string, { positive: number; negative: number }>();
+        for (const row of fbDaily) {
+          const date = row._id.date;
+          if (!dailyFbMap.has(date)) dailyFbMap.set(date, { positive: 0, negative: 0 });
+          dailyFbMap.get(date)![row._id.rating as 'positive' | 'negative'] = row.count;
+        }
+        const dailyFeedback = [];
+        for (let i = days - 1; i >= 0; i--) {
+          const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+          dayStart.setHours(0, 0, 0, 0);
+          const dateKey = dayStart.toISOString().split('T')[0];
+          const entry = dailyFbMap.get(dateKey);
+          dailyFeedback.push({
+            date: dateKey,
+            positive: entry?.positive || 0,
+            negative: entry?.negative || 0,
+          });
+        }
+
+        feedbackSummary = {
+          positive,
+          negative,
+          total,
+          satisfaction_rate: total > 0 ? Math.round((positive / total) * 1000) / 10 : 0,
+          by_source: bySource,
+          categories,
+          daily: dailyFeedback,
+        };
+      } else {
+        // Fallback: use messages.feedback (legacy)
+        const feedbackAgg = await messages.aggregate([
+          { $match: { 'feedback.rating': { $exists: true } } },
+          { $group: { _id: '$feedback.rating', count: { $sum: 1 } } },
+        ]).toArray();
+        const fbMap = new Map(feedbackAgg.map((f) => [f._id, f.count]));
+        const positive = fbMap.get('positive') || 0;
+        const negative = fbMap.get('negative') || 0;
+        const total = positive + negative;
+        feedbackSummary = {
+          positive,
+          negative,
+          total,
+          satisfaction_rate: total > 0 ? Math.round((positive / total) * 1000) / 10 : 0,
+          by_source: { web: { positive, negative } },
+          categories: [],
+          daily: [],
+        };
+      }
+    } catch {
+      // Collection may not exist yet — fall back to legacy
+      const feedbackAgg = await messages.aggregate([
+        { $match: { 'feedback.rating': { $exists: true } } },
+        { $group: { _id: '$feedback.rating', count: { $sum: 1 } } },
+      ]).toArray();
+      const fbMap = new Map(feedbackAgg.map((f) => [f._id, f.count]));
+      const positive = fbMap.get('positive') || 0;
+      const negative = fbMap.get('negative') || 0;
+      const total = positive + negative;
+      feedbackSummary = {
+        positive,
+        negative,
+        total,
+        satisfaction_rate: total > 0 ? Math.round((positive / total) * 1000) / 10 : 0,
+        by_source: { web: { positive, negative } },
+        categories: [],
+        daily: [],
+      };
+    }
 
     // Average messages per conversation
     const avgMsgsPerConv = totalConversations > 0
@@ -206,6 +439,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         $match: {
           role: 'assistant',
           'metadata.latency_ms': { $exists: true, $gt: 0 },
+          created_at: { $gte: rangeStart },
+          ...msgOwnerFilter,
         },
       },
       {
@@ -234,6 +469,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         $match: {
           role: 'assistant',
           'metadata.is_final': true,
+          created_at: { $gte: rangeStart },
+          ...msgOwnerFilter,
         },
       },
       { $group: { _id: '$conversation_id' } },
@@ -246,6 +483,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           role: 'assistant',
           'metadata.is_final': true,
           created_at: { $gte: today },
+          ...msgOwnerFilter,
         },
       },
       { $group: { _id: '$conversation_id' } },
@@ -254,7 +492,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Interrupted/incomplete — conversations that have assistant messages but none with is_final
     const conversationsWithAssistant = await messages.aggregate([
-      { $match: { role: 'assistant' } },
+      { $match: { role: 'assistant', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
       {
         $group: {
           _id: '$conversation_id',
@@ -289,26 +527,259 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       : 0;
 
     // Hourly activity heatmap (hour-of-day distribution over selected range)
-    const hourlyActivity = await messages.aggregate([
-      { $match: { created_at: { $gte: rangeStart } } },
-      {
-        $group: {
-          _id: { $hour: '$created_at' },
-          count: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]).toArray();
+    // Combine web messages + Slack interactions
+    // Use $toDate to handle both Date objects and ISO string values for created_at
+    const [hourlyWebActivity, hourlySlackActivity] = await Promise.all([
+      sourceFilter !== 'slack'
+        ? messages.aggregate([
+            { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+            { $addFields: { _ts: { $toDate: '$created_at' } } },
+            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
+      sourceFilter !== 'web' && slackInteractionsColl
+        ? slackInteractionsColl.aggregate([
+            { $match: { timestamp: { $gte: rangeStart } } },
+            { $group: { _id: { $hour: '$timestamp' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
+    ]);
 
-    // Fill in missing hours with 0
-    const hourlyHeatmap = Array.from({ length: 24 }, (_, hour) => {
-      const match = hourlyActivity.find((h) => h._id === hour);
-      return { hour, count: match?.count || 0 };
-    });
+    const hourlyMap = new Map<number, number>();
+    for (const h of hourlyWebActivity) hourlyMap.set(h._id, (hourlyMap.get(h._id) || 0) + h.count);
+    for (const h of hourlySlackActivity) hourlyMap.set(h._id, (hourlyMap.get(h._id) || 0) + (h.count || 0));
+
+    const hourlyHeatmap = Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      count: hourlyMap.get(hour) || 0,
+    }));
+
+    // ═══════════════════════════════════════════════════════════════
+    // SLACK STATS (data-driven — included when slack_interactions has data)
+    // ═══════════════════════════════════════════════════════════════
+    let slack: any = undefined;
+
+    try {
+      const slackInteractions = await getCollection('slack_interactions');
+      const slackHasData = await slackInteractions.countDocuments({}, { limit: 1 });
+
+      if (slackHasData > 0) {
+        const platformConfig = await getCollection('platform_config');
+
+        const [configDoc, slackTotal, slackUniqueUsers, slackResolution, slackDailyAgg, slackTopChannels] =
+          await Promise.all([
+            // Channel config
+            platformConfig.findOne({ _id: 'channel_stats' as any }),
+            // Total interactions in range
+            slackInteractions.countDocuments({ timestamp: { $gte: rangeStart } }),
+            // Unique Slack users
+            slackInteractions.aggregate([
+              { $match: { timestamp: { $gte: rangeStart } } },
+              { $group: { _id: '$user_id' } },
+              { $count: 'total' },
+            ]).toArray(),
+            // Resolution stats (non-escalated = resolved)
+            slackInteractions.aggregate([
+              { $match: { timestamp: { $gte: rangeStart } } },
+              {
+                $group: {
+                  _id: null,
+                  total_threads: { $sum: 1 },
+                  escalated_threads: { $sum: { $cond: ['$escalated', 1, 0] } },
+                },
+              },
+            ]).toArray(),
+            // Daily breakdown
+            slackInteractions.aggregate([
+              { $match: { timestamp: { $gte: rangeStart } } },
+              {
+                $group: {
+                  _id: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
+                  interactions: { $sum: 1 },
+                  unique_users: { $addToSet: '$user_id' },
+                  resolved: { $sum: { $cond: [{ $not: '$escalated' }, 1, 0] } },
+                  escalated: { $sum: { $cond: ['$escalated', 1, 0] } },
+                },
+              },
+              { $sort: { _id: 1 } },
+            ]).toArray(),
+            // Top channels
+            slackInteractions.aggregate([
+              { $match: { timestamp: { $gte: rangeStart }, channel_name: { $ne: null } } },
+              {
+                $group: {
+                  _id: '$channel_name',
+                  interactions: { $sum: 1 },
+                  resolved: { $sum: { $cond: [{ $not: '$escalated' }, 1, 0] } },
+                },
+              },
+              { $sort: { interactions: -1 } },
+              { $limit: 10 },
+            ]).toArray(),
+          ]);
+
+        const resolution = slackResolution[0] || { total_threads: 0, escalated_threads: 0 };
+        const resolvedThreads = resolution.total_threads - resolution.escalated_threads;
+        const resolutionRate = resolution.total_threads > 0
+          ? Math.round((resolvedThreads / resolution.total_threads) * 1000) / 10
+          : 0;
+
+        // ── Per-thread hours estimation ─────────────────────────────
+        // Join slack_interactions with feedback to determine time saved:
+        //   positive feedback  → 4h
+        //   negative feedback  → 0h
+        //   no feedback, not escalated (self-resolved) → 4h
+        //   no feedback, escalated → 10 min (0.167h)
+        const SELF_RESOLVED_HOURS = 4;
+        const POSITIVE_FEEDBACK_HOURS = 4;
+        const NO_FEEDBACK_MINUTES = 10;
+
+        const slackHoursAgg = await slackInteractions.aggregate([
+          { $match: { timestamp: { $gte: rangeStart } } },
+          {
+            $lookup: {
+              from: 'feedback',
+              let: { convId: { $concat: ['slack-', '$thread_ts'] } },
+              pipeline: [
+                { $match: { $expr: { $eq: ['$conversation_id', '$$convId'] }, source: 'slack' } },
+                { $sort: { created_at: -1 } },
+                { $limit: 1 },
+                { $project: { rating: 1 } },
+              ],
+              as: 'fb',
+            },
+          },
+          {
+            $addFields: {
+              fb_rating: { $arrayElemAt: ['$fb.rating', 0] },
+            },
+          },
+          {
+            $addFields: {
+              hours: {
+                $switch: {
+                  branches: [
+                    // Negative feedback → 0
+                    { case: { $eq: ['$fb_rating', 'negative'] }, then: 0 },
+                    // Positive feedback → 4h
+                    { case: { $eq: ['$fb_rating', 'positive'] }, then: POSITIVE_FEEDBACK_HOURS },
+                    // No feedback + not escalated (self-resolved) → 4h
+                    { case: { $and: [{ $not: '$fb_rating' }, { $not: '$escalated' }] }, then: SELF_RESOLVED_HOURS },
+                  ],
+                  // No feedback + escalated → 10 min
+                  default: NO_FEEDBACK_MINUTES / 60,
+                },
+              },
+            },
+          },
+          { $group: { _id: null, total: { $sum: '$hours' } } },
+        ]).toArray();
+        const estimatedHoursSaved = Math.round((slackHoursAgg[0]?.total || 0) * 10) / 10;
+
+        // Build daily array with gaps filled
+        const slackDailyMap = new Map(
+          slackDailyAgg.map((d) => [d._id, {
+            interactions: d.interactions,
+            unique_users: d.unique_users?.length || 0,
+            resolved: d.resolved,
+            escalated: d.escalated,
+          }])
+        );
+        const slackDaily = [];
+        for (let i = days - 1; i >= 0; i--) {
+          const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+          dayStart.setHours(0, 0, 0, 0);
+          const dateKey = dayStart.toISOString().split('T')[0];
+          const entry = slackDailyMap.get(dateKey);
+          slackDaily.push({
+            date: dateKey,
+            interactions: entry?.interactions || 0,
+            unique_users: entry?.unique_users || 0,
+            resolved: entry?.resolved || 0,
+            escalated: entry?.escalated || 0,
+          });
+        }
+
+        slack = {
+          channels: configDoc
+            ? { total: configDoc.total, qanda_enabled: configDoc.qanda_enabled, alerts_enabled: configDoc.alerts_enabled, ai_enabled: configDoc.ai_enabled }
+            : { total: 0, qanda_enabled: 0, alerts_enabled: 0, ai_enabled: 0 },
+          total_interactions: slackTotal,
+          unique_users: slackUniqueUsers[0]?.total || 0,
+          resolution: {
+            total_threads: resolution.total_threads,
+            resolved_threads: resolvedThreads,
+            resolution_rate: resolutionRate,
+            estimated_hours_saved: estimatedHoursSaved,
+          },
+          daily: slackDaily,
+          top_channels: slackTopChannels.map((c) => ({
+            channel_name: c._id,
+            interactions: c.interactions,
+            resolved: c.resolved,
+            resolution_rate: c.interactions > 0
+              ? Math.round((c.resolved / c.interactions) * 1000) / 10
+              : 0,
+          })),
+        };
+      }
+    } catch (err) {
+      // Slack collections may not exist yet — silently skip
+      console.warn('Slack stats query failed (collections may not exist yet):', err);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PLATFORM SUMMARY — respects source/user filters
+    // ═══════════════════════════════════════════════════════════════
+    const includeWeb = sourceFilter !== 'slack';
+    const includeSlack = sourceFilter !== 'web';
+
+    // Web questions = user messages in range (filtered)
+    const [webUserMessagesAgg, webAgentMessagesAgg, webUniqueUsersAgg] = await Promise.all([
+      includeWeb
+        ? messages.countDocuments({ role: 'user', created_at: { $gte: rangeStart }, ...msgOwnerFilter })
+        : Promise.resolve(0),
+      // Web agent usage: count of assistant messages with agent_name for hours estimation
+      includeWeb
+        ? messages.countDocuments({
+            role: 'assistant',
+            'metadata.agent_name': { $exists: true, $ne: null },
+            created_at: { $gte: rangeStart },
+            ...msgOwnerFilter,
+          })
+        : Promise.resolve(0),
+      // Web unique users
+      includeWeb
+        ? messages.aggregate([
+            { $match: { role: 'user', created_at: { $gte: rangeStart }, owner_id: { $ne: null }, ...msgOwnerFilter } },
+            { $group: { _id: '$owner_id' } },
+            { $count: 'total' },
+          ]).toArray().then((r) => r[0]?.total || 0)
+        : Promise.resolve(0),
+    ]);
+
+    const slackInteractionCount = includeSlack ? (slack?.total_interactions || 0) : 0;
+    const slackUniqueUserCount = includeSlack ? (slack?.unique_users || 0) : 0;
+    const slackHoursSaved = includeSlack ? (slack?.resolution?.estimated_hours_saved || 0) : 0;
+
+    const totalQuestionsAnswered = webUserMessagesAgg + slackInteractionCount;
+    const totalUniqueUsers = webUniqueUsersAgg + slackUniqueUserCount;
+
+    // Hours automated: web agent usage (10 min each) + Slack resolved threads (4h each)
+    const webHoursAutomated = Math.round((webAgentMessagesAgg * 10) / 60 * 10) / 10; // 10 min per agent response
+    const totalHoursAutomated = Math.round((webHoursAutomated + slackHoursSaved) * 10) / 10;
+
+    const platformSummary = {
+      total_questions_answered: totalQuestionsAnswered,
+      total_unique_users: totalUniqueUsers,
+      satisfaction_rate: feedbackSummary.satisfaction_rate || 0,
+      estimated_hours_automated: totalHoursAutomated,
+    };
 
     return successResponse({
       range: searchParams.get('range') || '30d',
       days,
+      platform_summary: platformSummary,
       overview: {
         total_users: totalUsers,
         total_conversations: totalConversations,
@@ -336,6 +807,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         completion_rate: completionRate,
         avg_messages_per_workflow: avgMsgsCompleted,
       },
+      ...(slack ? { slack } : {}),
     });
   });
 });

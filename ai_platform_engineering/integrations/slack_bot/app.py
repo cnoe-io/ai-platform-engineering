@@ -26,6 +26,7 @@ from a2a_client import A2AClient
 from utils.session_manager import SessionManager
 from utils.langfuse_client import FeedbackClient
 from utils.scoring import submit_feedback_score
+from utils.interaction_tracker import InteractionTracker
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -64,6 +65,7 @@ else:
     logger.info("Langfuse feedback scoring disabled (set LANGFUSE_SCORING_ENABLED=true to enable)")
 
 hitl_handler = HITLCallbackHandler(a2a_client, session_manager)
+interaction_tracker = InteractionTracker(session_manager)
 
 max_retries = int(os.environ.get("CAIPE_CONNECT_RETRIES", "10"))
 retry_delay = int(os.environ.get("CAIPE_CONNECT_RETRY_DELAY", "6"))
@@ -177,6 +179,19 @@ def handle_mention(event, say, client):
             session_manager=session_manager,
         )
 
+        # Track interaction for platform statistics
+        interaction_tracker.record_interaction(
+            thread_ts=thread_ts,
+            channel_id=channel_id,
+            channel_name=channel_config.name if hasattr(channel_config, 'name') else None,
+            user_id=user_id,
+            user_email=user_email,
+            interaction_type="mention",
+            trace_id=session_manager.get_trace_id(thread_ts),
+            context_id=context_id,
+            user_name=user_name,
+        )
+
         if isinstance(result, dict) and result.get("retry_needed"):
             original_error = result.get("error", "Unknown error")
             logger.warning(f"[{thread_ts}] Request failed, showing retry button: {original_error[:100]}")
@@ -281,6 +296,19 @@ def handle_qanda_message(event, say, client):
             session_manager.set_skipped(thread_ts, True)
             return
 
+        # Track interaction for platform statistics
+        interaction_tracker.record_interaction(
+            thread_ts=thread_ts,
+            channel_id=channel_id,
+            channel_name=channel_config.name if hasattr(channel_config, 'name') else None,
+            user_id=user_id,
+            user_email=user_email,
+            interaction_type="qanda",
+            trace_id=session_manager.get_trace_id(thread_ts),
+            context_id=context_id,
+            user_name=user_name,
+        )
+
         logger.info(f"[{thread_ts}] Completed Q&A request for {user_name}")
 
     except Exception as e:
@@ -358,6 +386,19 @@ def handle_dm_message(event, say, client):
             context_id=context_id,
             metadata=request_metadata if request_metadata else None,
             session_manager=session_manager,
+        )
+
+        # Track interaction for platform statistics
+        interaction_tracker.record_interaction(
+            thread_ts=thread_ts,
+            channel_id=channel_id,
+            channel_name="DM",
+            user_id=user_id,
+            user_email=user_email,
+            interaction_type="dm",
+            trace_id=session_manager.get_trace_id(thread_ts),
+            context_id=context_id,
+            user_name=user_name,
         )
 
         if isinstance(result, dict) and result.get("retry_needed"):
@@ -459,6 +500,24 @@ def handle_message_events(body, say, client):
         return
 
     if not event.get("bot_id"):
+        # ── Escalation detection ─────────────────────────────────
+        # A non-bot user replied inside a thread. If this thread is
+        # tracked in slack_interactions AND the replier is not the
+        # original asker, mark the thread as escalated.
+        thread_ts = event.get("thread_ts")
+        if thread_ts and is_thread:
+            user_id = event.get("user")
+            try:
+                db = session_manager.get_db()
+                if db is not None:
+                    doc = db["slack_interactions"].find_one(
+                        {"thread_ts": thread_ts, "channel_id": channel_id},
+                        {"user_id": 1},
+                    )
+                    if doc and doc.get("user_id") != user_id:
+                        interaction_tracker.mark_escalated(thread_ts, channel_id)
+            except Exception as e:
+                logger.debug(f"Escalation check failed for {thread_ts}: {e}")
         return
 
     thread_ts = event.get("thread_ts")
@@ -490,6 +549,17 @@ def handle_message_events(body, say, client):
             default_config,
             session_manager,
             custom_prompt=channel_config.ai_alerts.custom_prompt,
+        )
+
+        # Track alert interaction for platform statistics
+        interaction_tracker.record_interaction(
+            thread_ts=alert_ts,
+            channel_id=channel_id,
+            channel_name=channel_config.name if hasattr(channel_config, 'name') else None,
+            user_id=bot_id,
+            user_email=None,
+            interaction_type="alert",
+            trace_id=session_manager.get_trace_id(alert_ts),
         )
 
 

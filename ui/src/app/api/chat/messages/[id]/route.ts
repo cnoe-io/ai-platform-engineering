@@ -49,6 +49,29 @@ export const PUT = withErrorHandler(async (
         submitted_at: new Date(),
         submitted_by: user.email,
       };
+
+      // Also write to unified feedback collection for cross-platform stats
+      try {
+        const feedbackColl = await getCollection('feedback');
+        await feedbackColl.insertOne({
+          trace_id: body.traceId || null,
+          source: 'web' as const,
+          rating: body.feedback.rating,
+          value: body.feedback.rating === 'positive' ? 'thumbs_up' : 'thumbs_down',
+          comment: body.feedback.comment || null,
+          user_email: user.email,
+          user_id: null,
+          message_id: messageId,
+          conversation_id: body.conversationId || message.conversation_id,
+          channel_id: null,
+          channel_name: null,
+          thread_ts: null,
+          slack_permalink: null,
+          created_at: new Date(),
+        });
+      } catch (err) {
+        console.warn('Failed to write to unified feedback collection:', err);
+      }
     }
 
     if (body.content !== undefined) {

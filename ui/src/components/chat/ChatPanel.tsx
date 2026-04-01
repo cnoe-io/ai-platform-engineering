@@ -1076,11 +1076,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           rating: feedback.type === 'like' ? 'positive' : 'negative',
           comment: feedback.reason === 'Other' ? feedback.additionalFeedback : feedback.reason,
         },
+        conversationId: activeConversationId || undefined,
       });
     } catch (err) {
       console.error('[ChatPanel] Failed to persist feedback to MongoDB:', err);
     }
-  }, []);
+  }, [activeConversationId]);
 
   // Handle user input form submission via HITL resume (not plain text)
   const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
