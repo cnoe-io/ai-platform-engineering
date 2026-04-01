@@ -16,8 +16,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      !contains(github.head_ref, '-single-node-') &&
-      !contains(github.head_ref, '-sngle-node-') &&
+      !contains(github.head_ref, 'single-node') &&
       github.event.action != 'closed'
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
@@ -40,7 +39,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      !contains(github.head_ref, '-single-node-') &&
+      !contains(github.head_ref, 'single-node') &&
       !contains(github.head_ref, '-sngle-node-') &&
       github.event.action != 'closed'
     outputs:
@@ -109,7 +108,7 @@ jobs:
     if: |
       needs.determine-agents.outputs.should_build == 'true' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      !contains(github.head_ref, '-single-node-') &&
+      !contains(github.head_ref, 'single-node') &&
       !contains(github.head_ref, '-sngle-node-') &&
       github.event.action != 'closed'
     permissions:
@@ -238,7 +237,7 @@ jobs:
 
   load-config-cleanup:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, '-single-node-') && !contains(github.event.pull_request.head.ref, '-sngle-node-')
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node') && !contains(github.event.pull_request.head.ref, '-sngle-node-')
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:
@@ -257,7 +256,7 @@ jobs:
   cleanup-images:
     runs-on: ubuntu-latest
     needs: load-config-cleanup
-    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, '-single-node-') && !contains(github.event.pull_request.head.ref, '-sngle-node-')
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node') && !contains(github.event.pull_request.head.ref, '-sngle-node-')
     permissions:
       contents: read
       packages: write
