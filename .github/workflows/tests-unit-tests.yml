@@ -163,7 +163,7 @@ jobs:
 
       - name: Install coverage parsing dependencies
         run: |
-          npm install xml2js
+          npm install xml2js@0.6.2
 
       - name: Comment PR with coverage
         if: github.event_name == 'pull_request' && github.event.pull_request.number

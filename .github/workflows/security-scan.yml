@@ -1,0 +1,54 @@
+---
+name: "[Security] Container Scan"
+description: "Run Anchore Grype vulnerability scan on tag pushes"
+
+# Runs only on tag pushes. Uses Grype (anchore/scan-action) as a safe
+# alternative to aquasecurity/trivy-action following its March 2026
+# supply chain compromise.
+#
+# Scans each Dockerfile in the repo as a filesystem context so no
+# pre-built image names need to be hard-coded.
+
+on:
+  push:
+    tags:
+      - "**"
+
+permissions:
+  contents: read
+  security-events: write  # required to upload SARIF to GitHub Code Scanning
+
+jobs:
+  scan:
+    name: Grype scan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - build/Dockerfile
+          - ai_platform_engineering/dynamic_agents/build/Dockerfile
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Run Grype scan
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        id: scan
+        with:
+          path: "${{ matrix.dockerfile }}"
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: "grype-${{ matrix.dockerfile }}"
