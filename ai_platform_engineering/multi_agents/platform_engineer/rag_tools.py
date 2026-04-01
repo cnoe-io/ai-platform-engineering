@@ -13,8 +13,9 @@ import threading
 import time
 from typing import Any
 
-from langchain_core.tools import BaseTool, ToolException
+from langchain_core.tools import BaseTool
 from langgraph.config import get_config
+from langgraph.prebuilt.tool_node import ToolInvocationError
 from pydantic import PrivateAttr
 
 logger = logging.getLogger(__name__)
@@ -25,18 +26,44 @@ _DEFAULT_MAX_FETCH_DOCUMENT_CALLS = 5
 _STALE_ENTRY_TTL_SECONDS = 300  # clean up counters older than 5 minutes
 
 
+class _FetchDocumentCapExhausted(ToolInvocationError):
+  """
+  Raised when the per-query fetch_document cap is reached.
+
+  Subclasses ToolInvocationError so LangGraph's default ToolNode error handler
+  (_default_handle_tool_errors) catches it via isinstance check and converts it
+  to an is_error=True ToolMessage.  Plain ToolException would be re-raised by
+  the default handler and propagate up to stream.py as a graph crash.
+
+  The is_error=True ToolMessage is the semantic signal that tells the model the
+  tool call FAILED (hard stop), preventing the retry loop that a soft string
+  return would cause.
+  """
+
+  def __init__(self, message: str) -> None:
+    # ToolInvocationError.__init__ requires a ValidationError; bypass it.
+    # We only need self.message for _default_handle_tool_errors to read.
+    self.message = message
+    self.tool_name = "fetch_document"
+    self.tool_kwargs: dict = {}
+    self.source = None
+    self.filtered_errors = None
+    Exception.__init__(self, message)
+
+
 class FetchDocumentCapWrapper(BaseTool):
   """
   Wraps the fetch_document MCP StructuredTool with a per-query call cap.
 
   Uses the LangGraph thread_id (from get_config()) to track how many times
   fetch_document has been called within a single graph invocation. Once the
-  cap is reached, raises ToolException instead of calling the real tool.
+  cap is reached, raises _FetchDocumentCapExhausted (a ToolInvocationError
+  subclass) instead of calling the real tool.
 
-  Raising ToolException (rather than returning a soft string) is critical: it
-  creates an is_error=True ToolMessage that the agent treats as a hard failure,
-  stopping the retry loop. Returning a string message leaves the agent free to
-  call the tool again indefinitely.
+  LangGraph's ToolNode default error handler catches ToolInvocationError and
+  creates an is_error=True ToolMessage.  The model treats that as a hard
+  failure and stops retrying, unlike a plain string return which the model
+  ignores and retries indefinitely.
 
   The counter is automatically cleaned up after _STALE_ENTRY_TTL_SECONDS to
   avoid memory leaks from long-running supervisor processes.
@@ -74,7 +101,6 @@ class FetchDocumentCapWrapper(BaseTool):
       description=original.description,
       args_schema=original.args_schema,
       max_calls=max_calls,
-      handle_tool_error=True,  # convert ToolException to error ToolMessage; prevents graph crash
     )
     wrapper._original_tool = original
     logger.info(f"FetchDocumentCapWrapper created (max_calls={max_calls})")
@@ -86,7 +112,9 @@ class FetchDocumentCapWrapper(BaseTool):
 
     Reads the current thread_id from the LangGraph runtime config, checks/
     increments the counter, and delegates to the original tool if under the cap.
-    Returns a guidance message if the cap is exceeded.
+    Raises _FetchDocumentCapExhausted (a ToolInvocationError) if the cap is
+    exceeded — this creates an is_error=True ToolMessage via ToolNode's default
+    error handler, stopping the retry loop.
     """
     config = get_config()
     thread_id = config.get("configurable", {}).get("thread_id", "__default__") if config else "__default__"
@@ -97,9 +125,9 @@ class FetchDocumentCapWrapper(BaseTool):
       if count >= self.max_calls:
         logger.warning(
           f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}. "
-          "Raising ToolException to stop the agent loop."
+          "Raising _FetchDocumentCapExhausted to create is_error=True ToolMessage."
         )
-        raise ToolException(
+        raise _FetchDocumentCapExhausted(
           f"fetch_document limit ({self.max_calls}) reached for this query. "
           "Stop calling fetch_document. Synthesize your final answer now using only "
           "the search result snippets already retrieved."

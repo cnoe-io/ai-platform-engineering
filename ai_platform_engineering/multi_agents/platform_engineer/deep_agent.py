@@ -22,8 +22,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.response_format impo
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
 from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
 from ai_platform_engineering.multi_agents.tools import (
-    reflect_on_output,
-    format_markdown,
     fetch_url,
     get_current_date,
     request_user_input,
@@ -337,8 +335,6 @@ class AIPlatformEngineerMAS:
     # Do NOT add custom duplicates here — they shadow the built-in tools and
     # break SkillsMiddleware which needs StateBackend access.
     all_tools = all_agents + [
-        reflect_on_output,
-        *([format_markdown] if not USE_STRUCTURED_RESPONSE else []),  # Redundant in structured mode: LLM streams full response twice (as args + in PlatformEngineerResponse), adding ~8s latency
         fetch_url,
         get_current_date,
         *([request_user_input] if not USE_STRUCTURED_RESPONSE else []),  # Only in unstructured mode; structured mode uses PlatformEngineerResponse.metadata instead

@@ -262,3 +262,31 @@ class TestFetchDocumentCapWrapper:
         wrapper, _ = _make_wrapper(max_calls=3)
         with pytest.raises(NotImplementedError):
             wrapper._run(document_id="doc-1")
+
+    @pytest.mark.asyncio
+    async def test_cap_raises_fetch_document_cap_exhausted_subclass(self):
+        """Cap raises _FetchDocumentCapExhausted, which is a ToolInvocationError subclass.
+
+        This is the critical regression test that the original unit tests lacked: they
+        called _arun() directly and only checked for ToolException. But in production,
+        LangGraph's ToolNode default handler (_default_handle_tool_errors) only catches
+        ToolInvocationError — plain ToolException is re-raised, crashing stream.py.
+
+        By raising _FetchDocumentCapExhausted(ToolInvocationError), the default handler
+        catches it and creates an is_error=True ToolMessage instead of crashing.
+        """
+        from langchain_core.tools import ToolException
+        from langgraph.prebuilt.tool_node import ToolInvocationError
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            _FetchDocumentCapExhausted,
+        )
+        wrapper, _ = _make_wrapper(max_calls=1)
+        with _patch_config("thread-subclass"):
+            await wrapper._arun(document_id="doc-1")  # exhaust cap
+            with pytest.raises(_FetchDocumentCapExhausted) as exc_info:
+                await wrapper._arun(document_id="doc-2")
+        # Must be both a ToolInvocationError (for ToolNode) and a ToolException
+        assert isinstance(exc_info.value, ToolInvocationError)
+        assert isinstance(exc_info.value, ToolException)
+        assert hasattr(exc_info.value, "message")
+        assert "fetch_document limit" in exc_info.value.message

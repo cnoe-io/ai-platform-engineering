@@ -91,8 +91,6 @@ from ai_platform_engineering.utils.prompt_config import (
 )
 
 from ai_platform_engineering.multi_agents.tools import (
-    reflect_on_output,
-    format_markdown,
     fetch_url,
     get_current_date,
     jq,
@@ -105,11 +103,13 @@ logger = logging.getLogger(__name__)
 
 # Remote A2A agent tool
 from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import A2ARemoteAgentConnectTool
+from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
 
 # Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
+MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "5"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 
@@ -1127,8 +1127,6 @@ class PlatformEngineerDeepAgent:
 
         # Utility tools
         utility_tools = [
-            reflect_on_output,
-            format_markdown,
             fetch_url,
             get_current_date,
             jq,
@@ -1193,10 +1191,15 @@ class PlatformEngineerDeepAgent:
                 logger.error(f"Error during RAG setup: {e}")
                 self.rag_enabled = False
 
-        # Add RAG tools if loaded
+        # Add RAG tools if loaded, wrapping fetch_document with a per-query call cap
         if self.rag_tools:
-            all_tools.extend(self.rag_tools)
-            logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor: {[t.name for t in self.rag_tools]}")
+            wrapped_rag_tools = [
+                FetchDocumentCapWrapper.from_tool(t, max_calls=MAX_FETCH_DOCUMENT_CALLS)
+                if t.name == "fetch_document" else t
+                for t in self.rag_tools
+            ]
+            all_tools.extend(wrapped_rag_tools)
+            logger.info(f"✅📚 Added {len(wrapped_rag_tools)} RAG tools to supervisor (fetch_document capped at {MAX_FETCH_DOCUMENT_CALLS})")
 
         # Build subagent definitions (async to load MCP tools)
         # Using SubAgent dict format for state sharing:
