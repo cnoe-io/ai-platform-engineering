@@ -772,16 +772,11 @@ class IngestorBuilder:
           logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
           return (0, True)
 
-        # Get per-datasource reload interval from metadata, fall back to DEFAULT_RELOAD_INTERVAL (24h)
-        ds_reload_interval = DEFAULT_RELOAD_INTERVAL
-        if ds.metadata:
-          stored_interval = ds.metadata.get("reload_interval")
-          if stored_interval is not None:
-            ds_reload_interval = stored_interval
-            # Enforce minimum reload interval
-            if ds_reload_interval < MIN_RELOAD_INTERVAL:
-              logger.warning(f"Datasource {ds.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, using minimum")
-              ds_reload_interval = MIN_RELOAD_INTERVAL
+        # Get per-datasource reload interval, clamp to minimum to prevent tight loops
+        ds_reload_interval = ds.reload_interval
+        if ds_reload_interval < MIN_RELOAD_INTERVAL:
+          logger.warning(f"Datasource {ds.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, clamping to minimum")
+          ds_reload_interval = MIN_RELOAD_INTERVAL
 
         time_since_update = current_time - ds.last_updated
         time_until_reload = ds_reload_interval - time_since_update
