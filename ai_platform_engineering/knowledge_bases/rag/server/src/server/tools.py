@@ -116,7 +116,7 @@ class AgentTools:
 
     labels = [ps.label for ps in config.parallel_searches]
     keys_str = ", ".join(f'"{lbl}"' for lbl in labels)
-    return_section = f"Returns:\n    dict with keys: {keys_str}\n    Each key maps to a list of results with text_content (truncated to 500 chars), metadata, and score.\n    Use fetch_document with document_id to get full content."
+    return_section = f"Returns:\n    dict with keys: {keys_str}\n    Each key maps to a list of results with text_content (highlighted snippet), metadata, and score."
 
     base = config.description or "Search for relevant documents in the knowledge base."
     return (
