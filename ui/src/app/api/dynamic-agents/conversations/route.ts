@@ -95,7 +95,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             },
             {
               $project: {
-                _checkpoints: 0,
+                _id: 0,
                 id: "$_id",
                 title: 1,
                 owner_id: 1,
