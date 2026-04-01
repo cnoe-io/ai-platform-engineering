@@ -251,3 +251,171 @@ class TestFetchDocumentCapInBuildGraph:
         rag_names = {"search", "fetch_document", "list_datasources"}
         tools_in_graph = {t.name for t in tools if t.name in rag_names}
         assert tools_in_graph == rag_names
+
+
+# ---------------------------------------------------------------------------
+# Slack bot scenario simulation
+#
+# These tests verify the runtime cap behaviour in the pattern the Slack bot
+# actually drives: 5 parallel searches → model then calls fetch_document for
+# every result → cap fires → model receives a soft stop directive and stops.
+# ---------------------------------------------------------------------------
+
+import asyncio
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def _make_cap_wrapper(max_calls: int = 3):
+    """Return a FetchDocumentCapWrapper with a mock original tool."""
+    from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
+    original = _make_mock_rag_tool("fetch_document")
+    return FetchDocumentCapWrapper.from_tool(original, max_calls=max_calls), original
+
+
+def _patch_thread(thread_id: str):
+    return patch(
+        "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.get_config",
+        return_value={"configurable": {"thread_id": thread_id}},
+    )
+
+
+class TestSlackBotScenarioSimulation:
+    """
+    Simulate the Slack bot prompt pattern:
+        default_mention_prompt mandates 5+ searches → model then calls
+        fetch_document for every search result → cap fires.
+
+    Verifies:
+    - First max_calls fetches succeed (real documents retrieved)
+    - (max_calls+1)th call returns a hard-stop STRING, not an exception
+    - Hard-stop string contains directive keywords the model will respect
+    - Hard-stop creates a normal (is_error=False) ToolMessage via LangGraph ToolNode
+    - Different Slack users (thread_ids) have independent budgets
+    - Cap is configurable via FETCH_DOCUMENT_MAX_CALLS env var
+    """
+
+    @pytest.mark.asyncio
+    async def test_slack_5searches_then_fetch_pattern_cap_fires(self):
+        """
+        Simulates: Slack prompt → 5 searches → model calls fetch_document for
+        each of the (many) search results. After max_calls fetches succeed, the
+        next call returns the hard-stop directive.
+        """
+        wrapper, original = _make_cap_wrapper(max_calls=3)
+        successful_fetches = []
+        cap_responses = []
+
+        with _patch_thread("slack-user-1"):
+            # Simulate 5 search calls (search tool is separate, not capped)
+            # ... model now calls fetch_document for each result
+            for i in range(5):
+                result = await wrapper._arun(document_id=f"doc-{i}")
+                if "HARD LIMIT" in result:
+                    cap_responses.append(result)
+                else:
+                    successful_fetches.append(result)
+
+        assert len(successful_fetches) == 3, "First 3 fetches should succeed"
+        assert len(cap_responses) == 2, "Calls 4 and 5 should be blocked"
+        assert original.arun.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_hard_stop_is_plain_string_not_exception(self):
+        """
+        Critical: cap MUST return a plain string, not raise an exception.
+
+        Raising is_error=True causes the model to treat the cap as a transient
+        per-document failure and retry with the next document_id (infinite loop).
+        A plain string is read as a directive and respected.
+        """
+        wrapper, _ = _make_cap_wrapper(max_calls=1)
+        with _patch_thread("slack-user-directive"):
+            await wrapper._arun(document_id="doc-1")  # exhaust cap
+            result = await wrapper._arun(document_id="doc-2")
+
+        assert isinstance(result, str), "Cap must return str, not raise exception"
+        assert "HARD LIMIT" in result
+        assert "MUST NOT" in result
+        assert "Synthesize" in result
+
+    @pytest.mark.asyncio
+    async def test_hard_stop_toolnode_produces_normal_toolmessage(self):
+        """
+        Verifies the cap hard-stop creates a normal ToolMessage (status!='error').
+
+        LangGraph ToolNode sets status='error' only when _arun RAISES an exception.
+        When _arun returns a plain string, ToolNode creates ToolMessage(status='success').
+        Models treat status='error' as a retriable failure and retry with the next
+        document_id; they treat a string directive as an instruction and stop.
+
+        We verify the key invariant by constructing the ToolMessage as ToolNode would
+        (direct ToolNode.ainvoke() requires full graph runtime context in this LangGraph
+        version and cannot be called standalone in unit tests).
+        """
+        from langchain_core.messages import ToolMessage
+
+        wrapper, _ = _make_cap_wrapper(max_calls=0)  # block all calls immediately
+
+        with _patch_thread("slack-toolnode-test"):
+            result = await wrapper._arun(document_id="doc-1", thought="Need full content")
+
+        # Step 1: cap must return a string, not raise
+        assert isinstance(result, str), "Cap must return str, not raise — raising creates is_error=True"
+        assert "HARD LIMIT" in result
+
+        # Step 2: ToolNode constructs ToolMessage(content=result, ...) for a string return.
+        # Verify that message has status != 'error' (the property that prevents model retries).
+        tm = ToolMessage(content=result, tool_call_id="call_abc")
+        assert tm.status != "error", (
+            "Cap hard-stop must produce a normal ToolMessage (status!=error), "
+            "not is_error=True — otherwise model retries indefinitely"
+        )
+
+    @pytest.mark.asyncio
+    async def test_two_slack_users_independent_budgets(self):
+        """
+        Two concurrent Slack users (different thread_ids) each get their own
+        fetch_document budget. One exhausting theirs does not affect the other.
+        """
+        wrapper, _ = _make_cap_wrapper(max_calls=2)
+
+        # User A exhausts their budget
+        with _patch_thread("slack-user-A"):
+            r1 = await wrapper._arun(document_id="doc-1")
+            r2 = await wrapper._arun(document_id="doc-2")
+            r3 = await wrapper._arun(document_id="doc-3")  # cap
+
+        assert r1 == "result from fetch_document"
+        assert r2 == "result from fetch_document"
+        assert "HARD LIMIT" in r3
+
+        # User B still has full budget
+        with _patch_thread("slack-user-B"):
+            rb1 = await wrapper._arun(document_id="doc-1")
+            rb2 = await wrapper._arun(document_id="doc-2")
+            rb3 = await wrapper._arun(document_id="doc-3")  # cap
+
+        assert rb1 == "result from fetch_document"
+        assert rb2 == "result from fetch_document"
+        assert "HARD LIMIT" in rb3
+
+    def test_cap_limit_configurable_via_env_var(self):
+        """
+        FETCH_DOCUMENT_MAX_CALLS env var (default 3 in dev, 5 in code) controls
+        how many fetches are allowed before the hard-stop fires.
+        """
+        import ai_platform_engineering.multi_agents.platform_engineer.deep_agent as deep_module
+
+        rag_tools = [_make_mock_rag_tool("fetch_document")]
+
+        for cap_value in [1, 3, 5, 10]:
+            with _make_mas_with_rag_tools(rag_tools) as (mas, mock_create_graph):
+                with patch.object(deep_module, "MAX_FETCH_DOCUMENT_CALLS", cap_value):
+                    mas._build_graph()
+
+            tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
+            wrapper = next(t for t in tools if t.name == "fetch_document")
+            assert wrapper.max_calls == cap_value, (
+                f"Expected max_calls={cap_value}, got {wrapper.max_calls}"
+            )
