@@ -485,7 +485,7 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                                 <select
                                     value={selectedFilterKey}
                                     onChange={(e) => handleFilterKeyChange(e.target.value)}
-                                    className="rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
+                                    className="w-48 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
                                 >
                                     <option value="">Add filter...</option>
                                     {validFilterKeys.map(key => (
@@ -500,7 +500,7 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                                         placeholder="metadata.field_name"
                                         value={customFilterKey}
                                         onChange={(e) => setCustomFilterKey(e.target.value)}
-                                        className="w-36 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground font-mono"
+                                        className="w-48 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground font-mono"
                                         autoFocus
                                     />
                                     <button
@@ -522,7 +522,7 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                                         placeholder="Value"
                                         value={filterValue}
                                         onChange={(e) => setFilterValue(e.target.value)}
-                                        className="w-24 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
+                                        className="w-48 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
                                         onKeyDown={(e) => e.key === 'Enter' && addFilter()}
                                     />
                                     <button
