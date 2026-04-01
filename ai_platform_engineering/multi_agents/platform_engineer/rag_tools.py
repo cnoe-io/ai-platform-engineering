@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # How many fetch_document calls are allowed per query (thread_id).
 # Set to 0 to disable (block all calls). Override via env var.
-_DEFAULT_MAX_FETCH_DOCUMENT_CALLS = 3
+_DEFAULT_MAX_FETCH_DOCUMENT_CALLS = 5
 _STALE_ENTRY_TTL_SECONDS = 300  # clean up counters older than 5 minutes
 
 
@@ -63,7 +63,7 @@ class FetchDocumentCapWrapper(BaseTool):
     Args:
         original: The StructuredTool instance returned by MultiServerMCPClient.get_tools()
         max_calls: Maximum fetch_document calls allowed per thread_id per query.
-                   Defaults to _DEFAULT_MAX_FETCH_DOCUMENT_CALLS (3).
+                   Defaults to _DEFAULT_MAX_FETCH_DOCUMENT_CALLS (5).
     """
     wrapper = cls(
       name=original.name,

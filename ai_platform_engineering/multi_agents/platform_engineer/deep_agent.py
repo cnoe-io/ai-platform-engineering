@@ -59,7 +59,7 @@ USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "true").lower() =
 
 # fetch_document call cap per query (thread_id). Prevents runaway fetching in deep-research mode.
 # Set to 0 to block all fetch_document calls. Override via FETCH_DOCUMENT_MAX_CALLS env var.
-MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "3"))
+MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "5"))
 
 class AIPlatformEngineerMAS:
   def __init__(self):

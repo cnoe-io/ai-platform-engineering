@@ -205,21 +205,21 @@ class TestFetchDocumentCapInBuildGraph:
         assert wrapper.description == fetch_tool.description
         assert wrapper.args_schema == fetch_tool.args_schema
 
-    def test_default_max_calls_is_3(self):
-        """Default MAX_FETCH_DOCUMENT_CALLS (when env var unset) is 3."""
+    def test_default_max_calls_is_5(self):
+        """Default MAX_FETCH_DOCUMENT_CALLS (when env var unset) is 5."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
         import ai_platform_engineering.multi_agents.platform_engineer.deep_agent as deep_module
 
         rag_tools = [_make_mock_rag_tool("fetch_document")]
         with _make_mas_with_rag_tools(rag_tools) as (mas, mock_create_graph):
             # Force default value
-            with patch.object(deep_module, "MAX_FETCH_DOCUMENT_CALLS", 3):
+            with patch.object(deep_module, "MAX_FETCH_DOCUMENT_CALLS", 5):
                 mas._build_graph()
 
         tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
         wrapper = next(t for t in tools if t.name == "fetch_document")
         assert isinstance(wrapper, FetchDocumentCapWrapper)
-        assert wrapper.max_calls == 3
+        assert wrapper.max_calls == 5
 
     def test_no_fetch_document_in_rag_tools_nothing_wrapped(self):
         """When RAG tools don't include fetch_document, no wrapper is created."""
