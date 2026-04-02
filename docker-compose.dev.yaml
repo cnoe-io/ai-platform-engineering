@@ -316,7 +316,7 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-    command: platform-engineer-single
+    command: platform-engineer
     profiles:
       - caipe-supervisor-distributed
 
