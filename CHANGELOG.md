@@ -1,22 +1,158 @@
-## 0.2.42 (2026-03-24)
+## 0.2.43 (2026-04-02)
+
+### Feat
+
+- add Grype container scan on version tag push (#1084)
+
+## 0.2.42-rc.14 (2026-04-02)
+
+## 0.2.42-rc.13 (2026-04-02)
+
+### Fix
+
+- **rag**: restore per-result fetch_document markers + raise cap to 10 + 49 tests (#1069)
+
+## 0.2.42-rc.12 (2026-04-01)
+
+### Feat
+
+- **github**: deploy GitHub MCP server as separate HTTP pod (#1077)
+
+### Fix
+
+- pin all GitHub Actions to immutable commit SHAs (#1082)
+- use workflow_run to post coverage comments from fork PRs (#1081)
+
+## 0.2.42-rc.11 (2026-04-01)
+
+### Feat
+
+- **backstage-ingestor**: add BACKSTAGE_AUTH_MODE for multi-mode auth
+
+## 0.2.42-rc.10 (2026-03-31)
+
+### Feat
+
+- **ui**: add data freshness visibility and cleanup controls
+- **rag**: add safe bulk cleanup with failed job protection
+- **rag**: update all ingestors to use get_fresh_until()
+- **rag**: add fresh_until calculation and reload_interval field
+
+### Fix
+
+- **ui**: add formatRelativeTimeCompact to test mocks
+- **rag**: remove unused DEFAULT_RELOAD_INTERVAL import
+
+### Refactor
+
+- **ui**: use shared formatRelativeTimeCompact utility
+
+## 0.2.42-rc.9 (2026-03-31)
+
+### Feat
+
+- **supervisor**: add tool error resilience, workflow introspection, and form pre-population (#1062)
+
+## 0.2.42-rc.8 (2026-03-27)
+
+### Feat
+
+- **rag**: improve MCP search tools and UI
+
+### Fix
+
+- **rag**: remove unused pytest import
+
+### Refactor
+
+- **rag**: standardize ruff formatting to 2-space indentation
+
+## 0.2.42-rc.7 (2026-03-26)
+
+### Feat
+
+- **aws**: add AWS CLI and kubectl tools to single-node AWS subagent
+- **helm**: propagate global.checkpointPersistence to all agent subcharts (#1023)
+
+### Fix
+
+- **single-node**: use built-in system prompts for all subagents
+
+### Refactor
+
+- **aws**: remove dynamic args schema — profiles covered by system prompt
+
+## 0.2.42-rc.6 (2026-03-25)
+
+### Feat
+
+- **skills**: skills middleware integration with gateway API (#1024)
+
+## 0.2.42-rc.5 (2026-03-25)
+
+### Feat
+
+- **dynamic-agents**: add LOG_LEVEL env var and reduce log verbosity
+- **dynamic-agents**: add backend cancellation for stop button
+- **dynamic-agents**: add progressive turn loading and chat download
+- **dynamic-agents**: add timeline UI for streaming agent responses
+- **dynamic-agents**: add namespace correlation for subagent SSE events
+- **ui**: redesign inline event cards with interleaved rendering
+- **ui**: show tool/subagent calls inline in chat panel
+
+### Fix
+
+- restore streaming cursor and remove unused variable
+- **dynamic-agents**: clear sseEvents before HITL resume stream
+- **dynamic-agents**: persist sseEvents to messages and auto-collapse sections
+- **dynamic-agents**: fix timeline race condition on message interrupt
+- **dynamic-agents**: persist turnStatus for interrupted/cancelled turns
+- **ui**: simplify HITL state check, add thinking indicator
+- **dynamic-agents**: include built-in tools for subagents
+- **dynamic-agents**: increase botocore timeout for Bedrock LLM
+- **ui**: prevent visual flash on conversation switch
+- **ui**: reset agent info on conversation switch to prevent stale theme
+- **ui**: eliminate duplicate API calls on chat startup
+- **ui**: simplify inline event card args display
+- **sse**: properly encode newlines in SSE content events
+- **ui**: handle SSE newlines - empty data: becomes \n
+- **ui**: improve typing indicator and fix markdown newlines
+
+### Refactor
+
+- **dynamic-agents**: simplify agent panel and collapse by default
+- **dynamic-agents**: unify DA history loading with standard chat
+- **ui**: unify streaming/final markdown rendering in chat
+- **dynamic-agents**: remove final_result event and runtimeStatus
+
+## 0.2.42-rc.4 (2026-03-25)
+
+### Feat
+
+- **slack**: replace custom MCP with korotovsky/slack-mcp-server v1.2.3 (#1036)
+
+## 0.2.42-rc.3 (2026-03-24)
+
+### Feat
+
+- **victorops**: multi-org support via VICTOROPS_ORGS env var
+
+## 0.2.42-rc.2 (2026-03-24)
+
+## 0.2.42-rc.1 (2026-03-24)
+
+### Feat
+
+- **argocd**: add directory_recurse parameter to create_application
 
 ### Fix
 
 - **slack-bot**: prevent posting to main channel when thread message is deleted (#1034)
-
-## 0.2.41-rc.3 (2026-03-24)
-
-### Fix
-
 - **slack-ingestor**: detect lookback_days config changes and trigger full re-ingestion (#1035)
-
-## 0.2.41-rc.2 (2026-03-24)
-
-### Fix
-
 - **executor**: plan step attribution, false final answer, and sub-agent source bugs (#1025)
+- **ui**: auto-sync system task configs when task_config.yaml changes
 
-## 0.2.41-rc.1 (2026-03-19)
+## 0.2.41 (2026-03-19)
 
 ### Feat
 
