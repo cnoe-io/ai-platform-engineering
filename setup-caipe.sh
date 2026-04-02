@@ -1198,7 +1198,7 @@ choose_features() {
     echo -e "  ${DIM}nginx-ingress + a domain lets you access the UI at https://<domain> instead of localhost.${NC}"
     if ask_yn "Enable nginx-ingress and expose UI via a domain?" "n"; then
       ENABLE_INGRESS=true
-      prompt "Enter the domain hostname (e.g. caipe-demo.cisco.com): "
+      prompt "Enter the domain hostname (e.g. my-caipe.example.com): "
       tty_read -r CAIPE_DOMAIN
       if [[ -z "$CAIPE_DOMAIN" ]]; then
         err "Domain is required when ingress is enabled"
@@ -4057,7 +4057,7 @@ Options:
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
   --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters
   --ingress          Install nginx-ingress + MetalLB and expose UI via domain (requires --domain)
-  --domain=HOST      Hostname for the UI ingress (e.g. caipe-demo.cisco.com)
+  --domain=HOST      Hostname for the UI ingress (e.g. my-caipe.example.com)
   --tls-cert=FILE    Path to TLS certificate PEM file (default: auto-generate self-signed)
   --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
@@ -4143,8 +4143,8 @@ Examples:
   $(basename "$0") --non-interactive --agentgateway --rag               # full stack with AgentGateway + RAG
   $(basename "$0") --non-interactive --persistence                      # deploy with Redis persistence
   $(basename "$0") --non-interactive --rag --persistence                # RAG + Redis persistence (recommended)
-  $(basename "$0") --non-interactive --create-cluster --ingress --domain=caipe-demo.cisco.com                   # kind + MetalLB + ingress + self-signed TLS
-  $(basename "$0") --non-interactive --create-cluster --ingress --domain=caipe-demo.cisco.com \
+  $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com                   # kind + MetalLB + ingress + self-signed TLS
+  $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com \
     --tls-cert=/path/to/cert.pem --tls-key=/path/to/key.pem            # kind + MetalLB + ingress + custom TLS
 
 EOF
