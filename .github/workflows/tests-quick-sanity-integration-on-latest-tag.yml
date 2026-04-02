@@ -69,6 +69,11 @@ jobs:
           sudo mv /tmp/kind /usr/local/bin/kind
           kind version
 
+      - name: Clear stale kubeconfig
+        run: |
+          rm -f ~/.kube/config
+          mkdir -p ~/.kube
+
       - name: Pre-clean Kind cluster
         run: |
           kind delete cluster --name caipe 2>/dev/null || true
