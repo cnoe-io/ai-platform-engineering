@@ -1,6 +1,7 @@
 [tool.pytest.ini_options]
 # Pytest configuration for RAG E2E tests
 testpaths = ["tests"]
+asyncio_mode = "auto"
 python_files = "test_*.py"
 python_functions = "test_*"
 python_classes = "Test*"

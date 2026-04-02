@@ -93,6 +93,7 @@ services:
       # RAG Service Configuration
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - ENABLE_RAG=${ENABLE_RAG:-false}
+      - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-10}
 
       # GitHub Token for git operations
       - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}

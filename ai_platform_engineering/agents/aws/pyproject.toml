@@ -33,6 +33,7 @@ dependencies = [
     "deepagents==0.3.0",
     "ai-platform-engineering-utils",
     "prometheus_client==0.23.1",
+    "cryptography==46.0.6",
 ]
 
 [tool.hatch.build.targets.wheel]

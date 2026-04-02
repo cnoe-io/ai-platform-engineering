@@ -20,9 +20,8 @@ from typing import Optional, Dict, Any, List
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
+from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
 from ai_platform_engineering.multi_agents.tools import (
-    reflect_on_output,
-    format_markdown,
     fetch_url,
     get_current_date,
     request_user_input,
@@ -55,6 +54,9 @@ RAG_CONNECTIVITY_WAIT_SECONDS = 10
 # Structured Response Configuration
 # When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
 USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "true").lower() == "true"
+
+MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "5"))
+
 
 class AIPlatformEngineerMAS:
   def __init__(self):
@@ -332,8 +334,6 @@ class AIPlatformEngineerMAS:
     # Do NOT add custom duplicates here — they shadow the built-in tools and
     # break SkillsMiddleware which needs StateBackend access.
     all_tools = all_agents + [
-        reflect_on_output,
-        format_markdown,
         fetch_url,
         get_current_date,
         *([request_user_input] if not USE_STRUCTURED_RESPONSE else []),  # Only in unstructured mode; structured mode uses PlatformEngineerResponse.metadata instead
@@ -350,10 +350,15 @@ class AIPlatformEngineerMAS:
         yq,         # yq("yq '.spec.replicas' deployment.yaml")
     ]
 
-    # Add RAG tools if initially loaded
+    # Add RAG tools if initially loaded, wrapping fetch_document with a per-query call cap
     if self.rag_tools:
-      all_tools.extend(self.rag_tools)
-      logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor")
+      wrapped_rag_tools = [
+        FetchDocumentCapWrapper.from_tool(t, max_calls=MAX_FETCH_DOCUMENT_CALLS)
+        if t.name == "fetch_document" else t
+        for t in self.rag_tools
+      ]
+      all_tools.extend(wrapped_rag_tools)
+      logger.info(f"✅📚 Added {len(wrapped_rag_tools)} RAG tools to supervisor (fetch_document capped at {MAX_FETCH_DOCUMENT_CALLS})")
 
     # Generate CustomSubAgents (pre-created react agents with A2A tools)
     subagents = platform_registry.generate_subagents(agent_prompts, base_model)
