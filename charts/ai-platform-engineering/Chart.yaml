@@ -198,6 +198,6 @@ dependencies:
     condition: global.langgraphRedis.enabled
   # Slack Bot Integration (client, not an agent)
   - name: slack-bot
-    version: 0.2.43 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.2.43-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
