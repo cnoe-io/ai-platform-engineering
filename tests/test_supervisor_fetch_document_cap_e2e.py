@@ -419,3 +419,151 @@ class TestSlackBotScenarioSimulation:
             assert wrapper.max_calls == cap_value, (
                 f"Expected max_calls={cap_value}, got {wrapper.max_calls}"
             )
+
+
+# ---------------------------------------------------------------------------
+# ClassVar counter persistence across graph rebuilds
+#
+# Graph rebuilds (triggered by agent registry changes mid-query) create new
+# FetchDocumentCapWrapper instances.  The ClassVar counters must survive so the
+# per-thread_id budget cannot be reset by a rebuild.
+# ---------------------------------------------------------------------------
+
+class TestCounterPersistenceAcrossGraphRebuilds:
+    """Verify per-thread_id counters survive _build_graph() rebuilds."""
+
+    @pytest.mark.asyncio
+    async def test_classvar_counts_survive_new_wrapper_instance(self):
+        """
+        Creating a new FetchDocumentCapWrapper instance (as _build_graph does on
+        rebuild) does NOT reset the per-thread_id counter.
+
+        This is the key safety property of ClassVar counters: a mid-query
+        _rebuild_graph() must not give the model a fresh fetch budget.
+        """
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
+
+        # Wrapper 1 — simulates the initial graph build
+        wrapper1, _ = _make_cap_wrapper(max_calls=3)
+
+        with _patch_thread("rebuild-test-thread"):
+            await wrapper1._arun(document_id="doc-1")
+            await wrapper1._arun(document_id="doc-2")  # count = 2
+
+            # Simulate _build_graph() rebuild: create a new wrapper instance.
+            # The new instance shares the same ClassVar counters.
+            wrapper2, _ = _make_cap_wrapper(max_calls=3)
+
+            r3 = await wrapper2._arun(document_id="doc-3")  # count = 3, OK
+            r4 = await wrapper2._arun(document_id="doc-4")  # count would be 4, blocked
+
+        assert "HARD LIMIT" not in r3, "Third call should succeed (count=3 == max_calls=3)"
+        assert "HARD LIMIT" in r4, (
+            "Fourth call must be blocked — ClassVar counters survived the rebuild. "
+            "Graph rebuild must not reset the per-thread_id budget."
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_users_independent_under_asyncio_gather(self):
+        """
+        Concurrent asyncio tasks from different thread_ids each have independent
+        budgets even when running in the same event loop.
+        """
+        wrapper, _ = _make_cap_wrapper(max_calls=2)
+        results: dict = {}
+
+        async def user_task(user_id: str):
+            calls = []
+            with _patch_thread(f"concurrent-user-{user_id}"):
+                for i in range(3):  # 3 calls per user; cap at 2
+                    r = await wrapper._arun(document_id=f"doc-{i}")
+                    calls.append(r)
+            results[user_id] = calls
+
+        await asyncio.gather(
+            user_task("alpha"),
+            user_task("beta"),
+            user_task("gamma"),
+        )
+
+        for uid, calls in results.items():
+            successes = [c for c in calls if "HARD LIMIT" not in c]
+            caps = [c for c in calls if "HARD LIMIT" in c]
+            assert len(successes) == 2, f"User {uid}: expected 2 successes, got {len(successes)}"
+            assert len(caps) == 1, f"User {uid}: expected 1 cap, got {len(caps)}"
+
+
+# ---------------------------------------------------------------------------
+# Hard-stop message content
+#
+# The model reads the hard-stop string as a directive.  The wording must be
+# imperative and unambiguous so the model stops calling fetch_document.
+# These tests act as change-detection guards for the message text.
+# ---------------------------------------------------------------------------
+
+class TestCapHardStopMessageContent:
+    """Verify the content of the hard-stop message the model receives."""
+
+    @pytest.mark.asyncio
+    async def test_hard_stop_contains_quota_count(self):
+        """Hard-stop cites the max_calls quota so the model understands why it was stopped."""
+        max_calls = 7
+        wrapper, _ = _make_cap_wrapper(max_calls=max_calls)
+        with _patch_thread("quota-count-test"):
+            for i in range(max_calls):
+                await wrapper._arun(document_id=f"doc-{i}")
+            result = await wrapper._arun(document_id="doc-over")
+
+        assert str(max_calls) in result, (
+            f"Hard-stop must cite the quota ({max_calls}) calls used"
+        )
+
+    @pytest.mark.asyncio
+    async def test_hard_stop_forbids_further_fetch_calls(self):
+        """Hard-stop uses imperative 'MUST NOT' to prevent the model retrying."""
+        wrapper, _ = _make_cap_wrapper(max_calls=1)
+        with _patch_thread("forbid-test"):
+            await wrapper._arun(document_id="doc-1")
+            result = await wrapper._arun(document_id="doc-2")
+
+        assert "MUST NOT" in result, "Hard-stop must use imperative 'MUST NOT' to block retries"
+        assert "fetch_document" in result, "Hard-stop must name the blocked tool"
+
+    @pytest.mark.asyncio
+    async def test_hard_stop_directs_model_to_synthesize(self):
+        """Hard-stop instructs model to synthesize from already-retrieved content."""
+        wrapper, _ = _make_cap_wrapper(max_calls=1)
+        with _patch_thread("synthesize-test"):
+            await wrapper._arun(document_id="doc-1")
+            result = await wrapper._arun(document_id="doc-2")
+
+        assert "Synthesize" in result, (
+            "Hard-stop must direct model to synthesize (not just say 'stop')"
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_call_count_tracks_accurately(self):
+        """get_call_count() returns the exact count of successful (non-blocked) fetches."""
+        wrapper, _ = _make_cap_wrapper(max_calls=5)
+        with _patch_thread("count-track-test"):
+            for i in range(3):
+                await wrapper._arun(document_id=f"doc-{i}")
+            count = wrapper.get_call_count("count-track-test")
+
+        assert count == 3, f"Expected call count 3, got {count}"
+
+    @pytest.mark.asyncio
+    async def test_get_call_count_not_incremented_after_cap(self):
+        """Blocked calls (past the cap) do not increment the per-thread counter."""
+        wrapper, _ = _make_cap_wrapper(max_calls=2)
+        with _patch_thread("cap-no-count"):
+            await wrapper._arun(document_id="doc-1")
+            await wrapper._arun(document_id="doc-2")
+            await wrapper._arun(document_id="doc-3")  # blocked
+            await wrapper._arun(document_id="doc-4")  # blocked
+            count = wrapper.get_call_count("cap-no-count")
+
+        assert count == 2, (
+            f"Counter must stop at cap (2), got {count}. "
+            "Blocked calls must not increment the counter."
+        )
