@@ -55,6 +55,12 @@ jobs:
           df -h /
           echo "::endgroup::"
 
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+
       - name: Pre-clean Kind cluster
         run: |
           kind delete cluster --name caipe 2>/dev/null || true
