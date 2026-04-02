@@ -2748,6 +2748,11 @@ deploy_caipe() {
       --set "caipe-ui.ingress.hosts[0].paths[0].pathType=Prefix"
       --set "caipe-ui.ingress.tls[0].secretName=caipe-tls"
       --set "caipe-ui.ingress.tls[0].hosts[0]=${CAIPE_DOMAIN}"
+      # OIDC callback sets a large Set-Cookie header (JWTs + many group claims).
+      # Increase nginx proxy buffers to prevent 502 "upstream sent too big header".
+      --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffer-size=128k"
+      --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffers-number=4"
+      --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-busy-buffers-size=256k"
     )
     log "Ingress configured for https://${CAIPE_DOMAIN}"
   fi
