@@ -190,8 +190,6 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { tags: 1 }),
     safeCreateIndex(db, 'conversations', { is_archived: 1, owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { deleted_at: 1, owner_id: 1 }),
-    safeCreateIndex(db, 'conversations', { source: 1 }),
-
     // Messages collection
     safeCreateIndex(db, 'messages', { conversation_id: 1, created_at: 1 }),
     safeCreateIndex(db, 'messages', { 'metadata.turn_id': 1 }),
