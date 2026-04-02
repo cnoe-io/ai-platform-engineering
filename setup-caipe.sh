@@ -3135,6 +3135,13 @@ monitor_port_forwards() {
   run_validation
   run_sanity_tests
 
+  # In non-interactive (CI) mode, exit after validation — no need to keep
+  # port-forwards alive for an interactive session.
+  if $NON_INTERACTIVE; then
+    log "Non-interactive mode: setup complete, exiting."
+    return
+  fi
+
   echo ""
   header "Services Ready"
   echo ""
