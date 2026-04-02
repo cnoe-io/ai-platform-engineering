@@ -784,7 +784,7 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
   beforeEach(resetMocks);
 
   it('applies source=slack filter to conversation queries', async () => {
-    const { convCol, msgCol } = setupAdminWithCollections();
+    const { convCol } = setupAdminWithCollections();
 
     const req = makeRequest('/api/admin/stats?source=slack');
     await GET(req);
@@ -802,7 +802,7 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
   });
 
   it('applies user filter to owner_id on conversation and message queries', async () => {
-    const { convCol, msgCol } = setupAdminWithCollections();
+    const { convCol } = setupAdminWithCollections();
 
     const req = makeRequest('/api/admin/stats?user=alice@co.com,bob@co.com');
     await GET(req);

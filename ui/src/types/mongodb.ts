@@ -81,6 +81,7 @@ export interface Message {
   sender_image?: string;
   metadata: {
     turn_id: string;
+    source?: string;
     model?: string;
     tokens_used?: number;
     latency_ms?: number;

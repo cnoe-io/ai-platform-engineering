@@ -573,13 +573,13 @@ def stream_a2a_response(
       if stream_ts:
         try:
           slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
-        except Exception:
-          pass
+        except Exception as e:
+          logger.debug(f"[{thread_ts}] Failed to stop stream {stream_ts}: {e}")
       if response_ts:
         try:
           slack_client.chat_delete(channel=channel_id, ts=response_ts)
-        except Exception:
-          pass
+        except Exception as e:
+          logger.debug(f"[{thread_ts}] Failed to delete message {response_ts}: {e}")
       # Return marker to trigger retry at caller level
       return {"retry_needed": True, "error": task_error}
     else:

@@ -103,8 +103,8 @@ def score_to_feedback_doc(score: dict) -> dict | None:
     if score.get("createdAt"):
         try:
             created_at = datetime.fromisoformat(score["createdAt"].replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            pass
+        except (ValueError, AttributeError) as e:
+            print(f"  Warning: could not parse createdAt '{score.get('createdAt')}': {e}", file=sys.stderr)
 
     return {
         "trace_id": trace_id,
