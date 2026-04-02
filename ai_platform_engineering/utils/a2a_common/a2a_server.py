@@ -47,7 +47,8 @@ class A2AServer:
         self.agent_executor = agent_executor
         self.metrics_enabled = metrics_enabled
 
-    async def serve(self):
+    def build_app(self):
+        """Build and return the configured ASGI app. Useful for testing."""
         client = httpx.AsyncClient()
         push_config_store = InMemoryPushNotificationConfigStore()
         push_sender = BasePushNotificationSender(httpx_client=client, config_store=push_config_store)
@@ -78,5 +79,9 @@ class A2AServer:
                 agent_name=self.agent_name,
             )
 
+        return app
+
+    async def serve(self):
+        app = self.build_app()
         config = uvicorn.Config(app, host=self.host, port=self.port, access_log=False)
         await uvicorn.Server(config).serve()
