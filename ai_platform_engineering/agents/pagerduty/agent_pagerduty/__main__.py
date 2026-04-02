@@ -26,8 +26,6 @@ from a2a.types import (
 
 load_dotenv()
 
-A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 
 AGENT_NAME = 'pagerduty'
@@ -64,8 +62,6 @@ async def async_main(host: str, port: int):
         agent_skills=[agent_skill],
         host=host,
         port=port,
-        transport=A2A_TRANSPORT,
-        slim_endpoint=SLIM_ENDPOINT,
         agent_executor=PagerDutyAgentExecutor(),
         metrics_enabled=METRICS_ENABLED
     )
