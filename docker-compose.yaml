@@ -19,11 +19,14 @@ services:
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       # Prompt configuration file path
@@ -723,8 +726,12 @@ services:
   rag_server:
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-0.2.36}
     container_name: rag_server
+    volumes:
+      - ${HOME}/.aws:/home/app/.aws:ro
     ports: ["9446:9446"]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=DEBUG
       - ALLOW_UNAUTHENTICATED=true
       # Trusted Network Configuration
