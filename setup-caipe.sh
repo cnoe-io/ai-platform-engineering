@@ -67,6 +67,7 @@ TLS_CERT_FILE=""
 TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
+ENABLE_DYNAMIC_AGENTS=false
 
 # When run via "curl | bash", stdin is the script content — bash reads it
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
@@ -1126,6 +1127,7 @@ choose_features() {
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
     $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (--agentgateway)" || log "AgentGateway skipped (pass --agentgateway to enable)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (--persistence)" || log "Persistence skipped (pass --persistence to enable)"
+    $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (--dynamic-agents)" || log "Dynamic agents skipped (pass --dynamic-agents to enable)"
     if $ENABLE_METALLB; then
       log "MetalLB enabled (--metallb)"
     fi
@@ -2575,9 +2577,28 @@ deploy_caipe() {
     --set tags.caipe-ui=true
     --set tags.agent-weather=true
     --set tags.agent-netutils=true
-    --set caipe-ui.config.SSO_ENABLED=false
     --set caipe-ui.env.A2A_BASE_URL=http://localhost:8000
   )
+
+  # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
+  # patched in provision_ui_secret; here we flip the server-side flag too)
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    helm_args+=(--set "caipe-ui.config.SSO_ENABLED=true")
+  else
+    helm_args+=(--set "caipe-ui.config.SSO_ENABLED=false")
+  fi
+
+  # Dynamic agents (custom agent builder)
+  if $ENABLE_DYNAMIC_AGENTS; then
+    # Service name: <release>-dynamic-agents (chart nameOverride="dynamic-agents")
+    local release_name="caipe"
+    local da_svc="${release_name}-dynamic-agents"
+    helm_args+=(
+      --set "tags.dynamic-agents=true"
+      --set "caipe-ui.env.DYNAMIC_AGENTS_ENABLED=true"
+      --set "caipe-ui.env.DYNAMIC_AGENTS_URL=http://${da_svc}:8001"
+    )
+  fi
 
   if $ENABLE_RAG; then
     helm_args+=(
@@ -4098,6 +4119,7 @@ Options:
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory
                      (deploys langgraph-redis subchart; enables fact extraction)
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
+  --dynamic-agents   Enable the dynamic agents service (custom agent builder UI)
   --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters
   --ingress          Install nginx-ingress + MetalLB and expose UI via domain (requires --domain)
   --domain=HOST      Hostname for the UI ingress (e.g. my-caipe.example.com)
@@ -4214,6 +4236,7 @@ for arg in "$@"; do
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
+    --dynamic-agents)  ENABLE_DYNAMIC_AGENTS=true ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
