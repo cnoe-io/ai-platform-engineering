@@ -29,8 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # triggering a GetInferenceProfile API call that fails when the IAM role only
 # grants bedrock:InvokeModel / bedrock-runtime:Converse on the AIP ARN.
 # Upstream issue: https://github.com/langchain-ai/langchain-aws/issues/953
-# The 1.4.2 fix addressed _set_model_profile but _as_converse still does not forward
-# base_model_id. Remove this patch once that is fixed upstream.
+# Remove this patch once langchain-aws fixes _as_converse to forward base_model_id.
 RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bedrock.py" && \
     grep -q 'guardrail_config=(self.guardrails if self._guardrails_enabled else None),  # type: ignore\[call-arg\]' "$BEDROCK_PY" || \
         { echo "ERROR: langchain_aws patch target not found — upstream may have changed. Review build/Dockerfile patch."; exit 1; } && \
