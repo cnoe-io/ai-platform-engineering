@@ -12,7 +12,7 @@
 #     Service: caipe-supervisor-all-in-one
 #
 #   Multi-agent / distributed (separate A2A agent containers):
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-distributed --profile <agent-profiles> up --build
 #     Service: caipe-supervisor
 #
 # Agent selection and configuration are controlled through environment variables
@@ -317,7 +317,6 @@ services:
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
     profiles:
-      - caipe-supervisor
       - caipe-supervisor-distributed
 
   ####################################################################################################
@@ -1270,7 +1269,12 @@ services:
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
     depends_on:
-      - caipe-supervisor
+      caipe-supervisor:
+        condition: service_started
+        required: false
+      caipe-supervisor-all-in-one:
+        condition: service_started
+        required: false
     profiles:
       - caipe-ui
 
