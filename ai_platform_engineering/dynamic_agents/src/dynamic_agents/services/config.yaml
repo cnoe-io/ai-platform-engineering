@@ -47,16 +47,6 @@ models:
     provider: "anthropic-claude"
     description: "Fast and efficient for simpler tasks"
 
-  # Anthropic Models (AWS Bedrock)
-  - model_id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    name: "Claude Sonnet 4.5 (AWS Bedrock)"
-    provider: "aws-bedrock"
-    description: "Claude Sonnet 4.5 via AWS Bedrock"
-
-  - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-    name: "Claude Haiku 4.5 (AWS Bedrock)"
-    provider: "aws-bedrock"
-    description: "Smaller, faster Claude 4.5 model via AWS Bedrock"
 
   # OpenAI Models (direct API)
   - model_id: "gpt-4o"
@@ -114,20 +104,22 @@ models:
 
 mcp_servers:
   # GitLab MCP Server (shared with the platform gitlab agent)
+  # Enable when running with the gitlab profile
   - id: "gitlab"
     name: "GitLab"
     description: "GitLab operations: projects, issues, merge requests, CI/CD pipelines, repository files"
     transport: "http"
     endpoint: "http://mcp-gitlab:8000/mcp"
-    enabled: true
+    enabled: false
 
   # Jira MCP Server (shared with the platform jira agent)
+  # Enable when running with the jira profile
   - id: "jira"
     name: "Jira"
     description: "Jira operations: issues, projects, sprints, boards, comments, workflows"
     transport: "http"
     endpoint: "http://mcp-jira:8000/mcp"
-    enabled: true
+    enabled: false
 
   # Mock MCP server for testing config-driven functionality
   - id: "mock-server"
