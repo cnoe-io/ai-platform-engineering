@@ -54,23 +54,20 @@ def _truncate(result: str, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHAR
 
 
 def _truncate_any(result, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS):
-    """Truncate the string payload inside any tool return shape.
+    """Truncate every oversized string inside any tool return shape.
 
     LangChain tools can return str, (content, artifact) tuples, or other types.
-    Rather than hardcoding each format, we walk common container shapes and
-    truncate any str we find in "content position" so that oversized results
-    never reach deepagents' FilesystemMiddleware eviction threshold (80K chars).
-    If eviction fires, the agent calls read_file on the offloaded file — but
-    read_file is exempt from eviction, so its output goes straight into context
-    and can blow the window.
+    We walk common container shapes and truncate every str element that exceeds
+    max_chars so that oversized results never reach deepagents'
+    FilesystemMiddleware eviction threshold (80K chars).  If eviction fires,
+    the agent calls read_file on the offloaded file — but read_file is exempt
+    from eviction, so its output goes straight into context and can blow the
+    window.
     """
     if isinstance(result, str):
         return _truncate(result, tool_name, max_chars)
-    if isinstance(result, tuple) and len(result) >= 1:
-        items = list(result)
-        if isinstance(items[0], str):
-            items[0] = _truncate(items[0], tool_name, max_chars)
-        return tuple(items)
+    if isinstance(result, tuple):
+        return tuple(_truncate(el, tool_name, max_chars) if isinstance(el, str) else el for el in result)
     if isinstance(result, list):
         return _truncate(str(result), tool_name, max_chars)
     return result
