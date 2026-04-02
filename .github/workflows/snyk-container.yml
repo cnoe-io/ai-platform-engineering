@@ -1,23 +1,14 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-# A sample workflow which checks out the code, builds a container
-# image using Docker and scans that image for vulnerabilities using
-# Snyk. The results are then uploaded to GitHub Security Code Scanning
-#
-# For more examples, including how to limit scans to only high-severity
-# issues, monitor images for newly disclosed vulnerabilities in Snyk and
-# fail PR checks for new vulnerabilities, see https://github.com/snyk/actions/
+# Snyk container scan workflow.
+# Scans the already-published GHCR image — does NOT rebuild from source.
+# Requires SNYK_TOKEN to be set as a GitHub Actions secret.
 
 name: Snyk Container
 
 on:
   push:
     branches: [ "main" ]
+    tags: [ '**' ]
   pull_request:
-    # The branches below must be a subset of the branches above
     branches: [ "main" ]
   schedule:
     - cron: '19 11 * * 4'
@@ -28,27 +19,42 @@ permissions:
 jobs:
   snyk:
     permissions:
-      contents: read # for actions/checkout to fetch code
-      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
-      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+      contents: read
+      security-events: write
+      actions: read
     runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/ai-platform-engineering
     steps:
     - uses: actions/checkout@v4
-    - name: Build a Docker image
-      run: docker build -t your/image-to-test .
-    - name: Run Snyk to check Docker image for vulnerabilities
-      # Snyk can be used to break the build when it detects vulnerabilities.
-      # In this case we want to upload the issues to GitHub Code Scanning
+
+    - name: Determine image tag
+      id: tag
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=latest" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Log in to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Pull image to scan
+      run: docker pull ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+
+    - name: Run Snyk to check image for vulnerabilities
       continue-on-error: true
       uses: snyk/actions/docker@14818c4695ecc4045f33c9cee9e795a788711ca4
       env:
-        # In order to use the Snyk Action you will need to have a Snyk API token.
-        # More details in https://github.com/snyk/actions#getting-your-snyk-token
-        # or you can signup for free at https://snyk.io/login
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       with:
-        image: your/image-to-test
-        args: --file=Dockerfile
+        image: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+
     - name: Upload result to GitHub Code Scanning
       uses: github/codeql-action/upload-sarif@v3
       with:
