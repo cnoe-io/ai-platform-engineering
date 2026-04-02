@@ -47,11 +47,6 @@ models:
     provider: "anthropic-claude"
     description: "Fast and efficient for simpler tasks"
 
-  - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-    name: "Claude 4.5 Haiku (AWS Bedrock)"
-    provider: "aws-bedrock"
-    description: "Smaller, faster Claude 4.5 model"
-
   # OpenAI Models (direct API)
   - model_id: "gpt-4o"
     name: "GPT-4o"
@@ -134,6 +129,33 @@ mcp_servers:
   #   transport: "stdio"
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+  #   enabled: true
+
+  # RAG MCP Server (docker-compose mode)
+  # Requires the rag profile to be running. Uncomment to enable.
+  # - id: "rag"
+  #   name: "RAG"
+  #   description: "Knowledge base search: semantic search and retrieval over ingested documents"
+  #   transport: "http"
+  #   endpoint: "http://rag_server:9446/mcp"
+  #   enabled: true
+
+  # GitLab MCP Server (docker-compose mode)
+  # Requires the gitlab profile to be running. Uncomment to enable.
+  # - id: "gitlab"
+  #   name: "GitLab"
+  #   description: "GitLab operations: projects, issues, merge requests, CI/CD pipelines, repository files"
+  #   transport: "http"
+  #   endpoint: "http://mcp-gitlab:8000/mcp"
+  #   enabled: true
+
+  # Jira MCP Server (docker-compose mode)
+  # Requires the jira profile to be running. Uncomment to enable.
+  # - id: "jira"
+  #   name: "Jira"
+  #   description: "Jira operations: issues, projects, sprints, boards, comments, workflows"
+  #   transport: "http"
+  #   endpoint: "http://mcp-jira:8000/mcp"
   #   enabled: true
 
 # =============================================================================
