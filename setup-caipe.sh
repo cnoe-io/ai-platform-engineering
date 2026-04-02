@@ -1000,8 +1000,8 @@ install_metallb() {
   # Detect kind docker network IPv4 subnet to derive the IP pool
   local kind_subnet
   kind_subnet=$(docker network inspect kind --format '{{json .IPAM.Config}}' 2>/dev/null \
-    | tr ',' '\n' | grep '"Subnet"' | grep -v ':' | head -1 \
-    | sed 's/.*"Subnet":"\([^"]*\)".*/\1/')
+    | tr ',' '\n' | grep '"Subnet":"[0-9]' | head -1 \
+    | sed 's/.*"Subnet":"\([^"]*\)".*/\1/' || true)
   if [[ -z "$kind_subnet" ]]; then
     err "Could not detect kind docker network IPv4 subnet (is the kind cluster running?)"
     exit 1
@@ -1038,11 +1038,11 @@ spec:
 EOF
   do
     metallb_retries=$((metallb_retries + 1))
-    if [[ $metallb_retries -ge 12 ]]; then
+    if [[ $metallb_retries -ge 30 ]]; then
       err "MetalLB IPAddressPool apply failed after ${metallb_retries} attempts"
       exit 1
     fi
-    warn "MetalLB webhook not ready yet, retrying in 10s (attempt ${metallb_retries}/12)..."
+    warn "MetalLB webhook not ready yet, retrying in 10s (attempt ${metallb_retries}/30)..."
     sleep 10
   done
   log "MetalLB configured"
