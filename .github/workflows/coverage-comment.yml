@@ -26,9 +26,6 @@ jobs:
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
       - name: Download main coverage reports
         uses: actions/download-artifact@v8
         with:
@@ -77,7 +74,7 @@ jobs:
 
       - name: Install coverage parsing dependencies
         run: |
-          npm install xml2js
+          npm install --ignore-scripts xml2js
 
       - name: Comment PR with coverage
         uses: actions/github-script@v8
