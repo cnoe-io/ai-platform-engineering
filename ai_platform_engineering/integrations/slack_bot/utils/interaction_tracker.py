@@ -74,7 +74,7 @@ class InteractionTracker:
                         "tags": [],
                         "is_archived": False,
                     },
-                    "$inc": {"message_count": 2},  # +1 user question, +1 bot reply
+                    "$inc": {"message_count": 1},  # count bot responses only
                     "$set": {
                         "updated_at": now,
                         "slack_meta": {
