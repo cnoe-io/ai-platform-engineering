@@ -35,14 +35,43 @@ agent_skill = AgentSkill(
     id="netutils_agent_skill",
     name="NetUtils Agent Skill",
     description=(
-        "Provides capabilities for DNS lookups, network diagnostics (ping, traceroute, port checks)
+        "Provides capabilities for DNS lookups, network diagnostics (ping, traceroute, port checks), "
+        "DHCP lease management, and dnsmasq configuration management."
+    ),
+    tags=[
+        "network",
+        "dns",
+        "dhcp",
+        "dnsmasq",
+        "ping",
+        "traceroute",
+        "diagnostics",
+    ],
+    examples=[
+        "Look up the DNS A record for example.com",
+        "Perform a reverse DNS lookup for 8.8.8.8",
+        "Ping google.com with 5 packets",
+        "Traceroute to 10.0.0.1",
+        "Check if port 443 is open on example.com",
+        "Show all DHCP leases",
+        "Find the DHCP lease for MAC address 00:11:22:33:44:55",
+        "Show the dnsmasq configuration",
+        "Validate the dnsmasq configuration",
+        "Show dnsmasq logs",
+        "What are my network interfaces?",
+        "WHOIS lookup for example.com",
+        "Look up all DNS record types for example.com",
+        "Curl https://httpbin.org/get",
+    ],
+)
 
 
 @click.command()
-@click.option('--host', 'host', default='localhost')
-@click.option('--port', 'port', default=10000)
+@click.option("--host", "host", default="localhost")
+@click.option("--port", "port", default=10000)
 def main(host: str, port: int):
     asyncio.run(async_main(host, port))
+
 
 async def async_main(host: str, port: int):
     server = A2AServer(
@@ -57,5 +86,6 @@ async def async_main(host: str, port: int):
 
     await server.serve()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

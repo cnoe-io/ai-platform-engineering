@@ -26,6 +26,7 @@ from a2a.types import (
 
 load_dotenv()
 
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 
 AGENT_NAME = 'weather'
 AGENT_DESCRIPTION = 'An AI agent that provides capabilities to perform weather operations.'
@@ -63,7 +64,8 @@ async def async_main(host: str, port: int):
         agent_skills=[agent_skill],
         host=host,
         port=port,
-        agent_executor=WeatherAgentExecutor()
+        agent_executor=WeatherAgentExecutor(),
+        metrics_enabled=METRICS_ENABLED,
     )
     
     await server.serve()
