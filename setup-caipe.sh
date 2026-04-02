@@ -2596,11 +2596,121 @@ deploy_caipe() {
     # Service name: <release>-dynamic-agents (chart nameOverride="dynamic-agents")
     local release_name="caipe"
     local da_svc="${release_name}-dynamic-agents"
+    local ns="caipe"
+
     helm_args+=(
       --set "tags.dynamic-agents=true"
       --set "caipe-ui.config.DYNAMIC_AGENTS_ENABLED=true"
       --set "caipe-ui.config.DYNAMIC_AGENTS_URL=http://${da_svc}:8001"
+      # Inject the shared LLM secret (ANTHROPIC_API_KEY / AWS_* / AZURE_*) so
+      # dynamic-agents can call the LLM backend.
+      --set "dynamic-agents.llmSecret=llm-secret"
     )
+
+    # Auth + OIDC: enable when a public domain + OIDC issuer are configured.
+    # Without AUTH_ENABLED the API is open to anyone who can reach the service.
+    local da_oidc_issuer da_oidc_client_id da_oidc_admin_group
+    if [[ -n "$UI_ENV_FILE" ]]; then
+      da_oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
+      da_oidc_client_id=$(_env_get "$UI_ENV_FILE" "OIDC_CLIENT_ID")
+      da_oidc_admin_group=$(_env_get "$UI_ENV_FILE" "OIDC_REQUIRED_ADMIN_GROUP")
+    fi
+    if [[ -n "$CAIPE_DOMAIN" && -n "$da_oidc_issuer" ]]; then
+      helm_args+=(
+        --set "dynamic-agents.config.AUTH_ENABLED=true"
+        --set "dynamic-agents.config.OIDC_ISSUER=${da_oidc_issuer}"
+        --set "dynamic-agents.config.OIDC_CLIENT_ID=${da_oidc_client_id}"
+        --set "dynamic-agents.config.CORS_ORIGINS=[\"https://${CAIPE_DOMAIN}\", \"http://localhost:3000\"]"
+      )
+      [[ -n "$da_oidc_admin_group" ]] && helm_args+=(
+        --set "dynamic-agents.config.OIDC_REQUIRED_ADMIN_GROUP=${da_oidc_admin_group}"
+      )
+    fi
+
+    # Seed configuration: models + MCP servers pointing to cluster-local services.
+    # Write a temporary values override so Helm renders the seed ConfigMap correctly.
+    local _da_values_file
+    _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX.yaml)
+
+    # Build models list from llm-secret LLM_PROVIDER
+    local _provider="anthropic"
+    if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *bedrock* ]]; then _provider="aws-bedrock"; fi
+    if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *azure* ]]; then _provider="azure-openai"; fi
+
+    cat > "$_da_values_file" <<DAEOF
+dynamic-agents:
+  seedConfig:
+    enabled: true
+    models:
+      - model_id: "${ANTHROPIC_MODEL:-claude-haiku-4-5}"
+        name: "Claude Haiku 4.5 (Anthropic)"
+        provider: "${_provider}"
+        description: "Fast Claude Haiku via Anthropic API"
+      - model_id: "claude-sonnet-4-5"
+        name: "Claude Sonnet 4.5 (Anthropic)"
+        provider: "${_provider}"
+        description: "Balanced Claude Sonnet 4.5 via Anthropic API"
+    mcp_servers:
+DAEOF
+
+    # Add a seedConfig entry for each deployed MCP agent.
+    # The script deploys agents from _AGENT_TAGS when enabled; always add netutils.
+    declare -A _MCP_META=(
+      [argocd]="ArgoCD|ArgoCD application and deployment management"
+      [backstage]="Backstage|Backstage catalog and developer portal"
+      [confluence]="Confluence|Confluence wiki and documentation"
+      [jira]="Jira|Jira issue tracking and project management"
+      [netutils]="Network Utilities|Network diagnostic tools (ping, traceroute, DNS)"
+      [pagerduty]="PagerDuty|PagerDuty incident management"
+      [slack]="Slack|Slack messaging and collaboration"
+      [splunk]="Splunk|Splunk log analysis and monitoring"
+      [webex]="Webex|Webex messaging and meetings"
+      [aws]="AWS|AWS cloud infrastructure management"
+      [komodor]="Komodor|Komodor Kubernetes troubleshooting"
+      [github]="GitHub|GitHub repository and workflow management"
+    )
+    # Always-on agents
+    local _always_on=(netutils weather)
+    local _seeded=()
+    for _a in "${_always_on[@]}"; do
+      [[ -n "${_MCP_META[$_a]+_}" ]] || continue
+      local _meta="${_MCP_META[$_a]}"
+      local _name="${_meta%%|*}"
+      local _desc="${_meta##*|}"
+      cat >> "$_da_values_file" <<DAEOF
+      - id: "${_a}"
+        name: "${_name}"
+        description: "${_desc}"
+        transport: "http"
+        endpoint: "http://caipe-agent-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
+        enabled: true
+DAEOF
+      _seeded+=("$_a")
+    done
+    # Enabled agents from _AGENT_TAGS
+    for _a in "${_AGENT_TAGS[@]}"; do
+      [[ -n "${_MCP_META[$_a]+_}" ]] || continue
+      local _enable_key="${_AGENT_ENABLE_KEY[$_a]}"
+      local _ev=""
+      [[ -n "$ENV_FILE" ]] && _ev=$(_env_get "$ENV_FILE" "$_enable_key")
+      _env_true "$_ev" || continue
+      # skip if already seeded (e.g. netutils)
+      for _s in "${_seeded[@]}"; do [[ "$_s" == "$_a" ]] && continue 2; done
+      local _meta="${_MCP_META[$_a]}"
+      local _name="${_meta%%|*}"
+      local _desc="${_meta##*|}"
+      cat >> "$_da_values_file" <<DAEOF
+      - id: "${_a}"
+        name: "${_name}"
+        description: "${_desc}"
+        transport: "http"
+        endpoint: "http://caipe-agent-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
+        enabled: true
+DAEOF
+    done
+
+    helm_args+=(--values "$_da_values_file")
+    log "Dynamic agents seedConfig: models + MCP servers written to ${_da_values_file}"
   fi
 
   # When a domain is set, push non-sensitive config values from the ui-env-file
