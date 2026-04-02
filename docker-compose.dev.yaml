@@ -131,7 +131,7 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-    command: platform-engineer
+    command: platform-engineer-single
     profiles:
       - caipe-supervisor
 
@@ -1046,7 +1046,7 @@ services:
       - NODE_ENV=production
       # CAIPE supervisor A2A endpoint URL
       # Override with A2A_BASE_URL environment variable
-      - A2A_BASE_URL=${A2A_BASE_URL:-http://localhost:8000}
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
@@ -1083,6 +1083,8 @@ services:
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       - caipe-supervisor
     profiles:
