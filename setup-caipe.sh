@@ -26,6 +26,10 @@ ENABLE_PERSISTENCE=false
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 OPENAI_ENDPOINT="${OPENAI_ENDPOINT:-https://api.openai.com/v1}"
 OPENAI_MODEL_NAME="${OPENAI_MODEL_NAME:-gpt-5.2}"
+AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY:-}"
+AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
+AZURE_OPENAI_DEPLOYMENT="${AZURE_OPENAI_DEPLOYMENT:-}"
+AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-}"
 LITELLM_ENDPOINT="${LITELLM_ENDPOINT:-}"
 LITELLM_API_KEY="${LITELLM_API_KEY:-}"
 LITELLM_MODEL_NAME="${LITELLM_MODEL_NAME:-gpt-oss-20B}"
@@ -531,6 +535,9 @@ collect_credentials() {
     aws-bedrock)
       _collect_bedrock_credentials
       ;;
+    azure-openai)
+      _collect_azure_openai_credentials
+      ;;
     *)
       _collect_openai_credentials
       ;;
@@ -835,6 +842,28 @@ _collect_openai_credentials() {
   log "Provider: ${LLM_PROVIDER}  Endpoint: ${OPENAI_ENDPOINT}  Model: ${OPENAI_MODEL_NAME}"
 }
 
+_collect_azure_openai_credentials() {
+  local missing=()
+  [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]    && missing+=(AZURE_OPENAI_API_KEY)
+  [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]   && missing+=(AZURE_OPENAI_ENDPOINT)
+  [[ -z "${AZURE_OPENAI_DEPLOYMENT:-}" ]] && missing+=(AZURE_OPENAI_DEPLOYMENT)
+  [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && missing+=(AZURE_OPENAI_API_VERSION)
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    if $NON_INTERACTIVE; then
+      err "Missing Azure OpenAI environment variable(s): ${missing[*]}"
+      exit 1
+    fi
+    for var in "${missing[@]}"; do
+      prompt "Enter ${var}: "
+      tty_read -rs val
+      echo ""
+      [[ -z "$val" ]] && { err "${var} is required"; exit 1; }
+      export "$var"="$val"
+    done
+  fi
+  log "Provider: ${LLM_PROVIDER}  Endpoint: ${AZURE_OPENAI_ENDPOINT}  Deployment: ${AZURE_OPENAI_DEPLOYMENT}"
+}
+
 _collect_vllm_credentials() {
   # vLLM + LiteLLM: we deploy both in-cluster. vLLM serves the model,
   # LiteLLM proxies it as an OpenAI-compatible endpoint for CAIPE.
@@ -1042,6 +1071,14 @@ create_namespace_and_secrets() {
       )
       [[ -n "$AWS_BEDROCK_ENABLE_PROMPT_CACHE" ]] && \
         secret_args+=(--from-literal=AWS_BEDROCK_ENABLE_PROMPT_CACHE="$AWS_BEDROCK_ENABLE_PROMPT_CACHE")
+      ;;
+    azure-openai)
+      secret_args+=(
+        --from-literal=AZURE_OPENAI_API_KEY="$AZURE_OPENAI_API_KEY"
+        --from-literal=AZURE_OPENAI_ENDPOINT="$AZURE_OPENAI_ENDPOINT"
+        --from-literal=AZURE_OPENAI_DEPLOYMENT="$AZURE_OPENAI_DEPLOYMENT"
+        --from-literal=AZURE_OPENAI_API_VERSION="$AZURE_OPENAI_API_VERSION"
+      )
       ;;
     *)
       secret_args+=(
@@ -2150,10 +2187,22 @@ deploy_caipe() {
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
     --set tags.caipe-ui=true
-    --set tags.agent-weather=true
+    --set tags.agent-weather=false
     --set tags.agent-netutils=true
     --set caipe-ui.config.SSO_ENABLED=false
     --set caipe-ui.env.A2A_BASE_URL=http://localhost:8000
+    --set 'supervisor-agent.singleNode.enabledSubAgents.aigateway=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.argocd=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.aws=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.backstage=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.confluence=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.github=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.jira=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.komodor=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.netutils=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.pagerduty=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.slack=true'
+    --set 'supervisor-agent.singleNode.enabledSubAgents.splunk=true'
   )
 
   if $ENABLE_RAG; then
