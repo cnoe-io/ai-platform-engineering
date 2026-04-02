@@ -60,6 +60,11 @@ NON_INTERACTIVE=false
 CREATE_CLUSTER=false
 FORCE_UPGRADE=false
 INGEST_URLS=()
+ENABLE_METALLB=false
+ENABLE_INGRESS=false
+CAIPE_DOMAIN=""
+TLS_CERT_FILE=""
+TLS_KEY_FILE=""
 
 # When run via "curl | bash", stdin is the script content — bash reads it
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
@@ -245,6 +250,22 @@ kill_port_on() {
 }
 
 # ─── Interactive Setup ───────────────────────────────────────────────────────
+_install_kubectl_linux() {
+  log "Installing kubectl..."
+  local ver
+  ver=$(curl -sL https://dl.k8s.io/release/stable.txt)
+  curl -sLo /tmp/kubectl "https://dl.k8s.io/release/${ver}/bin/linux/amd64/kubectl"
+  chmod +x /tmp/kubectl
+  sudo mv /tmp/kubectl /usr/local/bin/kubectl || mv /tmp/kubectl "$HOME/.local/bin/kubectl"
+  log "kubectl ${ver} installed"
+}
+
+_install_helm_linux() {
+  log "Installing helm..."
+  curl -sfL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash &>/dev/null
+  log "helm installed"
+}
+
 check_prerequisites() {
   step "Checking prerequisites"
   local missing=()
@@ -254,9 +275,25 @@ check_prerequisites() {
     fi
   done
   if [[ ${#missing[@]} -gt 0 ]]; then
-    err "Missing required tools: ${missing[*]}"
-    err "Install them and re-run this script."
-    exit 1
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      log "Auto-installing missing tools on Linux: ${missing[*]}"
+      mkdir -p "$HOME/.local/bin"
+      export PATH="$HOME/.local/bin:$PATH"
+      for tool in "${missing[@]}"; do
+        case "$tool" in
+          kubectl) _install_kubectl_linux ;;
+          helm)    _install_helm_linux ;;
+          *)
+            err "Missing required tool '${tool}' — install it and re-run"
+            exit 1
+            ;;
+        esac
+      done
+    else
+      err "Missing required tools: ${missing[*]}"
+      err "Install them and re-run this script."
+      exit 1
+    fi
   fi
   if ! command -v kind &>/dev/null; then
     warn "kind not found — Kind cluster options will be unavailable"
@@ -917,6 +954,128 @@ _collect_openai_embeddings_key() {
   log "OpenAI API key received (for embeddings)"
 }
 
+# ─── MetalLB / Ingress / TLS ──────────────────────────────────────────────────
+
+install_metallb() {
+  step "Installing MetalLB (LoadBalancer support for kind)"
+
+  kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml 2>&1 \
+    | grep -v "^Warning\|unchanged" || true
+
+  log "Waiting for MetalLB pods..."
+  kubectl wait --namespace metallb-system \
+    --for=condition=ready pod \
+    --selector=app=metallb \
+    --timeout=120s 2>/dev/null || {
+      kubectl rollout status deployment/controller -n metallb-system --timeout=120s 2>/dev/null || true
+  }
+
+  # Detect kind docker network subnet to derive the IP pool
+  local kind_subnet
+  kind_subnet=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null | head -1)
+  if [[ -z "$kind_subnet" ]]; then
+    err "Could not detect kind docker network subnet (is the kind cluster running?)"
+    exit 1
+  fi
+
+  # Derive a /24-equivalent pool from the last octet range .200-.250
+  local base
+  base=$(echo "$kind_subnet" | cut -d'/' -f1 | sed 's/\.[0-9]*$//')
+  local pool_start="${base}.200"
+  local pool_end="${base}.250"
+  log "MetalLB IP pool: ${pool_start}-${pool_end}  (kind network: ${kind_subnet})"
+
+  kubectl apply -f - <<EOF
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: kind-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - ${pool_start}-${pool_end}
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: kind-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - kind-pool
+EOF
+  log "MetalLB configured"
+}
+
+install_nginx_ingress() {
+  step "Installing nginx-ingress controller"
+
+  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx &>/dev/null 2>&1 || true
+  helm repo update &>/dev/null 2>&1
+
+  helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+    --namespace ingress-nginx --create-namespace \
+    --set controller.service.type=LoadBalancer \
+    --wait --timeout=120s 2>&1 | grep -v "^Warning\|unchanged" || true
+
+  # Wait for LoadBalancer IP assignment from MetalLB
+  local ingress_ip="" retries=0
+  while [[ -z "$ingress_ip" && $retries -lt 36 ]]; do
+    ingress_ip=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+    [[ -z "$ingress_ip" ]] && sleep 5 && retries=$((retries + 1))
+  done
+  if [[ -z "$ingress_ip" ]]; then
+    err "nginx-ingress LoadBalancer IP not assigned — MetalLB may not be ready"
+    exit 1
+  fi
+  log "nginx-ingress ready at ${ingress_ip}"
+
+  # If a public domain is set, NAT the host's external IP to the ingress IP
+  # so that https://CAIPE_DOMAIN resolves to the kind cluster.
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    local host_ip
+    host_ip=$(hostname -I | awk '{print $1}')
+    log "Adding iptables DNAT rules: ${host_ip}:80/443 → ${ingress_ip}:80/443"
+    sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 443 \
+      -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null \
+      || warn "iptables DNAT for 443 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 443 -j DNAT --to-destination ${ingress_ip}:443"
+    sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 80 \
+      -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null \
+      || warn "iptables DNAT for 80 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 80 -j DNAT --to-destination ${ingress_ip}:80"
+    sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 443 \
+      -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null || true
+    sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 80 \
+      -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null || true
+  fi
+}
+
+setup_tls() {
+  step "Configuring TLS for ${CAIPE_DOMAIN}"
+
+  if [[ -n "$TLS_CERT_FILE" && -n "$TLS_KEY_FILE" ]]; then
+    log "Using provided TLS cert: ${TLS_CERT_FILE}"
+  else
+    log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
+    TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert.XXXX.pem)
+    TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key.XXXX.pem)
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "$TLS_KEY_FILE" \
+      -out "$TLS_CERT_FILE" \
+      -subj "/CN=${CAIPE_DOMAIN}/O=CAIPE" \
+      -addext "subjectAltName=DNS:${CAIPE_DOMAIN},DNS:*.${CAIPE_DOMAIN}" \
+      2>/dev/null
+    log "Self-signed cert generated (valid 365 days)"
+  fi
+
+  kubectl create secret tls caipe-tls \
+    --cert="$TLS_CERT_FILE" \
+    --key="$TLS_KEY_FILE" \
+    -n caipe --dry-run=client -o yaml | kubectl apply -f - 2>&1 \
+    | grep -v "^Warning\|unchanged" || true
+  log "TLS secret 'caipe-tls' created in namespace caipe"
+}
+
 choose_features() {
   step "Feature selection"
 
@@ -935,6 +1094,17 @@ choose_features() {
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
     $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (--agentgateway)" || log "AgentGateway skipped (pass --agentgateway to enable)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (--persistence)" || log "Persistence skipped (pass --persistence to enable)"
+    if $ENABLE_METALLB; then
+      log "MetalLB enabled (--metallb)"
+    fi
+    if $ENABLE_INGRESS; then
+      if [[ -n "$CAIPE_DOMAIN" ]]; then
+        log "Ingress enabled for domain: ${CAIPE_DOMAIN} (--ingress --domain)"
+      else
+        err "--ingress requires --domain=<hostname>"
+        exit 1
+      fi
+    fi
     return
   fi
 
@@ -1012,6 +1182,46 @@ choose_features() {
     log "Redis persistence enabled"
   else
     log "Persistence skipped"
+  fi
+
+  echo ""
+  echo -e "  ${DIM}MetalLB provides real LoadBalancer IPs for kind clusters. Required for ingress.${NC}"
+  if ask_yn "Enable MetalLB (LoadBalancer support for kind)?" "n"; then
+    ENABLE_METALLB=true
+    log "MetalLB enabled"
+
+    echo ""
+    echo -e "  ${DIM}nginx-ingress + a domain lets you access the UI at https://<domain> instead of localhost.${NC}"
+    if ask_yn "Enable nginx-ingress and expose UI via a domain?" "n"; then
+      ENABLE_INGRESS=true
+      prompt "Enter the domain hostname (e.g. caipe-demo.cisco.com): "
+      tty_read -r CAIPE_DOMAIN
+      if [[ -z "$CAIPE_DOMAIN" ]]; then
+        err "Domain is required when ingress is enabled"
+        exit 1
+      fi
+      log "Ingress enabled for: ${CAIPE_DOMAIN}"
+
+      echo ""
+      echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
+      prompt "TLS cert file path (leave blank for self-signed): "
+      tty_read -r TLS_CERT_FILE
+      if [[ -n "$TLS_CERT_FILE" ]]; then
+        prompt "TLS key file path: "
+        tty_read -r TLS_KEY_FILE
+        if [[ -z "$TLS_KEY_FILE" ]]; then
+          err "TLS key file is required when cert is provided"
+          exit 1
+        fi
+        log "Using custom TLS cert: ${TLS_CERT_FILE}"
+      else
+        log "Will generate self-signed cert for ${CAIPE_DOMAIN}"
+      fi
+    else
+      log "Ingress skipped"
+    fi
+  else
+    log "MetalLB skipped"
   fi
 }
 
@@ -2229,6 +2439,19 @@ deploy_caipe() {
     log "Redis persistence configured (langgraph-redis subchart, fact extraction enabled)"
   fi
 
+  if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
+    helm_args+=(
+      --set 'caipe-ui.ingress.enabled=true'
+      --set "caipe-ui.ingress.className=nginx"
+      --set "caipe-ui.ingress.hosts[0].host=${CAIPE_DOMAIN}"
+      --set "caipe-ui.ingress.hosts[0].paths[0].path=/"
+      --set "caipe-ui.ingress.hosts[0].paths[0].pathType=Prefix"
+      --set "caipe-ui.ingress.tls[0].secretName=caipe-tls"
+      --set "caipe-ui.ingress.tls[0].hosts[0]=${CAIPE_DOMAIN}"
+    )
+    log "Ingress configured for https://${CAIPE_DOMAIN}"
+  fi
+
   if ! helm upgrade --install caipe "$CAIPE_OCI_REPO" "${helm_args[@]}" 2>&1; then
     err "Helm install failed (see output above)"
     exit 1
@@ -3059,7 +3282,11 @@ monitor_port_forwards() {
   PF_LAST_RESTART=()
 
   start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
-  start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  # When ingress is enabled the UI is served via nginx-ingress at the domain —
+  # no local port-forward needed.
+  if ! $ENABLE_INGRESS; then
+    start_pf caipe-caipe-ui caipe "$UI_PORT" 3000 "CAIPE UI"
+  fi
 
   if $ENABLE_TRACING; then
     start_pf langfuse-web langfuse "$LANGFUSE_PORT" 3000 "Langfuse UI"
@@ -3074,7 +3301,11 @@ monitor_port_forwards() {
   while [[ $pf_wait -lt 15 ]]; do
     local all_up=true
     curl -sf -o /dev/null --max-time 2 "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" 2>/dev/null || all_up=false
-    curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    if ! $ENABLE_INGRESS; then
+      curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    else
+      curl -sfk -o /dev/null --max-time 5 "https://${CAIPE_DOMAIN}/" 2>/dev/null || all_up=false
+    fi
     if $ENABLE_TRACING; then
       curl -sf -o /dev/null --max-time 2 "http://localhost:${LANGFUSE_PORT}/api/public/health" 2>/dev/null || all_up=false
     fi
@@ -3090,10 +3321,18 @@ monitor_port_forwards() {
   header "Services Ready"
   echo ""
   echo -e "  ${BOLD}Endpoints:${NC}"
-  echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
+    echo -e "    CAIPE UI        ${CYAN}https://${CAIPE_DOMAIN}${NC}"
+  else
+    echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  fi
   echo -e "    Supervisor A2A  ${CYAN}http://localhost:${SUPERVISOR_PORT}${NC}"
   if $ENABLE_RAG; then
-    echo -e "    RAG Server      ${CYAN}http://localhost:${UI_PORT}/api/rag${NC}  (proxied by UI)"
+    if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
+      echo -e "    RAG Server      ${CYAN}https://${CAIPE_DOMAIN}/api/rag${NC}  (proxied by UI)"
+    else
+      echo -e "    RAG Server      ${CYAN}http://localhost:${UI_PORT}/api/rag${NC}  (proxied by UI)"
+    fi
   fi
   if $ENABLE_TRACING; then
     echo -e "    Langfuse UI     ${CYAN}http://localhost:${LANGFUSE_PORT}${NC}"
@@ -3580,6 +3819,16 @@ BANNER
     deploy_litellm
   fi
 
+  # MetalLB and nginx-ingress must be ready before CAIPE Helm deploy
+  # so the ingress class exists when Helm creates the Ingress resource.
+  if $ENABLE_METALLB; then
+    install_metallb
+  fi
+  if $ENABLE_INGRESS; then
+    install_nginx_ingress
+    setup_tls
+  fi
+
   deploy_caipe
   post_deploy_patches
 
@@ -3626,6 +3875,11 @@ Options:
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory
                      (deploys langgraph-redis subchart; enables fact extraction)
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
+  --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters
+  --ingress          Install nginx-ingress + MetalLB and expose UI via domain (requires --domain)
+  --domain=HOST      Hostname for the UI ingress (e.g. caipe-demo.cisco.com)
+  --tls-cert=FILE    Path to TLS certificate PEM file (default: auto-generate self-signed)
+  --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
   --ingest-url=URL   Ingest a URL into the RAG knowledge base after deploy
                      (implies --rag; repeatable for multiple URLs; uses sitemap crawl)
   --auto-heal        Enable auto-heal loop (default: on). Detects and fixes crashing pods,
@@ -3704,6 +3958,9 @@ Examples:
   $(basename "$0") --non-interactive --agentgateway --rag               # full stack with AgentGateway + RAG
   $(basename "$0") --non-interactive --persistence                      # deploy with Redis persistence
   $(basename "$0") --non-interactive --rag --persistence                # RAG + Redis persistence (recommended)
+  $(basename "$0") --non-interactive --create-cluster --ingress --domain=caipe-demo.cisco.com                   # kind + MetalLB + ingress + self-signed TLS
+  $(basename "$0") --non-interactive --create-cluster --ingress --domain=caipe-demo.cisco.com \
+    --tls-cert=/path/to/cert.pem --tls-key=/path/to/key.pem            # kind + MetalLB + ingress + custom TLS
 
 EOF
   exit 0
@@ -3722,6 +3979,11 @@ for arg in "$@"; do
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
+    --metallb)         ENABLE_METALLB=true ;;
+    --ingress)         ENABLE_INGRESS=true; ENABLE_METALLB=true ;;
+    --domain=*)        CAIPE_DOMAIN="${arg#--domain=}" ;;
+    --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
+    --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
