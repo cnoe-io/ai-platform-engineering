@@ -995,15 +995,17 @@ install_metallb() {
       kubectl rollout status deployment/controller -n metallb-system --timeout=120s 2>/dev/null || true
   }
 
-  # Detect kind docker network subnet to derive the IP pool
+  # Detect kind docker network IPv4 subnet to derive the IP pool
   local kind_subnet
-  kind_subnet=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null | head -1)
+  kind_subnet=$(docker network inspect kind --format '{{json .IPAM.Config}}' 2>/dev/null \
+    | tr ',' '\n' | grep '"Subnet"' | grep -v ':' | head -1 \
+    | sed 's/.*"Subnet":"\([^"]*\)".*/\1/')
   if [[ -z "$kind_subnet" ]]; then
-    err "Could not detect kind docker network subnet (is the kind cluster running?)"
+    err "Could not detect kind docker network IPv4 subnet (is the kind cluster running?)"
     exit 1
   fi
 
-  # Derive a /24-equivalent pool from the last octet range .200-.250
+  # Derive a pool from the last octet range .200-.250
   local base
   base=$(echo "$kind_subnet" | cut -d'/' -f1 | sed 's/\.[0-9]*$//')
   local pool_start="${base}.200"
