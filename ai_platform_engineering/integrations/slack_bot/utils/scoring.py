@@ -1,121 +1,125 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Scoring utilities for submitting user feedback to Langfuse.
+Scoring utilities for submitting user feedback via the unified /api/feedback endpoint.
+
+All feedback (Langfuse scores + MongoDB writes) is handled by the Next.js
+feedback API so that Slack and web feedback flow through a single code path.
 """
 
 import os
+import requests
 from typing import Optional
 from loguru import logger
 
-from .langfuse_client import FeedbackClient
 from .session_manager import SessionManager
 from .config_models import Config
 
 
+def _build_slack_permalink(
+  channel_id: str,
+  thread_ts: str,
+  message_ts: Optional[str],
+  workspace_url: str,
+) -> Optional[str]:
+  """Build a Slack permalink, linking to the specific bot reply when possible."""
+  if not workspace_url:
+    return None
+
+  # Validate message_ts looks like a Slack timestamp (digits with a dot)
+  valid_message_ts = message_ts and "." in message_ts and message_ts.replace(".", "").isdigit()
+
+  if valid_message_ts and message_ts != thread_ts:
+    ts_clean = message_ts.replace(".", "")
+    return f"{workspace_url}/archives/{channel_id}/p{ts_clean}?thread_ts={thread_ts}&cid={channel_id}"
+
+  return f"{workspace_url}/archives/{channel_id}/p{thread_ts.replace('.', '')}"
+
+
 def submit_feedback_score(
-    thread_ts: str,
-    user_id: str,
-    channel_id: str,
-    feedback_value: str,
-    slack_client,
-    session_manager: SessionManager,
-    config: Config,
-    feedback_client: Optional[FeedbackClient],
-    comment: Optional[str] = None,
+  thread_ts: str,
+  user_id: str,
+  channel_id: str,
+  feedback_value: str,
+  slack_client,
+  session_manager: SessionManager,
+  config: Config,
+  comment: Optional[str] = None,
+  message_ts: Optional[str] = None,
 ) -> bool:
-    """
-    Submit a feedback score to Langfuse with full context.
+  """
+  Submit feedback by calling POST /api/feedback on the CAIPE UI.
 
-    Submits THREE scores:
-      1. Channel-specific score (name: channel name, or "DM" for direct messages)
-      2. Aggregated Slack score (name: "all slack channels")
-      3. Aggregated cross-client score (name: "all") — shared with the web UI
-    """
-    if feedback_client is None:
-        logger.debug("Langfuse feedback scoring disabled, skipping")
-        return True
+  The API handles both Langfuse scoring and MongoDB writes.
+  """
+  trace_id = session_manager.get_trace_id(thread_ts)
+  context_id = session_manager.get_context_id(thread_ts)
 
-    trace_id = session_manager.get_trace_id(thread_ts)
-    context_id = session_manager.get_context_id(thread_ts)
-
-    if not trace_id:
-        logger.warning(f"No trace_id found for thread {thread_ts}, skipping Langfuse feedback")
-        return False
-
-    # Get user email for author tracking
-    user_email = None
-    try:
-        cached_user_info = session_manager.get_user_info(user_id)
-        if cached_user_info:
-            user_email = cached_user_info.get("user", {}).get("profile", {}).get("email")
-        else:
-            user_info_response = slack_client.users_info(user=user_id)
-            if user_info_response:
-                user_info = user_info_response.data
-                session_manager.set_user_info(user_id, user_info)
-                user_email = user_info.get("user", {}).get("profile", {}).get("email")
-    except Exception as e:
-        logger.warning(f"Could not get user email: {e}")
-
-    # Get channel name from config; DMs won't be in config.channels
-    channel_name = None
-    is_dm = channel_id.startswith("D") if channel_id else False
-    if channel_id in config.channels:
-        channel_name = config.channels[channel_id].name
-
-    # Construct Slack permalink (derived from Slack workspace)
-    slack_workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "")
-    if slack_workspace_url:
-        slack_permalink = (
-            f"{slack_workspace_url}/archives/{channel_id}/p{thread_ts.replace('.', '')}"
-        )
+  # Resolve user email from Slack
+  user_email = None
+  try:
+    cached_user_info = session_manager.get_user_info(user_id)
+    if cached_user_info:
+      user_email = cached_user_info.get("user", {}).get("profile", {}).get("email")
     else:
-        slack_permalink = None
+      user_info_response = slack_client.users_info(user=user_id)
+      if user_info_response:
+        user_info = user_info_response.data
+        session_manager.set_user_info(user_id, user_info)
+        user_email = user_info.get("user", {}).get("profile", {}).get("email")
+  except Exception as e:
+    logger.warning(f"Could not get user email: {e}")
 
-    # Score 1: Channel-specific score
-    # For DMs, use "DM" as the score name; for unknown channels, fall back to "all slack channels"
-    channel_score_name = channel_name if channel_name else ("DM" if is_dm else "all slack channels")
-    display_channel_name = channel_name or ("DM" if is_dm else None)
-    success_channel = feedback_client.submit_feedback(
-        trace_id=trace_id,
-        score_name=channel_score_name,
-        value=feedback_value,
-        user_id=user_id,
-        user_email=user_email,
-        comment=comment,
-        session_id=context_id,
-        channel_id=channel_id,
-        channel_name=display_channel_name,
-        slack_permalink=slack_permalink,
-    )
+  # Channel name from config; DMs won't be in config.channels
+  is_dm = channel_id.startswith("D") if channel_id else False
+  channel_name = None
+  if channel_id in config.channels:
+    channel_name = config.channels[channel_id].name
+  display_channel_name = channel_name or ("DM" if is_dm else None)
 
-    # Score 2: Aggregated score for all Slack channels
-    success_all_slack = feedback_client.submit_feedback(
-        trace_id=trace_id,
-        score_name="all slack channels",
-        value=feedback_value,
-        user_id=user_id,
-        user_email=user_email,
-        comment=comment,
-        session_id=context_id,
-        channel_id=channel_id,
-        channel_name=display_channel_name,
-        slack_permalink=slack_permalink,
-    )
+  # Permalink
+  slack_workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "")
+  slack_permalink = _build_slack_permalink(
+    channel_id,
+    thread_ts,
+    message_ts,
+    slack_workspace_url,
+  )
 
-    # Score 3: Aggregated score across all clients (Slack + Web UI)
-    success_all = feedback_client.submit_feedback(
-        trace_id=trace_id,
-        score_name="all",
-        value=feedback_value,
-        user_id=user_id,
-        user_email=user_email,
-        comment=comment,
-        session_id=context_id,
-        channel_id=channel_id,
-        channel_name=display_channel_name,
-        slack_permalink=slack_permalink,
-    )
+  # Map feedback_value to feedbackType for the API
+  feedback_type = "like" if feedback_value == "thumbs_up" else "dislike"
 
-    return success_channel and success_all_slack and success_all
+  payload = {
+    "traceId": trace_id,
+    "messageId": message_ts if message_ts and "." in message_ts and message_ts.replace(".", "").isdigit() else None,
+    "feedbackType": feedback_type,
+    "value": feedback_value,
+    "conversationId": context_id or f"slack-{thread_ts}",
+    "source": "slack",
+    "channelId": channel_id,
+    "channelName": display_channel_name,
+    "threadTs": thread_ts,
+    "slackPermalink": slack_permalink,
+    "userId": user_id,
+  }
+  if comment:
+    payload["reason"] = comment
+  if user_email:
+    payload["userEmail"] = user_email
+
+  # Call the unified feedback API
+  feedback_api_url = os.environ.get("CAIPE_UI_URL", "http://localhost:3000")
+  url = f"{feedback_api_url.rstrip('/')}/api/feedback"
+
+  try:
+    response = requests.post(url, json=payload, timeout=10)
+    if response.status_code == 200:
+      data = response.json()
+      logger.info(f"Feedback API response: {data}")
+      return data.get("success", False)
+    else:
+      logger.warning(f"Feedback API returned {response.status_code}: {response.text}")
+      return False
+  except Exception as e:
+    logger.warning(f"Failed to call feedback API at {url}: {e}")
+    return False

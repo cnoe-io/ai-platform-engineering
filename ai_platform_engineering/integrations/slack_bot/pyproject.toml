@@ -16,7 +16,6 @@ dependencies = [
   "pydantic",
   "pymongo",
   "pyyaml",
-  "langfuse",
 ]
 
 [dependency-groups]

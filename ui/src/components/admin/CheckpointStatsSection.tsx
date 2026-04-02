@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
+import { DateRangeFilter, DateRangePreset, DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -57,14 +58,6 @@ interface CheckpointStats {
   range: string;
 }
 
-type RangeOption = "1d" | "7d" | "30d" | "90d";
-
-const RANGE_OPTIONS: { value: RangeOption; label: string }[] = [
-  { value: "1d", label: "24h" },
-  { value: "7d", label: "7 days" },
-  { value: "30d", label: "30 days" },
-  { value: "90d", label: "90 days" },
-];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -104,18 +97,9 @@ function displayName(name: string): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-interface CheckpointStatsSectionProps {
-  range?: RangeOption;
-  onRangeChange?: (range: RangeOption) => void;
-}
-
-export function CheckpointStatsSection({
-  range: externalRange,
-  onRangeChange,
-}: CheckpointStatsSectionProps) {
-  const [internalRange, setInternalRange] = useState<RangeOption>("7d");
-  const range = externalRange ?? internalRange;
-  const setRange = onRangeChange ?? setInternalRange;
+export function CheckpointStatsSection() {
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>("7d");
+  const [dateRange, setDateRange] = useState<DateRange>(() => presetToRange("7d"));
 
   const [stats, setStats] = useState<CheckpointStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,7 +112,11 @@ export function CheckpointStatsSection({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/stats/checkpoints?range=${range}`);
+      const params = new URLSearchParams({
+        from: dateRange.from,
+        to: dateRange.to,
+      });
+      const res = await fetch(`/api/admin/stats/checkpoints?${params}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
@@ -140,7 +128,7 @@ export function CheckpointStatsSection({
     } finally {
       setLoading(false);
     }
-  }, [range]);
+  }, [dateRange.from, dateRange.to]);
 
   useEffect(() => {
     fetchStats();
@@ -174,23 +162,14 @@ export function CheckpointStatsSection({
           <h3 className="text-lg font-semibold">Checkpoint Persistence</h3>
         </div>
         <div className="flex items-center gap-2">
-          {/* Range Selector */}
-          <div className="flex rounded-md border overflow-hidden">
-            {RANGE_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setRange(opt.value)}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-medium transition-colors",
-                  range === opt.value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:bg-muted",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <DateRangeFilter
+            value={rangePreset}
+            customRange={rangePreset === "custom" ? dateRange : undefined}
+            onChange={(preset, range) => {
+              setRangePreset(preset);
+              setDateRange(range);
+            }}
+          />
           <Button variant="ghost" size="sm" onClick={fetchStats} disabled={loading}>
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </Button>

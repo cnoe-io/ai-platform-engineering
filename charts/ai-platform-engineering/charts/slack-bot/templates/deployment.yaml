@@ -92,6 +92,8 @@ spec:
               value: {{ .Values.mongodb.database | quote }}
             - name: CAIPE_URL
               value: {{ .Values.caipeUrl | quote }}
+            - name: CAIPE_UI_URL
+              value: {{ .Values.caipeUiUrl | quote }}
             {{- range $key, $value := .Values.env }}
             {{- if ne $key "CAIPE_URL" }}
             - name: {{ $key }}

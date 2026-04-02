@@ -190,6 +190,7 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { tags: 1 }),
     safeCreateIndex(db, 'conversations', { is_archived: 1, owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { deleted_at: 1, owner_id: 1 }),
+    safeCreateIndex(db, 'conversations', { source: 1 }),
 
     // Messages collection
     safeCreateIndex(db, 'messages', { conversation_id: 1, created_at: 1 }),
@@ -243,6 +244,18 @@ async function createIndexes(db: Db) {
     // Policies collection (global ASP policy for system workflows)
     safeCreateIndex(db, 'policies', { name: 1 }, { unique: true }),
     safeCreateIndex(db, 'policies', { is_system: 1 }),
+
+    // Feedback collection (unified feedback from web + Slack)
+    safeCreateIndex(db, 'feedback', { created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { source: 1, created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { rating: 1, created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { channel_name: 1, created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { trace_id: 1 }),
+
+    // Slack metadata on conversations (for stats queries filtering by source)
+    safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
+    safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
+    safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

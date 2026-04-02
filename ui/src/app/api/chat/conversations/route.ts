@@ -53,8 +53,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       });
     }
 
-    // Exclude soft-deleted conversations from normal listing
+    // Exclude soft-deleted and Slack conversations from normal listing
     const query: any = {
+      source: { $ne: 'slack' },
       $or: ownershipConditions,
       $and: [
         { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
