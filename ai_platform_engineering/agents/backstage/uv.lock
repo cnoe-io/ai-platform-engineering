@@ -36,6 +36,7 @@ dependencies = [
     { name = "ai-platform-engineering-utils" },
     { name = "click" },
     { name = "cnoe-agent-utils" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "httpx" },
@@ -67,6 +68,7 @@ requires-dist = [
     { name = "ai-platform-engineering-utils", directory = "../../utils" },
     { name = "click", specifier = "==8.3.1" },
     { name = "cnoe-agent-utils", specifier = "==0.3.14" },
+    { name = "cryptography", specifier = "==46.0.6" },
     { name = "fastapi", specifier = "==0.115.11" },
     { name = "fastmcp", specifier = "==2.13.3" },
     { name = "httpx", specifier = "==0.28.1" },
@@ -2228,6 +2230,7 @@ name = "mcp-backstage"
 version = "0.1.0"
 source = { directory = "mcp" }
 dependencies = [
+    { name = "cryptography" },
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "mcp" },
@@ -2239,6 +2242,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = "==46.0.6" },
     { name = "fastmcp", specifier = "==2.13.3" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mcp", specifier = "==1.21.0" },
