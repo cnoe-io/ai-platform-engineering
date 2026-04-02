@@ -1413,8 +1413,23 @@ provision_ui_secret() {
   )
 
   _create_secret_from_env "$ui_env_file" "caipe-ui-secret" caipe "${ui_keys[@]}"
+
+  # When a public domain is set, NEXTAUTH_URL must use that domain for SSO
+  # callbacks to work. Override whatever the env file has.
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/NEXTAUTH_URL\",\"value\":\"$(echo -n "https://${CAIPE_DOMAIN}" | base64 -w0)\"}]" \
+      2>/dev/null || true
+    log "NEXTAUTH_URL overridden to https://${CAIPE_DOMAIN}"
+  fi
+
   log "UI secret 'caipe-ui-secret' ready"
   HELM_UI_SECRET_ARGS+=(--set "caipe-ui.existingSecret=caipe-ui-secret")
+
+  # Also pass SSO_ENABLED via Helm env so it takes effect at runtime
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    HELM_UI_SECRET_ARGS+=(--set "caipe-ui.env.SSO_ENABLED=true")
+  fi
 
   # Propagate NEXT_PUBLIC_* and feature flags as Helm env overrides
   local next_public_keys=(
