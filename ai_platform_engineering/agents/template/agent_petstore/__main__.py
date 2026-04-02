@@ -26,6 +26,7 @@ from a2a.types import (
 
 load_dotenv()
 
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
 
 AGENT_NAME = 'petstore'
 AGENT_DESCRIPTION = (
@@ -77,7 +78,8 @@ async def async_main(host: str, port: int):
         agent_skills=[agent_skill],
         host=host,
         port=port,
-        agent_executor=PetStoreAgentExecutor()
+        agent_executor=PetStoreAgentExecutor(),
+        metrics_enabled=METRICS_ENABLED,
     )
     
     await server.serve()
