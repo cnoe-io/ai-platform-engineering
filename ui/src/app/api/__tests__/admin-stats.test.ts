@@ -122,8 +122,9 @@ function resetMocks() {
 /**
  * Setup admin session with properly configured mock collections.
  * The admin route calls getCollection('users'), getCollection('conversations'),
- * getCollection('messages'). The auth middleware also calls getCollection('users')
- * for the MongoDB admin fallback (skipped for OIDC admins).
+ * getCollection('messages'), getCollection('feedback'), and optionally
+ * getCollection('platform_config'). The auth middleware also calls
+ * getCollection('users') for the MongoDB admin fallback (skipped for OIDC admins).
  */
 function setupAdminWithCollections() {
   mockGetServerSession.mockResolvedValue(adminSession());
@@ -141,7 +142,14 @@ function setupAdminWithCollections() {
   msgCol.countDocuments.mockResolvedValue(0);
   mockCollections['messages'] = msgCol;
 
-  return { usersCol, convCol, msgCol };
+  const feedbackCol = createMockCollection();
+  feedbackCol.countDocuments.mockResolvedValue(0);
+  mockCollections['feedback'] = feedbackCol;
+
+  const platformConfigCol = createMockCollection();
+  mockCollections['platform_config'] = platformConfigCol;
+
+  return { usersCol, convCol, msgCol, feedbackCol };
 }
 
 // ============================================================================
@@ -197,6 +205,11 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
     mockCollections['messages'] = msgCol;
 
+    const feedbackCol = createMockCollection();
+    feedbackCol.countDocuments.mockResolvedValue(0);
+    mockCollections['feedback'] = feedbackCol;
+    mockCollections['platform_config'] = createMockCollection();
+
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -224,6 +237,11 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     msgCol.countDocuments.mockResolvedValue(50);
     mockCollections['messages'] = msgCol;
 
+    const feedbackCol = createMockCollection();
+    feedbackCol.countDocuments.mockResolvedValue(0);
+    mockCollections['feedback'] = feedbackCol;
+    mockCollections['platform_config'] = createMockCollection();
+
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -249,22 +267,25 @@ describe('GET /api/admin/stats — Overview', () => {
   it('returns overview with correct counts', async () => {
     const { usersCol, convCol, msgCol } = setupAdminWithCollections();
 
-    // totalUsers=15, dau=3, mau=10
+    // Promise.all order (no filters):
+    // users: totalUsers, dau, mau
+    // conversations: totalConversations, conversationsToday, sharedConversations
+    // messages: webTotalMessages, slackTotalMessages, webMessagesToday, slackMessagesToday
     usersCol.countDocuments
-      .mockResolvedValueOnce(15)
-      .mockResolvedValueOnce(3)
-      .mockResolvedValueOnce(10);
+      .mockResolvedValueOnce(15)   // totalUsers
+      .mockResolvedValueOnce(3)    // dau
+      .mockResolvedValueOnce(10);  // mau
 
-    // totalConversations=50, conversationsToday=5, sharedConversations=2
     convCol.countDocuments
-      .mockResolvedValueOnce(50)
-      .mockResolvedValueOnce(5)
-      .mockResolvedValueOnce(2);
+      .mockResolvedValueOnce(50)   // totalConversations
+      .mockResolvedValueOnce(5)    // conversationsToday
+      .mockResolvedValueOnce(2);   // sharedConversations
 
-    // totalMessages=200, messagesToday=20
     msgCol.countDocuments
-      .mockResolvedValueOnce(200)
-      .mockResolvedValueOnce(20);
+      .mockResolvedValueOnce(180)  // webTotalMessages
+      .mockResolvedValueOnce(20)   // slackTotalMessages
+      .mockResolvedValueOnce(15)   // webMessagesToday
+      .mockResolvedValueOnce(5);   // slackMessagesToday
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
@@ -276,11 +297,11 @@ describe('GET /api/admin/stats — Overview', () => {
       expect.objectContaining({
         total_users: 15,
         total_conversations: 50,
-        total_messages: 200,
+        total_messages: 200,        // 180 web + 20 slack
         dau: 3,
         mau: 10,
         conversations_today: 5,
-        messages_today: 20,
+        messages_today: 20,         // 15 web + 5 slack
         shared_conversations: 2,
       })
     );
@@ -292,26 +313,24 @@ describe('GET /api/admin/stats — Overview', () => {
     usersCol.countDocuments.mockResolvedValue(5);
     convCol.countDocuments
       .mockResolvedValueOnce(4)   // totalConversations
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0);
+      .mockResolvedValueOnce(0)   // conversationsToday
+      .mockResolvedValueOnce(0);  // sharedConversations
     msgCol.countDocuments
-      .mockResolvedValueOnce(10)  // totalMessages
-      .mockResolvedValueOnce(0);
+      .mockResolvedValueOnce(8)   // webTotalMessages
+      .mockResolvedValueOnce(2)   // slackTotalMessages
+      .mockResolvedValueOnce(0)   // webMessagesToday
+      .mockResolvedValueOnce(0);  // slackMessagesToday
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     const body = await res.json();
 
-    // 10 / 4 = 2.5
+    // (8 + 2) / 4 = 2.5
     expect(body.data.overview.avg_messages_per_conversation).toBe(2.5);
   });
 
   it('returns avg_messages_per_conversation = 0 when no conversations', async () => {
-    const { usersCol, convCol, msgCol } = setupAdminWithCollections();
-
-    usersCol.countDocuments.mockResolvedValue(1);
-    convCol.countDocuments.mockResolvedValue(0);
-    msgCol.countDocuments.mockResolvedValue(0);
+    setupAdminWithCollections();
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
@@ -677,6 +696,8 @@ describe('GET /api/admin/stats — Full Response Shape', () => {
     expect(body.data).toHaveProperty('feedback_summary');
     expect(body.data).toHaveProperty('response_time');
     expect(body.data).toHaveProperty('hourly_heatmap');
+    expect(body.data).toHaveProperty('platform_summary');
+    expect(body.data).toHaveProperty('completed_workflows');
   });
 
   it('overview has all required sub-fields', async () => {
@@ -749,11 +770,9 @@ describe('GET /api/admin/stats — Platform Summary', () => {
     const body = await res.json();
 
     expect(body.data.platform_summary).toBeDefined();
-    expect(body.data.platform_summary).toHaveProperty('total_questions_answered');
-    expect(body.data.platform_summary).toHaveProperty('total_unique_users');
     expect(body.data.platform_summary).toHaveProperty('satisfaction_rate');
     expect(body.data.platform_summary).toHaveProperty('estimated_hours_automated');
-    expect(typeof body.data.platform_summary.total_questions_answered).toBe('number');
+    expect(typeof body.data.platform_summary.satisfaction_rate).toBe('number');
   });
 });
 

@@ -41,8 +41,6 @@ import type { SkillMetricsAdmin } from "@/types/agent-skill";
 
 interface AdminStats {
   platform_summary?: {
-    total_questions_answered: number;
-    total_unique_users: number;
     satisfaction_rate: number;
     estimated_hours_automated: number;
   };
@@ -1289,7 +1287,7 @@ function AdminPage() {
                             </a>
                           ) : entry.conversation_id ? (
                             <a
-                              href={`/chat/${entry.conversation_id}?from=feedback`}
+                              href={`/chat/${entry.conversation_id}?from=feedback${entry.message_id ? `&message=${entry.message_id}` : ''}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
@@ -1827,33 +1825,7 @@ function AdminPage() {
                   <>
                     {/* Platform Summary Cards */}
                     {stats.platform_summary && (
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <Card>
-                          <CardContent className="pt-6">
-                            <div className="text-center">
-                              <div className="flex items-center justify-center gap-1 mb-1">
-                                <HelpCircle className="h-4 w-4 text-blue-500" />
-                              </div>
-                              <p className="text-2xl font-bold text-blue-500">
-                                {stats.platform_summary.total_questions_answered.toLocaleString()}
-                              </p>
-                              <p className="text-xs text-muted-foreground">Questions Answered</p>
-                            </div>
-                          </CardContent>
-                        </Card>
-                        <Card>
-                          <CardContent className="pt-6">
-                            <div className="text-center">
-                              <div className="flex items-center justify-center gap-1 mb-1">
-                                <Users className="h-4 w-4 text-purple-500" />
-                              </div>
-                              <p className="text-2xl font-bold text-purple-500">
-                                {stats.platform_summary.total_unique_users.toLocaleString()}
-                              </p>
-                              <p className="text-xs text-muted-foreground">Unique Users</p>
-                            </div>
-                          </CardContent>
-                        </Card>
+                      <div className="grid grid-cols-2 gap-4">
                         <Card>
                           <CardContent className="pt-6">
                             <div className="text-center">

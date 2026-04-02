@@ -184,11 +184,22 @@ def process_channel(client: WebClient, channel_id: str, channel_name: str,
         has_mention = any(f"<@{bot_user_id}>" in (r.get("text", "") or "") for r in replies)
         interaction_type = "dm" if is_dm else ("mention" if has_mention else "qanda")
 
-        # Count only messages involving Forge: the original question + bot replies
-        # (i.e., the original asker's messages + the bot's messages)
-        bot_messages = sum(1 for r in replies if r.get("user") == bot_user_id)
-        asker_messages = sum(1 for r in replies if r.get("user") == original_user)
-        forge_message_count = bot_messages + asker_messages
+        # Collect individual Forge-involved messages (bot + original asker only)
+        # Each entry has a timestamp and role so we can write per-message docs
+        forge_messages = []
+        for r in replies:
+            r_user = r.get("user")
+            r_ts = r.get("ts")
+            if r_user == bot_user_id:
+                forge_messages.append({
+                    "ts": r_ts,
+                    "role": "assistant",
+                })
+            elif r_user == original_user:
+                forge_messages.append({
+                    "ts": r_ts,
+                    "role": "user",
+                })
 
         doc = {
             "thread_ts": thread_ts,
@@ -202,7 +213,8 @@ def process_channel(client: WebClient, channel_id: str, channel_name: str,
             "trace_id": None,
             "context_id": None,
             "escalated": escalated,
-            "message_count": forge_message_count,
+            "message_count": len(forge_messages),
+            "forge_messages": forge_messages,
             "response_time_ms": None,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -285,15 +297,17 @@ def main():
         print(f"Escalated: {escalated}, Resolved (no escalation): {resolved}")
         if all_docs:
             print(f"Resolution rate: {resolved / len(all_docs) * 100:.1f}%")
-        print(f"\nTop channels:")
+        print("\nTop channels:")
         for ch, count in channels.most_common(20):
             print(f"  #{ch}: {count}")
         return
 
     # --- Write to MongoDB ---
-    # Populates 2 collections:
+    # Populates 3 collections:
     #   conversations  — one doc per Slack thread (source: "slack") with embedded slack_meta
     #   users          — one doc per unique Slack user, powers user counts / DAU / MAU
+    #   messages       — one lightweight doc per thread (role: "assistant", metadata.source: "slack")
+    #                    so that the Message Activity chart picks up Slack data
     from pymongo import MongoClient
 
     mongodb_uri = get_required_env("MONGODB_URI")
@@ -303,9 +317,11 @@ def main():
     db = mongo_client[mongodb_db]
     conversations_coll = db["conversations"]
     users_coll = db["users"]
+    messages_coll = db["messages"]
 
     conv_inserted = 0
     conv_skipped = 0
+    msg_inserted = 0
     users_seen = set()
 
     for doc in all_docs:
@@ -321,8 +337,6 @@ def main():
         ts = doc["timestamp"]
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts)
-
-        now = datetime.now(timezone.utc)
 
         # --- conversations collection (with embedded slack_meta) ---
         conv_doc = {
@@ -388,8 +402,38 @@ def main():
                 upsert=True,
             )
 
-    print(f"Done.")
+        # --- messages collection (one per Forge-involved message in thread) ---
+        # Powers the Message Activity chart and Top Agents stats.
+        # Each message gets its own doc with the Slack reply timestamp.
+        for fm in doc.get("forge_messages", []):
+            fm_ts = fm.get("ts", thread_ts)
+            msg_created = datetime.fromtimestamp(float(fm_ts), tz=timezone.utc)
+            message_id = f"slack-{thread_ts}-{fm_ts}"
+
+            msg_doc = {
+                "message_id": message_id,
+                "conversation_id": conv_id,
+                "owner_id": user_email,
+                "role": fm.get("role", "assistant"),
+                "content": None,
+                "metadata": {
+                    "source": "slack",
+                },
+                "created_at": msg_created,
+                "updated_at": msg_created,
+            }
+
+            result = messages_coll.update_one(
+                {"message_id": message_id},
+                {"$setOnInsert": msg_doc},
+                upsert=True,
+            )
+            if result.upserted_id:
+                msg_inserted += 1
+
+    print("Done.")
     print(f"  conversations: {conv_inserted} inserted, {conv_skipped} skipped")
+    print(f"  messages: {msg_inserted} inserted")
     print(f"  users: {len(users_seen)} upserted")
     mongo_client.close()
 

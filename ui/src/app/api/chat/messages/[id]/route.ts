@@ -1,4 +1,4 @@
-// PUT /api/chat/messages/[id] - Update message (feedback, content, metadata, events)
+// PUT /api/chat/messages/[id] - Update message (content, metadata, events)
 // [id] can be either a MongoDB ObjectId or a client-generated message_id (UUID)
 
 import { NextRequest } from 'next/server';
@@ -42,37 +42,7 @@ export const PUT = withErrorHandler(async (
     // Build update
     const update: any = {};
 
-    if (body.feedback) {
-      update.feedback = {
-        rating: body.feedback.rating,
-        comment: body.feedback.comment,
-        submitted_at: new Date(),
-        submitted_by: user.email,
-      };
-
-      // Also write to unified feedback collection for cross-platform stats
-      try {
-        const feedbackColl = await getCollection('feedback');
-        await feedbackColl.insertOne({
-          trace_id: body.traceId || null,
-          source: 'web' as const,
-          rating: body.feedback.rating,
-          value: body.feedback.rating === 'positive' ? 'thumbs_up' : 'thumbs_down',
-          comment: body.feedback.comment || null,
-          user_email: user.email,
-          user_id: null,
-          message_id: messageId,
-          conversation_id: body.conversationId || message.conversation_id,
-          channel_id: null,
-          channel_name: null,
-          thread_ts: null,
-          slack_permalink: null,
-          created_at: new Date(),
-        });
-      } catch (err) {
-        console.warn('Failed to write to unified feedback collection:', err);
-      }
-    }
+    // Feedback is no longer written here — use POST /api/feedback instead.
 
     if (body.content !== undefined) {
       update.content = body.content;

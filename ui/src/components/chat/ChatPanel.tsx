@@ -22,7 +22,6 @@ import { parsePlanStepsFromData, parseToolFromArtifact } from "@/lib/timeline-pa
 import { TimelineManager } from "@/lib/timeline-manager";
 import { AgentTimeline } from "./AgentTimeline";
 import { getConfig } from "@/lib/config";
-import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
@@ -1067,21 +1066,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
   }, [activeConversationId, updateMessageFeedback]);
 
-  // Stable callback for feedback submission — persist to MongoDB alongside Langfuse
-  const handleFeedbackSubmit = useCallback(async (messageId: string, feedback: Feedback) => {
-    if (!feedback.type || getConfig('storageMode') !== 'mongodb') return;
-    try {
-      await apiClient.updateMessage(messageId, {
-        feedback: {
-          rating: feedback.type === 'like' ? 'positive' : 'negative',
-          comment: feedback.reason === 'Other' ? feedback.additionalFeedback : feedback.reason,
-        },
-        conversationId: activeConversationId || undefined,
-      });
-    } catch (err) {
-      console.error('[ChatPanel] Failed to persist feedback to MongoDB:', err);
-    }
-  }, [activeConversationId]);
+  // Feedback submission is handled by FeedbackButton → POST /api/feedback
+  // which writes to both Langfuse and the unified feedback MongoDB collection.
+  // No separate updateMessage call needed.
+  const handleFeedbackSubmit = useCallback(async (_messageId: string, _feedback: Feedback) => {
+    // no-op: POST /api/feedback handles both Langfuse + MongoDB
+  }, []);
 
   // Handle user input form submission via HITL resume (not plain text)
   const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {

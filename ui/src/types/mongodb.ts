@@ -256,14 +256,6 @@ export interface AddMessageRequest {
 }
 
 export interface UpdateMessageRequest {
-  feedback?: {
-    rating: 'positive' | 'negative';
-    comment?: string;
-  };
-  /** Langfuse trace ID for cross-referencing feedback */
-  traceId?: string;
-  /** Conversation ID for feedback context */
-  conversationId?: string;
   /** Update message content (e.g., after streaming completes with final content) */
   content?: string;
   /** Update metadata fields (e.g., is_final after streaming completes) */

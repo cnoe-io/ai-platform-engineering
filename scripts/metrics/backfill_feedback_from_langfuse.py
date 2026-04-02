@@ -180,7 +180,7 @@ def main():
         ratings = Counter(d["rating"] for d in docs)
         channels = Counter(d["channel_name"] or "unknown" for d in docs)
         print(f"\nRatings: {dict(ratings)}")
-        print(f"\nTop channels:")
+        print("\nTop channels:")
         for ch, count in channels.most_common(15):
             print(f"  {ch}: {count}")
         values = Counter(d["value"] for d in docs)

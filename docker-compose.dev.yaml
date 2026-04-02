@@ -1644,7 +1644,7 @@ services:
         condition: service_healthy
       langfuse-clickhouse:
         condition: service_healthy
-    ports: ["3000:3000"]
+    ports: ["3001:3000"]
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/postgres
       - SALT=mysalt
@@ -1671,7 +1671,7 @@ services:
       - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
       - REDIS_HOST=langfuse-redis
       - REDIS_AUTH=myredissecret
-      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_URL=http://localhost:3001
       - NEXTAUTH_SECRET=mysecret
     profiles:
       - tracing
@@ -1707,7 +1707,7 @@ services:
     environment:
       - MINIO_ROOT_USER=minio
       - MINIO_ROOT_PASSWORD=miniosecret
-    ports: ["9090:9000", "127.0.0.1:9091:9001"]
+    ports: ["9090:9000", "127.0.0.1:9092:9001"]
     volumes:
       - langfuse_minio_data:/data
     healthcheck:
@@ -1814,11 +1814,7 @@ services:
       - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
       - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
       - MONGODB_DATABASE=caipe
-      - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
-      - LANGFUSE_SCORING_ENABLED=${LANGFUSE_SCORING_ENABLED:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - CAIPE_UI_URL=${CAIPE_UI_URL:-http://caipe-ui:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
       - caipe-supervisor

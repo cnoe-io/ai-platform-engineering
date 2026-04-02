@@ -109,11 +109,12 @@ db.feedback.aggregate([{$match: {source: "slack"}}, {$group: {_id: "$rating", co
 '
 ```
 
-### Step 3: Backfill Slack conversations and users
+### Step 3: Backfill Slack conversations, messages, and users
 
-Crawls Slack channel history for threads where the bot replied. For each thread, resolves user profiles (email + name via `users.info` API) and writes to two collections:
+Crawls Slack channel history for threads where the bot replied. For each thread, resolves user profiles (email + name via `users.info` API) and writes to three collections:
 
 - **`conversations`**: One doc per thread (`_id: "slack-{thread_ts}"`, `source: "slack"`, `message_count` = Forge-involved messages only, embedded `slack_meta` with escalation, interaction type, channel info)
+- **`messages`**: One doc per Forge-involved message in the thread (bot replies + original asker messages), with `metadata.source: "slack"`. Powers the Message Activity chart.
 - **`users`**: One doc per unique user (keyed by email, `source: "slack"`)
 
 ```bash
@@ -144,6 +145,7 @@ Resolved P unique user profiles
 Total interactions found: K
 Done.
   conversations: K inserted, 0 skipped
+  messages: N inserted
   users: P upserted
 ```
 
@@ -159,11 +161,18 @@ if (mc) print("  slack message_count total: " + mc.total);
 print("  with slack_meta: " + db.conversations.countDocuments({"slack_meta": {$exists: true}}));
 print("  escalated: " + db.conversations.countDocuments({"slack_meta.escalated": true}));
 
+print("\n=== messages ===");
+print("total: " + db.messages.countDocuments());
+print("slack: " + db.messages.countDocuments({"metadata.source": "slack"}));
+db.messages.aggregate([{$match: {"metadata.source": "slack"}}, {$group: {_id: "$role", count: {$sum: 1}}}]).forEach(function(r) { print("  " + r._id + ": " + r.count); });
+
 print("\n=== users ===");
 print("total: " + db.users.countDocuments());
 db.users.aggregate([{$group: {_id: "$source", count: {$sum: 1}}}]).forEach(function(r) { print("  " + (r._id || "null") + ": " + r.count); });
 '
 ```
+
+- `messages (slack)` count should match `slack message_count total` on conversations
 
 ## Data Model
 
@@ -193,14 +202,14 @@ db.users.aggregate([{$group: {_id: "$source", count: {$sum: 1}}}]).forEach(funct
 }
 ```
 
-### messages (Slack lightweight entries, written per bot response)
+### messages (Slack entries, one per Forge-involved message)
 
 ```json
 {
-  "message_id": "slack-1775078704.485889-a1b2c3d4",
+  "message_id": "slack-1775078704.485889-1775078710.123456",
   "conversation_id": "slack-1775078704.485889",
   "owner_id": "user@company.com",
-  "role": "assistant",
+  "role": "user",
   "content": null,
   "metadata": {
     "source": "slack"

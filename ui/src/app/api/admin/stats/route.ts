@@ -67,8 +67,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const msgOwnerFilter: Record<string, any> = {};
     if (sourceFilter === 'web') {
       convSourceFilter.source = { $ne: 'slack' };
+      msgOwnerFilter['metadata.source'] = 'web';
     } else if (sourceFilter === 'slack') {
       convSourceFilter.source = 'slack';
+      msgOwnerFilter['metadata.source'] = 'slack';
     }
     if (userEmails.length === 1) {
       convSourceFilter.owner_id = userEmails[0];
@@ -104,7 +106,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       users.countDocuments({}),
       conversations.countDocuments({ ...convSourceFilter }),
       sourceFilter !== 'slack'
-        ? messages.countDocuments({ ...msgOwnerFilter })
+        ? messages.countDocuments({ 'metadata.source': 'web', ...msgOwnerFilter })
         : Promise.resolve(0),
       sourceFilter !== 'web'
         ? messages.countDocuments({ 'metadata.source': 'slack' })
@@ -126,7 +128,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         : users.countDocuments({ last_login: { $gte: thisMonth } }),
       conversations.countDocuments({ created_at: { $gte: today }, ...convSourceFilter }),
       sourceFilter !== 'slack'
-        ? messages.countDocuments({ created_at: { $gte: today }, ...msgOwnerFilter })
+        ? messages.countDocuments({ 'metadata.source': 'web', created_at: { $gte: today }, ...msgOwnerFilter })
         : Promise.resolve(0),
       sourceFilter !== 'web'
         ? messages.countDocuments({ 'metadata.source': 'slack', created_at: { $gte: today } })
@@ -186,7 +188,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const [dailyWebMsgActivity, dailySlackMsgActivity] = await Promise.all([
       sourceFilter !== 'slack'
         ? messages.aggregate([
-            { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+            { $match: { 'metadata.source': 'web', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
             {
               $group: {
                 _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
@@ -288,143 +290,97 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     ]).toArray();
 
     // ═══════════════════════════════════════════════════════════════
-    // ENHANCED FEEDBACK SUMMARY (from unified feedback collection)
-    // Falls back to messages.feedback if feedback collection is empty
+    // FEEDBACK SUMMARY (from unified feedback collection)
     // ═══════════════════════════════════════════════════════════════
-    let feedbackSummary: any;
-    try {
-      const feedbackColl = await getCollection('feedback');
-      const feedbackCount = await feedbackColl.countDocuments({});
+    const feedbackColl = await getCollection('feedback');
 
-      if (feedbackCount > 0) {
-        // Build feedback filter
-        const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
-        if (sourceFilter === 'web') fbFilter.source = 'web';
-        else if (sourceFilter === 'slack') fbFilter.source = 'slack';
-        if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
-        else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
+    // Build feedback filter
+    const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
+    if (sourceFilter === 'web') fbFilter.source = 'web';
+    else if (sourceFilter === 'slack') fbFilter.source = 'slack';
+    if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
+    else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
 
-        // Use unified feedback collection
-        const [fbOverall, fbBySource, fbCategories, fbDaily] = await Promise.all([
-          // Overall counts
-          feedbackColl.aggregate([
-            { $match: fbFilter },
-            { $group: { _id: '$rating', count: { $sum: 1 } } },
-          ]).toArray(),
-          // By source
-          feedbackColl.aggregate([
-            { $match: fbFilter },
-            { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
-          ]).toArray(),
-          // Negative feedback category breakdown
-          feedbackColl.aggregate([
-            { $match: { ...fbFilter, rating: 'negative' } },
-            { $group: { _id: '$value', count: { $sum: 1 } } },
-            { $sort: { count: -1 } },
-          ]).toArray(),
-          // Daily feedback trend
-          feedbackColl.aggregate([
-            { $match: fbFilter },
-            {
-              $group: {
-                _id: {
-                  date: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
-                  rating: '$rating',
-                },
-                count: { $sum: 1 },
-              },
+    const [fbOverall, fbBySource, fbCategories, fbDaily] = await Promise.all([
+      // Overall counts
+      feedbackColl.aggregate([
+        { $match: fbFilter },
+        { $group: { _id: '$rating', count: { $sum: 1 } } },
+      ]).toArray(),
+      // By source
+      feedbackColl.aggregate([
+        { $match: fbFilter },
+        { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
+      ]).toArray(),
+      // Negative feedback category breakdown
+      feedbackColl.aggregate([
+        { $match: { ...fbFilter, rating: 'negative' } },
+        { $group: { _id: '$value', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]).toArray(),
+      // Daily feedback trend
+      feedbackColl.aggregate([
+        { $match: fbFilter },
+        {
+          $group: {
+            _id: {
+              date: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
+              rating: '$rating',
             },
-          ]).toArray(),
-        ]);
+            count: { $sum: 1 },
+          },
+        },
+      ]).toArray(),
+    ]);
 
-        const fbMap = new Map(fbOverall.map((f) => [f._id, f.count]));
-        const positive = fbMap.get('positive') || 0;
-        const negative = fbMap.get('negative') || 0;
-        const total = positive + negative;
+    const fbMap = new Map(fbOverall.map((f) => [f._id, f.count]));
+    const positive = fbMap.get('positive') || 0;
+    const negative = fbMap.get('negative') || 0;
+    const total = positive + negative;
 
-        // Build by_source breakdown
-        const bySource: Record<string, { positive: number; negative: number }> = {};
-        for (const row of fbBySource) {
-          const src = row._id.source || 'unknown';
-          if (!bySource[src]) bySource[src] = { positive: 0, negative: 0 };
-          bySource[src][row._id.rating as 'positive' | 'negative'] = row.count;
-        }
-
-        // Build categories array
-        const categories = fbCategories.map((c) => ({
-          category: c._id || 'unknown',
-          count: c.count,
-        }));
-
-        // Build daily trend
-        const dailyFbMap = new Map<string, { positive: number; negative: number }>();
-        for (const row of fbDaily) {
-          const date = row._id.date;
-          if (!dailyFbMap.has(date)) dailyFbMap.set(date, { positive: 0, negative: 0 });
-          dailyFbMap.get(date)![row._id.rating as 'positive' | 'negative'] = row.count;
-        }
-        const dailyFeedback = [];
-        for (let i = days - 1; i >= 0; i--) {
-          const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-          dayStart.setHours(0, 0, 0, 0);
-          const dateKey = dayStart.toISOString().split('T')[0];
-          const entry = dailyFbMap.get(dateKey);
-          dailyFeedback.push({
-            date: dateKey,
-            positive: entry?.positive || 0,
-            negative: entry?.negative || 0,
-          });
-        }
-
-        feedbackSummary = {
-          positive,
-          negative,
-          total,
-          satisfaction_rate: total > 0 ? Math.round((positive / total) * 1000) / 10 : 0,
-          by_source: bySource,
-          categories,
-          daily: dailyFeedback,
-        };
-      } else {
-        // Fallback: use messages.feedback (legacy)
-        const feedbackAgg = await messages.aggregate([
-          { $match: { 'feedback.rating': { $exists: true } } },
-          { $group: { _id: '$feedback.rating', count: { $sum: 1 } } },
-        ]).toArray();
-        const fbMap = new Map(feedbackAgg.map((f) => [f._id, f.count]));
-        const positive = fbMap.get('positive') || 0;
-        const negative = fbMap.get('negative') || 0;
-        const total = positive + negative;
-        feedbackSummary = {
-          positive,
-          negative,
-          total,
-          satisfaction_rate: total > 0 ? Math.round((positive / total) * 1000) / 10 : 0,
-          by_source: { web: { positive, negative } },
-          categories: [],
-          daily: [],
-        };
-      }
-    } catch {
-      // Collection may not exist yet — fall back to legacy
-      const feedbackAgg = await messages.aggregate([
-        { $match: { 'feedback.rating': { $exists: true } } },
-        { $group: { _id: '$feedback.rating', count: { $sum: 1 } } },
-      ]).toArray();
-      const fbMap = new Map(feedbackAgg.map((f) => [f._id, f.count]));
-      const positive = fbMap.get('positive') || 0;
-      const negative = fbMap.get('negative') || 0;
-      const total = positive + negative;
-      feedbackSummary = {
-        positive,
-        negative,
-        total,
-        satisfaction_rate: total > 0 ? Math.round((positive / total) * 1000) / 10 : 0,
-        by_source: { web: { positive, negative } },
-        categories: [],
-        daily: [],
-      };
+    // Build by_source breakdown
+    const bySource: Record<string, { positive: number; negative: number }> = {};
+    for (const row of fbBySource) {
+      const src = row._id.source || 'unknown';
+      if (!bySource[src]) bySource[src] = { positive: 0, negative: 0 };
+      bySource[src][row._id.rating as 'positive' | 'negative'] = row.count;
     }
+
+    // Build categories array
+    const categories = fbCategories.map((c) => ({
+      category: c._id || 'unknown',
+      count: c.count,
+    }));
+
+    // Build daily trend
+    const dailyFbMap = new Map<string, { positive: number; negative: number }>();
+    for (const row of fbDaily) {
+      const date = row._id.date;
+      if (!dailyFbMap.has(date)) dailyFbMap.set(date, { positive: 0, negative: 0 });
+      dailyFbMap.get(date)![row._id.rating as 'positive' | 'negative'] = row.count;
+    }
+    const dailyFeedback = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      dayStart.setHours(0, 0, 0, 0);
+      const dateKey = dayStart.toISOString().split('T')[0];
+      const entry = dailyFbMap.get(dateKey);
+      dailyFeedback.push({
+        date: dateKey,
+        positive: entry?.positive || 0,
+        negative: entry?.negative || 0,
+      });
+    }
+
+    const feedbackSummary = {
+      positive,
+      negative,
+      total,
+      satisfaction_rate: total > 0 ? Math.round((positive / total) * 1000) / 10 : 0,
+      by_source: bySource,
+      categories,
+      daily: dailyFeedback,
+    };
 
     // Average messages per conversation
     const avgMsgsPerConv = totalConversations > 0
@@ -530,7 +486,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const [hourlyWebActivity, hourlySlackActivity] = await Promise.all([
       sourceFilter !== 'slack'
         ? messages.aggregate([
-            { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+            { $match: { 'metadata.source': 'web', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
             { $addFields: { _ts: { $toDate: '$created_at' } } },
             { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
           ]).toArray()
@@ -733,44 +689,23 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const includeWeb = sourceFilter !== 'slack';
     const includeSlack = sourceFilter !== 'web';
 
-    // Web questions = user messages in range (filtered)
-    const [webUserMessagesAgg, webAgentMessagesAgg, webUniqueUsersAgg] = await Promise.all([
-      includeWeb
-        ? messages.countDocuments({ role: 'user', created_at: { $gte: rangeStart }, ...msgOwnerFilter })
-        : Promise.resolve(0),
-      // Web agent usage: count of assistant messages with agent_name for hours estimation
-      includeWeb
-        ? messages.countDocuments({
-            role: 'assistant',
-            'metadata.agent_name': { $exists: true, $ne: null },
-            created_at: { $gte: rangeStart },
-            ...msgOwnerFilter,
-          })
-        : Promise.resolve(0),
-      // Web unique users
-      includeWeb
-        ? messages.aggregate([
-            { $match: { role: 'user', created_at: { $gte: rangeStart }, owner_id: { $ne: null }, ...msgOwnerFilter } },
-            { $group: { _id: '$owner_id' } },
-            { $count: 'total' },
-          ]).toArray().then((r) => r[0]?.total || 0)
-        : Promise.resolve(0),
-    ]);
+    // Web agent usage: count of assistant messages with agent_name for hours estimation
+    const webAgentMessagesAgg = includeWeb
+      ? await messages.countDocuments({
+          role: 'assistant',
+          'metadata.agent_name': { $exists: true, $ne: null },
+          created_at: { $gte: rangeStart },
+          ...msgOwnerFilter,
+        })
+      : 0;
 
-    const slackInteractionCount = includeSlack ? (slack?.total_interactions || 0) : 0;
-    const slackUniqueUserCount = includeSlack ? (slack?.unique_users || 0) : 0;
     const slackHoursSaved = includeSlack ? (slack?.resolution?.estimated_hours_saved || 0) : 0;
-
-    const totalQuestionsAnswered = webUserMessagesAgg + slackInteractionCount;
-    const totalUniqueUsers = webUniqueUsersAgg + slackUniqueUserCount;
 
     // Hours automated: web agent usage (10 min each) + Slack resolved threads (4h each)
     const webHoursAutomated = Math.round((webAgentMessagesAgg * 10) / 60 * 10) / 10; // 10 min per agent response
     const totalHoursAutomated = Math.round((webHoursAutomated + slackHoursSaved) * 10) / 10;
 
     const platformSummary = {
-      total_questions_answered: totalQuestionsAnswered,
-      total_unique_users: totalUniqueUsers,
       satisfaction_rate: feedbackSummary.satisfaction_rate || 0,
       estimated_hours_automated: totalHoursAutomated,
     };
