@@ -65,6 +65,8 @@ ENABLE_INGRESS=false
 CAIPE_DOMAIN=""
 TLS_CERT_FILE=""
 TLS_KEY_FILE=""
+ENV_FILE=""
+UI_ENV_FILE=""
 
 # When run via "curl | bash", stdin is the script content — bash reads it
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
@@ -1252,6 +1254,152 @@ choose_features() {
   fi
 }
 
+# ─── Env-file based agent + UI secret provisioning ───────────────────────────
+
+# Read a single key from a .env-style file. Strips surrounding quotes.
+# Usage: _env_get FILE KEY
+_env_get() {
+  local file="$1" key="$2"
+  grep -m1 "^${key}=" "$file" 2>/dev/null \
+    | cut -d'=' -f2- \
+    | sed "s/^['\"]//;s/['\"]$//"
+}
+
+# Read a boolean-ish flag from .env: returns 0 (true) if value is true/yes/1.
+_env_true() {
+  local val
+  val=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+  [[ "$val" == "true" || "$val" == "yes" || "$val" == "1" ]]
+}
+
+# Create a Kubernetes generic secret from a list of key names sourced from a
+# .env file. Keys with empty values are silently skipped. The secret is applied
+# idempotently (--dry-run=client | kubectl apply). No values are written to
+# disk or logged.
+#
+# Usage: _create_secret_from_env ENV_FILE SECRET_NAME NAMESPACE KEY [KEY ...]
+_create_secret_from_env() {
+  local env_file="$1" secret_name="$2" ns="$3"
+  shift 3
+  local keys=("$@")
+  local literal_args=()
+  for key in "${keys[@]}"; do
+    local val
+    val=$(_env_get "$env_file" "$key")
+    [[ -n "$val" ]] && literal_args+=(--from-literal="${key}=${val}")
+  done
+  if [[ ${#literal_args[@]} -eq 0 ]]; then
+    return 0  # nothing to create
+  fi
+  kubectl create secret generic "$secret_name" \
+    "${literal_args[@]}" \
+    -n "$ns" --dry-run=client -o yaml \
+    | kubectl apply -f - &>/dev/null
+}
+
+# Maps each Helm agent tag to:  (tag_name  secret_name  env_enable_key  keys...)
+# declare -A can't hold arrays so we use parallel indexed arrays.
+_AGENT_TAGS=(argocd github jira confluence backstage slack pagerduty webex komodor aws splunk)
+
+declare -A _AGENT_ENABLE_KEY=(
+  [argocd]="ENABLE_ARGOCD"
+  [github]="ENABLE_GITHUB"
+  [jira]="ENABLE_JIRA"
+  [confluence]="ENABLE_CONFLUENCE"
+  [backstage]="ENABLE_BACKSTAGE"
+  [slack]="ENABLE_SLACK"
+  [pagerduty]="ENABLE_PAGERDUTY"
+  [webex]="ENABLE_WEBEX"
+  [komodor]="ENABLE_KOMODOR"
+  [aws]="ENABLE_AWS"
+  [splunk]="ENABLE_SPLUNK"
+)
+
+declare -A _AGENT_SECRET_KEYS=(
+  [argocd]="ARGOCD_TOKEN ARGOCD_API_URL ARGOCD_VERIFY_SSL"
+  [github]="GITHUB_PERSONAL_ACCESS_TOKEN"
+  [jira]="ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL JIRA_URL JIRA_USERNAME JIRA_API_TOKEN JIRA_SSL_VERIFY"
+  [confluence]="CONFLUENCE_API_TOKEN CONFLUENCE_USERNAME CONFLUENCE_URL CONFLUENCE_API_URL CONFLUENCE_SSL_VERIFY ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL ATLASSIAN_VERIFY_SSL"
+  [backstage]="BACKSTAGE_API_TOKEN BACKSTAGE_URL"
+  [slack]="SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET SLACK_TEAM_ID"
+  [pagerduty]="PAGERDUTY_API_KEY PAGERDUTY_API_URL"
+  [webex]="WEBEX_TOKEN"
+  [komodor]="KOMODOR_TOKEN KOMODOR_API_URL"
+  [aws]="AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE"
+  [splunk]="SPLUNK_TOKEN SPLUNK_API_URL"
+)
+
+# Called from create_namespace_and_secrets when ENV_FILE is set.
+# Creates per-agent k8s secrets and populates HELM_AGENT_ARGS (global array)
+# with the --set flags to wire them into the Helm deploy.
+HELM_AGENT_ARGS=()
+
+provision_agent_secrets() {
+  local env_file="$1"
+  step "Provisioning agent secrets from env file"
+
+  for agent in "${_AGENT_TAGS[@]}"; do
+    local enable_key="${_AGENT_ENABLE_KEY[$agent]}"
+    local enable_val
+    enable_val=$(_env_get "$env_file" "$enable_key")
+    if ! _env_true "$enable_val"; then
+      continue
+    fi
+
+    # shellcheck disable=SC2206
+    local keys=(${_AGENT_SECRET_KEYS[$agent]})
+    local secret_name="caipe-${agent}-secret"
+
+    _create_secret_from_env "$env_file" "$secret_name" caipe "${keys[@]}"
+    log "Agent ${agent}: secret '${secret_name}' ready"
+
+    HELM_AGENT_ARGS+=(
+      --set "tags.agent-${agent}=true"
+      --set "agent-${agent}.agentSecrets.secretName=${secret_name}"
+    )
+  done
+}
+
+# Called from create_namespace_and_secrets when UI_ENV_FILE is set.
+# Creates a caipe-ui-secret and adds the Helm flag to wire it in.
+HELM_UI_SECRET_ARGS=()
+
+provision_ui_secret() {
+  local ui_env_file="$1"
+  step "Provisioning UI secret from env file"
+
+  local ui_keys=(
+    NEXTAUTH_SECRET NEXTAUTH_URL
+    OIDC_ISSUER OIDC_CLIENT_ID OIDC_CLIENT_SECRET
+    OIDC_REQUIRED_GROUP OIDC_REQUIRED_ADMIN_GROUP OIDC_ENABLE_REFRESH_TOKEN
+    INGESTOR_OIDC_ISSUER INGESTOR_OIDC_CLIENT_ID INGESTOR_OIDC_CLIENT_SECRET
+    MONGODB_URI MONGODB_DATABASE MONGODB_ROOT_USERNAME MONGODB_ROOT_PASSWORD
+    RAG_SERVER_URL PROMETHEUS_URL
+    LANGFUSE_SECRET_KEY LANGFUSE_PUBLIC_KEY LANGFUSE_HOST
+    RBAC_ADMIN_GROUPS RBAC_READONLY_GROUPS RBAC_INGESTONLY_GROUPS
+    RBAC_DEFAULT_AUTHENTICATED_ROLE RBAC_CLIENT_CREDENTIALS_ROLE
+  )
+
+  _create_secret_from_env "$ui_env_file" "caipe-ui-secret" caipe "${ui_keys[@]}"
+  log "UI secret 'caipe-ui-secret' ready"
+  HELM_UI_SECRET_ARGS+=(--set "caipe-ui.existingSecret=caipe-ui-secret")
+
+  # Propagate NEXT_PUBLIC_* and feature flags as Helm env overrides
+  local next_public_keys=(
+    NEXT_PUBLIC_A2A_BASE_URL NEXT_PUBLIC_SSO_ENABLED
+    NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS NEXT_PUBLIC_RAG_ENABLED
+    NEXT_PUBLIC_RAG_URL NEXT_PUBLIC_RAG_WEBUI_URL NEXT_PUBLIC_MONGODB_ENABLED
+    AUDIT_LOGS_ENABLED WORKFLOW_RUNNER_ENABLED FEEDBACK_ENABLED NPS_ENABLED
+    DYNAMIC_AGENTS_ENABLED DYNAMIC_AGENTS_URL
+    APP_NAME TAGLINE DESCRIPTION ENV_BADGE
+  )
+  for key in "${next_public_keys[@]}"; do
+    local val
+    val=$(_env_get "$ui_env_file" "$key")
+    [[ -n "$val" ]] && HELM_UI_SECRET_ARGS+=(--set "caipe-ui.env.${key}=${val}")
+  done
+}
+
 create_namespace_and_secrets() {
   step "Namespace and secrets"
 
@@ -1319,6 +1467,22 @@ create_namespace_and_secrets() {
     "${secret_args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "llm-secret created (provider: ${LLM_PROVIDER})"
+
+  if [[ -n "$ENV_FILE" ]]; then
+    if [[ ! -f "$ENV_FILE" ]]; then
+      err "Env file not found: ${ENV_FILE}"
+      exit 1
+    fi
+    provision_agent_secrets "$ENV_FILE"
+  fi
+
+  if [[ -n "$UI_ENV_FILE" ]]; then
+    if [[ ! -f "$UI_ENV_FILE" ]]; then
+      err "UI env file not found: ${UI_ENV_FILE}"
+      exit 1
+    fi
+    provision_ui_secret "$UI_ENV_FILE"
+  fi
 }
 
 _fix_langfuse_minio_credentials() {
@@ -2497,6 +2661,16 @@ deploy_caipe() {
       --set "caipe-ui.ingress.tls[0].hosts[0]=${CAIPE_DOMAIN}"
     )
     log "Ingress configured for https://${CAIPE_DOMAIN}"
+  fi
+
+  # Agent and UI secrets provisioned from --env-file / --ui-env-file
+  if [[ ${#HELM_AGENT_ARGS[@]} -gt 0 ]]; then
+    helm_args+=("${HELM_AGENT_ARGS[@]}")
+    log "Agent helm args added (${#HELM_AGENT_ARGS[@]} flags)"
+  fi
+  if [[ ${#HELM_UI_SECRET_ARGS[@]} -gt 0 ]]; then
+    helm_args+=("${HELM_UI_SECRET_ARGS[@]}")
+    log "UI secret helm args added"
   fi
 
   if ! helm upgrade --install caipe "$CAIPE_OCI_REPO" "${helm_args[@]}" 2>&1; then
@@ -3934,6 +4108,11 @@ Options:
   --domain=HOST      Hostname for the UI ingress (e.g. caipe-demo.cisco.com)
   --tls-cert=FILE    Path to TLS certificate PEM file (default: auto-generate self-signed)
   --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
+  --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
+                     Creates per-agent k8s secrets and enables corresponding agents in Helm.
+                     Values are never written to disk or logged.
+  --ui-env-file=FILE Path to UI .env.local file (OIDC, MongoDB, NextAuth secrets).
+                     Creates caipe-ui-secret and wires it into the caipe-ui chart.
   --ingest-url=URL   Ingest a URL into the RAG knowledge base after deploy
                      (implies --rag; repeatable for multiple URLs; uses sitemap crawl)
   --auto-heal        Enable auto-heal loop (default: on). Detects and fixes crashing pods,
@@ -4038,6 +4217,8 @@ for arg in "$@"; do
     --domain=*)        CAIPE_DOMAIN="${arg#--domain=}" ;;
     --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
+    --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
+    --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
