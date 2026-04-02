@@ -159,7 +159,6 @@ class AgentTools:
           ranker_params={"weights": weights},
         )
         output = []
-        truncation_markers_shown = 0
         for result in results:
           text = format_search_result(
             page_content=result.document.page_content,
@@ -167,12 +166,10 @@ class AgentTools:
             query=query,
             max_total_length=search_result_truncate_length,
           )
-          if (truncation_markers_shown < 2
-              and len(result.document.page_content) > search_result_truncate_length):
+          if len(result.document.page_content) > search_result_truncate_length:
             doc_id = result.document.metadata.get("document_id", "")
             if doc_id:
               text += f"\n\n[Content truncated. Use fetch_document with document_id='{doc_id}' to get full content if needed.]"
-              truncation_markers_shown += 1
           output.append(
             {
               "text_content": text,
