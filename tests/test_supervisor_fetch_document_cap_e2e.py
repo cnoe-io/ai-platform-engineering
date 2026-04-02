@@ -18,10 +18,13 @@ Usage:
     pytest tests/test_supervisor_fetch_document_cap_e2e.py -v
 """
 
+import asyncio
 import os
 import threading
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -261,10 +264,6 @@ class TestFetchDocumentCapInBuildGraph:
 # every result → cap fires → model receives a soft stop directive and stops.
 # ---------------------------------------------------------------------------
 
-import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 
 def _make_cap_wrapper(max_calls: int = 3):
     """Return a FetchDocumentCapWrapper with a mock original tool."""
@@ -441,8 +440,6 @@ class TestCounterPersistenceAcrossGraphRebuilds:
         This is the key safety property of ClassVar counters: a mid-query
         _rebuild_graph() must not give the model a fresh fetch budget.
         """
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
-
         # Wrapper 1 — simulates the initial graph build
         wrapper1, _ = _make_cap_wrapper(max_calls=3)
 
