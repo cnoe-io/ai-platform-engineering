@@ -61,6 +61,14 @@ jobs:
       - name: Install helm
         uses: azure/setup-helm@v4
 
+      - name: Install kind
+        run: |
+          KIND_VERSION=v0.27.0
+          curl -fsSL -o /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
+          kind version
+
       - name: Pre-clean Kind cluster
         run: |
           kind delete cluster --name caipe 2>/dev/null || true
