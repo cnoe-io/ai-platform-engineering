@@ -28,7 +28,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # beta_use_converse_api=True) creates a new ChatBedrockConverse without base_model_id,
 # triggering a GetInferenceProfile API call that fails when the IAM role only
 # grants bedrock:InvokeModel / bedrock-runtime:Converse on the AIP ARN.
-# Upstream issue: https://github.com/langchain-ai/langchain-aws/issues/953
 # Remove this patch once langchain-aws fixes _as_converse to forward base_model_id.
 RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bedrock.py" && \
     grep -q 'guardrail_config=(self.guardrails if self._guardrails_enabled else None),  # type: ignore\[call-arg\]' "$BEDROCK_PY" || \
@@ -81,6 +80,16 @@ RUN ARCH=$(dpkg --print-architecture) \
     && unzip -o /tmp/terraform.zip -d /usr/local/bin/ \
     && rm /tmp/terraform.zip \
     && chmod +x /usr/local/bin/terraform
+
+# GitHub CLI — used by gh_cli_execute tool in single-node GitHub subagent
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -sfL --retry 5 --retry-delay 3 \
+       "https://github.com/cli/cli/releases/download/v2.89.0/gh_2.89.0_linux_${ARCH}.tar.gz" \
+       -o /tmp/gh.tar.gz \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && mv /tmp/gh_2.89.0_linux_${ARCH}/bin/gh /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tar.gz /tmp/gh_*
 
 # Go toolchain — needed at runtime by github-mcp-server (go run via STDIO)
 COPY --from=golang /usr/local/go /usr/local/go
