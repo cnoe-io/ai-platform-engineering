@@ -1063,6 +1063,22 @@ install_nginx_ingress() {
       -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null || true
     sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 80 \
       -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null || true
+
+    # Docker adds a blanket DROP in its DOCKER chain for all non-kind-bridge
+    # traffic destined to the kind bridge. Without an explicit ACCEPT, the
+    # DNAT'd packets are dropped in the FORWARD chain before reaching nginx.
+    # Add the ACCEPT to DOCKER-USER (Docker never resets this chain).
+    local kind_bridge
+    kind_bridge=$(docker network inspect kind --format '{{.Options.com\.docker\.network\.bridge\.name}}' 2>/dev/null || true)
+    if [[ -n "$kind_bridge" ]]; then
+      local ext_iface
+      ext_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+      sudo iptables -I DOCKER-USER 1 \
+        -i "${ext_iface:-eth0}" -o "$kind_bridge" \
+        -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
+        -j ACCEPT 2>/dev/null \
+        || warn "Could not add DOCKER-USER forward rule — traffic from outside may be blocked"
+    fi
   fi
 }
 
