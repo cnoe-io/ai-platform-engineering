@@ -16,6 +16,10 @@ on:
     # Run tests daily at 2 AM UTC
     - cron: '0 2 * * *'
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   helm-chart-test:
     runs-on: ubuntu-latest
@@ -27,10 +31,9 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
-
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
     - name: Set up Helm
-      uses: azure/setup-helm@v4
+      uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
       with:
         version: ${{ matrix.helm-version }}
 
@@ -42,7 +45,7 @@ jobs:
         helm repo update
 
     - name: Login to GitHub Container Registry
-      uses: docker/login-action@v4
+      uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -231,7 +234,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
       with:
         name: helm-test-results-${{ matrix.helm-version }}
         path: |

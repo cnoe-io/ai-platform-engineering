@@ -20,12 +20,16 @@ on:
         required: false
         default: "keep"
 
+permissions:
+  issues: write
+  pull-requests: write
+
 jobs:
   stale:
     runs-on: ubuntu-latest
     steps:
       - name: 📆 mark stale activity
-        uses: actions/stale@v10
+        uses: actions/stale@b5d41d4e1d5dceea10e7104786b73624c18a190f # v10
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           days-before-stale: ${{ inputs.days-until-stale }}

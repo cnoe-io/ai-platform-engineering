@@ -337,13 +337,13 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByText('Remove Admin')).not.toBeInTheDocument();
     });
 
-    it('shows view-only description for user management', async () => {
+    it('shows user table column headers in users tab', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(
-          screen.getByText(/view user access.*roles.*and activity/i)
-        ).toBeInTheDocument();
+        expect(screen.getByText('Email')).toBeInTheDocument();
+        expect(screen.getByText('Name')).toBeInTheDocument();
+        expect(screen.getByText('Role')).toBeInTheDocument();
       });
     });
   });
@@ -428,7 +428,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Regular User')).toBeInTheDocument();
     });
 
-    it('fetches stats with range param', async () => {
+    it('fetches stats with date range params', async () => {
       const fetchMock = setupFetchMock();
 
       render(<AdminPage />);
@@ -437,9 +437,9 @@ describe('Admin Dashboard Page', () => {
         expect(screen.getByText('42')).toBeInTheDocument();
       });
 
-      // Initial fetch uses default 30d
+      // Initial fetch uses from/to date params instead of range=30d
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/admin/stats?range=30d')
+        expect.stringContaining('/api/admin/stats?from=')
       );
     });
   });

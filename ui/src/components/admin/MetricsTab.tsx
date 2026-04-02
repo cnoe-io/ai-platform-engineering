@@ -12,22 +12,27 @@ import {
   smartRateFormat,
   smartDurationFormat,
 } from "./PrometheusCharts";
+import { DateRangeFilter, DateRangePreset, DateRange } from "./DateRangeFilter";
 
-type TimeRange = "15m" | "1h" | "6h" | "24h";
-
-const RANGE_MINUTES: Record<TimeRange, number> = {
-  "15m": 15,
-  "1h": 60,
-  "6h": 360,
-  "24h": 1440,
-};
-
-const RANGE_STEPS: Record<TimeRange, string> = {
-  "15m": "15s",
-  "1h": "60s",
-  "6h": "300s",
-  "24h": "900s",
-};
+/** Map a DateRangePreset to Prometheus range minutes and scrape step. */
+function presetToPrometheus(preset: DateRangePreset, custom?: DateRange): { rangeMinutes: number; step: string } {
+  if (preset === "custom" && custom) {
+    const ms = new Date(custom.to).getTime() - new Date(custom.from).getTime();
+    const mins = Math.max(1, Math.round(ms / 60000));
+    // step: aim for ~200 data points
+    const stepSec = Math.max(15, Math.round((mins * 60) / 200));
+    return { rangeMinutes: mins, step: `${stepSec}s` };
+  }
+  switch (preset) {
+    case "1h":  return { rangeMinutes: 60, step: "60s" };
+    case "12h": return { rangeMinutes: 720, step: "300s" };
+    case "24h": return { rangeMinutes: 1440, step: "900s" };
+    case "7d":  return { rangeMinutes: 10080, step: "3600s" };
+    case "30d": return { rangeMinutes: 43200, step: "14400s" };
+    case "90d": return { rangeMinutes: 129600, step: "43200s" };
+    default:    return { rangeMinutes: 60, step: "60s" };
+  }
+}
 
 function toolWithAgent(metric: Record<string, string>): string {
   const tool = metric.tool_name || "unknown";
@@ -36,11 +41,12 @@ function toolWithAgent(metric: Record<string, string>): string {
 }
 
 export function MetricsTab() {
-  const [range, setRange] = useState<TimeRange>("1h");
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>("1h");
+  const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const rangeMinutes = RANGE_MINUTES[range];
-  const step = RANGE_STEPS[range];
+  const { rangeMinutes, step } = presetToPrometheus(rangePreset, customRange);
 
   return (
     <div className="space-y-6">
@@ -48,25 +54,27 @@ export function MetricsTab() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-muted-foreground">Time Range:</span>
-          {(Object.keys(RANGE_MINUTES) as TimeRange[]).map((r) => (
-            <Button
-              key={r}
-              variant={range === r ? "default" : "outline"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setRange(r)}
-            >
-              {r}
-            </Button>
-          ))}
+          <DateRangeFilter
+            value={rangePreset}
+            customRange={customRange}
+            onChange={(preset, range) => {
+              setRangePreset(preset);
+              setCustomRange(preset === "custom" ? range : undefined);
+            }}
+          />
         </div>
         <Button
           variant="outline"
           size="sm"
           className="gap-1.5"
-          onClick={() => setRefreshKey((k) => k + 1)}
+          disabled={refreshing}
+          onClick={() => {
+            setRefreshKey((k) => k + 1);
+            setRefreshing(true);
+            setTimeout(() => setRefreshing(false), 600);
+          }}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
+          <RefreshCw className={`h-3.5 w-3.5${refreshing ? " animate-spin" : ""}`} />
           Refresh
         </Button>
       </div>
@@ -103,7 +111,7 @@ export function MetricsTab() {
       {/* ══════════════════════════════════════════════════════
           REQUEST METRICS
           ══════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" key={`charts-${refreshKey}-${range}`}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" key={`charts-${refreshKey}-${rangePreset}-${customRange?.from}`}>
         <TimeseriesChart
           title="Supervisor Request Rate"
           description="User requests per second processed by the supervisor, by outcome"

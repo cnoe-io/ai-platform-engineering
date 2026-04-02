@@ -1,0 +1,56 @@
+---
+name: "[Security] Container Scan"
+description: "Run Anchore Grype vulnerability scan on tag pushes"
+
+# Runs only on tag pushes. Uses Grype (anchore/scan-action) as a safe
+# alternative to aquasecurity/trivy-action following its March 2026
+# supply chain compromise.
+#
+# Scans the entire repository as a filesystem context to catch all
+# package manifests and dependencies across the codebase.
+
+on:
+  push:
+    tags:
+      - "[0-9]*.[0-9]*.[0-9]*"  # matches 0.2.3, 0.2.3-rc.1, 0.2.3.rc, etc. — excludes 'stable' and branch names
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to scan (e.g. 0.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  security-events: write  # required to upload SARIF to GitHub Code Scanning
+
+jobs:
+  scan:
+    name: Grype scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Run Grype scan
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        id: scan
+        with:
+          path: "."
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: "grype"

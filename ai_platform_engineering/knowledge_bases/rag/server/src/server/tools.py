@@ -116,7 +116,7 @@ class AgentTools:
 
     labels = [ps.label for ps in config.parallel_searches]
     keys_str = ", ".join(f'"{lbl}"' for lbl in labels)
-    return_section = f"Returns:\n    dict with keys: {keys_str}\n    Each key maps to a list of results with text_content (truncated to 500 chars), metadata, and score.\n    Use fetch_document with document_id to get full content."
+    return_section = f"Returns:\n    dict with keys: {keys_str}\n    Each key maps to a list of results with text_content (highlighted snippet), metadata, and score."
 
     base = config.description or "Search for relevant documents in the knowledge base."
     return (
@@ -166,6 +166,10 @@ class AgentTools:
             query=query,
             max_total_length=search_result_truncate_length,
           )
+          if len(result.document.page_content) > search_result_truncate_length:
+            doc_id = result.document.metadata.get("document_id", "")
+            if doc_id:
+              text += f"\n\n[Content truncated. Use fetch_document with document_id='{doc_id}' to get full content if needed.]"
           output.append(
             {
               "text_content": text,

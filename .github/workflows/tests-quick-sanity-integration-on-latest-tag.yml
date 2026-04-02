@@ -1,26 +1,32 @@
-name: "[Tests][Latest Tag] Quick Sanity Integration"
-description: "Run quick sanity integration tests on latest tag"
+name: "[Tests][Release Tag] Quick Sanity Integration"
+description: "Deploy a release-tag Helm chart via setup-caipe.sh into Kind and run sanity tests"
 
 on:
   push:
-    branches: [ main ]
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
-  schedule:
-    # Run nightly at 2 AM UTC
-    - cron: '0 2 * * *'
+    inputs:
+      chart_version:
+        description: 'Helm chart version to test (e.g., 0.2.41). If empty, resolves latest semver release tag.'
+        required: false
+        type: string
+
+concurrency:
+  group: caipe-integration-release
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  quick-sanity:
+  quick-sanity-release:
     runs-on: caipe-integration-tests
 
     steps:
       - name: Cleanup previous run artifacts
         run: |
           echo "::group::Cleaning up previous run artifacts"
-          # Remove problematic cache files and directories
           sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
           sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyc" -type f -delete 2>/dev/null || true
           sudo find /home/ubuntu/actions-runner/_work/ai-platform-engineering/ai-platform-engineering -name "*.pyo" -type f -delete 2>/dev/null || true
@@ -34,56 +40,80 @@ jobs:
           echo "::endgroup::"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+
+      - name: Reclaim disk space
+        run: |
+          echo "::group::Reclaim disk space"
+          echo "Before cleanup:"
+          df -h /
+          docker system prune -af --volumes 2>/dev/null || true
+          echo "After cleanup:"
+          df -h /
+          echo "::endgroup::"
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+
+      - name: Pre-clean Kind cluster
+        run: |
+          kind delete cluster --name caipe 2>/dev/null || true
+
+      - name: Resolve chart version
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.chart_version }}" ]; then
+            CHART_VERSION="${{ github.event.inputs.chart_version }}"
+            echo "Using manually provided chart version: $CHART_VERSION"
+          else
+            CHART_VERSION=$(git tag --sort=-version:refname \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              | head -1)
+            if [ -z "$CHART_VERSION" ]; then
+              echo "ERROR: No semver release tag found" >&2
+              exit 1
+            fi
+            echo "Resolved latest release tag: $CHART_VERSION"
+          fi
+          echo "CHART_VERSION=$CHART_VERSION" >> "$GITHUB_ENV"
 
       - name: Create .env from GitHub Secrets
         run: |
           set -euo pipefail
-          # Create .env using commonly referenced keys. Add more as needed.
-          # If your repo has `.env.example`, update this list to match its keys, and
-          # ensure corresponding GitHub Action secrets exist with the same names.
           cat > .env << 'EOF'
-
-          # Optional/if used by agents or knowledge base services
           LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
           AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
           AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
-
           ARGOCD_TOKEN=${{ secrets.ARGOCD_TOKEN }}
           ARGOCD_API_URL=${{ secrets.ARGOCD_API_URL }}
           ARGOCD_VERIFY_SSL=true
-
           BACKSTAGE_API_TOKEN=${{ secrets.BACKSTAGE_API_TOKEN }}
           BACKSTAGE_URL=${{ secrets.BACKSTAGE_URL }}
-
           ATLASSIAN_TOKEN=${{ secrets.ATLASSIAN_TOKEN }}
           ATLASSIAN_EMAIL=${{ secrets.ATLASSIAN_EMAIL }}
           ATLASSIAN_API_URL=${{ secrets.ATLASSIAN_API_URL }}
           ATLASSIAN_VERIFY_SSL=true
-
           CONFLUENCE_API_URL=${{ secrets.CONFLUENCE_API_URL }}
-
           GITHUB_PERSONAL_ACCESS_TOKEN=${{ secrets.GH_PAT }}
-
           PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
           PAGERDUTY_API_URL=https://api.pagerduty.com
-
           SPLUNK_TOKEN=${{ secrets.SPLUNK_TOKEN }}
           SPLUNK_API_URL=${{ secrets.SPLUNK_API_URL }}
-
           KOMODOR_TOKEN=${{ secrets.KOMODOR_TOKEN }}
           KOMODOR_API_URL=${{ secrets.KOMODOR_API_URL }}
-
           SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
           SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}
           SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}
           SLACK_TEAM_ID=${{ secrets.SLACK_TEAM_ID }}
-
-
-          A2A_TRANSPORT=p2p
           ENABLE_TRACING=false
           EOF
           # Mask non-empty values to avoid accidental log exposure
@@ -95,142 +125,51 @@ jobs:
             fi
           done < .env
 
-      - name: Show Docker version
-        run: |
-          docker version
-          docker compose version || true
-
-      - name: Setup Python for A2A client test
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Start services
+      - name: Run setup-caipe.sh
         run: |
           set -euo pipefail
-          IMAGE_TAG=latest docker compose -f docker-compose.yaml --profile=p2p up -d
+          set -a && source .env && set +a
+          CAIPE_CHART_VERSION="${CHART_VERSION}" ./setup-caipe.sh --non-interactive --create-cluster setup
 
-      - name: Stream service logs (background)
+      - name: Run validation
         run: |
           set -euo pipefail
-          # Optional: fold logs in the UI
-          echo "::group::Service logs"
+          ./setup-caipe.sh validate
 
-          # Stream logs to console AND file for artifact upload
-          ( IMAGE_TAG=latest docker compose -f docker-compose.yaml --profile=p2p logs -f --no-color --timestamps \
-              | tee -a compose-live.log ) &
-          echo $! > logs.pid
-        shell: bash
-
-      - name: Wait for readiness
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 36); do
-            if curl -sfS http://localhost:8000/ >/dev/null || \
-                curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null; then
-              echo "Service is up"
-              break
-            fi
-            echo "Not ready yet ($i/36). Sleeping 5s..."
-            sleep 5
-          done
-
-      - name: Install GNU Make
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y make
-
-      - name: Run Quick Sanity Integration Tests
-        run: |
-          set -euo pipefail
-          make quick-sanity
-
-      - name: On failure show recent logs
+      - name: On failure show pod logs
         if: failure()
         run: |
-          set -euo pipefail
-          echo "::group::Recent logs (last 300 lines)"
-          tail -n 300 compose-live.log || true
+          echo "::group::Pod status"
+          kubectl get pods -n caipe -o wide 2>/dev/null || true
           echo "::endgroup::"
+          echo "::group::Pod logs (last 300 lines)"
+          kubectl logs -n caipe --all-containers --tail=300 -l app.kubernetes.io/instance=caipe 2>/dev/null || true
+          echo "::endgroup::"
+
+      - name: Collect pod logs
+        if: always()
+        run: |
+          {
+            echo "=== Pod Status ==="
+            kubectl get pods -n caipe -o wide 2>/dev/null || echo "Could not get pod status"
+            echo ""
+            echo "=== Pod Logs ==="
+            kubectl logs -n caipe --all-containers --tail=500 -l app.kubernetes.io/instance=caipe 2>/dev/null || echo "Could not get pod logs"
+          } > kind-logs.txt
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: compose-logs-latest
-          path: compose-live.log
+          name: kind-logs-release-${{ env.CHART_VERSION }}
+          path: kind-logs.txt
           if-no-files-found: warn
 
-      - name: Clean-up workspace
+      - name: Cleanup
         if: always()
         run: |
-          echo "::group::Clean-up workspace"
-          IMAGE_TAG=latest docker compose -f docker-compose.yaml --profile=p2p down -v --remove-orphans || true
-          docker rmi -f $(docker images -aq) || true
+          echo "::group::Cleanup"
+          ./setup-caipe.sh nuke || true
+          kind delete cluster --name caipe 2>/dev/null || true
+          docker rmi -f $(docker images -aq) 2>/dev/null || true
           echo "::endgroup::"
-
-  create-stable-tag-and-test:
-    runs-on: ubuntu-latest
-    needs: quick-sanity
-    if: success()
-    permissions:
-      contents: write
-      actions: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure Git
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-
-      - name: Check if stable tag already exists
-        id: check-tag
-        run: |
-          if git rev-parse "stable" >/dev/null 2>&1; then
-            echo "stable tag already exists"
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "stable tag does not exist"
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create or update stable tag
-        run: |
-          # Force update the stable tag to point to current commit
-          git tag -f stable
-          git push origin stable --force
-          echo "Stable tag created/updated to point to commit: $(git rev-parse HEAD)"
-
-      - name: Trigger stable integration tests
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'tests-quick-sanity-integration-on-stable-tag.yml',
-              status: 'in_progress',
-              per_page: 1
-            });
-
-            // Only trigger if no stable tests are currently running
-            if (workflowRuns.workflow_runs.length === 0) {
-              await github.rest.actions.createWorkflowDispatch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'tests-quick-sanity-integration-on-stable-tag.yml',
-                ref: 'main'
-              });
-              console.log('Triggered stable integration tests workflow');
-            } else {
-              console.log('Stable integration tests are already running, skipping trigger');
-            }

@@ -159,6 +159,12 @@ class SessionManager:
     def set_user_info(self, user_id: str, user_info: dict) -> None:
         self._store.set_user_info(user_id, user_info)
 
+    def get_db(self):
+        """Return the MongoDB database handle if using MongoDB backend, else None."""
+        if hasattr(self._store, '_db'):
+            return self._store._db
+        return None
+
     def get_store_type(self) -> str:
         if isinstance(self._store, InMemorySessionStore):
             return "in_memory"

@@ -44,3 +44,6 @@ indent-width = 2
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["F403"]
+
+[tool.uv]
+constraint-dependencies = ["nltk==3.9.4"]

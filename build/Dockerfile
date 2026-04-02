@@ -68,6 +68,16 @@ RUN ARCH=$(dpkg --print-architecture) \
     && rm /tmp/terraform.zip \
     && chmod +x /usr/local/bin/terraform
 
+# GitHub CLI — used by gh_cli_execute tool in single-node GitHub subagent
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -sfL --retry 5 --retry-delay 3 \
+       "https://github.com/cli/cli/releases/download/v2.89.0/gh_2.89.0_linux_${ARCH}.tar.gz" \
+       -o /tmp/gh.tar.gz \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && mv /tmp/gh_2.89.0_linux_${ARCH}/bin/gh /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tar.gz /tmp/gh_*
+
 # Go toolchain — needed at runtime by github-mcp-server (go run via STDIO)
 COPY --from=golang /usr/local/go /usr/local/go
 

@@ -4,13 +4,15 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { MultiSelect, TagInput } from "@/components/ui/multi-select";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
 import { MetricsTab } from "@/components/admin/MetricsTab";
 import { HealthTab } from "@/components/admin/HealthTab";
@@ -26,7 +28,10 @@ import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
+import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
+import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
 import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
+import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
@@ -35,6 +40,10 @@ import type { Team as TeamType } from "@/types/teams";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 
 interface AdminStats {
+  platform_summary?: {
+    satisfaction_rate: number;
+    estimated_hours_automated: number;
+  };
   overview: {
     total_users: number;
     total_conversations: number;
@@ -61,6 +70,10 @@ interface AdminStats {
     positive: number;
     negative: number;
     total: number;
+    satisfaction_rate?: number;
+    by_source?: Record<string, { positive: number; negative: number }>;
+    categories?: Array<{ category: string; count: number }>;
+    daily?: Array<{ date: string; positive: number; negative: number }>;
   };
   response_time: {
     avg_ms: number;
@@ -76,22 +89,40 @@ interface AdminStats {
     completion_rate: number;
     avg_messages_per_workflow: number;
   };
+  slack?: {
+    channels: { total: number; qanda_enabled: number; alerts_enabled: number; ai_enabled: number };
+    total_interactions: number;
+    unique_users: number;
+    resolution: {
+      total_threads: number;
+      resolved_threads: number;
+      resolution_rate: number;
+      estimated_hours_saved: number;
+    };
+    daily: Array<{ date: string; interactions: number; unique_users: number; resolved: number; escalated: number }>;
+    top_channels: Array<{ channel_name: string; interactions: number; resolved: number; resolution_rate: number }>;
+  };
 }
 
 interface FeedbackEntry {
   message_id: string;
-  conversation_id: string;
+  conversation_id?: string;
   conversation_title?: string;
-  content_snippet: string;
-  role: string;
+  source?: 'web' | 'slack';
+  channel_name?: string | null;
+  content_snippet?: string;
+  role?: string;
   rating: 'positive' | 'negative';
   reason?: string;
   submitted_by: string;
   submitted_at: string;
+  trace_id?: string | null;
+  slack_permalink?: string | null;
 }
 
 interface FeedbackData {
   entries: FeedbackEntry[];
+  channels?: string[];
   pagination: {
     page: number;
     limit: number;
@@ -173,11 +204,13 @@ function AdminPage() {
   const { isAdmin } = useAdminRole();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const initialTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState(
@@ -188,9 +221,77 @@ function AdminPage() {
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
   const [teamDialogMode, setTeamDialogMode] = useState<"details" | "members">("details");
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
+  // ── Shared filters (source, users, date range) across feedback + stats tabs ──
+  const initSource = searchParams.get('source') as 'all' | 'web' | 'slack' | null;
+  const initUsers = searchParams.get('users');
+  const initDatePreset = searchParams.get('dateRange') as DateRangePreset | null;
+  const initFrom = searchParams.get('from');
+  const initTo = searchParams.get('to');
+
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack'>(
+    initSource && ['all', 'web', 'slack'].includes(initSource) ? initSource : 'all'
+  );
+  const [userFilter, setUserFilter] = useState<string[]>(
+    initUsers ? initUsers.split(',').filter(Boolean) : []
+  );
+  const [datePreset, setDatePreset] = useState<DateRangePreset>(
+    initDatePreset && ['1h', '12h', '24h', '7d', '30d', '90d', 'custom'].includes(initDatePreset) ? initDatePreset : '30d'
+  );
+  const [dateRange, setDateRange] = useState<DateRange>(
+    initFrom ? { from: initFrom, to: initTo || new Date().toISOString() } : presetToRange(initDatePreset || '30d')
+  );
+
+  // Helper to sync shared filters to URL
+  const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
+    const params = new URLSearchParams(searchParams.toString());
+    const shared: Record<string, string | null> = {
+      source: sourceFilter !== 'all' ? sourceFilter : null,
+      users: userFilter.length > 0 ? userFilter.join(',') : null,
+      dateRange: datePreset !== '30d' ? datePreset : null,
+      from: datePreset === 'custom' ? dateRange.from : null,
+      to: datePreset === 'custom' ? dateRange.to : null,
+      ...overrides,
+    };
+    for (const [key, val] of Object.entries(shared)) {
+      if (val) { params.set(key, val); } else { params.delete(key); }
+    }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  // ── Feedback-only filters ──
+  const initRating = searchParams.get('rating') as 'all' | 'positive' | 'negative' | null;
+  const initChannels = searchParams.get('channels');
+  const initSearch = searchParams.get('search');
+
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null);
-  const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'positive' | 'negative'>('all');
+  const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'positive' | 'negative'>(
+    initRating && ['all', 'positive', 'negative'].includes(initRating) ? initRating : 'all'
+  );
+  const [feedbackChannelFilter, setFeedbackChannelFilter] = useState<string[]>(
+    initChannels ? initChannels.split(',').filter(Boolean) : []
+  );
+  const [feedbackChannels, setFeedbackChannels] = useState<string[]>([]);
+  const [feedbackSearchTags, setFeedbackSearchTags] = useState<string[]>(
+    initSearch ? initSearch.split(',').filter(Boolean) : []
+  );
+  const [feedbackUsers, setFeedbackUsers] = useState<string[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
+
+  // Sync feedback-only filters to URL
+  const updateFeedbackUrl = (overrides: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    const defaults: Record<string, string | null> = {
+      tab: activeTab,
+      rating: feedbackFilter !== 'all' ? feedbackFilter : null,
+      channels: feedbackChannelFilter.length > 0 ? feedbackChannelFilter.join(',') : null,
+      search: feedbackSearchTags.length > 0 ? feedbackSearchTags.join(',') : null,
+    };
+    const merged = { ...defaults, ...overrides };
+    for (const [key, val] of Object.entries(merged)) {
+      if (val) { params.set(key, val); } else { params.delete(key); }
+    }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
   const [npsData, setNpsData] = useState<NPSData | null>(null);
   const [showCampaignForm, setShowCampaignForm] = useState(false);
   const [campaignName, setCampaignName] = useState("");
@@ -201,34 +302,61 @@ function AdminPage() {
   const [npsLoading, setNpsLoading] = useState(false);
   const [stoppingCampaign, setStoppingCampaign] = useState<string | null>(null);
   const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
-  const [statsRange, setStatsRange] = useState<"1d" | "7d" | "30d" | "90d">("30d");
-  const rangeLabel = statsRange === "1d" ? "24 Hours" : statsRange === "7d" ? "7 Days" : statsRange === "90d" ? "90 Days" : "30 Days";
+  const [statsRefreshing, setStatsRefreshing] = useState(false);
+  const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
 
   useEffect(() => {
     // Only fetch admin data once the user is authenticated
-    if (status === "authenticated") {
+    if (status === "authenticated" || !getConfig('ssoEnabled')) {
       loadAdminData();
     }
   }, [status]);
 
-  // Re-fetch stats when range changes (lightweight — only refetch stats endpoint)
-  const statsRangeRef = React.useRef(statsRange);
-  useEffect(() => {
-    if (statsRangeRef.current === statsRange) return; // skip initial
-    statsRangeRef.current = statsRange;
-    if (status !== "authenticated") return;
-    (async () => {
-      try {
-        const res = await fetch(`/api/admin/stats?range=${statsRange}`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success) setStats(json.data);
-        }
-      } catch {
-        // keep existing stats on failure
+  // Expand team: prefixed selections to member emails
+  const expandStatsUsers = (selected: string[]): string[] => {
+    const emails = new Set<string>();
+    for (const s of selected) {
+      if (s.startsWith('team:')) {
+        const team = teams.find((t) => t.name === s.slice(5));
+        if (team) team.members.forEach((m) => emails.add(m.user_id));
+      } else {
+        emails.add(s);
       }
-    })();
-  }, [statsRange, status]);
+    }
+    return [...emails];
+  };
+
+  // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
+  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter });
+  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[]) => {
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    setStatsRefreshing(true);
+    try {
+      const r = range ?? dateRange;
+      const s = source ?? sourceFilter;
+      const u = userEmails ?? expandStatsUsers(userFilter);
+      const params = new URLSearchParams({ from: r.from, to: r.to });
+      if (s !== 'all') params.set('source', s);
+      if (u.length > 0) params.set('user', u.join(','));
+      const res = await fetch(`/api/admin/stats?${params}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success) setStats(json.data);
+      }
+    } catch {
+      // keep existing stats on failure
+    } finally {
+      setStatsRefreshing(false);
+    }
+  };
+  useEffect(() => {
+    const current = { range: dateRange, source: sourceFilter, users: userFilter };
+    if (statsFilterRef.current.range === current.range
+      && statsFilterRef.current.source === current.source
+      && statsFilterRef.current.users === current.users) return; // skip initial
+    statsFilterRef.current = current;
+    fetchStatsWithFilters();
+  }, [dateRange, sourceFilter, userFilter, status]);
 
   const loadAdminData = async () => {
     setLoading(true);
@@ -238,8 +366,16 @@ function AdminPage() {
       const feedbackOn = getConfig('feedbackEnabled');
       const npsOn = getConfig('npsEnabled');
       // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
-      const [statsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
-        fetch(`/api/admin/stats?range=${statsRange}`),
+      // Always fetch unfiltered stats for the global overview cards
+      const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
+      const [statsRes, globalStatsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
+        (() => {
+          const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
+          if (sourceFilter !== 'all') p.set('source', sourceFilter);
+          if (userFilter.length > 0) p.set('user', userFilter.join(','));
+          return fetch(`/api/admin/stats?${p}`);
+        })(),
+        hasStatsFilters ? fetch('/api/admin/stats') : null,
         fetch('/api/admin/users'),
         fetch('/api/admin/teams').catch(() => null),
         fetch('/api/admin/stats/skills').catch(() => null),
@@ -253,14 +389,18 @@ function AdminPage() {
         return;
       }
 
-      const [statsResponse, usersResponse, teamsResponse] = await Promise.all([
+      const [statsResponse, globalStatsResponse, usersResponse, teamsResponse] = await Promise.all([
         statsRes.json(),
+        globalStatsRes ? globalStatsRes.json().catch(() => null) : null,
         usersRes.json(),
         teamsRes ? teamsRes.json().catch(() => ({ success: true, data: { teams: [] } })) : { success: true, data: { teams: [] } },
       ]);
 
       if (statsResponse.success) {
         setStats(statsResponse.data);
+        // Use unfiltered response for global overview, or the main response if no filters were applied
+        const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
+        setGlobalOverview(overviewData);
       } else {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
@@ -286,6 +426,8 @@ function AdminPage() {
         const feedbackResponse = await feedbackRes.json().catch(() => ({ success: false }));
         if (feedbackResponse.success) {
           setFeedbackData(feedbackResponse.data);
+          if (feedbackResponse.data.channels) setFeedbackChannels(feedbackResponse.data.channels);
+          if (feedbackResponse.data.users) setFeedbackUsers(feedbackResponse.data.users);
         }
       }
 
@@ -303,15 +445,40 @@ function AdminPage() {
     }
   };
 
-  const loadFeedback = async (rating?: 'positive' | 'negative' | 'all', page = 1) => {
+  const loadFeedback = async (
+    rating?: 'positive' | 'negative' | 'all',
+    page = 1,
+    source?: 'all' | 'web' | 'slack',
+    channels?: string[],
+    searchTags?: string[],
+    users?: string[],
+    range?: DateRange,
+  ) => {
     setFeedbackLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: '50' });
       if (rating && rating !== 'all') params.set('rating', rating);
+      const src = source ?? sourceFilter;
+      if (src !== 'all') params.set('source', src);
+      const chs = channels ?? feedbackChannelFilter;
+      if (src === 'slack' && chs.length > 0) {
+        params.set('channel', chs.join(','));
+      }
+      const tags = searchTags ?? feedbackSearchTags;
+      if (tags.length > 0) params.set('search', tags.join(','));
+      const usrs = users ?? userFilter;
+      if (usrs.length > 0) params.set('user', usrs.join(','));
+      const dr = range ?? dateRange;
+      if (dr.from) params.set('from', dr.from);
+      if (dr.to) params.set('to', dr.to);
       const res = await fetch(`/api/admin/feedback?${params}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.success) setFeedbackData(data.data);
+        if (data.success) {
+          setFeedbackData(data.data);
+          if (data.data.channels) setFeedbackChannels(data.data.channels);
+          if (data.data.users) setFeedbackUsers(data.data.users);
+        }
       }
     } catch (err) {
       console.error('[Admin] Failed to load feedback:', err);
@@ -322,8 +489,18 @@ function AdminPage() {
 
   const handleFeedbackFilterChange = (filter: 'all' | 'positive' | 'negative') => {
     setFeedbackFilter(filter);
-    loadFeedback(filter);
+    loadFeedback(filter, 1);
+    updateFeedbackUrl({ rating: filter !== 'all' ? filter : null });
   };
+
+  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack') => {
+    setSourceFilter(source);
+    setFeedbackChannelFilter([]);
+    loadFeedback(feedbackFilter, 1, source, [], undefined, undefined);
+    updateSharedFilterUrl({ source: source !== 'all' ? source : null });
+    updateFeedbackUrl({ channels: null });
+  };
+
 
   const loadNpsData = async (campaignId?: string | null) => {
     setNpsLoading(true);
@@ -518,8 +695,8 @@ function AdminPage() {
               </p>
             </div>
 
-            {/* Overview Stats */}
-            {stats && (
+            {/* Overview Stats — always shows unfiltered global totals */}
+            {globalOverview && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -527,9 +704,9 @@ function AdminPage() {
                     <Users className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{stats.overview.total_users}</div>
+                    <div className="text-2xl font-bold">{globalOverview.total_users}</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      DAU: {stats.overview.dau} | MAU: {stats.overview.mau}
+                      DAU: {globalOverview.dau} | MAU: {globalOverview.mau}
                     </p>
                   </CardContent>
                 </Card>
@@ -540,9 +717,9 @@ function AdminPage() {
                     <MessageSquare className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{stats.overview.total_conversations}</div>
+                    <div className="text-2xl font-bold">{globalOverview.total_conversations}</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Today: +{stats.overview.conversations_today}
+                      Today: +{globalOverview.conversations_today}
                     </p>
                   </CardContent>
                 </Card>
@@ -553,22 +730,22 @@ function AdminPage() {
                     <Activity className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{stats.overview.total_messages}</div>
+                    <div className="text-2xl font-bold">{globalOverview.total_messages}</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Today: +{stats.overview.messages_today}
+                      Today: +{globalOverview.messages_today}
                     </p>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Shared</CardTitle>
+                    <CardTitle className="text-sm font-medium">Shared (Web)</CardTitle>
                     <Share2 className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{stats.overview.shared_conversations}</div>
+                    <div className="text-2xl font-bold">{globalOverview.shared_conversations}</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {((stats.overview.shared_conversations / stats.overview.total_conversations) * 100).toFixed(1)}% of all conversations
+                      {globalOverview.total_conversations > 0 ? ((globalOverview.shared_conversations / globalOverview.total_conversations) * 100).toFixed(1) : '0.0'}% of all conversations
                     </p>
                   </CardContent>
                 </Card>
@@ -643,177 +820,157 @@ function AdminPage() {
 
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>User Management</CardTitle>
-                    <CardDescription>
-                      {isAdmin ? 'Manage user access, roles, and view activity' : 'View user access, roles, and activity'}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                        <div>Email</div>
-                        <div>Name</div>
-                        <div>Role</div>
-                        <div>Activity</div>
-                        <div>Stats</div>
-                        {isAdmin && <div className="text-right">Actions</div>}
+                <div className="space-y-2">
+                  <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
+                    <div>Email</div>
+                    <div>Name</div>
+                    <div>Role</div>
+                    <div>Activity</div>
+                    <div>Stats</div>
+                    {isAdmin && <div className="text-right">Actions</div>}
+                  </div>
+                  {users.map((user) => (
+                    <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
+                      <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.email}</div>
+                      <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.name}</div>
+                      <div>
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          user.role === 'admin'
+                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                        }`}>
+                          {user.role}
+                        </span>
                       </div>
-                      {users.map((user) => (
-                        <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                          <div className="truncate">{user.email}</div>
-                          <div className="truncate">{user.name}</div>
-                          <div>
-                            <span className={`px-2 py-0.5 rounded text-xs ${
-                              user.role === 'admin'
-                                ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                            }`}>
-                              {user.role}
-                            </span>
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {new Date(user.last_activity).toLocaleDateString()}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {user.stats.conversations} chats, {user.stats.messages} msgs
-                          </div>
-                          {isAdmin && (
-                            <div className="flex justify-end gap-1">
-                              {user.role === 'user' ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleRoleChange(user.email, 'admin')}
-                                  disabled={updatingRole === user.email}
-                                  className="h-7 text-xs gap-1"
-                                >
-                                  <ShieldCheck className="h-3 w-3" />
-                                  Make Admin
-                                </Button>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleRoleChange(user.email, 'user')}
-                                  disabled={updatingRole === user.email}
-                                  className="h-7 text-xs gap-1"
-                                >
-                                  <ShieldOff className="h-3 w-3" />
-                                  Remove Admin
-                                </Button>
-                              )}
-                            </div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(user.last_activity).toLocaleDateString()}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {user.stats.conversations} chats, {user.stats.messages} msgs
+                      </div>
+                      {isAdmin && (
+                        <div className="flex justify-end gap-1">
+                          {user.role === 'user' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRoleChange(user.email, 'admin')}
+                              disabled={updatingRole === user.email}
+                              className="h-7 text-xs gap-1"
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              Make Admin
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRoleChange(user.email, 'user')}
+                              disabled={updatingRole === user.email}
+                              className="h-7 text-xs gap-1"
+                            >
+                              <ShieldOff className="h-3 w-3" />
+                              Remove Admin
+                            </Button>
                           )}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  </CardContent>
-                </Card>
+                  ))}
+                </div>
               </TabsContent>
 
               {/* Team Management Tab */}
               <TabsContent value="teams" className="space-y-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                      <CardTitle>Team Management</CardTitle>
-                      <CardDescription>
-                        {isAdmin ? 'Create and manage teams for collaboration and conversation sharing' : 'View teams and their members'}
-                      </CardDescription>
-                    </div>
+                {isAdmin && (
+                  <div className="flex justify-end">
+                    <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
+                      <UserPlus className="h-4 w-4" />
+                      Create Team
+                    </Button>
+                  </div>
+                )}
+                {teams.length === 0 ? (
+                  <div className="text-center py-12">
+                    <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
+                    <p className="text-muted-foreground mb-4">
+                      {isAdmin
+                        ? 'Create teams to enable collaboration and conversation sharing'
+                        : 'No teams have been created yet'}
+                    </p>
                     {isAdmin && (
                       <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
                         <UserPlus className="h-4 w-4" />
-                        Create Team
+                        Create Your First Team
                       </Button>
                     )}
-                  </CardHeader>
-                  <CardContent>
-                    {teams.length === 0 ? (
-                      <div className="text-center py-12">
-                        <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                        <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
-                        <p className="text-muted-foreground mb-4">
-                          {isAdmin
-                            ? 'Create teams to enable collaboration and conversation sharing'
-                            : 'No teams have been created yet'}
-                        </p>
-                        {isAdmin && (
-                          <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
-                            <UserPlus className="h-4 w-4" />
-                            Create Your First Team
-                          </Button>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {teams.map((team) => (
-                          <Card key={team._id}>
-                            <CardHeader>
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <CardTitle className="text-lg">{team.name}</CardTitle>
-                                  {team.description && (
-                                    <CardDescription>{team.description}</CardDescription>
-                                  )}
-                                </div>
-                                {isAdmin && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-destructive hover:text-destructive"
-                                    onClick={() => handleDeleteTeam(team)}
-                                    disabled={deletingTeam === team._id}
-                                  >
-                                    {deletingTeam === team._id ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-4 w-4" />
-                                    )}
-                                  </Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {teams.map((team) => (
+                      <Card key={team._id}>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <CardTitle className="text-lg">{team.name}</CardTitle>
+                              {team.description && (
+                                <CardDescription>{team.description}</CardDescription>
+                              )}
+                            </div>
+                            {isAdmin && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => handleDeleteTeam(team)}
+                                disabled={deletingTeam === team._id}
+                              >
+                                {deletingTeam === team._id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
                                 )}
-                              </div>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="text-muted-foreground">Members:</span>
-                                  <span>{team.members.length}</span>
-                                </div>
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="text-muted-foreground">Owner:</span>
-                                  <span>{team.owner_id}</span>
-                                </div>
-                                <div className="flex gap-2 mt-4">
-                                  {isAdmin && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="flex-1"
-                                      onClick={() => openTeamDialog(team, "members")}
-                                    >
-                                      Manage Members
-                                    </Button>
-                                  )}
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="flex-1"
-                                    onClick={() => openTeamDialog(team, "details")}
-                                  >
-                                    View Details
-                                  </Button>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                              </Button>
+                            )}
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Members:</span>
+                              <span>{team.members.length}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Owner:</span>
+                              <span className="text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(team.owner_id)}>{team.owner_id}</span>
+                            </div>
+                            <div className="flex gap-2 mt-4">
+                              {isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1"
+                                  onClick={() => openTeamDialog(team, "members")}
+                                >
+                                  Manage Members
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => openTeamDialog(team, "details")}
+                              >
+                                View Details
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </TabsContent>
 
               {/* Skills Tab */}
@@ -923,7 +1080,7 @@ function AdminPage() {
 
                     {/* Top Creators + Run Performance */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <TopCreatorsCard creators={skillStats.top_creators} />
+                      <TopCreatorsCard creators={skillStats.top_creators} onUserClick={setSelectedUserEmail} />
                       <OverallRunStatsCard stats={skillStats.overall_run_stats} />
                     </div>
 
@@ -953,136 +1110,235 @@ function AdminPage() {
 
               {/* Feedback Tab */}
               {getConfig('feedbackEnabled') && <TabsContent value="feedback" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
-                          <ThumbsUp className="h-5 w-5" />
-                          User Feedback
-                        </CardTitle>
-                        <CardDescription>
-                          All feedback submitted by users on assistant responses
-                        </CardDescription>
-                      </div>
-                      <div className="flex gap-1">
-                        {(['all', 'positive', 'negative'] as const).map((f) => (
-                          <Button
-                            key={f}
-                            size="sm"
-                            variant={feedbackFilter === f ? 'default' : 'outline'}
-                            onClick={() => handleFeedbackFilterChange(f)}
-                            className="gap-1.5 h-8 text-xs capitalize"
-                          >
-                            {f === 'positive' && <ThumbsUp className="h-3 w-3" />}
-                            {f === 'negative' && <ThumbsDown className="h-3 w-3" />}
-                            {f === 'all' && <Filter className="h-3 w-3" />}
-                            {f}
-                          </Button>
-                        ))}
-                      </div>
+                {/* Filters */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex gap-1">
+                      {(['all', 'positive', 'negative'] as const).map((f) => (
+                        <Button
+                          key={f}
+                          size="sm"
+                          variant={feedbackFilter === f ? 'default' : 'outline'}
+                          onClick={() => handleFeedbackFilterChange(f)}
+                          className="gap-1.5 h-8 text-xs capitalize"
+                        >
+                          {f === 'positive' && <ThumbsUp className="h-3 w-3" />}
+                          {f === 'negative' && <ThumbsDown className="h-3 w-3" />}
+                          {f === 'all' && <Filter className="h-3 w-3" />}
+                          {f}
+                        </Button>
+                      ))}
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    {feedbackLoading ? (
-                      <div className="flex justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : feedbackData?.entries?.length > 0 ? (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-7 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
-                          <div>User</div>
-                          <div>Rating</div>
-                          <div>Reason</div>
-                          <div className="col-span-2">Message Preview</div>
-                          <div>Date</div>
-                          <div>Chat</div>
+                    <div className="h-5 w-px bg-border" />
+                    <select
+                      value={sourceFilter}
+                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack')}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="all">All Sources</option>
+                      <option value="web">Web</option>
+                      <option value="slack">Slack</option>
+                    </select>
+                    {sourceFilter === 'slack' && feedbackChannels.length > 0 && (
+                      <>
+                        <div className="h-5 w-px bg-border" />
+                        <MultiSelect
+                          options={feedbackChannels}
+                          selected={feedbackChannelFilter}
+                          onChange={(channels) => {
+                            setFeedbackChannelFilter(channels);
+                            loadFeedback(feedbackFilter, 1, sourceFilter, channels);
+                            updateFeedbackUrl({ channels: channels.length > 0 ? channels.join(',') : null });
+                          }}
+                          placeholder="All Channels"
+                          searchPlaceholder="Search channels..."
+                          emptyLabel="No channels found"
+                          badgeLabel="channels"
+                        />
+                      </>
+                    )}
+                    <div className="h-5 w-px bg-border" />
+                    <TagInput
+                      tags={feedbackSearchTags}
+                      onChange={(tags) => {
+                        setFeedbackSearchTags(tags);
+                        loadFeedback(feedbackFilter, 1, undefined, undefined, tags);
+                        updateFeedbackUrl({ search: tags.length > 0 ? tags.join(',') : null });
+                      }}
+                      placeholder="Search reasons..."
+                      badgeLabel="filters"
+                    />
+                    {(feedbackUsers.length > 0 || teams.length > 0) && (
+                      <>
+                        <div className="h-5 w-px bg-border" />
+                        <MultiSelect
+                          options={[
+                            ...teams.map((t) => `team:${t.name}`),
+                            ...feedbackUsers,
+                          ]}
+                          selected={userFilter}
+                          onChange={(selected) => {
+                            setUserFilter(selected);
+                            const emails = new Set<string>();
+                            for (const s of selected) {
+                              if (s.startsWith('team:')) {
+                                const team = teams.find((t) => t.name === s.slice(5));
+                                if (team) team.members.forEach((m) => emails.add(m.user_id));
+                              } else {
+                                emails.add(s);
+                              }
+                            }
+                            const emailList = [...emails];
+                            loadFeedback(feedbackFilter, 1, undefined, undefined, undefined, emailList);
+                            updateSharedFilterUrl({ users: selected.length > 0 ? selected.join(',') : null });
+                          }}
+                          placeholder="All Users & Teams"
+                          searchPlaceholder="Search users or teams..."
+                          emptyLabel="No users found"
+                          badgeLabel="selected"
+                        />
+                      </>
+                    )}
+                  </div>
+                  <DateRangeFilter
+                    value={datePreset}
+                    customRange={datePreset === 'custom' ? dateRange : undefined}
+                    onChange={(preset, range) => {
+                      setDatePreset(preset);
+                      setDateRange(range);
+                      loadFeedback(feedbackFilter, 1, sourceFilter, feedbackChannelFilter.length > 0 ? feedbackChannelFilter : undefined, undefined, undefined, range);
+                      updateSharedFilterUrl({
+                        dateRange: preset !== '30d' ? preset : null,
+                        from: preset === 'custom' ? range.from : null,
+                        to: preset === 'custom' ? range.to : null,
+                      });
+                    }}
+                  />
+                </div>
+
+                {/* Feedback entries */}
+                {feedbackLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : feedbackData?.entries?.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-7 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
+                      <div>User</div>
+                      <div>Source</div>
+                      <div>Rating</div>
+                      <div>Reason</div>
+                      <div>Date</div>
+                      <div className="col-span-2">Link</div>
+                    </div>
+                    {feedbackData.entries.map((entry, i) => (
+                      <div key={`${entry.message_id}-${i}`} className="grid grid-cols-7 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
+                        <div className="truncate text-xs text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(entry.submitted_by)}>{entry.submitted_by}</div>
+                        <div>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                            entry.source === 'slack'
+                              ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                              : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                          }`}>
+                            {entry.source === 'slack' ? `Slack${entry.channel_name ? ` · ${entry.channel_name}` : ''}` : 'Web'}
+                          </span>
                         </div>
-                        {feedbackData.entries.map((entry, i) => (
-                          <div key={`${entry.message_id}-${i}`} className="grid grid-cols-7 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
-                            <div className="truncate text-xs">{entry.submitted_by}</div>
-                            <div>
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-                                entry.rating === 'positive'
-                                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                                  : 'bg-red-500/10 text-red-600 dark:text-red-400'
-                              }`}>
-                                {entry.rating === 'positive' ? (
-                                  <ThumbsUp className="h-3 w-3" />
-                                ) : (
-                                  <ThumbsDown className="h-3 w-3" />
-                                )}
-                                {entry.rating}
-                              </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              {entry.reason || '—'}
-                            </div>
-                            <div className="col-span-2 text-xs text-muted-foreground truncate">
-                              {entry.content_snippet || '—'}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {entry.submitted_at
-                                ? new Date(entry.submitted_at).toLocaleDateString()
-                                : '—'}
-                            </div>
-                            <div>
-                              {entry.conversation_id ? (
-                                <a
-                                  href={`/chat/${entry.conversation_id}?from=feedback`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                                  title={entry.conversation_title || 'View conversation'}
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                  {entry.conversation_title
-                                    ? entry.conversation_title.length > 20
-                                      ? entry.conversation_title.slice(0, 20) + '…'
-                                      : entry.conversation_title
-                                    : 'View'}
-                                </a>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                        {feedbackData.pagination.total_pages > 1 && (
-                          <div className="flex justify-center gap-2 pt-4">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={feedbackData.pagination.page <= 1}
-                              onClick={() => loadFeedback(feedbackFilter, feedbackData.pagination.page - 1)}
+                        <div>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                            entry.rating === 'positive'
+                              ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                              : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                          }`}>
+                            {entry.rating === 'positive' ? (
+                              <ThumbsUp className="h-3 w-3" />
+                            ) : (
+                              <ThumbsDown className="h-3 w-3" />
+                            )}
+                            {entry.rating}
+                          </span>
+                        </div>
+                        <div
+                          className="text-xs text-muted-foreground truncate cursor-pointer hover:text-foreground"
+                          title={entry.reason || undefined}
+                          onClick={(e) => {
+                            const el = e.currentTarget;
+                            el.classList.toggle('truncate');
+                            el.classList.toggle('whitespace-normal');
+                          }}
+                        >
+                          {entry.reason || '—'}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {entry.submitted_at
+                            ? new Date(entry.submitted_at).toLocaleDateString()
+                            : '—'}
+                        </div>
+                        <div className="col-span-2">
+                          {entry.slack_permalink ? (
+                            <a
+                              href={entry.slack_permalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                              title="View Slack thread"
                             >
-                              Previous
-                            </Button>
-                            <span className="text-sm text-muted-foreground flex items-center">
-                              Page {feedbackData.pagination.page} of {feedbackData.pagination.total_pages}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={feedbackData.pagination.page >= feedbackData.pagination.total_pages}
-                              onClick={() => loadFeedback(feedbackFilter, feedbackData.pagination.page + 1)}
+                              <ExternalLink className="h-3 w-3" />
+                              Slack thread
+                            </a>
+                          ) : entry.conversation_id ? (
+                            <a
+                              href={`/chat/${entry.conversation_id}?from=feedback${entry.message_id ? `&message=${entry.message_id}` : ''}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                              title={entry.conversation_title || 'View conversation'}
                             >
-                              Next
-                            </Button>
-                          </div>
-                        )}
+                              <ExternalLink className="h-3 w-3" />
+                              {entry.conversation_title
+                                ? entry.conversation_title.length > 20
+                                  ? entry.conversation_title.slice(0, 20) + '…'
+                                  : entry.conversation_title
+                                : 'View chat'}
+                            </a>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
                       </div>
-                    ) : (
-                      <div className="text-center py-12">
-                        <ThumbsUp className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                        <h3 className="text-lg font-semibold mb-2">No Feedback Yet</h3>
-                        <p className="text-muted-foreground">
-                          User feedback will appear here once users start rating assistant responses.
-                        </p>
+                    ))}
+                    {feedbackData.pagination.total_pages > 1 && (
+                      <div className="flex justify-center gap-2 pt-4">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={feedbackData.pagination.page <= 1}
+                          onClick={() => loadFeedback(feedbackFilter, feedbackData.pagination.page - 1)}
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground flex items-center">
+                          Page {feedbackData.pagination.page} of {feedbackData.pagination.total_pages}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={feedbackData.pagination.page >= feedbackData.pagination.total_pages}
+                          onClick={() => loadFeedback(feedbackFilter, feedbackData.pagination.page + 1)}
+                        >
+                          Next
+                        </Button>
                       </div>
                     )}
-                  </CardContent>
-                </Card>
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <ThumbsUp className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Feedback Yet</h3>
+                    <p className="text-muted-foreground">
+                      User feedback will appear here once users start rating assistant responses.
+                    </p>
+                  </div>
+                )}
               </TabsContent>}
 
               {/* NPS Tab */}
@@ -1443,7 +1699,7 @@ function AdminPage() {
                           </div>
                           {npsData.recent_responses.map((resp, i) => (
                             <div key={`${resp.user_email}-${i}`} className="grid grid-cols-4 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
-                              <div className="truncate text-xs">{resp.user_email}</div>
+                              <div className="truncate text-xs text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(resp.user_email)}>{resp.user_email}</div>
                               <div>
                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                   resp.score >= 9 ? 'bg-green-500/10 text-green-600 dark:text-green-400' :
@@ -1494,27 +1750,127 @@ function AdminPage() {
 
               {/* Usage Statistics Tab */}
               <TabsContent value="stats" className="space-y-4">
-                {/* Range Selector */}
-                <div className="flex items-center justify-end">
-                  <div className="flex rounded-md border overflow-hidden">
-                    {([["1d", "24h"], ["7d", "7 days"], ["30d", "30 days"], ["90d", "90 days"]] as const).map(([value, label]) => (
-                      <button
-                        key={value}
-                        onClick={() => setStatsRange(value)}
-                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                          statsRange === value
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-background text-muted-foreground hover:bg-muted"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                {/* Stats Filters */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <select
+                      value={sourceFilter}
+                      onChange={(e) => {
+                        const src = e.target.value as 'all' | 'web' | 'slack';
+                        setSourceFilter(src);
+                        fetchStatsWithFilters(undefined, src);
+                        updateSharedFilterUrl({ source: src !== 'all' ? src : null });
+                      }}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      <option value="all">All Sources</option>
+                      <option value="web">Web</option>
+                      <option value="slack">Slack</option>
+                    </select>
+                    <MultiSelect
+                      options={[
+                        ...teams.map((t) => `team:${t.name}`),
+                        ...users.map((u) => u.email),
+                      ]}
+                      selected={userFilter}
+                      onChange={(selected) => {
+                        const emails = new Set<string>();
+                        for (const s of selected) {
+                          if (s.startsWith('team:')) {
+                            const teamName = s.slice(5);
+                            const team = teams.find((t) => t.name === teamName);
+                            if (team) team.members.forEach((m) => emails.add(m.user_id));
+                          } else {
+                            emails.add(s);
+                          }
+                        }
+                        const emailList = [...emails];
+                        setUserFilter(selected);
+                        fetchStatsWithFilters(undefined, undefined, emailList);
+                        updateSharedFilterUrl({ users: selected.length > 0 ? selected.join(',') : null });
+                      }}
+                      placeholder="All Users & Teams"
+                      searchPlaceholder="Search users or teams..."
+                      emptyLabel="No users found"
+                      badgeLabel="selected"
+                    />
+                    <DateRangeFilter
+                      value={datePreset}
+                      customRange={datePreset === 'custom' ? dateRange : undefined}
+                      onChange={(preset, range) => {
+                        setDatePreset(preset);
+                        setDateRange(range);
+                        fetchStatsWithFilters(range);
+                        updateSharedFilterUrl({
+                          dateRange: preset !== '30d' ? preset : null,
+                          from: preset === 'custom' ? range.from : null,
+                          to: preset === 'custom' ? range.to : null,
+                        });
+                      }}
+                    />
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={statsRefreshing}
+                    onClick={() => fetchStatsWithFilters()}
+                  >
+                    <RefreshCw className={cn("h-3.5 w-3.5", statsRefreshing && "animate-spin")} />
+                    Refresh
+                  </Button>
                 </div>
 
                 {stats && (
                   <>
+                    {/* Platform Summary Cards */}
+                    {stats.platform_summary && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <Card>
+                          <CardContent className="pt-6">
+                            <div className="text-center">
+                              <div className="flex items-center justify-center gap-1 mb-1">
+                                <ThumbsUp className="h-4 w-4 text-green-500" />
+                              </div>
+                              <p className={`text-2xl font-bold ${
+                                stats.platform_summary.satisfaction_rate >= 80 ? 'text-green-500' :
+                                stats.platform_summary.satisfaction_rate >= 60 ? 'text-yellow-500' :
+                                'text-red-500'
+                              }`}>
+                                {stats.platform_summary.satisfaction_rate}%
+                              </p>
+                              <p className="text-xs text-muted-foreground">Satisfaction Rate</p>
+                            </div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-6">
+                            <div className="text-center">
+                              <div className="flex items-center justify-center gap-1 mb-1">
+                                <Clock className="h-4 w-4 text-orange-500" />
+                              </div>
+                              <p className="text-2xl font-bold text-orange-500">
+                                {stats.platform_summary.estimated_hours_automated}h
+                              </p>
+                              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                                Hours Automated (Estimated)
+                                <span className="relative group">
+                                  <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 rounded bg-popover border border-border text-[10px] text-popover-foreground shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 text-left">
+                                    This is an estimate based on:
+                                    <ul className="list-disc pl-3 mt-1 space-y-0.5">
+                                      <li>Slack thread interactions</li>
+                                      <li>Agents used to automate tasks</li>
+                                    </ul>
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    )}
+
                     {/* DAU and MAU Trend Charts */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       <Card>
@@ -1638,7 +1994,7 @@ function AdminPage() {
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <div className="w-6 text-sm text-muted-foreground">#{i + 1}</div>
-                                  <div className="text-sm truncate max-w-[200px]">{u._id}</div>
+                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)}>{u._id}</div>
                                 </div>
                                 <div className="text-sm font-medium">{u.count} chats</div>
                               </div>
@@ -1659,7 +2015,7 @@ function AdminPage() {
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                   <div className="w-6 text-sm text-muted-foreground">#{i + 1}</div>
-                                  <div className="text-sm truncate max-w-[200px]">{u._id}</div>
+                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)}>{u._id}</div>
                                 </div>
                                 <div className="text-sm font-medium">{u.count} messages</div>
                               </div>
@@ -1714,7 +2070,7 @@ function AdminPage() {
                             <ThumbsUp className="h-5 w-5" />
                             Feedback Summary
                           </CardTitle>
-                          <CardDescription>User satisfaction across all conversations</CardDescription>
+                          <CardDescription>User satisfaction across all platforms</CardDescription>
                         </CardHeader>
                         <CardContent>
                           {stats.feedback_summary && stats.feedback_summary.total > 0 ? (
@@ -1736,7 +2092,7 @@ function AdminPage() {
                                 </div>
                                 <div>
                                   <p className="text-2xl font-bold text-primary mt-5">
-                                    {Math.round((stats.feedback_summary.positive / stats.feedback_summary.total) * 100)}%
+                                    {stats.feedback_summary.satisfaction_rate ?? Math.round((stats.feedback_summary.positive / stats.feedback_summary.total) * 100)}%
                                   </p>
                                   <p className="text-xs text-muted-foreground">Satisfaction</p>
                                 </div>
@@ -1750,97 +2106,74 @@ function AdminPage() {
                                   }}
                                 />
                               </div>
+
+                              {/* Source breakdown */}
+                              {stats.feedback_summary.by_source && Object.keys(stats.feedback_summary.by_source).length > 1 && (
+                                <div className="mt-4 pt-3 border-t border-border">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2">By Source</p>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    {Object.entries(stats.feedback_summary.by_source).map(([source, data]) => (
+                                      <div key={source} className="text-center p-2 rounded-lg bg-muted/50">
+                                        <p className="text-xs font-medium capitalize">{source}</p>
+                                        <p className="text-sm">
+                                          <span className="text-green-500">{data.positive}</span>
+                                          {' / '}
+                                          <span className="text-red-500">{data.negative}</span>
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Negative feedback categories */}
+                              {stats.feedback_summary.categories && stats.feedback_summary.categories.length > 0 && (
+                                <div className="mt-4 pt-3 border-t border-border">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2">Negative Feedback Breakdown</p>
+                                  <div className="space-y-2">
+                                    {stats.feedback_summary.categories.slice(0, 5).map((cat) => {
+                                      const maxCat = stats.feedback_summary.categories![0].count;
+                                      const pct = maxCat > 0 ? (cat.count / maxCat) * 100 : 0;
+                                      return (
+                                        <div key={cat.category}>
+                                          <div className="flex items-center justify-between mb-0.5">
+                                            <span className="text-xs capitalize">{cat.category.replace(/_/g, ' ')}</span>
+                                            <span className="text-xs text-muted-foreground">{cat.count}</span>
+                                          </div>
+                                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                            <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <p className="text-sm text-muted-foreground text-center py-4">No feedback data yet</p>
                           )}
 
-                          {/* Response time stats */}
-                          {stats.response_time && stats.response_time.sample_count > 0 && (
-                            <div className="mt-6 pt-4 border-t border-border">
-                              <div className="flex items-center gap-2 mb-3">
-                                <Zap className="h-4 w-4 text-muted-foreground" />
-                                <span className="text-sm font-medium">Response Time</span>
-                              </div>
-                              <div className="grid grid-cols-3 gap-4 text-center">
-                                <div>
-                                  <p className="text-lg font-bold">{(stats.response_time.avg_ms / 1000).toFixed(1)}s</p>
-                                  <p className="text-xs text-muted-foreground">Average</p>
-                                </div>
-                                <div>
-                                  <p className="text-lg font-bold text-green-500">{(stats.response_time.min_ms / 1000).toFixed(1)}s</p>
-                                  <p className="text-xs text-muted-foreground">Fastest</p>
-                                </div>
-                                <div>
-                                  <p className="text-lg font-bold text-orange-500">{(stats.response_time.max_ms / 1000).toFixed(1)}s</p>
-                                  <p className="text-xs text-muted-foreground">Slowest</p>
-                                </div>
-                              </div>
-                            </div>
-                          )}
                         </CardContent>
                       </Card>
                     </div>
 
-                    {/* Completed Workflows */}
-                    {stats.completed_workflows && (
+                    {/* Feedback Trend Chart */}
+                    {stats.feedback_summary?.daily && stats.feedback_summary.daily.length > 0 && (
                       <Card>
                         <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <CheckCircle2 className="h-5 w-5" />
-                            Completed Workflows
-                          </CardTitle>
-                          <CardDescription>
-                            Agentic task completion tracking — conversations with at least one completed assistant response
-                          </CardDescription>
+                          <CardTitle>Feedback Trend ({rangeLabel})</CardTitle>
+                          <CardDescription>Daily positive vs negative feedback</CardDescription>
                         </CardHeader>
                         <CardContent>
-                          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 text-center">
-                            <div className="p-3 rounded-lg bg-green-500/10">
-                              <p className="text-2xl font-bold text-green-500">{stats.completed_workflows.total}</p>
-                              <p className="text-xs text-muted-foreground">Completed</p>
-                            </div>
-                            <div className="p-3 rounded-lg bg-blue-500/10">
-                              <p className="text-2xl font-bold text-blue-500">{stats.completed_workflows.today}</p>
-                              <p className="text-xs text-muted-foreground">Today</p>
-                            </div>
-                            <div className="p-3 rounded-lg bg-orange-500/10">
-                              <div className="flex items-center justify-center gap-1">
-                                <AlertCircle className="h-4 w-4 text-orange-500" />
-                              </div>
-                              <p className="text-2xl font-bold text-orange-500">{stats.completed_workflows.interrupted}</p>
-                              <p className="text-xs text-muted-foreground">Interrupted</p>
-                            </div>
-                            <div className="p-3 rounded-lg bg-primary/10">
-                              <p className="text-2xl font-bold text-primary">{stats.completed_workflows.completion_rate}%</p>
-                              <p className="text-xs text-muted-foreground">Completion Rate</p>
-                            </div>
-                            <div className="p-3 rounded-lg bg-purple-500/10">
-                              <p className="text-2xl font-bold text-purple-500">{stats.completed_workflows.avg_messages_per_workflow}</p>
-                              <p className="text-xs text-muted-foreground">Avg Msgs/Workflow</p>
-                            </div>
-                          </div>
-                          {/* Completion rate bar */}
-                          {(stats.completed_workflows.total + stats.completed_workflows.interrupted) > 0 && (
-                            <div className="mt-4">
-                              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                                <span>Completion Rate</span>
-                                <span>{stats.completed_workflows.completion_rate}%</span>
-                              </div>
-                              <div className="h-2.5 bg-orange-100 dark:bg-orange-900/20 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-green-500 rounded-full transition-all"
-                                  style={{
-                                    width: `${stats.completed_workflows.completion_rate}%`,
-                                  }}
-                                />
-                              </div>
-                              <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                                <span>{stats.completed_workflows.total} completed</span>
-                                <span>{stats.completed_workflows.interrupted} interrupted</span>
-                              </div>
-                            </div>
-                          )}
+                          <SimpleLineChart
+                            data={stats.feedback_summary.daily.map((day) => ({
+                              label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                              value: day.positive + day.negative,
+                            }))}
+                            height={180}
+                            color="rgb(34, 197, 94)"
+                          />
                         </CardContent>
                       </Card>
                     )}
@@ -1856,29 +2189,62 @@ function AdminPage() {
                           <CardDescription>Message volume distribution across hours of the day (UTC, {rangeLabel})</CardDescription>
                         </CardHeader>
                         <CardContent>
-                          <div className="flex items-end gap-1 h-32">
-                            {stats.hourly_heatmap.map((h) => {
+                          <div className="flex items-end gap-1" style={{ height: 128 }}>
+                            {(() => {
                               const maxCount = Math.max(...stats.hourly_heatmap.map((x) => x.count), 1);
-                              const pct = (h.count / maxCount) * 100;
-                              const isPeak = h.count === maxCount && h.count > 0;
-                              return (
-                                <div
-                                  key={h.hour}
-                                  className="flex-1 flex flex-col items-center gap-1"
-                                  title={`${h.hour}:00 — ${h.count} messages`}
-                                >
+                              // Deep blue (low) → Green → Yellow (mid) → Orange → Red (high)
+                              const heatColor = (ratio: number) => {
+                                const stops = [
+                                  [0,    30,  80, 220],  // deep blue
+                                  [0.25, 34, 197, 94],   // green
+                                  [0.5, 234, 179,   8],  // yellow
+                                  [0.75,249, 115,  22],  // orange
+                                  [1,   239,  68,  68],  // red
+                                ];
+                                let i = 0;
+                                while (i < stops.length - 2 && ratio > stops[i + 1][0]) i++;
+                                const [t0, r0, g0, b0] = stops[i];
+                                const [t1, r1, g1, b1] = stops[i + 1];
+                                const t = (ratio - t0) / (t1 - t0);
+                                return `rgb(${Math.round(r0 + t * (r1 - r0))}, ${Math.round(g0 + t * (g1 - g0))}, ${Math.round(b0 + t * (b1 - b0))})`;
+                              };
+                              const currentHour = new Date().getUTCHours();
+                              return stats.hourly_heatmap.map((h) => {
+                                const ratio = h.count / maxCount;
+                                const barHeight = Math.max(ratio * 100, 3);
+                                const bg = h.count > 0 ? heatColor(ratio) : undefined;
+                                const isCurrent = h.hour === currentHour;
+                                return (
                                   <div
-                                    className={`w-full rounded-t transition-all ${
-                                      isPeak ? 'bg-primary' : h.count > 0 ? 'bg-primary/50' : 'bg-muted'
-                                    }`}
-                                    style={{ height: `${Math.max(pct, 2)}%` }}
-                                  />
-                                  <span className="text-[9px] text-muted-foreground">{h.hour}</span>
+                                    key={h.hour}
+                                    className="flex-1 flex flex-col items-center justify-end"
+                                    style={{ height: 128 }}
+                                    title={`${h.hour}:00 — ${h.count.toLocaleString()} messages${isCurrent ? ' (now)' : ''}`}
+                                  >
+                                    <div
+                                      className={`w-full rounded-t transition-all ${h.count === 0 ? 'bg-muted' : ''}`}
+                                      style={{
+                                        height: `${barHeight}%`,
+                                        backgroundColor: bg,
+                                        ...(isCurrent ? { outline: '2px solid hsl(var(--foreground))', outlineOffset: -1, zIndex: 1 } : {}),
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                          <div className="flex gap-1 mt-1">
+                            {stats.hourly_heatmap.map((h) => {
+                              const isCurrent = h.hour === new Date().getUTCHours();
+                              return (
+                                <div key={`lbl-${h.hour}`} className={`flex-1 text-center text-[9px] ${isCurrent ? 'text-foreground font-bold' : 'text-muted-foreground'}`}>
+                                  {h.hour}
                                 </div>
                               );
                             })}
                           </div>
-                          <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                          <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                             <span>12am</span>
                             <span>6am</span>
                             <span>12pm</span>
@@ -1888,8 +2254,99 @@ function AdminPage() {
                         </CardContent>
                       </Card>
                     )}
+
+                    {/* ─── Web Section ─── */}
+                    {(stats.response_time?.sample_count > 0 || stats.completed_workflows) && (
+                      <>
+                        <div className="flex items-center gap-2 pt-2">
+                          <Globe className="h-5 w-5 text-muted-foreground" />
+                          <h3 className="text-lg font-semibold">Web</h3>
+                        </div>
+                        <div className="h-px bg-border" />
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          {/* Response Time */}
+                          {stats.response_time && stats.response_time.sample_count > 0 && (
+                            <Card>
+                              <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                  <Zap className="h-5 w-5" />
+                                  Response Time
+                                </CardTitle>
+                                <CardDescription>AI response latency from web conversations</CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-3 gap-4 text-center">
+                                  <div>
+                                    <p className="text-2xl font-bold">{(stats.response_time.avg_ms / 1000).toFixed(1)}s</p>
+                                    <p className="text-xs text-muted-foreground">Average</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-2xl font-bold text-green-500">{(stats.response_time.min_ms / 1000).toFixed(1)}s</p>
+                                    <p className="text-xs text-muted-foreground">Fastest</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-2xl font-bold text-orange-500">{(stats.response_time.max_ms / 1000).toFixed(1)}s</p>
+                                    <p className="text-xs text-muted-foreground">Slowest</p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
+
+                          {/* Completed Workflows */}
+                          {stats.completed_workflows && (
+                            <Card>
+                              <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                  <CheckCircle2 className="h-5 w-5" />
+                                  Completed Workflows
+                                </CardTitle>
+                                <CardDescription>Agentic task completion tracking</CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid grid-cols-2 gap-3 text-center">
+                                  <div className="p-2 rounded-lg bg-green-500/10">
+                                    <p className="text-xl font-bold text-green-500">{stats.completed_workflows.total}</p>
+                                    <p className="text-[10px] text-muted-foreground">Completed</p>
+                                  </div>
+                                  <div className="p-2 rounded-lg bg-orange-500/10">
+                                    <p className="text-xl font-bold text-orange-500">{stats.completed_workflows.interrupted}</p>
+                                    <p className="text-[10px] text-muted-foreground">Interrupted</p>
+                                  </div>
+                                  <div className="p-2 rounded-lg bg-primary/10">
+                                    <p className="text-xl font-bold text-primary">{stats.completed_workflows.completion_rate}%</p>
+                                    <p className="text-[10px] text-muted-foreground">Completion Rate</p>
+                                  </div>
+                                  <div className="p-2 rounded-lg bg-purple-500/10">
+                                    <p className="text-xl font-bold text-purple-500">{stats.completed_workflows.avg_messages_per_workflow}</p>
+                                    <p className="text-[10px] text-muted-foreground">Avg Msgs/Workflow</p>
+                                  </div>
+                                </div>
+                                {(stats.completed_workflows.total + stats.completed_workflows.interrupted) > 0 && (
+                                  <div className="mt-3">
+                                    <div className="h-2 bg-orange-100 dark:bg-orange-900/20 rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full bg-green-500 rounded-full transition-all"
+                                        style={{ width: `${stats.completed_workflows.completion_rate}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* ─── Slack Section ─── */}
+                    {stats.slack && (
+                      <SlackStatsSection slack={stats.slack} rangeLabel={rangeLabel} />
+                    )}
+
                     {/* Checkpoint Persistence */}
-                    <CheckpointStatsSection range={statsRange} onRangeChange={setStatsRange} />
+                    <CheckpointStatsSection />
                   </>
                 )}
               </TabsContent>
@@ -1907,7 +2364,7 @@ function AdminPage() {
               {/* Audit Logs Tab (optional, gated by AUDIT_LOGS_ENABLED + full admin role) */}
               {auditLogsEnabled && isAdmin && (
                 <TabsContent value="audit-logs" className="space-y-4">
-                  <AuditLogsTab isAdmin={isAdmin} />
+                  <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 
@@ -1935,6 +2392,12 @@ function AdminPage() {
         open={teamDetailsOpen}
         onOpenChange={setTeamDetailsOpen}
         onTeamUpdated={loadAdminData}
+      />
+
+      {/* User Detail Sliding Panel */}
+      <UserDetailPanel
+        email={selectedUserEmail}
+        onClose={() => setSelectedUserEmail(null)}
       />
     </div>
   );

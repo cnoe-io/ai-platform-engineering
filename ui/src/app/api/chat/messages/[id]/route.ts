@@ -1,4 +1,4 @@
-// PUT /api/chat/messages/[id] - Update message (feedback, content, metadata, events)
+// PUT /api/chat/messages/[id] - Update message (content, metadata, events)
 // [id] can be either a MongoDB ObjectId or a client-generated message_id (UUID)
 
 import { NextRequest } from 'next/server';
@@ -42,14 +42,7 @@ export const PUT = withErrorHandler(async (
     // Build update
     const update: any = {};
 
-    if (body.feedback) {
-      update.feedback = {
-        rating: body.feedback.rating,
-        comment: body.feedback.comment,
-        submitted_at: new Date(),
-        submitted_by: user.email,
-      };
-    }
+    // Feedback is no longer written here — use POST /api/feedback instead.
 
     if (body.content !== undefined) {
       update.content = body.content;

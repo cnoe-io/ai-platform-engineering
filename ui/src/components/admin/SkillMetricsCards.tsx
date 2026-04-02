@@ -301,9 +301,10 @@ export function OverallRunStatsCard({ stats }: OverallRunStatsProps) {
 
 interface TopCreatorsProps {
   creators: Array<{ email: string; count: number }>;
+  onUserClick?: (email: string) => void;
 }
 
-export function TopCreatorsCard({ creators }: TopCreatorsProps) {
+export function TopCreatorsCard({ creators, onUserClick }: TopCreatorsProps) {
   if (creators.length === 0) {
     return null;
   }
@@ -325,7 +326,7 @@ export function TopCreatorsCard({ creators }: TopCreatorsProps) {
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                   <div className="w-6 text-sm text-muted-foreground">#{i + 1}</div>
-                  <div className="text-sm truncate max-w-[200px]">{creator.email}</div>
+                  <div className={`text-sm truncate max-w-[200px] ${onUserClick ? 'text-primary hover:underline cursor-pointer' : ''}`} onClick={() => onUserClick?.(creator.email)}>{creator.email}</div>
                 </div>
                 <div className="text-sm text-muted-foreground">
                   {creator.count} skill{creator.count !== 1 ? "s" : ""}

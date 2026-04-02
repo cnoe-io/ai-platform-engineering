@@ -14,15 +14,30 @@ const MAX_PEEK_DOCS = 2;          // documents per agent in data peek
 const MAX_PEEK_DOC_SIZE = 2000;   // max chars per serialized document
 const MAX_DISTINCT_THREADS = 500; // cap on distinct() results
 
-/** Compute days count for a range string. */
-function rangeDays(range: string | null): number {
-  switch (range) {
-    case '1d': return 1;
-    case '7d': return 7;
-    case '30d': return 30;
-    case '90d': return 90;
-    default: return 7;
+/** Compute a { from, to } date range from query params.
+ *  Accepts either `from`/`to` ISO strings or a `range` shorthand like "7d". */
+function resolveRange(searchParams: URLSearchParams): { from: Date; to: Date; days: number } {
+  const fromParam = searchParams.get('from');
+  const toParam = searchParams.get('to');
+  const to = toParam ? new Date(toParam) : new Date();
+  if (fromParam) {
+    const from = new Date(fromParam);
+    const days = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86400000));
+    return { from, to, days };
   }
+  const range = searchParams.get('range');
+  let days: number;
+  switch (range) {
+    case '1h': days = 1; break;   // 1 hour still shows 1 day of chart data
+    case '12h': days = 1; break;
+    case '1d': case '24h': days = 1; break;
+    case '7d': days = 7; break;
+    case '30d': days = 30; break;
+    case '90d': days = 90; break;
+    default: days = 7;
+  }
+  const from = new Date(to.getTime() - days * 86400000);
+  return { from, to, days };
 }
 
 /** Safely serialize a MongoDB doc for JSON, truncating large values. */
@@ -61,9 +76,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     requireAdminView(session);
 
     const { searchParams } = new URL(request.url);
-    const range = searchParams.get('range');
     const includePeek = searchParams.get('peek') !== 'false'; // default: include
-    const days = rangeDays(range);
+    const { days } = resolveRange(searchParams);
 
     const { db } = await connectToDatabase();
 
@@ -217,7 +231,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       daily_activity: dailyActivity,
       cross_contamination: crossContamination,
       peek_data: peekData,
-      range: range || '7d',
+      range: searchParams.get('range') || `${days}d`,
     });
   });
 });

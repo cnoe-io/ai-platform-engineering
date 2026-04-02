@@ -91,8 +91,6 @@ from ai_platform_engineering.utils.prompt_config import (
 )
 
 from ai_platform_engineering.multi_agents.tools import (
-    reflect_on_output,
-    format_markdown,
     fetch_url,
     get_current_date,
     jq,
@@ -105,11 +103,13 @@ logger = logging.getLogger(__name__)
 
 # Remote A2A agent tool
 from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import A2ARemoteAgentConnectTool
+from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
 
 # Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
+MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 
@@ -714,40 +714,54 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
 
 
 async def create_github_subagent_def(prompt_config: dict = None) -> dict:
-    """Create GitHub subagent definition with local MCP server and gh CLI fallback.
+    """Create GitHub subagent definition with MCP server and gh CLI fallback.
 
-    Tool loading bypasses the base _load_mcp_tools because:
-    1. It prefers get_mcp_http_config() → Copilot HTTP API (not wanted in single-node)
-    2. Its STDIO path auto-derives a Python server_path that doesn't exist
-       (GitHub MCP is a Go project at mcp/mcp_github/, not Python)
+    Supports two MCP transport modes (set via GITHUB_MCP_MODE):
 
-    Instead, we call get_mcp_config() directly which launches the local
-    Go MCP server via ``go run``. The gh CLI tool is always added alongside
-    MCP tools — policy.lp controls which tools are allowed:
+    - **http**: Connects to a separate GitHub MCP HTTP pod. The Go server
+      uses per-request Bearer auth so the supervisor sends the token
+      (App installation token or PAT) in each request header.
+    - **stdio** (default): Launches the local Go MCP server via ``go run``.
+      Tool loading calls get_mcp_config() directly because the base class
+      STDIO path auto-derives a Python server_path that doesn't exist
+      (GitHub MCP is a Go project at mcp/mcp_github/, not Python).
+
+    The gh CLI tool is always added alongside MCP tools. policy.lp controls
+    which tools are allowed:
     - readonly MCP tools (get_file_contents, etc.) are always allowed
     - write MCP tools (push_files, create_branch, etc.) require self_service_mode
     - gh_cli_execute is allowed in both modes (policy marks it readonly + self_service)
     """
+    from ai_platform_engineering.utils.mcp_config import resolve_mcp_mode, is_http_mode
+
     agent = GitHubAgent()
     name = "github"
 
+    mcp_mode = resolve_mcp_mode(name)
     mcp_tools = []
-    try:
-        mcp_config = agent.get_mcp_config()
-        client = MultiServerMCPClient({name: mcp_config})
+
+    if is_http_mode(mcp_mode):
         try:
-            mcp_tools = await client.get_tools()
-        except ExceptionGroup:
-            # Go MCP servers often raise cleanup errors after tools are loaded.
-            # Retry with the base class helper that suppresses these.
-            mcp_tools = await agent._load_mcp_tools_with_cleanup_handling(client, name)
-        mcp_tools = agent._filter_mcp_tools(mcp_tools)
-        mcp_tools = wrap_tools_with_error_handling(mcp_tools, agent_name=name)
-        logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via local go run")
-    except (ValueError, FileNotFoundError) as e:
-        logger.warning(f"{name}: Cannot start local MCP server: {e}")
-    except Exception as e:
-        logger.warning(f"{name}: Failed to load MCP tools from local server: {e}", exc_info=True)
+            mcp_tools = await agent._load_mcp_tools(include_fallback=False)
+            mcp_tools = wrap_tools_with_error_handling(mcp_tools, agent_name=name)
+            logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via HTTP")
+        except Exception as e:
+            logger.warning(f"{name}: Failed to load MCP tools via HTTP: {e}", exc_info=True)
+    else:
+        try:
+            mcp_config = agent.get_mcp_config()
+            client = MultiServerMCPClient({name: mcp_config})
+            try:
+                mcp_tools = await client.get_tools()
+            except ExceptionGroup:
+                mcp_tools = await agent._load_mcp_tools_with_cleanup_handling(client, name)
+            mcp_tools = agent._filter_mcp_tools(mcp_tools)
+            mcp_tools = wrap_tools_with_error_handling(mcp_tools, agent_name=name)
+            logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via local go run")
+        except (ValueError, FileNotFoundError) as e:
+            logger.warning(f"{name}: Cannot start local MCP server: {e}")
+        except Exception as e:
+            logger.warning(f"{name}: Failed to load MCP tools from local server: {e}", exc_info=True)
 
     tools = list(mcp_tools)
 
@@ -1127,8 +1141,6 @@ class PlatformEngineerDeepAgent:
 
         # Utility tools
         utility_tools = [
-            reflect_on_output,
-            format_markdown,
             fetch_url,
             get_current_date,
             jq,
@@ -1193,10 +1205,15 @@ class PlatformEngineerDeepAgent:
                 logger.error(f"Error during RAG setup: {e}")
                 self.rag_enabled = False
 
-        # Add RAG tools if loaded
+        # Add RAG tools if loaded, wrapping fetch_document with a per-query call cap
         if self.rag_tools:
-            all_tools.extend(self.rag_tools)
-            logger.info(f"✅📚 Added {len(self.rag_tools)} RAG tools to supervisor: {[t.name for t in self.rag_tools]}")
+            wrapped_rag_tools = [
+                FetchDocumentCapWrapper.from_tool(t, max_calls=MAX_FETCH_DOCUMENT_CALLS)
+                if t.name == "fetch_document" else t
+                for t in self.rag_tools
+            ]
+            all_tools.extend(wrapped_rag_tools)
+            logger.info(f"✅📚 Added {len(wrapped_rag_tools)} RAG tools to supervisor (fetch_document capped at {MAX_FETCH_DOCUMENT_CALLS})")
 
         # Build subagent definitions (async to load MCP tools)
         # Using SubAgent dict format for state sharing:

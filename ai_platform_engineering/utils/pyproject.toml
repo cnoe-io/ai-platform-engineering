@@ -18,7 +18,7 @@ dependencies = [
     "langgraph==1.0.4",
     "langgraph-checkpoint-mongodb>=0.3.0",
     "langmem>=0.0.30",
-    "mcp==1.21.0",
+    "mcp==1.26.0",
     "prometheus-client==0.23.1",
     "pydantic==2.12.5",
     "pyjwt==2.10.1",
@@ -48,3 +48,6 @@ select = [
     "F",  # Pyflakes
 ]
 ignore = ["F403"]
+
+[tool.uv]
+constraint-dependencies = ["nltk==3.9.4"]

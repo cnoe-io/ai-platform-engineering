@@ -131,6 +131,40 @@ function makeFeedbackMessage(overrides: Partial<any> = {}) {
   };
 }
 
+/** Unified feedback doc (new schema) */
+function makeFeedbackDoc(overrides: Partial<any> = {}) {
+  return {
+    _id: new ObjectId(),
+    message_id: 'msg-1',
+    conversation_id: 'conv-1',
+    source: 'web',
+    rating: 'positive',
+    value: 'thumbs_up',
+    comment: null,
+    user_email: 'user@example.com',
+    created_at: new Date('2026-03-15'),
+    ...overrides,
+  };
+}
+
+/** Setup feedback collection with chainable find mock */
+function setupFeedbackCollection(docs: any[], totalCount: number) {
+  const feedbackCol = createMockCollection();
+  feedbackCol.find.mockReturnValue({
+    sort: jest.fn().mockReturnValue({
+      skip: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue(docs),
+        }),
+      }),
+    }),
+  });
+  feedbackCol.countDocuments.mockResolvedValue(totalCount);
+  feedbackCol.distinct = jest.fn().mockResolvedValue([]);
+  mockCollections['feedback'] = feedbackCol;
+  return feedbackCol;
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -180,22 +214,7 @@ describe('GET /api/admin/feedback', () => {
 
   it('returns empty entries on fresh database', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
-
-    const msgCol = createMockCollection();
-    msgCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-          }),
-        }),
-      }),
-    });
-    msgCol.countDocuments.mockResolvedValue(0);
-    mockCollections['messages'] = msgCol;
-
-    const convCol = createMockCollection();
-    mockCollections['conversations'] = convCol;
+    setupFeedbackCollection([], 0);
 
     const res = await GET(makeRequest('/api/admin/feedback'));
     expect(res.status).toBe(200);
@@ -205,22 +224,17 @@ describe('GET /api/admin/feedback', () => {
     expect(body.data.pagination.total).toBe(0);
   });
 
-  it('returns feedback entries with correct structure', async () => {
+  it('returns feedback entries with correct structure from unified collection', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
-    const msg = makeFeedbackMessage();
-    const msgCol = createMockCollection();
-    msgCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([msg]),
-          }),
-        }),
-      }),
+    const doc = makeFeedbackDoc({
+      conversation_id: 'conv-1',
+      rating: 'positive',
+      value: 'thumbs_up',
+      comment: 'Very Helpful',
+      user_email: 'user@example.com',
     });
-    msgCol.countDocuments.mockResolvedValue(1);
-    mockCollections['messages'] = msgCol;
+    setupFeedbackCollection([doc], 1);
 
     const convCol = createMockCollection();
     convCol.find.mockReturnValue({
@@ -238,120 +252,51 @@ describe('GET /api/admin/feedback', () => {
     expect(entry.conversation_id).toBe('conv-1');
     expect(entry.conversation_title).toBe('My Chat');
     expect(entry.rating).toBe('positive');
+    // thumbs_up is generic + has comment → reason = comment only
     expect(entry.reason).toBe('Very Helpful');
     expect(entry.submitted_by).toBe('user@example.com');
-    expect(entry.role).toBe('assistant');
+    expect(entry.source).toBe('web');
   });
 
-  it('truncates long content to 200 chars + ellipsis', async () => {
+  it('filters by positive rating on feedback collection', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
-
-    const longContent = 'x'.repeat(300);
-    const msg = makeFeedbackMessage({ content: longContent });
-    const msgCol = createMockCollection();
-    msgCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([msg]),
-          }),
-        }),
-      }),
-    });
-    msgCol.countDocuments.mockResolvedValue(1);
-    mockCollections['messages'] = msgCol;
-
-    const convCol = createMockCollection();
-    convCol.find.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['conversations'] = convCol;
-
-    const res = await GET(makeRequest('/api/admin/feedback'));
-    const body = await res.json();
-    expect(body.data.entries[0].content_snippet).toHaveLength(203); // 200 + '...'
-    expect(body.data.entries[0].content_snippet).toMatch(/\.\.\.$/);
-  });
-
-  it('filters by positive rating', async () => {
-    mockGetServerSession.mockResolvedValue(adminSession());
-
-    const msgCol = createMockCollection();
-    msgCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-          }),
-        }),
-      }),
-    });
-    msgCol.countDocuments.mockResolvedValue(0);
-    mockCollections['messages'] = msgCol;
-    mockCollections['conversations'] = createMockCollection();
+    const feedbackCol = setupFeedbackCollection([], 0);
 
     await GET(makeRequest('/api/admin/feedback?rating=positive'));
-    const findCall = msgCol.find.mock.calls[0][0];
-    expect(findCall['feedback.rating']).toBe('positive');
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.rating).toBe('positive');
   });
 
-  it('filters by negative rating', async () => {
+  it('filters by negative rating on feedback collection', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
-
-    const msgCol = createMockCollection();
-    msgCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-          }),
-        }),
-      }),
-    });
-    msgCol.countDocuments.mockResolvedValue(0);
-    mockCollections['messages'] = msgCol;
-    mockCollections['conversations'] = createMockCollection();
+    const feedbackCol = setupFeedbackCollection([], 0);
 
     await GET(makeRequest('/api/admin/feedback?rating=negative'));
-    const findCall = msgCol.find.mock.calls[0][0];
-    expect(findCall['feedback.rating']).toBe('negative');
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.rating).toBe('negative');
   });
 
-  it('returns all ratings when no filter is set', async () => {
+  it('applies no rating filter when not specified', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
-
-    const msgCol = createMockCollection();
-    msgCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-          }),
-        }),
-      }),
-    });
-    msgCol.countDocuments.mockResolvedValue(0);
-    mockCollections['messages'] = msgCol;
-    mockCollections['conversations'] = createMockCollection();
+    const feedbackCol = setupFeedbackCollection([], 0);
 
     await GET(makeRequest('/api/admin/feedback'));
-    const findCall = msgCol.find.mock.calls[0][0];
-    expect(findCall['feedback.rating']).toEqual({ $exists: true });
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.rating).toBeUndefined();
   });
 
   it('respects pagination parameters', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
-    const msgCol = createMockCollection();
+    const feedbackCol = setupFeedbackCollection([], 100);
     const mockSkip = jest.fn().mockReturnValue({
       limit: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([]),
       }),
     });
-    msgCol.find.mockReturnValue({
+    feedbackCol.find.mockReturnValue({
       sort: jest.fn().mockReturnValue({ skip: mockSkip }),
     });
-    msgCol.countDocuments.mockResolvedValue(100);
-    mockCollections['messages'] = msgCol;
-    mockCollections['conversations'] = createMockCollection();
 
     const res = await GET(makeRequest('/api/admin/feedback?page=3&limit=10'));
     expect(mockSkip).toHaveBeenCalledWith(20); // (3-1)*10
@@ -360,5 +305,106 @@ describe('GET /api/admin/feedback', () => {
     expect(body.data.pagination.limit).toBe(10);
     expect(body.data.pagination.total).toBe(100);
     expect(body.data.pagination.total_pages).toBe(10);
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Unified feedback collection — source/channel/user/search/date filters
+  // ════════════════════════════════════════════════════════════════════════
+
+  it('filters by source=slack and channel name', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?source=slack&channel=general,random'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.source).toBe('slack');
+    expect(filter.channel_name).toEqual({ $in: ['general', 'random'] });
+  });
+
+  it('filters by user email', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?user=alice@co.com'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.user_email).toBe('alice@co.com');
+  });
+
+  it('filters by search terms as regex OR on comment and value', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?search=wrong,slow'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    // Each term produces 2 OR clauses (comment + value)
+    expect(filter.$or).toHaveLength(4);
+    expect(filter.$or[0]).toEqual({ comment: { $regex: 'wrong', $options: 'i' } });
+    expect(filter.$or[1]).toEqual({ value: { $regex: 'wrong', $options: 'i' } });
+  });
+
+  it('filters by date range (from/to)', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?from=2026-03-01T00:00:00Z&to=2026-03-15T00:00:00Z'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.created_at.$gte).toEqual(new Date('2026-03-01T00:00:00Z'));
+    expect(filter.created_at.$lte).toEqual(new Date('2026-03-15T00:00:00Z'));
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Reason combining logic (VALUE_LABELS)
+  // ════════════════════════════════════════════════════════════════════════
+
+  it('combines non-generic value label with comment as "Label; comment"', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const doc = makeFeedbackDoc({
+      rating: 'negative',
+      value: 'wrong_answer',
+      comment: 'the k8s docs were outdated',
+    });
+    setupFeedbackCollection([doc], 1);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    expect(body.data.entries[0].reason).toBe('Wrong answer; the k8s docs were outdated');
+  });
+
+  it('returns only the comment for generic thumbs_up/thumbs_down values', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const doc = makeFeedbackDoc({
+      value: 'thumbs_down',
+      comment: 'not helpful at all',
+    });
+    setupFeedbackCollection([doc], 1);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    // Generic value should be suppressed; only comment shown
+    expect(body.data.entries[0].reason).toBe('not helpful at all');
+  });
+
+  it('returns null reason when generic value has no comment', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const doc = makeFeedbackDoc({ value: 'thumbs_up', comment: null });
+    setupFeedbackCollection([doc], 1);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    expect(body.data.entries[0].reason).toBeNull();
+  });
+
+  it('returns value label as reason when non-generic with no comment', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const doc = makeFeedbackDoc({ value: 'too_verbose', comment: null });
+    setupFeedbackCollection([doc], 1);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    expect(body.data.entries[0].reason).toBe('Too verbose');
   });
 });
