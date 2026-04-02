@@ -86,7 +86,8 @@ export async function getAuthenticatedUser(
 /**
  * Require authentication for API route
  * Use this as a wrapper for protected endpoints.
- * No session → 401 (never uses anonymous fallback).
+ * allowAnonymous is set to !ssoEnabled: anonymous fallback only fires when SSO is off.
+ * When SSO is enabled, no session → 401.
  */
 export async function withAuth<T>(
   request: NextRequest,
@@ -96,7 +97,7 @@ export async function withAuth<T>(
     session: any
   ) => Promise<T>
 ): Promise<T> {
-  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: true });
+  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
   return handler(request, user, session);
 }
 
@@ -136,7 +137,7 @@ export async function getAuthFromBearerOrSession(
   }
 
   // Path 2: Session cookie (existing NextAuth flow)
-  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: true });
+  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
   return { user, session };
 }
 

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Authenticate the request
   let accessToken: string | undefined;
   try {
-    const { session } = await getAuthenticatedUser(request);
+    const { session } = await getAuthenticatedUser(request, { allowAnonymous: !getServerConfig().ssoEnabled });
     accessToken = "accessToken" in session ? session.accessToken : undefined;
   } catch {
     return NextResponse.json(

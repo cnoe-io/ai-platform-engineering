@@ -306,7 +306,7 @@ function AdminPage() {
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
 
   useEffect(() => {
-    // Only fetch admin data once the user is authenticated
+    // Fetch admin data when authenticated or when SSO is disabled (local dev)
     if (status === "authenticated" || !getConfig('ssoEnabled')) {
       loadAdminData();
     }
@@ -325,6 +325,25 @@ function AdminPage() {
     }
     return [...emails];
   };
+
+  // Re-fetch stats when range changes (lightweight — only refetch stats endpoint)
+  const statsRangeRef = React.useRef(statsRange);
+  useEffect(() => {
+    if (statsRangeRef.current === statsRange) return; // skip initial
+    statsRangeRef.current = statsRange;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/stats?range=${statsRange}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) setStats(json.data);
+        }
+      } catch {
+        // keep existing stats on failure
+      }
+    })();
+  }, [statsRange, status]);
 
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
   const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter });
