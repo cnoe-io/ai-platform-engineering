@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.2.43"
+version = "0.2.42"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -13,11 +13,12 @@ dependencies = [
     "agntcy-app-sdk==0.4.0",
     "cnoe-agent-utils==0.3.14",
     "config==0.5.1",
-    "cryptography==46.0.6",
+    "cryptography==46.0.3",
     "fastapi>=0.115.6",
     "httpx==0.28.1",
     "hvac>=2.3.0",
     "langchain>=0.3.0",
+    "langchain-aws>=1.4.2",
     "langchain-core>=1.2.7",
     "langchain-mcp-adapters==0.2.1",
     "langfuse==3.14.3",
