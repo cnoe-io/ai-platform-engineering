@@ -2644,9 +2644,28 @@ deploy_caipe() {
     local da_svc="${release_name}-dynamic-agents"
     helm_args+=(
       --set "tags.dynamic-agents=true"
-      --set "caipe-ui.env.DYNAMIC_AGENTS_ENABLED=true"
-      --set "caipe-ui.env.DYNAMIC_AGENTS_URL=http://${da_svc}:8001"
+      --set "caipe-ui.config.DYNAMIC_AGENTS_ENABLED=true"
+      --set "caipe-ui.config.DYNAMIC_AGENTS_URL=http://${da_svc}:8001"
     )
+  fi
+
+  # When a domain is set, push non-sensitive config values from the ui-env-file
+  # into the chart ConfigMap (caipe-ui.config.*). The ConfigMap takes precedence
+  # over envFrom-secret for same-named keys, so values like NEXTAUTH_URL,
+  # OIDC groups, branding, and feature flags must be set here, not just in the secret.
+  if [[ -n "$CAIPE_DOMAIN" && -n "$UI_ENV_FILE" ]]; then
+    helm_args+=(--set "caipe-ui.config.NEXTAUTH_URL=https://${CAIPE_DOMAIN}")
+    local _config_keys=(
+      OIDC_REQUIRED_GROUP OIDC_REQUIRED_ADMIN_GROUP OIDC_ENABLE_REFRESH_TOKEN
+      WORKFLOW_RUNNER_ENABLED AUDIT_LOGS_ENABLED FEEDBACK_ENABLED NPS_ENABLED
+      APP_NAME TAGLINE DESCRIPTION LOGO_URL LOGO_STYLE SHOW_POWERED_BY
+      SUPPORT_EMAIL ENV_BADGE JIRA_TICKET_ENABLED JIRA_TICKET_PROJECT
+    )
+    for key in "${_config_keys[@]}"; do
+      local val
+      val=$(_env_get "$UI_ENV_FILE" "$key")
+      [[ -n "$val" ]] && helm_args+=(--set "caipe-ui.config.${key}=${val}")
+    done
   fi
 
   if $ENABLE_RAG; then
