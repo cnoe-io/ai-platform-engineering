@@ -1232,12 +1232,14 @@ choose_features() {
 # ─── Env-file based agent + UI secret provisioning ───────────────────────────
 
 # Read a single key from a .env-style file. Strips surrounding quotes.
+# Always exits 0 (grep returning 1 on no-match must not kill set -euo pipefail).
 # Usage: _env_get FILE KEY
 _env_get() {
   local file="$1" key="$2"
   grep -m1 "^${key}=" "$file" 2>/dev/null \
     | cut -d'=' -f2- \
-    | sed "s/^['\"]//;s/['\"]$//"
+    | sed "s/^['\"]//;s/['\"]$//" \
+    || true
 }
 
 # Read a boolean-ish flag from .env: returns 0 (true) if value is true/yes/1.
@@ -1269,7 +1271,9 @@ _create_secret_from_env() {
   kubectl create secret generic "$secret_name" \
     "${literal_args[@]}" \
     -n "$ns" --dry-run=client -o yaml \
-    | kubectl apply -f - &>/dev/null
+    | kubectl apply -f - &>/dev/null || {
+      warn "Secret ${secret_name} apply returned non-zero (check kubectl access)"
+    }
 }
 
 # Maps each Helm agent tag to:  (tag_name  secret_name  env_enable_key  keys...)
