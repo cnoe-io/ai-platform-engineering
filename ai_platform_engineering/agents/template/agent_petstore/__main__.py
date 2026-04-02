@@ -26,8 +26,6 @@ from a2a.types import (
 
 load_dotenv()
 
-A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 
 AGENT_NAME = 'petstore'
 AGENT_DESCRIPTION = (
@@ -79,8 +77,6 @@ async def async_main(host: str, port: int):
         agent_skills=[agent_skill],
         host=host,
         port=port,
-        transport=A2A_TRANSPORT,
-        slim_endpoint=SLIM_ENDPOINT,
         agent_executor=PetStoreAgentExecutor()
     )
     
