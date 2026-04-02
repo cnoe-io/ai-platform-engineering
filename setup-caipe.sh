@@ -989,7 +989,10 @@ install_metallb() {
   local pool_end="${base}.250"
   log "MetalLB IP pool: ${pool_start}-${pool_end}  (kind network: ${kind_subnet})"
 
-  kubectl apply -f - <<EOF
+  # The MetalLB admission webhook may take a few seconds after pod Running.
+  # Retry the IPAddressPool/L2Advertisement apply until the webhook accepts it.
+  local metallb_retries=0
+  until kubectl apply -f - <<EOF 2>/dev/null
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -1008,6 +1011,15 @@ spec:
   ipAddressPools:
   - kind-pool
 EOF
+  do
+    metallb_retries=$((metallb_retries + 1))
+    if [[ $metallb_retries -ge 12 ]]; then
+      err "MetalLB IPAddressPool apply failed after ${metallb_retries} attempts"
+      exit 1
+    fi
+    warn "MetalLB webhook not ready yet, retrying in 10s (attempt ${metallb_retries}/12)..."
+    sleep 10
+  done
   log "MetalLB configured"
 }
 
