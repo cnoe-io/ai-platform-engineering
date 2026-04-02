@@ -1,4 +1,5 @@
 import type { NextAuthOptions } from "next-auth";
+import { decodeJwt } from "jose";
 
 /**
  * Auth configuration for OIDC SSO
@@ -11,8 +12,7 @@ import type { NextAuthOptions } from "next-auth";
  * - OIDC_CLIENT_SECRET: OIDC client secret
  * - SSO_ENABLED: "true" to enable SSO, otherwise disabled.
  *   (Also accepts NEXT_PUBLIC_SSO_ENABLED for backward compatibility.)
- *   If SSO does not appear enabled: check window.__APP_CONFIG__ in the browser
- *   or GET /api/debug/auth-status.
+ *   If SSO does not appear enabled: check window.__APP_CONFIG__ in the browser.
  * - OIDC_GROUP_CLAIM: The OIDC claim name(s) for groups. Supports:
  *     - Single value: "memberOf"
  *     - Comma-separated: "groups,members,roles" (all checked, results combined)
@@ -137,11 +137,36 @@ export function canViewAdminDashboard(groups: string[]): boolean {
   });
 }
 
+/** Reset in-flight refresh map (for testing only). */
+export function _resetInflightRefreshes(): void {
+  _inflightRefreshes.clear();
+}
+
+// Safety net 1: In-flight deduplication.
+// Maps the current refresh token → the pending exchange Promise so that
+// concurrent callers (refetchInterval + TokenExpiryGuard) share one HTTP
+// request instead of racing and triggering invalid_grant with rotating tokens.
+type ExchangeResult = {
+  access_token: string;
+  id_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+} | null; // null = graceful race (see safety net 2)
+
+const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
+
 /**
  * Refresh the access token using the refresh token
  *
  * This function calls the OIDC token endpoint to exchange a refresh_token
  * for a new access_token and id_token.
+ *
+ * Safety nets:
+ *   1. In-flight deduplication: concurrent calls with the same refresh token
+ *      share a single HTTP exchange rather than racing.
+ *   2. Graceful invalid_grant: if the provider rejects the token but the
+ *      access token is still valid, we treat it as a race (another instance
+ *      already refreshed) and return the existing token without an error.
  *
  * @param token - The JWT token containing the refresh token
  * @returns Updated token with new access_token and expiry
@@ -173,75 +198,128 @@ async function refreshAccessToken(token: {
       };
     }
 
-    // Discover the token endpoint from the OIDC issuer's well-known configuration.
-    // Falls back to Keycloak-style path if discovery fails.
-    let tokenEndpoint: string;
-    try {
-      const wellKnownUrl = `${issuer}/.well-known/openid-configuration`;
-      const discoveryResponse = await fetch(wellKnownUrl, { next: { revalidate: 3600 } });
-      if (discoveryResponse.ok) {
-        const discoveryDoc = await discoveryResponse.json();
-        tokenEndpoint = discoveryDoc.token_endpoint;
-        console.log("[Auth] Token endpoint from OIDC discovery:", tokenEndpoint);
-      } else {
-        console.warn("[Auth] OIDC discovery failed, falling back to Keycloak-style path");
+    const currentRefreshToken = token.refreshToken as string;
+
+    // Safety net 1: join an in-flight exchange for the same refresh token
+    const existing = _inflightRefreshes.get(currentRefreshToken);
+    if (existing) {
+      console.log("[Auth] Joining in-flight token exchange (concurrent refresh detected)");
+      const result = await existing;
+      if (result === null) {
+        // Another caller already handled the race; current access token is still valid
+        return { ...token, error: undefined };
+      }
+      return {
+        ...token,
+        accessToken: result.access_token,
+        idToken: result.id_token,
+        expiresAt: Math.floor(Date.now() / 1000) + (result.expires_in || 3600),
+        refreshToken: result.refresh_token ?? currentRefreshToken,
+        error: undefined,
+      };
+    }
+
+    // Inner function that performs the actual HTTP exchange.
+    // Returns the token data on success, null for graceful races, or throws on real errors.
+    const doExchange = async (): Promise<ExchangeResult> => {
+      // Discover the token endpoint from the OIDC issuer's well-known configuration.
+      // Falls back to Keycloak-style path if discovery fails.
+      let tokenEndpoint: string;
+      try {
+        const wellKnownUrl = `${issuer}/.well-known/openid-configuration`;
+        const discoveryResponse = await fetch(wellKnownUrl, { next: { revalidate: 3600 } });
+        if (discoveryResponse.ok) {
+          const discoveryDoc = await discoveryResponse.json();
+          tokenEndpoint = discoveryDoc.token_endpoint;
+          console.log("[Auth] Token endpoint from OIDC discovery:", tokenEndpoint);
+        } else {
+          console.warn("[Auth] OIDC discovery failed, falling back to Keycloak-style path");
+          tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+        }
+      } catch (discoveryError) {
+        console.warn("[Auth] OIDC discovery error, falling back to Keycloak-style path:", discoveryError);
         tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
       }
-    } catch (discoveryError) {
-      console.warn("[Auth] OIDC discovery error, falling back to Keycloak-style path:", discoveryError);
-      tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+
+      console.log("[Auth] Refreshing access token...");
+
+      const response = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          client_id: clientId!,
+          client_secret: clientSecret!,
+          grant_type: "refresh_token",
+          refresh_token: currentRefreshToken,
+        }),
+      });
+
+      // Check content-type before parsing - OIDC providers may return HTML error pages
+      const contentType = response.headers.get("content-type") || "";
+      let data: any;
+
+      if (contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.error("[Auth] Token refresh returned non-JSON response:", text.substring(0, 200));
+        throw new Error("RefreshTokenExpired");
+      }
+
+      if (!response.ok) {
+        // Safety net 2: graceful invalid_grant handling.
+        // When a peer (another Next.js instance or refetchInterval) already consumed
+        // the rotating refresh token, we get invalid_grant back. If the access token
+        // is still valid, treat this as a benign race rather than forcing a logout.
+        if (data.error === "invalid_grant") {
+          const now = Math.floor(Date.now() / 1000);
+          const expiresAt = token.expiresAt as number | undefined;
+          if (expiresAt && expiresAt > now) {
+            console.warn(
+              "[Auth] invalid_grant with valid access token — concurrent refresh race detected, keeping current token"
+            );
+            return null; // Signal: no error, keep existing token
+          }
+        }
+        console.error("[Auth] Token refresh failed:", data);
+        throw new Error("RefreshTokenExpired");
+      }
+
+      console.log("[Auth] Token refreshed successfully");
+      return data as ExchangeResult;
+    };
+
+    // Register the exchange Promise so concurrent callers can join it (safety net 1)
+    const exchangePromise = doExchange();
+    _inflightRefreshes.set(currentRefreshToken, exchangePromise);
+
+    let result: ExchangeResult;
+    try {
+      result = await exchangePromise;
+    } finally {
+      _inflightRefreshes.delete(currentRefreshToken);
     }
 
-    console.log("[Auth] Refreshing access token...");
-
-    const response = await fetch(tokenEndpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: "refresh_token",
-        refresh_token: token.refreshToken as string,
-      }),
-    });
-
-    // Check content-type before parsing - OIDC providers may return HTML error pages
-    const contentType = response.headers.get("content-type") || "";
-    let refreshedTokens: any;
-
-    if (contentType.includes("application/json")) {
-      refreshedTokens = await response.json();
-    } else {
-      // Response is not JSON (likely HTML error page)
-      const text = await response.text();
-      console.error("[Auth] Token refresh returned non-JSON response:", text.substring(0, 200));
-      return {
-        ...token,
-        error: "RefreshTokenExpired",
-      };
+    if (result === null) {
+      // Graceful race: access token still valid, no logout needed
+      return { ...token, error: undefined };
     }
-
-    if (!response.ok) {
-      console.error("[Auth] Token refresh failed:", refreshedTokens);
-      return {
-        ...token,
-        error: "RefreshTokenExpired",
-      };
-    }
-
-    console.log("[Auth] Token refreshed successfully");
 
     return {
       ...token,
-      accessToken: refreshedTokens.access_token,
-      idToken: refreshedTokens.id_token,
-      expiresAt: Math.floor(Date.now() / 1000) + (refreshedTokens.expires_in || 3600),
-      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken, // Use new refresh token if provided
+      accessToken: result.access_token,
+      idToken: result.id_token,
+      expiresAt: Math.floor(Date.now() / 1000) + (result.expires_in || 3600),
+      refreshToken: result.refresh_token ?? currentRefreshToken, // Use new refresh token if provided
       error: undefined, // Clear any previous errors
     };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage === "RefreshTokenExpired") {
+      return { ...token, error: "RefreshTokenExpired" };
+    }
     console.error("[Auth] Error refreshing access token:", error);
     return {
       ...token,
@@ -335,6 +413,7 @@ export const authOptions: NextAuthOptions = {
         token.isAuthorized = hasRequiredGroup(groups);
         token.role = isAdminUser(groups) ? 'admin' : 'user';
         token.canViewAdmin = token.role === 'admin' || canViewAdminDashboard(groups);
+        token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
@@ -381,7 +460,37 @@ export const authOptions: NextAuthOptions = {
 
           // Only attempt refresh if we have a refresh token
           if (token.refreshToken) {
-            return await refreshAccessToken(token);
+            const refreshedToken = await refreshAccessToken(token) as typeof token;
+
+            // Re-evaluate group authorization every 4 hours using claims from
+            // the fresh id_token. This ensures revoked group membership takes
+            // effect within 4 hours rather than persisting for the full 24h session.
+            const GROUP_RECHECK_INTERVAL = 4 * 60 * 60; // seconds
+            const lastGroupCheck = (refreshedToken.groupsCheckedAt as number | undefined) ?? 0;
+            const shouldRecheckGroups =
+              !refreshedToken.error &&
+              refreshedToken.idToken &&
+              (now - lastGroupCheck) >= GROUP_RECHECK_INTERVAL;
+
+            if (shouldRecheckGroups) {
+              try {
+                const claims = decodeJwt(refreshedToken.idToken as string);
+                const groups = extractGroups(claims as Record<string, unknown>);
+                const adminUser = isAdminUser(groups);
+                console.log(`[Auth] Re-evaluating groups from refreshed id_token (last checked ${Math.round((now - lastGroupCheck) / 3600)}h ago), count: ${groups.length}`);
+                return {
+                  ...refreshedToken,
+                  isAuthorized: hasRequiredGroup(groups),
+                  role: adminUser ? 'admin' : 'user',
+                  canViewAdmin: adminUser || canViewAdminDashboard(groups),
+                  groupsCheckedAt: now,
+                };
+              } catch (err) {
+                console.warn('[Auth] Failed to decode id_token for group re-check, keeping existing authorization:', err);
+              }
+            }
+
+            return refreshedToken;
           } else {
             console.warn("[Auth] No refresh token available, falling back to expiry warnings");
             // Don't set error - just fall back to warning system
@@ -510,5 +619,6 @@ declare module "next-auth/jwt" {
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean;
+    groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
   }
 }
