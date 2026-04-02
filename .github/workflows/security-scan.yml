@@ -6,8 +6,8 @@ description: "Run Anchore Grype vulnerability scan on tag pushes"
 # alternative to aquasecurity/trivy-action following its March 2026
 # supply chain compromise.
 #
-# Scans each Dockerfile in the repo as a filesystem context so no
-# pre-built image names need to be hard-coded.
+# Scans the entire repository as a filesystem context to catch all
+# package manifests and dependencies across the codebase.
 
 on:
   push:
@@ -22,12 +22,6 @@ jobs:
   scan:
     name: Grype scan
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dockerfile:
-          - build/Dockerfile
-          - ai_platform_engineering/dynamic_agents/build/Dockerfile
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
@@ -41,7 +35,7 @@ jobs:
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         id: scan
         with:
-          path: "${{ matrix.dockerfile }}"
+          path: "."
           fail-build: false
           severity-cutoff: high
           output-format: sarif
@@ -51,4 +45,4 @@ jobs:
         if: always()
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-          category: "grype-${{ matrix.dockerfile }}"
+          category: "grype"
