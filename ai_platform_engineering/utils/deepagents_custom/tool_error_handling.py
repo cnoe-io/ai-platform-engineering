@@ -53,6 +53,23 @@ def _truncate(result: str, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHAR
     return result
 
 
+def _normalize_result(result, tool_name: str, response_format: str):
+    """Ensure the result matches the tool's declared response_format.
+
+    MCP tools via langchain_mcp_adapters declare response_format='content_and_artifact'
+    but sometimes return a plain string or None (e.g. empty results, edge cases).
+    LangChain's ToolNode crashes if it doesn't receive a two-tuple.
+    """
+    if response_format != "content_and_artifact":
+        return result
+    if isinstance(result, tuple) and len(result) == 2:
+        return result
+    content = result if result is not None else f"Tool '{tool_name}' returned no results."
+    if isinstance(content, str):
+        content = _truncate(content, tool_name)
+    return (content, [])
+
+
 def wrap_tools_with_error_handling(
     tools: list[BaseTool],
     agent_name: str = "subagent",
@@ -92,7 +109,7 @@ def wrap_tools_with_error_handling(
                         result = await _orig(*args, **kwargs)
                         if isinstance(result, str):
                             result = _truncate(result, _name)
-                        return result
+                        return _normalize_result(result, _name, _resp_fmt)
                     except Exception as e:
                         msg = _format_tool_error(_name, e)
                         logger.warning(f"[{agent_name}] {msg}")
@@ -148,7 +165,7 @@ def wrap_tools_with_error_handling(
                             result = _orig(*args, **kwargs)
                             if isinstance(result, str):
                                 result = _truncate(result, _name)
-                            return result
+                            return _normalize_result(result, _name, _resp_fmt)
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
                             logger.warning(f"[{agent_name}] {msg}")
@@ -169,7 +186,7 @@ def wrap_tools_with_error_handling(
                             result = await _orig(*args, **kwargs)
                             if isinstance(result, str):
                                 result = _truncate(result, _name)
-                            return result
+                            return _normalize_result(result, _name, _resp_fmt)
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
                             logger.warning(f"[{agent_name}] {msg}")
