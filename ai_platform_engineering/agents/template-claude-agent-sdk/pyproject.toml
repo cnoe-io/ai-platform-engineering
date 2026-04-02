@@ -73,3 +73,6 @@ markers = [
     "integration: marks tests as integration tests",
     "parsers: marks tests as parser tests"
 ]
+
+[tool.uv]
+constraint-dependencies = ["nltk==3.9.4"]
