@@ -12,8 +12,10 @@ const nextConfig: NextConfig = {
     },
   },
 
-  // Turbopack is default in Next.js 16 - empty config silences migration warning
-  turbopack: {},
+  // Turbopack is default in Next.js 16 — set root to silence lockfile detection warning
+  turbopack: {
+    root: import.meta.dirname,
+  },
 
   // Webpack configuration (fallback for non-Turbopack builds)
   webpack: (config, { isServer }) => {

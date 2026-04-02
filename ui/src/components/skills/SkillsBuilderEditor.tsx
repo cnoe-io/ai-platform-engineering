@@ -68,8 +68,8 @@ import {
   Plug,
   Trash2,
   FolderOpen,
-  Github,
 } from "lucide-react";
+import { GithubIcon as Github } from "@/components/ui/icons";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
