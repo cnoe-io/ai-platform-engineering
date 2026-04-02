@@ -318,6 +318,7 @@ services:
     command: platform-engineer
     profiles:
       - caipe-supervisor
+      - caipe-supervisor-distributed
 
   ####################################################################################################
   #                                          MongoDB                                                 #
@@ -2006,8 +2007,14 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
-      - caipe-supervisor
-      - caipe-mongodb
+      caipe-supervisor:
+        condition: service_started
+        required: false
+      caipe-supervisor-all-in-one:
+        condition: service_started
+        required: false
+      caipe-mongodb:
+        condition: service_started
     profiles:
       - slack-bot
       - all-integrations
