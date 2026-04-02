@@ -53,6 +53,25 @@ def _truncate(result: str, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHAR
     return result
 
 
+def _truncate_any(result, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS):
+    """Truncate tool output regardless of shape (str or (content, artifact) tuple).
+
+    MCP tools with response_format='content_and_artifact' return (content, artifact)
+    tuples. The plain _truncate helper only handles bare strings, so tuple content
+    was passing through untruncated — large enough to trigger FilesystemMiddleware
+    eviction, after which the agent calls read_file on the evicted file and blows
+    up the context window.
+    """
+    if isinstance(result, str):
+        return _truncate(result, tool_name, max_chars)
+    if isinstance(result, tuple) and len(result) == 2:
+        content, artifact = result
+        if isinstance(content, str):
+            content = _truncate(content, tool_name, max_chars)
+        return (content, artifact)
+    return result
+
+
 def _normalize_result(result, tool_name: str, response_format: str):
     """Ensure the result matches the tool's declared response_format.
 
@@ -107,8 +126,7 @@ def wrap_tools_with_error_handling(
                 ):
                     try:
                         result = await _orig(*args, **kwargs)
-                        if isinstance(result, str):
-                            result = _truncate(result, _name)
+                        result = _truncate_any(result, _name)
                         return _normalize_result(result, _name, _resp_fmt)
                     except Exception as e:
                         msg = _format_tool_error(_name, e)
@@ -163,8 +181,7 @@ def wrap_tools_with_error_handling(
                     ):
                         try:
                             result = _orig(*args, **kwargs)
-                            if isinstance(result, str):
-                                result = _truncate(result, _name)
+                            result = _truncate_any(result, _name)
                             return _normalize_result(result, _name, _resp_fmt)
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
@@ -184,8 +201,7 @@ def wrap_tools_with_error_handling(
                     ):
                         try:
                             result = await _orig(*args, **kwargs)
-                            if isinstance(result, str):
-                                result = _truncate(result, _name)
+                            result = _truncate_any(result, _name)
                             return _normalize_result(result, _name, _resp_fmt)
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
