@@ -15,13 +15,19 @@ and return error strings to the LLM, giving it a chance to self-correct.
 
 import asyncio
 import logging
+import os
 from functools import wraps
 
 from langchain_core.tools import BaseTool, StructuredTool
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_OUTPUT_CHARS = 15_000
+# Absolute safety cap for tool output. Set above FilesystemMiddleware's
+# eviction threshold (20K tokens = ~80K chars) so that the library's
+# eviction system handles normal large outputs.  This only kicks in for
+# extreme cases (e.g. a tool dumping an entire database) where even
+# eviction + read_file pagination wouldn't save the context window.
+MAX_TOOL_OUTPUT_CHARS = int(os.getenv("MAX_TOOL_OUTPUT_CHARS", "200000"))
 
 
 def _format_tool_error(tool_name: str, exc: Exception) -> str:
@@ -56,13 +62,11 @@ def _truncate(result: str, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHAR
 def _truncate_any(result, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS):
     """Truncate every oversized string inside any tool return shape.
 
-    LangChain tools can return str, (content, artifact) tuples, or other types.
-    We walk common container shapes and truncate every str element that exceeds
-    max_chars so that oversized results never reach deepagents'
-    FilesystemMiddleware eviction threshold (80K chars).  If eviction fires,
-    the agent calls read_file on the offloaded file — but read_file is exempt
-    from eviction, so its output goes straight into context and can blow the
-    window.
+    LangChain tools can return str, (content, artifact) tuples, or other
+    types.  We walk common container shapes and truncate every str element
+    that exceeds max_chars.  This is a last-resort safety cap — normal large
+    outputs should flow through to FilesystemMiddleware's eviction system,
+    which gives the agent a preview and paginated read_file access.
     """
     if isinstance(result, str):
         return _truncate(result, tool_name, max_chars)
