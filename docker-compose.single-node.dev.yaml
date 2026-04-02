@@ -39,11 +39,14 @@ services:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # Prompt configuration file path
       - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
       # Task config file path (self-service workflows)
@@ -222,14 +225,18 @@ services:
   ####################################################################################################
   # RAG services are built from source in ai_platform_engineering/knowledge_bases/rag/
   # This ensures compatibility and avoids issues with pre-built images
-  
+
   rag_server:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
     container_name: rag_server
+    volumes:
+      - ${HOME}/.aws:/home/app/.aws:ro
     ports: ["9446:9446"]
     environment:
+      AWS_CONFIG_FILE: /home/app/.aws/config
+      AWS_SHARED_CREDENTIALS_FILE: /home/app/.aws/credentials
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REDIS_URL: redis://rag-redis:6379/0
       NEO4J_ADDR: neo4j://neo4j:7687
@@ -244,6 +251,7 @@ services:
       # Embeddings configuration
       EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-azure-openai}
       EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
       # Trusted network access for local development
       ALLOW_TRUSTED_NETWORK: ${ALLOW_TRUSTED_NETWORK:-true}
       TRUSTED_NETWORK_CIDRS: ${TRUSTED_NETWORK_CIDRS:-127.0.0.0/8,192.168.0.0/16,172.16.0.0/12}

@@ -23,11 +23,14 @@ services:
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       # Prompt configuration file path
@@ -1150,6 +1153,7 @@ services:
   ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
+
   rag_server:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
@@ -1159,8 +1163,11 @@ services:
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
+      - ${HOME}/.aws:/home/app/.aws:ro
     ports: ["9446:9446"]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
       - ALLOW_UNAUTHENTICATED=true
       # Trusted Network Configuration
@@ -1181,6 +1188,7 @@ services:
       # Embeddings configuration
       - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-azure-openai}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-large}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       # OIDC JWT validation for UI tokens
       - OIDC_ISSUER=${OIDC_ISSUER}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
