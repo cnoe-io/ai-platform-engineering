@@ -438,6 +438,123 @@ class TestSubagentGeneration(unittest.TestCase):
         self.assertEqual(call_args[1]['prompt'], 'Custom prompt')
         print("✓ Subagent prompt override works")
 
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    @patch('langgraph.prebuilt.create_react_agent')
+    def test_generate_subagents_includes_system_prompt(self, mock_create_react, mock_load):
+        """
+        Each subagent dict must contain 'system_prompt'.
+
+        Regression test: deepagents>=0.3 reads agent_["system_prompt"] in
+        SubAgentMiddleware._get_subagents(). Without this key the supervisor
+        crashes at startup with KeyError: 'system_prompt'.
+
+        When no agent_prompts override is provided, system_prompt defaults
+        to the agent's description (same value used to build the react agent).
+        """
+        mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
+
+        with patch.dict(os.environ, {}, clear=True):
+            registry = AgentRegistry()
+
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "Jira_Agent"
+
+        registry._agents = {
+            'JIRA': {'name': 'JIRA Agent', 'description': 'JIRA integration'}
+        }
+        registry._tools = {'JIRA': mock_tool}
+
+        subagents = registry.generate_subagents({}, MagicMock())
+
+        self.assertEqual(len(subagents), 1)
+        sa = subagents[0]
+        self.assertIn('system_prompt', sa, (
+            "subagent dict must contain 'system_prompt' — deepagents reads "
+            "agent_['system_prompt'] in SubAgentMiddleware and crashes without it"
+        ))
+        # Without an override, system_prompt == description (the fallback)
+        self.assertEqual(sa['system_prompt'], 'JIRA integration')
+        print("✓ system_prompt included in subagent dict (defaults to description)")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    @patch('langgraph.prebuilt.create_react_agent')
+    def test_generate_subagents_system_prompt_uses_override_when_provided(self, mock_create_react, mock_load):
+        """
+        When agent_prompts provides a system_prompt override, it is used as
+        system_prompt in the subagent dict (not the description fallback).
+        """
+        mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
+
+        with patch.dict(os.environ, {}, clear=True):
+            registry = AgentRegistry()
+
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "Jira_Agent"
+
+        registry._agents = {
+            'JIRA': {'name': 'JIRA Agent', 'description': 'JIRA integration'}
+        }
+        registry._tools = {'JIRA': mock_tool}
+
+        subagents = registry.generate_subagents(
+            {'JIRA': {'system_prompt': 'Custom JIRA system prompt'}},
+            MagicMock()
+        )
+
+        sa = subagents[0]
+        self.assertEqual(sa['system_prompt'], 'Custom JIRA system prompt')
+        print("✓ system_prompt override used when agent_prompts provides it")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    @patch('langgraph.prebuilt.create_react_agent')
+    def test_generate_subagents_system_prompt_key_access_does_not_raise(self, mock_create_react, mock_load):
+        """
+        Simulate what deepagents does: access agent_['system_prompt'] for every
+        subagent. Must not raise KeyError.
+
+        This is the exact crash that occurred in production:
+            File deepagents/middleware/subagents.py, line 322
+                system_prompt=agent_["system_prompt"]
+            KeyError: 'system_prompt'
+        """
+        mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
+
+        with patch.dict(os.environ, {}, clear=True):
+            registry = AgentRegistry()
+
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "Argocd_Agent"
+
+        registry._agents = {
+            'ARGOCD': {'name': 'ArgoCD Agent', 'description': 'ArgoCD integration'},
+            'JIRA': {'name': 'JIRA Agent', 'description': 'JIRA integration'},
+        }
+        registry._tools = {
+            'ARGOCD': mock_tool,
+            'JIRA': mock_tool,
+        }
+
+        subagents = registry.generate_subagents({}, MagicMock())
+
+        # This is what deepagents/middleware/subagents.py does at line 322.
+        # It must not raise KeyError.
+        try:
+            for agent in subagents:
+                _ = agent["system_prompt"]
+        except KeyError as e:
+            self.fail(
+                f"KeyError accessing agent['system_prompt']: {e}\n"
+                "This crashes the supervisor at startup — "
+                "system_prompt must be present in every subagent dict"
+            )
+        print("✓ deepagents-style system_prompt access does not raise KeyError")
+
 
 class TestSanitization(unittest.TestCase):
     """Test tool name sanitization."""
