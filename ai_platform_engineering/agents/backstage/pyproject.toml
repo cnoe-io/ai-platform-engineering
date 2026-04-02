@@ -39,6 +39,7 @@ dependencies = [
     "mcp-backstage",
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
+    "cryptography==46.0.6",
 ]
 
 [tool.hatch.build.targets.wheel]
