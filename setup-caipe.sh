@@ -2128,6 +2128,62 @@ post_deploy_patches() {
   if $ENABLE_RAG; then
     _finalize_rag_startup
   fi
+
+  # ── 6. MongoDB for dynamic-agents ──
+  # The dynamic-agents chart defaults MONGODB_URI to localhost:27017 (no-op
+  # default). When --dynamic-agents is set we deploy a bitnami/mongodb instance
+  # (if none exists) and patch the ConfigMap with the real cluster URI.
+  if $ENABLE_DYNAMIC_AGENTS; then
+    _ensure_dynamic_agents_mongodb
+  fi
+}
+
+_ensure_dynamic_agents_mongodb() {
+  local mongo_svc="caipe-mongodb"
+  local mongo_uri="mongodb://admin:changeme@${mongo_svc}:27017/caipe?authSource=caipe"
+
+  if ! kubectl get deploy "${mongo_svc}" -n caipe &>/dev/null; then
+    step "Deploying MongoDB for dynamic-agents"
+    helm repo add bitnami https://charts.bitnami.com/bitnami &>/dev/null 2>&1 || true
+    helm upgrade --install "${mongo_svc}" bitnami/mongodb \
+      -n caipe \
+      --set auth.enabled=true \
+      --set auth.rootPassword=changeme \
+      --set "auth.databases[0]=caipe" \
+      --set "auth.usernames[0]=admin" \
+      --set "auth.passwords[0]=changeme" \
+      --set persistence.size=2Gi \
+      --timeout 3m &>/dev/null
+    kubectl rollout status deploy/"${mongo_svc}" -n caipe --timeout=180s &>/dev/null
+    log "MongoDB deployed (${mongo_svc})"
+  else
+    log "MongoDB already present (${mongo_svc}) — skipping install"
+  fi
+
+  # Patch MONGODB_URI into dynamic-agents ConfigMap using python3 to avoid
+  # shell special-character escaping issues with ? in the URI.
+  local cur_uri
+  cur_uri=$(kubectl get cm caipe-dynamic-agents-config -n caipe \
+    -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
+  if [[ "$cur_uri" != "$mongo_uri" ]]; then
+    python3 -c "
+import subprocess, json
+patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}'}})
+subprocess.run(['kubectl','patch','cm','caipe-dynamic-agents-config',
+  '-n','caipe','--type','merge','-p',patch], check=True)
+"
+    kubectl rollout restart deploy/caipe-dynamic-agents -n caipe &>/dev/null
+    log "dynamic-agents MONGODB_URI patched → ${mongo_uri}"
+  fi
+
+  # Also ensure the UI secret has a MONGODB_URI so the UI can persist sessions
+  if kubectl get secret caipe-ui-secret -n caipe &>/dev/null; then
+    local ui_uri_b64
+    ui_uri_b64=$(echo -n "${mongo_uri}" | base64 -w0)
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/MONGODB_URI\",\"value\":\"${ui_uri_b64}\"}]" \
+      &>/dev/null || true
+  fi
 }
 
 _wait_for_milvus() {
