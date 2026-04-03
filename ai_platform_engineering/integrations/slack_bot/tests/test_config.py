@@ -131,3 +131,71 @@ C123:
         )
         with pytest.raises(Exception, match="Cannot enable both"):
             Config.from_env()
+
+
+class TestOverthinkConfig:
+    def test_overthink_config_with_custom_markers(self, monkeypatch):
+        monkeypatch.setenv(
+            "SLACK_INTEGRATION_BOT_CONFIG",
+            """
+C123:
+  name: "#test-channel"
+  ai_enabled: true
+  qanda:
+    enabled: true
+    overthink:
+      enabled: true
+      skip_markers: ["NO_ACTION", "IRRELEVANT"]
+      pass_marker: "ACTIONABLE"
+      custom_prompt: "Custom overthink: {message_text}"
+      followup_prompt: "Custom followup: {message_text}"
+  ai_alerts:
+    enabled: true
+    overthink:
+      enabled: true
+      skip_markers: ["SKIP"]
+      pass_marker: "PROCESS"
+  default:
+    project_key: TEST
+""",
+        )
+        cfg = Config.from_env()
+        qanda = cfg.channels["C123"].qanda
+        assert qanda.overthink.enabled is True
+        assert qanda.overthink.skip_markers == ["NO_ACTION", "IRRELEVANT"]
+        assert qanda.overthink.pass_marker == "ACTIONABLE"
+        assert qanda.overthink.custom_prompt == "Custom overthink: {message_text}"
+        assert qanda.overthink.followup_prompt == "Custom followup: {message_text}"
+
+        alerts = cfg.channels["C123"].ai_alerts
+        assert alerts.overthink.enabled is True
+        assert alerts.overthink.skip_markers == ["SKIP"]
+        assert alerts.overthink.pass_marker == "PROCESS"
+
+    def test_overthink_defaults_when_enabled_minimal(self, monkeypatch):
+        monkeypatch.setenv(
+            "SLACK_INTEGRATION_BOT_CONFIG",
+            """
+C123:
+  name: "#test-channel"
+  ai_enabled: true
+  qanda:
+    enabled: true
+    overthink:
+      enabled: true
+  ai_alerts:
+    enabled: false
+  default:
+    project_key: TEST
+""",
+        )
+        cfg = Config.from_env()
+        cfg.apply_defaults_to_channels()
+        qanda = cfg.channels["C123"].qanda
+        assert qanda.overthink.enabled is True
+        assert qanda.overthink.skip_markers == ["DEFER", "LOW_CONFIDENCE"]
+        assert qanda.overthink.pass_marker == "CONFIDENCE: HIGH"
+        # apply_defaults sets the default overthink prompt
+        assert qanda.custom_prompt == cfg.defaults.overthink_qanda_prompt
+        # apply_defaults sets the default followup prompt
+        assert qanda.overthink.followup_prompt == cfg.defaults.humble_followup_prompt
