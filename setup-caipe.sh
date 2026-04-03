@@ -1061,17 +1061,30 @@ install_nginx_ingress() {
   if [[ -n "$CAIPE_DOMAIN" ]]; then
     local host_ip
     host_ip=$(hostname -I | awk '{print $1}')
-    log "Adding iptables DNAT rules: ${host_ip}:80/443 → ${ingress_ip}:80/443"
-    sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 443 \
-      -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null \
-      || warn "iptables DNAT for 443 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 443 -j DNAT --to-destination ${ingress_ip}:443"
-    sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 80 \
-      -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null \
-      || warn "iptables DNAT for 80 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 80 -j DNAT --to-destination ${ingress_ip}:80"
-    sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 443 \
-      -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null || true
-    sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 80 \
-      -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null || true
+    # Guard every iptables add with -C (check) to prevent duplicate rules on re-runs.
+    log "Ensuring iptables DNAT rules: ${host_ip}:80/443 → ${ingress_ip}:80/443"
+    if ! sudo iptables -t nat -C PREROUTING -d "$host_ip" -p tcp --dport 443 \
+         -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null; then
+      sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 443 \
+        -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null \
+        || warn "iptables DNAT for 443 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 443 -j DNAT --to-destination ${ingress_ip}:443"
+    fi
+    if ! sudo iptables -t nat -C PREROUTING -d "$host_ip" -p tcp --dport 80 \
+         -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null; then
+      sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 80 \
+        -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null \
+        || warn "iptables DNAT for 80 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 80 -j DNAT --to-destination ${ingress_ip}:80"
+    fi
+    if ! sudo iptables -t nat -C OUTPUT -d "$host_ip" -p tcp --dport 443 \
+         -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null; then
+      sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 443 \
+        -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null || true
+    fi
+    if ! sudo iptables -t nat -C OUTPUT -d "$host_ip" -p tcp --dport 80 \
+         -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null; then
+      sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 80 \
+        -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null || true
+    fi
 
     # Docker adds a blanket DROP in its DOCKER chain for all non-kind-bridge
     # traffic destined to the kind bridge. Without an explicit ACCEPT, the
@@ -1082,11 +1095,16 @@ install_nginx_ingress() {
     if [[ -n "$kind_bridge" ]]; then
       local ext_iface
       ext_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
-      sudo iptables -I DOCKER-USER 1 \
-        -i "${ext_iface:-eth0}" -o "$kind_bridge" \
-        -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
-        -j ACCEPT 2>/dev/null \
-        || warn "Could not add DOCKER-USER forward rule — traffic from outside may be blocked"
+      if ! sudo iptables -C DOCKER-USER \
+           -i "${ext_iface:-eth0}" -o "$kind_bridge" \
+           -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
+           -j ACCEPT 2>/dev/null; then
+        sudo iptables -I DOCKER-USER 1 \
+          -i "${ext_iface:-eth0}" -o "$kind_bridge" \
+          -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
+          -j ACCEPT 2>/dev/null \
+          || warn "Could not add DOCKER-USER forward rule — traffic from outside may be blocked"
+      fi
     fi
   fi
 }
@@ -2798,6 +2816,17 @@ DAEOF
       val=$(_env_get "$UI_ENV_FILE" "$key")
       [[ -n "$val" ]] && helm_args+=(--set "caipe-ui.config.${key}=${val}")
     done
+
+    # Skills panel: proxy /skills* and /internal/supervisor/skills-status to the supervisor.
+    # The service name follows Helm release naming: <release>-supervisor-agent.
+    helm_args+=(--set "caipe-ui.config.BACKEND_SKILLS_URL=http://caipe-supervisor-agent:8000")
+
+    # Limit tool output size to prevent LLM context overflow (per-tool cap in chars).
+    # GitHub MCP list tools (list_pull_requests etc.) can return 100K+ tokens untruncated.
+    helm_args+=(
+      --set "supervisor-agent.env.GH_CLI_MAX_OUTPUT_SIZE=8000"
+      --set "supervisor-agent.env.MAX_TOOL_OUTPUT_SIZE=8000"
+    )
   fi
 
   if $ENABLE_RAG; then
@@ -2807,6 +2836,8 @@ DAEOF
       --set caipe-ui.env.RAG_URL=/api/rag
       --set caipe-ui.env.RAG_SERVER_URL=http://rag-server:${RAG_SERVER_PORT}
       --set caipe-ui.env.RAG_ENABLED=true
+      --set caipe-ui.config.RAG_ENABLED=true
+      --set "caipe-ui.config.RAG_SERVER_URL=http://rag-server:${RAG_SERVER_PORT}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER}"
       --set 'rag-stack.rag-server.env.ALLOW_TRUSTED_NETWORK=true'
@@ -2887,6 +2918,10 @@ DAEOF
       --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffer-size=128k"
       --set-string "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffers-number=4"
       --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-busy-buffers-size=256k"
+      # Long timeout for SSE streaming (dynamic agents, supervisor A2A).
+      # Default nginx 60s kills connections mid-stream when LLM is still generating.
+      --set-string "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-read-timeout=3600"
+      --set-string "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-send-timeout=3600"
     )
     log "Ingress configured for https://${CAIPE_DOMAIN}"
   fi
