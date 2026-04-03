@@ -1061,7 +1061,7 @@ services:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
       args:
-        - IMAGE_TAG=${IMAGE_TAG:-dev}
+        - IMAGE_TAG=${IMAGE_TAG:-localtag}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
         - BUILD_DATE=${BUILD_DATE:-}
     image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}
@@ -1180,7 +1180,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-localtag}
     container_name: rag_server
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
@@ -1231,7 +1231,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.agent-ontology
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-localtag}
     container_name: agent_ontology
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/agent_ontology/src/agent_ontology:/app/agent_ontology/src/agent_ontology
@@ -1264,7 +1264,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: web-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
