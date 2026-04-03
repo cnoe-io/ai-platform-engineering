@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ─── Future work ─────────────────────────────────────────────────────────────
+# TODO(ansible): Replace or complement this script with an Ansible playbook.
+#   Roles: kind_cluster, metallb, nginx_ingress, caipe_secrets, caipe_helm,
+#   caipe_mongodb. Benefits: idempotency, inventory-driven multi-env deploys
+#   (demo/devnet/prod from one playbook), Ansible Vault for secrets, CI/CD.
+#   Tracking: https://github.com/cnoe-io/ai-platform-engineering/issues/1115
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ─── Defaults ────────────────────────────────────────────────────────────────
 CAIPE_CHART_VERSION="${CAIPE_CHART_VERSION:-}"
 CAIPE_OCI_REPO="oci://ghcr.io/cnoe-io/charts/ai-platform-engineering"
@@ -23,13 +31,13 @@ CLUSTER_NAME=""
 ENABLE_RAG=false
 ENABLE_TRACING=false
 ENABLE_PERSISTENCE=false
-OPENAI_API_KEY=""
+OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 OPENAI_ENDPOINT="https://api.openai.com/v1"
 OPENAI_MODEL_NAME="gpt-5.2"
 LITELLM_ENDPOINT="${LITELLM_ENDPOINT:-}"
 LITELLM_API_KEY="${LITELLM_API_KEY:-}"
 LITELLM_MODEL_NAME="${LITELLM_MODEL_NAME:-gpt-oss-20B}"
-ANTHROPIC_API_KEY=""
+ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 ANTHROPIC_MODEL_NAME="claude-haiku-4-5"
 AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-us.anthropic.claude-3-7-sonnet-20250219-v1:0}"
 AWS_BEDROCK_PROVIDER="${AWS_BEDROCK_PROVIDER:-anthropic}"
@@ -60,6 +68,14 @@ NON_INTERACTIVE=false
 CREATE_CLUSTER=false
 FORCE_UPGRADE=false
 INGEST_URLS=()
+ENABLE_METALLB=false
+ENABLE_INGRESS=false
+CAIPE_DOMAIN=""
+TLS_CERT_FILE=""
+TLS_KEY_FILE=""
+ENV_FILE=""
+UI_ENV_FILE=""
+ENABLE_DYNAMIC_AGENTS=false
 
 # When run via "curl | bash", stdin is the script content — bash reads it
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
@@ -245,6 +261,22 @@ kill_port_on() {
 }
 
 # ─── Interactive Setup ───────────────────────────────────────────────────────
+_install_kubectl_linux() {
+  log "Installing kubectl..."
+  local ver
+  ver=$(curl -sL https://dl.k8s.io/release/stable.txt)
+  curl -sLo /tmp/kubectl "https://dl.k8s.io/release/${ver}/bin/linux/amd64/kubectl"
+  chmod +x /tmp/kubectl
+  sudo mv /tmp/kubectl /usr/local/bin/kubectl || mv /tmp/kubectl "$HOME/.local/bin/kubectl"
+  log "kubectl ${ver} installed"
+}
+
+_install_helm_linux() {
+  log "Installing helm..."
+  curl -sfL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash &>/dev/null
+  log "helm installed"
+}
+
 check_prerequisites() {
   step "Checking prerequisites"
   local missing=()
@@ -254,9 +286,25 @@ check_prerequisites() {
     fi
   done
   if [[ ${#missing[@]} -gt 0 ]]; then
-    err "Missing required tools: ${missing[*]}"
-    err "Install them and re-run this script."
-    exit 1
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      log "Auto-installing missing tools on Linux: ${missing[*]}"
+      mkdir -p "$HOME/.local/bin"
+      export PATH="$HOME/.local/bin:$PATH"
+      for tool in "${missing[@]}"; do
+        case "$tool" in
+          kubectl) _install_kubectl_linux ;;
+          helm)    _install_helm_linux ;;
+          *)
+            err "Missing required tool '${tool}' — install it and re-run"
+            exit 1
+            ;;
+        esac
+      done
+    else
+      err "Missing required tools: ${missing[*]}"
+      err "Install them and re-run this script."
+      exit 1
+    fi
   fi
   if ! command -v kind &>/dev/null; then
     warn "kind not found — Kind cluster options will be unavailable"
@@ -917,6 +965,158 @@ _collect_openai_embeddings_key() {
   log "OpenAI API key received (for embeddings)"
 }
 
+# ─── MetalLB / Ingress / TLS ──────────────────────────────────────────────────
+
+install_metallb() {
+  step "Installing MetalLB (LoadBalancer support for kind)"
+
+  kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.9/config/manifests/metallb-native.yaml 2>&1 \
+    | grep -v "^Warning\|unchanged" || true
+
+  log "Waiting for MetalLB pods..."
+  kubectl wait --namespace metallb-system \
+    --for=condition=ready pod \
+    --selector=app=metallb \
+    --timeout=120s 2>/dev/null || {
+      kubectl rollout status deployment/controller -n metallb-system --timeout=120s 2>/dev/null || true
+  }
+
+  # Detect kind docker network IPv4 subnet to derive the IP pool
+  local kind_subnet
+  kind_subnet=$(docker network inspect kind --format '{{json .IPAM.Config}}' 2>/dev/null \
+    | tr ',' '\n' | grep '"Subnet":"[0-9]' | head -1 \
+    | sed 's/.*"Subnet":"\([^"]*\)".*/\1/' || true)
+  if [[ -z "$kind_subnet" ]]; then
+    err "Could not detect kind docker network IPv4 subnet (is the kind cluster running?)"
+    exit 1
+  fi
+
+  # Derive a pool from the last octet range .200-.250
+  local base
+  base=$(echo "$kind_subnet" | cut -d'/' -f1 | sed 's/\.[0-9]*$//')
+  local pool_start="${base}.200"
+  local pool_end="${base}.250"
+  log "MetalLB IP pool: ${pool_start}-${pool_end}  (kind network: ${kind_subnet})"
+
+  # The MetalLB admission webhook may take a few seconds after pod Running.
+  # Retry the IPAddressPool/L2Advertisement apply until the webhook accepts it.
+  local metallb_retries=0
+  until kubectl apply -f - <<EOF 2>/dev/null
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: kind-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - ${pool_start}-${pool_end}
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: kind-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - kind-pool
+EOF
+  do
+    metallb_retries=$((metallb_retries + 1))
+    if [[ $metallb_retries -ge 30 ]]; then
+      err "MetalLB IPAddressPool apply failed after ${metallb_retries} attempts"
+      exit 1
+    fi
+    warn "MetalLB webhook not ready yet, retrying in 10s (attempt ${metallb_retries}/30)..."
+    sleep 10
+  done
+  log "MetalLB configured"
+}
+
+install_nginx_ingress() {
+  step "Installing nginx-ingress controller"
+
+  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx &>/dev/null 2>&1 || true
+  helm repo update &>/dev/null 2>&1
+
+  helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+    --namespace ingress-nginx --create-namespace \
+    --set controller.service.type=LoadBalancer \
+    --wait --timeout=120s 2>&1 | grep -v "^Warning\|unchanged" || true
+
+  # Wait for LoadBalancer IP assignment from MetalLB
+  local ingress_ip="" retries=0
+  while [[ -z "$ingress_ip" && $retries -lt 36 ]]; do
+    ingress_ip=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+    [[ -z "$ingress_ip" ]] && sleep 5 && retries=$((retries + 1))
+  done
+  if [[ -z "$ingress_ip" ]]; then
+    err "nginx-ingress LoadBalancer IP not assigned — MetalLB may not be ready"
+    exit 1
+  fi
+  log "nginx-ingress ready at ${ingress_ip}"
+
+  # If a public domain is set, NAT the host's external IP to the ingress IP
+  # so that https://CAIPE_DOMAIN resolves to the kind cluster.
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    local host_ip
+    host_ip=$(hostname -I | awk '{print $1}')
+    log "Adding iptables DNAT rules: ${host_ip}:80/443 → ${ingress_ip}:80/443"
+    sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 443 \
+      -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null \
+      || warn "iptables DNAT for 443 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 443 -j DNAT --to-destination ${ingress_ip}:443"
+    sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 80 \
+      -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null \
+      || warn "iptables DNAT for 80 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 80 -j DNAT --to-destination ${ingress_ip}:80"
+    sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 443 \
+      -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null || true
+    sudo iptables -t nat -A OUTPUT -d "$host_ip" -p tcp --dport 80 \
+      -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null || true
+
+    # Docker adds a blanket DROP in its DOCKER chain for all non-kind-bridge
+    # traffic destined to the kind bridge. Without an explicit ACCEPT, the
+    # DNAT'd packets are dropped in the FORWARD chain before reaching nginx.
+    # Add the ACCEPT to DOCKER-USER (Docker never resets this chain).
+    local kind_bridge
+    kind_bridge=$(docker network inspect kind --format '{{.Options.com\.docker\.network\.bridge\.name}}' 2>/dev/null || true)
+    if [[ -n "$kind_bridge" ]]; then
+      local ext_iface
+      ext_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+      sudo iptables -I DOCKER-USER 1 \
+        -i "${ext_iface:-eth0}" -o "$kind_bridge" \
+        -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
+        -j ACCEPT 2>/dev/null \
+        || warn "Could not add DOCKER-USER forward rule — traffic from outside may be blocked"
+    fi
+  fi
+}
+
+setup_tls() {
+  step "Configuring TLS for ${CAIPE_DOMAIN}"
+
+  if [[ -n "$TLS_CERT_FILE" && -n "$TLS_KEY_FILE" ]]; then
+    log "Using provided TLS cert: ${TLS_CERT_FILE}"
+  else
+    log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
+    TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert.XXXX.pem)
+    TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key.XXXX.pem)
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+      -keyout "$TLS_KEY_FILE" \
+      -out "$TLS_CERT_FILE" \
+      -subj "/CN=${CAIPE_DOMAIN}/O=CAIPE" \
+      -addext "subjectAltName=DNS:${CAIPE_DOMAIN},DNS:*.${CAIPE_DOMAIN}" \
+      2>/dev/null
+    log "Self-signed cert generated (valid 365 days)"
+  fi
+
+  kubectl create secret tls caipe-tls \
+    --cert="$TLS_CERT_FILE" \
+    --key="$TLS_KEY_FILE" \
+    -n caipe --dry-run=client -o yaml | kubectl apply -f - 2>&1 \
+    | grep -v "^Warning\|unchanged" || true
+  log "TLS secret 'caipe-tls' created in namespace caipe"
+}
+
 choose_features() {
   step "Feature selection"
 
@@ -935,6 +1135,18 @@ choose_features() {
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
     $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (--agentgateway)" || log "AgentGateway skipped (pass --agentgateway to enable)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (--persistence)" || log "Persistence skipped (pass --persistence to enable)"
+    $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (--dynamic-agents)" || log "Dynamic agents skipped (pass --dynamic-agents to enable)"
+    if $ENABLE_METALLB; then
+      log "MetalLB enabled (--metallb)"
+    fi
+    if $ENABLE_INGRESS; then
+      if [[ -n "$CAIPE_DOMAIN" ]]; then
+        log "Ingress enabled for domain: ${CAIPE_DOMAIN} (--ingress --domain)"
+      else
+        err "--ingress requires --domain=<hostname>"
+        exit 1
+      fi
+    fi
     return
   fi
 
@@ -1013,6 +1225,214 @@ choose_features() {
   else
     log "Persistence skipped"
   fi
+
+  echo ""
+  echo -e "  ${DIM}MetalLB provides real LoadBalancer IPs for kind clusters. Required for ingress.${NC}"
+  if ask_yn "Enable MetalLB (LoadBalancer support for kind)?" "n"; then
+    ENABLE_METALLB=true
+    log "MetalLB enabled"
+
+    echo ""
+    echo -e "  ${DIM}nginx-ingress + a domain lets you access the UI at https://<domain> instead of localhost.${NC}"
+    if ask_yn "Enable nginx-ingress and expose UI via a domain?" "n"; then
+      ENABLE_INGRESS=true
+      prompt "Enter the domain hostname (e.g. my-caipe.example.com): "
+      tty_read -r CAIPE_DOMAIN
+      if [[ -z "$CAIPE_DOMAIN" ]]; then
+        err "Domain is required when ingress is enabled"
+        exit 1
+      fi
+      log "Ingress enabled for: ${CAIPE_DOMAIN}"
+
+      echo ""
+      echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
+      prompt "TLS cert file path (leave blank for self-signed): "
+      tty_read -r TLS_CERT_FILE
+      if [[ -n "$TLS_CERT_FILE" ]]; then
+        prompt "TLS key file path: "
+        tty_read -r TLS_KEY_FILE
+        if [[ -z "$TLS_KEY_FILE" ]]; then
+          err "TLS key file is required when cert is provided"
+          exit 1
+        fi
+        log "Using custom TLS cert: ${TLS_CERT_FILE}"
+      else
+        log "Will generate self-signed cert for ${CAIPE_DOMAIN}"
+      fi
+    else
+      log "Ingress skipped"
+    fi
+  else
+    log "MetalLB skipped"
+  fi
+}
+
+# ─── Env-file based agent + UI secret provisioning ───────────────────────────
+
+# Read a single key from a .env-style file. Strips surrounding quotes.
+# Always exits 0 (grep returning 1 on no-match must not kill set -euo pipefail).
+# Usage: _env_get FILE KEY
+_env_get() {
+  local file="$1" key="$2"
+  grep -m1 "^${key}=" "$file" 2>/dev/null \
+    | cut -d'=' -f2- \
+    | sed "s/^['\"]//;s/['\"]$//" \
+    || true
+}
+
+# Read a boolean-ish flag from .env: returns 0 (true) if value is true/yes/1.
+_env_true() {
+  local val
+  val=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+  [[ "$val" == "true" || "$val" == "yes" || "$val" == "1" ]]
+}
+
+# Create a Kubernetes generic secret from a list of key names sourced from a
+# .env file. Keys with empty values are silently skipped. The secret is applied
+# idempotently (--dry-run=client | kubectl apply). No values are written to
+# disk or logged.
+#
+# Usage: _create_secret_from_env ENV_FILE SECRET_NAME NAMESPACE KEY [KEY ...]
+_create_secret_from_env() {
+  local env_file="$1" secret_name="$2" ns="$3"
+  shift 3
+  local keys=("$@")
+  local literal_args=()
+  for key in "${keys[@]}"; do
+    local val
+    val=$(_env_get "$env_file" "$key")
+    [[ -n "$val" ]] && literal_args+=(--from-literal="${key}=${val}")
+  done
+  if [[ ${#literal_args[@]} -eq 0 ]]; then
+    return 0  # nothing to create
+  fi
+  kubectl create secret generic "$secret_name" \
+    "${literal_args[@]}" \
+    -n "$ns" --dry-run=client -o yaml \
+    | kubectl apply -f - &>/dev/null || {
+      warn "Secret ${secret_name} apply returned non-zero (check kubectl access)"
+    }
+}
+
+# Maps each Helm agent tag to:  (tag_name  secret_name  env_enable_key  keys...)
+# declare -A can't hold arrays so we use parallel indexed arrays.
+_AGENT_TAGS=(argocd github jira confluence backstage slack pagerduty webex komodor aws splunk)
+
+declare -A _AGENT_ENABLE_KEY=(
+  [argocd]="ENABLE_ARGOCD"
+  [github]="ENABLE_GITHUB"
+  [jira]="ENABLE_JIRA"
+  [confluence]="ENABLE_CONFLUENCE"
+  [backstage]="ENABLE_BACKSTAGE"
+  [slack]="ENABLE_SLACK"
+  [pagerduty]="ENABLE_PAGERDUTY"
+  [webex]="ENABLE_WEBEX"
+  [komodor]="ENABLE_KOMODOR"
+  [aws]="ENABLE_AWS"
+  [splunk]="ENABLE_SPLUNK"
+)
+
+declare -A _AGENT_SECRET_KEYS=(
+  [argocd]="ARGOCD_TOKEN ARGOCD_API_URL ARGOCD_VERIFY_SSL"
+  [github]="GITHUB_PERSONAL_ACCESS_TOKEN"
+  [jira]="ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL JIRA_URL JIRA_USERNAME JIRA_API_TOKEN JIRA_SSL_VERIFY"
+  [confluence]="CONFLUENCE_API_TOKEN CONFLUENCE_USERNAME CONFLUENCE_URL CONFLUENCE_API_URL CONFLUENCE_SSL_VERIFY ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL ATLASSIAN_VERIFY_SSL"
+  [backstage]="BACKSTAGE_API_TOKEN BACKSTAGE_URL"
+  [slack]="SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET SLACK_TEAM_ID"
+  [pagerduty]="PAGERDUTY_API_KEY PAGERDUTY_API_URL"
+  [webex]="WEBEX_TOKEN"
+  [komodor]="KOMODOR_TOKEN KOMODOR_API_URL"
+  [aws]="AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE"
+  [splunk]="SPLUNK_TOKEN SPLUNK_API_URL"
+)
+
+# Called from create_namespace_and_secrets when ENV_FILE is set.
+# Creates per-agent k8s secrets and populates HELM_AGENT_ARGS (global array)
+# with the --set flags to wire them into the Helm deploy.
+HELM_AGENT_ARGS=()
+
+provision_agent_secrets() {
+  local env_file="$1"
+  step "Provisioning agent secrets from env file"
+
+  for agent in "${_AGENT_TAGS[@]}"; do
+    local enable_key="${_AGENT_ENABLE_KEY[$agent]}"
+    local enable_val
+    enable_val=$(_env_get "$env_file" "$enable_key")
+    if ! _env_true "$enable_val"; then
+      continue
+    fi
+
+    # shellcheck disable=SC2206
+    local keys=(${_AGENT_SECRET_KEYS[$agent]})
+    local secret_name="caipe-${agent}-secret"
+
+    _create_secret_from_env "$env_file" "$secret_name" caipe "${keys[@]}"
+    log "Agent ${agent}: secret '${secret_name}' ready"
+
+    HELM_AGENT_ARGS+=(
+      --set "tags.agent-${agent}=true"
+      --set "agent-${agent}.agentSecrets.secretName=${secret_name}"
+    )
+  done
+}
+
+# Called from create_namespace_and_secrets when UI_ENV_FILE is set.
+# Creates a caipe-ui-secret and adds the Helm flag to wire it in.
+HELM_UI_SECRET_ARGS=()
+
+provision_ui_secret() {
+  local ui_env_file="$1"
+  step "Provisioning UI secret from env file"
+
+  local ui_keys=(
+    NEXTAUTH_SECRET NEXTAUTH_URL
+    OIDC_ISSUER OIDC_CLIENT_ID OIDC_CLIENT_SECRET
+    OIDC_REQUIRED_GROUP OIDC_REQUIRED_ADMIN_GROUP OIDC_ENABLE_REFRESH_TOKEN
+    INGESTOR_OIDC_ISSUER INGESTOR_OIDC_CLIENT_ID INGESTOR_OIDC_CLIENT_SECRET
+    MONGODB_URI MONGODB_DATABASE MONGODB_ROOT_USERNAME MONGODB_ROOT_PASSWORD
+    RAG_SERVER_URL PROMETHEUS_URL
+    LANGFUSE_SECRET_KEY LANGFUSE_PUBLIC_KEY LANGFUSE_HOST
+    RBAC_ADMIN_GROUPS RBAC_READONLY_GROUPS RBAC_INGESTONLY_GROUPS
+    RBAC_DEFAULT_AUTHENTICATED_ROLE RBAC_CLIENT_CREDENTIALS_ROLE
+  )
+
+  _create_secret_from_env "$ui_env_file" "caipe-ui-secret" caipe "${ui_keys[@]}"
+
+  # When a public domain is set, override localhost-defaulted secrets with
+  # the correct values for a k8s deployment.
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    local _patches=()
+    _patches+=("{\"op\":\"add\",\"path\":\"/data/NEXTAUTH_URL\",\"value\":\"$(echo -n "https://${CAIPE_DOMAIN}" | base64 -w0)\"}")
+    # RAG BFF: Next.js server-side calls use the in-cluster service, not localhost
+    _patches+=("{\"op\":\"add\",\"path\":\"/data/RAG_SERVER_URL\",\"value\":\"$(echo -n "http://rag-server:${RAG_SERVER_PORT}" | base64 -w0)\"}")
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[$(IFS=,; echo "${_patches[*]}")]" 2>/dev/null || true
+    log "NEXTAUTH_URL overridden to https://${CAIPE_DOMAIN}"
+    log "RAG_SERVER_URL overridden to http://rag-server:${RAG_SERVER_PORT} (cluster service)"
+  fi
+
+  log "UI secret 'caipe-ui-secret' ready"
+  HELM_UI_SECRET_ARGS+=(--set "caipe-ui.existingSecret=caipe-ui-secret")
+
+  # Also pass SSO_ENABLED via Helm env so it takes effect at runtime
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    HELM_UI_SECRET_ARGS+=(--set "caipe-ui.env.SSO_ENABLED=true")
+  fi
+
+  # Propagate NEXT_PUBLIC_* and feature flags as Helm env overrides
+  local next_public_keys=(
+    NEXT_PUBLIC_A2A_BASE_URL NEXT_PUBLIC_SSO_ENABLED
+    NEXT_PUBLIC_ENABLE_SUBAGENT_CARDS NEXT_PUBLIC_RAG_ENABLED
+    NEXT_PUBLIC_RAG_URL NEXT_PUBLIC_RAG_WEBUI_URL NEXT_PUBLIC_MONGODB_ENABLED
+    AUDIT_LOGS_ENABLED WORKFLOW_RUNNER_ENABLED FEEDBACK_ENABLED NPS_ENABLED
+    DYNAMIC_AGENTS_ENABLED DYNAMIC_AGENTS_URL
+  )
+  for key in "${next_public_keys[@]}"; do
+    local val
+    val=$(_env_get "$ui_env_file" "$key")
+    [[ -n "$val" ]] && HELM_UI_SECRET_ARGS+=(--set "caipe-ui.env.${key}=${val}")
+  done
 }
 
 create_namespace_and_secrets() {
@@ -1074,6 +1494,22 @@ create_namespace_and_secrets() {
     "${secret_args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "llm-secret created (provider: ${LLM_PROVIDER})"
+
+  if [[ -n "$ENV_FILE" ]]; then
+    if [[ ! -f "$ENV_FILE" ]]; then
+      err "Env file not found: ${ENV_FILE}"
+      exit 1
+    fi
+    provision_agent_secrets "$ENV_FILE"
+  fi
+
+  if [[ -n "$UI_ENV_FILE" ]]; then
+    if [[ ! -f "$UI_ENV_FILE" ]]; then
+      err "UI env file not found: ${UI_ENV_FILE}"
+      exit 1
+    fi
+    provision_ui_secret "$UI_ENV_FILE"
+  fi
 }
 
 _fix_langfuse_minio_credentials() {
@@ -1659,6 +2095,62 @@ post_deploy_patches() {
   if $ENABLE_RAG; then
     _finalize_rag_startup
   fi
+
+  # ── 6. MongoDB for dynamic-agents ──
+  # The dynamic-agents chart defaults MONGODB_URI to localhost:27017 (no-op
+  # default). When --dynamic-agents is set we deploy a bitnami/mongodb instance
+  # (if none exists) and patch the ConfigMap with the real cluster URI.
+  if $ENABLE_DYNAMIC_AGENTS; then
+    _ensure_dynamic_agents_mongodb
+  fi
+}
+
+_ensure_dynamic_agents_mongodb() {
+  local mongo_svc="caipe-mongodb"
+  local mongo_uri="mongodb://admin:changeme@${mongo_svc}:27017/caipe?authSource=caipe"
+
+  if ! kubectl get deploy "${mongo_svc}" -n caipe &>/dev/null; then
+    step "Deploying MongoDB for dynamic-agents"
+    helm repo add bitnami https://charts.bitnami.com/bitnami &>/dev/null 2>&1 || true
+    helm upgrade --install "${mongo_svc}" bitnami/mongodb \
+      -n caipe \
+      --set auth.enabled=true \
+      --set auth.rootPassword=changeme \
+      --set "auth.databases[0]=caipe" \
+      --set "auth.usernames[0]=admin" \
+      --set "auth.passwords[0]=changeme" \
+      --set persistence.size=2Gi \
+      --timeout 3m &>/dev/null
+    kubectl rollout status deploy/"${mongo_svc}" -n caipe --timeout=180s &>/dev/null
+    log "MongoDB deployed (${mongo_svc})"
+  else
+    log "MongoDB already present (${mongo_svc}) — skipping install"
+  fi
+
+  # Patch MONGODB_URI into dynamic-agents ConfigMap using python3 to avoid
+  # shell special-character escaping issues with ? in the URI.
+  local cur_uri
+  cur_uri=$(kubectl get cm caipe-dynamic-agents-config -n caipe \
+    -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
+  if [[ "$cur_uri" != "$mongo_uri" ]]; then
+    python3 -c "
+import subprocess, json
+patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}'}})
+subprocess.run(['kubectl','patch','cm','caipe-dynamic-agents-config',
+  '-n','caipe','--type','merge','-p',patch], check=True)
+"
+    kubectl rollout restart deploy/caipe-dynamic-agents -n caipe &>/dev/null
+    log "dynamic-agents MONGODB_URI patched → ${mongo_uri}"
+  fi
+
+  # Also ensure the UI secret has a MONGODB_URI so the UI can persist sessions
+  if kubectl get secret caipe-ui-secret -n caipe &>/dev/null; then
+    local ui_uri_b64
+    ui_uri_b64=$(echo -n "${mongo_uri}" | base64 -w0)
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/MONGODB_URI\",\"value\":\"${ui_uri_b64}\"}]" \
+      &>/dev/null || true
+  fi
 }
 
 _wait_for_milvus() {
@@ -2152,9 +2644,161 @@ deploy_caipe() {
     --set tags.caipe-ui=true
     --set tags.agent-weather=true
     --set tags.agent-netutils=true
-    --set caipe-ui.config.SSO_ENABLED=false
     --set caipe-ui.env.A2A_BASE_URL=http://localhost:8000
   )
+
+  # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
+  # patched in provision_ui_secret; here we flip the server-side flag too)
+  if [[ -n "$CAIPE_DOMAIN" ]]; then
+    helm_args+=(--set "caipe-ui.config.SSO_ENABLED=true")
+  else
+    helm_args+=(--set "caipe-ui.config.SSO_ENABLED=false")
+  fi
+
+  # Dynamic agents (custom agent builder)
+  if $ENABLE_DYNAMIC_AGENTS; then
+    # Service name: <release>-dynamic-agents (chart nameOverride="dynamic-agents")
+    local release_name="caipe"
+    local da_svc="${release_name}-dynamic-agents"
+    local ns="caipe"
+
+    helm_args+=(
+      --set "tags.dynamic-agents=true"
+      --set "caipe-ui.config.DYNAMIC_AGENTS_ENABLED=true"
+      --set "caipe-ui.config.DYNAMIC_AGENTS_URL=http://${da_svc}:8001"
+      # Inject the shared LLM secret (ANTHROPIC_API_KEY / AWS_* / AZURE_*) so
+      # dynamic-agents can call the LLM backend.
+      --set "dynamic-agents.llmSecret=llm-secret"
+    )
+
+    # Auth + OIDC: enable when a public domain + OIDC issuer are configured.
+    # Without AUTH_ENABLED the API is open to anyone who can reach the service.
+    local da_oidc_issuer da_oidc_client_id da_oidc_admin_group
+    if [[ -n "$UI_ENV_FILE" ]]; then
+      da_oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
+      da_oidc_client_id=$(_env_get "$UI_ENV_FILE" "OIDC_CLIENT_ID")
+      da_oidc_admin_group=$(_env_get "$UI_ENV_FILE" "OIDC_REQUIRED_ADMIN_GROUP")
+    fi
+    # Seed configuration: models + MCP servers pointing to cluster-local services.
+    # Also carries auth/OIDC config — using a values file avoids --set comma
+    # parsing issues with CORS_ORIGINS (Helm splits on unescaped commas).
+    local _da_values_file
+    _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX.yaml)
+
+    # Build models list from llm-secret LLM_PROVIDER
+    local _provider="anthropic"
+    if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *bedrock* ]]; then _provider="aws-bedrock"; fi
+    if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *azure* ]]; then _provider="azure-openai"; fi
+
+    # Write auth/OIDC config into the values file
+    cat > "$_da_values_file" <<DAEOF
+dynamic-agents:
+  config:
+DAEOF
+    if [[ -n "$CAIPE_DOMAIN" && -n "$da_oidc_issuer" ]]; then
+      cat >> "$_da_values_file" <<DAEOF
+    AUTH_ENABLED: "true"
+    OIDC_ISSUER: "${da_oidc_issuer}"
+    OIDC_CLIENT_ID: "${da_oidc_client_id}"
+    CORS_ORIGINS: '["https://${CAIPE_DOMAIN}", "http://localhost:3000"]'
+DAEOF
+      [[ -n "$da_oidc_admin_group" ]] && cat >> "$_da_values_file" <<DAEOF
+    OIDC_REQUIRED_ADMIN_GROUP: "${da_oidc_admin_group}"
+DAEOF
+    fi
+
+    cat >> "$_da_values_file" <<DAEOF
+  seedConfig:
+    enabled: true
+    models:
+      - model_id: "${ANTHROPIC_MODEL:-claude-haiku-4-5}"
+        name: "Claude Haiku 4.5 (Anthropic)"
+        provider: "${_provider}"
+        description: "Fast Claude Haiku via Anthropic API"
+      - model_id: "claude-sonnet-4-5"
+        name: "Claude Sonnet 4.5 (Anthropic)"
+        provider: "${_provider}"
+        description: "Balanced Claude Sonnet 4.5 via Anthropic API"
+    mcp_servers:
+DAEOF
+
+    # Add a seedConfig entry for each deployed MCP agent.
+    # The script deploys agents from _AGENT_TAGS when enabled; always add netutils.
+    declare -A _MCP_META=(
+      [argocd]="ArgoCD|ArgoCD application and deployment management"
+      [backstage]="Backstage|Backstage catalog and developer portal"
+      [confluence]="Confluence|Confluence wiki and documentation"
+      [jira]="Jira|Jira issue tracking and project management"
+      [netutils]="Network Utilities|Network diagnostic tools (ping, traceroute, DNS)"
+      [pagerduty]="PagerDuty|PagerDuty incident management"
+      [slack]="Slack|Slack messaging and collaboration"
+      [splunk]="Splunk|Splunk log analysis and monitoring"
+      [webex]="Webex|Webex messaging and meetings"
+      [aws]="AWS|AWS cloud infrastructure management"
+      [komodor]="Komodor|Komodor Kubernetes troubleshooting"
+      [github]="GitHub|GitHub repository and workflow management"
+    )
+    # Always-on agents
+    local _always_on=(netutils weather)
+    local _seeded=()
+    for _a in "${_always_on[@]}"; do
+      [[ -n "${_MCP_META[$_a]+_}" ]] || continue
+      local _meta="${_MCP_META[$_a]}"
+      local _name="${_meta%%|*}"
+      local _desc="${_meta##*|}"
+      cat >> "$_da_values_file" <<DAEOF
+      - id: "${_a}"
+        name: "${_name}"
+        description: "${_desc}"
+        transport: "http"
+        endpoint: "http://caipe-agent-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
+        enabled: true
+DAEOF
+      _seeded+=("$_a")
+    done
+    # Enabled agents from _AGENT_TAGS
+    for _a in "${_AGENT_TAGS[@]}"; do
+      [[ -n "${_MCP_META[$_a]+_}" ]] || continue
+      local _enable_key="${_AGENT_ENABLE_KEY[$_a]}"
+      local _ev=""
+      [[ -n "$ENV_FILE" ]] && _ev=$(_env_get "$ENV_FILE" "$_enable_key")
+      _env_true "$_ev" || continue
+      # skip if already seeded (e.g. netutils)
+      for _s in "${_seeded[@]}"; do [[ "$_s" == "$_a" ]] && continue 2; done
+      local _meta="${_MCP_META[$_a]}"
+      local _name="${_meta%%|*}"
+      local _desc="${_meta##*|}"
+      cat >> "$_da_values_file" <<DAEOF
+      - id: "${_a}"
+        name: "${_name}"
+        description: "${_desc}"
+        transport: "http"
+        endpoint: "http://caipe-agent-${_a}-mcp.${ns}.svc.cluster.local:8000/mcp"
+        enabled: true
+DAEOF
+    done
+
+    helm_args+=(--values "$_da_values_file")
+    log "Dynamic agents seedConfig: models + MCP servers written to ${_da_values_file}"
+  fi
+
+  # When a domain is set, push non-sensitive config values from the ui-env-file
+  # into the chart ConfigMap (caipe-ui.config.*). The ConfigMap takes precedence
+  # over envFrom-secret for same-named keys, so values like NEXTAUTH_URL,
+  # OIDC groups, branding, and feature flags must be set here, not just in the secret.
+  if [[ -n "$CAIPE_DOMAIN" && -n "$UI_ENV_FILE" ]]; then
+    helm_args+=(--set "caipe-ui.config.NEXTAUTH_URL=https://${CAIPE_DOMAIN}")
+    local _config_keys=(
+      OIDC_REQUIRED_GROUP OIDC_REQUIRED_ADMIN_GROUP OIDC_ENABLE_REFRESH_TOKEN
+      WORKFLOW_RUNNER_ENABLED AUDIT_LOGS_ENABLED FEEDBACK_ENABLED NPS_ENABLED
+      JIRA_TICKET_ENABLED JIRA_TICKET_PROJECT
+    )
+    for key in "${_config_keys[@]}"; do
+      local val
+      val=$(_env_get "$UI_ENV_FILE" "$key")
+      [[ -n "$val" ]] && helm_args+=(--set "caipe-ui.config.${key}=${val}")
+    done
+  fi
 
   if $ENABLE_RAG; then
     helm_args+=(
@@ -2227,6 +2871,34 @@ deploy_caipe() {
       --set 'supervisor-agent.memoryPersistence.enableFactExtraction=true'
     )
     log "Redis persistence configured (langgraph-redis subchart, fact extraction enabled)"
+  fi
+
+  if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
+    helm_args+=(
+      --set 'caipe-ui.ingress.enabled=true'
+      --set "caipe-ui.ingress.className=nginx"
+      --set "caipe-ui.ingress.hosts[0].host=${CAIPE_DOMAIN}"
+      --set "caipe-ui.ingress.hosts[0].paths[0].path=/"
+      --set "caipe-ui.ingress.hosts[0].paths[0].pathType=Prefix"
+      --set "caipe-ui.ingress.tls[0].secretName=caipe-tls"
+      --set "caipe-ui.ingress.tls[0].hosts[0]=${CAIPE_DOMAIN}"
+      # OIDC callback sets a large Set-Cookie header (JWTs + many group claims).
+      # Increase nginx proxy buffers to prevent 502 "upstream sent too big header".
+      --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffer-size=128k"
+      --set-string "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffers-number=4"
+      --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-busy-buffers-size=256k"
+    )
+    log "Ingress configured for https://${CAIPE_DOMAIN}"
+  fi
+
+  # Agent and UI secrets provisioned from --env-file / --ui-env-file
+  if [[ ${#HELM_AGENT_ARGS[@]} -gt 0 ]]; then
+    helm_args+=("${HELM_AGENT_ARGS[@]}")
+    log "Agent helm args added (${#HELM_AGENT_ARGS[@]} flags)"
+  fi
+  if [[ ${#HELM_UI_SECRET_ARGS[@]} -gt 0 ]]; then
+    helm_args+=("${HELM_UI_SECRET_ARGS[@]}")
+    log "UI secret helm args added"
   fi
 
   if ! helm upgrade --install caipe "$CAIPE_OCI_REPO" "${helm_args[@]}" 2>&1; then
@@ -3059,7 +3731,11 @@ monitor_port_forwards() {
   PF_LAST_RESTART=()
 
   start_pf caipe-supervisor-agent caipe "$SUPERVISOR_PORT" 8000 "Supervisor A2A"
-  start_pf caipe-caipe-ui          caipe "$UI_PORT"         3000 "CAIPE UI"
+  # When ingress is enabled the UI is served via nginx-ingress at the domain —
+  # no local port-forward needed.
+  if ! $ENABLE_INGRESS; then
+    start_pf caipe-caipe-ui caipe "$UI_PORT" 3000 "CAIPE UI"
+  fi
 
   if $ENABLE_TRACING; then
     start_pf langfuse-web langfuse "$LANGFUSE_PORT" 3000 "Langfuse UI"
@@ -3074,7 +3750,11 @@ monitor_port_forwards() {
   while [[ $pf_wait -lt 15 ]]; do
     local all_up=true
     curl -sf -o /dev/null --max-time 2 "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" 2>/dev/null || all_up=false
-    curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    if ! $ENABLE_INGRESS; then
+      curl -sf -o /dev/null --max-time 2 "http://localhost:${UI_PORT}/" 2>/dev/null || all_up=false
+    else
+      curl -sfk -o /dev/null --max-time 5 "https://${CAIPE_DOMAIN}/" 2>/dev/null || all_up=false
+    fi
     if $ENABLE_TRACING; then
       curl -sf -o /dev/null --max-time 2 "http://localhost:${LANGFUSE_PORT}/api/public/health" 2>/dev/null || all_up=false
     fi
@@ -3090,10 +3770,18 @@ monitor_port_forwards() {
   header "Services Ready"
   echo ""
   echo -e "  ${BOLD}Endpoints:${NC}"
-  echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
+    echo -e "    CAIPE UI        ${CYAN}https://${CAIPE_DOMAIN}${NC}"
+  else
+    echo -e "    CAIPE UI        ${CYAN}http://localhost:${UI_PORT}${NC}"
+  fi
   echo -e "    Supervisor A2A  ${CYAN}http://localhost:${SUPERVISOR_PORT}${NC}"
   if $ENABLE_RAG; then
-    echo -e "    RAG Server      ${CYAN}http://localhost:${UI_PORT}/api/rag${NC}  (proxied by UI)"
+    if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
+      echo -e "    RAG Server      ${CYAN}https://${CAIPE_DOMAIN}/api/rag${NC}  (proxied by UI)"
+    else
+      echo -e "    RAG Server      ${CYAN}http://localhost:${UI_PORT}/api/rag${NC}  (proxied by UI)"
+    fi
   fi
   if $ENABLE_TRACING; then
     echo -e "    Langfuse UI     ${CYAN}http://localhost:${LANGFUSE_PORT}${NC}"
@@ -3560,6 +4248,24 @@ BANNER
     esac
   fi
 
+  # Pre-load LLM_PROVIDER and credential env vars from --env-file so that
+  # collect_credentials picks the right provider without requiring the caller
+  # to also export them as shell environment variables.
+  if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
+    local _llm_vars=(LLM_PROVIDER
+      ANTHROPIC_API_KEY ANTHROPIC_MODEL_NAME
+      AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION
+      AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE
+      BEDROCK_TEMPERATURE
+      AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_API_VERSION
+      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_API_BASE)
+    for _v in "${_llm_vars[@]}"; do
+      local _val
+      _val=$(_env_get "$ENV_FILE" "$_v")
+      [[ -n "$_val" && -z "${!_v:-}" ]] && export "$_v=$_val"
+    done
+  fi
+
   choose_chart_version
   collect_credentials
   choose_features
@@ -3578,6 +4284,16 @@ BANNER
   if $ENABLE_VLLM; then
     deploy_vllm
     deploy_litellm
+  fi
+
+  # MetalLB and nginx-ingress must be ready before CAIPE Helm deploy
+  # so the ingress class exists when Helm creates the Ingress resource.
+  if $ENABLE_METALLB; then
+    install_metallb
+  fi
+  if $ENABLE_INGRESS; then
+    install_nginx_ingress
+    setup_tls
   fi
 
   deploy_caipe
@@ -3626,6 +4342,17 @@ Options:
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory
                      (deploys langgraph-redis subchart; enables fact extraction)
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
+  --dynamic-agents   Enable the dynamic agents service (custom agent builder UI)
+  --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters
+  --ingress          Install nginx-ingress + MetalLB and expose UI via domain (requires --domain)
+  --domain=HOST      Hostname for the UI ingress (e.g. my-caipe.example.com)
+  --tls-cert=FILE    Path to TLS certificate PEM file (default: auto-generate self-signed)
+  --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
+  --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
+                     Creates per-agent k8s secrets and enables corresponding agents in Helm.
+                     Values are never written to disk or logged.
+  --ui-env-file=FILE Path to UI .env.local file (OIDC, MongoDB, NextAuth secrets).
+                     Creates caipe-ui-secret and wires it into the caipe-ui chart.
   --ingest-url=URL   Ingest a URL into the RAG knowledge base after deploy
                      (implies --rag; repeatable for multiple URLs; uses sitemap crawl)
   --auto-heal        Enable auto-heal loop (default: on). Detects and fixes crashing pods,
@@ -3704,6 +4431,9 @@ Examples:
   $(basename "$0") --non-interactive --agentgateway --rag               # full stack with AgentGateway + RAG
   $(basename "$0") --non-interactive --persistence                      # deploy with Redis persistence
   $(basename "$0") --non-interactive --rag --persistence                # RAG + Redis persistence (recommended)
+  $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com                   # kind + MetalLB + ingress + self-signed TLS
+  $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com \
+    --tls-cert=/path/to/cert.pem --tls-key=/path/to/key.pem            # kind + MetalLB + ingress + custom TLS
 
 EOF
   exit 0
@@ -3722,6 +4452,14 @@ for arg in "$@"; do
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
+    --metallb)         ENABLE_METALLB=true ;;
+    --ingress)         ENABLE_INGRESS=true; ENABLE_METALLB=true ;;
+    --domain=*)        CAIPE_DOMAIN="${arg#--domain=}" ;;
+    --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
+    --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
+    --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
+    --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
+    --dynamic-agents)  ENABLE_DYNAMIC_AGENTS=true ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
