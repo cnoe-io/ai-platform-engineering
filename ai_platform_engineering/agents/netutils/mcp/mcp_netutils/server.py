@@ -40,10 +40,7 @@ def main():
     logging.info("MCP Server name: {}".format(SERVER_NAME))
     logging.info("*" * 40)
 
-    if MCP_MODE.lower() in ["sse", "http"]:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
-    else:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+    mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
     # DNS Tools
     mcp.tool()(dns.dns_lookup)
@@ -96,7 +93,10 @@ def main():
     mcp.tool()(ip_planning.generate_network_diagram)
     mcp.tool()(ip_planning.generate_subnet_map)
 
-    mcp.run(transport=MCP_MODE.lower())
+    if MCP_MODE.lower() in ["sse", "http"]:
+        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+    else:
+        mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":

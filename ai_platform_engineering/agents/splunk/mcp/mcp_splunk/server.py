@@ -75,10 +75,7 @@ def main():
     logging.info(f"MCP Server name: {SERVER_NAME}")
 
     # Create server instance
-    if MCP_MODE.lower() in ["sse", "http"]:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
-    else:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+    mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
     # Register incident tools
 
@@ -255,7 +252,10 @@ def main():
         logging.info("Splunk Platform log search tools disabled (ENABLE_SPLUNK_LOGS=false)")
 
     # Run the MCP server
-    mcp.run(transport=MCP_MODE.lower())
+    if MCP_MODE.lower() in ["sse", "http"]:
+        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+    else:
+        mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":
