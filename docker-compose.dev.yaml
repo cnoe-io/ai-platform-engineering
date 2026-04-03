@@ -19,7 +19,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-localtag}
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
@@ -216,7 +216,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=aws
-    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-localtag}
     container_name: agent-aws
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
@@ -261,7 +261,7 @@ services:
       args:
         - AGENT_NAME=template
         - AGENT_PACKAGE=petstore
-    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-localtag}
     container_name: agent-petstore
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
@@ -293,7 +293,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=github
-    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-localtag}
     container_name: agent-github
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
@@ -331,7 +331,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=gitlab # key for tracing
-    image: ghcr.io/cnoe-io/agent-gitlab:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-gitlab:${IMAGE_TAG:-localtag}
     container_name: agent-gitlab
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.gitlab_agent.yaml:/app/prompt_config.gitlab_agent.yaml
@@ -410,7 +410,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=weather
-    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-localtag}
     container_name: agent-weather
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
@@ -435,7 +435,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=backstage
-    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-localtag}
     container_name: agent-backstage
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
@@ -462,7 +462,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=backstage
-    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-localtag}
     container_name: mcp-backstage
     env_file: [.env]
     ports: ["18001:8000"]
@@ -489,7 +489,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=argocd
-    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-localtag}
     container_name: agent-argocd
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
@@ -516,7 +516,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=argocd
-    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-localtag}
     container_name: mcp-argocd
     env_file: [.env]
     ports: ["18002:8000"]
@@ -543,7 +543,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=confluence
-    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-localtag}
     container_name: agent-confluence
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
@@ -584,7 +584,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=jira
-    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-localtag}
     container_name: agent-jira
     env_file: [.env]
     volumes:
@@ -611,7 +611,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=jira
-    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-localtag}
     container_name: mcp-jira
     env_file: [.env]
     ports: ["18004:8000"]
@@ -638,7 +638,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=komodor
-    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-localtag}
     container_name: agent-komodor
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
@@ -663,7 +663,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=komodor
-    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-localtag}
     container_name: mcp-komodor
     env_file: [.env]
     ports: ["18005:8000"]
@@ -689,7 +689,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=pagerduty
-    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-localtag}
     container_name: agent-pagerduty
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
@@ -716,7 +716,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=pagerduty
-    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-localtag}
     container_name: mcp-pagerduty
     env_file: [.env]
     ports: ["18006:8000"]
@@ -743,7 +743,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=slack
-    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-localtag}
     container_name: agent-slack
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
@@ -797,7 +797,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=splunk
-    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-localtag}
     container_name: agent-splunk
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
@@ -824,7 +824,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=splunk
-    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-localtag}
     container_name: mcp-splunk
     env_file: [.env]
     ports: ["18008:8000"]
@@ -851,7 +851,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=webex
-    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-localtag}
     container_name: agent-webex
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
@@ -878,7 +878,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=webex
-    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-localtag}
     container_name: mcp-webex
     env_file: [.env]
     ports: ["18009:8000"]
@@ -905,7 +905,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=victorops
-    image: ghcr.io/cnoe-io/agent-victorops:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-victorops:${IMAGE_TAG:-localtag}
     container_name: agent-victorops
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.victorops_agent.yaml:/app/prompt_config.victorops_agent.yaml
@@ -932,7 +932,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=victorops
-    image: ghcr.io/cnoe-io/mcp-victorops:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-victorops:${IMAGE_TAG:-localtag}
     container_name: mcp-victorops
     env_file: [.env]
     ports: ["18012:8000"]
@@ -963,7 +963,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=netutils
-    image: ghcr.io/cnoe-io/agent-netutils:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/agent-netutils:${IMAGE_TAG:-localtag}
     container_name: agent-netutils
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.netutils_agent.yaml:/app/prompt_config.netutils_agent.yaml
@@ -989,7 +989,7 @@ services:
       dockerfile: ai_platform_engineering/agents/netutils/build/Dockerfile.mcp
       args:
         - AGENT_NAME=netutils
-    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
     container_name: mcp-netutils
     env_file: [.env]
     ports: ["18011:8000"]
@@ -1064,7 +1064,7 @@ services:
         - IMAGE_TAG=${IMAGE_TAG:-dev}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
         - BUILD_DATE=${BUILD_DATE:-}
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -1132,7 +1132,7 @@ services:
     build:
       context: ./ai_platform_engineering/dynamic_agents
       dockerfile: build/Dockerfile
-    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
     container_name: dynamic-agents
     ports: ["8100:8001"]
     volumes:
@@ -1820,7 +1820,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.slack-bot
-    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-latest}
+    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-localtag}
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
