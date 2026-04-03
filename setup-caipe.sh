@@ -2880,13 +2880,15 @@ DAEOF
         err "azure-openai embeddings require AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"
         exit 1
       fi
-      kubectl create secret generic rag-azure-openai-secret -n caipe \
+      kubectl create secret generic rag-azure-openai-secret -n "${CAIPE_NAMESPACE:-caipe}" \
         --from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}" \
         --from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}" \
         --from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}" \
         --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      # envFrom[0] is always llm-secret (chart default); append azure secret at [1]
       helm_args+=(
-        --set "rag-stack.rag-server.envFrom[0].secretRef.name=rag-azure-openai-secret"
+        --set "rag-stack.rag-server.envFrom[0].secretRef.name=llm-secret"
+        --set "rag-stack.rag-server.envFrom[1].secretRef.name=rag-azure-openai-secret"
       )
       log "Azure OpenAI embeddings configured (endpoint: ${AZURE_OPENAI_ENDPOINT})"
     fi
