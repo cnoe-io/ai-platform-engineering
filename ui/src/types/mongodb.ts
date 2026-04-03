@@ -268,6 +268,8 @@ export interface UpdateMessageRequest {
   };
   /** Update A2A events (e.g., after streaming completes with full event history) */
   a2a_events?: any[];
+  /** Update message feedback (rating + optional comment) */
+  feedback?: Pick<MessageFeedback, 'rating' | 'comment'>;
 }
 
 // Bookmark API
