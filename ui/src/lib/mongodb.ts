@@ -190,6 +190,7 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { tags: 1 }),
     safeCreateIndex(db, 'conversations', { is_archived: 1, owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { deleted_at: 1, owner_id: 1 }),
+    safeCreateIndex(db, 'conversations', { source: 1 }),
 
     // Messages collection
     safeCreateIndex(db, 'messages', { conversation_id: 1, created_at: 1 }),
@@ -243,11 +244,104 @@ async function createIndexes(db: Db) {
     // Policies collection (global ASP policy for system workflows)
     safeCreateIndex(db, 'policies', { name: 1 }, { unique: true }),
     safeCreateIndex(db, 'policies', { is_system: 1 }),
+
+    // Feedback collection (unified feedback from web + Slack)
+    safeCreateIndex(db, 'feedback', { created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { source: 1, created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { rating: 1, created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { channel_name: 1, created_at: -1 }),
+    safeCreateIndex(db, 'feedback', { trace_id: 1 }),
+
+    // Slack metadata on conversations (for stats queries filtering by source)
+    safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
+    safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
+    safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');
 
+  await migrateWebFeedback(db);
   await migrateAgentConfigsToAgentSkills(db);
+}
+
+/**
+ * One-time migration: move embedded messages.feedback into a standalone
+ * feedback collection, then remove the embedded field.  Also tags
+ * existing conversations and users with source:"web" where missing
+ * (Slack entries are tagged separately by the Slack bot / backfill).
+ *
+ * No-op when no messages have an embedded feedback.rating field.
+ */
+async function migrateWebFeedback(db: Db): Promise<void> {
+  const messages = db.collection('messages');
+  const feedbackCount = await messages.countDocuments({ 'feedback.rating': { $exists: true } });
+  if (feedbackCount === 0) {
+    return; // nothing to migrate
+  }
+
+  console.log(`🔄 Migrating ${feedbackCount} embedded feedback docs → feedback collection...`);
+
+  const feedback = db.collection('feedback');
+
+  const cursor = messages.find({ 'feedback.rating': { $exists: true } });
+  let migrated = 0;
+  let skipped = 0;
+
+  for await (const doc of cursor) {
+    const fb = doc.feedback as Record<string, unknown> | undefined;
+    if (!fb) {
+      skipped++;
+      continue;
+    }
+
+    const messageId = doc._id.toString();
+    const exists = await feedback.findOne({ message_id: messageId, source: 'web' });
+    if (exists) {
+      skipped++;
+      continue;
+    }
+
+    const rating = fb.rating as string;
+    await feedback.insertOne({
+      trace_id: null,
+      source: 'web',
+      rating,
+      value: rating === 'positive' ? 'thumbs_up' : 'thumbs_down',
+      comment: (fb.comment as string) ?? null,
+      user_email: (fb.submitted_by as string) ?? doc.owner_id ?? null,
+      user_id: null,
+      message_id: messageId,
+      conversation_id: doc.conversation_id ?? null,
+      channel_id: null,
+      channel_name: null,
+      thread_ts: null,
+      slack_permalink: null,
+      created_at: (fb.submitted_at as Date) ?? doc.created_at ?? new Date(),
+    });
+    migrated++;
+  }
+
+  // Remove the embedded feedback field — feedback collection is now source of truth
+  const unsetResult = await messages.updateMany(
+    { 'feedback.rating': { $exists: true } },
+    { $unset: { feedback: '' } },
+  );
+
+  // Tag conversations and users without source as "web"
+  const convResult = await db.collection('conversations').updateMany(
+    { source: { $exists: false } },
+    { $set: { source: 'web' } },
+  );
+  const userResult = await db.collection('users').updateMany(
+    { source: { $exists: false } },
+    { $set: { source: 'web' } },
+  );
+
+  console.log(
+    `✅ Web feedback migration: ${migrated} copied, ${skipped} skipped, ` +
+    `${unsetResult.modifiedCount} messages cleaned, ` +
+    `${convResult.modifiedCount} conversations tagged, ${userResult.modifiedCount} users tagged`,
+  );
 }
 
 /**

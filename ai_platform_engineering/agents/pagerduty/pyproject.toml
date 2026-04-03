@@ -34,8 +34,8 @@ dependencies = [
     "python-dotenv==1.2.1",
     "cnoe-agent-utils==0.3.14",
     "pydantic==2.12.5",
-    "fastmcp==2.13.3",
-    "mcp==1.21.0",
+    "fastmcp==3.2.0",
+    "mcp==1.26.0",
     "mcp-pagerduty",
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
@@ -79,6 +79,9 @@ markers = [
     "integration: marks tests as integration tests",
     "parsers: marks tests as parser tests"
 ]
+
+[tool.uv]
+constraint-dependencies = ["nltk==3.9.4"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

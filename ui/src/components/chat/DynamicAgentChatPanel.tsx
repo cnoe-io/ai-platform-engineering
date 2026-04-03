@@ -20,7 +20,6 @@ import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
 import { getConfig } from "@/lib/config";
-import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
@@ -1016,19 +1015,10 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     }
   }, [activeConversationId, updateMessageFeedback]);
 
-  // Stable callback for feedback submission
-  const handleFeedbackSubmit = useCallback(async (messageId: string, feedback: Feedback) => {
-    if (!feedback.type || getConfig('storageMode') !== 'mongodb') return;
-    try {
-      await apiClient.updateMessage(messageId, {
-        feedback: {
-          rating: feedback.type === 'like' ? 'positive' : 'negative',
-          comment: feedback.reason === 'Other' ? feedback.additionalFeedback : feedback.reason,
-        },
-      });
-    } catch (err) {
-      console.error('[ChatPanel] Failed to persist feedback to MongoDB:', err);
-    }
+  // Feedback submission is handled by FeedbackButton → POST /api/feedback
+  // which writes to both Langfuse and the unified feedback MongoDB collection.
+  const handleFeedbackSubmit = useCallback(async (_messageId: string, _feedback: Feedback) => {
+    // no-op: POST /api/feedback handles both Langfuse + MongoDB
   }, []);
 
   // Handle user input form submission via SSE/Dynamic Agents resume

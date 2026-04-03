@@ -77,5 +77,8 @@ markers = [
     "parsers: marks tests as parser tests"
 ]
 
+[tool.uv]
+constraint-dependencies = ["nltk==3.9.4"]
+
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

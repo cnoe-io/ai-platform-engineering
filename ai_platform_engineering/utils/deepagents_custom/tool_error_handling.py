@@ -15,13 +15,19 @@ and return error strings to the LLM, giving it a chance to self-correct.
 
 import asyncio
 import logging
+import os
 from functools import wraps
 
 from langchain_core.tools import BaseTool, StructuredTool
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_OUTPUT_CHARS = 15_000
+# Absolute safety cap for tool output. Set above FilesystemMiddleware's
+# eviction threshold (20K tokens = ~80K chars) so that the library's
+# eviction system handles normal large outputs.  This only kicks in for
+# extreme cases (e.g. a tool dumping an entire database) where even
+# eviction + read_file pagination wouldn't save the context window.
+MAX_TOOL_OUTPUT_CHARS = int(os.getenv("MAX_TOOL_OUTPUT_CHARS", "200000"))
 
 
 def _format_tool_error(tool_name: str, exc: Exception) -> str:
@@ -51,6 +57,41 @@ def _truncate(result: str, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHAR
         logger.warning(f"Tool '{tool_name}' output truncated from {len(result)} to {max_chars} chars")
         return result[:max_chars] + f"\n... [truncated, {len(result) - max_chars} chars omitted]"
     return result
+
+
+def _truncate_any(result, tool_name: str, max_chars: int = MAX_TOOL_OUTPUT_CHARS):
+    """Truncate every oversized string inside any tool return shape.
+
+    LangChain tools can return str, (content, artifact) tuples, or other
+    types.  We walk common container shapes and truncate every str element
+    that exceeds max_chars.  This is a last-resort safety cap — normal large
+    outputs should flow through to FilesystemMiddleware's eviction system,
+    which gives the agent a preview and paginated read_file access.
+    """
+    if isinstance(result, str):
+        return _truncate(result, tool_name, max_chars)
+    if isinstance(result, tuple):
+        return tuple(_truncate(el, tool_name, max_chars) if isinstance(el, str) else el for el in result)
+    if isinstance(result, list):
+        return _truncate(str(result), tool_name, max_chars)
+    return result
+
+
+def _normalize_result(result, tool_name: str, response_format: str):
+    """Ensure the result matches the tool's declared response_format.
+
+    MCP tools via langchain_mcp_adapters declare response_format='content_and_artifact'
+    but sometimes return a plain string or None (e.g. empty results, edge cases).
+    LangChain's ToolNode crashes if it doesn't receive a two-tuple.
+    """
+    if response_format != "content_and_artifact":
+        return result
+    if isinstance(result, tuple) and len(result) == 2:
+        return result
+    content = result if result is not None else f"Tool '{tool_name}' returned no results."
+    if isinstance(content, str):
+        content = _truncate(content, tool_name)
+    return (content, [])
 
 
 def wrap_tools_with_error_handling(
@@ -90,9 +131,8 @@ def wrap_tools_with_error_handling(
                 ):
                     try:
                         result = await _orig(*args, **kwargs)
-                        if isinstance(result, str):
-                            result = _truncate(result, _name)
-                        return result
+                        result = _truncate_any(result, _name)
+                        return _normalize_result(result, _name, _resp_fmt)
                     except Exception as e:
                         msg = _format_tool_error(_name, e)
                         logger.warning(f"[{agent_name}] {msg}")
@@ -146,9 +186,8 @@ def wrap_tools_with_error_handling(
                     ):
                         try:
                             result = _orig(*args, **kwargs)
-                            if isinstance(result, str):
-                                result = _truncate(result, _name)
-                            return result
+                            result = _truncate_any(result, _name)
+                            return _normalize_result(result, _name, _resp_fmt)
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
                             logger.warning(f"[{agent_name}] {msg}")
@@ -167,9 +206,8 @@ def wrap_tools_with_error_handling(
                     ):
                         try:
                             result = await _orig(*args, **kwargs)
-                            if isinstance(result, str):
-                                result = _truncate(result, _name)
-                            return result
+                            result = _truncate_any(result, _name)
+                            return _normalize_result(result, _name, _resp_fmt)
                         except Exception as e:
                             msg = _format_tool_error(_name, e)
                             logger.warning(f"[{agent_name}] {msg}")

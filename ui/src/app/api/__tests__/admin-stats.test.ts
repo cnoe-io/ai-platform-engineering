@@ -122,8 +122,9 @@ function resetMocks() {
 /**
  * Setup admin session with properly configured mock collections.
  * The admin route calls getCollection('users'), getCollection('conversations'),
- * getCollection('messages'). The auth middleware also calls getCollection('users')
- * for the MongoDB admin fallback (skipped for OIDC admins).
+ * getCollection('messages'), getCollection('feedback'), and optionally
+ * getCollection('platform_config'). The auth middleware also calls
+ * getCollection('users') for the MongoDB admin fallback (skipped for OIDC admins).
  */
 function setupAdminWithCollections() {
   mockGetServerSession.mockResolvedValue(adminSession());
@@ -141,7 +142,14 @@ function setupAdminWithCollections() {
   msgCol.countDocuments.mockResolvedValue(0);
   mockCollections['messages'] = msgCol;
 
-  return { usersCol, convCol, msgCol };
+  const feedbackCol = createMockCollection();
+  feedbackCol.countDocuments.mockResolvedValue(0);
+  mockCollections['feedback'] = feedbackCol;
+
+  const platformConfigCol = createMockCollection();
+  mockCollections['platform_config'] = platformConfigCol;
+
+  return { usersCol, convCol, msgCol, feedbackCol };
 }
 
 // ============================================================================
@@ -197,6 +205,11 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
     mockCollections['messages'] = msgCol;
 
+    const feedbackCol = createMockCollection();
+    feedbackCol.countDocuments.mockResolvedValue(0);
+    mockCollections['feedback'] = feedbackCol;
+    mockCollections['platform_config'] = createMockCollection();
+
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -224,6 +237,11 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     msgCol.countDocuments.mockResolvedValue(50);
     mockCollections['messages'] = msgCol;
 
+    const feedbackCol = createMockCollection();
+    feedbackCol.countDocuments.mockResolvedValue(0);
+    mockCollections['feedback'] = feedbackCol;
+    mockCollections['platform_config'] = createMockCollection();
+
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(200);
@@ -249,22 +267,25 @@ describe('GET /api/admin/stats — Overview', () => {
   it('returns overview with correct counts', async () => {
     const { usersCol, convCol, msgCol } = setupAdminWithCollections();
 
-    // totalUsers=15, dau=3, mau=10
+    // Promise.all order (no filters):
+    // users: totalUsers, dau, mau
+    // conversations: totalConversations, conversationsToday, sharedConversations
+    // messages: webTotalMessages, slackTotalMessages, webMessagesToday, slackMessagesToday
     usersCol.countDocuments
-      .mockResolvedValueOnce(15)
-      .mockResolvedValueOnce(3)
-      .mockResolvedValueOnce(10);
+      .mockResolvedValueOnce(15)   // totalUsers
+      .mockResolvedValueOnce(3)    // dau
+      .mockResolvedValueOnce(10);  // mau
 
-    // totalConversations=50, conversationsToday=5, sharedConversations=2
     convCol.countDocuments
-      .mockResolvedValueOnce(50)
-      .mockResolvedValueOnce(5)
-      .mockResolvedValueOnce(2);
+      .mockResolvedValueOnce(50)   // totalConversations
+      .mockResolvedValueOnce(5)    // conversationsToday
+      .mockResolvedValueOnce(2);   // sharedConversations
 
-    // totalMessages=200, messagesToday=20
     msgCol.countDocuments
-      .mockResolvedValueOnce(200)
-      .mockResolvedValueOnce(20);
+      .mockResolvedValueOnce(180)  // webTotalMessages
+      .mockResolvedValueOnce(20)   // slackTotalMessages
+      .mockResolvedValueOnce(15)   // webMessagesToday
+      .mockResolvedValueOnce(5);   // slackMessagesToday
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
@@ -276,11 +297,11 @@ describe('GET /api/admin/stats — Overview', () => {
       expect.objectContaining({
         total_users: 15,
         total_conversations: 50,
-        total_messages: 200,
+        total_messages: 200,        // 180 web + 20 slack
         dau: 3,
         mau: 10,
         conversations_today: 5,
-        messages_today: 20,
+        messages_today: 20,         // 15 web + 5 slack
         shared_conversations: 2,
       })
     );
@@ -292,26 +313,24 @@ describe('GET /api/admin/stats — Overview', () => {
     usersCol.countDocuments.mockResolvedValue(5);
     convCol.countDocuments
       .mockResolvedValueOnce(4)   // totalConversations
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(0);
+      .mockResolvedValueOnce(0)   // conversationsToday
+      .mockResolvedValueOnce(0);  // sharedConversations
     msgCol.countDocuments
-      .mockResolvedValueOnce(10)  // totalMessages
-      .mockResolvedValueOnce(0);
+      .mockResolvedValueOnce(8)   // webTotalMessages
+      .mockResolvedValueOnce(2)   // slackTotalMessages
+      .mockResolvedValueOnce(0)   // webMessagesToday
+      .mockResolvedValueOnce(0);  // slackMessagesToday
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     const body = await res.json();
 
-    // 10 / 4 = 2.5
+    // (8 + 2) / 4 = 2.5
     expect(body.data.overview.avg_messages_per_conversation).toBe(2.5);
   });
 
   it('returns avg_messages_per_conversation = 0 when no conversations', async () => {
-    const { usersCol, convCol, msgCol } = setupAdminWithCollections();
-
-    usersCol.countDocuments.mockResolvedValue(1);
-    convCol.countDocuments.mockResolvedValue(0);
-    msgCol.countDocuments.mockResolvedValue(0);
+    setupAdminWithCollections();
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
@@ -525,11 +544,60 @@ describe('GET /api/admin/stats — Feedback Summary', () => {
     const res = await GET(req);
     const body = await res.json();
 
-    expect(body.data.feedback_summary).toEqual({
-      positive: 0,
-      negative: 0,
-      total: 0,
+    expect(body.data.feedback_summary).toEqual(
+      expect.objectContaining({
+        positive: 0,
+        negative: 0,
+        total: 0,
+      })
+    );
+  });
+
+  it('returns enhanced feedback with by_source and categories from unified feedback collection', async () => {
+    const { usersCol, convCol, msgCol } = setupAdminWithCollections();
+    usersCol.countDocuments.mockResolvedValue(1);
+    convCol.countDocuments.mockResolvedValue(0);
+    msgCol.countDocuments.mockResolvedValue(0);
+
+    // Set up feedback collection with data
+    const feedbackCol = createMockCollection();
+    feedbackCol.countDocuments.mockResolvedValue(10); // non-zero triggers unified path
+    feedbackCol.aggregate.mockReturnValue({
+      toArray: jest.fn()
+        .mockResolvedValueOnce([  // fbOverall
+          { _id: 'positive', count: 7 },
+          { _id: 'negative', count: 3 },
+        ])
+        .mockResolvedValueOnce([  // fbBySource
+          { _id: { source: 'web', rating: 'positive' }, count: 5 },
+          { _id: { source: 'web', rating: 'negative' }, count: 1 },
+          { _id: { source: 'slack', rating: 'positive' }, count: 2 },
+          { _id: { source: 'slack', rating: 'negative' }, count: 2 },
+        ])
+        .mockResolvedValueOnce([  // fbCategories
+          { _id: 'wrong_answer', count: 2 },
+          { _id: 'too_verbose', count: 1 },
+        ])
+        .mockResolvedValueOnce([  // fbDaily
+        ]),
     });
+    mockCollections['feedback'] = feedbackCol;
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    const fb = body.data.feedback_summary;
+    expect(fb.positive).toBe(7);
+    expect(fb.negative).toBe(3);
+    expect(fb.total).toBe(10);
+    expect(fb.satisfaction_rate).toBe(70);
+    expect(fb.by_source.web).toEqual({ positive: 5, negative: 1 });
+    expect(fb.by_source.slack).toEqual({ positive: 2, negative: 2 });
+    expect(fb.categories).toEqual([
+      { category: 'wrong_answer', count: 2 },
+      { category: 'too_verbose', count: 1 },
+    ]);
   });
 });
 
@@ -628,6 +696,8 @@ describe('GET /api/admin/stats — Full Response Shape', () => {
     expect(body.data).toHaveProperty('feedback_summary');
     expect(body.data).toHaveProperty('response_time');
     expect(body.data).toHaveProperty('hourly_heatmap');
+    expect(body.data).toHaveProperty('platform_summary');
+    expect(body.data).toHaveProperty('completed_workflows');
   });
 
   it('overview has all required sub-fields', async () => {
@@ -647,5 +717,101 @@ describe('GET /api/admin/stats — Full Response Shape', () => {
     expect(overview).toHaveProperty('conversations_today');
     expect(overview).toHaveProperty('messages_today');
     expect(overview).toHaveProperty('avg_messages_per_conversation');
+  });
+});
+
+// ============================================================================
+// Tests: parseRange — from/to support and sub-day presets
+// ============================================================================
+
+describe('GET /api/admin/stats — Custom Date Range (from/to)', () => {
+  beforeEach(resetMocks);
+
+  it('uses from/to ISO dates to compute the range instead of preset', async () => {
+    setupAdminWithCollections();
+
+    // 10-day custom range
+    const from = '2026-03-01T00:00:00.000Z';
+    const to = '2026-03-11T00:00:00.000Z';
+    const req = makeRequest(`/api/admin/stats?from=${from}&to=${to}`);
+    const res = await GET(req);
+    const body = await res.json();
+
+    // daily_activity length should be 10 days
+    expect(body.data.daily_activity).toHaveLength(10);
+    expect(body.data.days).toBe(10);
+  });
+
+  it('supports sub-day presets like 1h and 12h (clamped to minimum 1 day of activity)', async () => {
+    setupAdminWithCollections();
+
+    const req = makeRequest('/api/admin/stats?range=1h');
+    const res = await GET(req);
+    const body = await res.json();
+
+    // 1h = 1 day minimum for daily_activity
+    expect(body.data.daily_activity).toHaveLength(1);
+    expect(body.data.days).toBe(1);
+  });
+});
+
+// ============================================================================
+// Tests: Platform Summary
+// ============================================================================
+
+describe('GET /api/admin/stats — Platform Summary', () => {
+  beforeEach(resetMocks);
+
+  it('includes platform_summary with questions, users, satisfaction, hours', async () => {
+    setupAdminWithCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.platform_summary).toBeDefined();
+    expect(body.data.platform_summary).toHaveProperty('satisfaction_rate');
+    expect(body.data.platform_summary).toHaveProperty('estimated_hours_automated');
+    expect(typeof body.data.platform_summary.satisfaction_rate).toBe('number');
+  });
+});
+
+// ============================================================================
+// Tests: Source/User Filtering
+// ============================================================================
+
+describe('GET /api/admin/stats — Source & User Filters', () => {
+  beforeEach(resetMocks);
+
+  it('applies source=slack filter to conversation queries', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    const req = makeRequest('/api/admin/stats?source=slack');
+    await GET(req);
+
+    // When source=slack, conversations should be filtered with source: 'slack'
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasSlackFilter = convCountCalls.some(
+      (call: any[]) => call[0]?.source === 'slack'
+    );
+    expect(hasSlackFilter).toBe(true);
+
+    // Web messages should be skipped (resolved to 0) — check that messages
+    // countDocuments was called fewer times or with different filters
+    // When source=slack, web message counts resolve to 0 without querying
+  });
+
+  it('applies user filter to owner_id on conversation and message queries', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    const req = makeRequest('/api/admin/stats?user=alice@co.com,bob@co.com');
+    await GET(req);
+
+    // Conversations should include owner_id filter
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasUserFilter = convCountCalls.some(
+      (call: any[]) => call[0]?.owner_id?.$in?.includes('alice@co.com')
+    );
+    expect(hasUserFilter).toBe(true);
   });
 });

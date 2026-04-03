@@ -19,20 +19,20 @@ appName: "CAIPE"  # Display name used in Slack messages (maps to APP_NAME env va
 # Required. Must be reachable from the bot pod.
 caipeUrl: "http://ai-platform-engineering-supervisor-agent:8000"
 
+# CAIPE UI URL — must be reachable from the bot pod.
+caipeUiUrl: "http://ai-platform-engineering-caipe-ui:3000"
+
 # Bot connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (incoming webhooks via SLACK_SIGNING_SECRET)
 botMode: "socket"
 
-# Additional env vars passed through to the container (e.g. Langfuse config).
+# Additional env vars passed through to the container.
 env: {}
-  # LANGFUSE_SCORING_ENABLED: "true"
-  # LANGFUSE_PUBLIC_KEY: ""
-  # LANGFUSE_HOST: ""
 
 slack:
   # Reference to a Kubernetes Secret containing SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET
   tokenSecretRef: "slack-bot-secrets"
 
-# External Secrets configuration for sensitive data (Slack tokens, Langfuse secret key, etc.)
+# External Secrets configuration for sensitive data (Slack tokens, OAuth2 client secret, etc.)
 externalSecrets:
   enabled: false  # Set to true to use ExternalSecrets instead of a manually-created K8s Secret
   apiVersion: "v1beta1"
@@ -53,10 +53,10 @@ externalSecrets:
     #   remoteRef:
     #     key: prod/slack-bot
     #     property: signing_secret
-    # - secretKey: LANGFUSE_SECRET_KEY
+    # - secretKey: OAUTH2_CLIENT_SECRET
     #   remoteRef:
     #     key: prod/slack-bot
-    #     property: langfuse_secret_key
+    #     property: oauth2_client_secret
 
 mongodb:
   uri: ""  # Override per environment, e.g. "mongodb://admin:changeme@ai-platform-engineering-mongodb:27017"
@@ -74,7 +74,7 @@ auth:
   # clientSecret should be stored in the Kubernetes Secret (slack.tokenSecretRef) or ExternalSecrets,
   # NOT in values.yaml. Add OAUTH2_CLIENT_SECRET to your secret.
 
-slackWorkspaceUrl: ""  # e.g. "https://mycompany.slack.com" — used for Langfuse feedback permalinks
+slackWorkspaceUrl: ""  # e.g. "https://mycompany.slack.com" — used for feedback permalink deep links
 silenceEnv: "false"  # Suppress environment info in bot responses
 
 # Prompt overrides — set any of these to replace the built-in default prompt.
