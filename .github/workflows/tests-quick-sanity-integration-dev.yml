@@ -22,8 +22,6 @@ concurrency:
 permissions:
   contents: read
   packages: read
-  # Needed to read release tags via gh cli
-  actions: read
 
 jobs:
   quick-sanity-dev:
@@ -56,26 +54,31 @@ jobs:
           # For workflow_dispatch: test HEAD of the triggered branch
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Detect latest release tag
+      - name: Detect RC tag for this commit
         id: image-tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # workflow_dispatch with explicit override takes priority
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
             echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
             echo "Using workflow_dispatch override: ${{ inputs.image_tag }}"
-          else
-            # Detect the latest published GitHub release tag (e.g. 0.2.41)
-            TAG=$(gh api /repos/${{ github.repository }}/releases/latest \
-              --jq '.tag_name' 2>/dev/null || true)
-            if [ -z "$TAG" ]; then
-              echo "::warning::No release found, falling back to 'main'"
-              TAG="main"
-            fi
-            echo "tag=${TAG}" >> $GITHUB_OUTPUT
-            echo "Using release tag: ${TAG}"
+            exit 0
           fi
+
+          # rc-tag.yml creates an RC tag (e.g. 0.2.43-rc.1) on every qualifying
+          # main push. CI builds wait for it before pushing images, so by the
+          # time workflow_run fires the tag already exists on this commit.
+          git fetch --tags --quiet
+          TAG=$(git tag --points-at HEAD \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' \
+            | sort -V | tail -1)
+
+          if [ -z "$TAG" ]; then
+            echo "::warning::No RC tag found on HEAD, falling back to 'main'"
+            TAG="main"
+          fi
+
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Using image tag: ${TAG}"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
