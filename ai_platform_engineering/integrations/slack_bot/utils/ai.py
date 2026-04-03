@@ -11,6 +11,7 @@ This module handles all interactions with the CAIPE supervisor, including:
 """
 
 import os
+import re
 import time
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -83,7 +84,7 @@ class StreamBuffer:
       self.slack_client.chat_appendStream(
         channel=self.channel_id,
         ts=self.stream_ts,
-        chunks=[{"type": "markdown_text", "text": text}],
+        chunks=[{"type": "markdown_text", "text": _normalize_paragraph_breaks(text)}],
       )
       self._flushed_any = True
       return True
@@ -128,6 +129,7 @@ def stream_a2a_response(
   triggered_by_user_id=None,
   additional_footer=None,
   overthink_mode=False,
+  escalation_config=None,
 ):
   """
   Stream an A2A response to Slack.
@@ -500,6 +502,12 @@ def stream_a2a_response(
               blocks=form_blocks,
               text="Action required",
             )
+          # Stop any active stream before returning to prevent orphaned streams
+          if stream_ts:
+            try:
+              slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
+            except Exception as e:
+              logger.debug(f"[{thread_ts}] Failed to stop stream before HITL form: {e}")
           return form_blocks
 
       elif parsed.event_type == EventType.OTHER_ARTIFACT:
@@ -569,10 +577,21 @@ def stream_a2a_response(
     elif task_error:
       # No useful content AND we had an error - return retry marker for caller to handle
       logger.error(f"[{thread_ts}] No content received and task had error: {task_error}")
-      # Clean up: stop active stream or delete progress message
+      # Clean up: stop active stream with error blocks, or delete progress message
       if stream_ts:
         try:
-          slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
+          error_blocks = slack_formatter.format_error_message(str(task_error))
+          error_blocks.extend(
+            _build_stream_final_blocks(
+              channel_id, thread_ts, response_ts,
+              triggered_by_user_id=triggered_by_user_id,
+              additional_footer=additional_footer,
+              escalation_config=escalation_config,
+            )
+          )
+          slack_client.chat_stopStream(
+            channel=channel_id, ts=stream_ts, blocks=error_blocks
+          )
         except Exception as e:
           logger.debug(f"[{thread_ts}] Failed to stop stream {stream_ts}: {e}")
       if response_ts:
@@ -636,7 +655,7 @@ def stream_a2a_response(
       already_streamed = streaming_final_answer
       needs_final = not already_streamed
       if needs_final and final_text:
-        stop_chunks.append({"type": "markdown_text", "text": final_text})
+        stop_chunks.append({"type": "markdown_text", "text": _normalize_paragraph_breaks(final_text)})
 
       stop_blocks = _build_stream_final_blocks(
         channel_id,
@@ -644,6 +663,7 @@ def stream_a2a_response(
         response_ts,
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
+        escalation_config=escalation_config,
       )
       logger.info(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
       slack_client.chat_stopStream(
@@ -668,6 +688,7 @@ def stream_a2a_response(
         response_ts,
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
+        escalation_config=escalation_config,
       )
     else:
       if thread_deleted:
@@ -688,11 +709,24 @@ def stream_a2a_response(
         response_ts,
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
+        escalation_config=escalation_config,
       )
 
   except Exception as e:
     logger.exception(f"[{thread_ts}] Error during streaming: {e}")
     error_blocks = slack_formatter.format_error_message(str(e))
+    # Append feedback blocks so users can still rate even on errors
+    try:
+      error_blocks.extend(
+        _build_stream_final_blocks(
+          channel_id, thread_ts, response_ts,
+          triggered_by_user_id=triggered_by_user_id,
+          additional_footer=additional_footer,
+          escalation_config=escalation_config,
+        )
+      )
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to build feedback blocks for error response")
     if stream_ts:
       # Stop the plan stream with error in blocks
       try:
@@ -740,6 +774,46 @@ def _build_progress_blocks(current_tool, plan_steps=None):
     if len(plan_text) <= 2000:
       blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": plan_text}]})
   return blocks
+
+
+# Lines starting with a list marker or blank lines should keep single newlines
+_LIST_PREFIX = re.compile(r'^(\s*[-*+]|\s*\d+[.)]\s)', re.MULTILINE)
+
+
+def _normalize_paragraph_breaks(text: str) -> str:
+  """Ensure paragraph breaks render in Slack's markdown_text streaming format.
+
+  Slack's markdown_text (used by appendStream/stopStream) treats single \\n
+  as a soft wrap rather than a visible line break.  Double \\n\\n produces a
+  paragraph break.  This helper converts lone \\n to \\n\\n while preserving:
+    - existing double+ newlines
+    - newlines inside fenced code blocks (``` ... ```)
+    - single newlines between list items (- , * , 1. , etc.)
+  """
+  # Split on fenced code blocks so we only touch prose sections
+  parts = re.split(r'(```[\s\S]*?```)', text)
+  result = []
+  for i, part in enumerate(parts):
+    if i % 2 == 1:
+      # Inside a code fence — leave unchanged
+      result.append(part)
+    else:
+      # Normalize lone newlines, but skip lines that look like list items
+      lines = part.split('\n')
+      normalized = []
+      for j, line in enumerate(lines):
+        normalized.append(line)
+        if j < len(lines) - 1:
+          next_line = lines[j + 1] if j + 1 < len(lines) else ''
+          # Keep single \n if current or next line is a list item or blank
+          is_list = _LIST_PREFIX.match(line) or _LIST_PREFIX.match(next_line)
+          is_blank = line.strip() == '' or next_line.strip() == ''
+          if is_list or is_blank:
+            normalized.append('\n')
+          else:
+            normalized.append('\n\n')
+      result.append(''.join(normalized))
+  return ''.join(result)
 
 
 def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
@@ -814,6 +888,7 @@ def _post_final_response(
   original_ts,
   triggered_by_user_id=None,
   additional_footer=None,
+  escalation_config=None,
 ):
   """Post final response as a regular message (fallback for bot messages)."""
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
@@ -827,13 +902,14 @@ def _post_final_response(
       }
     )
 
-  # Build footer with optional user attribution and additional text
-  footer_text = _build_footer_text(triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer)
-  final_blocks.append(
-    {
-      "type": "context",
-      "elements": [{"type": "mrkdwn", "text": footer_text}],
-    }
+  # Append feedback + footer blocks (actions, context_actions, footer)
+  final_blocks.extend(
+    _build_stream_final_blocks(
+      channel_id, thread_ts, original_ts,
+      triggered_by_user_id=triggered_by_user_id,
+      additional_footer=additional_footer,
+      escalation_config=escalation_config,
+    )
   )
 
   slack_client.chat_postMessage(
@@ -852,51 +928,65 @@ def _build_stream_final_blocks(
   original_ts,
   triggered_by_user_id=None,
   additional_footer=None,
+  escalation_config=None,
 ):
   """Build the feedback + footer blocks used by both stream types."""
   final_blocks = []
 
-  # Add refinement buttons
-  final_blocks.append(
+  # Add refinement buttons (and optional escalation)
+  action_value = f"{channel_id}|{thread_ts}|{original_ts or ''}"
+  action_elements = [
     {
-      "type": "actions",
-      "elements": [
-        {
-          "type": "button",
-          "text": {"type": "plain_text", "text": "Not enough detail"},
-          "action_id": "caipe_feedback_more_detail",
-          "value": f"{channel_id}|{thread_ts}|{original_ts or ''}",
-        },
-        {
-          "type": "button",
-          "text": {"type": "plain_text", "text": "Too verbose"},
-          "action_id": "caipe_feedback_less_verbose",
-          "value": f"{channel_id}|{thread_ts}|{original_ts or ''}",
-        },
-      ],
-    }
-  )
+      "type": "button",
+      "text": {"type": "plain_text", "text": "More detail"},
+      "action_id": "caipe_feedback_more_detail",
+      "value": action_value,
+    },
+    {
+      "type": "button",
+      "text": {"type": "plain_text", "text": "Briefer"},
+      "action_id": "caipe_feedback_less_verbose",
+      "value": action_value,
+    },
+  ]
+  if escalation_config:
+    action_elements.append(
+      {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Get help"},
+        "action_id": "caipe_escalation_get_help",
+        "value": action_value,
+        "style": "danger",
+      }
+    )
+  final_blocks.append({"type": "actions", "elements": action_elements})
 
-  # Add thumbs up/down feedback buttons
-  final_blocks.append(
+  # Add thumbs up/down feedback buttons (and optional trash icon)
+  context_elements = [
     {
-      "type": "context_actions",
-      "elements": [
-        {
-          "type": "feedback_buttons",
-          "action_id": "caipe_feedback",
-          "positive_button": {
-            "text": {"type": "plain_text", "text": "\U0001f44d"},
-            "value": f"positive|{original_ts or ''}",
-          },
-          "negative_button": {
-            "text": {"type": "plain_text", "text": "\U0001f44e"},
-            "value": f"negative|{original_ts or ''}",
-          },
-        },
-      ],
-    }
-  )
+      "type": "feedback_buttons",
+      "action_id": "caipe_feedback",
+      "positive_button": {
+        "text": {"type": "plain_text", "text": "\U0001f44d"},
+        "value": f"positive|{original_ts or ''}",
+      },
+      "negative_button": {
+        "text": {"type": "plain_text", "text": "\U0001f44e"},
+        "value": f"negative|{original_ts or ''}",
+      },
+    },
+  ]
+  if escalation_config and escalation_config.delete_admins:
+    context_elements.append(
+      {
+        "type": "icon_button",
+        "action_id": "caipe_delete_message",
+        "icon": {"type": "known", "name": "trash"},
+        "value": action_value,
+        "accessibility_label": "Delete this response",
+      }
+    )
+  final_blocks.append({"type": "context_actions", "elements": context_elements})
 
   # Build footer
   footer_text = _build_footer_text(triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer)
@@ -930,6 +1020,7 @@ def handle_ai_alert_processing(
   channel_config,
   session_manager,
   custom_prompt=None,
+  escalation_config=None,
 ):
   """AI-powered alert processing."""
   alert_text = event.get("text", "")
@@ -976,7 +1067,7 @@ def handle_ai_alert_processing(
 
   context_id = session_manager.get_context_id(thread_ts)
 
-  stream_a2a_response(
+  result = stream_a2a_response(
     a2a_client=a2a_client,
     slack_client=slack_client,
     channel_id=channel_id,
@@ -991,7 +1082,8 @@ def handle_ai_alert_processing(
       "jira_config": channel_config,
     },
     session_manager=session_manager,
+    escalation_config=escalation_config,
   )
 
   logger.info(f"[{thread_ts}] AI processed alert from {bot_username}")
-  return None
+  return result

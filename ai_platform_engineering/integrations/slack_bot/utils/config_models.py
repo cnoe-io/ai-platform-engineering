@@ -199,6 +199,37 @@ INSTRUCTIONS:
     )
 
 
+class VictorOpsEscalation(BaseModel):
+    """VictorOps on-call escalation configuration"""
+
+    enabled: bool = False
+    team: str = ""
+
+
+class EmojiEscalation(BaseModel):
+    """Emoji reaction escalation configuration"""
+
+    enabled: bool = False
+    name: str = "eyes"
+
+
+class EscalationConfig(BaseModel):
+    """Escalation workflows triggered by the 'Get help' button"""
+
+    victorops: VictorOpsEscalation = Field(default_factory=VictorOpsEscalation)
+    users: List[str] = Field(default_factory=list)
+    emoji: EmojiEscalation = Field(default_factory=EmojiEscalation)
+    delete_admins: List[str] = Field(default_factory=list)
+
+
+def get_escalation_config(default_config: Dict[str, Any]) -> Optional["EscalationConfig"]:
+    """Extract and parse escalation config from a channel's default dict."""
+    raw = default_config.get("escalation")
+    if not raw:
+        return None
+    return EscalationConfig(**raw)
+
+
 class IncludeBotsConfig(BaseModel):
     """Configuration for including bot messages"""
 
