@@ -814,7 +814,6 @@ def handle_escalation_get_help(ack, body, client):
             thread_ts=thread_ts, user_id=user_id, channel_id=channel_id,
             feedback_value="escalation_requested", slack_client=client,
             session_manager=session_manager, config=config,
-            feedback_client=feedback_client,
         )
 
         client.chat_postEphemeral(
@@ -861,7 +860,6 @@ def handle_delete_message(ack, body, client):
             thread_ts=thread_ts, user_id=user_id, channel_id=channel_id,
             feedback_value="message_deleted", slack_client=client,
             session_manager=session_manager, config=config,
-            feedback_client=feedback_client,
         )
 
         client.chat_delete(channel=channel_id, ts=message_ts)

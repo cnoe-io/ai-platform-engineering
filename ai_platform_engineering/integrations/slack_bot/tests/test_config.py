@@ -2,8 +2,6 @@ import pytest
 
 from ai_platform_engineering.integrations.slack_bot.utils.config_models import (
     Config,
-    EscalationConfig,
-    OverthinkConfig,
     get_escalation_config,
 )
 
