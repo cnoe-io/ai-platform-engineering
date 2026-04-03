@@ -17,7 +17,7 @@ Ingests issues from Jira Cloud projects as documents into the RAG system. Each p
 |---|---|
 | `JIRA_URL` | Jira Cloud base URL, e.g. `https://your-org.atlassian.net` |
 | `JIRA_EMAIL` | Email of the service account used for API access |
-| `JIRA_API_TOKEN` or `ATLASSIAN_TOKEN` | Atlassian API token for the service account |
+| `ATLASSIAN_TOKEN` | Atlassian API token for the service account |
 | `JIRA_PROJECTS` | JSON object mapping project keys to config (see below) |
 | `RAG_SERVER_URL` | URL of the RAG server (default: `http://localhost:9446`) |
 
