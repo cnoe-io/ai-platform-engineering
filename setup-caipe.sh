@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ─── Future work ─────────────────────────────────────────────────────────────
+# TODO(ansible): Replace or complement this script with an Ansible playbook.
+#   Roles: kind_cluster, metallb, nginx_ingress, caipe_secrets, caipe_helm,
+#   caipe_mongodb. Benefits: idempotency, inventory-driven multi-env deploys
+#   (demo/devnet/prod from one playbook), Ansible Vault for secrets, CI/CD.
+#   Tracking: https://github.com/cnoe-io/ai-platform-engineering/issues/1115
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ─── Defaults ────────────────────────────────────────────────────────────────
 CAIPE_CHART_VERSION="${CAIPE_CHART_VERSION:-}"
 CAIPE_OCI_REPO="oci://ghcr.io/cnoe-io/charts/ai-platform-engineering"
