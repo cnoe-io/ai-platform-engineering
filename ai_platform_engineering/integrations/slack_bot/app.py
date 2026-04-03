@@ -141,7 +141,13 @@ def handle_mention(event, say, client):
       session_manager.clear_skipped(thread_ts)
 
     if is_humble_followup:
-      mention_prompt = config.defaults.humble_followup_prompt
+      # Use per-channel followup prompt from overthink config, fall back to global default
+      followup = (
+        channel_config.qanda.overthink.followup_prompt
+        or channel_config.ai_alerts.overthink.followup_prompt
+        or config.defaults.humble_followup_prompt
+      )
+      mention_prompt = followup
     elif channel_config.custom_prompt:
       mention_prompt = channel_config.custom_prompt
     else:
@@ -282,7 +288,7 @@ def handle_qanda_message(event, say, client):
       context_id=context_id,
       metadata=request_metadata,
       session_manager=session_manager,
-      overthink_mode=channel_config.qanda.overthink,
+      overthink_config=channel_config.qanda.overthink if channel_config.qanda.overthink.enabled else None,
       escalation_config=esc_config,
     )
 
@@ -528,8 +534,9 @@ def handle_message_events(body, say, client):
     if not default_config or not isinstance(default_config, dict):
       raise ValueError(f"Channel {channel_id} is missing required 'default' config")
 
+    alerts_overthink = channel_config.ai_alerts.overthink
     esc_config = get_escalation_config(default_config)
-    ai.handle_ai_alert_processing(
+    result = ai.handle_ai_alert_processing(
       a2a_client,
       client,
       event,
@@ -538,8 +545,14 @@ def handle_message_events(body, say, client):
       default_config,
       session_manager,
       custom_prompt=channel_config.ai_alerts.custom_prompt,
+      overthink_config=alerts_overthink if alerts_overthink.enabled else None,
       escalation_config=esc_config,
     )
+
+    if isinstance(result, dict) and result.get("skipped"):
+      reason = result.get("reason", "unknown")
+      logger.info(f"[{alert_ts}] Overthink: skipped alert processing ({reason})")
+      session_manager.set_skipped(alert_ts, True)
 
     # Track alert interaction for platform statistics
     interaction_tracker.record_interaction(

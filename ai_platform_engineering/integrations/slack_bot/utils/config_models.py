@@ -155,6 +155,49 @@ User's follow-up message:
         )
     )
 
+    overthink_ai_alerts_prompt: str = Field(
+        default_factory=lambda: os.environ.get(
+            "SLACK_INTEGRATION_PROMPT_OVERTHINK_AI_ALERTS",
+            """You are an automated alert classifier. Analyze this alert and decide whether to take action.
+
+STEP 1 - Quick filter (no search needed):
+- Is this a routine informational notification (oncall changes, deployments, status updates)? Respond with [DEFER] and stop
+- Is this a test/development alert with no production impact? Respond with [DEFER] and stop
+- Otherwise, continue to Step 2
+
+STEP 2 - Search for context (MANDATORY - DO NOT SKIP):
+Search for related incidents, runbooks, and existing tickets.
+- Look for duplicate or related tickets that may already be tracking this issue
+- Check if this is a known pattern or recurring alert
+- Aim for at least 3 search queries
+
+STEP 3 - Assess confidence:
+- HIGH: Alert clearly matches a ticketable pattern (error, failure, security, user-impacting)
+- LOW: Ambiguous severity, might be noise, or insufficient context to determine action
+
+STEP 4 - Respond:
+- If LOW confidence:
+  - Explain why this alert is ambiguous
+  - Final line must be [LOW_CONFIDENCE]
+- If HIGH confidence:
+  - Create a Jira ticket with appropriate fields
+  - Explain your reasoning
+  - Final line must be [CONFIDENCE: HIGH]
+
+JIRA CONFIGURATION:
+Project: {jira_project}
+{jira_config_str}
+
+ALERT DETAILS:
+Bot: {bot_username}
+Channel ID: {channel_id}
+Text: {alert_text}
+Timestamp: {timestamp}
+Blocks: {alert_blocks}
+Attachments: {alert_attachments}""",
+        )
+    )
+
     default_ai_alerts_prompt: str = Field(
         default_factory=lambda: os.environ.get(
             "SLACK_INTEGRATION_PROMPT_AI_ALERTS",
@@ -230,6 +273,16 @@ def get_escalation_config(default_config: Dict[str, Any]) -> Optional["Escalatio
     return EscalationConfig(**raw)
 
 
+class OverthinkConfig(BaseModel):
+    """Overthink mode configuration — shared by Q&A and AI alerts."""
+
+    enabled: bool = False
+    skip_markers: List[str] = Field(default_factory=lambda: ["DEFER", "LOW_CONFIDENCE"])
+    pass_marker: str = "CONFIDENCE: HIGH"
+    custom_prompt: Optional[str] = None
+    followup_prompt: Optional[str] = None
+
+
 class IncludeBotsConfig(BaseModel):
     """Configuration for including bot messages"""
 
@@ -241,7 +294,7 @@ class QandaConfig(BaseModel):
     """Q&A mode configuration"""
 
     enabled: bool = False
-    overthink: bool = False
+    overthink: OverthinkConfig = Field(default_factory=OverthinkConfig)
     include_bots: IncludeBotsConfig = Field(default_factory=IncludeBotsConfig)
     custom_prompt: Optional[str] = None
 
@@ -250,6 +303,7 @@ class AIAlertsConfig(BaseModel):
     """AI alerts configuration"""
 
     enabled: bool = False
+    overthink: OverthinkConfig = Field(default_factory=OverthinkConfig)
     custom_prompt: Optional[str] = None
 
 
@@ -305,18 +359,25 @@ class Config(BaseModel):
     def apply_defaults_to_channels(self):
         """Apply global defaults to channel configs (e.g., default prompts with style)"""
         for channel_config in self.channels.values():
+            # --- Q&A prompt resolution ---
             custom_prompt = channel_config.qanda.custom_prompt
+            overthink = channel_config.qanda.overthink
 
-            if channel_config.qanda.overthink:
-                if custom_prompt:
+            if overthink.enabled:
+                # Use overthink-specific prompt from config, or channel custom_prompt, or global default
+                overthink_prompt = overthink.custom_prompt or self.defaults.overthink_qanda_prompt
+                if custom_prompt and not overthink.custom_prompt:
                     channel_config.qanda.custom_prompt = (
-                        self.defaults.overthink_qanda_prompt
+                        overthink_prompt
                         + "\n\n---\n\n"
                         + "Additional channel-specific instructions (lower priority than the above overthink logic):\n"
                         + custom_prompt
                     )
                 else:
-                    channel_config.qanda.custom_prompt = self.defaults.overthink_qanda_prompt
+                    channel_config.qanda.custom_prompt = overthink_prompt
+                # Set default followup prompt if not configured
+                if not overthink.followup_prompt:
+                    overthink.followup_prompt = self.defaults.humble_followup_prompt
             elif not custom_prompt:
                 channel_config.qanda.custom_prompt = self.defaults.default_qanda_prompt
             else:
@@ -324,3 +385,21 @@ class Config(BaseModel):
                     channel_config.qanda.custom_prompt = (
                         custom_prompt + "\n\n" + self.defaults.response_style_instruction
                     )
+
+            # --- AI alerts prompt resolution ---
+            alerts_overthink = channel_config.ai_alerts.overthink
+            if alerts_overthink.enabled:
+                alerts_prompt = alerts_overthink.custom_prompt or self.defaults.overthink_ai_alerts_prompt
+                alerts_custom = channel_config.ai_alerts.custom_prompt
+                if alerts_custom and not alerts_overthink.custom_prompt:
+                    channel_config.ai_alerts.custom_prompt = (
+                        alerts_prompt
+                        + "\n\n---\n\n"
+                        + "Additional channel-specific instructions:\n"
+                        + alerts_custom
+                    )
+                else:
+                    channel_config.ai_alerts.custom_prompt = alerts_prompt
+                # Set default followup prompt if not configured
+                if not alerts_overthink.followup_prompt:
+                    alerts_overthink.followup_prompt = self.defaults.humble_followup_prompt

@@ -128,7 +128,7 @@ def stream_a2a_response(
   session_manager=None,
   triggered_by_user_id=None,
   additional_footer=None,
-  overthink_mode=False,
+  overthink_config=None,
   escalation_config=None,
 ):
   """
@@ -140,12 +140,13 @@ def stream_a2a_response(
 
   Returns:
       List of Slack blocks for the final response, or dict with retry_needed=True on recoverable errors,
-      or dict with skipped=True if overthink_mode filtered the response
+      or dict with skipped=True if overthink filtered the response
   """
   from .hitl_handler import parse_form_data, format_hitl_form_blocks
 
   # Streaming requires a valid user_id (starts with U or W), bot_ids (B) don't work
   can_stream = user_id and user_id[0] in ("U", "W")
+  overthink_mode = bool(overthink_config and overthink_config.enabled)
 
   # In overthink mode, process silently - don't show "working" message
   # Only post if we have a confident response
@@ -559,15 +560,17 @@ def stream_a2a_response(
 
     # Overthink mode: check for skip markers before posting
     if overthink_mode and final_text:
-      skip_result = _check_overthink_skip(final_text, thread_ts)
+      skip_markers = overthink_config.skip_markers if overthink_config else None
+      skip_result = _check_overthink_skip(final_text, thread_ts, skip_markers=skip_markers)
       if skip_result:
         # No progress message to delete in overthink mode (silent processing)
         return skip_result
 
-      # Strip the [CONFIDENCE: HIGH] marker before posting
-      if "[CONFIDENCE: HIGH]" in final_text:
-        final_text = final_text.replace("[CONFIDENCE: HIGH]", "").rstrip()
-        logger.info(f"[{thread_ts}] Stripped [CONFIDENCE: HIGH] marker from response")
+      # Strip the pass marker before posting
+      pass_marker = f"[{overthink_config.pass_marker}]" if overthink_config else "[CONFIDENCE: HIGH]"
+      if pass_marker in final_text:
+        final_text = final_text.replace(pass_marker, "").rstrip()
+        logger.info(f"[{thread_ts}] Stripped {pass_marker} marker from response")
 
     # Handle graceful degradation: if we have content, show it even if there was an error
     if final_text and final_text != "I've completed your request.":
@@ -816,25 +819,32 @@ def _normalize_paragraph_breaks(text: str) -> str:
   return ''.join(result)
 
 
-def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
+def _check_overthink_skip(
+  final_text: str,
+  thread_ts: str,
+  skip_markers: list[str] | None = None,
+) -> dict | None:
   """Check if response should be skipped in overthink mode.
 
+  Args:
+      final_text: The full response text to check.
+      thread_ts: Thread timestamp for logging.
+      skip_markers: List of marker strings to check for (e.g. ["DEFER", "LOW_CONFIDENCE"]).
+          The code looks for ``[MARKER]`` in the text. Defaults to ["DEFER", "LOW_CONFIDENCE"].
+
   Returns:
-      None if response should be posted normally
-      {"skipped": True, "reason": "..."} if response should be skipped
+      None if response should be posted normally.
+      {"skipped": True, "reason": "<marker_lower>"} if a skip marker was found.
   """
-  # Check for DEFER marker anywhere in response
-  if "[DEFER]" in final_text:
-    logger.info(f"[{thread_ts}] Overthink: skipping response (DEFER - human action needed)")
-    return {"skipped": True, "reason": "defer"}
+  markers = skip_markers or ["DEFER", "LOW_CONFIDENCE"]
+  for marker in markers:
+    if f"[{marker}]" in final_text:
+      reason = marker.lower()
+      logger.info(f"[{thread_ts}] Overthink: skipping response ({marker})")
+      logger.debug(f"[{thread_ts}] Skipped response: {final_text}")
+      return {"skipped": True, "reason": reason}
 
-  # Check for LOW_CONFIDENCE marker anywhere in response
-  if "[LOW_CONFIDENCE]" in final_text:
-    logger.info(f"[{thread_ts}] Overthink: skipping response (LOW_CONFIDENCE - no good sources)")
-    logger.debug(f"[{thread_ts}] LOW_CONFIDENCE response: {final_text}")
-    return {"skipped": True, "reason": "low_confidence"}
-
-  # Response has content, allow posting
+  # No skip markers found — allow posting
   return None
 
 
@@ -1020,6 +1030,7 @@ def handle_ai_alert_processing(
   channel_config,
   session_manager,
   custom_prompt=None,
+  overthink_config=None,
   escalation_config=None,
 ):
   """AI-powered alert processing."""
@@ -1082,6 +1093,7 @@ def handle_ai_alert_processing(
       "jira_config": channel_config,
     },
     session_manager=session_manager,
+    overthink_config=overthink_config,
     escalation_config=escalation_config,
   )
 
