@@ -2796,6 +2796,18 @@ DAEOF
 DAEOF
     done
 
+    # Add knowledge-base MCP server when RAG is enabled
+    if $ENABLE_RAG; then
+      cat >> "$_da_values_file" <<DAEOF
+      - id: "knowledge-base"
+        name: "Knowledge Base"
+        description: "Knowledge Base RAG tools for document search and retrieval"
+        transport: "http"
+        endpoint: "http://rag-server.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${RAG_SERVER_PORT}/mcp"
+        enabled: true
+DAEOF
+    fi
+
     helm_args+=(--values "$_da_values_file")
     log "Dynamic agents seedConfig: models + MCP servers written to ${_da_values_file}"
   fi
@@ -2859,6 +2871,24 @@ DAEOF
         --set "rag-stack.rag-server.env.LITELLM_API_KEY=${LITELLM_API_KEY:-not-needed}"
       )
       log "LiteLLM embeddings configured (endpoint: ${LITELLM_ENDPOINT})"
+    fi
+
+    if [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+      # Azure OpenAI embeddings: inject API key + endpoint via a dedicated secret
+      # so they are not stored in ConfigMaps.
+      if [[ -z "${AZURE_OPENAI_API_KEY:-}" || -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
+        err "azure-openai embeddings require AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"
+        exit 1
+      fi
+      kubectl create secret generic rag-azure-openai-secret -n caipe \
+        --from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}" \
+        --from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}" \
+        --from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      helm_args+=(
+        --set "rag-stack.rag-server.envFrom[0].secretRef.name=rag-azure-openai-secret"
+      )
+      log "Azure OpenAI embeddings configured (endpoint: ${AZURE_OPENAI_ENDPOINT})"
     fi
 
     if $ENABLE_GRAPH_RAG; then
