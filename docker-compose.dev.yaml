@@ -1293,6 +1293,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: backstage-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1319,6 +1320,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: aws-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1350,6 +1352,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: k8s-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1383,6 +1386,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: slack-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1409,6 +1413,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: webex-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1434,6 +1439,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: argocd-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1460,6 +1466,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: github-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
