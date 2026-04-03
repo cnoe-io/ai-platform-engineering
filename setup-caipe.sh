@@ -2145,6 +2145,12 @@ post_deploy_patches() {
   # is healthy we disable the skip and restart RAG to run its full init checks.
   if $ENABLE_RAG; then
     _finalize_rag_startup
+    # The parent chart template hardcodes envFrom=[llm-secret] and does not
+    # forward rag-stack.rag-server.envFrom from values. Patch the azure secret
+    # in as a second envFrom entry so AZURE_OPENAI_API_KEY is available.
+    if [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+      _patch_rag_server_envfrom
+    fi
   fi
 
   # ── 6. MongoDB for dynamic-agents ──
@@ -2154,6 +2160,26 @@ post_deploy_patches() {
   if $ENABLE_DYNAMIC_AGENTS; then
     _ensure_dynamic_agents_mongodb
   fi
+}
+
+_patch_rag_server_envfrom() {
+  # The rag-stack subchart template builds envFrom from a hardcoded llm-secret
+  # reference; it does not expose envFrom as a values key that propagates from
+  # the parent chart. Append rag-azure-openai-secret as a second envFrom entry
+  # via a JSON-patch so that AZURE_OPENAI_API_KEY reaches the rag-server.
+  local ns="${CAIPE_NAMESPACE:-caipe}"
+  # Check if already patched to avoid accumulating duplicate entries
+  local current_envfrom
+  current_envfrom=$(kubectl get deploy rag-server -n "$ns" \
+    -o jsonpath='{.spec.template.spec.containers[0].envFrom}' 2>/dev/null || echo "[]")
+  if echo "$current_envfrom" | grep -q "rag-azure-openai-secret"; then
+    log "rag-server envFrom already has rag-azure-openai-secret"
+    return 0
+  fi
+  kubectl patch deploy rag-server -n "$ns" --type=json \
+    -p='[{"op":"add","path":"/spec/template/spec/containers/0/envFrom/-","value":{"secretRef":{"name":"rag-azure-openai-secret"}}}]' \
+    &>/dev/null
+  log "Patched rag-server: added rag-azure-openai-secret to envFrom"
 }
 
 _ensure_dynamic_agents_mongodb() {
