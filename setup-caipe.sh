@@ -4231,6 +4231,24 @@ BANNER
     esac
   fi
 
+  # Pre-load LLM_PROVIDER and credential env vars from --env-file so that
+  # collect_credentials picks the right provider without requiring the caller
+  # to also export them as shell environment variables.
+  if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
+    local _llm_vars=(LLM_PROVIDER
+      ANTHROPIC_API_KEY ANTHROPIC_MODEL_NAME
+      AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION
+      AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE
+      BEDROCK_TEMPERATURE
+      AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_API_VERSION
+      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_API_BASE)
+    for _v in "${_llm_vars[@]}"; do
+      local _val
+      _val=$(_env_get "$ENV_FILE" "$_v")
+      [[ -n "$_val" && -z "${!_v:-}" ]] && export "$_v=$_val"
+    done
+  fi
+
   choose_chart_version
   collect_credentials
   choose_features
