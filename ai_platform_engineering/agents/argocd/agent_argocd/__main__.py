@@ -57,7 +57,7 @@ agent_skill = AgentSkill(
       "Get the status of the 'ai-platform-app' ArgoCD application.",
       "Update the repo url for 'ai-platform-app' app",
       "Sync the 'ai-platform-app' ArgoCD application",
-      "Check if the current account has permission to delete the 'ai-platform-app' from ArgoCD."
+      "Check if the current account has permission to delete the 'ai-platform-app' from ArgoCD.",
       "Delete the 'ai-platform-app' from ArgoCD.",
 
       # Resource Events

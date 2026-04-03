@@ -605,7 +605,7 @@ class TestAgentEntrypointEnvVars(unittest.TestCase):
 
     def test_argocd_agent_description_not_empty(self):
         import ai_platform_engineering.agents.argocd.agent_argocd.__main__ as m
-        self.assertTrue(len(m.AGENT_DESCRIPTION) > 0)
+        self.assertGreater(len(m.AGENT_DESCRIPTION), 0)
 
     def test_argocd_agent_skill_defined(self):
         import ai_platform_engineering.agents.argocd.agent_argocd.__main__ as m
@@ -706,7 +706,8 @@ class TestAWSBuildSkills(unittest.TestCase):
 
     def test_aws_version_is_2_0(self):
         # The main module hard-codes version='2.0.0' in the A2AServer call
-        src = open("/tmp/ai-platform-engineering/ai_platform_engineering/agents/aws/agent_aws/__main__.py").read()
+        with open("/tmp/ai-platform-engineering/ai_platform_engineering/agents/aws/agent_aws/__main__.py") as f:
+            src = f.read()
         self.assertIn("2.0.0", src)
 
 
@@ -718,7 +719,8 @@ class TestMigratedAgentConstants(unittest.TestCase):
     """Read source files directly — avoids needing agent sub-packages installed."""
 
     def _read_src(self, rel_path):
-        return open(f"/tmp/ai-platform-engineering/{rel_path}").read()
+        with open(f"/tmp/ai-platform-engineering/{rel_path}") as f:
+            return f.read()
 
     def _check_agent_src(self, rel_path, expected_name, expected_skill_id):
         src = self._read_src(rel_path)
@@ -785,7 +787,8 @@ class TestMigratedAgentConstants(unittest.TestCase):
             # skip the claude-agent-sdk template
             if "template-claude-agent-sdk" in path:
                 continue
-            src = open(path).read()
+            with open(path) as f:
+                src = f.read()
             self.assertNotIn("A2A_TRANSPORT", src, f"SLIM remnant in {path}")
             self.assertNotIn("SLIM_ENDPOINT", src, f"SLIM remnant in {path}")
             self.assertNotIn("slim_endpoint", src, f"SLIM remnant in {path}")
@@ -801,7 +804,8 @@ class TestMigratedAgentConstants(unittest.TestCase):
         for path in glob.glob(pattern):
             if "template-claude-agent-sdk" in path:
                 continue
-            src = open(path).read()
+            with open(path) as f:
+                src = f.read()
             self.assertIn("A2AServer", src, f"Missing A2AServer in {path}")
 
     def test_all_agents_have_metrics_enabled(self):
@@ -814,7 +818,8 @@ class TestMigratedAgentConstants(unittest.TestCase):
         for path in glob.glob(pattern):
             if "template-claude-agent-sdk" in path:
                 continue
-            src = open(path).read()
+            with open(path) as f:
+                src = f.read()
             self.assertIn("METRICS_ENABLED", src, f"Missing METRICS_ENABLED in {path}")
 
 
