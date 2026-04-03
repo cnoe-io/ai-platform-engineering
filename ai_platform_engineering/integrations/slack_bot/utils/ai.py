@@ -26,7 +26,6 @@ from .event_parser import (
 from . import slack_formatter
 from . import utils as _utils
 from .throttler import create_throttled_updater
-from .config_models import get_escalation_config
 
 
 class StreamBuffer:
@@ -508,8 +507,8 @@ def stream_a2a_response(
           if stream_ts:
             try:
               slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
-            except Exception:
-              pass
+            except Exception as e:
+              logger.debug(f"[{thread_ts}] Failed to stop stream before HITL form: {e}")
           return form_blocks
 
       elif parsed.event_type == EventType.OTHER_ARTIFACT:
@@ -780,8 +779,6 @@ def _build_progress_blocks(current_tool, plan_steps=None):
   return blocks
 
 
-# Regex: match a single \n that is NOT preceded or followed by another \n
-_LONE_NEWLINE = re.compile(r'(?<!\n)\n(?!\n)')
 # Lines starting with a list marker or blank lines should keep single newlines
 _LIST_PREFIX = re.compile(r'^(\s*[-*+]|\s*\d+[.)]\s)', re.MULTILINE)
 
