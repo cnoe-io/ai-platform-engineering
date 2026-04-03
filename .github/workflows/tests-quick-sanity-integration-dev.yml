@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'IMAGE_TAG to pull from GHCR (default: latest)'
+        description: 'IMAGE_TAG to pull from GHCR (default: auto-detect latest release tag)'
         required: false
-        default: 'latest'
+        default: ''
         type: string
 
 concurrency:
@@ -22,6 +22,8 @@ concurrency:
 permissions:
   contents: read
   packages: read
+  # Needed to read release tags via gh cli
+  actions: read
 
 jobs:
   quick-sanity-dev:
@@ -54,13 +56,25 @@ jobs:
           # For workflow_dispatch: test HEAD of the triggered branch
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Set IMAGE_TAG
+      - name: Detect latest release tag
         id: image-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.image_tag || 'latest' }}" >> $GITHUB_OUTPUT
+          # workflow_dispatch with explicit override takes priority
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+            echo "Using workflow_dispatch override: ${{ inputs.image_tag }}"
           else
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            # Detect the latest published GitHub release tag (e.g. 0.2.41)
+            TAG=$(gh api /repos/${{ github.repository }}/releases/latest \
+              --jq '.tag_name' 2>/dev/null || true)
+            if [ -z "$TAG" ]; then
+              echo "::warning::No release found, falling back to 'main'"
+              TAG="main"
+            fi
+            echo "tag=${TAG}" >> $GITHUB_OUTPUT
+            echo "Using release tag: ${TAG}"
           fi
 
       - name: Log in to GitHub Container Registry
