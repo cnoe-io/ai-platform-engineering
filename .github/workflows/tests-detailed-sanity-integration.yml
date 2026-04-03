@@ -1,62 +1,108 @@
-name: "[Tests] Detailed Integration Tests"
-description: "Run detailed integration tests"
+name: "[Tests] Detailed Sanity Integration"
+description: "Run detailed integration tests using prebuilt GHCR images — all agents + RAG"
 
 on:
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Explicit IMAGE_TAG to test (e.g. 0.2.43). Leave blank to test the latest non-RC release.'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: caipe-integration-detailed
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   detailed-sanity:
+    # GitHub-hosted runner — avoids consuming Outshift EC2 self-hosted resources
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Detect image tag
+        id: image-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Explicit override wins
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+            echo "Using explicit override: ${{ inputs.image_tag }}"
+            exit 0
+          fi
+
+          # No tag: use the latest non-RC (final) release (e.g. 0.2.43)
+          TAG=$(gh api /repos/${{ github.repository }}/releases/latest \
+            --jq '.tag_name' 2>/dev/null || true)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::warning::No final release found, falling back to 'main'"
+            TAG="main"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Using latest final release: ${TAG}"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create .env from GitHub Secrets
         run: |
           set -euo pipefail
-          # Create .env using commonly referenced keys. Add more as needed.
-          # If your repo has `.env.example`, update this list to match its keys, and
-          # ensure corresponding GitHub Action secrets exist with the same names.
           cat > .env << 'EOF'
-
-          # Optional/if used by agents or knowledge base services
+          LLM_PROVIDER=${{ secrets.LLM_PROVIDER }}
           AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_DEPLOYMENT=${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
           AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
-
           ARGOCD_TOKEN=${{ secrets.ARGOCD_TOKEN }}
           ARGOCD_API_URL=${{ secrets.ARGOCD_API_URL }}
           ARGOCD_VERIFY_SSL=true
-
           BACKSTAGE_API_TOKEN=${{ secrets.BACKSTAGE_API_TOKEN }}
           BACKSTAGE_URL=${{ secrets.BACKSTAGE_URL }}
-
           ATLASSIAN_TOKEN=${{ secrets.ATLASSIAN_TOKEN }}
           ATLASSIAN_EMAIL=${{ secrets.ATLASSIAN_EMAIL }}
           ATLASSIAN_API_URL=${{ secrets.ATLASSIAN_API_URL }}
           ATLASSIAN_VERIFY_SSL=true
-
           CONFLUENCE_API_URL=${{ secrets.CONFLUENCE_API_URL }}
-
+          GITHUB_PERSONAL_ACCESS_TOKEN=${{ secrets.GH_PAT }}
           PAGERDUTY_API_KEY=${{ secrets.PAGERDUTY_API_KEY }}
           PAGERDUTY_API_URL=https://api.pagerduty.com
-
           SPLUNK_TOKEN=${{ secrets.SPLUNK_TOKEN }}
           SPLUNK_API_URL=${{ secrets.SPLUNK_API_URL }}
-
+          KOMODOR_TOKEN=${{ secrets.KOMODOR_TOKEN }}
+          KOMODOR_API_URL=${{ secrets.KOMODOR_API_URL }}
           SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
           SLACK_SIGNING_SECRET=${{ secrets.SLACK_SIGNING_SECRET }}
           SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}
           SLACK_TEAM_ID=${{ secrets.SLACK_TEAM_ID }}
-
-
           A2A_TRANSPORT=p2p
+          ENABLE_RAG=true
           ENABLE_TRACING=false
+          ENABLE_ARGOCD=true
+          ENABLE_AWS=true
+          ENABLE_BACKSTAGE=true
+          ENABLE_CONFLUENCE=true
+          ENABLE_GITHUB=true
+          ENABLE_JIRA=true
+          ENABLE_PAGERDUTY=true
+          ENABLE_PETSTORE=true
+          ENABLE_SLACK=true
+          ENABLE_SPLUNK=true
+          ENABLE_WEBEX=true
+          ENABLE_WEATHER=true
+          ENABLE_NETUTILS=true
           EOF
           # Mask non-empty values to avoid accidental log exposure
           while IFS='=' read -r k v; do
@@ -72,28 +118,6 @@ jobs:
           docker version
           docker compose version || true
 
-      - name: Start AI Platform Engineering services
-        run: |
-          IMAGE_TAG=stable docker compose -f docker-compose.yaml --profile=p2p up -d
-
-      - name: Wait for ai-platform-engineering services to be ready
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 36); do
-            if curl -sfS http://localhost:8000/ >/dev/null 2>&1; then
-              echo "Service responded on /"
-              exit 0
-            fi
-            if curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null 2>&1; then
-              echo "Service responded on /.well-known/agent.json"
-              exit 0
-            fi
-            echo "Waiting for service on http://localhost:8000 ... ($i)"
-            sleep 5
-          done
-          echo "Service on http://localhost:8000 did not become ready in time"
-          exit 1
-
       - name: Setup Python for A2A client test
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -104,6 +128,125 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Run detailed integration tests
+      - name: Reclaim disk space
         run: |
+          echo "::group::Reclaim disk space"
+          echo "Before cleanup:"
+          df -h /
+          # Remove large pre-installed software not needed for container tests
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+          docker system prune -af --volumes 2>/dev/null || true
+          echo "After cleanup:"
+          df -h /
+          echo "::endgroup::"
+
+      - name: Pull prebuilt images
+        env:
+          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "Pulling GHCR images with IMAGE_TAG=${IMAGE_TAG}"
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+
+          # Pull all prebuilt images — individual failures are tolerated (e.g.
+          # agents that weren't rebuilt in this CI run still have a valid
+          # latest tag from a previous build).
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS pull \
+            || echo "::warning::Some image pulls failed (expected for agents not rebuilt in this run)"
+
+      - name: Start services
+        env:
+          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+
+          # Start with --no-build: uses the pulled GHCR images, never rebuilds locally.
+          # Tolerates partial failures from agents with missing credentials.
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS up -d --no-build \
+            || echo "::warning::Some containers failed to start (expected for agents without credentials)"
+
+      - name: Stream service logs (background)
+        run: |
+          set -euo pipefail
+          echo "::group::Service logs"
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+
+          ( docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS \
+              logs -f --no-color --timestamps \
+              | tee -a compose-live.log ) &
+          echo $! > logs.pid
+        shell: bash
+
+      - name: Wait for readiness
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 36); do
+            if curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null; then
+              echo "Service is up"
+              break
+            fi
+            if [ "$i" -eq 36 ]; then
+              echo "::error::Supervisor did not become ready within 3 minutes"
+              docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+              exit 1
+            fi
+            echo "Not ready yet ($i/36). Sleeping 5s..."
+            sleep 5
+          done
+
+      - name: Install GNU Make
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y make
+
+      - name: Run Detailed Sanity Integration Tests
+        run: |
+          set -euo pipefail
           make detailed-test
+
+      - name: On failure show recent logs
+        if: failure()
+        run: |
+          echo "::group::Recent logs (last 300 lines)"
+          tail -n 300 compose-live.log || true
+          echo "::endgroup::"
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: compose-logs-detailed
+          path: compose-live.log
+          if-no-files-found: warn
+
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "::group::Cleanup"
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS \
+            down -v --remove-orphans || true
+          docker rmi -f $(docker images -aq) 2>/dev/null || true
+          echo "::endgroup::"
