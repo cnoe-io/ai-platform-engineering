@@ -2615,20 +2615,9 @@ deploy_caipe() {
       da_oidc_client_id=$(_env_get "$UI_ENV_FILE" "OIDC_CLIENT_ID")
       da_oidc_admin_group=$(_env_get "$UI_ENV_FILE" "OIDC_REQUIRED_ADMIN_GROUP")
     fi
-    if [[ -n "$CAIPE_DOMAIN" && -n "$da_oidc_issuer" ]]; then
-      helm_args+=(
-        --set "dynamic-agents.config.AUTH_ENABLED=true"
-        --set "dynamic-agents.config.OIDC_ISSUER=${da_oidc_issuer}"
-        --set "dynamic-agents.config.OIDC_CLIENT_ID=${da_oidc_client_id}"
-        --set "dynamic-agents.config.CORS_ORIGINS=[\"https://${CAIPE_DOMAIN}\", \"http://localhost:3000\"]"
-      )
-      [[ -n "$da_oidc_admin_group" ]] && helm_args+=(
-        --set "dynamic-agents.config.OIDC_REQUIRED_ADMIN_GROUP=${da_oidc_admin_group}"
-      )
-    fi
-
     # Seed configuration: models + MCP servers pointing to cluster-local services.
-    # Write a temporary values override so Helm renders the seed ConfigMap correctly.
+    # Also carries auth/OIDC config — using a values file avoids --set comma
+    # parsing issues with CORS_ORIGINS (Helm splits on unescaped commas).
     local _da_values_file
     _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX.yaml)
 
@@ -2637,8 +2626,24 @@ deploy_caipe() {
     if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *bedrock* ]]; then _provider="aws-bedrock"; fi
     if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *azure* ]]; then _provider="azure-openai"; fi
 
+    # Write auth/OIDC config into the values file
     cat > "$_da_values_file" <<DAEOF
 dynamic-agents:
+  config:
+DAEOF
+    if [[ -n "$CAIPE_DOMAIN" && -n "$da_oidc_issuer" ]]; then
+      cat >> "$_da_values_file" <<DAEOF
+    AUTH_ENABLED: "true"
+    OIDC_ISSUER: "${da_oidc_issuer}"
+    OIDC_CLIENT_ID: "${da_oidc_client_id}"
+    CORS_ORIGINS: '["https://${CAIPE_DOMAIN}", "http://localhost:3000"]'
+DAEOF
+      [[ -n "$da_oidc_admin_group" ]] && cat >> "$_da_values_file" <<DAEOF
+    OIDC_REQUIRED_ADMIN_GROUP: "${da_oidc_admin_group}"
+DAEOF
+    fi
+
+    cat >> "$_da_values_file" <<DAEOF
   seedConfig:
     enabled: true
     models:
