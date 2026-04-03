@@ -278,7 +278,7 @@ ingestors: []
   #   # Jira API token from secret
   #   envFrom:
   #     - secretRef:
-  #         name: jira-credentials           # Must contain JIRA_API_TOKEN (or ATLASSIAN_TOKEN)
+  #         name: jira-credentials           # Must contain ATLASSIAN_TOKEN
   #
   #   resources:
   #     requests:

@@ -35,9 +35,10 @@ JIRA_EMAIL = os.environ.get("JIRA_EMAIL")
 if not JIRA_EMAIL:
     raise ValueError("JIRA_EMAIL environment variable is required")
 
-JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN") or os.environ.get("ATLASSIAN_TOKEN")
+# Use ATLASSIAN_TOKEN to match the convention used by Jira/Confluence agents, CI, and Helm secrets
+JIRA_API_TOKEN = os.environ.get("ATLASSIAN_TOKEN")
 if not JIRA_API_TOKEN:
-    raise ValueError("JIRA_API_TOKEN (or ATLASSIAN_TOKEN) environment variable is required")
+    raise ValueError("ATLASSIAN_TOKEN environment variable is required")
 
 # JSON config for projects and their JQL filters.
 # Each project key maps to a list of datasource configs. A single dict is also
@@ -304,7 +305,8 @@ def _build_issue_document(
         document_type="jira_issue",
         document_ingested_at=int(time.time()),
         document_id=f"jira-issue-{key}",
-        fresh_until=utils.get_fresh_until(sync_interval),
+        # sync_interval=0 is valid (single-run mode) but get_fresh_until requires >0
+        fresh_until=utils.get_fresh_until(sync_interval or 86400),
         title=f"[{key}] {summary}",
         metadata={
             "issue_key": key,
@@ -467,6 +469,7 @@ async def sync_jira_projects(client: Client) -> None:
                     job_id=job_id,
                     datasource_id=datasource_id,
                     documents=documents,
+                    fresh_until=utils.get_fresh_until(sync_interval or 86400),
                 )
                 await client.update_job(
                     job_id=job_id,
@@ -487,7 +490,7 @@ async def sync_jira_projects(client: Client) -> None:
 def main() -> None:
     """Main entry point for the Jira ingestor."""
     IngestorBuilder() \
-        .name("jira-ingestor") \
+        .name("default_jira") \
         .type("jira") \
         .description(f"Jira issue ingestor for {JIRA_URL}") \
         .metadata({

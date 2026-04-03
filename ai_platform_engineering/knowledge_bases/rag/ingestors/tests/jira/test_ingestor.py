@@ -32,7 +32,7 @@ import requests
 # ---------------------------------------------------------------------------
 os.environ.setdefault("JIRA_URL", "https://example.atlassian.net")
 os.environ.setdefault("JIRA_EMAIL", "test@example.com")
-os.environ.setdefault("JIRA_API_TOKEN", "test-token")
+os.environ.setdefault("ATLASSIAN_TOKEN", "test-token")
 os.environ.setdefault("JIRA_PROJECTS", '{"PROJ": [{"name": "My Project", "jql": "project = PROJ AND updated >= -30d ORDER BY updated DESC"}]}')
 
 # ---------------------------------------------------------------------------
@@ -305,7 +305,7 @@ class TestBuildIssueDocument:
             comments=comments or [],
             jira_url="https://example.atlassian.net",
             datasource_id="jira-project-proj",
-            ingestor_id="jira:jira-ingestor",
+            ingestor_id="jira:default_jira",
             **kwargs,
         )
 
@@ -402,7 +402,7 @@ class TestBuildIssueDocument:
             comments=[],
             jira_url="https://example.atlassian.net",
             datasource_id="jira-project-proj",
-            ingestor_id="jira:jira-ingestor",
+            ingestor_id="jira:default_jira",
             custom_fields={"slo_impact": "customfield_10200"},
         )
         assert "P1" in doc.page_content
@@ -416,7 +416,7 @@ class TestBuildIssueDocument:
 class TestSyncJiraProjects:
     def _make_client(self):
         client = AsyncMock()
-        client.ingestor_id = "jira:jira-ingestor"
+        client.ingestor_id = "jira:default_jira"
         client.upsert_datasource = AsyncMock()
         client.create_job = AsyncMock(return_value={"job_id": "job-1"})
         client.ingest_documents = AsyncMock()
