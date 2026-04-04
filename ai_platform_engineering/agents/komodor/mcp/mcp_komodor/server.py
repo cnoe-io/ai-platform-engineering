@@ -156,10 +156,7 @@ def main():
   logging.info(f"MCP Server name: {SERVER_NAME}")
 
   # Create server instance
-  if MCP_MODE.lower() in ["sse", "http"]:
-    mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
-  else:
-    mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+  mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
   # Register api_v2_services_search tools
 
@@ -450,7 +447,10 @@ def main():
   mcp.tool()(mgmt_v1_rbac_actions_id.put_actions_controller_v1_upd)
 
   # Run the MCP server
-  mcp.run(transport=MCP_MODE.lower())
+  if MCP_MODE.lower() in ["sse", "http"]:
+    mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+  else:
+    mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":

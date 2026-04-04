@@ -49,10 +49,7 @@ def main():
     logging.info('*'*40)
 
     # Create server instance
-    if MCP_MODE.lower() in ["sse", "http"]:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
-    else:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+    mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
     # Register Jira tools
     mcp.tool()(attachments.upload_attachment)
@@ -131,7 +128,10 @@ def main():
     mcp.tool()(filters.delete_filter)
 
     # Run the MCP server
-    mcp.run(transport=MCP_MODE.lower())
+    if MCP_MODE.lower() in ["sse", "http"]:
+        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+    else:
+        mcp.run(transport=MCP_MODE.lower())
     logging.info("="*40)
     logging.info(f"{SERVER_NAME} MCP server started successfully.")
     logging.info("="*40)
