@@ -116,16 +116,19 @@ mcp_servers:
     args: ["mock-mcp-server"]
     enabled: false  # Disabled by default since it's just for testing
 
-  # Example: GitHub MCP Server
-  # - id: "github"
-  #   name: "GitHub"
-  #   description: "GitHub operations via MCP"
-  #   transport: "stdio"
-  #   command: "uvx"
-  #   args: ["mcp-server-github"]
-  #   env:
-  #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
-  #   enabled: true
+  # GitHub MCP Server (Go-based, runs via `go run`)
+  # Set GITHUB_MCP_SERVER_DIR to absolute path of mcp_github/ if running
+  # from a non-standard location.
+  - id: "github"
+    name: "GitHub"
+    description: "GitHub operations — repos, issues, PRs, code search, actions, and more"
+    transport: "stdio"
+    command: "go"
+    args: ["run", "./cmd/github-mcp-server", "stdio"]
+    cwd: "${GITHUB_MCP_SERVER_DIR}"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+    enabled: true
 
   # Example: Filesystem MCP Server
   # - id: "filesystem"

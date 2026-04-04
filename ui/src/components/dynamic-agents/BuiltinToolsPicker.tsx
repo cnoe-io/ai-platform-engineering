@@ -4,7 +4,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Globe, Info, Settings, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { Globe, Info, Settings, ChevronDown, ChevronRight, Loader2, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -23,6 +23,7 @@ interface BuiltinToolsPickerProps {
   value: BuiltinToolsConfig | undefined;
   onChange: (value: BuiltinToolsConfig) => void;
   disabled?: boolean;
+  sandboxEnabled?: boolean;
 }
 
 /**
@@ -85,11 +86,13 @@ function ToolConfig({
   config,
   onChange,
   disabled,
+  sandboxEnabled,
 }: {
   definition: BuiltinToolDefinition;
   config: GenericToolConfig | undefined;
   onChange: (config: GenericToolConfig) => void;
   disabled?: boolean;
+  sandboxEnabled?: boolean;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const isEnabled = config?.enabled ?? definition.enabled_by_default;
@@ -152,9 +155,15 @@ function ToolConfig({
             />
           </button>
 
-          <div>
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-mono text-sm font-medium">{definition.id}</span>
-            <span className="text-xs text-muted-foreground ml-2">
+            {sandboxEnabled && !definition.runs_in_sandbox && isEnabled && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                <ShieldAlert className="h-2.5 w-2.5" />
+                host
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground">
               {definition.description}
             </span>
           </div>
@@ -178,6 +187,14 @@ function ToolConfig({
           </Button>
         )}
       </div>
+
+      {/* Sandbox warning */}
+      {isEnabled && sandboxEnabled && !definition.runs_in_sandbox && definition.sandbox_warning && (
+        <div className="border-t px-3 py-2 bg-amber-500/5 flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+          <ShieldAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>{definition.sandbox_warning}</span>
+        </div>
+      )}
 
       {/* Expanded Configuration */}
       {isEnabled && hasConfigFields && expanded && (
@@ -330,7 +347,7 @@ function ConfigField({
   return null;
 }
 
-export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPickerProps) {
+export function BuiltinToolsPicker({ value, onChange, disabled, sandboxEnabled }: BuiltinToolsPickerProps) {
   const { definitions, loading, error } = useBuiltinToolDefinitions();
 
   // Track whether we've initialized defaults for the current definitions.
@@ -440,6 +457,16 @@ export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPi
         Built-in Tools
       </Label>
 
+      {sandboxEnabled && (
+        <div className="text-xs text-muted-foreground bg-muted/50 border rounded-lg p-2.5 flex items-start gap-2">
+          <ShieldAlert className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
+          <span>
+            Sandbox tools (filesystem, execute, shell) are included automatically.
+            Built-in tools below run on the <strong>host</strong> and bypass sandbox policies.
+          </span>
+        </div>
+      )}
+
       <div className="space-y-2">
         {definitions.map((definition) => (
           <ToolConfig
@@ -448,6 +475,7 @@ export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPi
             config={(value as Record<string, GenericToolConfig | undefined>)?.[definition.id]}
             onChange={(config) => handleToolChange(definition.id, config)}
             disabled={disabled}
+            sandboxEnabled={sandboxEnabled}
           />
         ))}
       </div>

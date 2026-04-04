@@ -92,6 +92,30 @@ export interface DAErrorSegment {
   message: string;
 }
 
+/** A sandbox policy denial */
+export interface DASandboxDenialSegment {
+  type: "sandbox_denial";
+  id: string;
+  host?: string;
+  port?: number;
+  binary?: string;
+  reason?: string;
+  stage?: string;
+  sandbox_name?: string;
+}
+
+/** A sandbox tool execution result */
+export interface DASandboxToolExecSegment {
+  type: "sandbox_tool_exec";
+  id: string;
+  tool_name: string;
+  tool_call_id: string;
+  command?: string;
+  exit_code?: number;
+  sandbox_name?: string;
+  truncated?: boolean;
+}
+
 /** Status segment types */
 export type DAStatusType = "done" | "interrupted" | "waiting_for_input";
 
@@ -125,7 +149,9 @@ export type DATimelineSegment =
   | DAWarningSegment
   | DAErrorSegment
   | DAStatusSegment
-  | DADoneSegment;
+  | DADoneSegment
+  | DASandboxDenialSegment
+  | DASandboxToolExecSegment;
 
 // ═══════════════════════════════════════════════════════════════
 // Timeline Data (Interleaved Structure)

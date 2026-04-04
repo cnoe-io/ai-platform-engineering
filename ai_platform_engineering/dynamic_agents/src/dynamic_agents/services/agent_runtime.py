@@ -5,6 +5,7 @@ Creates and manages DeepAgent instances with MCP tools.
 
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import AsyncGenerator, Callable
@@ -34,9 +35,13 @@ from dynamic_agents.services.mcp_client import (
     filter_tools_by_allowed,
     get_tools_with_resilience,
 )
+from dynamic_agents.services.sandbox import SandboxManager, get_sandbox_manager
 from dynamic_agents.services.stream_events import (
     make_input_required_event,
     transform_stream_chunk,
+)
+from dynamic_agents.services.tool_error_handling import (
+    wrap_tools_with_error_handling,
 )
 
 if TYPE_CHECKING:
@@ -100,6 +105,10 @@ class AgentRuntime:
         )
         # Cancellation flag for graceful stream termination
         self._cancelled: bool = False
+        # OpenShell sandbox state
+        self._sandbox_manager: SandboxManager | None = None
+        self._sandbox_backend = None
+        self._sandbox_name: str | None = None
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -178,26 +187,38 @@ class AgentRuntime:
                 f"Agent '{self.config.name}': resolved {len(subagents)} subagents: {[s['name'] for s in subagents]}"
             )
 
-        # 8. Create the agent graph
+        # 8. Set up OpenShell sandbox backend if enabled
+        sandbox_backend_factory = None
+        if self.config.sandbox and self.config.sandbox.enabled:
+            sandbox_backend_factory = self._setup_sandbox_backend()
+
+        # 9. Create the agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
         safe_name = _sanitize_agent_name(self.config.name)
-        self._graph = create_deep_agent(
-            model=llm,
-            tools=tools,
-            system_prompt=system_prompt,
-            context_schema=AgentContext,
-            checkpointer=self._checkpointer,
-            name=safe_name,
-            subagents=subagents if subagents else None,
-            interrupt_on={"request_user_input": True},
-        )
+
+        deep_agent_kwargs: dict[str, Any] = {
+            "model": llm,
+            "tools": tools,
+            "system_prompt": system_prompt,
+            "context_schema": AgentContext,
+            "checkpointer": self._checkpointer,
+            "name": safe_name,
+            "subagents": subagents if subagents else None,
+            "interrupt_on": {"request_user_input": True},
+        }
+
+        if sandbox_backend_factory:
+            deep_agent_kwargs["backend"] = sandbox_backend_factory
+
+        self._graph = create_deep_agent(**deep_agent_kwargs)
 
         self._initialized = True
+        sandbox_info = f", sandbox={self._sandbox_name}" if self._sandbox_name else ""
         logger.info(
             f"[agent] Agent '{self.config.name}' initialized: "
-            f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
+            f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}{sandbox_info}"
         )
 
     def _build_builtin_tools(
@@ -222,12 +243,23 @@ class AgentRuntime:
         if not config.builtin_tools:
             return tools
 
-        # fetch_url tool (disabled by default)
+        sandbox_on = config.sandbox and config.sandbox.enabled
+
+        # fetch_url tool (disabled by default).
+        # Runs in the host Python process, NOT inside the sandbox.
+        # When sandbox is enabled, warn the operator.
         fetch_url_config = config.builtin_tools.fetch_url
         if fetch_url_config and fetch_url_config.enabled:
             allowed_domains = fetch_url_config.allowed_domains or "*"
             tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
             config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
+            if sandbox_on:
+                logger.warning(
+                    "[sandbox] Agent '%s': fetch_url runs outside the sandbox "
+                    "and is NOT subject to sandbox network policies. "
+                    "Restrict via allowed_domains or disable when strict isolation is needed.",
+                    config.name,
+                )
 
         # current_datetime tool (enabled by default)
         current_datetime_config = config.builtin_tools.current_datetime
@@ -261,6 +293,152 @@ class AgentRuntime:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
 
         return tools
+
+    def _setup_sandbox_backend(self) -> Any:
+        """Set up the OpenShell sandbox backend for this agent.
+
+        Creates or connects to a persistent sandbox and builds a
+        CompositeBackend with the OpenShellBackend as the default.
+
+        Returns:
+            Backend factory callable for create_deep_agent().
+        """
+        from deepagents.backends import CompositeBackend
+
+        from dynamic_agents.services.openshell_backend import OpenShellBackend
+
+        sandbox_config = self.config.sandbox
+        self._sandbox_manager = get_sandbox_manager(self.settings)
+
+        sandbox_name = sandbox_config.sandbox_name or f"da-{self.config.id}"
+        self._sandbox_name = sandbox_name
+
+        session = self._sandbox_manager.get_or_create_sandbox(sandbox_name)
+        timeout = self.settings.openshell_default_timeout
+
+        self._sandbox_backend = OpenShellBackend(session, default_timeout=timeout)
+
+        policy_result = self._sandbox_manager.initialize_policy(
+            sandbox_name,
+            template=sandbox_config.policy_template.value,
+            custom_yaml=sandbox_config.policy_yaml,
+        )
+
+        policy_status = policy_result.get("status", "unknown")
+        if policy_status not in ("loaded",):
+            policy_err = policy_result.get("error", "unknown error")
+            logger.error(
+                "[sandbox] Policy failed to load for agent '%s' sandbox '%s': %s",
+                self.config.name,
+                sandbox_name,
+                policy_err,
+            )
+        else:
+            logger.info(
+                "[sandbox] Sandbox '%s' ready for agent '%s' "
+                "(policy=%s)",
+                sandbox_name,
+                self.config.name,
+                sandbox_config.policy_template.value,
+            )
+
+        # Inject credentials and SSL config into the sandbox so git/curl work
+        self._configure_sandbox_env(self._sandbox_backend)
+
+        backend = self._sandbox_backend
+
+        def _backend_factory(runtime: Any) -> CompositeBackend:
+            return CompositeBackend(default=backend, routes={})
+
+        return _backend_factory
+
+    def _configure_sandbox_env(self, backend: Any) -> None:
+        """Inject host credentials, CA certs, and env config into the sandbox.
+
+        Runs once per sandbox init to set up:
+        1. OpenShell proxy CA certificate so git/curl trust TLS-intercepted connections
+        2. Git credential helper with the GitHub PAT for authenticated operations
+        3. GIT_TERMINAL_PROMPT=0 to prevent git from hanging on auth prompts
+        """
+        self._inject_ca_cert(backend)
+        self._inject_git_credentials(backend)
+
+    def _inject_ca_cert(self, backend: Any) -> None:
+        """Install the OpenShell gateway CA cert into the sandbox trust store.
+
+        The OpenShell proxy performs TLS interception on network traffic.
+        Without its CA cert in the trust store, git/curl/pip fail with
+        'server certificate verification failed'.
+        """
+        from pathlib import Path
+
+        gw_name = self.settings.openshell_gateway_name or "openshell"
+        ca_path = Path.home() / ".config" / "openshell" / "gateways" / gw_name / "mtls" / "ca.crt"
+
+        if not ca_path.exists():
+            logger.debug("[sandbox] No gateway CA cert found at %s, skipping", ca_path)
+            return
+
+        ca_pem = ca_path.read_text()
+        sandbox_ca_path = "/usr/local/share/ca-certificates/openshell-proxy.crt"
+        sandbox_bundle = "/etc/ssl/certs/ca-certificates.crt"
+
+        install_script = f"""
+mkdir -p /usr/local/share/ca-certificates 2>/dev/null
+cat > {sandbox_ca_path} << 'CERT'
+{ca_pem.strip()}
+CERT
+if command -v update-ca-certificates >/dev/null 2>&1; then
+  update-ca-certificates 2>/dev/null
+elif [ -f {sandbox_bundle} ]; then
+  cat {sandbox_ca_path} >> {sandbox_bundle}
+fi
+git config --global http.sslCAInfo {sandbox_bundle}
+"""
+        try:
+            result = backend.execute(install_script, timeout=30)
+            if result.exit_code != 0:
+                logger.warning("[sandbox] CA cert install returned non-zero: %s", result.output)
+            else:
+                logger.info("[sandbox] OpenShell CA cert installed for agent '%s'", self.config.name)
+        except Exception as exc:
+            logger.warning("[sandbox] Failed to install CA cert: %s", exc)
+
+    def _inject_git_credentials(self, backend: Any) -> None:
+        """Configure git credentials and environment inside the sandbox.
+
+        Uses a git credential helper script that returns the PAT,
+        avoiding url.insteadOf which can cause password prompt issues.
+        """
+        github_pat = os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN", "")
+        if not github_pat:
+            logger.debug("[sandbox] No GITHUB_PERSONAL_ACCESS_TOKEN set, skipping git credential setup")
+            return
+
+        credential_script = f"""
+mkdir -p /sandbox/.git-credentials 2>/dev/null
+cat > /sandbox/.git-credentials/helper.sh << 'HELPER'
+#!/bin/bash
+echo "protocol=https"
+echo "host=github.com"
+echo "username=x-access-token"
+echo "password={github_pat}"
+HELPER
+chmod +x /sandbox/.git-credentials/helper.sh
+git config --global credential.helper '/sandbox/.git-credentials/helper.sh'
+git config --global credential.https://github.com.helper '/sandbox/.git-credentials/helper.sh'
+export GIT_TERMINAL_PROMPT=0
+echo 'export GIT_TERMINAL_PROMPT=0' >> ~/.bashrc 2>/dev/null
+echo 'export GIT_TERMINAL_PROMPT=0' >> ~/.profile 2>/dev/null
+"""
+        try:
+            result = backend.execute(credential_script, timeout=15)
+            if result.exit_code != 0:
+                logger.warning("[sandbox] Git credential setup returned non-zero: %s", result.output)
+            else:
+                logger.info("[sandbox] Git credentials configured for agent '%s'", self.config.name)
+        except Exception as exc:
+            logger.warning("[sandbox] Failed to configure git credentials: %s", exc)
 
     async def _resolve_subagents(
         self,
@@ -356,6 +534,9 @@ class AgentRuntime:
                 mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
                 all_tools = await mcp_client.get_tools()
                 mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
+                mcp_tools = wrap_tools_with_error_handling(
+                    mcp_tools, agent_name=subagent_config.name,
+                )
                 tools.extend(mcp_tools)
 
         # 2. Add built-in tools based on subagent's config

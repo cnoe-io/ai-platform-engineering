@@ -30,6 +30,11 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             name="Fetch URL",
             description="Fetches content from web pages, APIs, or documentation sites",
             enabled_by_default=False,
+            runs_in_sandbox=False,
+            sandbox_warning=(
+                "Runs outside the sandbox — network requests bypass sandbox policies. "
+                "Use allowed_domains to restrict access, or disable when strict isolation is needed."
+            ),
             config_fields=[
                 BuiltinToolConfigField(
                     name="allowed_domains",
@@ -48,20 +53,21 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             name="Current Date/Time",
             description="Returns the current date and time in various formats and timezones",
             enabled_by_default=True,
-            config_fields=[],
+            runs_in_sandbox=False,
         ),
         BuiltinToolDefinition(
             id="user_info",
             name="User Info",
             description="Returns information about the current user (email, name, groups)",
             enabled_by_default=True,
-            config_fields=[],
+            runs_in_sandbox=False,
         ),
         BuiltinToolDefinition(
             id="sleep",
             name="Sleep",
             description="Pauses execution for a specified duration",
             enabled_by_default=True,
+            runs_in_sandbox=False,
             config_fields=[
                 BuiltinToolConfigField(
                     name="max_seconds",
@@ -78,7 +84,7 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             name="Request User Input",
             description="Requests structured input from the user via a form (HITL)",
             enabled_by_default=True,
-            config_fields=[],
+            runs_in_sandbox=False,
         ),
     ]
 

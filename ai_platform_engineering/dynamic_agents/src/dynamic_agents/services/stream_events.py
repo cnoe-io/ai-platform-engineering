@@ -45,6 +45,9 @@ CONTENT = "content"
 TOOL_START = "tool_start"
 TOOL_END = "tool_end"
 INPUT_REQUIRED = "input_required"
+SANDBOX_DENIAL = "sandbox_denial"
+SANDBOX_POLICY_UPDATE = "sandbox_policy_update"
+SANDBOX_TOOL_EXEC = "sandbox_tool_exec"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -275,6 +278,87 @@ def make_input_required_event(
             "prompt": prompt,
             "fields": fields,
             "agent": agent,
+        },
+        "namespace": list(namespace),
+    }
+
+
+def make_sandbox_denial_event(denial: dict[str, Any]) -> dict[str, Any]:
+    """Build SSE event for a sandbox policy denial.
+
+    Args:
+        denial: Raw denial dict from the WatchSandbox stream.
+    """
+    return {
+        "type": SANDBOX_DENIAL,
+        "data": {
+            "id": _make_event_id(),
+            "host": denial.get("dst_host") or denial.get("host"),
+            "port": denial.get("port"),
+            "binary": denial.get("binary"),
+            "reason": denial.get("deny_reason") or denial.get("reason"),
+            "stage": denial.get("denial_stage") or denial.get("stage"),
+            "sandbox_name": denial.get("sandbox_name"),
+            "timestamp": denial.get("timestamp"),
+        },
+        "namespace": [],
+    }
+
+
+def make_sandbox_policy_update_event(
+    sandbox_name: str,
+    status: str,
+    rule_id: str | None = None,
+) -> dict[str, Any]:
+    """Build SSE event for a sandbox policy update confirmation.
+
+    Args:
+        sandbox_name: Name of the sandbox whose policy changed.
+        status: Update status ('loaded', 'failed', 'error').
+        rule_id: Optional ID of the rule that was added/removed.
+    """
+    return {
+        "type": SANDBOX_POLICY_UPDATE,
+        "data": {
+            "id": _make_event_id(),
+            "sandbox_name": sandbox_name,
+            "status": status,
+            "rule_id": rule_id,
+        },
+        "namespace": [],
+    }
+
+
+def make_sandbox_tool_exec_event(
+    tool_name: str,
+    tool_call_id: str,
+    command: str | None = None,
+    exit_code: int | None = None,
+    sandbox_name: str | None = None,
+    truncated: bool = False,
+    namespace: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Build an enhanced tool card event for sandbox tool execution.
+
+    Args:
+        tool_name: Name of the sandbox tool (execute, read_file, etc.)
+        tool_call_id: Unique ID for this tool call.
+        command: Shell command that was executed (for execute tool).
+        exit_code: Process exit code.
+        sandbox_name: Name of the sandbox.
+        truncated: Whether output was truncated.
+        namespace: LangGraph namespace tuple.
+    """
+    return {
+        "type": SANDBOX_TOOL_EXEC,
+        "data": {
+            "id": _make_event_id(),
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "command": command,
+            "exit_code": exit_code,
+            "sandbox_name": sandbox_name,
+            "truncated": truncated,
         },
         "namespace": list(namespace),
     }

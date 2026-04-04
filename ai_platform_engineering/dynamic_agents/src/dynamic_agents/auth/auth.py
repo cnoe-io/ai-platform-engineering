@@ -368,10 +368,12 @@ async def get_current_user(
     # If auth is disabled, return a dev user with admin privileges
     # This bypasses ALL auth, even if a token is sent
     if not settings.auth_enabled:
-        logger.debug("Auth disabled (AUTH_ENABLED=false), returning dev user with admin privileges")
+        proxy_email = request.headers.get("X-User-Email")
+        email = proxy_email if proxy_email else "dev@localhost"
+        logger.debug("Auth disabled (AUTH_ENABLED=false), using identity: %s", email)
         return UserContext(
-            email="dev@localhost",
-            name="Dev User",
+            email=email,
+            name=email.split("@")[0] if proxy_email else "Dev User",
             groups=["admin"],
             is_admin=True,
             raw_claims={},

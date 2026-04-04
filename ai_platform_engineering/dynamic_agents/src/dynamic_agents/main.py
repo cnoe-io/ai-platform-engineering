@@ -3,8 +3,13 @@
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from dynamic_agents.log_config import setup_logging
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 # Setup logging before other imports that trigger cnoe-agent-utils
 logger = setup_logging()
@@ -103,6 +108,9 @@ def create_app() -> FastAPI:
     app.include_router(mcp_servers.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(conversations.router, prefix="/api/v1")
+
+    from dynamic_agents.routes import sandbox
+    app.include_router(sandbox.router, prefix="/api/v1")
 
     @app.get("/")
     async def root():

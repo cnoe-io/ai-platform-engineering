@@ -94,6 +94,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const headers: HeadersInit = {
       "Content-Type": "application/json",
+      "X-User-Email": user.email || "",
     };
     if (session.accessToken) {
       headers["Authorization"] = `Bearer ${session.accessToken}`;
@@ -138,6 +139,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     const headers: HeadersInit = {
       "Content-Type": "application/json",
+      "X-User-Email": user.email || "",
     };
     if (session.accessToken) {
       headers["Authorization"] = `Bearer ${session.accessToken}`;

@@ -71,6 +71,37 @@ export interface WarningEventData {
   message: string;
 }
 
+/** Sandbox denial event data */
+export interface SandboxDenialData {
+  id: string;
+  host?: string;
+  port?: number;
+  binary?: string;
+  reason?: string;
+  stage?: "l4_deny" | "l7_deny" | "l7_audit" | "ssrf";
+  sandbox_name?: string;
+  timestamp?: string;
+}
+
+/** Sandbox policy update event data */
+export interface SandboxPolicyUpdateData {
+  id: string;
+  sandbox_name: string;
+  status: "loaded" | "failed" | "error";
+  rule_id?: string;
+}
+
+/** Sandbox enhanced tool execution event data */
+export interface SandboxToolExecData {
+  id: string;
+  tool_name: string;
+  tool_call_id: string;
+  command?: string;
+  exit_code?: number;
+  sandbox_name?: string;
+  truncated?: boolean;
+}
+
 /** Input required data from input_required events (HITL forms) */
 export interface InputRequiredEventData {
   /** Unique ID for this interrupt (used to resume) */
@@ -142,7 +173,10 @@ export type SSEEventType =
   | "tool_end" // Tool invocation completed
   | "input_required" // Agent requests user input via form (HITL)
   | "warning" // Warning event (e.g., missing tools) - rendered inline
-  | "error"; // Error event - rendered inline
+  | "error" // Error event - rendered inline
+  | "sandbox_denial" // Sandbox policy denied a request
+  | "sandbox_policy_update" // Sandbox policy was updated (hot reload)
+  | "sandbox_tool_exec"; // Enhanced sandbox tool execution info
 
 /**
  * SSE Agent event stored in the conversation.
@@ -195,6 +229,16 @@ export interface SSEAgentEvent {
 
   /** HITL metadata */
   metadata?: HITLMetadata;
+
+  // ─── Sandbox ────────────────────────────────────────────────
+  /** Sandbox denial data for sandbox_denial events */
+  sandboxDenialData?: SandboxDenialData;
+
+  /** Sandbox policy update data for sandbox_policy_update events */
+  sandboxPolicyUpdateData?: SandboxPolicyUpdateData;
+
+  /** Sandbox tool execution data for sandbox_tool_exec events */
+  sandboxToolExecData?: SandboxToolExecData;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -312,6 +356,53 @@ export function createSSEAgentEvent(
         ...base,
         warningData,
         displayContent: data.message,
+      };
+    }
+
+    case "sandbox_denial": {
+      const denialData: SandboxDenialData = {
+        id: (data as Record<string, unknown>).id as string ?? "",
+        host: (data as Record<string, unknown>).host as string | undefined,
+        port: (data as Record<string, unknown>).port as number | undefined,
+        binary: (data as Record<string, unknown>).binary as string | undefined,
+        reason: (data as Record<string, unknown>).reason as string | undefined,
+        stage: (data as Record<string, unknown>).stage as SandboxDenialData["stage"],
+        sandbox_name: (data as Record<string, unknown>).sandbox_name as string | undefined,
+        timestamp: (data as Record<string, unknown>).timestamp as string | undefined,
+      };
+      return {
+        ...base,
+        sandboxDenialData: denialData,
+        displayContent: `Sandbox blocked: ${denialData.host ?? "unknown"}:${denialData.port ?? "?"}`,
+      };
+    }
+
+    case "sandbox_policy_update": {
+      const updateData: SandboxPolicyUpdateData = {
+        id: (data as Record<string, unknown>).id as string ?? "",
+        sandbox_name: (data as Record<string, unknown>).sandbox_name as string ?? "",
+        status: (data as Record<string, unknown>).status as SandboxPolicyUpdateData["status"] ?? "loaded",
+        rule_id: (data as Record<string, unknown>).rule_id as string | undefined,
+      };
+      return {
+        ...base,
+        sandboxPolicyUpdateData: updateData,
+      };
+    }
+
+    case "sandbox_tool_exec": {
+      const execData: SandboxToolExecData = {
+        id: (data as Record<string, unknown>).id as string ?? "",
+        tool_name: (data as Record<string, unknown>).tool_name as string ?? "",
+        tool_call_id: (data as Record<string, unknown>).tool_call_id as string ?? "",
+        command: (data as Record<string, unknown>).command as string | undefined,
+        exit_code: (data as Record<string, unknown>).exit_code as number | undefined,
+        sandbox_name: (data as Record<string, unknown>).sandbox_name as string | undefined,
+        truncated: (data as Record<string, unknown>).truncated as boolean | undefined,
+      };
+      return {
+        ...base,
+        sandboxToolExecData: execData,
       };
     }
 

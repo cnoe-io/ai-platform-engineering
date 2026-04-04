@@ -22,8 +22,10 @@ import type {
   DASubagentSegment,
   DAStatusSegment,
   DAStatusType,
+  DASandboxDenialSegment,
+  DASandboxToolExecSegment,
 } from "@/types/dynamic-agent-timeline";
-import type { ToolStartEventData } from "@/components/dynamic-agents/sse-types";
+import type { ToolStartEventData, SandboxDenialData, SandboxToolExecData } from "@/components/dynamic-agents/sse-types";
 import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 
 // ═══════════════════════════════════════════════════════════════
@@ -339,6 +341,47 @@ export class DATimelineManager {
       id: `error-${this.errorCount}`,
       message,
     });
+  }
+
+  /**
+   * Push a sandbox policy denial event.
+   */
+  pushSandboxDenial(denial: SandboxDenialData): void {
+    this.eventIndex++;
+    this.flushRootContent();
+
+    const segment: DASandboxDenialSegment = {
+      type: "sandbox_denial",
+      id: denial.id || `sandbox-denial-${this.eventIndex}`,
+      host: denial.host,
+      port: denial.port,
+      binary: denial.binary,
+      reason: denial.reason,
+      stage: denial.stage,
+      sandbox_name: denial.sandbox_name,
+    };
+
+    this.rootSegments.push(segment);
+  }
+
+  /**
+   * Push a sandbox tool execution event.
+   */
+  pushSandboxToolExec(exec: SandboxToolExecData): void {
+    this.eventIndex++;
+
+    const segment: DASandboxToolExecSegment = {
+      type: "sandbox_tool_exec",
+      id: exec.id || `sandbox-tool-${this.eventIndex}`,
+      tool_name: exec.tool_name,
+      tool_call_id: exec.tool_call_id,
+      command: exec.command,
+      exit_code: exec.exit_code,
+      sandbox_name: exec.sandbox_name,
+      truncated: exec.truncated,
+    };
+
+    this.rootSegments.push(segment);
   }
 
   // ═══════════════════════════════════════════════════════════════

@@ -28,6 +28,8 @@ interface DynamicAgentChatViewProps {
   allowedTools?: Record<string, string[]>;
   /** Configured subagents */
   subagents?: SubAgentRef[];
+  /** Whether sandbox is enabled */
+  sandboxEnabled?: boolean;
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
   /** Whether the agent is disabled */
@@ -58,6 +60,7 @@ export function DynamicAgentChatView({
   agentGradient,
   allowedTools,
   subagents,
+  sandboxEnabled,
   agentNotFound,
   agentDisabled,
   readOnly,
@@ -65,7 +68,7 @@ export function DynamicAgentChatView({
   adminOrigin,
   isLoadingMessages,
 }: DynamicAgentChatViewProps) {
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
+  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(!sandboxEnabled);
 
   return (
     <div className="flex-1 min-w-0 flex h-full">
@@ -95,6 +98,7 @@ export function DynamicAgentChatView({
         agentGradient={agentGradient}
         allowedTools={allowedTools}
         subagents={subagents}
+        sandboxEnabled={sandboxEnabled}
         agentNotFound={agentNotFound}
         agentDisabled={agentDisabled}
         collapsed={contextPanelCollapsed}

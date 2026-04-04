@@ -1,5 +1,6 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator
@@ -14,6 +15,11 @@ from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, DynamicAgentConfig, UserContext
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
+from dynamic_agents.services.sandbox import get_sandbox_manager
+from dynamic_agents.services.stream_events import (
+    make_sandbox_denial_event,
+    make_sandbox_policy_update_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,27 +83,56 @@ async def _generate_sse_events(
             user=user,
         )
 
-        # Stream response with trace_id for Langfuse tracing
-        async for event in runtime.stream(message, session_id, user.email, trace_id):
-            event_type = event.get("type", "event")
-            event_data = event.get("data", "")
-            namespace = event.get("namespace", [])
+        # Subscribe to sandbox events if sandbox is enabled
+        sandbox_sub: asyncio.Queue | None = None
+        sandbox_name: str | None = getattr(runtime, "_sandbox_name", None)
+        mgr = None
+        if sandbox_name:
+            mgr = get_sandbox_manager()
+            sandbox_sub = mgr.subscribe(sandbox_name)
+            await mgr.start_watch(sandbox_name)
 
-            # Format as SSE - include namespace in data payload
-            if isinstance(event_data, dict):
-                # Add namespace to dict data
-                event_data["namespace"] = namespace
-                data = json.dumps(event_data)
-            else:
-                # For content events (string data), wrap with namespace
-                data = json.dumps({"text": event_data, "namespace": namespace})
+        try:
+            # Stream response with trace_id for Langfuse tracing
+            async for event in runtime.stream(message, session_id, user.email, trace_id):
+                event_type = event.get("type", "event")
+                event_data = event.get("data", "")
+                namespace = event.get("namespace", [])
 
-            # Use proper SSE encoding (handles newlines in content)
-            sse_data = _encode_sse_data(data)
-            yield f"event: {event_type}\n{sse_data}\n\n"
+                # Format as SSE - include namespace in data payload
+                if isinstance(event_data, dict):
+                    event_data["namespace"] = namespace
+                    data = json.dumps(event_data)
+                else:
+                    data = json.dumps({"text": event_data, "namespace": namespace})
 
-        # Send done event
-        yield "event: done\ndata: {}\n\n"
+                sse_data = _encode_sse_data(data)
+                yield f"event: {event_type}\n{sse_data}\n\n"
+
+                # Drain pending sandbox events (denials + policy updates)
+                if sandbox_sub:
+                    while not sandbox_sub.empty():
+                        try:
+                            item = sandbox_sub.get_nowait()
+                            if item.get("_type") == "policy_update":
+                                evt = make_sandbox_policy_update_event(
+                                    sandbox_name=item["sandbox_name"],
+                                    status=item["status"],
+                                    rule_id=item.get("rule_id"),
+                                )
+                            else:
+                                evt = make_sandbox_denial_event(item)
+                            evt_data = json.dumps(evt["data"])
+                            evt_sse = _encode_sse_data(evt_data)
+                            yield f"event: {evt['type']}\n{evt_sse}\n\n"
+                        except asyncio.QueueEmpty:
+                            break
+
+            # Send done event
+            yield "event: done\ndata: {}\n\n"
+        finally:
+            if sandbox_sub and sandbox_name and mgr:
+                mgr.unsubscribe(sandbox_name, sandbox_sub)
 
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
