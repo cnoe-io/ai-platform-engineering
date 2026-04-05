@@ -1,19 +1,19 @@
 ---
 name: "Grype Scan"
-description: "Run Anchore Grype vulnerability scan on tag pushes — filesystem and all published container images"
+description: "Anchore Grype vulnerability scan — filesystem on PRs/main (blocking), filesystem + all containers on tags (informational)"
 
-# Runs on tag pushes and workflow_dispatch.
-# Uses Grype (anchore/scan-action) as a safe alternative to aquasecurity/trivy-action
-# following its March 2026 supply chain compromise.
-#
-# Two jobs:
-#   scan-filesystem — scans the repo source tree for package manifest vulnerabilities
-#   scan-containers — scans every published GHCR image (matrix of 35 images)
+# Trigger matrix:
+#   pull_request / push to main  → filesystem scan only, fail-build: true  (blocks merge)
+#   push tag                     → filesystem scan + all container images, fail-build: false (informational)
+#   workflow_dispatch            → both jobs, fail-build: false
 
 on:
+  pull_request:
+    branches: [main]
   push:
+    branches: [main]
     tags:
-      - "[0-9]*.[0-9]*.[0-9]*"  # matches 0.2.3, 0.2.3-rc.1, 0.2.3.rc, etc.
+      - "[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
     inputs:
       tag:
@@ -45,7 +45,8 @@ jobs:
         id: scan
         with:
           path: "."
-          fail-build: false
+          # Blocking on PRs and main pushes — informational on tags and manual dispatch
+          fail-build: "${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
           severity-cutoff: high
           output-format: sarif
 
@@ -59,6 +60,8 @@ jobs:
   scan-containers:
     name: Container scan (${{ matrix.image }})
     runs-on: ubuntu-latest
+    # Only runs on tag pushes and manual dispatch — images don't exist yet on PRs/main
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
