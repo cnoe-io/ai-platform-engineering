@@ -67,7 +67,7 @@ requires-dist = [
     { name = "cnoe-agent-utils", specifier = "==0.3.14" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "langchain-anthropic", specifier = "==1.0.0" },
-    { name = "langchain-core", specifier = "==1.1.2" },
+    { name = "langchain-core", specifier = "==1.2.26" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
     { name = "langchain-openai", specifier = "==1.1.0" },
     { name = "langgraph", specifier = "==1.0.4" },
@@ -167,7 +167,7 @@ requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.4.5" },
     { name = "cnoe-agent-utils", specifier = "==0.3.14" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "langchain-core", specifier = "==1.1.2" },
+    { name = "langchain-core", specifier = "==1.2.26" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
     { name = "langgraph", specifier = "==1.0.4" },
     { name = "langgraph-checkpoint-mongodb", specifier = "==0.3.1" },
@@ -1613,7 +1613,7 @@ wheels = [
 
 [[package]]
 name = "langchain-aws"
-version = "1.1.1"
+version = "1.4.3"
 source = { registry = "https://pypi.org/simple/" }
 dependencies = [
     { name = "boto3" },
@@ -1621,9 +1621,9 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a6/6f/3e9b01e2f695b1c51539cd988da86a0e8adbb4abab41d9ed0f180b1923f6/langchain_aws-1.1.1.tar.gz", hash = "sha256:7835213de92a6d79af3778ec37d622812519e632ad6be8226d8f1f4d95a24cba", size = 407630, upload-time = "2025-12-24T06:50:05.576Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/79/7512cde465d6113cccefaf9e10445b38132bdb50bd2807c27fe19cfb4eb3/langchain_aws-1.4.3.tar.gz", hash = "sha256:a4eea654bd266bb4084553dc2df25fd5d7f68ad388f0111719685126bd16f3bd", size = 496641, upload-time = "2026-04-03T14:11:14.961Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/cb/2d5e390e9682175df004276d21b2600150f27eebc612df605959d5e75162/langchain_aws-1.1.1-py3-none-any.whl", hash = "sha256:a278de3d86349c605e0a8bd8e2eb1575bb13c2c1a6c858749fd7dcd7844a67e3", size = 153545, upload-time = "2025-12-24T06:50:04.69Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/cb/fbffc95944abb863abac70f135cc162e7b3960b7bbf73ddcccd06408428e/langchain_aws-1.4.3-py3-none-any.whl", hash = "sha256:74e0a2b341da2214bbf6fd25a91da48223f815078d22beb9aa88797666879843", size = 198618, upload-time = "2026-04-03T14:11:13.87Z" },
 ]
 
 [[package]]
@@ -1669,7 +1669,7 @@ wheels = [
 
 [[package]]
 name = "langchain-core"
-version = "1.1.2"
+version = "1.2.26"
 source = { registry = "https://pypi.org/simple/" }
 dependencies = [
     { name = "jsonpatch" },
@@ -1681,9 +1681,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uuid-utils" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/8d/99652acb7feaa4e16c9162429bc7a446f04749ef438aa02fce74b4319a00/langchain_core-1.1.2.tar.gz", hash = "sha256:75456c5cc10c3b53b80488bf5c6a4bcc3447b53e011533a8744bb0638b85dd78", size = 802560, upload-time = "2025-12-08T15:28:17.689Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/b0/30ed29e5820580bc13d70b1f8a212b4fe0609a9737164ed1a90167941ca2/langchain_core-1.2.26.tar.gz", hash = "sha256:ba025ec70e19b56467f46b9109de19d30d169d328a174986b353cb23fd0ff0fe", size = 844795, upload-time = "2026-04-03T23:30:32.567Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/68/2caf612e4b5e25d7938c96809b7ccbafb5906958bcad8c18d9211f092679/langchain_core-1.1.2-py3-none-any.whl", hash = "sha256:74dfd4dcc10a290e3701a64e35e0bea3f68420f5b7527820ced9414f5b2dc281", size = 475847, upload-time = "2025-12-08T15:28:16.467Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/8b/c184205a52b37a4a3166b3567323495701929b1dbfd528e5ba1df62bd404/langchain_core-1.2.26-py3-none-any.whl", hash = "sha256:3d0a3913dff77a930b017a05afe979e4959d27bec0c77ee51f9a100754510509", size = 508298, upload-time = "2026-04-03T23:30:30.253Z" },
 ]
 
 [[package]]

@@ -19,7 +19,7 @@ dependencies = [
     "agntcy-acp==1.5.2",
     "click==8.2.1",
     "langchain-anthropic==1.2.0",
-    "langchain-core==1.1.2",
+    "langchain-core==1.2.26",
     "langchain-google-genai==4.0.0",
     "langchain-mcp-adapters==0.1.11",
     "langchain-openai==1.1.1",

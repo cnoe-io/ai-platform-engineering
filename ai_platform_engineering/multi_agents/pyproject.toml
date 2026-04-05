@@ -15,7 +15,7 @@ dependencies = [
     "fastapi==0.115.14",
     "uvicorn==0.34.3",
     "config==0.5.1",
-    "langchain-core==1.1.2",
+    "langchain-core==1.2.26",
     "langgraph==1.0.4",
     "langgraph==1.0.4",
     "langfuse==3.14.5",

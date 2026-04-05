@@ -14,7 +14,7 @@ dependencies = [
     "common",
     # LangChain ecosystem (versions must align with common's langchain-openai)
     "langchain==1.0.8",
-    "langchain-core==1.1.2",
+    "langchain-core==1.2.26",
     "langchain-community==0.4.1",
     "langchain-milvus==0.3.0",
     # Vector DB
