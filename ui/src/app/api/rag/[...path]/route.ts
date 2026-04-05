@@ -3,27 +3,27 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 
 /**
- * RAG API Proxy with JWT Bearer Token Authentication
+ * RAG API Proxy
  *
- * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
- * The RAG server validates the JWT token and fetches user claims (email, groups)
- * from the OIDC userinfo endpoint, caching them in Redis.
+ * Proxies requests from /api/rag/* to the RAG server.
  *
- * Authentication:
- * - Authorization: Bearer {access_token} (OIDC JWT access token)
+ * Authentication strategy depends on whether the RAG server is internal or external:
  *
- * The RAG server uses the access_token to:
- * 1. Authenticate the request (validate JWT signature, expiry, audience)
- * 2. Fetch user claims from OIDC userinfo endpoint (cached in Redis)
- * 3. Determine user role based on group membership
+ * - Internal cluster URL (svc.cluster.local, localhost, private IP):
+ *   No Authorization header is sent. The RAG server's trusted-network middleware
+ *   (TRUSTED_NETWORK_CIDRS=10.0.0.0/8) authenticates requests from the Next.js
+ *   pod by source IP and grants TRUSTED_NETWORK_DEFAULT_ROLE.
+ *   Sending a Bearer token here causes persistent 401s: the Duo OIDC access_token
+ *   is signed with a key that is not published in Duo's public JWKS, so the
+ *   rag-server can never validate it via the standard JWKS flow.
  *
- * This is the standards-compliant OAuth approach - only the access_token is
- * passed downstream, and user claims are fetched server-side from the
- * authoritative source (OIDC provider's userinfo endpoint).
+ * - External URL (public hostname):
+ *   Authorization: Bearer {access_token} is forwarded so the RAG server can
+ *   authenticate and fetch per-user claims from the OIDC userinfo endpoint.
  *
  * Example:
- *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
- *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
+ *   /api/rag/healthz              -> RAG_SERVER_URL/healthz
+ *   /api/rag/v1/mcp/custom-tools  -> RAG_SERVER_URL/v1/mcp/custom-tools
  */
 
 function getRagServerUrl(): string {
@@ -33,30 +33,44 @@ function getRagServerUrl(): string {
 }
 
 /**
- * Get auth headers from the current session
- * 
- * Extracts JWT access token from session and sends to RAG server.
- * The RAG server uses this token to authenticate and fetch user claims
- * from the OIDC userinfo endpoint (with caching).
- * 
- * @returns Headers object with Authorization Bearer token for RAG server
+ * Returns true when the RAG server URL resolves to an in-cluster or loopback
+ * address. In that case the Next.js pod (10.x.x.x) is already inside the
+ * rag-server's trusted network — no Bearer token needed or wanted.
+ */
+function isInternalRagServer(): boolean {
+  const url = getRagServerUrl();
+  return (
+    url.includes('svc.cluster.local') ||
+    url.includes('localhost') ||
+    /http:\/\/10\.\d+\.\d+\.\d+/.test(url) ||
+    /http:\/\/172\.(1[6-9]|2\d|3[01])\.\d+\.\d+/.test(url) ||
+    /http:\/\/192\.168\.\d+\.\d+/.test(url)
+  );
+}
+
+/**
+ * Build request headers for the upstream RAG server.
+ *
+ * For internal URLs the Authorization header is intentionally omitted —
+ * the rag-server's trusted-network check handles auth by source IP.
  */
 async function getRbacHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
+  if (isInternalRagServer()) {
+    // Internal service: rely on trusted-network auth in the rag-server.
+    // Sending a Bearer token that fails JWKS validation causes 401 on every call.
+    return headers;
+  }
+
   try {
     const session = await getServerSession(authOptions);
-    
-    // Pass JWT access token as Bearer token
-    // RAG server validates JWT and fetches user claims from OIDC userinfo endpoint
     if (session?.accessToken) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
     }
   } catch (error) {
-    // If session retrieval fails, continue without auth headers
-    // RAG server may still allow access from trusted networks or anonymous users
     console.debug('[RAG Proxy] Could not retrieve session, proceeding without auth headers:', error);
   }
 
