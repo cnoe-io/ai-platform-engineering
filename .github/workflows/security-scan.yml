@@ -1,18 +1,19 @@
 ---
-name: "[Security] Container Scan"
-description: "Run Anchore Grype vulnerability scan on tag pushes"
+name: "Grype Scan"
+description: "Anchore Grype vulnerability scan — filesystem on PRs/main (blocking), filesystem + all containers on tags (informational)"
 
-# Runs only on tag pushes. Uses Grype (anchore/scan-action) as a safe
-# alternative to aquasecurity/trivy-action following its March 2026
-# supply chain compromise.
-#
-# Scans the entire repository as a filesystem context to catch all
-# package manifests and dependencies across the codebase.
+# Trigger matrix:
+#   pull_request / push to main  → filesystem scan only, fail-build: true  (blocks merge)
+#   push tag                     → filesystem scan + all container images, fail-build: false (informational)
+#   workflow_dispatch            → both jobs, fail-build: false
 
 on:
+  pull_request:
+    branches: [main]
   push:
+    branches: [main]
     tags:
-      - "[0-9]*.[0-9]*.[0-9]*"  # matches 0.2.3, 0.2.3-rc.1, 0.2.3.rc, etc. — excludes 'stable' and branch names
+      - "[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
     inputs:
       tag:
@@ -25,8 +26,8 @@ permissions:
   security-events: write  # required to upload SARIF to GitHub Code Scanning
 
 jobs:
-  scan:
-    name: Grype scan
+  scan-filesystem:
+    name: Filesystem scan
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
@@ -44,6 +45,89 @@ jobs:
         id: scan
         with:
           path: "."
+          # Blocking on PRs and main pushes — informational on tags and manual dispatch
+          fail-build: "${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+          category: "grype-filesystem"
+
+  scan-containers:
+    name: Container scan (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    # Only runs on tag pushes and manual dispatch — images don't exist yet on PRs/main
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          # Supervisor / main agent
+          - ai-platform-engineering
+          # UI
+          - caipe-ui
+          # Dynamic agents runtime
+          - caipe-dynamic-agents
+          # Bots
+          - caipe-slack-bot
+          - caipe-webex-bot
+          # RAG components
+          - caipe-rag-agent-ontology
+          - caipe-rag-server
+          - caipe-rag-ingestors
+          # A2A sub-agents
+          - agent-argocd
+          - agent-aws
+          - agent-backstage
+          - agent-confluence
+          - agent-github
+          - agent-gitlab
+          - agent-jira
+          - agent-komodor
+          - agent-netutils
+          - agent-pagerduty
+          - agent-slack
+          - agent-splunk
+          - agent-template
+          - agent-victorops
+          - agent-webex
+          - agent-weather
+          # MCP sub-agents
+          - mcp-argocd
+          - mcp-backstage
+          - mcp-confluence
+          - mcp-github
+          - mcp-jira
+          - mcp-komodor
+          - mcp-netutils
+          - mcp-pagerduty
+          - mcp-splunk
+          - mcp-victorops
+          - mcp-webex
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Grype scan on container image
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        id: scan
+        with:
+          image: "ghcr.io/cnoe-io/${{ matrix.image }}:${{ steps.tag.outputs.tag }}"
           fail-build: false
           severity-cutoff: high
           output-format: sarif
@@ -53,4 +137,4 @@ jobs:
         if: always()
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-          category: "grype"
+          category: "grype-${{ matrix.image }}"
