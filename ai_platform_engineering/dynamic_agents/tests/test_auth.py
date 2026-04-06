@@ -24,7 +24,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
 from dynamic_agents.auth.auth import (
     check_admin_role,

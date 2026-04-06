@@ -18,7 +18,7 @@ dependencies = [
     "httpx==0.28.1",
     "hvac==2.4.0",
     "langchain==1.2.6",
-    "langchain-core==1.2.16",
+    "langchain-core==1.2.26",
     "langchain-mcp-adapters==0.2.1",
     "langfuse==3.14.3",
     "langgraph==1.0.4",

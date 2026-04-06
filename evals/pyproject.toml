@@ -16,7 +16,7 @@ dependencies = [
     "a2a-sdk==0.2.16",
     "cnoe-agent-utils==0.3.14",
     # LangChain for LLM evaluation
-    "langchain-core==1.1.2",
+    "langchain-core==1.2.26",
     "langchain-openai==1.1.1",
     "langchain-anthropic==0.3.21",
 ]
