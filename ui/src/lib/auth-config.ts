@@ -31,8 +31,10 @@ export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "f
 // If not set, will auto-detect from common claim names
 export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
-// Required group for authorization
-export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP || "backstage-access";
+// Required group for authorization.
+// Use ?? (nullish coalescing) so that setting OIDC_REQUIRED_GROUP="" disables
+// the group check. || would treat "" as falsy and fall back to "backstage-access".
+export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "backstage-access";
 
 // Required admin group for admin access
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
