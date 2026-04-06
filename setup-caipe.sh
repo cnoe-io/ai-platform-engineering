@@ -2878,6 +2878,8 @@ deploy_caipe() {
     cat > "$_da_values_file" <<DAEOF
 dynamic-agents:
   config:
+    # MongoDB URI baked in at deploy time so the pod can start before post_deploy_patches.
+    MONGODB_URI: "mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=caipe"
 DAEOF
     if [[ -n "$CAIPE_DOMAIN" && -n "$da_oidc_issuer" ]]; then
       cat >> "$_da_values_file" <<DAEOF
@@ -4543,6 +4545,12 @@ BANNER
   if $ENABLE_INGRESS; then
     install_nginx_ingress
     setup_tls
+  fi
+
+  # Deploy MongoDB before CAIPE so caipe-dynamic-agents can resolve the hostname
+  # on first start (avoiding crash-loop during the pod readiness wait).
+  if $ENABLE_DYNAMIC_AGENTS; then
+    _ensure_dynamic_agents_mongodb
   fi
 
   deploy_caipe
