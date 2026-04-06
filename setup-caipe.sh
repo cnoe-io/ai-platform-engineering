@@ -1081,9 +1081,11 @@ install_nginx_ingress() {
   fi
   log "nginx-ingress ready at ${ingress_ip}"
 
-  # If a public domain is set, NAT the host's external IP to the ingress IP
-  # so that https://CAIPE_DOMAIN resolves to the kind cluster.
-  if [[ -n "$CAIPE_DOMAIN" ]]; then
+  # On kind clusters (MetalLB), the ingress LB IP is a private kind-network
+  # address. NAT the host's external IP to the ingress IP so external traffic
+  # reaches the cluster. On cloud clusters (EKS/GKE/AKS) the cloud LB handles
+  # this automatically — skip iptables entirely.
+  if $ENABLE_METALLB && [[ -n "$CAIPE_DOMAIN" ]]; then
     local host_ip
     host_ip=$(hostname -I | awk '{print $1}')
     # Guard every iptables add with -C (check) to prevent duplicate rules on re-runs.
