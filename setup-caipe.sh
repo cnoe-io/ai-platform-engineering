@@ -1088,17 +1088,26 @@ install_nginx_ingress() {
     host_ip=$(hostname -I | awk '{print $1}')
     # Guard every iptables add with -C (check) to prevent duplicate rules on re-runs.
     log "Ensuring iptables DNAT rules: ${host_ip}:80/443 → ${ingress_ip}:80/443"
+    local _dnat_failed=false
     if ! sudo iptables -t nat -C PREROUTING -d "$host_ip" -p tcp --dport 443 \
          -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null; then
       sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 443 \
         -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null \
-        || warn "iptables DNAT for 443 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 443 -j DNAT --to-destination ${ingress_ip}:443"
+        || _dnat_failed=true
     fi
     if ! sudo iptables -t nat -C PREROUTING -d "$host_ip" -p tcp --dport 80 \
          -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null; then
       sudo iptables -t nat -A PREROUTING -d "$host_ip" -p tcp --dport 80 \
         -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null \
-        || warn "iptables DNAT for 80 failed — add manually: sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 80 -j DNAT --to-destination ${ingress_ip}:80"
+        || _dnat_failed=true
+    fi
+    if $_dnat_failed; then
+      warn "iptables DNAT rules could not be added automatically (sudo required)."
+      warn "Run the following as root to enable external access, then persist them:"
+      warn "  sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 443 -j DNAT --to-destination ${ingress_ip}:443"
+      warn "  sudo iptables -t nat -A PREROUTING -d ${host_ip} -p tcp --dport 80  -j DNAT --to-destination ${ingress_ip}:80"
+      warn "  sudo iptables -A FORWARD -d ${ingress_ip} -j ACCEPT"
+      warn "  sudo apt-get install -y iptables-persistent && sudo netfilter-persistent save"
     fi
     if ! sudo iptables -t nat -C OUTPUT -d "$host_ip" -p tcp --dport 443 \
          -j DNAT --to-destination "${ingress_ip}:443" 2>/dev/null; then
