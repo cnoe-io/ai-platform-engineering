@@ -326,25 +326,6 @@ function AdminPage() {
     return [...emails];
   };
 
-  // Re-fetch stats when range changes (lightweight — only refetch stats endpoint)
-  const statsRangeRef = React.useRef(statsRange);
-  useEffect(() => {
-    if (statsRangeRef.current === statsRange) return; // skip initial
-    statsRangeRef.current = statsRange;
-    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
-    (async () => {
-      try {
-        const res = await fetch(`/api/admin/stats?range=${statsRange}`);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success) setStats(json.data);
-        }
-      } catch {
-        // keep existing stats on failure
-      }
-    })();
-  }, [statsRange, status]);
-
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
   const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter });
   const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[]) => {
