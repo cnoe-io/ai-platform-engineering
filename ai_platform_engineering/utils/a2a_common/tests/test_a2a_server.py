@@ -13,7 +13,11 @@ import os
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
+
+# Repo root derived from this file's location — works on any machine / CI runner
+REPO_ROOT = str(Path(__file__).resolve().parents[4])
 
 
 # ---------------------------------------------------------------------------
@@ -706,7 +710,7 @@ class TestAWSBuildSkills(unittest.TestCase):
 
     def test_aws_version_is_2_0(self):
         # The main module hard-codes version='2.0.0' in the A2AServer call
-        with open("/tmp/ai-platform-engineering/ai_platform_engineering/agents/aws/agent_aws/__main__.py") as f:
+        with open(os.path.join(REPO_ROOT, "ai_platform_engineering/agents/aws/agent_aws/__main__.py")) as f:
             src = f.read()
         self.assertIn("2.0.0", src)
 
@@ -719,7 +723,7 @@ class TestMigratedAgentConstants(unittest.TestCase):
     """Read source files directly — avoids needing agent sub-packages installed."""
 
     def _read_src(self, rel_path):
-        with open(f"/tmp/ai-platform-engineering/{rel_path}") as f:
+        with open(os.path.join(REPO_ROOT, rel_path)) as f:
             return f.read()
 
     def _check_agent_src(self, rel_path, expected_name, expected_skill_id):
@@ -780,7 +784,7 @@ class TestMigratedAgentConstants(unittest.TestCase):
         """None of the migrated __main__.py files should reference SLIM."""
         import glob
         pattern = os.path.join(
-            "/tmp/ai-platform-engineering",
+            REPO_ROOT,
             "ai_platform_engineering/agents/*/*/__main__.py",
         )
         for path in glob.glob(pattern):
@@ -798,7 +802,7 @@ class TestMigratedAgentConstants(unittest.TestCase):
         """Every migrated __main__.py should import and use A2AServer."""
         import glob
         pattern = os.path.join(
-            "/tmp/ai-platform-engineering",
+            REPO_ROOT,
             "ai_platform_engineering/agents/*/*/__main__.py",
         )
         for path in glob.glob(pattern):
@@ -812,7 +816,7 @@ class TestMigratedAgentConstants(unittest.TestCase):
         """Every migrated __main__.py should read METRICS_ENABLED from env."""
         import glob
         pattern = os.path.join(
-            "/tmp/ai-platform-engineering",
+            REPO_ROOT,
             "ai_platform_engineering/agents/*/*/__main__.py",
         )
         for path in glob.glob(pattern):
