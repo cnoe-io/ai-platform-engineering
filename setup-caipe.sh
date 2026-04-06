@@ -1541,6 +1541,19 @@ create_namespace_and_secrets() {
     log "Added LITELLM_API_BASE/LITELLM_API_KEY to llm-secret (needed for LiteLLM embeddings)"
   fi
 
+  # When using Azure OpenAI for embeddings, add the credentials directly into
+  # llm-secret. The rag-stack subchart hardcodes envFrom=[llm-secret] and does
+  # not expose envFrom as a configurable value, so merging the Azure keys here
+  # is the only approach that survives helm upgrades without a post-deploy patch.
+  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+    secret_args+=(
+      --from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}"
+      --from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}"
+      --from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}"
+    )
+    log "Added AZURE_OPENAI_API_KEY/ENDPOINT/API_VERSION to llm-secret (needed for Azure OpenAI embeddings)"
+  fi
+
   kubectl create secret generic llm-secret -n caipe \
     "${secret_args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
@@ -2139,26 +2152,49 @@ post_deploy_patches() {
     log "All patches already applied — nothing to do"
   fi
 
-  # ── 5. RAG startup sequencing ──
+  # ── 5. RAG startup sequencing + RBAC ──
   # RAG server was deployed with SKIP_INIT_TESTS=true so it wouldn't fail before
   # Milvus/Redis were ready and before the CA bundle was mounted. Now that infra
   # is healthy we disable the skip and restart RAG to run its full init checks.
   if $ENABLE_RAG; then
     _finalize_rag_startup
-    # The parent chart template hardcodes envFrom=[llm-secret] and does not
-    # forward rag-stack.rag-server.envFrom from values. Patch the azure secret
-    # in as a second envFrom entry so AZURE_OPENAI_API_KEY is available.
-    if [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
-      _patch_rag_server_envfrom
-    fi
+    # Set RBAC_DEFAULT_ROLE=admin so all authenticated users get full access.
+    # The chart's built-in ConfigMap sets this to "readonly"; we override it here.
+    kubectl set env deployment/rag-server -n caipe RBAC_DEFAULT_ROLE=admin &>/dev/null \
+      && log "rag-server: RBAC_DEFAULT_ROLE set to admin"
   fi
 
-  # ── 6. MongoDB for dynamic-agents ──
+  # ── 6. caipe-ui: raise Node.js HTTP header size limit ──
+  # Users with many OIDC group claims (e.g. 500+) produce a session JWT that
+  # exceeds Node.js's default 16 KB header limit, causing HTTP 431 errors.
+  # 65536 bytes (64 KB) is sufficient for even the largest enterprise OIDC tokens.
+  local cur_node_opts
+  cur_node_opts=$(kubectl get deployment caipe-caipe-ui -n caipe \
+    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="NODE_OPTIONS")].value}' \
+    2>/dev/null || true)
+  if [[ "$cur_node_opts" != *"--max-http-header-size"* ]]; then
+    kubectl set env deployment/caipe-caipe-ui -n caipe \
+      NODE_OPTIONS="--max-http-header-size=65536" &>/dev/null \
+      && log "caipe-ui: NODE_OPTIONS set to --max-http-header-size=65536"
+  fi
+
+  # ── 7. MongoDB for dynamic-agents ──
   # The dynamic-agents chart defaults MONGODB_URI to localhost:27017 (no-op
   # default). When --dynamic-agents is set we deploy a bitnami/mongodb instance
   # (if none exists) and patch the ConfigMap with the real cluster URI.
   if $ENABLE_DYNAMIC_AGENTS; then
     _ensure_dynamic_agents_mongodb
+  fi
+
+  # ── 8. Remove caipe-agent-aws-mcp ──
+  # The agent-aws subchart always deploys an aws-mcp sidecar deployment even
+  # though the AWS agent does not use MCP. The image (ghcr.io/cnoe-io/mcp-aws)
+  # does not exist, so the pod stays in ImagePullBackOff. Delete it so it does
+  # not pollute the namespace. This is safe to re-run; kubectl delete is a no-op
+  # when the deployment is already gone.
+  if kubectl get deployment caipe-agent-aws-mcp -n caipe &>/dev/null; then
+    kubectl delete deployment caipe-agent-aws-mcp -n caipe &>/dev/null \
+      && log "Deleted caipe-agent-aws-mcp (AWS agent does not use MCP)"
   fi
 }
 
@@ -2945,22 +2981,13 @@ DAEOF
     fi
 
     if [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
-      # Azure OpenAI embeddings: inject API key + endpoint via a dedicated secret
-      # so they are not stored in ConfigMaps.
+      # Azure OpenAI embeddings: keys are merged into llm-secret by provision_secrets()
+      # (the rag-stack subchart hardcodes envFrom=[llm-secret] and ignores user-supplied
+      # envFrom values, so merging into llm-secret is the only upgrade-safe approach).
       if [[ -z "${AZURE_OPENAI_API_KEY:-}" || -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
         err "azure-openai embeddings require AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"
         exit 1
       fi
-      kubectl create secret generic rag-azure-openai-secret -n "${CAIPE_NAMESPACE:-caipe}" \
-        --from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}" \
-        --from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}" \
-        --from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}" \
-        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
-      # envFrom[0] is always llm-secret (chart default); append azure secret at [1]
-      helm_args+=(
-        --set "rag-stack.rag-server.envFrom[0].secretRef.name=llm-secret"
-        --set "rag-stack.rag-server.envFrom[1].secretRef.name=rag-azure-openai-secret"
-      )
       log "Azure OpenAI embeddings configured (endpoint: ${AZURE_OPENAI_ENDPOINT})"
     fi
 
