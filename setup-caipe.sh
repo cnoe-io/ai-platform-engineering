@@ -2878,9 +2878,11 @@ DAEOF
     OIDC_CLIENT_ID: "${da_oidc_client_id}"
     CORS_ORIGINS: '["https://${CAIPE_DOMAIN}", "http://localhost:3000"]'
 DAEOF
-      [[ -n "$da_oidc_admin_group" ]] && cat >> "$_da_values_file" <<DAEOF
-    OIDC_REQUIRED_ADMIN_GROUP: "${da_oidc_admin_group}"
-DAEOF
+      # Do NOT set OIDC_REQUIRED_ADMIN_GROUP for dynamic-agents.
+      # When unset, the service falls back to pattern matching on group names
+      # (any group containing "admin", "platform-admin", or "administrators"),
+      # which grants admin access to users with standard admin group memberships
+      # without requiring membership in a specific Cisco AD group.
     fi
 
     cat >> "$_da_values_file" <<DAEOF
