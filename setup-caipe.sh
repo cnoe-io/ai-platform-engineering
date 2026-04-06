@@ -4305,10 +4305,14 @@ detect_deployed_features() {
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     ENABLE_AGENTGATEWAY=true
   fi
-  # Detect chart version from Helm
+  # Detect chart version from Helm; ignore "unknown" (local chart installs)
   if [[ -z "$CAIPE_CHART_VERSION" ]]; then
-    CAIPE_CHART_VERSION=$(helm get metadata caipe -n caipe -o json 2>/dev/null \
-      | jq -r '.version // empty' 2>/dev/null || echo "unknown")
+    local _detected_version
+    _detected_version=$(helm get metadata caipe -n caipe -o json 2>/dev/null \
+      | jq -r '.version // empty' 2>/dev/null || true)
+    if [[ -n "$_detected_version" && "$_detected_version" != "unknown" ]]; then
+      CAIPE_CHART_VERSION="$_detected_version"
+    fi
   fi
 }
 
