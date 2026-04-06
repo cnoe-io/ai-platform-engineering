@@ -90,7 +90,7 @@ class AgentTools:
         if enabled:
           mcp.tool(tool)
 
-    logger.info(f"Registered MCP tools: {list((await mcp.get_tools()).keys())}")
+    logger.info(f"Registered MCP tools: {[t.name for t in await mcp.list_tools()]}")
 
   async def reload_tools(
     self,
@@ -100,14 +100,14 @@ class AgentTools:
     tool_configs: List[MCPToolConfig],
   ) -> None:
     """Hot-reload all MCP tools from updated configuration."""
-    for tool_name in list((await mcp.get_tools()).keys()):
+    for tool_name in [t.name for t in await mcp.list_tools()]:
       mcp.remove_tool(tool_name)
     await self.register_tools(mcp, graph_rag_enabled, builtin_config, tool_configs)
 
   def _build_search_description(self, config: MCPToolConfig, graph_rag_enabled: bool) -> str:
     """Build the human/LLM-facing description for a search tool."""
     valid_filter_keys = valid_metadata_keys()
-    has_structured_entity_search = any(ps.extra_filters.get("is_structured_entity") is True for ps in config.parallel_searches)
+    has_structured_entity_search = any(ps.extra_filters.get("is_structured_entity") in (True, "true", "True") for ps in config.parallel_searches)
     if not (graph_rag_enabled and has_structured_entity_search):
       valid_filter_keys = [k for k in valid_filter_keys if "structured_entity" not in k]
 

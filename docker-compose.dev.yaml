@@ -1475,7 +1475,6 @@ services:
       - INGESTOR_OIDC_SCOPE=${INGESTOR_OIDC_SCOPE:-}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
     profiles:
       - web_ingestor
 
@@ -1502,7 +1501,6 @@ services:
       - IGNORE_TYPES=${BACKSTAGE_IGNORE_TYPES:-api,component,domain,group,location,system,template,user}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
     profiles:
       - backstage-ingestor
 
@@ -1515,7 +1513,7 @@ services:
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
-      - ${HOME}/.aws:/home/app/.aws:ro
+      - ${HOME}/.aws/credentials:/home/app/.aws/credentials:ro
     environment:
       - INGESTOR_TYPE=aws
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
@@ -1532,9 +1530,10 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
+      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - aws-ingestor
 
@@ -1568,7 +1567,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - k8s-ingestor
 
@@ -1595,7 +1593,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - slack-ingestor
 
@@ -1621,7 +1618,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - webex-ingestor
 
@@ -1648,7 +1644,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - argocd-ingestor
 
@@ -1667,6 +1662,8 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_INSTALLATION_ID for GitHub App auth
       - GITHUB_ORG=${GITHUB_ORG}
+      - GITHUB_ORGS=${GITHUB_ORGS:-}
+      - GITHUB_APP_INSTALLATION_IDS=${GITHUB_APP_INSTALLATION_IDS:-}
       - GITHUB_API_URL=${GITHUB_API_URL:-https://api.github.com/graphql}
       - GITHUB_REST_API_URL=${GITHUB_REST_API_URL:-https://api.github.com}
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
@@ -1679,7 +1676,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - github-ingestor
 

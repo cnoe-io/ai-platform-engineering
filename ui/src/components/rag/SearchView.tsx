@@ -226,7 +226,7 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
     // Query state
     const [query, setQuery] = useState('');
     const [limit, setLimit] = useState(10);
-    const [filters, setFilters] = useState<Record<string, string>>({});
+    const [filters, setFilters] = useState<Record<string, string | boolean>>({});
     const [parsedResults, setParsedResults] = useState<ParsedResults | null>(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
     const [lastQuery, setLastQuery] = useState('');
@@ -238,6 +238,7 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
 
     // Filter configuration
     const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
+    const [filterKeyTypes, setFilterKeyTypes] = useState<Record<string, string>>({});
     const [supportedDocTypes, setSupportedDocTypes] = useState<string[]>([]);
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
     const [customFilterKey, setCustomFilterKey] = useState('');
@@ -296,6 +297,13 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
             try {
                 const response = await getHealthStatus();
                 setValidFilterKeys(response?.config?.search?.keys || []);
+                // Build a type lookup from filter_keys (e.g., [{key: "is_structured_entity", type: "bool"}, ...])
+                const typedKeys: Array<{key: string; type: string}> = response?.config?.search?.filter_keys || [];
+                const typeMap: Record<string, string> = {};
+                for (const entry of typedKeys) {
+                    typeMap[entry.key] = entry.type;
+                }
+                setFilterKeyTypes(typeMap);
                 setSupportedDocTypes(response?.config?.search?.supported_doc_types || []);
             } catch (error) {
                 console.error('Failed to fetch filter configuration:', error);
@@ -319,18 +327,25 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
     }, []);
 
     // Filter management functions
+    const getFilterKeyType = (key: string): string => filterKeyTypes[key] || 'string';
+
     const addFilter = () => {
         const keyToUse = showCustomInput ? customFilterKey.trim() : selectedFilterKey;
-        if (keyToUse && filterValue.trim()) {
-            setFilters(prev => ({
-                ...prev,
-                [keyToUse]: filterValue.trim()
-            }));
-            setSelectedFilterKey('');
-            setCustomFilterKey('');
-            setFilterValue('');
-            setShowCustomInput(false);
+        if (!keyToUse) return;
+
+        const keyType = getFilterKeyType(keyToUse);
+        if (keyType === 'bool') {
+            // Bool filters are added via toggle, not text input
+            setFilters(prev => ({ ...prev, [keyToUse]: true }));
+        } else if (filterValue.trim()) {
+            setFilters(prev => ({ ...prev, [keyToUse]: filterValue.trim() }));
+        } else {
+            return;
         }
+        setSelectedFilterKey('');
+        setCustomFilterKey('');
+        setFilterValue('');
+        setShowCustomInput(false);
     };
 
     const handleFilterKeyChange = (value: string) => {
@@ -517,21 +532,32 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                             )}
                             {(selectedFilterKey || (showCustomInput && customFilterKey)) && (
                                 <>
-                                    <input
-                                        type="text"
-                                        placeholder="Value"
-                                        value={filterValue}
-                                        onChange={(e) => setFilterValue(e.target.value)}
-                                        className="w-48 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
-                                        onKeyDown={(e) => e.key === 'Enter' && addFilter()}
-                                    />
-                                    <button
-                                        onClick={addFilter}
-                                        disabled={!filterValue.trim()}
-                                        className="px-2 py-1 bg-primary text-primary-foreground rounded text-xs hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
-                                    >
-                                        Add
-                                    </button>
+                                    {getFilterKeyType(showCustomInput ? customFilterKey : selectedFilterKey) === 'bool' ? (
+                                        <button
+                                            onClick={addFilter}
+                                            className="px-2 py-1 bg-primary text-primary-foreground rounded text-xs hover:bg-primary/90"
+                                        >
+                                            Add as true
+                                        </button>
+                                    ) : (
+                                        <>
+                                            <input
+                                                type="text"
+                                                placeholder="Value"
+                                                value={filterValue}
+                                                onChange={(e) => setFilterValue(e.target.value)}
+                                                className="w-48 rounded border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none text-foreground"
+                                                onKeyDown={(e) => e.key === 'Enter' && addFilter()}
+                                            />
+                                            <button
+                                                onClick={addFilter}
+                                                disabled={!filterValue.trim()}
+                                                className="px-2 py-1 bg-primary text-primary-foreground rounded text-xs hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
+                                            >
+                                                Add
+                                            </button>
+                                        </>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -545,7 +571,20 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                                     key={key}
                                     className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs"
                                 >
-                                    {key}: {value}
+                                    {typeof value === 'boolean' ? (
+                                        <>
+                                            {key}:
+                                            <button
+                                                onClick={() => setFilters(prev => ({ ...prev, [key]: !value }))}
+                                                className={`font-semibold px-1 rounded ${value ? 'text-green-600' : 'text-red-600'}`}
+                                                title={`Click to toggle to ${!value}`}
+                                            >
+                                                {String(value)}
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>{key}: {value}</>
+                                    )}
                                     <button onClick={() => removeFilter(key)} className="hover:text-primary/80">
                                         <X className="h-3 w-3" />
                                     </button>

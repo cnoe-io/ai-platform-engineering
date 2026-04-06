@@ -201,13 +201,16 @@ interface ExtraFiltersEditorProps {
   value: Record<string, unknown>;
   onChange: (filters: Record<string, unknown>) => void;
   validFilterKeys: string[];
+  filterKeyTypes: Record<string, string>;
 }
 
-function ExtraFiltersEditor({ value, onChange, validFilterKeys }: ExtraFiltersEditorProps) {
+function ExtraFiltersEditor({ value, onChange, validFilterKeys, filterKeyTypes }: ExtraFiltersEditorProps) {
   const [selectedKey, setSelectedKey] = useState("");
   const [customKey, setCustomKey] = useState("");
   const [filterValue, setFilterValue] = useState("");
   const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const getKeyType = (key: string): string => filterKeyTypes[key] || 'string';
 
   const handleKeyChange = (key: string) => {
     if (key === "__custom__") {
@@ -222,13 +225,20 @@ function ExtraFiltersEditor({ value, onChange, validFilterKeys }: ExtraFiltersEd
 
   const addFilter = () => {
     const keyToUse = showCustomInput ? customKey.trim() : selectedKey;
-    if (keyToUse && filterValue.trim()) {
+    if (!keyToUse) return;
+
+    const keyType = getKeyType(keyToUse);
+    if (keyType === 'bool') {
+      onChange({ ...value, [keyToUse]: true });
+    } else if (filterValue.trim()) {
       onChange({ ...value, [keyToUse]: filterValue.trim() });
-      setSelectedKey("");
-      setCustomKey("");
-      setFilterValue("");
-      setShowCustomInput(false);
+    } else {
+      return;
     }
+    setSelectedKey("");
+    setCustomKey("");
+    setFilterValue("");
+    setShowCustomInput(false);
   };
 
   const removeFilter = (key: string) => {
@@ -255,7 +265,21 @@ function ExtraFiltersEditor({ value, onChange, validFilterKeys }: ExtraFiltersEd
               )}
               title={`${key}: ${String(val)}`}
             >
-              <span className="truncate font-mono">{key}: {String(val)}</span>
+              {typeof val === 'boolean' ? (
+                <>
+                  <span className="truncate font-mono">{key}:</span>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...value, [key]: !val })}
+                    className={`font-semibold px-1 rounded ${val ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+                    title={`Click to toggle to ${!val}`}
+                  >
+                    {String(val)}
+                  </button>
+                </>
+              ) : (
+                <span className="truncate font-mono">{key}: {String(val)}</span>
+              )}
               <button type="button" onClick={() => removeFilter(key)} className="hover:opacity-70">
                 <X className="h-3 w-3" />
               </button>
@@ -304,24 +328,38 @@ function ExtraFiltersEditor({ value, onChange, validFilterKeys }: ExtraFiltersEd
 
         {(selectedKey || (showCustomInput && customKey)) && (
           <>
-            <input
-              type="text"
-              placeholder="Value"
-              value={filterValue}
-              onChange={(e) => setFilterValue(e.target.value)}
-              className="h-7 w-32 rounded border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none text-foreground"
-              onKeyDown={(e) => e.key === "Enter" && addFilter()}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={addFilter}
-              disabled={!filterValue.trim()}
-            >
-              Add
-            </Button>
+            {getKeyType(showCustomInput ? customKey : selectedKey) === 'bool' ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={addFilter}
+              >
+                Add as true
+              </Button>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  placeholder="Value"
+                  value={filterValue}
+                  onChange={(e) => setFilterValue(e.target.value)}
+                  className="h-7 w-32 rounded border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none text-foreground"
+                  onKeyDown={(e) => e.key === "Enter" && addFilter()}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={addFilter}
+                  disabled={!filterValue.trim()}
+                >
+                  Add
+                </Button>
+              </>
+            )}
           </>
         )}
       </div>
@@ -343,11 +381,12 @@ interface ParallelSearchRowProps {
   canRemove: boolean;
   availableDatasources: string[];
   validFilterKeys: string[];
+  filterKeyTypes: Record<string, string>;
   onChange: (updated: ParallelSearch) => void;
   onRemove: () => void;
 }
 
-function ParallelSearchRow({ value, index, canRemove, availableDatasources, validFilterKeys, onChange, onRemove }: ParallelSearchRowProps) {
+function ParallelSearchRow({ value, index, canRemove, availableDatasources, validFilterKeys, filterKeyTypes, onChange, onRemove }: ParallelSearchRowProps) {
   return (
     <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
       {/* Header: index + label + remove */}
@@ -424,6 +463,7 @@ function ParallelSearchRow({ value, index, canRemove, availableDatasources, vali
           value={value.extra_filters}
           onChange={(filters) => onChange({ ...value, extra_filters: filters })}
           validFilterKeys={validFilterKeys}
+          filterKeyTypes={filterKeyTypes}
         />
       </div>
     </div>
@@ -455,6 +495,7 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
 
   const [availableDatasources, setAvailableDatasources] = useState<string[]>([]);
   const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
+  const [filterKeyTypes, setFilterKeyTypes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (open) {
@@ -475,6 +516,12 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
         }),
         getHealthStatus().then((res) => {
           setValidFilterKeys(res?.config?.search?.keys || []);
+          const typedKeys: Array<{key: string; type: string}> = res?.config?.search?.filter_keys || [];
+          const typeMap: Record<string, string> = {};
+          for (const entry of typedKeys) {
+            typeMap[entry.key] = entry.type;
+          }
+          setFilterKeyTypes(typeMap);
         }),
       ]).catch(() => {});
     }
@@ -578,6 +625,7 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
                   canRemove={parallelSearches.length > 1}
                   availableDatasources={availableDatasources}
                   validFilterKeys={validFilterKeys}
+                  filterKeyTypes={filterKeyTypes}
                   onChange={(updated) =>
                     setParallelSearches((prev) =>
                       prev.map((x, idx) => (idx === i ? updated : x))

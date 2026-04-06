@@ -40,7 +40,7 @@ from common.models.server import (
   ChunkContentResponse,
   CleanupResponse,
 )
-from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig
+from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
 from common.graph_db.neo4j.graph_db import Neo4jDB
@@ -1647,6 +1647,7 @@ async def health_check():
     },
     "search": {
       "keys": valid_metadata_keys(),
+      "filter_keys": valid_metadata_keys_with_types(),
     },
     "vector_db": {"milvus": {"uri": milvus_uri, "collections": [default_collection_name_docs], "index_params": {"dense": dense_index_params, "sparse": sparse_index_params}}},
     "embeddings": {"model": embeddings_model},
@@ -1892,10 +1893,10 @@ async def get_mcp_tool_schemas(user: UserContext = Depends(require_role(Role.REA
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Get all registered tools from FastMCP
-  registered_tools = await mcp.get_tools()
+  registered_tools = await mcp.list_tools()
 
   tools_with_schemas = []
-  for tool in registered_tools.values():
+  for tool in registered_tools:
     tools_with_schemas.append(
       {
         "name": tool.name,
@@ -1927,8 +1928,8 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Find the tool
-  registered_tools = await mcp.get_tools()
-  tool = registered_tools.get(request.tool_name)
+  registered_tools = await mcp.list_tools()
+  tool = next((t for t in registered_tools if t.name == request.tool_name), None)
 
   if not tool:
     raise HTTPException(status_code=404, detail=f"MCP tool '{request.tool_name}' not found")

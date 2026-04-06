@@ -1,6 +1,6 @@
 # This file contains models for the RAG server
 from pydantic import BaseModel, Field, model_validator
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 from common.constants import DEFAULT_RELOAD_INTERVAL, PROP_DELIMITER
 
@@ -73,6 +73,33 @@ def valid_metadata_keys() -> List[str]:
   search_filter_keys = set()
   search_filter_keys.update(DocumentMetadata.model_fields.keys())
   return list(search_filter_keys)
+
+
+def valid_metadata_keys_with_types() -> List[Dict[str, str]]:
+  """
+  Returns metadata keys with their types for filtering, so that clients
+  can send correctly typed filter values (e.g., bool for is_structured_entity).
+
+  Returns:
+      List of dicts with 'key' and 'type' fields. Type is one of: 'bool', 'int', 'string'.
+  """
+  type_map = {
+    "bool": "bool",
+    "int": "int",
+    "str": "string",
+  }
+  result = []
+  for key, field_info in DocumentMetadata.model_fields.items():
+    annotation = field_info.annotation
+    # Unwrap Optional types
+    origin = getattr(annotation, "__origin__", None)
+    if origin is Union:
+      args = [a for a in annotation.__args__ if a is not type(None)]
+      annotation = args[0] if args else annotation
+    # Map to simple type name
+    type_name = type_map.get(annotation.__name__, "string") if hasattr(annotation, "__name__") else "string"
+    result.append({"key": key, "type": type_name})
+  return result
 
 
 # ============================================================================

@@ -4,7 +4,7 @@ import traceback
 from common.utils import get_logger
 from common.models.server import QueryResult
 from langchain_milvus import Milvus
-from common.models.rag import valid_metadata_keys
+from common.models.rag import valid_metadata_keys, valid_metadata_keys_with_types
 
 logger = get_logger(__name__)
 
@@ -12,6 +12,32 @@ logger = get_logger(__name__)
 class VectorDBQueryService:
   def __init__(self, vector_db: Milvus):
     self.vector_db = vector_db
+    # Build a type lookup from DocumentMetadata fields for filter coercion
+    self._field_types: Dict[str, str] = {entry["key"]: entry["type"] for entry in valid_metadata_keys_with_types()}
+
+  def _coerce_filter_values(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Coerce filter values to their expected types based on DocumentMetadata field definitions.
+    This handles the case where the UI sends string "true"/"false" for boolean fields.
+    """
+    coerced = {}
+    for key, value in filters.items():
+      expected_type = self._field_types.get(key)
+      if expected_type == "bool" and isinstance(value, str):
+        if value.lower() in ("true", "1", "yes"):
+          coerced[key] = True
+        elif value.lower() in ("false", "0", "no"):
+          coerced[key] = False
+        else:
+          coerced[key] = value  # leave as-is, validation will catch it
+      elif expected_type == "int" and isinstance(value, str):
+        try:
+          coerced[key] = int(value)
+        except ValueError:
+          coerced[key] = value  # leave as-is, validation will catch it
+      else:
+        coerced[key] = value
+    return coerced
 
   def _is_valid_filter_key(self, filter_name: str, valid_filter_keys: List[str]) -> bool:
     """
@@ -68,8 +94,9 @@ class VectorDBQueryService:
     :return: QueryResults containing the results and their scores.
     """
 
-    # Validate filters
+    # Coerce and validate filters
     if filters:
+      filters = self._coerce_filter_values(filters)
       await self.validate_filter_keys(filters)
 
       # Build filter expressions for filtering if specified
