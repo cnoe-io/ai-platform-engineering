@@ -1143,11 +1143,17 @@ setup_tls() {
     log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
     TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert.XXXX.pem)
     TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key.XXXX.pem)
+    local _san
+    if [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      _san="IP:${CAIPE_DOMAIN}"
+    else
+      _san="DNS:${CAIPE_DOMAIN},DNS:*.${CAIPE_DOMAIN}"
+    fi
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
       -keyout "$TLS_KEY_FILE" \
       -out "$TLS_CERT_FILE" \
       -subj "/CN=${CAIPE_DOMAIN}/O=CAIPE" \
-      -addext "subjectAltName=DNS:${CAIPE_DOMAIN},DNS:*.${CAIPE_DOMAIN}" \
+      -addext "subjectAltName=${_san}" \
       2>/dev/null
     log "Self-signed cert generated (valid 365 days)"
   fi
@@ -3090,14 +3096,26 @@ DAEOF
   fi
 
   if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
+    # Kubernetes Ingress spec.rules[].host must be a DNS name, not an IP address.
+    # When CAIPE_DOMAIN is an IP, omit the host field (nginx will match all requests).
+    local _ingress_host="${CAIPE_DOMAIN}"
+    if [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      _ingress_host=""
+    fi
     helm_args+=(
       --set 'caipe-ui.ingress.enabled=true'
       --set "caipe-ui.ingress.className=nginx"
-      --set "caipe-ui.ingress.hosts[0].host=${CAIPE_DOMAIN}"
       --set "caipe-ui.ingress.hosts[0].paths[0].path=/"
       --set "caipe-ui.ingress.hosts[0].paths[0].pathType=Prefix"
       --set "caipe-ui.ingress.tls[0].secretName=caipe-tls"
-      --set "caipe-ui.ingress.tls[0].hosts[0]=${CAIPE_DOMAIN}"
+    )
+    if [[ -n "$_ingress_host" ]]; then
+      helm_args+=(
+        --set "caipe-ui.ingress.hosts[0].host=${_ingress_host}"
+        --set "caipe-ui.ingress.tls[0].hosts[0]=${_ingress_host}"
+      )
+    fi
+    helm_args+=(
       # OIDC callback sets a large Set-Cookie header (JWTs + many group claims).
       # Increase nginx proxy buffers to prevent 502 "upstream sent too big header".
       --set "caipe-ui.ingress.annotations.nginx\.ingress\.kubernetes\.io/proxy-buffer-size=128k"
