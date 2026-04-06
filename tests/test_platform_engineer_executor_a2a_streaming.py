@@ -1523,6 +1523,210 @@ class TestRealWorldQueryScenarios:
             assert "Error" in all_text or "error" in all_text.lower(), "Should contain error message"
 
 
+class TestStreamingArtifactIdStability:
+    """Regression tests for issue #1120 — streaming artifact ID reset on plan arrival."""
+
+    @pytest.fixture
+    def executor(self):
+        mock_llm = MagicMock()
+        with patch('ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory') as mock_factory:
+            mock_factory_instance = MagicMock()
+            mock_factory_instance.get_llm.return_value = mock_llm
+            mock_factory.return_value = mock_factory_instance
+            return AIPlatformEngineerA2AExecutor()
+
+    @pytest.fixture
+    def mock_context(self):
+        context = Mock(spec=RequestContext)
+        message = Mock(spec=Message)
+        message.context_id = "test-context-123"
+        message.parts = [Part(root=TextPart(text="test query", kind="text"))]
+        message.metadata = None
+        task = Mock()
+        task.id = "test-task-456"
+        task.context_id = "test-context-123"
+        task.query = "test query"
+        context.message = message
+        context.current_task = task
+        context.get_user_input.return_value = "test query"
+        context.parent_task = None
+        return context
+
+    @pytest.fixture
+    def mock_event_queue(self):
+        queue = Mock(spec=EventQueue)
+        queue.enqueue_event = AsyncMock()
+        return queue
+
+    @pytest.mark.asyncio
+    async def test_streaming_artifact_id_stable_across_plan_arrival(
+        self, executor, mock_context, mock_event_queue
+    ):
+        """Regression test for #1120 — all streaming chunks must share one artifact ID.
+
+        Before the fix, execution_plan_update reset state.streaming_artifact_id to
+        None, causing post-plan chunks to open a new artifact (Y).  Clients that
+        latched onto the pre-plan artifact (X) never received the final answer.
+
+        After the fix, all streaming_result chunks — pre-plan and post-plan — must
+        carry the same artifact_id throughout the task.
+        """
+        mock_context.get_user_input.return_value = "summarize our incident response"
+
+        pre_plan_id = "stream-pre-plan-abc"
+
+        async def mock_agent_stream():
+            # Pre-plan streaming chunks
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": pre_plan_id,
+                        "name": "streaming_result",
+                        "parts": [{"text": "Let me look into that", "kind": "text"}],
+                    },
+                },
+            }
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": pre_plan_id,
+                        "name": "streaming_result",
+                        "parts": [{"text": " for you.", "kind": "text"}],
+                    },
+                },
+            }
+            # Execution plan arrives — this previously reset streaming_artifact_id
+            # causing a new artifact to be opened for post-plan chunks.
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": "plan-artifact-1",
+                        "name": "execution_plan_update",
+                        "parts": [{"text": "🔄 [Supervisor] Synthesize the final answer", "kind": "text"}],
+                    },
+                },
+            }
+            # Post-plan streaming chunk (final answer) — must reuse pre_plan_id
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": True,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": pre_plan_id,
+                        "name": "streaming_result",
+                        "parts": [{"text": " Here is the final answer.", "kind": "text"}],
+                    },
+                },
+            }
+            yield {"is_task_complete": True, "require_user_input": False, "content": ""}
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            streaming_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+                and hasattr(call[0][0], "artifact")
+                and call[0][0].artifact.name == "streaming_result"
+            ]
+
+            assert len(streaming_events) >= 2, "Expected at least pre- and post-plan streaming events"
+
+            artifact_ids = {e.artifact.artifact_id for e in streaming_events}
+            assert len(artifact_ids) == 1, (
+                f"All streaming_result chunks must share one artifact_id, got: {artifact_ids}"
+            )
+            assert pre_plan_id in artifact_ids, (
+                f"streaming_result chunks must use the pre-plan artifact_id '{pre_plan_id}', got {artifact_ids}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_plan_step_id_only_on_final_answer_chunks(
+        self, executor, mock_context, mock_event_queue
+    ):
+        """Regression test for #1120 — plan_step_id must only appear on final-answer chunks.
+
+        Before the fix, plan_step_id was stamped on every post-plan streaming chunk
+        (all intermediate thinking + final answer).  Non-UI consumers that filter on
+        plan_step_id presence received unexpected intermediate content and duplicates.
+
+        After the fix, plan_step_id is only set when _is_last_plan_step_active() is
+        True — i.e. on the final-answer chunks, not on intermediate thinking chunks.
+        """
+        mock_context.get_user_input.return_value = "summarize our incident response"
+
+        pre_plan_id = "stream-pre-plan-xyz"
+
+        async def mock_agent_stream():
+            # Pre-plan chunk — must NOT get plan_step_id
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": False,
+                    "artifact": {
+                        "artifactId": pre_plan_id,
+                        "name": "streaming_result",
+                        "parts": [{"text": "Thinking...", "kind": "text"}],
+                    },
+                },
+            }
+            # Plan arrives with one in_progress step
+            yield {
+                "type": "artifact-update",
+                "result": {
+                    "kind": "artifact-update",
+                    "append": False,
+                    "lastChunk": True,
+                    "artifact": {
+                        "artifactId": "plan-artifact-2",
+                        "name": "execution_plan_update",
+                        "parts": [{"text": "🔄 [Supervisor] Synthesize the final answer", "kind": "text"}],
+                    },
+                },
+            }
+            yield {"is_task_complete": True, "require_user_input": False, "content": ""}
+
+        with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
+            await executor.execute(mock_context, mock_event_queue)
+
+            calls = mock_event_queue.enqueue_event.call_args_list
+            pre_plan_streaming_events = [
+                call[0][0]
+                for call in calls
+                if isinstance(call[0][0], TaskArtifactUpdateEvent)
+                and hasattr(call[0][0], "artifact")
+                and call[0][0].artifact.name == "streaming_result"
+                and call[0][0].artifact.artifact_id == pre_plan_id
+            ]
+
+            assert len(pre_plan_streaming_events) >= 1, "Expected pre-plan streaming events"
+
+            for event in pre_plan_streaming_events:
+                metadata = event.artifact.metadata or {}
+                assert "plan_step_id" not in metadata, (
+                    "Pre-plan streaming chunks must NOT have plan_step_id set; "
+                    f"got metadata={metadata}"
+                )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
 
