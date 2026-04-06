@@ -1344,7 +1344,7 @@ _create_secret_from_env() {
   for key in "${keys[@]}"; do
     local val
     val=$(_env_get "$env_file" "$key")
-    [[ -n "$val" ]] && literal_args+=(--from-literal="${key}=${val}")
+    if [[ -n "$val" ]]; then literal_args+=(--from-literal="${key}=${val}"); fi
   done
   if [[ ${#literal_args[@]} -eq 0 ]]; then
     return 0  # nothing to create
@@ -1474,7 +1474,9 @@ provision_ui_secret() {
   for key in "${next_public_keys[@]}"; do
     local val
     val=$(_env_get "$ui_env_file" "$key")
-    [[ -n "$val" ]] && HELM_UI_SECRET_ARGS+=(--set "caipe-ui.env.${key}=${val}")
+    if [[ -n "$val" ]]; then
+      HELM_UI_SECRET_ARGS+=(--set "caipe-ui.env.${key}=${val}")
+    fi
   done
 }
 
@@ -2986,7 +2988,7 @@ DAEOF
     for key in "${_config_keys[@]}"; do
       local val
       val=$(_env_get "$UI_ENV_FILE" "$key")
-      [[ -n "$val" ]] && helm_args+=(--set "caipe-ui.config.${key}=${val}")
+      if [[ -n "$val" ]]; then helm_args+=(--set "caipe-ui.config.${key}=${val}"); fi
     done
 
     # Skills panel: proxy /skills* and /internal/supervisor/skills-status to the supervisor.
