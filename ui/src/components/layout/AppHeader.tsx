@@ -89,7 +89,7 @@ function GuardedLink({
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin, canViewAdmin } = useAdminRole();
+  const { isAdmin, canViewAdmin, canAccessDynamicAgents } = useAdminRole();
   const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
@@ -291,8 +291,8 @@ export function AppHeader() {
               Knowledge Bases
             </GuardedLink>
           )}
-          {/* Dynamic Agents tab - admin only */}
-          {isAdmin && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+          {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
+          {canAccessDynamicAgents && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
             <GuardedLink
               href="/dynamic-agents"
               prefetch={true}

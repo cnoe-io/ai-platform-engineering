@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     oidc_client_id: str | None = None  # Used as audience for token validation
     oidc_discovery_url: str | None = None  # Optional: explicit discovery URL
     oidc_group_claim: str | None = None  # Claim name(s) for groups (comma-separated)
+    oidc_required_group: str | None = None  # Group name required for any access
     oidc_required_admin_group: str | None = None  # Group name for admin access
 
     # CORS
