@@ -35,11 +35,14 @@ services:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # Prompt configuration file path
       - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
       # Task config file path (self-service workflows)
@@ -208,11 +211,14 @@ services:
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       # Prompt configuration file path
@@ -1258,7 +1264,7 @@ services:
       - NODE_ENV=production
       # CAIPE supervisor A2A endpoint URL
       # Override with A2A_BASE_URL environment variable
-      - A2A_BASE_URL=${A2A_BASE_URL:-http://localhost:8000}
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
@@ -1291,10 +1297,15 @@ services:
       - PREVIEW_MODE=${PREVIEW_MODE:-}
       # Workflow runner - set WORKFLOW_RUNNER_ENABLED=true to show Run Workflow button and Multi-Step Workflows
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
+      # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
+      - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
+      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       caipe-supervisor:
         condition: service_started
@@ -1328,8 +1339,14 @@ services:
     volumes:
       # Mount source for hot reload in development
       - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+      - ${HOME}/.aws:/home/app/.aws:ro
     env_file: [.env]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
+      - AWS_BEDROCK_STREAMING=${AWS_BEDROCK_STREAMING:-false}
+      - AWS_BEDROCK_USE_CONVERSE_API=${AWS_BEDROCK_USE_CONVERSE_API:-true}
+      - AWS_BEDROCK_BASE_MODEL_ID=${AWS_BEDROCK_BASE_MODEL_ID:-}
       # MongoDB (same as CAIPE UI)
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
@@ -1366,6 +1383,7 @@ services:
   ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
+
   rag_server:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
@@ -1375,8 +1393,11 @@ services:
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
+      - ${HOME}/.aws:/home/app/.aws:ro
     ports: ["9446:9446"]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
       - ALLOW_UNAUTHENTICATED=true
       # Trusted Network Configuration
@@ -1397,6 +1418,7 @@ services:
       # Embeddings configuration
       - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-azure-openai}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-large}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       # OIDC JWT validation for UI tokens
       - OIDC_ISSUER=${OIDC_ISSUER}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID}

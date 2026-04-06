@@ -934,11 +934,42 @@ async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
     return await create_subagent_def(agent, "confluence", "Confluence: wiki documentation", prompt_config)
 
 
+async def create_gitlab_remote_subagent_def(prompt_config: dict = None) -> dict:
+    """Create GitLab subagent that delegates to the remote A2A gitlab agent container.
+
+    NOTE: This is a stub subagent definition at the moment and needs building out.
+    The remote A2A GitLab agent must be running and reachable for this to function.
+    """
+    agent_url = _infer_remote_agent_url("gitlab")
+    logger.info(f"Creating remote gitlab subagent pointing to {agent_url}")
+
+    a2a_tool = A2ARemoteAgentConnectTool(
+        name="gitlab_a2a",
+        remote_agent_card=agent_url,
+        skill_id="",
+        description="Interact with GitLab: projects, issues, merge requests, CI/CD pipelines, repository files, and branches",
+    )
+
+    system_prompt = "You are a GitLab assistant. Use the gitlab_a2a tool to interact with GitLab resources."
+    if prompt_config:
+        agent_cfg = prompt_config.get("agents", {}).get("gitlab", {})
+        if agent_cfg.get("system_prompt"):
+            system_prompt = agent_cfg["system_prompt"]
+
+    return {
+        "name": "gitlab",
+        "description": "GitLab: projects, issues, merge requests, CI/CD pipelines, repository operations",
+        "system_prompt": system_prompt,
+        "tools": [a2a_tool],
+    }
+
+
 # Registry of in-process subagents for single-node mode.
 # Each entry maps agent name to its creation function.
 # Agents are loaded only when ENABLE_<NAME> env var is "true" (default).
 SINGLE_NODE_AGENTS = [
     ("github", create_github_subagent_def),
+    ("gitlab", create_gitlab_remote_subagent_def),
     ("aigateway", create_aigateway_subagent_def),
     ("backstage", create_backstage_subagent_def),
     ("jira", create_jira_subagent_def),

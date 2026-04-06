@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
-import { getServerConfig } from "@/lib/config";
+import { getInternalA2AUrl } from "@/lib/config";
 
 /**
  * GET /api/agents/tools
@@ -14,8 +14,7 @@ import { getServerConfig } from "@/lib/config";
  * the supervisor's auth middleware.
  */
 export async function GET() {
-  const { caipeUrl } = getServerConfig();
-  const baseUrl = caipeUrl.replace(/\/$/, "");
+  const baseUrl = getInternalA2AUrl();
 
   const headers: Record<string, string> = { Accept: "application/json" };
 

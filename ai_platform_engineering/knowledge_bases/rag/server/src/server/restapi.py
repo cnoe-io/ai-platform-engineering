@@ -1879,10 +1879,10 @@ async def get_mcp_tool_schemas(user: UserContext = Depends(require_role(Role.REA
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Get all registered tools from FastMCP
-  registered_tools = await mcp.get_tools()
+  registered_tools = await mcp.list_tools()
 
   tools_with_schemas = []
-  for tool in registered_tools.values():
+  for tool in registered_tools:
     tools_with_schemas.append(
       {
         "name": tool.name,
@@ -1914,8 +1914,8 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Find the tool
-  registered_tools = await mcp.get_tools()
-  tool = registered_tools.get(request.tool_name)
+  registered_tools = await mcp.list_tools()
+  tool = next((t for t in registered_tools if t.name == request.tool_name), None)
 
   if not tool:
     raise HTTPException(status_code=404, detail=f"MCP tool '{request.tool_name}' not found")
