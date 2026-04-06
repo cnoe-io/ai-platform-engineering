@@ -2,6 +2,8 @@ import os
 import time
 import logging
 import asyncio
+import configparser
+import tempfile
 import boto3
 from typing import List, Any, Dict, Optional
 
@@ -14,6 +16,10 @@ import common.utils as utils
 """
 AWS Ingestor - Ingests AWS resources as graph entities into the RAG system.
 Uses the IngestorBuilder pattern for simplified ingestor creation with automatic job management and batching.
+
+Supports multi-account ingestion via AWS_ACCOUNT_LIST env var, using the same format
+as the AWS agent. Each account becomes a separate datasource. When AWS_ACCOUNT_LIST
+is not set, falls back to single-account mode using default credentials.
 
 Supported resource types:
 - iam:user - IAM Users
@@ -41,6 +47,11 @@ default_resource_types = "iam:user,ec2:instance,ec2:volume,ec2:natgateway,ec2:vp
 RESOURCE_TYPES = os.environ.get("RESOURCE_TYPES", default_resource_types).split(",")
 # AWS Region - check both AWS_REGION and AWS_DEFAULT_REGION (boto3 default)
 AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-2"
+
+# Multi-account configuration (same format as AWS agent)
+# Format: "name1:id1,name2:id2,..." e.g. "prod:123456789012,staging:234567890123"
+AWS_ACCOUNT_LIST = os.environ.get("AWS_ACCOUNT_LIST", "")
+CROSS_ACCOUNT_ROLE_NAME = os.environ.get("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
 
 # Resource type configuration - defines how to fetch and process each resource type
 RESOURCE_CONFIG = {
@@ -71,20 +82,137 @@ RESOURCE_CONFIG = {
 }
 
 
-async def get_account_id() -> str:
-  """Get AWS account ID"""
-  client = boto3.client("sts", region_name=AWS_REGION)
-  return client.get_caller_identity()["Account"]
+# ============================================================================
+# Multi-Account Configuration
+# ============================================================================
 
 
-async def get_all_regions() -> List[str]:
+def parse_account_list() -> List[Dict[str, str]]:
+  """
+  Parse AWS_ACCOUNT_LIST env var into a list of account dicts.
+
+  Format: "name1:id1,name2:id2,..." (same as AWS agent)
+  If no colon, the entry is treated as both name and ID.
+
+  Returns:
+      List of dicts with 'name' and 'id' keys. Empty list if not configured.
+  """
+  if not AWS_ACCOUNT_LIST:
+    return []
+
+  accounts = []
+  for entry in AWS_ACCOUNT_LIST.split(","):
+    entry = entry.strip()
+    if not entry:
+      continue
+    if ":" in entry:
+      name, account_id = entry.split(":", 1)
+      accounts.append({"name": name.strip(), "id": account_id.strip()})
+    else:
+      accounts.append({"name": entry, "id": entry})
+
+  return accounts
+
+
+def setup_aws_profiles(accounts: List[Dict[str, str]]) -> None:
+  """
+  Generate AWS config profiles for cross-account access when needed.
+
+  If a profile already exists in ~/.aws/credentials (direct credentials),
+  no config entry is generated — boto3 will use the credentials directly.
+
+  For profiles without direct credentials, generates assume-role config using
+  role_arn + credential_source=Environment, so boto3 will transparently
+  perform STS AssumeRole using the base credentials from env vars.
+
+  Same approach as the AWS agent (agent_aws/tools.py:setup_aws_profiles).
+
+  Args:
+      accounts: List of account dicts with 'name' and 'id' keys.
+  """
+  if not accounts:
+    return
+
+  # Check which profiles already have direct credentials
+  existing_profiles: set[str] = set()
+  credentials_file = os.path.expanduser("~/.aws/credentials")
+  if os.path.exists(credentials_file):
+    creds_parser = configparser.ConfigParser()
+    creds_parser.read(credentials_file)
+    existing_profiles = set(creds_parser.sections())
+
+  # Only generate config for profiles that need cross-account role assumption
+  needs_config = [acc for acc in accounts if acc["name"] not in existing_profiles]
+
+  if existing_profiles:
+    has_direct = [acc["name"] for acc in accounts if acc["name"] in existing_profiles]
+    if has_direct:
+      logging.info(f"Profiles with direct credentials (no config needed): {has_direct}")
+
+  if not needs_config:
+    logging.info(f"All {len(accounts)} profiles have direct credentials, skipping config generation")
+    return
+
+  # Write to a temp directory to avoid permission issues with mounted ~/.aws
+  aws_config_dir = tempfile.mkdtemp(prefix="aws_config_")
+  aws_config_file = os.path.join(aws_config_dir, "config")
+
+  # Tell boto3 to use this config file
+  os.environ["AWS_CONFIG_FILE"] = aws_config_file
+
+  profile_sections = ["# AUTO-GENERATED PROFILES FROM AWS_ACCOUNT_LIST"]
+  profile_sections.append("# Regenerated at ingestor startup - do not edit manually\n")
+
+  for acc in needs_config:
+    profile_section = f"""[profile {acc["name"]}]
+role_arn = arn:aws:iam::{acc["id"]}:role/{CROSS_ACCOUNT_ROLE_NAME}
+credential_source = Environment
+"""
+    profile_sections.append(profile_section)
+
+  with open(aws_config_file, "w") as f:
+    f.write("\n".join(profile_sections))
+
+  logging.info(f"Generated AWS config for {len(needs_config)} accounts needing role assumption: {[a['name'] for a in needs_config]}")
+
+
+def create_session(profile_name: Optional[str] = None) -> boto3.Session:
+  """
+  Create a boto3 session, optionally with a named profile for cross-account access.
+
+  Args:
+      profile_name: AWS profile name from ~/.aws/config. If None, uses default credentials.
+
+  Returns:
+      boto3.Session configured for the target account.
+  """
+  if profile_name:
+    return boto3.Session(profile_name=profile_name, region_name=AWS_REGION)
+  return boto3.Session(region_name=AWS_REGION)
+
+
+# ============================================================================
+# AWS API Helpers
+# ============================================================================
+
+
+async def get_account_id(session: boto3.Session) -> str:
+  """Get AWS account ID using the given session."""
+  sts_client = session.client("sts", region_name=AWS_REGION)
+  return sts_client.get_caller_identity()["Account"]
+
+
+async def get_all_regions(session: boto3.Session) -> List[str]:
   """
   Fetch all AWS regions using the EC2 client.
+
+  Args:
+      session: boto3 session for the target account.
 
   Returns:
       list: A list of all AWS regions.
   """
-  ec2_client = boto3.client("ec2", region_name=AWS_REGION)
+  ec2_client = session.client("ec2", region_name=AWS_REGION)
   try:
     response = ec2_client.describe_regions()
     regions = [region["RegionName"] for region in response["Regions"]]
@@ -94,18 +222,19 @@ async def get_all_regions() -> List[str]:
     return []
 
 
-async def fetch_resources(resource_type: str, region: str) -> List[str]:
+async def fetch_resources(session: boto3.Session, resource_type: str, region: str) -> List[str]:
   """
   Fetches the resource inventory for the specified resource types using tagging APIs.
 
   Parameters:
+      session (boto3.Session): boto3 session for the target account.
       resource_type (str): The type of AWS resource to fetch (e.g. 'ec2:instance', 's3:bucket', etc.).
       region (str): The AWS region to fetch resources from.
 
   Returns:
       List[str]: A list of ARNs for the specified resource type in the given region.
   """
-  tagging_client = boto3.client("resourcegroupstaggingapi", region_name=region)
+  tagging_client = session.client("resourcegroupstaggingapi", region_name=region)
   paginator = tagging_client.get_paginator("get_resources")
   response_iterator = paginator.paginate(ResourceTypeFilters=[resource_type])
 
@@ -122,12 +251,12 @@ async def fetch_resources(resource_type: str, region: str) -> List[str]:
 # ============================================================================
 
 
-async def get_ec2_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_ec2_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for EC2 instances given their ARNs."""
   if not resource_arns:
     return []
 
-  ec2_client = boto3.client("ec2", region_name=region)
+  ec2_client = session.client("ec2", region_name=region)
   instance_id_arn_map = {arn.split("/")[-1]: arn for arn in resource_arns}
   instance_ids = list(instance_id_arn_map.keys())
 
@@ -148,12 +277,12 @@ async def get_ec2_details(resource_arns: List[str], region: str) -> List[Dict[st
     return []
 
 
-async def get_eks_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_eks_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for EKS clusters given their ARNs."""
   if not resource_arns:
     return []
 
-  eks_client = boto3.client("eks", region_name=region)
+  eks_client = session.client("eks", region_name=region)
   cluster_names = [arn.split("/")[-1] for arn in resource_arns]
 
   clusters = []
@@ -167,12 +296,12 @@ async def get_eks_details(resource_arns: List[str], region: str) -> List[Dict[st
   return clusters
 
 
-async def get_s3_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_s3_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for S3 buckets given their ARNs."""
   if not resource_arns:
     return []
 
-  s3_client = boto3.client("s3", region_name=region)
+  s3_client = session.client("s3", region_name=region)
   buckets = []
 
   for arn in resource_arns:
@@ -210,7 +339,7 @@ async def get_s3_details(resource_arns: List[str], region: str) -> List[Dict[str
   return buckets
 
 
-async def get_elb_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_elb_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for all Load Balancers (ALB/NLB/CLB) given their ARNs."""
   if not resource_arns:
     return []
@@ -225,7 +354,7 @@ async def get_elb_details(resource_arns: List[str], region: str) -> List[Dict[st
   if elbv2_arns:
     logging.debug(f"Fetching {len(elbv2_arns)} ALB/NLB in region {region}")
     try:
-      elbv2_client = boto3.client("elbv2", region_name=region)
+      elbv2_client = session.client("elbv2", region_name=region)
       response = elbv2_client.describe_load_balancers(LoadBalancerArns=elbv2_arns)
       for lb in response["LoadBalancers"]:
         # Ensure LoadBalancerArn is present for consistency
@@ -239,7 +368,7 @@ async def get_elb_details(resource_arns: List[str], region: str) -> List[Dict[st
   if clb_arns:
     logging.debug(f"Fetching {len(clb_arns)} Classic ELB in region {region}")
     try:
-      elb_client = boto3.client("elb", region_name=region)
+      elb_client = session.client("elb", region_name=region)
       lb_names = [arn.split("/")[-1] for arn in clb_arns]
       lb_name_arn_map = {name: arn for name, arn in zip(lb_names, clb_arns)}
 
@@ -255,12 +384,12 @@ async def get_elb_details(resource_arns: List[str], region: str) -> List[Dict[st
   return elbs
 
 
-async def get_ebs_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_ebs_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for EBS volumes given their ARNs."""
   if not resource_arns:
     return []
 
-  ec2_client = boto3.client("ec2", region_name=region)
+  ec2_client = session.client("ec2", region_name=region)
   volume_id_arn_map = {arn.split("/")[-1]: arn for arn in resource_arns}
   volume_ids = list(volume_id_arn_map.keys())
 
@@ -276,12 +405,12 @@ async def get_ebs_details(resource_arns: List[str], region: str) -> List[Dict[st
     return []
 
 
-async def get_route53_hostedzone_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_route53_hostedzone_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for Route 53 hosted zones given their ARNs."""
   if not resource_arns:
     return []
 
-  route53_client = boto3.client("route53", region_name="us-east-1")  # Route53 is global
+  route53_client = session.client("route53", region_name="us-east-1")  # Route53 is global
   zones = []
 
   for arn in resource_arns:
@@ -301,9 +430,9 @@ async def get_route53_hostedzone_details(resource_arns: List[str], region: str) 
   return zones
 
 
-async def list_iam_users(resource_arns: Optional[List[str]] = None, region: Optional[str] = None) -> List[Dict[str, Any]]:
+async def list_iam_users(session: boto3.Session, resource_arns: Optional[List[str]] = None, region: Optional[str] = None) -> List[Dict[str, Any]]:
   """List all IAM users in the AWS account."""
-  iam_client = boto3.client("iam")
+  iam_client = session.client("iam")
 
   try:
     response = iam_client.list_users()
@@ -319,12 +448,12 @@ async def list_iam_users(resource_arns: Optional[List[str]] = None, region: Opti
     return []
 
 
-async def get_natgateway_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_natgateway_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for NAT Gateways given their ARNs."""
   if not resource_arns:
     return []
 
-  ec2_client = boto3.client("ec2", region_name=region)
+  ec2_client = session.client("ec2", region_name=region)
   natgateway_id_arn_map = {arn.split("/")[-1]: arn for arn in resource_arns}
   natgateway_ids = list(natgateway_id_arn_map.keys())
 
@@ -340,12 +469,12 @@ async def get_natgateway_details(resource_arns: List[str], region: str) -> List[
     return []
 
 
-async def get_vpc_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_vpc_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for VPCs given their ARNs."""
   if not resource_arns:
     return []
 
-  ec2_client = boto3.client("ec2", region_name=region)
+  ec2_client = session.client("ec2", region_name=region)
   vpc_id_arn_map = {arn.split("/")[-1]: arn for arn in resource_arns}
   vpc_ids = list(vpc_id_arn_map.keys())
 
@@ -361,12 +490,12 @@ async def get_vpc_details(resource_arns: List[str], region: str) -> List[Dict[st
     return []
 
 
-async def get_subnet_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_subnet_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for Subnets given their ARNs."""
   if not resource_arns:
     return []
 
-  ec2_client = boto3.client("ec2", region_name=region)
+  ec2_client = session.client("ec2", region_name=region)
   subnet_id_arn_map = {arn.split("/")[-1]: arn for arn in resource_arns}
   subnet_ids = list(subnet_id_arn_map.keys())
 
@@ -382,12 +511,12 @@ async def get_subnet_details(resource_arns: List[str], region: str) -> List[Dict
     return []
 
 
-async def get_security_group_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_security_group_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for Security Groups given their ARNs."""
   if not resource_arns:
     return []
 
-  ec2_client = boto3.client("ec2", region_name=region)
+  ec2_client = session.client("ec2", region_name=region)
   sg_id_arn_map = {arn.split("/")[-1]: arn for arn in resource_arns}
   sg_ids = list(sg_id_arn_map.keys())
 
@@ -403,12 +532,12 @@ async def get_security_group_details(resource_arns: List[str], region: str) -> L
     return []
 
 
-async def get_rds_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_rds_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for RDS Database Instances given their ARNs."""
   if not resource_arns:
     return []
 
-  rds_client = boto3.client("rds", region_name=region)
+  rds_client = session.client("rds", region_name=region)
   db_instance_ids = [arn.split(":")[-1] for arn in resource_arns]
 
   try:
@@ -423,12 +552,12 @@ async def get_rds_details(resource_arns: List[str], region: str) -> List[Dict[st
     return []
 
 
-async def get_lambda_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_lambda_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for Lambda functions given their ARNs."""
   if not resource_arns:
     return []
 
-  lambda_client = boto3.client("lambda", region_name=region)
+  lambda_client = session.client("lambda", region_name=region)
   function_names = [arn.split(":")[-1] for arn in resource_arns]
 
   functions = []
@@ -445,12 +574,12 @@ async def get_lambda_details(resource_arns: List[str], region: str) -> List[Dict
   return functions
 
 
-async def get_dynamodb_details(resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
+async def get_dynamodb_details(session: boto3.Session, resource_arns: List[str], region: str) -> List[Dict[str, Any]]:
   """Fetch details for DynamoDB tables given their ARNs."""
   if not resource_arns:
     return []
 
-  dynamodb_client = boto3.client("dynamodb", region_name=region)
+  dynamodb_client = session.client("dynamodb", region_name=region)
   table_names = [arn.split("/")[-1] for arn in resource_arns]
 
   tables = []
@@ -465,6 +594,11 @@ async def get_dynamodb_details(resource_arns: List[str], region: str) -> List[Di
       logging.error(f"Error fetching DynamoDB table {table_name}: {e}")
 
   return tables
+
+
+# ============================================================================
+# Entity Conversion
+# ============================================================================
 
 
 def resource_type_to_entity_type(resource_type: str) -> str:
@@ -483,7 +617,12 @@ def resource_type_to_entity_type(resource_type: str) -> str:
   return "Aws" + "".join(pascal_parts)
 
 
-async def ensure_account_entity_exists(client: Client, account_id: str, datasource_id: str, job_id: str):
+# ============================================================================
+# Sync Logic
+# ============================================================================
+
+
+async def ensure_account_entity_exists(client: Client, account_id: str, datasource_id: str, job_id: str) -> None:
   """
   Ensure the AWS account entity exists in the graph database.
   The graph database will handle deduplication if the entity already exists.
@@ -507,9 +646,18 @@ async def ensure_account_entity_exists(client: Client, account_id: str, datasour
     # Non-fatal error - continue with resource ingestion
 
 
-async def sync_resource_type(client: Client, account_id: str, resource_type: str, region: str, job_id: str, datasource_id: str) -> int:
+async def sync_resource_type(client: Client, session: boto3.Session, account_id: str, resource_type: str, region: str, job_id: str, datasource_id: str) -> int:
   """
   Sync a specific resource type in a specific region.
+
+  Args:
+      client: RAG client instance
+      session: boto3 session for the target account
+      account_id: AWS account ID
+      resource_type: AWS resource type string (e.g. 'ec2:instance')
+      region: AWS region name
+      job_id: Current job ID
+      datasource_id: Datasource ID
 
   Returns:
       int: Number of entities successfully ingested
@@ -525,7 +673,7 @@ async def sync_resource_type(client: Client, account_id: str, resource_type: str
       # Some services don't need ARN fetching via tagging API
       resource_arns = []
     else:
-      resource_arns = await fetch_resources(resource_type, region)
+      resource_arns = await fetch_resources(session, resource_type, region)
 
     if not resource_arns and config["fetch_fn"] not in ["list_iam_users", "get_rds_details", "get_lambda_details", "get_dynamodb_details"]:
       logging.debug(f"No {resource_type} resources found in region {region}")
@@ -535,11 +683,14 @@ async def sync_resource_type(client: Client, account_id: str, resource_type: str
     fetch_fn_name = config["fetch_fn"]
     fetch_fn = globals()[fetch_fn_name]
 
-    if fetch_fn_name in ["list_iam_users", "get_rds_details", "get_lambda_details", "get_dynamodb_details"]:
+    if fetch_fn_name == "list_iam_users":
+      # list_iam_users handles its own resource discovery, only needs session
+      inventory = await fetch_fn(session)
+    elif fetch_fn_name in ["get_rds_details", "get_lambda_details", "get_dynamodb_details"]:
       # These functions handle their own resource discovery
-      inventory = await fetch_fn(resource_arns, region) if fetch_fn_name != "list_iam_users" else await fetch_fn()
+      inventory = await fetch_fn(session, resource_arns, region)
     else:
-      inventory = await fetch_fn(resource_arns, region)
+      inventory = await fetch_fn(session, resource_arns, region)
 
     if not inventory:
       logging.debug(f"No details fetched for {resource_type} in region {region}")
@@ -580,26 +731,31 @@ async def sync_resource_type(client: Client, account_id: str, resource_type: str
     return 0
 
 
-async def sync_aws_resources(client: Client):
+async def sync_account(client: Client, session: boto3.Session, account_name: str) -> None:
   """
-  Main sync function that orchestrates AWS resource ingestion.
-  This function is called periodically by the IngestorBuilder.
-  """
-  logging.info("Starting AWS resource sync...")
+  Sync all resources for a single AWS account.
 
+  Creates a datasource for the account, discovers all regions, and syncs
+  all configured resource types.
+
+  Args:
+      client: RAG client instance
+      session: boto3 session configured for the target account
+      account_name: Human-readable account name (for logging and metadata)
+  """
   # Get AWS account ID
-  account_id = await get_account_id()
-  logging.info(f"AWS Account ID: {account_id}")
+  account_id = await get_account_id(session)
+  logging.info(f"Syncing account: {account_name} (ID: {account_id})")
 
   if not account_id:
-    raise ValueError("Failed to retrieve AWS account ID. Check AWS credentials.")
+    raise ValueError(f"Failed to retrieve AWS account ID for account '{account_name}'. Check AWS credentials.")
 
   # Create datasource
   datasource_id = f"aws-account-{account_id}"
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
     ingestor_id=client.ingestor_id or "",
-    description=f"AWS resources for account {account_id}",
+    description=f"AWS resources for account {account_name} ({account_id})",
     source_type="aws",
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
@@ -607,6 +763,7 @@ async def sync_aws_resources(client: Client):
     reload_interval=SYNC_INTERVAL,
     metadata={
       "account_id": account_id,
+      "account_name": account_name,
       "resource_types": RESOURCE_TYPES,
     },
   )
@@ -614,8 +771,8 @@ async def sync_aws_resources(client: Client):
   logging.info(f"Created/updated datasource: {datasource_id}")
 
   # Get all AWS regions
-  regions = await get_all_regions()
-  logging.info(f"Found {len(regions)} AWS regions")
+  regions = await get_all_regions(session)
+  logging.info(f"Found {len(regions)} AWS regions for account {account_name}")
 
   # Calculate total work for job tracking
   regional_resource_types = [rt for rt in RESOURCE_TYPES if RESOURCE_CONFIG.get(rt, {}).get("regional", True)]
@@ -623,9 +780,9 @@ async def sync_aws_resources(client: Client):
   total_work_items = len(regional_resource_types) * len(regions) + len(global_resource_types)
 
   # Create job
-  job_response = await client.create_job(datasource_id=datasource_id, job_status=JobStatus.IN_PROGRESS, message=f"Syncing AWS resources across {len(regions)} regions", total=total_work_items)
+  job_response = await client.create_job(datasource_id=datasource_id, job_status=JobStatus.IN_PROGRESS, message=f"Syncing AWS resources for account {account_name} across {len(regions)} regions", total=total_work_items)
   job_id = job_response["job_id"]
-  logging.info(f"Created job {job_id} with {total_work_items} work items")
+  logging.info(f"Created job {job_id} with {total_work_items} work items for account {account_name}")
 
   try:
     # Ensure account entity exists
@@ -635,42 +792,104 @@ async def sync_aws_resources(client: Client):
 
     # Process global resources (IAM, Route53)
     for resource_type in global_resource_types:
-      logging.info(f"Processing global resource type: {resource_type}")
-      count = await sync_resource_type(client, account_id, resource_type, "us-east-1", job_id, datasource_id)
+      logging.info(f"[{account_name}] Processing global resource type: {resource_type}")
+      count = await sync_resource_type(client, session, account_id, resource_type, "us-east-1", job_id, datasource_id)
       total_entities += count
 
     # Process regional resources
     for resource_type in regional_resource_types:
-      logging.info(f"Processing regional resource type: {resource_type}")
+      logging.info(f"[{account_name}] Processing regional resource type: {resource_type}")
       for region in regions:
-        count = await sync_resource_type(client, account_id, resource_type, region, job_id, datasource_id)
+        count = await sync_resource_type(client, session, account_id, resource_type, region, job_id, datasource_id)
         total_entities += count
 
     # Mark job as completed
-    await client.update_job(job_id=job_id, job_status=JobStatus.COMPLETED, message=f"Successfully synced {total_entities} AWS resources")
-    logging.info(f"AWS sync completed successfully. Total entities ingested: {total_entities}")
+    await client.update_job(job_id=job_id, job_status=JobStatus.COMPLETED, message=f"Successfully synced {total_entities} AWS resources for account {account_name}")
+    logging.info(f"Sync completed for account {account_name}. Total entities ingested: {total_entities}")
 
   except Exception as e:
-    error_msg = f"AWS resource sync failed: {str(e)}"
+    error_msg = f"AWS resource sync failed for account {account_name}: {str(e)}"
     await client.add_job_error(job_id, [error_msg])
     await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=error_msg)
     logging.error(error_msg, exc_info=True)
     raise
 
 
+async def sync_aws_resources(client: Client) -> None:
+  """
+  Main sync function that orchestrates AWS resource ingestion.
+  This function is called periodically by the IngestorBuilder.
+
+  In multi-account mode (AWS_ACCOUNT_LIST is set), iterates over all configured
+  accounts sequentially. Each account becomes a separate datasource.
+
+  In single-account mode (AWS_ACCOUNT_LIST not set), uses default credentials
+  to sync a single account (backward compatible).
+  """
+  logging.info("Starting AWS resource sync...")
+
+  accounts = parse_account_list()
+
+  if not accounts:
+    # Single-account mode: use default credentials (backward compatible)
+    logging.info("Single-account mode: using default AWS credentials")
+    session = create_session()
+    await sync_account(client, session, "default")
+  else:
+    # Multi-account mode: iterate over configured accounts
+    logging.info(f"Multi-account mode: syncing {len(accounts)} accounts")
+    setup_aws_profiles(accounts)
+
+    succeeded = 0
+    failed = 0
+    for account in accounts:
+      try:
+        session = create_session(profile_name=account["name"])
+        await sync_account(client, session, account["name"])
+        succeeded += 1
+      except Exception as e:
+        logging.error(f"Failed to sync account {account['name']} ({account['id']}): {e}", exc_info=True)
+        failed += 1
+        # Continue with next account -- don't let one failure stop the rest
+
+    logging.info(f"Multi-account sync complete: {succeeded} succeeded, {failed} failed out of {len(accounts)} accounts")
+
+    if failed == len(accounts):
+      raise RuntimeError(f"All {failed} account syncs failed")
+
+
 if __name__ == "__main__":
   try:
     logging.info("Starting AWS ingestor using IngestorBuilder...")
 
-    account_id = asyncio.run(get_account_id())
+    accounts = parse_account_list()
 
-    # Use IngestorBuilder for simplified ingestor creation
-    IngestorBuilder().name(f"aws_ingestor_{account_id}").type("aws").description("Ingestor for AWS resources (EC2, S3, EKS, IAM, etc.)").metadata(
-      {
+    if accounts:
+      # Multi-account mode
+      setup_aws_profiles(accounts)
+      ingestor_name = "aws_ingestor_multi"
+      account_names = ", ".join(a["name"] for a in accounts)
+      ingestor_description = f"AWS ingestor for {len(accounts)} accounts: {account_names}"
+      ingestor_metadata = {
+        "accounts": [a["name"] for a in accounts],
         "resource_types": RESOURCE_TYPES,
         "sync_interval": SYNC_INTERVAL,
       }
-    ).sync_with_fn(sync_aws_resources).every(SYNC_INTERVAL).with_init_delay(int(os.getenv("INIT_DELAY_SECONDS", "0"))).run()
+      logging.info(f"Multi-account mode: {len(accounts)} accounts configured ({account_names})")
+    else:
+      # Single-account mode (backward compatible)
+      session = create_session()
+      account_id = asyncio.run(get_account_id(session))
+      ingestor_name = f"aws_ingestor_{account_id}"
+      ingestor_description = "Ingestor for AWS resources (EC2, S3, EKS, IAM, etc.)"
+      ingestor_metadata = {
+        "resource_types": RESOURCE_TYPES,
+        "sync_interval": SYNC_INTERVAL,
+      }
+      logging.info(f"Single-account mode: account {account_id}")
+
+    # Use IngestorBuilder for simplified ingestor creation
+    IngestorBuilder().name(ingestor_name).type("aws").description(ingestor_description).metadata(ingestor_metadata).sync_with_fn(sync_aws_resources).every(SYNC_INTERVAL).with_init_delay(int(os.getenv("INIT_DELAY_SECONDS", "0"))).run()
 
   except KeyboardInterrupt:
     logging.info("AWS ingestor execution interrupted by user")
