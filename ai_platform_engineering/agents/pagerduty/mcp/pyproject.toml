@@ -19,11 +19,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "black",
-  "isort",
-  "mypy",
-  "pytest",
-  "ruff",
+  "black==25.1.0",
+  "isort==6.0.1",
+  "mypy==1.17.1",
+  "pytest==8.4.1",
+  "ruff==0.12.7",
 ]
 
 [tool.isort]

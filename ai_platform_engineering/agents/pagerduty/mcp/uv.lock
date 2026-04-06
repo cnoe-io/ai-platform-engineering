@@ -573,16 +573,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "black", marker = "extra == 'dev'" },
+    { name = "black", marker = "extra == 'dev'", specifier = "==25.1.0" },
     { name = "fastmcp", specifier = "==3.2.0" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "isort", marker = "extra == 'dev'" },
+    { name = "isort", marker = "extra == 'dev'", specifier = "==6.0.1" },
     { name = "mcp", specifier = "==1.26.0" },
-    { name = "mypy", marker = "extra == 'dev'" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = "==1.17.1" },
     { name = "pydantic", specifier = "==2.12.5" },
-    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = "==8.4.1" },
     { name = "python-dotenv", specifier = "==1.2.1" },
-    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.12.7" },
     { name = "typing-extensions", specifier = "==4.15.0" },
 ]
 provides-extras = ["dev"]
