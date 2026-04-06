@@ -199,6 +199,45 @@ INSTRUCTIONS:
     )
 
 
+class VictorOpsEscalation(BaseModel):
+    """VictorOps on-call escalation configuration"""
+
+    enabled: bool = False
+    team: str = ""
+
+
+class EmojiEscalation(BaseModel):
+    """Emoji reaction escalation configuration"""
+
+    enabled: bool = False
+    name: str = "eyes"
+
+
+class EscalationConfig(BaseModel):
+    """Escalation workflows triggered by the 'Get help' button"""
+
+    victorops: VictorOpsEscalation = Field(default_factory=VictorOpsEscalation)
+    users: List[str] = Field(default_factory=list)
+    emoji: EmojiEscalation = Field(default_factory=EmojiEscalation)
+    delete_admins: List[str] = Field(default_factory=list)
+
+
+def get_escalation_config(channel_config: "ChannelConfig") -> Optional["EscalationConfig"]:
+    """Extract escalation config from a ChannelConfig.
+
+    Returns None if no escalation config exists OR if no escalation actions are enabled.
+    """
+    if not channel_config.other or not channel_config.other.escalation:
+        return None
+    esc = EscalationConfig(
+        **channel_config.other.escalation,
+        delete_admins=channel_config.other.delete_admins,
+    )
+    # Only return config if at least one escalation action is enabled
+    has_escalation = esc.victorops.enabled or esc.users or esc.emoji.enabled
+    return esc if has_escalation else None
+
+
 class IncludeBotsConfig(BaseModel):
     """Configuration for including bot messages"""
 
@@ -222,6 +261,22 @@ class AIAlertsConfig(BaseModel):
     custom_prompt: Optional[str] = None
 
 
+class JiraConfig(BaseModel):
+    """Jira ticket creation configuration"""
+
+    project_key: str
+    issue_type: str = "Bug"
+    additional_fields: Dict[str, Any] = Field(default_factory=dict)
+
+
+class OtherConfig(BaseModel):
+    """Other channel configuration (Jira, escalation, delete_admins)"""
+
+    jira: Optional[JiraConfig] = None
+    escalation: Optional[Dict[str, Any]] = None
+    delete_admins: List[str] = Field(default_factory=list)
+
+
 class ChannelConfig(BaseModel):
     """Configuration for a single Slack channel"""
 
@@ -230,7 +285,7 @@ class ChannelConfig(BaseModel):
     custom_prompt: Optional[str] = None
     qanda: QandaConfig = Field(default_factory=QandaConfig)
     ai_alerts: AIAlertsConfig = Field(default_factory=AIAlertsConfig)
-    default: Dict[str, Any]
+    other: OtherConfig = Field(default_factory=OtherConfig)
 
     @model_validator(mode="after")
     def validate_bot_config(self):
