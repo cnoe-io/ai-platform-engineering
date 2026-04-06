@@ -935,7 +935,11 @@ async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
 
 
 async def create_gitlab_remote_subagent_def(prompt_config: dict = None) -> dict:
-    """Create GitLab subagent that delegates to the remote A2A gitlab agent container."""
+    """Create GitLab subagent that delegates to the remote A2A gitlab agent container.
+
+    NOTE: This is a stub subagent definition at the moment and needs building out.
+    The remote A2A GitLab agent must be running and reachable for this to function.
+    """
     agent_url = _infer_remote_agent_url("gitlab")
     logger.info(f"Creating remote gitlab subagent pointing to {agent_url}")
 

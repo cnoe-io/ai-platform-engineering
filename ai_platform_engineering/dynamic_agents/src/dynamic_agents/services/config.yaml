@@ -47,6 +47,11 @@ models:
     provider: "anthropic-claude"
     description: "Fast and efficient for simpler tasks"
 
+  - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    name: "Claude 4.5 Haiku (AWS Bedrock)"
+    provider: "aws-bedrock"
+    description: "Smaller, faster Claude 4.5 model"
+
   # OpenAI Models (direct API)
   - model_id: "gpt-4o"
     name: "GPT-4o"
