@@ -91,7 +91,7 @@ class AgentTools:
         if enabled:
           mcp.tool(tool)
 
-    logger.info(f"Registered MCP tools: {[t.name for t in mcp.list_tools()]}")
+    logger.info(f"Registered MCP tools: {[t.name for t in await mcp.list_tools()]}")
 
   async def reload_tools(
     self,
@@ -101,7 +101,7 @@ class AgentTools:
     tool_configs: List[MCPToolConfig],
   ) -> None:
     """Hot-reload all MCP tools from updated configuration."""
-    for tool_name in [t.name for t in mcp.list_tools()]:
+    for tool_name in [t.name for t in await mcp.list_tools()]:
       mcp.remove_tool(tool_name)
     await self.register_tools(mcp, graph_rag_enabled, builtin_config, tool_configs)
 
