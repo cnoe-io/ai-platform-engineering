@@ -2196,6 +2196,64 @@ post_deploy_patches() {
     kubectl delete deployment caipe-agent-aws-mcp -n caipe &>/dev/null \
       && log "Deleted caipe-agent-aws-mcp (AWS agent does not use MCP)"
   fi
+
+  # ── 9. Expose supervisor via nginx ingress at /supervisor sub-path ──
+  # The A2A chat streaming and health checks in the UI are client-side browser
+  # fetches to caipeUrl (A2A_BASE_URL). The supervisor must be reachable from
+  # the user's browser (not just within the cluster). We create a separate nginx
+  # ingress that routes /supervisor(/|$)(.*) → caipe-supervisor-agent:8000 with
+  # path rewrite so the supervisor sees requests at its root (/). The UI's
+  # A2A_BASE_URL is set to https://<domain>/supervisor (done in deploy_caipe).
+  # We also update EXTERNAL_URL on the supervisor so the agent card's "url" field
+  # reflects the publicly accessible URL.
+  if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    local supervisor_url="https://${CAIPE_DOMAIN}/supervisor"
+    local tls_secret="caipe-tls"
+
+    kubectl apply -f - &>/dev/null <<SUPERVISOR_INGRESS_EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: caipe-supervisor-agent
+  namespace: caipe
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /\$2
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - ${CAIPE_DOMAIN}
+    secretName: ${tls_secret}
+  rules:
+  - host: ${CAIPE_DOMAIN}
+    http:
+      paths:
+      - path: /supervisor(/|\$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: caipe-supervisor-agent
+            port:
+              number: 8000
+SUPERVISOR_INGRESS_EOF
+    log "supervisor ingress: created/updated at ${supervisor_url}"
+
+    # Update EXTERNAL_URL so the agent card returns the public URL
+    local cur_ext
+    cur_ext=$(kubectl get deployment caipe-supervisor-agent -n caipe \
+      -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="EXTERNAL_URL")].value}' \
+      2>/dev/null || true)
+    if [[ "$cur_ext" != "$supervisor_url" ]]; then
+      kubectl set env deployment/caipe-supervisor-agent -n caipe \
+        EXTERNAL_URL="$supervisor_url" &>/dev/null \
+        && log "supervisor: EXTERNAL_URL set to ${supervisor_url}"
+    fi
+  fi
 }
 
 _patch_rag_server_envfrom() {
@@ -2757,20 +2815,12 @@ deploy_caipe() {
     --set tags.caipe-ui=true
     --set tags.agent-weather=false
     --set tags.agent-netutils=true
-    --set caipe-ui.env.A2A_BASE_URL=http://localhost:8000
-    --set 'supervisor-agent.singleNode.enabledSubAgents.aigateway=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.argocd=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.aws=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.backstage=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.confluence=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.github=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.jira=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.komodor=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.netutils=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.pagerduty=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.slack=true'
-    --set 'supervisor-agent.singleNode.enabledSubAgents.splunk=true'
+    --set "caipe-ui.env.A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
   )
+  # When no domain is set (local dev), default to localhost for port-forward usage
+  if [[ -z "$CAIPE_DOMAIN" ]]; then
+    helm_args+=(--set "caipe-ui.env.A2A_BASE_URL=http://localhost:8000")
+  fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
   # patched in provision_ui_secret; here we flip the server-side flag too)
