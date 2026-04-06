@@ -35,11 +35,14 @@ services:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
       - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # Prompt configuration file path
       - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
       # Task config file path (self-service workflows)
