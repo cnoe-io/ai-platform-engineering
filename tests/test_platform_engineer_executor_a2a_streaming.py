@@ -1524,7 +1524,17 @@ class TestRealWorldQueryScenarios:
 
 
 class TestStreamingArtifactIdStability:
-    """Regression tests for issue #1120 — streaming artifact ID reset on plan arrival."""
+    """Regression tests for issue #1120 — streaming artifact ID reset on plan arrival.
+
+    IMPORTANT: these tests use raw dict events with a 'content' key for streaming
+    chunks and a raw dict 'artifact' key for the execution plan.  This matches the
+    actual supervisor LLM output path (_handle_streaming_chunk / _handle_artifact_update
+    at agent_executor.py:1085 / 960).
+
+    The bug was in that path — not in the typed A2A artifact-update path.  Tests that
+    use `type: "artifact-update"` events for streaming bypass state.streaming_artifact_id
+    entirely and would pass even on the buggy code.
+    """
 
     @pytest.fixture
     def executor(self):
@@ -1564,74 +1574,32 @@ class TestStreamingArtifactIdStability:
     ):
         """Regression test for #1120 — all streaming chunks must share one artifact ID.
 
-        Before the fix, execution_plan_update reset state.streaming_artifact_id to
-        None, causing post-plan chunks to open a new artifact (Y).  Clients that
-        latched onto the pre-plan artifact (X) never received the final answer.
+        Uses raw dict 'content' events (the supervisor LLM streaming path) and a raw
+        dict 'artifact' execution_plan_update (the plan path).  This is the exact code
+        path where the bug lived:
 
-        After the fix, all streaming_result chunks — pre-plan and post-plan — must
-        carry the same artifact_id throughout the task.
+          _handle_streaming_chunk  →  sets state.streaming_artifact_id = UUID-X
+          _handle_artifact_update  →  (bug) reset state.streaming_artifact_id = None
+          _handle_streaming_chunk  →  (bug) generates new UUID-Y
+
+        After the fix, UUID-X is reused for all streaming chunks.
         """
         mock_context.get_user_input.return_value = "summarize our incident response"
 
-        pre_plan_id = "stream-pre-plan-abc"
-
         async def mock_agent_stream():
-            # Pre-plan streaming chunks
+            # Pre-plan streaming chunks via the raw 'content' path
+            yield {"is_task_complete": False, "require_user_input": False, "content": "Let me look into that"}
+            yield {"is_task_complete": False, "require_user_input": False, "content": " for you."}
+            # Execution plan arrives via the raw 'artifact' path — this is where the
+            # reset happened (agent_executor.py:1020 before the fix).
             yield {
-                "type": "artifact-update",
-                "result": {
-                    "kind": "artifact-update",
-                    "append": False,
-                    "lastChunk": False,
-                    "artifact": {
-                        "artifactId": pre_plan_id,
-                        "name": "streaming_result",
-                        "parts": [{"text": "Let me look into that", "kind": "text"}],
-                    },
-                },
+                "artifact": {
+                    "name": "execution_plan_update",
+                    "text": "🔄 [Supervisor] Synthesize the final answer",
+                }
             }
-            yield {
-                "type": "artifact-update",
-                "result": {
-                    "kind": "artifact-update",
-                    "append": True,
-                    "lastChunk": False,
-                    "artifact": {
-                        "artifactId": pre_plan_id,
-                        "name": "streaming_result",
-                        "parts": [{"text": " for you.", "kind": "text"}],
-                    },
-                },
-            }
-            # Execution plan arrives — this previously reset streaming_artifact_id
-            # causing a new artifact to be opened for post-plan chunks.
-            yield {
-                "type": "artifact-update",
-                "result": {
-                    "kind": "artifact-update",
-                    "append": False,
-                    "lastChunk": True,
-                    "artifact": {
-                        "artifactId": "plan-artifact-1",
-                        "name": "execution_plan_update",
-                        "parts": [{"text": "🔄 [Supervisor] Synthesize the final answer", "kind": "text"}],
-                    },
-                },
-            }
-            # Post-plan streaming chunk (final answer) — must reuse pre_plan_id
-            yield {
-                "type": "artifact-update",
-                "result": {
-                    "kind": "artifact-update",
-                    "append": True,
-                    "lastChunk": True,
-                    "artifact": {
-                        "artifactId": pre_plan_id,
-                        "name": "streaming_result",
-                        "parts": [{"text": " Here is the final answer.", "kind": "text"}],
-                    },
-                },
-            }
+            # Post-plan streaming chunk — executor must reuse the pre-plan artifact_id
+            yield {"is_task_complete": False, "require_user_input": False, "content": " Here is the final answer."}
             yield {"is_task_complete": True, "require_user_input": False, "content": ""}
 
         with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
@@ -1646,14 +1614,14 @@ class TestStreamingArtifactIdStability:
                 and call[0][0].artifact.name == "streaming_result"
             ]
 
-            assert len(streaming_events) >= 2, "Expected at least pre- and post-plan streaming events"
+            assert len(streaming_events) >= 2, (
+                "Expected at least one pre-plan and one post-plan streaming event"
+            )
 
             artifact_ids = {e.artifact.artifact_id for e in streaming_events}
             assert len(artifact_ids) == 1, (
-                f"All streaming_result chunks must share one artifact_id, got: {artifact_ids}"
-            )
-            assert pre_plan_id in artifact_ids, (
-                f"streaming_result chunks must use the pre-plan artifact_id '{pre_plan_id}', got {artifact_ids}"
+                f"All streaming_result chunks must share one artifact_id — got {len(artifact_ids)}: {artifact_ids}. "
+                "Multiple IDs means the artifact was split (the #1120 regression)."
             )
 
     @pytest.mark.asyncio
@@ -1662,69 +1630,66 @@ class TestStreamingArtifactIdStability:
     ):
         """Regression test for #1120 — plan_step_id must only appear on final-answer chunks.
 
-        Before the fix, plan_step_id was stamped on every post-plan streaming chunk
-        (all intermediate thinking + final answer).  Non-UI consumers that filter on
-        plan_step_id presence received unexpected intermediate content and duplicates.
+        Uses the same raw dict paths as test_streaming_artifact_id_stable_across_plan_arrival.
 
-        After the fix, plan_step_id is only set when _is_last_plan_step_active() is
-        True — i.e. on the final-answer chunks, not on intermediate thinking chunks.
+        Before the fix, plan_step_id was stamped on every post-plan streaming chunk
+        (_execution_plan_emitted guard).  Non-UI consumers (Slack bot, basic A2A clients)
+        that filter on plan_step_id presence received unexpected intermediate content.
+
+        After the fix, plan_step_id is only set when _is_last_plan_step_active() is True.
         """
         mock_context.get_user_input.return_value = "summarize our incident response"
 
-        pre_plan_id = "stream-pre-plan-xyz"
-
         async def mock_agent_stream():
             # Pre-plan chunk — must NOT get plan_step_id
+            yield {"is_task_complete": False, "require_user_input": False, "content": "Thinking..."}
+            # Plan arrives with a single in_progress step.
+            # executor auto-marks the first step as in_progress on initial plan arrival
+            # (agent_executor.py:998-1001), so _is_last_plan_step_active() returns True
+            # for the next streaming chunk after this.
             yield {
-                "type": "artifact-update",
-                "result": {
-                    "kind": "artifact-update",
-                    "append": False,
-                    "lastChunk": False,
-                    "artifact": {
-                        "artifactId": pre_plan_id,
-                        "name": "streaming_result",
-                        "parts": [{"text": "Thinking...", "kind": "text"}],
-                    },
-                },
+                "artifact": {
+                    "name": "execution_plan_update",
+                    "text": "🔄 [Supervisor] Synthesize the final answer",
+                }
             }
-            # Plan arrives with one in_progress step
-            yield {
-                "type": "artifact-update",
-                "result": {
-                    "kind": "artifact-update",
-                    "append": False,
-                    "lastChunk": True,
-                    "artifact": {
-                        "artifactId": "plan-artifact-2",
-                        "name": "execution_plan_update",
-                        "parts": [{"text": "🔄 [Supervisor] Synthesize the final answer", "kind": "text"}],
-                    },
-                },
-            }
+            # Post-plan final-answer chunk — MUST get plan_step_id (last step active)
+            yield {"is_task_complete": False, "require_user_input": False, "content": "Final answer here."}
             yield {"is_task_complete": True, "require_user_input": False, "content": ""}
 
         with patch.object(executor.agent, "stream", return_value=mock_agent_stream()):
             await executor.execute(mock_context, mock_event_queue)
 
             calls = mock_event_queue.enqueue_event.call_args_list
-            pre_plan_streaming_events = [
+            streaming_events = [
                 call[0][0]
                 for call in calls
                 if isinstance(call[0][0], TaskArtifactUpdateEvent)
                 and hasattr(call[0][0], "artifact")
                 and call[0][0].artifact.name == "streaming_result"
-                and call[0][0].artifact.artifact_id == pre_plan_id
             ]
 
-            assert len(pre_plan_streaming_events) >= 1, "Expected pre-plan streaming events"
+            assert len(streaming_events) >= 2, "Expected pre-plan and post-plan streaming events"
 
-            for event in pre_plan_streaming_events:
-                metadata = event.artifact.metadata or {}
-                assert "plan_step_id" not in metadata, (
-                    "Pre-plan streaming chunks must NOT have plan_step_id set; "
-                    f"got metadata={metadata}"
-                )
+            # First event is pre-plan — must NOT have plan_step_id
+            pre_plan_event = streaming_events[0]
+            pre_plan_meta = pre_plan_event.artifact.metadata or {}
+            assert "plan_step_id" not in pre_plan_meta, (
+                "Pre-plan streaming chunk must NOT carry plan_step_id; "
+                f"got metadata={pre_plan_meta}"
+            )
+
+            # Last event is post-plan final answer — MUST have plan_step_id and is_final_answer
+            final_event = streaming_events[-1]
+            final_meta = final_event.artifact.metadata or {}
+            assert "plan_step_id" in final_meta, (
+                "Final-answer streaming chunk must carry plan_step_id; "
+                f"got metadata={final_meta}"
+            )
+            assert final_meta.get("is_final_answer") is True, (
+                "Final-answer streaming chunk must have is_final_answer=True; "
+                f"got metadata={final_meta}"
+            )
 
 
 if __name__ == "__main__":
