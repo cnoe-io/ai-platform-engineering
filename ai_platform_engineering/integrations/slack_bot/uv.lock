@@ -34,20 +34,20 @@ unittest = [
 
 [package.metadata]
 requires-dist = [
-    { name = "loguru" },
-    { name = "pydantic" },
-    { name = "pymongo" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "setuptools" },
-    { name = "slack-bolt" },
-    { name = "slack-sdk" },
+    { name = "loguru", specifier = "==0.7.3" },
+    { name = "pydantic", specifier = "==2.12.5" },
+    { name = "pymongo", specifier = "==4.16.0" },
+    { name = "pyyaml", specifier = "==6.0.3" },
+    { name = "requests", specifier = "==2.32.5" },
+    { name = "setuptools", specifier = "==82.0.1" },
+    { name = "slack-bolt", specifier = "==1.27.0" },
+    { name = "slack-sdk", specifier = "==3.41.0" },
 ]
 
 [package.metadata.requires-dev]
 unittest = [
-    { name = "pytest" },
-    { name = "pytest-mock" },
+    { name = "pytest", specifier = "==9.0.2" },
+    { name = "pytest-mock", specifier = "==3.15.1" },
 ]
 
 [[package]]
