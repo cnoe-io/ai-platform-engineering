@@ -2219,7 +2219,39 @@ post_deploy_patches() {
     local supervisor_url="https://${CAIPE_DOMAIN}/supervisor"
     local tls_secret="caipe-tls"
 
-    kubectl apply -f - &>/dev/null <<SUPERVISOR_INGRESS_EOF
+    # Kubernetes Ingress host must be a DNS name, not an IP.
+    # Use separate YAML for IP vs DNS domains.
+    if [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      kubectl apply -f - &>/dev/null <<SUPERVISOR_INGRESS_EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: caipe-supervisor-agent
+  namespace: caipe
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /\$2
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+spec:
+  ingressClassName: nginx
+  tls:
+  - secretName: ${tls_secret}
+  rules:
+  - http:
+      paths:
+      - path: /supervisor(/|\$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: caipe-supervisor-agent
+            port:
+              number: 8000
+SUPERVISOR_INGRESS_EOF
+    else
+      kubectl apply -f - &>/dev/null <<SUPERVISOR_INGRESS_EOF
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -2250,6 +2282,7 @@ spec:
             port:
               number: 8000
 SUPERVISOR_INGRESS_EOF
+    fi
     log "supervisor ingress: created/updated at ${supervisor_url}"
 
     # Update EXTERNAL_URL so the agent card returns the public URL
