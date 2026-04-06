@@ -759,6 +759,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # waiting for the final_result artifact.
         if not is_tool_notification and self._is_last_plan_step_active(state):
             artifact.metadata['is_final_answer'] = True
+            if self._current_plan_step_id:
+                artifact.metadata['plan_step_id'] = self._current_plan_step_id
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
 
@@ -1005,11 +1007,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         )
                         if artifact_name == 'execution_plan_update':
                             state.execution_plan_artifact_id = artifact.artifact_id
-                            # Reset streaming artifact so post-plan chunks start
-                            # a fresh artifact with plan_step_id attached.  The
-                            # pre-plan streaming artifact was created before any
-                            # plan existed and the UI anchors it outside the plan.
-                            state.streaming_artifact_id = None
+                            # Do NOT reset state.streaming_artifact_id here.
+                            # Resetting it causes post-plan chunks to open a new
+                            # artifact (Y) while clients tracking the pre-plan
+                            # artifact (X) never receive the final answer.
+                            # plan_step_id is stamped on final-answer chunks via
+                            # _is_last_plan_step_active(), so the UI can still
+                            # nest the answer under the plan without a new artifact.
                     else:
                         artifact = new_text_artifact(
                             name=artifact_name,
