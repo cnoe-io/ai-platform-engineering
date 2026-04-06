@@ -2158,10 +2158,11 @@ post_deploy_patches() {
   # is healthy we disable the skip and restart RAG to run its full init checks.
   if $ENABLE_RAG; then
     _finalize_rag_startup
-    # Set RBAC_DEFAULT_ROLE=admin so all authenticated users get full access.
-    # The chart's built-in ConfigMap sets this to "readonly"; we override it here.
-    kubectl set env deployment/rag-server -n caipe RBAC_DEFAULT_ROLE=admin &>/dev/null \
-      && log "rag-server: RBAC_DEFAULT_ROLE set to admin"
+    # Set RBAC_DEFAULT_AUTHENTICATED_ROLE=admin so all authenticated users get
+    # full access. Note: the rbac.py env var is RBAC_DEFAULT_AUTHENTICATED_ROLE
+    # (not RBAC_DEFAULT_ROLE which does not exist in the code).
+    kubectl set env deployment/rag-server -n caipe RBAC_DEFAULT_AUTHENTICATED_ROLE=admin &>/dev/null \
+      && log "rag-server: RBAC_DEFAULT_AUTHENTICATED_ROLE set to admin"
   fi
 
   # ── 6. caipe-ui: raise Node.js HTTP header size limit ──
