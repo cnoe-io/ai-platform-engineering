@@ -12,11 +12,12 @@ Handles caipe_form artifacts with interactive Slack Block Kit elements:
 
 import json
 import os
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from loguru import logger
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
-from loguru import logger
 
 
 @dataclass

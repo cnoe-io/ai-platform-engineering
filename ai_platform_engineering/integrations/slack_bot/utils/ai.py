@@ -10,22 +10,22 @@ This module handles all interactions with the CAIPE supervisor, including:
 - Real-time progress updates in Slack
 """
 
+import json
 import os
-import re
 import time
 
-APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
-
-import json
 from loguru import logger
+
+from . import slack_formatter
+from . import utils as _utils
 from .config import config
 from .event_parser import (
   parse_event,
   EventType,
 )
-from . import slack_formatter
-from . import utils as _utils
 from .throttler import create_throttled_updater
+
+APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 
 
 class StreamBuffer:
@@ -84,7 +84,7 @@ class StreamBuffer:
       self.slack_client.chat_appendStream(
         channel=self.channel_id,
         ts=self.stream_ts,
-        chunks=[{"type": "markdown_text", "text": _normalize_paragraph_breaks(text)}],
+        chunks=[{"type": "markdown_text", "text": text}],
       )
       self._flushed_any = True
       return True
@@ -587,7 +587,7 @@ def stream_a2a_response(
               triggered_by_user_id=triggered_by_user_id,
               additional_footer=additional_footer,
               escalation_config=escalation_config,
-            )
+                          )
           )
           slack_client.chat_stopStream(
             channel=channel_id, ts=stream_ts, blocks=error_blocks
@@ -655,7 +655,7 @@ def stream_a2a_response(
       already_streamed = streaming_final_answer
       needs_final = not already_streamed
       if needs_final and final_text:
-        stop_chunks.append({"type": "markdown_text", "text": _normalize_paragraph_breaks(final_text)})
+        stop_chunks.append({"type": "markdown_text", "text": final_text})
 
       stop_blocks = _build_stream_final_blocks(
         channel_id,
@@ -664,7 +664,7 @@ def stream_a2a_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
-      )
+              )
       logger.info(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
       slack_client.chat_stopStream(
         channel=channel_id,
@@ -689,7 +689,7 @@ def stream_a2a_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
-      )
+              )
     else:
       if thread_deleted:
         logger.warning(f"[{thread_ts}] Thread deleted — dropping response to avoid posting in main channel")
@@ -710,7 +710,7 @@ def stream_a2a_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
-      )
+              )
 
   except Exception as e:
     logger.exception(f"[{thread_ts}] Error during streaming: {e}")
@@ -723,7 +723,7 @@ def stream_a2a_response(
           triggered_by_user_id=triggered_by_user_id,
           additional_footer=additional_footer,
           escalation_config=escalation_config,
-        )
+                  )
       )
     except Exception:
       logger.warning(f"[{thread_ts}] Failed to build feedback blocks for error response")
@@ -774,46 +774,6 @@ def _build_progress_blocks(current_tool, plan_steps=None):
     if len(plan_text) <= 2000:
       blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": plan_text}]})
   return blocks
-
-
-# Lines starting with a list marker or blank lines should keep single newlines
-_LIST_PREFIX = re.compile(r'^(\s*[-*+]|\s*\d+[.)]\s)', re.MULTILINE)
-
-
-def _normalize_paragraph_breaks(text: str) -> str:
-  """Ensure paragraph breaks render in Slack's markdown_text streaming format.
-
-  Slack's markdown_text (used by appendStream/stopStream) treats single \\n
-  as a soft wrap rather than a visible line break.  Double \\n\\n produces a
-  paragraph break.  This helper converts lone \\n to \\n\\n while preserving:
-    - existing double+ newlines
-    - newlines inside fenced code blocks (``` ... ```)
-    - single newlines between list items (- , * , 1. , etc.)
-  """
-  # Split on fenced code blocks so we only touch prose sections
-  parts = re.split(r'(```[\s\S]*?```)', text)
-  result = []
-  for i, part in enumerate(parts):
-    if i % 2 == 1:
-      # Inside a code fence — leave unchanged
-      result.append(part)
-    else:
-      # Normalize lone newlines, but skip lines that look like list items
-      lines = part.split('\n')
-      normalized = []
-      for j, line in enumerate(lines):
-        normalized.append(line)
-        if j < len(lines) - 1:
-          next_line = lines[j + 1] if j + 1 < len(lines) else ''
-          # Keep single \n if current or next line is a list item or blank
-          is_list = _LIST_PREFIX.match(line) or _LIST_PREFIX.match(next_line)
-          is_blank = line.strip() == '' or next_line.strip() == ''
-          if is_list or is_blank:
-            normalized.append('\n')
-          else:
-            normalized.append('\n\n')
-      result.append(''.join(normalized))
-  return ''.join(result)
 
 
 def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
@@ -932,34 +892,7 @@ def _build_stream_final_blocks(
 ):
   """Build the feedback + footer blocks used by both stream types."""
   final_blocks = []
-
-  # Add refinement buttons (and optional escalation)
   action_value = f"{channel_id}|{thread_ts}|{original_ts or ''}"
-  action_elements = [
-    {
-      "type": "button",
-      "text": {"type": "plain_text", "text": "More detail"},
-      "action_id": "caipe_feedback_more_detail",
-      "value": action_value,
-    },
-    {
-      "type": "button",
-      "text": {"type": "plain_text", "text": "Briefer"},
-      "action_id": "caipe_feedback_less_verbose",
-      "value": action_value,
-    },
-  ]
-  if escalation_config:
-    action_elements.append(
-      {
-        "type": "button",
-        "text": {"type": "plain_text", "text": "Get help"},
-        "action_id": "caipe_escalation_get_help",
-        "value": action_value,
-        "style": "danger",
-      }
-    )
-  final_blocks.append({"type": "actions", "elements": action_elements})
 
   # Add thumbs up/down feedback buttons (and optional trash icon)
   context_elements = [
@@ -981,7 +914,8 @@ def _build_stream_final_blocks(
       {
         "type": "icon_button",
         "action_id": "caipe_delete_message",
-        "icon": {"type": "known", "name": "trash"},
+        "text": {"type": "plain_text", "text": "Delete"},
+        "icon": "trash",
         "value": action_value,
         "accessibility_label": "Delete this response",
       }
@@ -1036,8 +970,9 @@ def handle_ai_alert_processing(
     "attachments": json.dumps(alert_attachments) if alert_attachments else None,
   }
 
-  jira_config_str = json.dumps(channel_config, indent=2)
-  jira_project = channel_config.get("project_key", "UNKNOWN")
+  # channel_config is now a JiraConfig model
+  jira_config_str = json.dumps(channel_config.model_dump(), indent=2)
+  jira_project = channel_config.project_key
   prompt_template = custom_prompt if custom_prompt else config.defaults.default_ai_alerts_prompt
 
   prompt = prompt_template.format(
@@ -1079,7 +1014,7 @@ def handle_ai_alert_processing(
     metadata={
       "alert_bot": bot_username,
       "channel_id": channel_id,
-      "jira_config": channel_config,
+      "jira_config": channel_config.model_dump(),
     },
     session_manager=session_manager,
     escalation_config=escalation_config,

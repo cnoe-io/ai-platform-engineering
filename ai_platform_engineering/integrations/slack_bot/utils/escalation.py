@@ -55,27 +55,30 @@ def _ping_victorops_oncall(a2a_client, slack_client, channel_id, thread_ts, team
             f"RESPOND IN 1 WORD THAT IS USER EMAIL. "
             f"WHO IS ON CALL FOR TEAM {team}?"
         )
+        logger.info(f"[{thread_ts}] VictorOps: querying on-call for team {team}")
         oncall_email = None
+        raw_responses = []
         for event_data in a2a_client.send_message_stream(message_text=prompt):
-            # Look for text content in any event
-            if isinstance(event_data, dict):
-                result = event_data.get("result", {})
-                parts = []
-                # Check artifact parts
-                if "artifact" in result:
-                    parts = result["artifact"].get("parts", [])
-                # Check message parts
-                elif "parts" in result:
-                    parts = result["parts"]
+            # Look for text content in artifact events
+            if isinstance(event_data, dict) and "artifact" in event_data:
+                artifact = event_data["artifact"]
+                artifact_name = artifact.get("name", "")
+                parts = artifact.get("parts", [])
+
                 for part in parts:
                     if part.get("kind") == "text" and part.get("text", "").strip():
                         text = part["text"].strip()
-                        # Extract email pattern from response
-                        email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.]+', text)
-                        if email_match:
-                            oncall_email = email_match.group(0)
+                        # Only capture final_result artifacts for email extraction
+                        if artifact_name == "final_result":
+                            raw_responses.append(text)
+                            # Extract email pattern from response
+                            email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.]+', text)
+                            if email_match:
+                                oncall_email = email_match.group(0)
 
+        logger.debug(f"[{thread_ts}] VictorOps: extracted text responses: {raw_responses}")
         if not oncall_email:
+            logger.warning(f"[{thread_ts}] VictorOps: no email found in AI response for team {team}")
             slack_client.chat_postMessage(
                 channel=channel_id, thread_ts=thread_ts,
                 text=f"Could not determine on-call for team *{team}*. Please check VictorOps manually.",
