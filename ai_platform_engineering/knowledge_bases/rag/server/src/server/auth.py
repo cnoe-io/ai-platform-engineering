@@ -399,6 +399,7 @@ class AuthManager:
       raise JWTError("No OIDC providers configured for token validation")
 
     errors = []
+    userinfo_errors = []
 
     for provider in self.providers.values():
       try:
@@ -407,10 +408,20 @@ class AuthManager:
         return provider, claims
       except JWTError as e:
         errors.append(f"{provider.name}: {str(e)}")
-        continue
+        # JWKS validation failed — fall back to userinfo endpoint.
+        # This handles providers (e.g. Duo) that issue access tokens signed with
+        # keys not published in their public JWKS. If the provider's userinfo
+        # endpoint accepts the token, it is implicitly valid.
+        try:
+          userinfo = await provider.fetch_userinfo(token)
+          logger.info(f"Token validated via userinfo fallback for provider '{provider.name}' (JWKS failed: {e})")
+          return provider, userinfo
+        except Exception as ui_err:
+          userinfo_errors.append(f"{provider.name}: {str(ui_err)}")
+          continue
 
-    # All providers failed
-    error_msg = f"Token validation failed for all providers: {'; '.join(errors)}"
+    # All providers failed both JWKS and userinfo
+    error_msg = f"Token validation failed for all providers — JWKS: {'; '.join(errors)}; userinfo: {'; '.join(userinfo_errors)}"
     logger.warning(error_msg)
     raise JWTError(error_msg)
 
