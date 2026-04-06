@@ -75,15 +75,15 @@ requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
     { name = "click", specifier = "==8.3.1" },
     { name = "cnoe-agent-utils", specifier = "==0.3.14" },
-    { name = "config", specifier = ">=0.5.1,<0.6.0" },
-    { name = "fastapi", specifier = ">=0.115.12,<0.116.0" },
+    { name = "config", specifier = "==0.5.1" },
+    { name = "fastapi", specifier = "==0.115.14" },
     { name = "langchain-core", specifier = "==1.1.2" },
-    { name = "langfuse", specifier = ">=3.0.8,<4.0.0" },
+    { name = "langfuse", specifier = "==3.14.5" },
     { name = "langgraph", specifier = "==1.0.4" },
-    { name = "langmem", specifier = ">=0.0.30" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "python-dotenv", specifier = ">=1.0.1" },
-    { name = "uvicorn", specifier = ">=0.34.3,<0.35.0" },
+    { name = "langmem", specifier = "==0.0.30" },
+    { name = "pydantic", specifier = "==2.11.7" },
+    { name = "python-dotenv", specifier = "==1.1.1" },
+    { name = "uvicorn", specifier = "==0.34.3" },
 ]
 
 [[package]]
