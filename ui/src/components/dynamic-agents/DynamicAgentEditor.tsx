@@ -6,8 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
+
+// Lazy-load CodeMirror to avoid SSR issues
+const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
 import type {
   DynamicAgentConfig,
   DynamicAgentConfigCreate,
@@ -139,6 +147,7 @@ function StepIndicator({
 export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
+  const { toast } = useToast();
   
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
@@ -177,6 +186,36 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
   const [availableTeams, setAvailableTeams] = React.useState<
     { _id: string; name: string; description?: string }[]
   >([]);
+
+  // AI suggestion state
+  const [generatingField, setGeneratingField] = React.useState<string | null>(null);
+  const [promptTab, setPromptTab] = React.useState<"edit" | "preview">("edit");
+  const [showSuggestPromptInput, setShowSuggestPromptInput] = React.useState(false);
+  const [suggestPromptInstruction, setSuggestPromptInstruction] = React.useState("");
+  const [showSuggestBasicInput, setShowSuggestBasicInput] = React.useState(false);
+  const [suggestBasicInstruction, setSuggestBasicInstruction] = React.useState("");
+  const [enhanceExisting, setEnhanceExisting] = React.useState(false);
+  const [enhanceExistingBasic, setEnhanceExistingBasic] = React.useState(false);
+  const [promptStyle, setPromptStyle] = React.useState<"concise" | "comprehensive">("concise");
+
+  // CodeMirror extensions for markdown syntax highlighting
+  const [cmExtensions, setCmExtensions] = React.useState<any[]>([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      import("@codemirror/lang-markdown"),
+      import("@codemirror/language-data"),
+      import("@codemirror/view"),
+    ]).then(([mdMod, langDataMod, viewMod]) => {
+      if (!cancelled) {
+        setCmExtensions([
+          mdMod.markdown({ codeLanguages: langDataMod.languages }),
+          viewMod.EditorView.lineWrapping,
+        ]);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // ID generation and validation
   const generatedId = React.useMemo(() => generateSlug(name), [name]);
@@ -285,6 +324,131 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
       setActiveStep(STEPS[currentStepIndex + 1].id);
     }
   };
+
+  /**
+   * Call the AI suggest endpoint for a given field.
+   * Accepts an optional instruction string for guidance.
+   */
+  const handleSuggest = async (
+    field: "description" | "system_prompt" | "theme",
+    instruction?: string
+  ) => {
+    if (!name.trim() || !modelId) return;
+
+    setGeneratingField(field);
+    try {
+      const response = await fetch("/api/dynamic-agents/assistant/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field,
+          context: {
+            name,
+            description: description || undefined,
+            system_prompt: systemPrompt || undefined,
+            allowed_tools: Object.keys(allowedTools).length > 0 ? allowedTools : undefined,
+            builtin_tools: builtinTools,
+            subagents: subagents.length > 0
+              ? subagents.map((s) => ({
+                  agent_id: s.agent_id,
+                  name: s.name || s.agent_id,
+                  description: s.description,
+                }))
+              : undefined,
+          },
+          model_id: modelId,
+          model_provider: modelProvider,
+          ...(instruction ? { instruction } : {}),
+          ...(field === "system_prompt" ? { prompt_style: promptStyle } : {}),
+        }),
+      });
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to generate suggestion");
+      }
+
+      const content = (data.data?.content ?? "").trim();
+      if (!content) {
+        throw new Error("Empty response from AI");
+      }
+
+      switch (field) {
+        case "description":
+          setDescription(content);
+          break;
+        case "system_prompt":
+          setSystemPrompt(content);
+          // Switch to preview tab so user sees the rendered result
+          setPromptTab("preview");
+          break;
+        case "theme": {
+          // Try exact match first (after normalization)
+          const normalized = content.toLowerCase().replace(/[^a-z_]/g, "");
+          const exactMatch = gradientThemes.find((t) => t.id === normalized);
+          if (exactMatch) {
+            setGradientTheme(exactMatch.id);
+          } else {
+            // Fuzzy: find any valid theme ID contained in the response
+            const fuzzyMatch = gradientThemes.find((t) =>
+              content.toLowerCase().includes(t.id)
+            );
+            if (fuzzyMatch) {
+              setGradientTheme(fuzzyMatch.id);
+            } else {
+              console.warn(`AI suggested unknown theme "${content}", ignoring`);
+              toast("Could not determine theme from AI response", "error");
+            }
+          }
+          break;
+        }
+      }
+    } catch (err: any) {
+      console.error(`AI suggest (${field}) failed:`, err);
+      toast(err.message || "Failed to generate suggestion", "error");
+    } finally {
+      setGeneratingField(null);
+    }
+  };
+
+  /**
+   * Combined handler for Step 1: generates both description and theme in parallel.
+   */
+  const handleSuggestBasicInfo = async (instruction?: string) => {
+    if (!name.trim() || !modelId) return;
+    setShowSuggestBasicInput(false);
+    setSuggestBasicInstruction("");
+    // If enhancing existing description, pass it as context
+    const existingHint = enhanceExistingBasic && description.trim()
+      ? `The current description is: "${description}". Use it as a starting point and enhance/refine it.`
+      : undefined;
+    const fullInstruction = [existingHint, instruction].filter(Boolean).join("\n\n");
+    setEnhanceExistingBasic(false);
+    // Run both in parallel
+    await Promise.all([
+      handleSuggest("description", fullInstruction || undefined),
+      handleSuggest("theme", instruction),
+    ]);
+  };
+
+  /**
+   * Handle system prompt suggestion via the popover.
+   * If enhanceExisting is checked and content exists, pass it as context.
+   */
+  const handleSuggestSystemPrompt = (instruction?: string) => {
+    setShowSuggestPromptInput(false);
+    setSuggestPromptInstruction("");
+    // If user wants to enhance existing content, pass it as context
+    const existingHint = enhanceExisting && systemPrompt.trim()
+      ? `The current system prompt is provided below — use it as a starting point and enhance/refine it based on the user's guidance.\n\n<current_prompt>\n${systemPrompt}\n</current_prompt>`
+      : undefined;
+    const fullInstruction = [existingHint, instruction].filter(Boolean).join("\n\n");
+    setEnhanceExisting(false);
+    handleSuggest("system_prompt", fullInstruction || undefined);
+  };
+
+  const canSuggest = name.trim() && modelId && !generatingField;
+  const isGenerating = !!generatingField;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -448,59 +612,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                 ) : null}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  placeholder="What does this agent do?"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  disabled={loading}
-                  rows={2}
-                />
-              </div>
-
-              {/* Agent Theme */}
-              <div className="space-y-2">
-                <Label>Agent Theme</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Choose a color theme for this agent&apos;s avatar.
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  {gradientThemes.map((theme) => (
-                    <button
-                      key={theme.id}
-                      type="button"
-                      onClick={() => setGradientTheme(theme.id)}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all text-left",
-                        gradientTheme === theme.id
-                          ? "border-primary bg-primary/10"
-                          : "border-border hover:border-primary/50 hover:bg-muted/50"
-                      )}
-                      disabled={loading}
-                    >
-                      <div
-                        className="w-8 h-8 rounded-lg shrink-0"
-                        style={{
-                          background: `linear-gradient(to bottom right, ${theme.from}, ${theme.to})`,
-                        }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium block truncate">{theme.label.split(' (')[0]}</span>
-                        <span className="text-xs text-muted-foreground block truncate">
-                          {theme.description}
-                        </span>
-                      </div>
-                      {gradientTheme === theme.id && (
-                        <Check className="h-4 w-4 text-primary shrink-0" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* LLM Model - Prominent selection */}
+              {/* LLM Model - right after name so AI Suggest buttons can use it */}
               <div className="space-y-2">
                 <Label htmlFor="modelId">
                   LLM Model <span className="text-destructive">*</span>
@@ -510,7 +622,6 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                     id="modelId"
                     value={`${modelId}::${modelProvider}`}
                     onChange={(e) => {
-                      // Parse composite key "model_id::provider" (using :: as delimiter since model IDs may contain :)
                       const lastDelimiter = e.target.value.lastIndexOf("::");
                       if (lastDelimiter > 0) {
                         const selectedId = e.target.value.slice(0, lastDelimiter);
@@ -545,6 +656,133 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                       The language model that powers this agent&apos;s reasoning.
                     </p>
                   )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between relative">
+                  <Label htmlFor="description">Description</Label>
+                  <div className="relative">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
+                      disabled={!canSuggest || loading}
+                      onClick={() => { setShowSuggestBasicInput((v) => { if (!v) setEnhanceExistingBasic(!!description.trim()); return !v; }); setShowSuggestPromptInput(false); }}
+                      title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "AI-generate description and theme"}
+                    >
+                      {isGenerating && (generatingField === "description" || generatingField === "theme") ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3" />
+                      )}
+                      AI Suggest
+                    </Button>
+                    <AnimatePresence>
+                      {showSuggestBasicInput && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
+                        >
+                          <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                            Describe what this agent does
+                          </label>
+                          <p className="text-[11px] text-muted-foreground/70 mb-2">
+                            Generates a description and picks a matching theme.
+                          </p>
+                          <Input
+                            autoFocus
+                            value={suggestBasicInstruction}
+                            onChange={(e) => setSuggestBasicInstruction(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSuggestBasicInfo(suggestBasicInstruction.trim() || undefined);
+                              if (e.key === "Escape") setShowSuggestBasicInput(false);
+                            }}
+                            placeholder="e.g., Summarizes documents and answers questions..."
+                            className="h-8 text-sm mb-2"
+                          />
+                          {description.trim() && (
+                            <label className="flex items-center gap-2 mb-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={enhanceExistingBasic}
+                                onChange={(e) => setEnhanceExistingBasic(e.target.checked)}
+                                className="rounded border-muted"
+                              />
+                              <span className="text-xs text-muted-foreground">Enhance existing text</span>
+                            </label>
+                          )}
+                          <div className="flex justify-end gap-1.5">
+                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowSuggestBasicInput(false)}>
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 text-xs gap-1 gradient-primary text-white"
+                              onClick={() => handleSuggestBasicInfo(suggestBasicInstruction.trim() || undefined)}
+                            >
+                              <Sparkles className="h-3 w-3" />
+                              Generate
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+                <Textarea
+                  id="description"
+                  placeholder="What does this agent do?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  disabled={loading}
+                  rows={2}
+                />
+              </div>
+
+              {/* Agent Theme */}
+              <div className="space-y-2">
+                <Label>Agent Theme</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Choose a color theme for this agent&apos;s avatar.
+                </p>
+                <div className="grid grid-cols-6 gap-1.5">
+                  {gradientThemes.map((theme) => (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      onClick={() => setGradientTheme(theme.id)}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left",
+                        gradientTheme === theme.id
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/50 hover:bg-muted/50"
+                      )}
+                      disabled={loading}
+                      title={theme.description}
+                    >
+                      <div
+                        className="w-6 h-6 rounded-md shrink-0"
+                        style={{
+                          background: `linear-gradient(to bottom right, ${theme.from}, ${theme.to})`,
+                        }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[11px] font-medium block truncate">{theme.label.split(' (')[0]}</span>
+                        <span className="text-[10px] text-muted-foreground block truncate">
+                          {theme.description}
+                        </span>
+                      </div>
+                      {gradientTheme === theme.id && (
+                        <Check className="h-3 w-3 text-primary shrink-0" />
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -618,20 +856,194 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           {activeStep === "instructions" && (
             <div className="space-y-4 pt-2">
               <div className="space-y-2">
-                <Label htmlFor="systemPrompt">
-                  System Prompt <span className="text-destructive">*</span>
-                </Label>
-                <Textarea
-                  id="systemPrompt"
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  rows={16}
-                  className="font-mono text-sm"
-                  placeholder="You are a helpful AI assistant that specializes in..."
-                  disabled={loading}
-                />
+                <div className="flex items-center justify-between relative">
+                  <Label htmlFor="systemPrompt">
+                    System Prompt <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
+                      disabled={!canSuggest || loading}
+                      onClick={() => { setShowSuggestPromptInput((v) => { if (!v) setEnhanceExisting(!!systemPrompt.trim()); return !v; }); setShowSuggestBasicInput(false); }}
+                      title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "Generate system prompt with AI"}
+                    >
+                      {generatingField === "system_prompt" ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3" />
+                      )}
+                      AI Suggest
+                    </Button>
+
+                    {/* Inline popover for instructions */}
+                    <AnimatePresence>
+                      {showSuggestPromptInput && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute top-full right-0 mt-1 z-50 w-80 p-3 rounded-lg border border-border/50 bg-background shadow-xl"
+                        >
+                          <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                            What should the system prompt cover?
+                          </label>
+                          <Input
+                            autoFocus
+                            value={suggestPromptInstruction}
+                            onChange={(e) => setSuggestPromptInstruction(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSuggestSystemPrompt(suggestPromptInstruction.trim() || undefined);
+                              if (e.key === "Escape") setShowSuggestPromptInput(false);
+                            }}
+                            placeholder="e.g., Focus on step-by-step reasoning..."
+                            className="h-8 text-sm mb-2"
+                          />
+                          {systemPrompt.trim() && (
+                            <label className="flex items-center gap-2 mb-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={enhanceExisting}
+                                onChange={(e) => setEnhanceExisting(e.target.checked)}
+                                className="rounded border-muted"
+                              />
+                              <span className="text-xs text-muted-foreground">Enhance existing text</span>
+                            </label>
+                          )}
+                          <div className="flex items-center gap-1 mb-2">
+                            <button
+                              type="button"
+                              className={cn(
+                                "px-2 py-0.5 text-xs rounded-full border transition-colors",
+                                promptStyle === "concise"
+                                  ? "border-primary text-primary bg-primary/10"
+                                  : "border-border text-muted-foreground hover:border-primary/30"
+                              )}
+                              onClick={() => setPromptStyle("concise")}
+                            >
+                              Concise
+                            </button>
+                            <button
+                              type="button"
+                              className={cn(
+                                "px-2 py-0.5 text-xs rounded-full border transition-colors",
+                                promptStyle === "comprehensive"
+                                  ? "border-primary text-primary bg-primary/10"
+                                  : "border-border text-muted-foreground hover:border-primary/30"
+                              )}
+                              onClick={() => setPromptStyle("comprehensive")}
+                            >
+                              Comprehensive
+                            </button>
+                          </div>
+                          <div className="flex justify-end gap-1.5">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => setShowSuggestPromptInput(false)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-7 text-xs gap-1 gradient-primary text-white"
+                              onClick={() => handleSuggestSystemPrompt(suggestPromptInstruction.trim() || undefined)}
+                            >
+                              <Sparkles className="h-3 w-3" />
+                              Generate
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
+                {/* Edit / Preview tabs */}
+                <div className="flex items-center gap-1 border-b border-border/30">
+                  <button
+                    type="button"
+                    onClick={() => setPromptTab("edit")}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px",
+                      promptTab === "edit"
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPromptTab("preview")}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px",
+                      promptTab === "preview"
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Eye className="h-3 w-3" />
+                    Preview
+                  </button>
+                </div>
+
+                {promptTab === "edit" ? (
+                  <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] min-h-[480px]">
+                    <React.Suspense
+                      fallback={
+                        <div className="flex items-center justify-center h-48 text-zinc-500">
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          <span className="text-sm">Loading editor...</span>
+                        </div>
+                      }
+                    >
+                      <CodeMirrorEditor
+                        value={systemPrompt}
+                        onChange={(val: string) => setSystemPrompt(val)}
+                        extensions={cmExtensions}
+                        theme="dark"
+                        height="480px"
+                        style={{ fontSize: "15px" }}
+                        basicSetup={{
+                          lineNumbers: true,
+                          foldGutter: true,
+                          highlightActiveLine: true,
+                          bracketMatching: true,
+                          autocompletion: false,
+                          indentOnInput: true,
+                        }}
+                        placeholder="You are a helpful AI assistant that specializes in..."
+                        editable={!loading && generatingField !== "system_prompt"}
+                      />
+                    </React.Suspense>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border p-4 min-h-[480px] max-h-[600px] overflow-y-auto prose prose-sm dark:prose-invert max-w-none">
+                    {systemPrompt.trim() ? (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={getMarkdownComponents()}
+                      >
+                        {systemPrompt}
+                      </ReactMarkdown>
+                    ) : (
+                      <p className="text-muted-foreground italic text-sm">
+                        Nothing to preview. Switch to Edit to write your system prompt.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <p className="text-sm text-muted-foreground">
-                  Define your agent's behavior, personality, and capabilities. 
+                  Define your agent&apos;s behavior, personality, and capabilities. 
                   You can paste content from an AGENTS.md file here.
                 </p>
               </div>
