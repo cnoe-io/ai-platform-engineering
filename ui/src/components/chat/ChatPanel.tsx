@@ -35,9 +35,11 @@ interface ChatPanelProps {
   readOnlyReason?: ReadOnlyReason;
   /** Which admin tab the user navigated from (audit-logs or feedback) */
   adminOrigin?: "audit-logs" | "feedback" | null;
+  /** Whether the backend is disconnected */
+  isDisconnected?: boolean;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, isDisconnected }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -883,12 +885,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               visible={showSlashMenu}
             />
 
-            <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
+            <div
+              className={cn(
+                "relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200",
+                isDisconnected && "opacity-50 cursor-not-allowed"
+              )}
+              title={isDisconnected ? `Disconnected from ${getConfig('appName')}` : undefined}
+            >
               <TextareaAutosize
                 ref={inputRef}
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
+                disabled={isDisconnected}
                 placeholder={
                   isThisConversationStreaming
                     ? queuedMessages.length >= 3
@@ -896,7 +905,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                       : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
                     : `Ask ${getConfig('appName')} anything, or type / to see commands, skills, and agents...`
                 }
-                className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                className={cn("flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm", isDisconnected && "cursor-not-allowed")}
                 minRows={1}
                 maxRows={10}
               />
@@ -915,7 +924,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               <Button
                 size="icon"
                 onClick={() => handleSubmit(false)}
-                disabled={!input.trim()}
+                disabled={isDisconnected || !input.trim()}
                 variant="default"
                 className="shrink-0"
                 title="Send message"

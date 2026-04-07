@@ -182,6 +182,7 @@ _agui_agent = PersistedLangGraphAgent(
     name="platform-engineer",
     graph=_langgraph,
     description="AI Platform Engineer - DevOps assistant for platform engineering tasks",
+    config={"recursion_limit": 100},
 )
 
 # Add the AG-UI endpoint at /chat/stream

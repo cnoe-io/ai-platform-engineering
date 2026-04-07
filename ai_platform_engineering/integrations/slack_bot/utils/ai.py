@@ -321,6 +321,8 @@ def stream_sse_response(
   plan_steps = {}        # step_id -> step dict
   sent_step_status = {}  # step_id -> last status sent to Slack
   needs_separator = False
+  active_plan_step_id = None   # step_id of the current in_progress step
+  step_thinking_buf = {}       # step_id -> accumulated thinking text
 
   _loading_messages = [
     "is thinking...",
@@ -417,13 +419,18 @@ def stream_sse_response(
         text = event.delta or ""
         if text:
           final_text_parts.append(text)
-          _start_stream_if_needed()
-          if stream_buf:
-            out = text
-            if needs_separator and stream_buf.has_flushed:
-              out = "\n\n" + out
-              needs_separator = False
-            stream_buf.append(out)
+          # Accumulate thinking text under the active plan step
+          if active_plan_step_id:
+            step_thinking_buf.setdefault(active_plan_step_id, [])
+            step_thinking_buf[active_plan_step_id].append(text)
+          else:
+            _start_stream_if_needed()
+            if stream_buf:
+              out = text
+              if needs_separator and stream_buf.has_flushed:
+                out = "\n\n" + out
+                needs_separator = False
+              stream_buf.append(out)
           streaming_final_answer = True
 
       elif event.type == SSEEventType.TEXT_MESSAGE_END:
@@ -457,6 +464,12 @@ def stream_sse_response(
             if isinstance(step, dict) and "step_id" in step:
               plan_steps[step["step_id"]] = step
 
+          # Track the currently active (in_progress) plan step
+          active_plan_step_id = None
+          for s in plan_steps.values():
+            if s.get("status") == "in_progress":
+              active_plan_step_id = s["step_id"]
+
           if not overthink_mode:
             _start_stream_if_needed()
           if not overthink_mode and stream_ts:
@@ -470,7 +483,15 @@ def stream_sse_response(
                 changed_steps.append(step)
                 sent_step_status[sid] = cur_status
             if changed_steps:
-              chunks = slack_formatter.build_task_update_chunks(changed_steps)
+              # Attach accumulated thinking text as details for completed/failed steps
+              details_map = {}
+              for step in changed_steps:
+                sid = step["step_id"]
+                if step.get("status") in ("completed", "failed") and sid in step_thinking_buf:
+                  thinking = "".join(step_thinking_buf[sid])
+                  if thinking:
+                    details_map[sid] = thinking[:500]
+              chunks = slack_formatter.build_task_update_chunks(changed_steps, step_details=details_map)
               try:
                 slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
                 logger.info(f"[{thread_ts}] SLACK appendStream plan chunks: {len(chunks)}")
@@ -497,6 +518,12 @@ def stream_sse_response(
               "status": todo.get("status", "pending"),
             }
 
+          # Track the currently active (in_progress) plan step
+          active_plan_step_id = None
+          for s in plan_steps.values():
+            if s.get("status") == "in_progress":
+              active_plan_step_id = s["step_id"]
+
           if not overthink_mode:
             _start_stream_if_needed()
           if not overthink_mode and stream_ts:
@@ -507,7 +534,15 @@ def stream_sse_response(
                 changed_steps.append(step)
                 sent_step_status[sid] = cur_status
             if changed_steps:
-              chunks = slack_formatter.build_task_update_chunks(changed_steps)
+              # Attach accumulated thinking text as details for completed/failed steps
+              details_map = {}
+              for step in changed_steps:
+                sid = step["step_id"]
+                if step.get("status") in ("completed", "failed") and sid in step_thinking_buf:
+                  thinking = "".join(step_thinking_buf[sid])
+                  if thinking:
+                    details_map[sid] = thinking[:500]
+              chunks = slack_formatter.build_task_update_chunks(changed_steps, step_details=details_map)
               try:
                 slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
                 logger.info(f"[{thread_ts}] SLACK appendStream todo chunks: {len(chunks)}")
@@ -591,11 +626,13 @@ def stream_sse_response(
         for step in plan_steps.values():
           sid = step["step_id"]
           if sent_step_status.get(sid) != "completed":
+            thinking = "".join(step_thinking_buf.get(sid, []))
             final_chunks.append(
               slack_formatter.build_single_task_update(
                 step_id=sid,
                 title=slack_formatter._format_step_title(step),
                 status="completed",
+                details=thinking[:500] if thinking else None,
               )
             )
         if final_chunks:

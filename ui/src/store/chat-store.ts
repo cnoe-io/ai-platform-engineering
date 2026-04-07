@@ -1334,6 +1334,7 @@ const storeImplementation = (set: any, get: any) => ({
         let hasReceivedDone = false;
         let eventCount = 0;
         let timelineTextOffset: number | undefined; // char offset where first tool/plan appeared
+        let sawWriteTodos = false; // track if write_todos was called this turn
         const timeline = new TimelineManager();
 
         const conv = get().conversations.find((c: Conversation) => c.id === convId);
@@ -1357,12 +1358,17 @@ const storeImplementation = (set: any, get: any) => ({
             eventCount++;
             accumulatedText += delta;
             get().appendToMessage(convId!, assistantMsgId, delta);
-            // AG-UI: Text streams directly to message.content as markdown.
-            // Timeline only shows tool/plan segments, not text.
+            // When a plan exists, route text into thinking segments tagged
+            // with the active plan step so the timeline nests them properly.
+            if (timeline.getHasPlan()) {
+              timeline.pushThinking(delta, eventCount);
+              get().updateMessage(convId!, assistantMsgId, { timelineSegments: timeline.getSegments() });
+            }
           },
 
           onToolStart: (_toolCallId: string, toolName: string) => {
             eventCount++;
+            if (toolName === "write_todos") sawWriteTodos = true;
             if (timelineTextOffset === undefined) {
               timelineTextOffset = accumulatedText.length;
               get().updateMessage(convId!, assistantMsgId, { timelineTextOffset });
@@ -1396,6 +1402,10 @@ const storeImplementation = (set: any, get: any) => ({
           },
 
           onStateSnapshot: (snapshot: Record<string, unknown>) => {
+            // Only process todos from STATE_SNAPSHOT if write_todos was called
+            // this turn. The end-of-run snapshot always carries the full state
+            // (including todos from previous turns) which would create ghost plans.
+            if (!sawWriteTodos) return;
             const todos = snapshot.todos;
             if (Array.isArray(todos) && todos.length > 0) {
               const planSteps = parsePlanStepsFromTodos(todos);

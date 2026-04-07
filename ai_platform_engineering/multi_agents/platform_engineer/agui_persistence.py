@@ -12,12 +12,24 @@ page refresh.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import AsyncGenerator
 
-from ag_ui.core import EventType as AGUIEventType, RunAgentInput
+from ag_ui.core import (
+    EventType as AGUIEventType,
+    RunAgentInput,
+    RunErrorEvent,
+    RunFinishedEvent,
+    StateSnapshotEvent,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+)
 from ag_ui_langgraph import LangGraphAgent
+from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
+from langgraph.errors import GraphRecursionError
 
 from ai_platform_engineering.utils.persistence.turn_persistence import TurnPersistence
 
@@ -82,24 +94,22 @@ class PersistedLangGraphAgent(LangGraphAgent):
         run_finished = False
         run_error = False
 
-        try:
-            async for event in super().run(input):
-                if turn_id is not None:
-                    try:
-                        self._persist_event(
-                            turn_id, conversation_id, event, accumulated_content
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "PersistedLangGraphAgent: event persist failed: %s", exc
-                        )
+        # Track write_todos tool calls so we can emit a STATE_SNAPSHOT
+        # with the todos immediately when the tool completes.
+        # ag_ui_langgraph suppresses the STATE_SNAPSHOT when multiple
+        # tool calls are made in one model turn, so we fill the gap.
+        write_todos_args: dict[str, str] = {}  # toolCallId → accumulated args JSON
 
+        try:
+            async for event in self._stream_with_intercepts(
+                input, turn_id, conversation_id, accumulated_content,
+                write_todos_args,
+            ):
                 if hasattr(event, "type"):
                     if event.type == AGUIEventType.RUN_FINISHED:
                         run_finished = True
                     elif event.type == AGUIEventType.RUN_ERROR:
                         run_error = True
-
                 yield event
         except GeneratorExit:
             # Client disconnected (e.g. page refresh) — generator cancelled.
@@ -129,6 +139,262 @@ class PersistedLangGraphAgent(LangGraphAgent):
                     logger.warning(
                         "PersistedLangGraphAgent: complete_turn failed: %s", exc
                     )
+
+    # ------------------------------------------------------------------
+    # Core streaming with intercepts (write_todos snapshot + persistence)
+    # ------------------------------------------------------------------
+
+    async def _stream_with_intercepts(
+        self,
+        input: RunAgentInput,
+        turn_id: str | None,
+        conversation_id: str,
+        accumulated_content: list[str],
+        write_todos_args: dict[str, str],
+    ) -> AsyncGenerator:
+        """Consume super().run(), persist events, and inject synthetic snapshots.
+
+        On error, attempts recovery:
+        - Repair orphaned tool calls in graph state
+        - For non-recursion errors: retry the stream once
+        - For recursion limit: emit a wrap-up message via the LLM
+        """
+        try:
+            async for event in self._iter_and_intercept(
+                super().run(input), turn_id, conversation_id,
+                accumulated_content, write_todos_args,
+            ):
+                yield event
+        except GeneratorExit:
+            raise
+        except Exception as exc:
+            error_str = str(exc)
+            is_recursion = isinstance(exc, GraphRecursionError) or "recursion limit" in error_str.lower()
+            logger.warning(
+                "PersistedLangGraphAgent: stream error (recursion=%s): %s",
+                is_recursion, error_str[:200],
+            )
+
+            # Phase 1: repair orphaned tool calls
+            thread_id = input.thread_id
+            config = {**(self.config or {})}
+            config.setdefault("configurable", {})["thread_id"] = thread_id
+            await self._repair_orphaned_tool_calls(config)
+
+            # Phase 2: retry once for non-recursion errors
+            if not is_recursion:
+                logger.info("PersistedLangGraphAgent: retrying stream after state repair")
+                try:
+                    async for event in self._iter_and_intercept(
+                        super().run(input), turn_id, conversation_id,
+                        accumulated_content, write_todos_args,
+                    ):
+                        yield event
+                    return  # retry succeeded
+                except Exception as retry_exc:
+                    logger.warning(
+                        "PersistedLangGraphAgent: retry also failed: %s",
+                        str(retry_exc)[:200],
+                    )
+                    # Fall through to wrap-up
+
+            # Phase 3: graceful wrap-up — ask the LLM to summarize progress
+            logger.info("PersistedLangGraphAgent: emitting wrap-up response")
+            async for event in self._emit_wrapup(config, error_str, turn_id, conversation_id, accumulated_content):
+                yield event
+
+    async def _iter_and_intercept(
+        self,
+        stream: AsyncGenerator,
+        turn_id: str | None,
+        conversation_id: str,
+        accumulated_content: list[str],
+        write_todos_args: dict[str, str],
+    ) -> AsyncGenerator:
+        """Iterate an AG-UI event stream, persisting events and injecting
+        synthetic STATE_SNAPSHOT after write_todos completes."""
+        async for event in stream:
+            if turn_id is not None:
+                try:
+                    self._persist_event(
+                        turn_id, conversation_id, event, accumulated_content
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "PersistedLangGraphAgent: event persist failed: %s", exc
+                    )
+
+            if not hasattr(event, "type"):
+                yield event
+                continue
+
+            # --- write_todos → synthetic STATE_SNAPSHOT ---
+            if event.type == AGUIEventType.TOOL_CALL_START:
+                name = getattr(event, "tool_call_name", "")
+                if name == "write_todos":
+                    write_todos_args[getattr(event, "tool_call_id", "")] = ""
+
+            elif event.type == AGUIEventType.TOOL_CALL_ARGS:
+                tcid = getattr(event, "tool_call_id", "")
+                if tcid in write_todos_args:
+                    write_todos_args[tcid] += getattr(event, "delta", "")
+
+            elif event.type == AGUIEventType.TOOL_CALL_END:
+                tcid = getattr(event, "tool_call_id", "")
+                if tcid in write_todos_args:
+                    yield event  # yield the TOOL_CALL_END first
+                    snapshot_event = self._make_todos_snapshot(
+                        write_todos_args.pop(tcid)
+                    )
+                    if snapshot_event is not None:
+                        if turn_id is not None:
+                            try:
+                                self._persist_event(
+                                    turn_id, conversation_id,
+                                    snapshot_event, accumulated_content,
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "PersistedLangGraphAgent: "
+                                    "write_todos snapshot persist failed: %s", exc,
+                                )
+                        yield snapshot_event
+                    continue  # already yielded the TOOL_CALL_END above
+
+            yield event
+
+    # ------------------------------------------------------------------
+    # Error recovery helpers
+    # ------------------------------------------------------------------
+
+    async def _repair_orphaned_tool_calls(self, config: dict) -> None:
+        """Remove AIMessages with tool_calls that have no matching ToolMessage.
+
+        Bedrock/Anthropic requires every tool_use to be followed by a
+        tool_result.  If an error interrupted execution mid-stream, orphaned
+        tool calls would cause validation errors on retry.
+        """
+        try:
+            state = await self.graph.aget_state(config)
+            if not state or not state.values:
+                return
+
+            messages = state.values.get("messages", [])
+            if not messages:
+                return
+
+            # Map tool_call_id → AIMessage.id
+            tc_to_ai: dict[str, str | None] = {}
+            resolved: set[str] = set()
+
+            for msg in messages:
+                if isinstance(msg, AIMessage):
+                    for tc in getattr(msg, "tool_calls", None) or []:
+                        tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                        if tc_id:
+                            tc_to_ai[tc_id] = getattr(msg, "id", None)
+                elif isinstance(msg, ToolMessage):
+                    tc_id = getattr(msg, "tool_call_id", None)
+                    if tc_id:
+                        resolved.add(tc_id)
+
+            orphaned_ai_ids = {
+                ai_id for tc_id, ai_id in tc_to_ai.items()
+                if tc_id not in resolved and ai_id
+            }
+            if not orphaned_ai_ids:
+                return
+
+            logger.warning(
+                "PersistedLangGraphAgent: removing %d AIMessage(s) with orphaned tool calls",
+                len(orphaned_ai_ids),
+            )
+            remove_msgs = [RemoveMessage(id=mid) for mid in orphaned_ai_ids]
+            await self.graph.aupdate_state(config, {"messages": remove_msgs})
+
+        except Exception as exc:
+            logger.error("PersistedLangGraphAgent: _repair_orphaned_tool_calls failed: %s", exc)
+
+    async def _emit_wrapup(
+        self,
+        config: dict,
+        error_str: str,
+        turn_id: str | None,
+        conversation_id: str,
+        accumulated_content: list[str],
+    ) -> AsyncGenerator:
+        """Inject a summary AIMessage into the graph and invoke the LLM once
+        to produce a graceful wrap-up response.  Falls back to a hardcoded
+        message if anything goes wrong."""
+        wrapup_text = (
+            "I ran into a processing limit while working on your request. "
+            "Here's what I was able to accomplish so far. "
+            "You can ask me to continue if needed."
+        )
+        try:
+            # Inject a summary so the graph can route to a final response
+            summary = (
+                f"I encountered an error and need to wrap up: {error_str[:500]}\n\n"
+                "Summarize what was accomplished and provide a helpful response."
+            )
+            await self.graph.aupdate_state(
+                config,
+                {"messages": [AIMessage(content=summary)]},
+                as_node="agent",
+            )
+            # Re-invoke the graph — it should route to generate_structured_response
+            # or produce a final message since the last AIMessage has no tool_calls
+            async for event in super().run(
+                RunAgentInput(
+                    thread_id=config["configurable"]["thread_id"],
+                    run_id=str(uuid.uuid4()),
+                    messages=[],
+                    state={},
+                    tools=[],
+                    context=[],
+                    forwarded_props={"command": {"resume": None}},
+                )
+            ):
+                if hasattr(event, "type") and event.type == AGUIEventType.TEXT_MESSAGE_CONTENT:
+                    delta = getattr(event, "delta", "")
+                    if delta:
+                        accumulated_content.append(delta)
+                yield event
+            return
+        except Exception as wrapup_exc:
+            logger.warning("PersistedLangGraphAgent: wrap-up failed: %s", wrapup_exc)
+
+        # Hardcoded fallback
+        msg_id = str(uuid.uuid4())
+        yield TextMessageStartEvent(type=AGUIEventType.TEXT_MESSAGE_START, role="assistant", message_id=msg_id)
+        yield TextMessageContentEvent(type=AGUIEventType.TEXT_MESSAGE_CONTENT, message_id=msg_id, delta=wrapup_text)
+        accumulated_content.append(wrapup_text)
+        yield TextMessageEndEvent(type=AGUIEventType.TEXT_MESSAGE_END, message_id=msg_id)
+        yield RunFinishedEvent(
+            type=AGUIEventType.RUN_FINISHED,
+            thread_id=config["configurable"].get("thread_id", ""),
+            run_id=str(uuid.uuid4()),
+        )
+
+    # ------------------------------------------------------------------
+    # write_todos → synthetic STATE_SNAPSHOT
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_todos_snapshot(raw_args: str) -> StateSnapshotEvent | None:
+        """Parse accumulated TOOL_CALL_ARGS for write_todos and build a
+        STATE_SNAPSHOT containing the todos list."""
+        try:
+            parsed = json.loads(raw_args)
+            todos = parsed if isinstance(parsed, list) else parsed.get("todos")
+            if isinstance(todos, list) and todos:
+                return StateSnapshotEvent(
+                    type=AGUIEventType.STATE_SNAPSHOT,
+                    snapshot={"todos": todos},
+                )
+        except (json.JSONDecodeError, TypeError, AttributeError) as exc:
+            logger.debug("PersistedLangGraphAgent: could not parse write_todos args: %s", exc)
+        return None
 
     # ------------------------------------------------------------------
     # Event → persistence mapping

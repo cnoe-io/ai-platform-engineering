@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { motion } from "framer-motion";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
@@ -34,17 +34,6 @@ export function PlatformEngineerChatView({
   const { status } = useCAIPEHealth();
   const isDisconnected = status === "disconnected";
 
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    if (!isDisconnected) return;
-    const handler = (e: MouseEvent) => {
-      setMousePos({ x: e.clientX, y: e.clientY });
-    };
-    window.addEventListener("mousemove", handler);
-    return () => window.removeEventListener("mousemove", handler);
-  }, [isDisconnected]);
-
   return (
     <div className="flex-1 min-w-0 flex h-full relative">
       <motion.div
@@ -61,25 +50,9 @@ export function PlatformEngineerChatView({
           readOnly={readOnly}
           readOnlyReason={readOnlyReason}
           adminOrigin={adminOrigin}
+          isDisconnected={isDisconnected}
         />
       </motion.div>
-
-      {isDisconnected && (
-        <div
-          className="absolute inset-0 z-50 bg-background/60 backdrop-blur-[1px] cursor-none"
-          style={{ pointerEvents: "all" }}
-        >
-          <div
-            className="fixed z-[51] pointer-events-none px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground text-sm font-medium shadow-lg whitespace-nowrap"
-            style={{
-              left: mousePos.x + 16,
-              top: mousePos.y + 16,
-            }}
-          >
-            Disconnected from CAIPE
-          </div>
-        </div>
-      )}
     </div>
   );
 }
