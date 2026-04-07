@@ -13,7 +13,6 @@ This module handles all interactions with the CAIPE supervisor, including:
 import json
 import os
 import time
-from collections import deque
 
 from loguru import logger
 
@@ -161,7 +160,6 @@ def stream_a2a_response(
   sent_step_status = {}  # step_id -> last status we sent to Slack
   step_thinking = {}  # step_id -> accumulated thinking text per step
   current_step_id = None  # which step is in_progress
-  narration_step_queue: deque = deque()  # (step_id, title) for narration task_updates awaiting completion
   needs_separator = False  # insert \n\n before next streamed markdown (after tool_end)
 
   # Loading messages shown in the animated typing indicator before stream starts
@@ -402,28 +400,6 @@ def stream_a2a_response(
             logger.info(f"[{thread_ts}] Got trace_id from FINAL_RESULT: {trace_id}")
         # Don't add FINAL_RESULT to last_artifacts - we already captured text_content
 
-      elif parsed.event_type == EventType.NARRATION:
-        # Pre-tool narration text ("I'll search the knowledge base...").
-        # If a plan step is active → accumulate as step thinking (silent).
-        # Otherwise → show as a task_update step (write_todos style) so
-        # the user sees ⏳ spinner → ✅ complete when the final answer arrives.
-        if parsed.text_content:
-          title = parsed.text_content.strip().rstrip('\n')
-          if current_step_id and plan_steps:
-            step_thinking.setdefault(current_step_id, [])
-            step_thinking[current_step_id].append(parsed.text_content)
-          else:
-            _start_stream_if_needed()
-            if stream_ts:
-              step_id = f"nar-{len(narration_step_queue) + len(sent_step_status)}-{abs(hash(title)) % 9999:04d}"
-              narration_step_queue.append((step_id, title))
-              chunk = slack_formatter.build_single_task_update(step_id, title, "in_progress")
-              try:
-                slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-              except Exception as e:
-                logger.warning(f"[{thread_ts}] Failed to send narration task_update: {e}")
-          logger.info(f"[{thread_ts}] Narration: {title!r}")
-
       elif parsed.event_type == EventType.PARTIAL_RESULT:
         # Keep partial_result as fallback if no final_result comes
         if parsed.text_content:
@@ -651,21 +627,7 @@ def stream_a2a_response(
       streamed_any_text = stream_buf.has_flushed if stream_buf else False
       logger.info(f"[{thread_ts}] Finalizing plan stream: {len(final_text)} chars, streamed_any_text={streamed_any_text}, plan_steps={len(plan_steps)}, sent_step_status={sent_step_status}")
 
-      # 1a. Complete all pending narration steps (stay in_progress until final answer).
-      if narration_step_queue:
-        narration_chunks = []
-        while narration_step_queue:
-          step_id, title = narration_step_queue.popleft()
-          narration_chunks.append(
-            slack_formatter.build_single_task_update(step_id, title, "completed")
-          )
-        try:
-          slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=narration_chunks)
-          logger.info(f"[{thread_ts}] Completed {len(narration_chunks)} narration step(s)")
-        except Exception as e:
-          logger.warning(f"[{thread_ts}] Failed to complete narration steps: {e}")
-
-      # 1b. Force-complete all plan steps at finalization.
+      # 1. Force-complete all plan steps at finalization.
       # Steps left in_progress/pending when the stream ends cause Slack
       # to show "Something went wrong". Mark them all as complete.
       if plan_steps:
