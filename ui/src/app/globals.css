@@ -1,6 +1,95 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+@plugin "@tailwindcss/typography";
+
+/* ========================================
+   TAILWIND v4 THEME — replaces tailwind.config.ts
+   ======================================== */
+
+@theme {
+  /* Colors — HSL via CSS custom properties */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-a2a-task: hsl(var(--a2a-task));
+  --color-a2a-artifact: hsl(var(--a2a-artifact));
+  --color-a2a-status: hsl(var(--a2a-status));
+  --color-a2a-tool: hsl(var(--a2a-tool));
+  --color-a2a-stream: hsl(var(--a2a-stream));
+
+  /* Border radius */
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  /* Font families */
+  --font-sans: var(--font-inter), var(--font-source-sans), var(--font-ibm-plex), system-ui, sans-serif;
+  --font-inter: var(--font-inter), system-ui, sans-serif;
+  --font-source-sans: var(--font-source-sans), system-ui, sans-serif;
+  --font-ibm-plex: var(--font-ibm-plex), system-ui, sans-serif;
+  --font-mono: var(--font-mono), Menlo, Monaco, Consolas, monospace;
+
+  /* Custom font size */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 0.875rem;
+
+  /* Keyframes */
+  @keyframes accordion-down {
+    from { height: 0; }
+    to { height: var(--radix-accordion-content-height); }
+  }
+  @keyframes accordion-up {
+    from { height: var(--radix-accordion-content-height); }
+    to { height: 0; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  @keyframes slideIn {
+    from { transform: translateX(-100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes revealLtr {
+    from { clip-path: inset(0 100% 0 0); opacity: 0.7; }
+    to { clip-path: inset(0 0 0 0); opacity: 1; }
+  }
+
+  /* Animations */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-slide-in: slideIn 0.3s ease-out;
+  --animate-reveal-ltr: revealLtr 0.25s ease-out forwards;
+}
+
+/* Dark mode via class or data-theme attribute */
+@variant dark (&:where(.dark, [data-theme]));
 
 /* ========================================
    THEME SYSTEM - Multiple Dark & Light Themes
@@ -337,7 +426,7 @@
     display: block !important;
     box-sizing: border-box !important;
   }
-  
+
   /* Ensure parent containers also respect width constraints */
   [data-font-family="inter"] .min-w-0,
   [data-font-family="ibm-plex"] .min-w-0,

@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import {
-  Github,
   BookOpen,
   Zap,
   Loader2,
@@ -18,6 +17,7 @@ import {
   Bot,
   AlertTriangle,
 } from "lucide-react";
+import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";

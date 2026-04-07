@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Gitlab, Slack, Video, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { assistantMarkdownComponents, assistantProseClassName } from "./MarkdownComponents";
@@ -18,6 +18,7 @@ import { ChatMessage as ChatMessageType, TimelineSegment } from "@/types/a2a";
 import { TimelineManager } from "@/lib/timeline-manager";
 import { AgentTimeline } from "./AgentTimeline";
 import { getConfig } from "@/lib/config";
+import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
@@ -462,11 +463,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
   }, [activeConversationId, updateMessageFeedback]);
 
-  // Feedback submission is handled by FeedbackButton → POST /api/feedback
-  // which writes to both Langfuse and the unified feedback MongoDB collection.
-  // No separate updateMessage call needed.
-  const handleFeedbackSubmit = useCallback(async (_messageId: string, _feedback: Feedback) => {
-    // no-op: POST /api/feedback handles both Langfuse + MongoDB
+  // Stable callback for feedback submission — persist to MongoDB alongside Langfuse
+  const handleFeedbackSubmit = useCallback(async (messageId: string, feedback: Feedback) => {
+    if (!feedback.type || getConfig('storageMode') !== 'mongodb') return;
+    try {
+      await apiClient.updateMessage(messageId, {
+        feedback: {
+          rating: feedback.type === 'like' ? 'positive' : 'negative',
+          comment: feedback.reason === 'Other' ? feedback.additionalFeedback : feedback.reason,
+        },
+      });
+    } catch (err) {
+      console.error('[ChatPanel] Failed to persist feedback to MongoDB:', err);
+    }
   }, []);
 
   // Handle user input form submission via HITL resume (Platform Engineer / SSE path)
