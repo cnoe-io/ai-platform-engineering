@@ -53,8 +53,7 @@ _jwt_user_context_var: ContextVar["JwtUserContext | None"] = ContextVar(
 _userinfo_cache: dict[str, tuple[dict, float]] = {}
 _USERINFO_CACHE_TTL_SECONDS = 600  # 10 minutes
 
-_discovery_cache: Optional[dict[str, Any]] = None
-_discovery_cache_expiry: float = 0
+_discovery_cache: dict[str, Any] = {"doc": None, "expiry": 0.0}
 _DISCOVERY_CACHE_TTL_SECONDS = 3600  # 1 hour
 
 
@@ -129,11 +128,9 @@ def _extract_groups(claims: dict) -> list[str]:
 
 async def _get_oidc_discovery() -> Optional[dict[str, Any]]:
     """Fetch and cache the OIDC discovery document."""
-    global _discovery_cache, _discovery_cache_expiry
-
     now = time.monotonic()
-    if _discovery_cache and now < _discovery_cache_expiry:
-        return _discovery_cache
+    if _discovery_cache["doc"] is not None and now < _discovery_cache["expiry"]:
+        return _discovery_cache["doc"]
 
     issuer = os.environ.get("ISSUER") or os.environ.get("OIDC_ISSUER")
     if not issuer:
@@ -145,8 +142,8 @@ async def _get_oidc_discovery() -> Optional[dict[str, Any]]:
             resp = await client.get(well_known_url, timeout=10.0)
             resp.raise_for_status()
             doc = resp.json()
-            _discovery_cache = doc
-            _discovery_cache_expiry = now + _DISCOVERY_CACHE_TTL_SECONDS
+            _discovery_cache["doc"] = doc
+            _discovery_cache["expiry"] = now + _DISCOVERY_CACHE_TTL_SECONDS
             return doc
     except Exception:
         logger.warning("Failed to fetch OIDC discovery document", exc_info=True)
@@ -187,8 +184,6 @@ async def _fetch_userinfo(token: str) -> Optional[dict[str, Any]]:
 
 async def _fetch_userinfo_cached(token: str) -> Optional[dict[str, Any]]:
     """Fetch userinfo with caching to reduce OIDC provider load."""
-    global _userinfo_cache
-
     now = time.monotonic()
     token_hash = hashlib.sha256(token.encode()).hexdigest()
 
