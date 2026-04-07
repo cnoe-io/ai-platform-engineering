@@ -160,7 +160,8 @@ export function useA2AStreaming(config: UseA2AStreamingConfig): UseA2AStreamingR
         if (artifactName === "tool_notification_start" ||
             artifactName === "tool_notification_end" ||
             artifactName === "execution_plan_update" ||
-            artifactName === "execution_plan_status_update") {
+            artifactName === "execution_plan_status_update" ||
+            artifactName === "narration_text") {
           return;
         }
 

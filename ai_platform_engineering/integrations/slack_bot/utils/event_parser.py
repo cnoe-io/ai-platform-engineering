@@ -30,6 +30,7 @@ class EventType(Enum):
     TOOL_NOTIFICATION_END = "tool_notification_end"
     EXECUTION_PLAN = "execution_plan"
     CAIPE_FORM = "caipe_form"
+    NARRATION = "narration"
     OTHER_ARTIFACT = "other_artifact"
     UNKNOWN = "unknown"
 
@@ -227,6 +228,8 @@ def _classify_artifact_type(artifact_name: str) -> EventType:
         return EventType.EXECUTION_PLAN
     elif "caipe_form" in name_lower or "form" in name_lower:
         return EventType.CAIPE_FORM
+    elif "narration_text" in name_lower:
+        return EventType.NARRATION
 
     return EventType.OTHER_ARTIFACT
 
