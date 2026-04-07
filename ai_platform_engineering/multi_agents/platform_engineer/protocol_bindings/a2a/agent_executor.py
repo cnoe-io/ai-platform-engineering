@@ -682,6 +682,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # The _get_final_content() method handles choosing the right content
         # based on whether it's a single-agent or multi-agent scenario.
 
+        # Narration events get their own artifact type so clients (UI, Slack) can
+        # render them as "thinking" rather than as main answer text.
+        if event.get('is_narration'):
+            artifact = new_text_artifact(
+                name='narration_text',
+                description='Pre-tool narration',
+                text=content,
+            )
+            artifact.metadata = {'sourceAgent': 'supervisor', 'agentType': 'narration'}
+            await self._send_artifact(event_queue, task, artifact, append=False)
+            return  # Do not accumulate into supervisor_content or streaming artifact
+
         is_tool_notification = self._is_tool_notification(content, event)
 
         # Track current agent from tool_call events for sub-agent message grouping

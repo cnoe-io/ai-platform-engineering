@@ -602,6 +602,7 @@ class AIPlatformEngineerA2ABinding:
                                           "is_task_complete": False,
                                           "require_user_input": False,
                                           "content": narration,
+                                          "is_narration": True,
                                       }
                               tool_name_formatted = tool_name.title()
                               yield {
