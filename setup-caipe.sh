@@ -2941,11 +2941,50 @@ DAEOF
       fi
     fi
 
+    # Build provider-appropriate model list for the seed config.
+    # Bedrock requires cross-region inference profile IDs (global.anthropic.* or us.anthropic.*).
+    # Anthropic-claude and Azure use short model names.
     cat >> "$_da_values_file" <<DAEOF
   seedConfig:
     enabled: true
     models:
-      - model_id: "${ANTHROPIC_MODEL:-claude-haiku-4-5}"
+DAEOF
+    if [[ "$_provider" == "aws-bedrock" ]]; then
+      # Use the actual Bedrock model ID configured in llm-secret.
+      # Derive a haiku fallback by replacing common sonnet IDs with haiku equivalent.
+      local _bedrock_primary="${AWS_BEDROCK_MODEL_ID:-global.anthropic.claude-haiku-4-5-20251001-v1:0}"
+      # Best-effort haiku sibling: replace sonnet/opus model IDs with haiku
+      local _bedrock_haiku
+      _bedrock_haiku=$(echo "$_bedrock_primary" | sed \
+        -e 's/claude-3-7-sonnet[^:"]*/claude-haiku-4-5-20251001-v1:0/g' \
+        -e 's/claude-sonnet-4-20250514[^:"]*/claude-haiku-4-5-20251001-v1:0/g' \
+        -e 's/claude-sonnet-4-5-20250929[^:"]*/claude-haiku-4-5-20251001-v1:0/g')
+      cat >> "$_da_values_file" <<DAEOF
+      - model_id: "${_bedrock_haiku}"
+        name: "Claude Haiku 4.5 (Bedrock)"
+        provider: "aws-bedrock"
+        description: "Fast Claude Haiku via AWS Bedrock"
+      - model_id: "${_bedrock_primary}"
+        name: "Claude (Bedrock)"
+        provider: "aws-bedrock"
+        description: "Primary model via AWS Bedrock"
+DAEOF
+    elif [[ "$_provider" == "azure-openai" ]]; then
+      cat >> "$_da_values_file" <<DAEOF
+      - model_id: "gpt-4o-mini"
+        name: "GPT-4o Mini (Azure)"
+        provider: "azure-openai"
+        description: "Fast GPT-4o Mini via Azure OpenAI"
+      - model_id: "gpt-4o"
+        name: "GPT-4o (Azure)"
+        provider: "azure-openai"
+        description: "GPT-4o via Azure OpenAI"
+DAEOF
+    else
+      # anthropic-claude (default) and other providers use short model names
+      local _anthropic_model="${ANTHROPIC_MODEL_NAME:-claude-haiku-4-5}"
+      cat >> "$_da_values_file" <<DAEOF
+      - model_id: "${_anthropic_model}"
         name: "Claude Haiku 4.5 (Anthropic)"
         provider: "${_provider}"
         description: "Fast Claude Haiku via Anthropic API"
@@ -2953,6 +2992,9 @@ DAEOF
         name: "Claude Sonnet 4.5 (Anthropic)"
         provider: "${_provider}"
         description: "Balanced Claude Sonnet 4.5 via Anthropic API"
+DAEOF
+    fi
+    cat >> "$_da_values_file" <<DAEOF
     mcp_servers:
 DAEOF
 
