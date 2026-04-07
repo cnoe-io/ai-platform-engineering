@@ -222,13 +222,18 @@ else:
 # JWT user context middleware (populates contextvar for the executor)
 ################################################################################
 class JwtUserContextMiddleware(BaseHTTPMiddleware):
-    """Extract user claims from the JWT and store in a contextvar."""
+    """Extract user claims from the JWT and store in a contextvar.
+
+    Calls the OIDC userinfo endpoint to resolve the real email/name/groups
+    because many providers (e.g. Duo SSO) only put a hashed ``sub`` in the
+    access token.
+    """
 
     async def dispatch(self, request, call_next):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
-            ctx = extract_user_context_from_token(token)
+            ctx = await extract_user_context_from_token(token)
             set_jwt_user_context(ctx)
         return await call_next(request)
 
