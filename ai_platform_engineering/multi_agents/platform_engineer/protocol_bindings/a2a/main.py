@@ -7,12 +7,9 @@ import httpx
 from pathlib import Path
 from dotenv import load_dotenv
 
-from ai_platform_engineering.utils.logging_config import configure_logging
-from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
-
+from ag_ui_langgraph import add_langgraph_fastapi_endpoint
+from fastapi import FastAPI as _FastAPI
 from starlette.middleware.cors import CORSMiddleware
-
-from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -27,13 +24,21 @@ from a2a.types import (
   AgentSkill,
 )
 
-
+from ai_platform_engineering.multi_agents.platform_engineer.agui_persistence import PersistedLangGraphAgent
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import AIPlatformEngineerMAS
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
   agent_name,
   agent_description,
   agent_skill_examples
 )
+from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor  # type: ignore[import-untyped]
+from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.turns_routes import (
+    router as _turns_router,
+)
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
+from ai_platform_engineering.skills_middleware.router import router as _skills_router
+from ai_platform_engineering.utils.logging_config import configure_logging
+from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -154,16 +159,6 @@ app = a2a_server.build()
 # existing A2A routes (/.well-known/*, task endpoints) are matched first.
 # Only requests that don't match any A2A route fall through to the sub-app.
 ################################################################################
-from fastapi import FastAPI as _FastAPI
-from ai_platform_engineering.skills_middleware.router import router as _skills_router
-from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.turns_routes import (
-    router as _turns_router,
-)
-
-# AG-UI LangGraph integration
-from ag_ui_langgraph import add_langgraph_fastapi_endpoint
-from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import AIPlatformEngineerMAS
-
 _skills_api = _FastAPI()
 _skills_api.include_router(_skills_router)
 _skills_api.include_router(_turns_router)
@@ -175,8 +170,6 @@ _skills_api.include_router(_turns_router)
 # Create the MAS instance and wrap the LangGraph in AG-UI LangGraphAgent
 _mas_instance = AIPlatformEngineerMAS()
 _langgraph = _mas_instance.get_graph()
-
-from ai_platform_engineering.multi_agents.platform_engineer.agui_persistence import PersistedLangGraphAgent
 
 _agui_agent = PersistedLangGraphAgent(
     name="platform-engineer",

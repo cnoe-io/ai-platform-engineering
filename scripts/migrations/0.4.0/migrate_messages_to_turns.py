@@ -50,6 +50,7 @@ import os
 import sys
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 try:
     from pymongo import MongoClient, UpdateOne
@@ -99,13 +100,13 @@ def get_required_env(name: str) -> str:
 def stable_turn_id(conversation_id: str, sequence: int) -> str:
     """Deterministic turn ID so re-runs upsert the same document."""
     raw = f"turn:{conversation_id}:{sequence}"
-    return str(uuid.UUID(hashlib.md5(raw.encode()).hexdigest()))  # noqa: S324
+    return str(uuid.UUID(hashlib.sha256(raw.encode()).hexdigest()[:32]))
 
 
 def stable_event_id(turn_id: str, source: str, sequence: int) -> str:
     """Deterministic event ID."""
     raw = f"event:{turn_id}:{source}:{sequence}"
-    return str(uuid.UUID(hashlib.md5(raw.encode()).hexdigest()))  # noqa: S324
+    return str(uuid.UUID(hashlib.sha256(raw.encode()).hexdigest()[:32]))
 
 
 def parse_dt(value) -> Optional[datetime]:
