@@ -2909,11 +2909,17 @@ deploy_caipe() {
     --set tags.caipe-ui=true
     --set tags.agent-weather=false
     --set tags.agent-netutils=true
-    --set "caipe-ui.env.A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
+    # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, etc.)
+    # Must use the internal k8s service URL to avoid hairpin routing failures
+    # through the nginx ingress when the pod calls its own cluster domain.
+    --set "caipe-ui.env.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
+    # NEXT_PUBLIC_A2A_BASE_URL: client-side browser fetches (A2A streaming, health)
+    # Must be the externally reachable URL so the browser can connect.
+    --set "caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
   )
   # When no domain is set (local dev), default to localhost for port-forward usage
   if [[ -z "$CAIPE_DOMAIN" ]]; then
-    helm_args+=(--set "caipe-ui.env.A2A_BASE_URL=http://localhost:8000")
+    helm_args+=(--set "caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
   fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
