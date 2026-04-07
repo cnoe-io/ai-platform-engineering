@@ -76,6 +76,7 @@ TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
 ENABLE_DYNAMIC_AGENTS=false
+CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
 
 # When run via "curl | bash", stdin is the script content — bash reads it
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
@@ -535,6 +536,46 @@ choose_chart_version() {
   fi
 
   log "Using chart version ${CAIPE_CHART_VERSION}"
+}
+
+choose_deployment_mode() {
+  step "Deployment mode"
+
+  if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && $NON_INTERACTIVE; then
+    log "Using deployment mode from environment: ${CAIPE_DEPLOYMENT_MODE}"
+    return
+  fi
+
+  if $NON_INTERACTIVE; then
+    log "Deployment mode: ${CAIPE_DEPLOYMENT_MODE} (default)"
+    return
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}How would you like to deploy CAIPE?${NC}"
+  echo ""
+  echo -e "  ${BOLD}1) All-in-One CAIPE${NC}  ${DIM}(recommended)${NC}"
+  echo -e "     ${DIM}A single supervisor pod handles all agent integrations internally.${NC}"
+  echo -e "     ${DIM}Simpler to deploy, fewer pods, lower resource requirements.${NC}"
+  echo -e "     ${DIM}Best for: demos, development, resource-constrained environments.${NC}"
+  echo ""
+  echo -e "  ${BOLD}2) Distributed CAIPE${NC}"
+  echo -e "     ${DIM}Each integration (GitHub, Jira, ArgoCD, Slack, etc.) runs as its${NC}"
+  echo -e "     ${DIM}own independent service. Agent failures are isolated and individual${NC}"
+  echo -e "     ${DIM}agents can be scaled or restarted without affecting the others.${NC}"
+  echo -e "     ${DIM}Best for: production, large teams, high-availability requirements.${NC}"
+  echo ""
+  prompt "Select deployment mode ${CYAN}[1]${NC}${BOLD}: "
+  tty_read -r mode_choice
+  mode_choice="${mode_choice:-1}"
+
+  case "$mode_choice" in
+    1) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
+    2) CAIPE_DEPLOYMENT_MODE="distributed" ;;
+    *) err "Invalid choice"; exit 1 ;;
+  esac
+
+  log "Deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
 }
 
 collect_credentials() {
@@ -2883,6 +2924,37 @@ deploy_caipe() {
     helm_args+=(--set "caipe-ui.config.SSO_ENABLED=false")
   fi
 
+  # ── Deployment mode ──────────────────────────────────────────────────────
+  # all-in-one: supervisor loads all agent integrations in-process via MCP.
+  #   - Single pod, lower footprint, task builder tools work via /tools endpoint.
+  # distributed: each agent runs as its own A2A service pod (legacy multi-node).
+  if [[ "${CAIPE_DEPLOYMENT_MODE:-all-in-one}" == "all-in-one" ]]; then
+    helm_args+=(
+      --set "global.deploymentMode=single-node"
+      --set "supervisor-agent.image.args={platform-engineer-single}"
+      --set "supervisor-agent.env.SKIP_AGENT_CONNECTIVITY_CHECK=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.argocd=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.aws=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.backstage=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.confluence=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.github=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.jira=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.komodor=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.netutils=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.pagerduty=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.slack=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.splunk=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.webex=true"
+      --set "supervisor-agent.singleNode.enabledSubAgents.aigateway=true"
+    )
+    log "Deployment mode: All-in-One (single supervisor with embedded agents)"
+  else
+    helm_args+=(
+      --set "global.deploymentMode=multi-node"
+    )
+    log "Deployment mode: Distributed (each agent runs as its own service)"
+  fi
+
   # Dynamic agents (custom agent builder)
   if $ENABLE_DYNAMIC_AGENTS; then
     # Service name: <release>-dynamic-agents (chart nameOverride="dynamic-agents")
@@ -4606,6 +4678,7 @@ BANNER
   fi
 
   choose_chart_version
+  choose_deployment_mode
   collect_credentials
   choose_features
   create_namespace_and_secrets
@@ -4688,6 +4761,8 @@ Options:
                      (deploys langgraph-redis subchart; enables fact extraction)
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
   --dynamic-agents   Enable the dynamic agents service (custom agent builder UI)
+  --all-in-one       All-in-One CAIPE: single supervisor with all agents embedded (default)
+  --distributed      Distributed CAIPE: each agent runs as its own independent service
   --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters
   --ingress          Install nginx-ingress + MetalLB and expose UI via domain (requires --domain)
   --domain=HOST      Hostname for the UI ingress (e.g. my-caipe.example.com)
@@ -4805,6 +4880,8 @@ for arg in "$@"; do
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
     --dynamic-agents)  ENABLE_DYNAMIC_AGENTS=true ;;
+    --all-in-one)      CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
+    --distributed)     CAIPE_DEPLOYMENT_MODE="distributed" ;;
     --upgrade)         FORCE_UPGRADE=true ;;
     --auto-heal)       AUTOHEAL_ENABLED=true ;;
     --no-auto-heal)    AUTOHEAL_ENABLED=false ;;
