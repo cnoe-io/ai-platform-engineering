@@ -11,6 +11,9 @@ LLM could have recovered by trying a different approach.
 
 This module provides ``wrap_tools_with_error_handling`` to catch tool exceptions
 and return error strings to the LLM, giving it a chance to self-correct.
+
+It also provides ``wrap_tools_with_self_service_gate`` to restrict MCP tools
+so they only execute during self-service workflow mode.
 """
 
 import asyncio
@@ -224,3 +227,108 @@ def wrap_tools_with_error_handling(
         f"[{agent_name}] Wrapped {len(wrapped)} tools with error handling"
     )
     return wrapped
+
+
+def wrap_tools_with_self_service_gate(
+    tools: list[BaseTool],
+    agent_name: str = "subagent",
+) -> list[BaseTool]:
+    """Wrap tools so they only execute during self-service workflow mode.
+
+    Outside of self-service mode the LLM receives a short message explaining
+    that the tool is unavailable, allowing it to fall back to other tools
+    (e.g. gh_cli_execute).
+
+    Args:
+        tools: LangChain tools to gate behind self-service mode.
+        agent_name: Label used in log messages.
+
+    Returns:
+        New list of tools with self-service gate wrappers applied.
+    """
+    from ai_platform_engineering.agents.github.agent_github.tools import is_self_service_mode
+
+    gated: list[BaseTool] = []
+    for tool in tools:
+        tool_name = tool.name
+        resp_fmt = getattr(tool, "response_format", "content")
+        original_coro = getattr(tool, "coroutine", None)
+
+        def _blocked_msg(_name: str = tool_name) -> str:
+            return (
+                f"Tool '{_name}' is only available during self-service workflow execution. "
+                f"Use gh_cli_execute for ad-hoc GitHub operations instead."
+            )
+
+        if original_coro is not None:
+            async def _gated_coro(
+                *args,
+                _orig=original_coro,
+                _name=tool_name,
+                _resp_fmt=resp_fmt,
+                **kwargs,
+            ):
+                if not is_self_service_mode():
+                    msg = _blocked_msg(_name)
+                    if _resp_fmt == "content_and_artifact":
+                        return (msg, [])
+                    return msg
+                return await _orig(*args, **kwargs)
+
+            def _gated_sync(
+                *args,
+                _async_fn=_gated_coro,
+                _name=tool_name,
+                _resp_fmt=resp_fmt,
+                **kwargs,
+            ):
+                if not is_self_service_mode():
+                    msg = _blocked_msg(_name)
+                    if _resp_fmt == "content_and_artifact":
+                        return (msg, [])
+                    return msg
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    return loop.run_until_complete(_async_fn(*args, **kwargs))
+                return asyncio.run(_async_fn(*args, **kwargs))
+
+            new_tool = StructuredTool(
+                name=tool.name,
+                description=tool.description or "",
+                args_schema=tool.args_schema,
+                func=_gated_sync,
+                coroutine=_gated_coro,
+                response_format=resp_fmt,
+                metadata=tool.metadata,
+            )
+            gated.append(new_tool)
+        else:
+            original_run = getattr(tool, "_run", None)
+            if original_run:
+                @wraps(original_run)
+                def _gated_run(
+                    *args,
+                    _orig=original_run,
+                    _name=tool_name,
+                    _resp_fmt=resp_fmt,
+                    **kwargs,
+                ):
+                    if not is_self_service_mode():
+                        msg = _blocked_msg(_name)
+                        if _resp_fmt == "content_and_artifact":
+                            return (msg, [])
+                        return msg
+                    return _orig(*args, **kwargs)
+
+                tool._run = _gated_run  # type: ignore[method-assign]
+            gated.append(tool)
+
+    logger.info(
+        f"[{agent_name}] Gated {len(gated)} tools behind self-service mode"
+    )
+    return gated
