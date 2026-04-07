@@ -2932,11 +2932,15 @@ DAEOF
     OIDC_CLIENT_ID: "${da_oidc_client_id}"
     CORS_ORIGINS: '["https://${CAIPE_DOMAIN}", "http://localhost:3000"]'
 DAEOF
-      # Do NOT set OIDC_REQUIRED_ADMIN_GROUP for dynamic-agents.
-      # When unset, the service falls back to pattern matching on group names
-      # (any group containing "admin", "platform-admin", or "administrators"),
-      # which grants admin access to users with standard admin group memberships
-      # without requiring membership in a specific Cisco AD group.
+      # Pass OIDC_REQUIRED_ADMIN_GROUP to dynamic-agents so it matches the UI's
+      # admin group. When unset, it falls back to generic pattern matching
+      # (groups containing "admin", "platform-admin", "administrators") which
+      # misses site-specific group names like "caipe-internal-devnet-users".
+      if [[ -n "$da_oidc_admin_group" ]]; then
+        cat >> "$_da_values_file" <<DAEOF
+    OIDC_REQUIRED_ADMIN_GROUP: "${da_oidc_admin_group}"
+DAEOF
+      fi
     fi
 
     cat >> "$_da_values_file" <<DAEOF
