@@ -24,6 +24,36 @@ jest.mock("@/lib/utils", () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(" "),
 }));
 
+// Mock DateRangeFilter to render simple preset buttons
+jest.mock("@/components/admin/DateRangeFilter", () => {
+  const presetToRange = (preset: string) => {
+    const now = new Date();
+    const to = now.toISOString();
+    const from = new Date(now);
+    switch (preset) {
+      case "1h":  from.setHours(from.getHours() - 1); break;
+      case "12h": from.setHours(from.getHours() - 12); break;
+      case "24h": from.setDate(from.getDate() - 1); break;
+      case "7d":  from.setDate(from.getDate() - 7); break;
+      case "30d": from.setDate(from.getDate() - 30); break;
+      case "90d": from.setDate(from.getDate() - 90); break;
+      default:    from.setDate(from.getDate() - 30); break;
+    }
+    return { from: from.toISOString(), to };
+  };
+  return {
+    __esModule: true,
+    presetToRange,
+    DateRangeFilter: ({ value, onChange }: any) => (
+      <div data-testid="date-range-filter">
+        {["24h", "7d", "30d", "90d"].map((p) => (
+          <button key={p} onClick={() => onChange(p, presetToRange(p))}>{p}</button>
+        ))}
+      </div>
+    ),
+  };
+});
+
 import { CheckpointStatsSection } from "../CheckpointStatsSection";
 
 const MOCK_STATS = {
@@ -140,9 +170,9 @@ describe("CheckpointStatsSection", () => {
 
     await waitFor(() => {
       expect(screen.getByText("24h")).toBeInTheDocument();
-      expect(screen.getByText("7 days")).toBeInTheDocument();
-      expect(screen.getByText("30 days")).toBeInTheDocument();
-      expect(screen.getByText("90 days")).toBeInTheDocument();
+      expect(screen.getByText("7d")).toBeInTheDocument();
+      expect(screen.getByText("30d")).toBeInTheDocument();
+      expect(screen.getByText("90d")).toBeInTheDocument();
     });
   });
 
@@ -158,13 +188,19 @@ describe("CheckpointStatsSection", () => {
     render(<CheckpointStatsSection />);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/admin/stats/checkpoints?range=7d");
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/admin/stats/checkpoints?from=")
+      );
     });
 
-    fireEvent.click(screen.getByText("30 days"));
+    fireEvent.click(screen.getByText("30d"));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/admin/stats/checkpoints?range=30d");
+      // After clicking 30d, a second fetch with new from/to params
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1][0];
+      expect(lastCall).toContain("/api/admin/stats/checkpoints?from=");
+      expect(lastCall).toContain("&to=");
     });
   });
 
@@ -221,8 +257,7 @@ describe("CheckpointStatsSection", () => {
     });
   });
 
-  it("uses external range prop and calls onRangeChange", async () => {
-    const onRangeChange = jest.fn();
+  it("re-fetches data when a different range preset is clicked", async () => {
     const fetchMock = jest.fn(() =>
       Promise.resolve({
         ok: true,
@@ -231,15 +266,21 @@ describe("CheckpointStatsSection", () => {
     ) as any;
     global.fetch = fetchMock;
 
-    render(<CheckpointStatsSection range="30d" onRangeChange={onRangeChange} />);
+    render(<CheckpointStatsSection />);
 
+    // Initial fetch (default 7d)
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/admin/stats/checkpoints?range=30d");
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/admin/stats/checkpoints?from=")
+      );
     });
 
-    // Click 24h — should call onRangeChange, not internal state
+    // Click 24h — triggers a new fetch with updated from/to params
     fireEvent.click(screen.getByText("24h"));
-    expect(onRangeChange).toHaveBeenCalledWith("1d");
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
   });
 
   it("shows data peek section when peek_data is present", async () => {

@@ -104,7 +104,11 @@ export function useDynamicAgentTimeline(
         case "tool_end":
           if (event.toolData) {
             const toolData = event.toolData as ToolEndEventData;
-            manager.pushToolEnd(toolData.tool_call_id, namespace);
+            if (toolData.error) {
+              manager.pushToolFailed(toolData.tool_call_id, namespace, toolData.error);
+            } else {
+              manager.pushToolEnd(toolData.tool_call_id, namespace);
+            }
           }
           break;
 

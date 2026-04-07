@@ -423,6 +423,11 @@ async def get_current_user(
             f"User authenticated via access token (userinfo unavailable): email={email}, name={name}, groups_count={len(groups)}"
         )
 
+    if settings.oidc_required_group:
+        required_lower = settings.oidc_required_group.lower()
+        if not any(group.lower() == required_lower or f"cn={required_lower}" in group.lower() for group in groups):
+            raise HTTPException(status_code=403, detail="Access denied: required group membership missing")
+
     is_admin = check_admin_role(groups, settings)
 
     return UserContext(

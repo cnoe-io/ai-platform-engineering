@@ -8,21 +8,20 @@ authors = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "setuptools",
-  "slack-bolt",
-  "slack-sdk",
-  "requests",
-  "loguru",
-  "pydantic",
-  "pymongo",
-  "pyyaml",
-  "langfuse",
+  "setuptools==82.0.1",
+  "slack-bolt==1.27.0",
+  "slack-sdk==3.41.0",
+  "requests==2.32.5",
+  "loguru==0.7.3",
+  "pydantic==2.12.5",
+  "pymongo==4.16.0",
+  "pyyaml==6.0.3",
 ]
 
 [dependency-groups]
 unittest = [
-  "pytest",
-  "pytest-mock",
+  "pytest==9.0.2",
+  "pytest-mock==3.15.1",
 ]
 
 [[tool.uv.index]]

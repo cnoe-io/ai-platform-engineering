@@ -120,7 +120,7 @@ Single-node mode runs everything in a single container, making it ideal for deve
 docker compose -f docker-compose.single-node.yaml --profile caipe-ui up
 
 # Development mode with single-node (build from source)
-docker compose -f docker-compose.single-node.dev.yaml --profile caipe-ui up --build
+docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one --profile caipe-mongodb --profile caipe-ui up --build
 ```
 
 Single-node mode uses the `deepagents` library for task-based execution with workflows defined in `task_config.yaml`.
@@ -131,10 +131,10 @@ Enable RAG services to give the agent access to ingested knowledge bases:
 
 ```bash
 # Single-node with RAG (no graph database)
-docker compose -f docker-compose.single-node.dev.yaml --profile rag --profile caipe-ui up --build
+docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one --profile caipe-mongodb --profile rag --profile caipe-ui up --build
 
 # Single-node with full Graph RAG (includes Neo4j)
-docker compose -f docker-compose.single-node.dev.yaml --profile graph_rag --profile caipe-ui up --build
+docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one --profile caipe-mongodb --profile graph_rag --profile caipe-ui up --build
 ```
 
 **RAG Profiles:**

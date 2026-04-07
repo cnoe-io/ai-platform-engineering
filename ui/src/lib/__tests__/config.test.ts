@@ -170,8 +170,8 @@ describe('getServerConfig', () => {
       expect(getServerConfig().ssoEnabled).toBe(false);
     });
 
-    it('should read A2A_BASE_URL', () => {
-      process.env.A2A_BASE_URL = 'https://my-supervisor:8000';
+    it('should read NEXT_PUBLIC_A2A_BASE_URL', () => {
+      process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://my-supervisor:8000';
       expect(getServerConfig().caipeUrl).toBe('https://my-supervisor:8000');
     });
 
@@ -669,10 +669,10 @@ describe('getServerConfig', () => {
   // ---------- Production defaults ----------
 
   describe('production defaults (when no A2A/RAG URL set)', () => {
-    it('should use k8s service URLs for caipeUrl in production', () => {
+    it('should use default caipeUrl when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
       process.env.NODE_ENV = 'production';
       clearEnv('A2A_BASE_URL');
-      expect(getServerConfig().caipeUrl).toBe('http://caipe-supervisor:8000');
+      expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
     });
 
     it('should use k8s service URLs for ragUrl in production', () => {
@@ -1265,7 +1265,7 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('mongodb');
     expect(getConfig('spinnerColor')).toBe('#4ecdc4');
     expect(getConfig('supportEmail')).toBe('support@grid.cisco.com');
-    expect(getConfig('caipeUrl')).toBe('http://caipe-supervisor:8000');
+    expect(getConfig('caipeUrl')).toBe('http://localhost:8000');
 
     // Secrets must NOT be in the script
     expect(script).not.toContain('admin:secret');

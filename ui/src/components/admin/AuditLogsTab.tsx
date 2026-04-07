@@ -24,6 +24,7 @@ import type { AuditConversation } from "@/types/mongodb";
 
 interface AuditLogsTabProps {
   isAdmin: boolean;
+  onUserClick?: (email: string) => void;
 }
 
 interface PaginatedResult {
@@ -41,7 +42,7 @@ const STATUS_OPTIONS = [
   { value: "deleted", label: "Deleted" },
 ];
 
-export function AuditLogsTab({ isAdmin }: AuditLogsTabProps) {
+export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [ownerEmail, setOwnerEmail] = useState("");
   const [searchTitle, setSearchTitle] = useState("");
@@ -444,7 +445,7 @@ export function AuditLogsTab({ isAdmin }: AuditLogsTabProps) {
                       onClick={() => openDetail(conv._id)}
                       className="grid grid-cols-[2fr_2fr_minmax(0,1fr)_auto_1fr_1fr_auto] gap-2 py-2 text-sm hover:bg-muted/50 rounded px-1 cursor-pointer items-center"
                     >
-                      <div className="truncate">{conv.owner_id}</div>
+                      <div className={`truncate ${onUserClick ? 'text-primary hover:underline cursor-pointer' : ''}`} onClick={(e) => { if (onUserClick) { e.stopPropagation(); onUserClick(conv.owner_id); } }}>{conv.owner_id}</div>
                       <div className="truncate font-medium">{conv.title}</div>
                       <div className="flex items-center gap-1 min-w-0">
                         <a

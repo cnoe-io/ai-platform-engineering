@@ -18,7 +18,8 @@ C123:
     enabled: "false"
   ai_alerts:
     enabled: "false"
-  default:
-    project_key: TEST
+  other:
+    jira:
+      project_key: TEST
 """
 os.environ["SLACK_INTEGRATION_SILENCE_ENV"] = "false"

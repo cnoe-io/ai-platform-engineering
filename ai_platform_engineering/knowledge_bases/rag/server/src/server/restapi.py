@@ -40,12 +40,12 @@ from common.models.server import (
   ChunkContentResponse,
   CleanupResponse,
 )
-from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig
+from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
-from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL, DEFAULT_RELOAD_INTERVAL
+from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
 from common.embeddings_factory import EmbeddingsFactory
 import redis.asyncio as redis
 from langchain_milvus import BM25BuiltInFunction, Milvus
@@ -163,7 +163,7 @@ async def run_safe_bulk_cleanup() -> tuple[int, int, int]:
         try:
           await data_graph_db.remove_stale_entities(datasource_id=ds.datasource_id)
         except Exception as e:
-          logger.warning(f"Failed to delete stale graph entities for datasource {ds.datasource_id}: {e}")
+          logger.warning(f"Failed to delete stale structured entities for datasource {ds.datasource_id}: {e}")
           # Don't fail the whole operation if graph cleanup fails
 
       datasources_cleaned += 1
@@ -648,7 +648,7 @@ async def cleanup_datasource_stale(
     try:
       await data_graph_db.remove_stale_entities(datasource_id=datasource_id)
     except Exception as e:
-      logger.warning(f"Failed to delete stale graph entities for datasource {datasource_id}: {e}")
+      logger.warning(f"Failed to delete stale structured entities for datasource {datasource_id}: {e}")
       # Don't fail the whole operation if graph cleanup fails
 
   logger.info(f"Cleanup completed for datasource {datasource_id}")
@@ -734,7 +734,7 @@ async def list_datasource_documents(
     results = vector_db.client.query(
       collection_name=default_collection_name_docs,
       filter=f"datasource_id == '{datasource_id}'",
-      output_fields=["id", "document_id", "title", "chunk_index", "total_chunks", "fresh_until", "document_type", "document_ingested_at", "is_graph_entity", "source"],
+      output_fields=["id", "document_id", "title", "chunk_index", "total_chunks", "fresh_until", "document_type", "document_ingested_at", "is_structured_entity", "source"],
       offset=offset,
       limit=limit + 1,
     )
@@ -760,7 +760,7 @@ async def list_datasource_documents(
         "fresh_until": chunk.get("fresh_until"),
         "document_type": chunk.get("document_type"),
         "document_ingested_at": chunk.get("document_ingested_at"),
-        "is_graph_entity": chunk.get("is_graph_entity", False),
+        "is_structured_entity": chunk.get("is_structured_entity", False),
         "source": chunk.get("source"),
       }
 
@@ -983,6 +983,20 @@ async def increment_job_failure(job_id: str, increment: int = 1, user: UserConte
 
   logger.debug(f"Incremented failure for job {job_id} by {increment}, new value: {new_value}")
   return {"job_id": job_id, "failed_counter": new_value}
+
+
+@app.post("/v1/job/{job_id}/increment-document-count")
+async def increment_job_document_count(job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+  """Increment the document count for a job."""
+  if not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  new_value = await jobmanager.increment_document_count(job_id, increment)
+  if new_value == -1:
+    raise HTTPException(status_code=400, detail="Cannot increment document count - job is terminated")
+
+  logger.debug(f"Incremented document count for job {job_id} by {increment}, new value: {new_value}")
+  return {"job_id": job_id, "document_count": new_value}
 
 
 @app.post("/v1/job/{job_id}/add-errors")
@@ -1307,9 +1321,8 @@ async def ingest_documents(ingest_request: DocumentIngestRequest, user: UserCont
     return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": f"Number of documents exceeds the maximum limit of {max_documents_per_ingest} per ingestion request."})
 
   if ingest_request.fresh_until is None or ingest_request.fresh_until == 0:
-    # Get reload_interval from datasource metadata, or use default
-    reload_interval = (datasource_info.metadata.get("reload_interval") if datasource_info.metadata else None) or DEFAULT_RELOAD_INTERVAL
-    ingest_request.fresh_until = get_fresh_until(reload_interval)
+    # Calculate fresh_until from datasource reload_interval
+    ingest_request.fresh_until = get_fresh_until(datasource_info.reload_interval)
 
   if datasource_info.default_chunk_overlap is None:
     datasource_info.default_chunk_overlap = 0
@@ -1634,6 +1647,7 @@ async def health_check():
     },
     "search": {
       "keys": valid_metadata_keys(),
+      "filter_keys": valid_metadata_keys_with_types(),
     },
     "vector_db": {"milvus": {"uri": milvus_uri, "collections": [default_collection_name_docs], "index_params": {"dense": dense_index_params, "sparse": sparse_index_params}}},
     "embeddings": {"model": embeddings_model},
@@ -1646,7 +1660,7 @@ async def health_check():
       config["graph_db"] = {
         "data_graph": {"type": data_graph_db.database_type, "query_language": data_graph_db.query_language, "uri": neo4j_addr, "tenant_label": data_graph_db.tenant_label},
         "ontology_graph": {"type": ontology_graph_db.database_type, "query_language": ontology_graph_db.query_language, "uri": neo4j_addr, "tenant_label": ontology_graph_db.tenant_label},
-        "graph_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
+        "structured_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
       }
 
   response = {"status": health_status, "timestamp": int(time.time()), "details": health_details, "config": config}
@@ -1879,10 +1893,10 @@ async def get_mcp_tool_schemas(user: UserContext = Depends(require_role(Role.REA
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Get all registered tools from FastMCP
-  registered_tools = await mcp.get_tools()
+  registered_tools = await mcp.list_tools()
 
   tools_with_schemas = []
-  for tool in registered_tools.values():
+  for tool in registered_tools:
     tools_with_schemas.append(
       {
         "name": tool.name,
@@ -1914,8 +1928,8 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Find the tool
-  registered_tools = await mcp.get_tools()
-  tool = registered_tools.get(request.tool_name)
+  registered_tools = await mcp.list_tools()
+  tool = next((t for t in registered_tools if t.name == request.tool_name), None)
 
   if not tool:
     raise HTTPException(status_code=404, detail=f"MCP tool '{request.tool_name}' not found")

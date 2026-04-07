@@ -9,16 +9,16 @@ license = {text = "Apache-2.0"}
 # readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "langmem>=0.0.30",
+    "langmem==0.0.30",
     # Core platform-engineer dependencies
     "click==8.3.1",
-    "fastapi (>=0.115.12,<0.116.0)",
-    "uvicorn (>=0.34.3,<0.35.0)",
-    "config (>=0.5.1,<0.6.0)",
-    "langchain-core==1.1.2",
+    "fastapi==0.115.14",
+    "uvicorn==0.34.3",
+    "config==0.5.1",
+    "langchain-core==1.2.26",
     "langgraph==1.0.4",
     "langgraph==1.0.4",
-    "langfuse (>=3.0.8,<4.0.0)",
+    "langfuse==3.14.5",
 
     # Transport dependencies for agent connections
     "a2a-sdk (==0.3.0)",
@@ -26,8 +26,8 @@ dependencies = [
     "cnoe-agent-utils==0.3.14",
 
     # Basic utilities
-    "python-dotenv>=1.0.1",
-    "pydantic>=2.0.0",
+    "python-dotenv==1.1.1",
+    "pydantic==2.11.7",
 ]
 
 [build-system]
@@ -44,3 +44,6 @@ indent-width = 2
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["F403"]
+
+[tool.uv]
+constraint-dependencies = ["nltk==3.9.4"]

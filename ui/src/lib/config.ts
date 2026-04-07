@@ -251,6 +251,20 @@ function validated(value: string | undefined, allowed: string[], fallback: strin
 }
 
 /**
+ * Returns the internal (server-side) URL for the CAIPE supervisor.
+ *
+ * Use this in API routes that proxy requests to the supervisor — it resolves
+ * to the Docker-internal service name, falling back to caipe-supervisor:8000.
+ * Never use caipeUrl from getServerConfig() for server-side fetches; that value
+ * is the browser-facing URL and may be unreachable from inside the container.
+ *
+ * MUST only be called on the server (Node.js runtime).
+ */
+export function getInternalA2AUrl(): string {
+  return (env('A2A_BASE_URL') || 'http://caipe-supervisor:8000').replace(/\/$/, '');
+}
+
+/**
  * Build the full Config from server-side process.env.
  *
  * MUST only be called on the server (Node.js runtime).
@@ -259,8 +273,11 @@ export function getServerConfig(): Config {
   const isProduction = process.env.NODE_ENV === 'production';
   const isDev = process.env.NODE_ENV === 'development';
 
-  const caipeUrl = env('A2A_BASE_URL')
-    || (isProduction ? 'http://caipe-supervisor:8000' : 'http://localhost:8000');
+  // caipeUrl is the browser-facing supervisor URL (embedded in __APP_CONFIG__).
+  // It must be externally routable — use NEXT_PUBLIC_A2A_BASE_URL (e.g. http://localhost:8000
+  // for local dev, or https://caipe.example.com for production). A2A_BASE_URL is the
+  // internal Docker service URL for server-side proxies and must NOT be used here.
+  const caipeUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL || 'http://localhost:8000';
 
   const ragUrl = env('RAG_URL')
     || process.env.RAG_SERVER_URL

@@ -184,6 +184,54 @@ export GITHUB_ORG="your-org-name"
 - `FETCH_ORG_EMAILS` - Default: `false` - Fetch organization verified domain emails for users (requires org membership, uses same API calls)
 - `LOG_LEVEL` - Default: `INFO`
 
+## Multi-Org Configuration
+
+The ingestor supports ingesting from multiple GitHub organizations within a single process. Each org becomes a separate datasource, synced sequentially.
+
+### Environment Variables
+
+| Variable | Format | Default | Description |
+|----------|--------|---------|-------------|
+| `GITHUB_ORGS` | `org1,org2,...` | `""` (falls back to `GITHUB_ORG`) | Comma-separated list of org logins |
+| `GITHUB_APP_INSTALLATION_IDS` | `id1,id2,...` | `""` (falls back to `GITHUB_APP_INSTALLATION_ID`) | Comma-separated installation IDs, parallel to `GITHUB_ORGS` (GitHub App mode only) |
+
+When `GITHUB_ORGS` is not set, the ingestor falls back to single-org mode using `GITHUB_ORG` (fully backward compatible).
+
+### Multi-Org with PAT
+
+A single PAT works across all orgs (GitHub PATs are scoped to the user, not the org):
+
+```bash
+export GITHUB_TOKEN="ghp_xxxxxxxxxxxx"
+export GITHUB_ORGS="cnoe-io,my-other-org,partner-org"
+```
+
+### Multi-Org with GitHub App
+
+Each org has its own installation ID (the app is installed per-org). The App ID and private key are shared (same GitHub App), but the installation ID differs per org. Use parallel lists:
+
+```bash
+export GITHUB_APP_ID="123456"
+export GITHUB_APP_PRIVATE_KEY="/path/to/app.pem"
+export GITHUB_ORGS="cnoe-io,my-other-org,partner-org"
+export GITHUB_APP_INSTALLATION_IDS="11111111,22222222,33333333"
+```
+
+The lists must match 1:1: `cnoe-io` maps to installation `11111111`, `my-other-org` to `22222222`, etc.
+
+### How It Works
+
+1. Each org gets its own **datasource** (e.g., `github_cnoe_io`, `github_my_other_org`)
+2. Orgs are synced **sequentially** within the sync interval
+3. **Error isolation**: If one org fails (bad credentials, revoked access), the others continue syncing
+4. Entity primary keys include the org-derived instance name, so entities from different orgs never collide
+5. In GitHub App mode, each org gets its own `GitHubAppAuth` instance with the correct installation ID
+
+### Rate Limits with Multi-Org
+
+- **PAT**: 5,000 requests/hour total across all orgs (shared limit)
+- **GitHub App**: Each installation has its own 15,000 requests/hour limit (separate per org)
+
 ## Running
 
 ### Local Development

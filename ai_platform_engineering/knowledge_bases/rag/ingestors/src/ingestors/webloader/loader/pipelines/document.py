@@ -96,7 +96,7 @@ class DocumentPipeline:
       document_ingested_at=int(time.time()),
       ingestor_id=self.ingestor_id,
       fresh_until=0,  # Will be set by server
-      is_graph_entity=False,
+      is_structured_entity=False,
       metadata={
         "source": item.url,
         "language": item.language or "",

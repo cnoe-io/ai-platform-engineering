@@ -76,22 +76,29 @@ class GitHubAgent(BaseLangGraphAgent):
         return "github"
 
     def get_mcp_http_config(self) -> Dict[str, Any] | None:
-        """Return GitHub Copilot MCP API config for multi-node HTTP mode.
+        """Return HTTP MCP config for connecting to the GitHub MCP server.
 
-        Multi-node (MCP_MODE=http): connects to the GitHub Copilot MCP API
-        at https://api.githubcopilot.com/mcp/ using the configured GitHub
-        token for authentication.
+        Single-node HTTP mode (GITHUB_MCP_MODE=http): connects to the local
+        GitHub MCP HTTP pod. The Go server expects per-request Bearer auth,
+        so we pass the token (App installation token or PAT) in the header.
 
-        Single-node (MCP_MODE=stdio): _load_mcp_tools falls through to
-        get_mcp_config() which launches github-mcp-server via ``go run``.
+        Single-node stdio mode (GITHUB_MCP_MODE=stdio): returns None so
+        _load_mcp_tools falls through to get_mcp_config() which launches
+        github-mcp-server via ``go run``.
         """
+        from ai_platform_engineering.utils.mcp_config import resolve_mcp_mode, is_http_mode, resolve_mcp_url
+
+        mcp_mode = resolve_mcp_mode("github")
+        if not is_http_mode(mcp_mode):
+            return None
+
         token = get_github_token()
         if not token:
             logger.warning("No GitHub token configured for HTTP MCP — falling back to gh CLI")
             return None
 
         return {
-            "url": "https://api.githubcopilot.com/mcp/",
+            "url": resolve_mcp_url("github"),
             "headers": {
                 "Authorization": f"Bearer {token}",
             },

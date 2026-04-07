@@ -278,7 +278,7 @@ export async function searchDocuments(params: {
   ranker_params?: { weights: number[] };
   datasource_id?: string;
   connector_id?: string;
-  graph_entity_type?: string;
+  structured_entity_type?: string;
 }): Promise<QueryResult[]> {
   return post('/v1/query', params);
 }
@@ -383,7 +383,6 @@ export async function getUserInfo(): Promise<UserInfo> {
 export interface ParallelSearch {
   label: string;
   datasource_ids: string[];
-  is_graph_entity: boolean | null;
   extra_filters: Record<string, unknown>;
   semantic_weight: number;
 }

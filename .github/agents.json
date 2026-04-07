@@ -22,6 +22,7 @@
     "argocd",
     "backstage",
     "confluence",
+    "github",
     "jira",
     "komodor",
     "netutils",

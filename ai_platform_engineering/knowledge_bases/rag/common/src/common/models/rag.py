@@ -1,8 +1,61 @@
 # This file contains models for the RAG server
 from pydantic import BaseModel, Field, model_validator
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
-from common.constants import DEFAULT_RELOAD_INTERVAL
+from common.constants import DEFAULT_RELOAD_INTERVAL, PROP_DELIMITER
+
+# ============================================================================
+# Models for structured entities (entity-based documents in vector DB)
+# ============================================================================
+
+
+class StructuredEntityId(BaseModel):
+  """
+  Represents a structured entity identifier to uniquely identify a structured entity
+  """
+
+  entity_type: str
+  primary_key: str
+
+
+class StructuredEntity(BaseModel):
+  """
+  Represents a structured entity - an entity-based document that can be stored in the vector DB
+  and optionally synced to a graph database.
+  """
+
+  entity_type: str
+  additional_types: Optional[set[str]] = None
+  all_properties: dict[str, Any] = Field(description="The properties of the entity")
+  primary_key_properties: List[str] = Field(description="The primary key property of the entity")
+  additional_key_properties: Optional[List[List[str]]] = Field(description="The secondary key properties of the entity", default=[])
+
+  def generate_primary_key(self) -> str:
+    """
+    Generates a primary key for this entity from the primary key properties
+    :return: str
+    """
+    return PROP_DELIMITER.join([str(self.all_properties[k]) for k in self.primary_key_properties])
+
+  def get_identifier(self) -> StructuredEntityId:
+    """
+    Generates a structured entity identifier for this entity
+    :return: StructuredEntityId
+    """
+    return StructuredEntityId(entity_type=self.entity_type, primary_key=self.generate_primary_key())
+
+  def get_external_properties(self) -> dict[str, Any]:
+    """
+    Returns all properties that are not internal (i.e., do not start with _)
+    :return: dict[str, Any]
+    """
+    external_props = {}
+    for prop, val in self.all_properties.items():
+      if prop.startswith("_"):
+        continue
+      external_props[prop] = val
+    return external_props
+
 
 # ============================================================================
 # Models for vector DB metadata
@@ -20,6 +73,33 @@ def valid_metadata_keys() -> List[str]:
   search_filter_keys = set()
   search_filter_keys.update(DocumentMetadata.model_fields.keys())
   return list(search_filter_keys)
+
+
+def valid_metadata_keys_with_types() -> List[Dict[str, str]]:
+  """
+  Returns metadata keys with their types for filtering, so that clients
+  can send correctly typed filter values (e.g., bool for is_structured_entity).
+
+  Returns:
+      List of dicts with 'key' and 'type' fields. Type is one of: 'bool', 'int', 'string'.
+  """
+  type_map = {
+    "bool": "bool",
+    "int": "int",
+    "str": "string",
+  }
+  result = []
+  for key, field_info in DocumentMetadata.model_fields.items():
+    annotation = field_info.annotation
+    # Unwrap Optional types
+    origin = getattr(annotation, "__origin__", None)
+    if origin is Union:
+      args = [a for a in annotation.__args__ if a is not type(None)]
+      annotation = args[0] if args else annotation
+    # Map to simple type name
+    type_name = type_map.get(annotation.__name__, "string") if hasattr(annotation, "__name__") else "string"
+    result.append({"key": key, "type": type_name})
+  return result
 
 
 # ============================================================================
@@ -65,13 +145,13 @@ class DataSourceInfo(BaseModel):
 
 
 class DocumentMetadata(BaseModel):
-  document_id: str = Field(..., description="Unique identifier for the document, for graph entities this would be populated automatically based on entity_type and entity_pk")
+  document_id: str = Field(..., description="Unique identifier for the document, for structured entities this would be populated automatically based on entity_type and entity_pk")
   datasource_id: str = Field(..., description="Datasource ID this document belongs to")
   ingestor_id: str = Field(..., description="Ingestor ID this datasource belongs to")
   title: str = Field(default="", description="Document title")
   description: str = Field(default="", description="Document description")
-  is_graph_entity: bool = Field(default=False, description="Whether this document represents a graph entity")
-  document_type: str = Field(..., description="Type of the document, e.g. 'text', 'markdown', 'pdf', etc. For graph entities, this would be populated automatically based on entity_type")
+  is_structured_entity: bool = Field(default=False, description="Whether this document represents a structured entity")
+  document_type: str = Field(..., description="Type of the document, e.g. 'text', 'markdown', 'pdf', etc. For structured entities, this would be populated automatically based on entity_type")
   document_ingested_at: Optional[int] = Field(..., description="When the document was ingested")
   fresh_until: Optional[int] = Field(..., description="Fresh until timestamp for the document, after which it should be re-ingested")
   metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
@@ -128,9 +208,22 @@ class ParallelSearch(BaseModel):
 
   label: str = Field(..., description="Key used in the response dict for this search's results")
   datasource_ids: List[str] = Field(default_factory=list, description="Datasource IDs (or prefix patterns ending with *) to restrict this search. Empty = all.")
-  is_graph_entity: Optional[bool] = Field(default=None, description="None = no filter, True = graph entities only, False = regular documents only")
-  extra_filters: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata filters applied to this search")
+  extra_filters: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata filters applied to this search (e.g. is_structured_entity, document_type)")
   semantic_weight: float = Field(default=0.5, ge=0.0, le=1.0, description="Semantic (dense) weight for this search. Keyword weight = 1.0 - this value.")
+
+  @model_validator(mode="before")
+  @classmethod
+  def _migrate_is_structured_entity(cls, data: Any) -> Any:
+    """Migration: Move is_structured_entity into extra_filters if present at top level."""
+    if not isinstance(data, dict):
+      return data
+    if "is_structured_entity" in data:
+      val = data.pop("is_structured_entity")
+      if val is not None:
+        extra = data.get("extra_filters") or {}
+        extra["is_structured_entity"] = val
+        data["extra_filters"] = extra
+    return data
 
 
 class MCPToolConfig(BaseModel):

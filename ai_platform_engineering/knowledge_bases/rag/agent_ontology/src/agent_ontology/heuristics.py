@@ -11,7 +11,7 @@ from typing import Any, Callable, Awaitable, List, Tuple, Dict
 from common import utils
 from common.constants import DEFAULT_DATA_LABEL, SUB_ENTITY_LABEL, PARENT_ENTITY_PK_KEY, PARENT_ENTITY_TYPE_KEY, PRIMARY_ID_KEY, ALL_IDS_KEY, ALL_IDS_PROPS_KEY, ENTITY_TYPE_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY
 from common.graph_db.base import GraphDB
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.models.ontology import PropertyMapping, DeepPropertyMatch, ValueMatchType
 
 from agent_ontology.relation_manager import RelationCandidateManager
@@ -32,7 +32,7 @@ class MatchResult:
 class SearchTask:
   """Represents a search task with context."""
 
-  entity: Entity
+  entity: StructuredEntity
   property_name: str
   property_value: str
   query_tokens: List[str]  # Pre-tokenized query tokens
@@ -160,7 +160,7 @@ class HeuristicsProcessor:
 
     entities = []
     for entity_type in entity_types:
-      entity = Entity(entity_type=entity_type, primary_key_properties=[ENTITY_TYPE_KEY, ONTOLOGY_VERSION_ID_KEY], all_properties={ENTITY_TYPE_KEY: entity_type, ONTOLOGY_VERSION_ID_KEY: self.rc_manager.ontology_version_id})
+      entity = StructuredEntity(entity_type=entity_type, primary_key_properties=[ENTITY_TYPE_KEY, ONTOLOGY_VERSION_ID_KEY], all_properties={ENTITY_TYPE_KEY: entity_type, ONTOLOGY_VERSION_ID_KEY: self.rc_manager.ontology_version_id})
       entities.append(entity)
 
     # Batch create all schema nodes using MERGE (idempotent)
@@ -168,7 +168,7 @@ class HeuristicsProcessor:
       await self.rc_manager.ontology_graph_db.update_entity_batch(entities, batch_size=1000)
       self.logger.info(f"Successfully created {len(entities)} schema entity nodes")
 
-  async def _process_entities_pipeline(self, entities: List[Entity], batch_num: int, total_batches: int, update_progress):
+  async def _process_entities_pipeline(self, entities: List[StructuredEntity], batch_num: int, total_batches: int, update_progress):
     """
     Pipeline approach with BM25 search: Build all search queries, filter with bloom, execute searches, then process results.
 
@@ -196,19 +196,19 @@ class HeuristicsProcessor:
       entity_pk = entity.generate_primary_key()
 
       if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Processing Entity %s (%s)", entity.entity_type, entity_pk)
+        logger.debug("Processing StructuredEntity %s (%s)", entity.entity_type, entity_pk)
 
       # Skip default data label
       if entity.entity_type == DEFAULT_DATA_LABEL:
         if logger.isEnabledFor(logging.DEBUG):
-          logger.debug("Entity type=%s is the default entity type, skipping processing.", entity.entity_type)
+          logger.debug("StructuredEntity type=%s is the default entity type, skipping processing.", entity.entity_type)
         continue
 
       # Cache entity types (local to this batch)
       ontology_cache.add_entity(entity)
 
       # Handle sub-entity relations - these are automatically generated during ingestion and auto-accepted
-      if entity.additional_labels and SUB_ENTITY_LABEL in entity.additional_labels:
+      if entity.additional_types and SUB_ENTITY_LABEL in entity.additional_types:
         # Get parent info
         parent_entity_type = entity.all_properties.get(PARENT_ENTITY_TYPE_KEY)
 
@@ -308,8 +308,8 @@ class HeuristicsProcessor:
         log_lines = ["\n"]
         log_lines.append("=" * 80)
         log_lines.append(f"[SEARCH] {task.entity.entity_type}.{task.property_name}")
-        log_lines.append(f"[SEARCH] Entity Type: {task.entity.entity_type}")
-        log_lines.append(f"[SEARCH] Entity PK: {task_entity_pk}")
+        log_lines.append(f"[SEARCH] StructuredEntity Type: {task.entity.entity_type}")
+        log_lines.append(f"[SEARCH] StructuredEntity PK: {task_entity_pk}")
         log_lines.append(f"[SEARCH] Property: {task.property_name}")
         log_lines.append(f"[SEARCH] Value: {task.property_value}")
         log_lines.append(f"[SEARCH] Query Tokens: {task.query_tokens}")
@@ -366,8 +366,8 @@ class HeuristicsProcessor:
         log_lines = ["\n"]
         log_lines.append("=" * 80)
         log_lines.append(f"[DEEP MATCHES] {task.entity.entity_type}.{task.property_name}")
-        log_lines.append(f"[DEEP MATCHES] Entity Type: {task.entity.entity_type}")
-        log_lines.append(f"[DEEP MATCHES] Entity PK: {task_entity_pk}")
+        log_lines.append(f"[DEEP MATCHES] StructuredEntity Type: {task.entity.entity_type}")
+        log_lines.append(f"[DEEP MATCHES] StructuredEntity PK: {task_entity_pk}")
         log_lines.append(f"[DEEP MATCHES] Property: {task.property_name}")
         log_lines.append(f"[DEEP MATCHES] Value: {task.property_value}")
         log_lines.append(f"[DEEP MATCHES] Results: {len(logged_matches)} deep matches")
@@ -403,7 +403,7 @@ class HeuristicsProcessor:
       except Exception as e:
         self.logger.error(f"Error in batch heuristic update: {e}", exc_info=True)
 
-  def _get_id_key_for_property(self, entity: Entity, property_name: str) -> List[str] | None:
+  def _get_id_key_for_property(self, entity: StructuredEntity, property_name: str) -> List[str] | None:
     """Check if a property is part of an identity key."""
     if entity.additional_key_properties is None:
       entity.additional_key_properties = []
@@ -414,7 +414,7 @@ class HeuristicsProcessor:
 
     return None
 
-  def _build_search_query(self, entity: Entity, property_name: str, property_value: str, entity_property_id_key: List[str] | None, bloom_filter_check: bool = False) -> List[str]:
+  def _build_search_query(self, entity: StructuredEntity, property_name: str, property_value: str, entity_property_id_key: List[str] | None, bloom_filter_check: bool = False) -> List[str]:
     """
     Build an efficient search query with tokens.
 
@@ -519,7 +519,7 @@ class HeuristicsProcessor:
 
     return identity_keys
 
-  def get_identity_keys(self, entity: Entity, entity_property_value: str) -> List[dict]:
+  def get_identity_keys(self, entity: StructuredEntity, entity_property_value: str) -> List[dict]:
     """
     Returns list of dictionaries with the identity keys of the entity.
     """
@@ -617,12 +617,12 @@ class HeuristicsProcessor:
 
     return score
 
-  def deep_property_match(self, entity: Entity, entity_property: str, entity_property_value: str, matches: List[Tuple[Dict[str, Any], float]], logger: logging.Logger) -> List[DeepPropertyMatch]:
+  def deep_property_match(self, entity: StructuredEntity, entity_property: str, entity_property_value: str, matches: List[Tuple[Dict[str, Any], float]], logger: logging.Logger) -> List[DeepPropertyMatch]:
     """
     Perform deep property matching on search results (from dictionaries).
 
     Only uses:
-    - ALL properties of the searching entity (already have as Entity object)
+    - ALL properties of the searching entity (already have as StructuredEntity object)
     - ONLY identity keys/values of the matches (reconstructed from dictionary)
 
     """
@@ -693,7 +693,7 @@ class HeuristicsProcessor:
             logger.debug(f"      ✗ No valid mappings found for {matched_entity_type}:{matched_entity_pk}")
 
         # Create DeepPropertyMatch objects
-        # Store entity type and PK directly instead of creating Entity object
+        # Store entity type and PK directly instead of creating StructuredEntity object
         for _, (mapping_dict, match_metadata) in enumerate(match_prop_mappings):
           # Create PropertyMapping with match type and quality
           property_mappings = [PropertyMapping(entity_a_property=entity_prop, entity_b_idkey_property=idkey_prop, match_type=match_metadata[idkey_prop].match_type, value_match_quality=match_metadata[idkey_prop].quality) for idkey_prop, entity_prop in mapping_dict.items()]

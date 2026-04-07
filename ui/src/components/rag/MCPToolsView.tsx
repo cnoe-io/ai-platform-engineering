@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Search,
   X,
+  Filter,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ import {
   type MCPBuiltinToolsConfig,
   type ParallelSearch,
 } from "@/lib/rag-api";
+import { getHealthStatus } from "./api";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
@@ -53,7 +55,6 @@ const TOOL_ID_REGEX = /^[a-z0-9_]+$/;
 const DEFAULT_PARALLEL_SEARCH: ParallelSearch = {
   label: "results",
   datasource_ids: [],
-  is_graph_entity: null,
   extra_filters: {},
   semantic_weight: 0.5,
 };
@@ -193,6 +194,184 @@ function DatasourceChipPicker({ selected, available, onChange }: DatasourceChipP
 }
 
 // ============================================================================
+// ExtraFiltersEditor — chip-based key/value filter editor
+// ============================================================================
+
+interface ExtraFiltersEditorProps {
+  value: Record<string, unknown>;
+  onChange: (filters: Record<string, unknown>) => void;
+  validFilterKeys: string[];
+  filterKeyTypes: Record<string, string>;
+}
+
+function ExtraFiltersEditor({ value, onChange, validFilterKeys, filterKeyTypes }: ExtraFiltersEditorProps) {
+  const [selectedKey, setSelectedKey] = useState("");
+  const [customKey, setCustomKey] = useState("");
+  const [filterValue, setFilterValue] = useState("");
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const getKeyType = (key: string): string => filterKeyTypes[key] || 'string';
+
+  const handleKeyChange = (key: string) => {
+    if (key === "__custom__") {
+      setShowCustomInput(true);
+      setSelectedKey("");
+    } else {
+      setShowCustomInput(false);
+      setSelectedKey(key);
+      setCustomKey("");
+    }
+  };
+
+  const addFilter = () => {
+    const keyToUse = showCustomInput ? customKey.trim() : selectedKey;
+    if (!keyToUse) return;
+
+    const keyType = getKeyType(keyToUse);
+    if (keyType === 'bool') {
+      onChange({ ...value, [keyToUse]: true });
+    } else if (filterValue.trim()) {
+      onChange({ ...value, [keyToUse]: filterValue.trim() });
+    } else {
+      return;
+    }
+    setSelectedKey("");
+    setCustomKey("");
+    setFilterValue("");
+    setShowCustomInput(false);
+  };
+
+  const removeFilter = (key: string) => {
+    const newFilters = { ...value };
+    delete newFilters[key];
+    onChange(newFilters);
+  };
+
+  const filterEntries = Object.entries(value);
+
+  return (
+    <div className="space-y-2">
+      {/* Active filters as chips */}
+      {filterEntries.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {filterEntries.map(([key, val]) => (
+            <span
+              key={key}
+              className={cn(
+                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs max-w-[250px]",
+                key.startsWith("metadata.")
+                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                  : "bg-primary/10 text-primary"
+              )}
+              title={`${key}: ${String(val)}`}
+            >
+              {typeof val === 'boolean' ? (
+                <>
+                  <span className="truncate font-mono">{key}:</span>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...value, [key]: !val })}
+                    className={`font-semibold px-1 rounded ${val ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
+                    title={`Click to toggle to ${!val}`}
+                  >
+                    {String(val)}
+                  </button>
+                </>
+              ) : (
+                <span className="truncate font-mono">{key}: {String(val)}</span>
+              )}
+              <button type="button" onClick={() => removeFilter(key)} className="hover:opacity-70">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Add filter row */}
+      <div className="flex flex-wrap items-center gap-2">
+        {!showCustomInput ? (
+          <select
+            value={selectedKey}
+            onChange={(e) => handleKeyChange(e.target.value)}
+            className="h-7 rounded border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none text-foreground min-w-[140px]"
+          >
+            <option value="">Add filter...</option>
+            {validFilterKeys.map((key) => (
+              <option key={key} value={key}>{key}</option>
+            ))}
+            <option value="__custom__">Custom key (metadata.*)</option>
+          </select>
+        ) : (
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              placeholder="metadata.field_name"
+              value={customKey}
+              onChange={(e) => setCustomKey(e.target.value)}
+              className="h-7 w-36 rounded border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none text-foreground font-mono"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setShowCustomInput(false);
+                setCustomKey("");
+              }}
+              className="p-1 text-muted-foreground hover:text-foreground"
+              title="Cancel custom key"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        {(selectedKey || (showCustomInput && customKey)) && (
+          <>
+            {getKeyType(showCustomInput ? customKey : selectedKey) === 'bool' ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={addFilter}
+              >
+                Add as true
+              </Button>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  placeholder="Value"
+                  value={filterValue}
+                  onChange={(e) => setFilterValue(e.target.value)}
+                  className="h-7 w-32 rounded border border-border bg-background px-2 text-xs focus:border-primary focus:outline-none text-foreground"
+                  onKeyDown={(e) => e.key === "Enter" && addFilter()}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={addFilter}
+                  disabled={!filterValue.trim()}
+                >
+                  Add
+                </Button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground">
+        Use <code className="bg-muted px-1 rounded">metadata.*</code> for custom fields (e.g., <code className="bg-muted px-1 rounded">metadata.namespace</code>).
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
 // ParallelSearchRow
 // ============================================================================
 
@@ -201,39 +380,13 @@ interface ParallelSearchRowProps {
   index: number;
   canRemove: boolean;
   availableDatasources: string[];
+  validFilterKeys: string[];
+  filterKeyTypes: Record<string, string>;
   onChange: (updated: ParallelSearch) => void;
   onRemove: () => void;
 }
 
-function ParallelSearchRow({ value, index, canRemove, availableDatasources, onChange, onRemove }: ParallelSearchRowProps) {
-  const [extraJson, setExtraJson] = useState(
-    Object.keys(value.extra_filters).length > 0
-      ? JSON.stringify(value.extra_filters, null, 2)
-      : ""
-  );
-  const [jsonError, setJsonError] = useState("");
-
-  const handleExtraChange = (raw: string) => {
-    setExtraJson(raw);
-    setJsonError("");
-    if (!raw.trim()) {
-      onChange({ ...value, extra_filters: {} });
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      onChange({ ...value, extra_filters: parsed });
-    } catch {
-      setJsonError("Invalid JSON");
-    }
-  };
-
-  const isGraphEntityOptions: { label: string; value: boolean | null; hint: string }[] = [
-    { label: "All", value: null, hint: "No filter on entity type" },
-    { label: "Docs", value: false, hint: "Regular documents only" },
-    { label: "Graph", value: true, hint: "Graph entities only" },
-  ];
-
+function ParallelSearchRow({ value, index, canRemove, availableDatasources, validFilterKeys, filterKeyTypes, onChange, onRemove }: ParallelSearchRowProps) {
   return (
     <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
       {/* Header: index + label + remove */}
@@ -274,34 +427,6 @@ function ParallelSearchRow({ value, index, canRemove, availableDatasources, onCh
         <p className="text-[11px] text-muted-foreground">Leave empty to search all datasources.</p>
       </div>
 
-      {/* is_graph_entity selector */}
-      <div className="space-y-1">
-        <p className="text-xs text-muted-foreground font-medium">Entity type filter</p>
-        <div className="flex gap-1">
-          {isGraphEntityOptions.map((opt) => (
-            <button
-              key={String(opt.value)}
-              type="button"
-              title={opt.hint}
-              onClick={() => onChange({ ...value, is_graph_entity: opt.value })}
-              className={cn(
-                "px-3 py-1 rounded text-xs font-medium border transition-colors",
-                value.is_graph_entity === opt.value
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:bg-muted"
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          {value.is_graph_entity === null && "No filter — returns both documents and graph entities."}
-          {value.is_graph_entity === false && "Regular documents only (is_graph_entity=false)."}
-          {value.is_graph_entity === true && "Graph entity documents only (is_graph_entity=true)."}
-        </p>
-      </div>
-
       {/* Semantic weight */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
@@ -330,18 +455,16 @@ function ParallelSearchRow({ value, index, canRemove, availableDatasources, onCh
 
       {/* Extra filters */}
       <div className="space-y-1">
-        <p className="text-xs text-muted-foreground font-medium">Additional filters (JSON)</p>
-        <Textarea
-          value={extraJson}
-          onChange={(e) => handleExtraChange(e.target.value)}
-          placeholder={'{\n  "document_type": "runbook"\n}'}
-          rows={2}
-          className={cn("font-mono text-xs resize-none", jsonError && "border-destructive")}
+        <div className="flex items-center gap-1.5">
+          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground font-medium">Additional filters</p>
+        </div>
+        <ExtraFiltersEditor
+          value={value.extra_filters}
+          onChange={(filters) => onChange({ ...value, extra_filters: filters })}
+          validFilterKeys={validFilterKeys}
+          filterKeyTypes={filterKeyTypes}
         />
-        {jsonError && <p className="text-xs text-destructive">{jsonError}</p>}
-        <p className="text-[11px] text-muted-foreground">
-          Valid filter keys can be found in the Search tab results under <code className="bg-muted px-1 rounded">metadata</code>.
-        </p>
       </div>
     </div>
   );
@@ -371,6 +494,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   const [saving, setSaving] = useState(false);
 
   const [availableDatasources, setAvailableDatasources] = useState<string[]>([]);
+  const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
+  const [filterKeyTypes, setFilterKeyTypes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (open) {
@@ -384,9 +509,21 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
       setAllowRuntimeFilters(initial?.allow_runtime_filters ?? false);
       setSaving(false);
 
-      getDataSources().then((res) => {
-        setAvailableDatasources(res.datasources.map((ds) => ds.datasource_id));
-      }).catch(() => {});
+      // Fetch datasources and filter keys in parallel
+      Promise.all([
+        getDataSources().then((res) => {
+          setAvailableDatasources(res.datasources.map((ds) => ds.datasource_id));
+        }),
+        getHealthStatus().then((res) => {
+          setValidFilterKeys(res?.config?.search?.keys || []);
+          const typedKeys: Array<{key: string; type: string}> = res?.config?.search?.filter_keys || [];
+          const typeMap: Record<string, string> = {};
+          for (const entry of typedKeys) {
+            typeMap[entry.key] = entry.type;
+          }
+          setFilterKeyTypes(typeMap);
+        }),
+      ]).catch(() => {});
     }
   }, [open, initial]);
 
@@ -487,6 +624,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
                   value={ps}
                   canRemove={parallelSearches.length > 1}
                   availableDatasources={availableDatasources}
+                  validFilterKeys={validFilterKeys}
+                  filterKeyTypes={filterKeyTypes}
                   onChange={(updated) =>
                     setParallelSearches((prev) =>
                       prev.map((x, idx) => (idx === i ? updated : x))
@@ -767,12 +906,6 @@ function ToolCard({ tool, canEdit, onEdit, onDelete, onToggleEnabled }: ToolCard
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground font-mono">{i + 1}.</span>
                     <Badge variant="outline" className="text-xs font-mono">{ps.label}</Badge>
-                    {ps.is_graph_entity === false && (
-                      <Badge variant="secondary" className="text-xs">docs</Badge>
-                    )}
-                    {ps.is_graph_entity === true && (
-                      <Badge variant="secondary" className="text-xs">graph</Badge>
-                    )}
                     <span className="text-xs text-muted-foreground ml-auto font-mono">
                       s={ps.semantic_weight.toFixed(2)} k={(1 - ps.semantic_weight).toFixed(2)}
                     </span>

@@ -29,6 +29,7 @@ export function useAdminRole() {
   );
 
   const canViewAdmin = (session?.canViewAdmin === true) || isDevAdmin;
+  const canAccessDynamicAgents = (session?.canAccessDynamicAgents === true) || isDevAdmin;
 
   useEffect(() => {
     async function checkAdminRole() {
@@ -63,5 +64,5 @@ export function useAdminRole() {
     checkAdminRole();
   }, [session]);
 
-  return { isAdmin, canViewAdmin, loading };
+  return { isAdmin, canViewAdmin, canAccessDynamicAgents, loading };
 }

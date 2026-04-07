@@ -5,15 +5,15 @@ Assumes Neo4j is running at localhost:7687 with default credentials (neo4j/passw
 
 import asyncio
 from common.graph_db.neo4j.graph_db import Neo4jDB
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 
 
 async def setup_test_data(db: Neo4jDB):
   """Create some test entities."""
   entities = [
-    Entity(entity_type="User", primary_key_properties=["id"], all_properties={"id": "user-alice-001", "name": "Alice Smith", "role": "Engineer"}),
-    Entity(entity_type="User", primary_key_properties=["id"], all_properties={"id": "user-bob-002", "name": "Bob Johnson", "role": "Manager"}),
-    Entity(entity_type="Project", primary_key_properties=["id"], all_properties={"id": "proj-apollo-001", "name": "Apollo", "owner": "user-alice-001"}),
+    StructuredEntity(entity_type="User", primary_key_properties=["id"], all_properties={"id": "user-alice-001", "name": "Alice Smith", "role": "Engineer"}),
+    StructuredEntity(entity_type="User", primary_key_properties=["id"], all_properties={"id": "user-bob-002", "name": "Bob Johnson", "role": "Manager"}),
+    StructuredEntity(entity_type="Project", primary_key_properties=["id"], all_properties={"id": "proj-apollo-001", "name": "Apollo", "owner": "user-alice-001"}),
   ]
   await db.update_entity("User", entities[:2])
   await db.update_entity("Project", [entities[2]])
@@ -24,7 +24,7 @@ async def test_single_query():
   """Test a single query in a batch."""
   print("Testing: fuzzy_search_batch() with single query")
 
-  db = Neo4jDB(tenant_label="TestEntity")
+  db = Neo4jDB(tenant_label="TestStructuredEntity")
 
   await db.setup()
   await setup_test_data(db)
@@ -49,7 +49,7 @@ async def test_multiple_queries():
   """Test multiple queries in a single batch."""
   print("Testing: fuzzy_search_batch() with multiple queries (batched)")
 
-  db = Neo4jDB(tenant_label="TestEntity")
+  db = Neo4jDB(tenant_label="TestStructuredEntity")
 
   await db.setup()
   await setup_test_data(db)
@@ -81,7 +81,7 @@ async def test_type_filter():
   """Test filtering by entity type using exclude filter."""
   print("Testing: fuzzy_search_batch() with exclude_type_filter")
 
-  db = Neo4jDB(tenant_label="TestEntity")
+  db = Neo4jDB(tenant_label="TestStructuredEntity")
 
   await db.setup()
   await setup_test_data(db)
@@ -97,7 +97,7 @@ async def test_type_filter():
   print(f"✓ Exclude filter test: found {len(results[0])} non-Project entities")
   if results[0]:
     for entity, score in results[0]:
-      print(f"  - Entity type: {entity.entity_type}, id: {entity.all_properties['id']}")
+      print(f"  - StructuredEntity type: {entity.entity_type}, id: {entity.all_properties['id']}")
 
   await db.remove_entity(None, None)
   await db.driver.close()
