@@ -134,7 +134,7 @@ async def generate_sse_events(
     yield format_sse_event(emit_run_started(run_id=run_id, thread_id=thread_id))
 
     graph = mas.get_graph()
-    logger.info(f"[AG-UI] Got graph, starting astream...")
+    logger.info("[AG-UI] Got graph, starting astream...")
 
     # Build the input state
     inputs: dict = {

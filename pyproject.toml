@@ -83,6 +83,7 @@ major_version_zero = true
 [dependency-groups]
 dev = [
     "asyncpg==0.31.0",
+    "mongomock==4.3.0",
     "psycopg[binary]==3.3.3",
     "ruff==0.14.8",
 ]

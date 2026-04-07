@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.9",
-    "@ag-ui/client": "^0.0.51",
-    "@ag-ui/core": "^0.0.51",
+    "@ag-ui/client": "0.0.51",
+    "@ag-ui/core": "0.0.51",
     "@codemirror/lang-markdown": "6.5.0",
     "@codemirror/language-data": "6.5.2",
     "@codemirror/theme-one-dark": "6.1.3",

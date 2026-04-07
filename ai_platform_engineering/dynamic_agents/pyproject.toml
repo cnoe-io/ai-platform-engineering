@@ -17,7 +17,6 @@ dependencies = [
     "PyJWT[crypto]==2.11.0",
     "requests==2.32.3",
     "beautifulsoup4==4.13.4",
-    "ai-platform-engineering-utils",
 ]
 
 [project.optional-dependencies]
@@ -34,12 +33,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dynamic_agents"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.uv.sources]
-ai-platform-engineering-utils = { path = "../utils" }
 
 [tool.ruff]
 line-length = 120

@@ -49,9 +49,7 @@ import hashlib
 import os
 import sys
 import uuid
-from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Optional
 
 try:
     from pymongo import MongoClient, UpdateOne
@@ -519,7 +517,7 @@ def main():
             stats["errors"] += 1
             continue
 
-        if verbose_progress := (not args.verbose and idx % 100 == 0):
+        if not args.verbose and idx % 100 == 0:
             print(f"  Progress: {idx}/{total} conversations...")
 
         try:
@@ -536,7 +534,7 @@ def main():
             stats["errors"] += 1
 
     action = "Would write" if args.dry_run else "Wrote"
-    print(f"\nDone.")
+    print("\nDone.")
     print(f"  Conversations processed : {stats['conversations']}")
     print(f"  {action} turns           : {stats['turns']}")
     print(f"  {action} stream_events   : {stats['events']}")

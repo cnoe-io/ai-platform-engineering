@@ -20,7 +20,6 @@ from typing import AsyncGenerator
 from ag_ui.core import (
     EventType as AGUIEventType,
     RunAgentInput,
-    RunErrorEvent,
     RunFinishedEvent,
     StateSnapshotEvent,
     TextMessageContentEvent,
