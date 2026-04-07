@@ -91,6 +91,7 @@ from ai_platform_engineering.utils.prompt_config import (
     load_platform_config,
     generate_platform_system_prompt,
 )
+from ai_platform_engineering.multi_agents.platform_engineer.rag_prompts import get_rag_instructions
 
 from ai_platform_engineering.multi_agents.tools import (
     fetch_url,
@@ -1358,15 +1359,10 @@ class PlatformEngineerDeepAgent:
         logger.info(f'📦 Tools: {[t.name for t in all_tools]}')
         logger.info(f'🤖 Subagents: {list(agents_for_prompt.keys())}')
 
-        # Build RAG instructions if RAG is enabled
+        # Build RAG instructions if RAG is enabled — use full instructions from prompt_config.rag.yaml
         rag_instructions = ""
         if self.rag_enabled and self.rag_tools:
-            rag_instructions = """
-When users ask questions about platform policies, procedures, or documentation:
-1. Use the RAG tools to search the knowledge base first
-2. Synthesize information from multiple sources when available
-3. Cite sources when providing answers from the knowledge base
-"""
+            rag_instructions = get_rag_instructions(self.rag_config or {})
 
         # Generate system prompt dynamically using prompt_config.yaml
         # This ensures all subagents are included with proper routing instructions
@@ -1398,12 +1394,16 @@ DO NOT try to perform these operations directly with subagents.
 
 ## Task Planning (write_todos format)
 
-When delegating work to subagents via the `task` tool, ALWAYS call `write_todos` first to announce the execution plan.
-Each todo item's `content` MUST include the subagent name in square brackets, e.g.:
+ALWAYS call `write_todos` first before starting any multi-step work to announce your execution plan. This applies to:
+- Subagent delegation via `task` tool
+- RAG knowledge base research (search + fetch_document)
+- Any operation requiring more than one tool call
+
+Each todo item's `content` MUST include the agent/tool name in square brackets, e.g.:
 - `[Jira] Search for user's tickets`
 - `[GitHub] List recent pull requests`
-- `[AWS] Query EC2 instances`
-- `[ArgoCD] List deployed applications`
+- `[RAG] Search knowledge base for deployment options`
+- `[RAG] Fetch documentation for AGNTCY identity`
 
 This format is required so the UI can display agent stickers next to each task.
 """

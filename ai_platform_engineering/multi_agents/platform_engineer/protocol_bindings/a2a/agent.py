@@ -51,6 +51,30 @@ class AIPlatformEngineerA2ABinding:
       self.graph = self._mas_instance.get_graph()
       self.tracing = TracingManager()
       self._execution_plan_sent = False
+      self._previous_todos: dict = {}  # {todo_id -> {"status": ..., "content": ...}}
+
+  def _build_todo_plan_text(self) -> str:
+      """Build execution plan text from tracked todos.
+
+      Produces lines in '⏳ [Agent] Description' format which matches
+      Pattern 1 in agent_executor._parse_execution_plan_text.
+      """
+      status_icons = {
+          "pending": "⏳",
+          "in_progress": "🔄",
+          "completed": "✅",
+          "failed": "❌",
+      }
+      lines = []
+      for todo_id in sorted(
+          self._previous_todos.keys(),
+          key=lambda x: (int(x) if str(x).isdigit() else float('inf')),
+      ):
+          entry = self._previous_todos[todo_id]
+          icon = status_icons.get(entry["status"], "⏳")
+          content = entry["content"]
+          lines.append(f"{icon} {content}")
+      return "\n".join(lines)
 
   async def _repair_orphaned_tool_calls(self, config: dict) -> None:
       """
@@ -204,6 +228,7 @@ class AIPlatformEngineerA2ABinding:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, user_email: {user_email}")
       # Reset execution plan state for each new stream
       self._execution_plan_sent = False
+      self._previous_todos = {}
 
       # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
       pending_tool_calls = {}  # {tool_call_id: tool_name}
@@ -695,6 +720,48 @@ class AIPlatformEngineerA2ABinding:
                                       response_format_content = str(tool_args)
                                       response_format_args = tool_args  # Save args
 
+                      # write_todos: emit execution plan from AIMessage args.
+                      # NOTE: write_todos returns a LangGraph Command, so its
+                      # ToolMessage may never appear in the stream. We must
+                      # capture the plan from the AIMessage tool_call args here.
+                      if tool_name == "write_todos":
+                          todos = tool_call.get("args", {}).get("todos", [])
+                          if todos:
+                              plan_changed = False
+                              for idx, todo in enumerate(todos):
+                                  todo_id = str(todo.get("id", idx))
+                                  new_status = todo.get("status", "pending")
+                                  todo_content = todo.get("content", f"Step {todo_id}")
+                                  old_entry = self._previous_todos.get(todo_id)
+                                  if old_entry is None or old_entry.get("status") != new_status:
+                                      plan_changed = True
+                                  self._previous_todos[todo_id] = {
+                                      "status": new_status,
+                                      "content": todo_content,
+                                  }
+                              if plan_changed or not self._execution_plan_sent:
+                                  plan_text = self._build_todo_plan_text()
+                                  artifact_name = (
+                                      "execution_plan_update"
+                                      if not self._execution_plan_sent
+                                      else "execution_plan_status_update"
+                                  )
+                                  self._execution_plan_sent = True
+                                  logging.info(
+                                      f"📋 Emitting {artifact_name} from write_todos AIMessage "
+                                      f"({len(todos)} todos)"
+                                  )
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "artifact": {
+                                          "name": artifact_name,
+                                          "description": "TODO-based execution plan",
+                                          "text": plan_text,
+                                      },
+                                  }
+                          continue  # Skip generic tool notification for write_todos
+
                       # Stream tool start notification to client with metadata
                       tool_name_formatted = tool_name.title()
                       yield {
@@ -766,36 +833,14 @@ class AIPlatformEngineerA2ABinding:
                           logging.warning(f"Failed to parse ResponseFormat result as JSON: {e}, content was: {tool_content[:200] if tool_content else 'EMPTY'}")
                           # Fall through to normal handling
 
-                  # Special handling for write_todos: execution plan vs status updates
-                  if tool_name == "write_todos" and tool_content and tool_content.strip():
-                      if not self._execution_plan_sent:
-                          self._execution_plan_sent = True
-                          logging.debug("📋 Emitting initial TODO list as execution_plan_update artifact")
-                          # Emit as execution plan artifact for client display in execution plan pane
-                          yield {
-                              "is_task_complete": False,
-                              "require_user_input": False,
-                              "source_agent": "supervisor",
-                              "artifact": {
-                                  "name": "execution_plan_update",
-                                  "description": "TODO-based execution plan",
-                                  "text": tool_content
-                              }
-                          }
-                      else:
-                          logging.debug("📊 Emitting TODO progress update as execution_plan_status_update artifact")
-                          # This is a TODO status update (merge=true) - emit as status update
-                          # Client should update the execution plan pane in-place, not add to chat
-                          yield {
-                              "is_task_complete": False,
-                              "require_user_input": False,
-                              "source_agent": "supervisor",
-                              "artifact": {
-                                  "name": "execution_plan_status_update",
-                                  "description": "TODO progress update",
-                                  "text": tool_content
-                              }
-                          }
+                  # write_todos: handled in the AIMessage path above.
+                  # write_todos returns a LangGraph Command, so its ToolMessage
+                  # may not appear in the stream at all. The execution plan is
+                  # emitted from the AIMessage tool_call args instead.
+                  if tool_name == "write_todos":
+                      logging.debug("📋 Skipping write_todos ToolMessage (handled by AIMessage path)")
+                      continue
+
                   # Special handling for request_user_input: emit structured form metadata
                   elif tool_name == "request_user_input" and tool_content:
                       logging.info("📝 Intercepting request_user_input tool - emitting structured form")

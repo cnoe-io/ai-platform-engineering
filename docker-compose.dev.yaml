@@ -210,6 +210,7 @@ services:
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_RAG_PATH:-./charts/ai-platform-engineering/data/prompt_config.rag.yaml}:/app/prompt_config.rag.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
       - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
