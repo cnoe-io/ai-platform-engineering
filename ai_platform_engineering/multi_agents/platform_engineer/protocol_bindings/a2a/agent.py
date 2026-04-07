@@ -38,6 +38,52 @@ _log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, _log_level, logging.INFO), format='%(asctime)s - %(levelname)s - %(message)s')
 
 
+def _tool_narration(tool_name: str, tool_args: dict) -> str | None:
+    """
+    Generate a brief narration sentence to stream BEFORE a tool call starts.
+    This replaces the LLM-generated pre-tool text that the old marker-based system
+    produced via the [FINAL ANSWER] hidden-thinking pattern.
+    Returns None for tools that should not generate narration (write_todos, etc.).
+    """
+    name_lower = tool_name.lower()
+
+    # Skip internal/structural tools — no narration needed
+    if name_lower in ("write_todos", "responseformat", "platformengineerresponse",
+                      "read_file", "write_file", "ls", "glob", "grep", "edit_file",
+                      "reflect_on_output", "format_markdown", "get_current_date"):
+        return None
+
+    # Search tool — mention the query if available (also check 'thought' as fallback)
+    if "search" in name_lower:
+        query = tool_args.get("query", "") or tool_args.get("q", "")
+        if query and len(query) < 150:
+            return f"I'll search the knowledge base for information about **{query[:120]}**.\n"
+        thought = tool_args.get("thought", "")
+        if thought and len(thought) < 150:
+            return f"I'll search the knowledge base — *{thought[:100]}*\n"
+        return "I'll search the knowledge base for relevant information.\n"
+
+    # Document fetch — mention doc ID or thought if available
+    if "fetch_document" in name_lower or "fetch_doc" in name_lower:
+        thought = tool_args.get("thought", "")
+        if thought and len(thought) < 150:
+            return f"Let me fetch the full document — *{thought[:100]}*\n"
+        return "Let me fetch the full document for more details.\n"
+
+    # RAG / knowledge base tools
+    if "rag" in name_lower or "knowledge" in name_lower:
+        return "I'll query the knowledge base for relevant information.\n"
+
+    # Named sub-agents — extract intent from common arg names
+    purpose = tool_args.get("query", "") or tool_args.get("task", "") or tool_args.get("message", "")
+    if purpose and len(purpose) < 120:
+        label = tool_name.replace("_", " ").replace("-", " ").title()
+        return f"I'll use {label} to help with: *{purpose[:100]}*\n"
+
+    label = tool_name.replace("_", " ").replace("-", " ").title()
+    return f"I'll use the {label} tool to gather the information you need.\n"
+
+
 class AIPlatformEngineerA2ABinding:
   """
   AI Platform Engineer Multi-Agent System (MAS) for currency conversion.
@@ -270,27 +316,7 @@ class AIPlatformEngineerA2ABinding:
 
       logging.debug(f"Created tracing config: {config}")
 
-      # Per-invoke entitled + capped skill files (FR-020, T066); fallback to graph snapshot.
-      raw_teams = config.get("metadata", {}).get("team_ids")
-      team_ids_list = [str(x) for x in raw_teams] if isinstance(raw_teams, list) else []
-      entitled_files = None
-      try:
-          from ai_platform_engineering.skills_middleware.invoke_skills import (
-              build_entitled_skills_files,
-          )
-
-          entitled_files = build_entitled_skills_files(
-              sub=str(user_id) if user_id else None,
-              team_ids=team_ids_list,
-          )
-      except Exception:
-          entitled_files = None
-      if entitled_files:
-          inputs["files"] = dict(entitled_files)
-      else:
-          skills_files = getattr(self._mas_instance, "_skills_files", None)
-          if skills_files:
-              inputs["files"] = dict(skills_files)
+      # Skills middleware files injection disabled — see deep_agent.py
 
       # ========================================================================
       # CROSS-THREAD MEMORY: Retrieve prior context for new conversations
@@ -399,6 +425,16 @@ class AIPlatformEngineerA2ABinding:
           # Track current active agent for sub-agent message grouping
           # This is used by the executor to add sourceAgent metadata to artifacts
           current_agent: str | None = None
+
+          # Track which tool calls have already had narration emitted.
+          # Bedrock streams many AIMessageChunks per tool call, each with tool_calls
+          # populated — without dedup we'd emit the narration once per chunk.
+          _narrated_tool_call_ids: set[str] = set()
+
+          # Also deduplicate by narration text: when the LLM makes multiple identical
+          # tool calls (e.g. 5 RAG searches), args are empty on the first chunk so all
+          # 5 narrations would be the same generic text. Only emit a given text once.
+          _narrated_texts: set[str] = set()
 
           # Check if token-by-token streaming is enabled (default: true)
           # When disabled, uses 'values' mode which waits for complete messages
@@ -549,6 +585,24 @@ class AIPlatformEngineerA2ABinding:
                           # Stream tool start notification to client with metadata
                           # But ONLY if we haven't already yielded the completion
                           if not (USE_STRUCTURED_RESPONSE and response_format_content):
+                              # Emit narration text once per tool call (deduplicate by call ID).
+                              # Bedrock streams multiple AIMessageChunks per tool call, all
+                              # with tool_calls populated — use the call ID to gate emission.
+                              _call_id = tool_call.get("id", "") or tool_name
+                              if _call_id not in _narrated_tool_call_ids:
+                                  _narrated_tool_call_ids.add(_call_id)
+                                  tool_args_for_narration = tool_call.get("args", {}) or {}
+                                  narration = _tool_narration(tool_name, tool_args_for_narration)
+                                  # Also deduplicate by text: multiple identical tool calls
+                                  # (e.g. 5 RAG searches with empty args) would otherwise
+                                  # emit the same generic narration text 5 times.
+                                  if narration and narration not in _narrated_texts:
+                                      _narrated_texts.add(narration)
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": narration,
+                                      }
                               tool_name_formatted = tool_name.title()
                               yield {
                                   "is_task_complete": False,
@@ -831,7 +885,10 @@ class AIPlatformEngineerA2ABinding:
                               logging.warning(f"ResponseFormat tool result has no content: {tool_result}")
                       except json.JSONDecodeError as e:
                           logging.warning(f"Failed to parse ResponseFormat result as JSON: {e}, content was: {tool_content[:200] if tool_content else 'EMPTY'}")
-                          # Fall through to normal handling
+                          # ToolStrategy (langchain) returns Python repr as ToolMessage content,
+                          # not JSON. Suppress it — actual content was captured from AIMessage
+                          # tool_call args (line ~671) before this ToolMessage arrived.
+                          continue
 
                   # write_todos: handled in the AIMessage path above.
                   # write_todos returns a LangGraph Command, so its ToolMessage
