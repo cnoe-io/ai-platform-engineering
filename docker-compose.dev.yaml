@@ -479,6 +479,20 @@ services:
       - all-agents
 
   # GitHub
+  # Official GitHub MCP server (HTTP mode) — provides full GitHub tool coverage
+  # via the github-mcp-server Go binary served over streamable-http.
+  # agent-github connects to this via GITHUB_MCP_HOST/PORT instead of localhost.
+  github-mcp-server:
+    image: ghcr.io/github/github-mcp-server:latest
+    container_name: github-mcp-server
+    command: ["http", "--port", "8082", "--toolsets", "all"]
+    environment:
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+    ports: ["8082:8082"]
+    profiles:
+      - github
+      - all-agents
+
   agent-github:
     build:
       context: .
@@ -496,6 +510,8 @@ services:
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
+      - GITHUB_MCP_HOST=github-mcp-server
+      - GITHUB_MCP_PORT=8082
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -508,10 +524,8 @@ services:
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
       - GITHUB_APP_PRIVATE_KEY_PATH=${GITHUB_APP_PRIVATE_KEY_PATH:-}
       - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
-    # Docker socket mount is only needed when MCP_MODE=stdio
-    # For local Github Offical MCP server execution.
-    # Uncomment this when MCP_MODE=stdio is supported
-    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+    depends_on:
+      - github-mcp-server
     profiles:
       - github
       - all-agents
