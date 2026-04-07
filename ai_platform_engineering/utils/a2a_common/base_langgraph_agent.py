@@ -35,6 +35,7 @@ import tiktoken
 from langgraph.prebuilt import create_react_agent
 
 from ai_platform_engineering.utils.checkpointer import get_checkpointer
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from ai_platform_engineering.utils.mcp_config import (
     resolve_mcp_mode, resolve_mcp_url, is_http_mode,
 )
@@ -367,14 +368,20 @@ Use this as the reference point for all date calculations. When users say "today
         elif is_http_mode(mcp_mode):
             logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
             mcp_url = resolve_mcp_url(agent_name)
-            user_jwt = "TBD_USER_JWT"
+            headers: dict[str, str] = {}
+            if os.getenv("FORWARD_JWT_TO_MCP", "false").lower() in ("true", "1", "yes"):
+                user_jwt_ctx = get_jwt_user_context()
+                user_jwt = user_jwt_ctx.token if user_jwt_ctx else ""
+                if user_jwt:
+                    headers["Authorization"] = f"Bearer {user_jwt}"
+                    logger.info(f"{agent_name}: Forwarding user JWT to MCP server")
+                else:
+                    logger.warning(f"{agent_name}: FORWARD_JWT_TO_MCP enabled but no JWT available in request context")
             client = MultiServerMCPClient({
                 agent_name: {
                     "transport": "streamable_http",
                     "url": mcp_url,
-                    "headers": {
-                        "Authorization": f"Bearer {user_jwt}",
-                    },
+                    "headers": headers,
                 }
             })
         else:

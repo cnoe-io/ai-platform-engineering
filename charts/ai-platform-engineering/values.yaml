@@ -178,6 +178,8 @@ supervisor-agent:
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
     TASK_CONFIG_PATH: "/app/task_config.yaml"
     POLICY_FILE_PATH: "/app/policy.lp"
+    ENABLE_USER_INFO_TOOL: "false"   # Capture user identity from JWT; enables user_info tool and JWT context middleware
+    FORWARD_JWT_TO_MCP: "false"      # Forward the user JWT as Bearer token to HTTP/streamable-HTTP MCP connections (requires ENABLE_USER_INFO_TOOL=true). Also used by sub-agents via base_langgraph_agent.
     # Self-service workflow env vars — referenced as ${VAR_NAME} in task_config.yaml prompts.
     # Set these per environment so system workflows can resolve repo references at runtime.
     # JARVIS_WORKFLOWS_REPO: "org/jarvis-workflows"      # Templates repo (safe-settings, terraform, etc.)
