@@ -38,45 +38,6 @@ _log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, _log_level, logging.INFO), format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-def _tool_narration(tool_name: str, tool_args: dict) -> str | None:
-    """Generate a brief narration sentence to emit before a tool call.
-
-    Returns None for internal/structural tools that should not narrate.
-    Deduplicated by the caller (per call ID and per text).
-    """
-    name_lower = tool_name.lower()
-
-    if name_lower in ("write_todos", "responseformat", "platformengineerresponse",
-                      "read_file", "write_file", "ls", "glob", "grep", "edit_file",
-                      "reflect_on_output", "format_markdown", "get_current_date"):
-        return None
-
-    if "search" in name_lower:
-        query = tool_args.get("query", "") or tool_args.get("q", "")
-        if query and len(query) < 150:
-            return f"I'll search the knowledge base for information about **{query[:120]}**.\n"
-        thought = tool_args.get("thought", "")
-        if thought and len(thought) < 150:
-            return f"I'll search the knowledge base — *{thought[:100]}*\n"
-        return "I'll search the knowledge base for relevant information.\n"
-
-    if "fetch_document" in name_lower or "fetch_doc" in name_lower:
-        thought = tool_args.get("thought", "")
-        if thought and len(thought) < 150:
-            return f"Let me fetch the full document — *{thought[:100]}*\n"
-        return "Let me fetch the full document for more details.\n"
-
-    if "rag" in name_lower or "knowledge" in name_lower:
-        return "I'll query the knowledge base for relevant information.\n"
-
-    purpose = tool_args.get("query", "") or tool_args.get("task", "") or tool_args.get("message", "")
-    if purpose and len(purpose) < 120:
-        label = tool_name.replace("_", " ").replace("-", " ").title()
-        return f"I'll use {label} to help with: *{purpose[:100]}*\n"
-
-    label = tool_name.replace("_", " ").replace("-", " ").title()
-    return f"I'll use the {label} tool to gather the information you need.\n"
-
 
 class AIPlatformEngineerA2ABinding:
   """
@@ -420,13 +381,6 @@ class AIPlatformEngineerA2ABinding:
           # This is used by the executor to add sourceAgent metadata to artifacts
           current_agent: str | None = None
 
-          # Dedup narration: Bedrock streams many AIMessageChunks per tool call,
-          # each with tool_calls populated — gate by call ID so we emit once per call.
-          # Also dedup by text: 5 identical RAG searches would otherwise emit the
-          # same generic line 5 times.
-          _narrated_tool_call_ids: set[str] = set()
-          _narrated_texts: set[str] = set()
-
           # Check if token-by-token streaming is enabled (default: true)
           # When disabled, uses 'values' mode which waits for complete messages
           enable_streaming = os.getenv("ENABLE_STREAMING", "true").lower() == "true"
@@ -576,19 +530,6 @@ class AIPlatformEngineerA2ABinding:
                           # Stream tool start notification to client with metadata
                           # But ONLY if we haven't already yielded the completion
                           if not (USE_STRUCTURED_RESPONSE and response_format_content):
-                              # Emit a plain-text narration sentence before the tool call
-                              # so the user sees what the agent is doing in real time.
-                              _call_id = tool_call.get("id", "") or tool_name
-                              if _call_id not in _narrated_tool_call_ids:
-                                  _narrated_tool_call_ids.add(_call_id)
-                                  narration = _tool_narration(tool_name, tool_call.get("args", {}) or {})
-                                  if narration and narration not in _narrated_texts:
-                                      _narrated_texts.add(narration)
-                                      yield {
-                                          "is_task_complete": False,
-                                          "require_user_input": False,
-                                          "content": narration,
-                                      }
                               tool_name_formatted = tool_name.title()
                               yield {
                                   "is_task_complete": False,
