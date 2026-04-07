@@ -1,6 +1,6 @@
 [project]
 name = "caipe-slack-bot"
-version = "0.1.0"
+version = "0.3.0"
 description = "CAIPE Slack Bot"
 license = "Apache-2.0"
 authors = [
@@ -14,7 +14,6 @@ dependencies = [
   "requests==2.32.5",
   "loguru==0.7.3",
   "pydantic==2.12.5",
-  "pymongo==4.16.0",
   "pyyaml==6.0.3",
 ]
 

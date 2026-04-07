@@ -30,6 +30,8 @@ from typing import AsyncIterator
 
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
+logger = logging.getLogger(__name__)
+
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
@@ -48,8 +50,6 @@ from ai_platform_engineering.utils.agui import (
     format_sse_event,
 )
 from ai_platform_engineering.utils.persistence.turn_persistence import TurnPersistence
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

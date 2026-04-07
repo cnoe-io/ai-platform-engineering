@@ -4,14 +4,14 @@ Tests for feedback scoring via the unified /api/feedback endpoint.
 
 from unittest.mock import MagicMock, patch
 from ai_platform_engineering.integrations.slack_bot.utils.scoring import submit_feedback_score
-from ai_platform_engineering.integrations.slack_bot.utils.session_manager import SessionManager, InMemorySessionStore
+from ai_platform_engineering.integrations.slack_bot.utils.session_manager import SessionManager
 
 
 class TestScoringUtility:
     """Tests for submit_feedback_score calling the unified /api/feedback endpoint."""
 
     def _make_session_manager(self, thread_ts="thread_123", trace_id="trace_456", context_id="context_789"):
-        sm = SessionManager(InMemorySessionStore())
+        sm = SessionManager(supervisor_url="http://test:8000")
         sm.set_trace_id(thread_ts, trace_id)
         sm.set_context_id(thread_ts, context_id)
         return sm

@@ -12,6 +12,8 @@ from typing import Optional, Dict, Any, Iterator
 from dataclasses import dataclass
 from enum import Enum
 
+from loguru import logger
+
 
 class SSEEventType(str, Enum):
     # AG-UI event types (mirrors ag_ui.core.EventType)
@@ -51,6 +53,7 @@ class SSEEvent:
     value: Optional[Any] = None
     # RUN_FINISHED / RUN_ERROR
     run_id: Optional[str] = None
+    thread_id: Optional[str] = None
     message: Optional[str] = None
 
 
@@ -178,10 +181,10 @@ class SSEClient:
                                     name=data.get("name"),
                                     value=data.get("value"),
                                     run_id=data.get("runId"),
+                                    thread_id=data.get("threadId"),
                                     message=data.get("message"),
                                 )
                             except json.JSONDecodeError as e:
-                                import logging
-                                logging.getLogger(__name__).warning(
+                                logger.warning(
                                     f"Error parsing SSE JSON: {e}, data: {json_str[:200]}"
                                 )

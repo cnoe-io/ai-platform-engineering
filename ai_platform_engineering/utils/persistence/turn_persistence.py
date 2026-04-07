@@ -24,10 +24,7 @@ from typing import Literal
 
 from pymongo.errors import PyMongoError
 
-try:
-    from loguru import logger
-except ImportError:
-    logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +244,10 @@ class TurnPersistence:
 
                 turns_coll.create_index([("conversation_id", 1), ("sequence", 1)])
                 turns_coll.create_index([("conversation_id", 1), ("created_at", 1)])
+                turns_coll.create_index(
+                    [("metadata.slack_thread_ts", 1)],
+                    sparse=True,
+                )
                 events_coll.create_index([("turn_id", 1), ("sequence", 1)])
                 events_coll.create_index([("conversation_id", 1), ("sequence", 1)])
                 events_coll.create_index([("conversation_id", 1), ("type", 1)])
@@ -337,12 +338,8 @@ class TurnPersistence:
                 "status": "streaming",
             },
             "metadata": {
+                **(metadata or {}),
                 "source": (metadata or {}).get("source", "web"),
-                "agent_id": (metadata or {}).get("agent_id"),
-                "trace_id": (metadata or {}).get("trace_id"),
-                "model": (metadata or {}).get("model"),
-                "tokens_used": (metadata or {}).get("tokens_used"),
-                "latency_ms": (metadata or {}).get("latency_ms"),
             },
             "created_at": now,
             "updated_at": now,
@@ -588,6 +585,90 @@ class TurnPersistence:
         except PyMongoError as exc:
             logger.warning(f"TurnPersistence: get_turn_events failed: {exc}")
             return []
+
+    def find_conversation_by_slack_thread(self, thread_ts: str) -> dict | None:
+        """Look up a conversation by its Slack thread timestamp.
+
+        Queries the ``turns`` collection for the earliest turn whose
+        ``metadata.slack_thread_ts`` matches *thread_ts*.
+
+        Returns
+        -------
+        dict | None
+            ``{"conversation_id": ..., "metadata": ...}`` or ``None``.
+        """
+        db = self._db()
+        if db is None:
+            return None
+        try:
+            doc = db["turns"].find_one(
+                {"metadata.slack_thread_ts": thread_ts},
+                {"conversation_id": 1, "metadata": 1},
+                sort=[("created_at", 1)],
+            )
+            if doc:
+                return {
+                    "conversation_id": doc["conversation_id"],
+                    "metadata": doc.get("metadata", {}),
+                }
+            return None
+        except PyMongoError as exc:
+            logger.warning("TurnPersistence: find_conversation_by_slack_thread failed: %s", exc)
+            return None
+
+    def update_turn_metadata(
+        self,
+        thread_ts: str,
+        updates: dict,
+    ) -> bool:
+        """Update metadata fields on the latest turn for a Slack thread.
+
+        Parameters
+        ----------
+        thread_ts:
+            Slack thread timestamp identifying the conversation.
+        updates:
+            Key-value pairs to ``$set`` under ``metadata.``.
+
+        Returns
+        -------
+        bool
+            ``True`` when at least one document was matched.
+        """
+        db = self._db()
+        if db is None:
+            return False
+        try:
+            set_fields = {f"metadata.{k}": v for k, v in updates.items()}
+            set_fields["updated_at"] = self._now()
+            result = db["turns"].update_one(
+                {"metadata.slack_thread_ts": thread_ts},
+                {"$set": set_fields},
+                sort=[("created_at", -1)],  # type: ignore[call-arg]
+            )
+            # update_one on some drivers doesn't support sort; fall back
+            return result.matched_count > 0
+        except TypeError:
+            # PyMongo's update_one doesn't support sort — use find + update
+            try:
+                doc = db["turns"].find_one(
+                    {"metadata.slack_thread_ts": thread_ts},
+                    {"_id": 1},
+                    sort=[("created_at", -1)],
+                )
+                if not doc:
+                    return False
+                db["turns"].update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": set_fields},
+                )
+                return True
+            except PyMongoError as exc:
+                logger.warning("TurnPersistence: update_turn_metadata fallback failed: %s", exc)
+                return False
+        except PyMongoError as exc:
+            logger.warning("TurnPersistence: update_turn_metadata failed: %s", exc)
+            return False
 
     def get_conversation_events(self, conversation_id: str) -> list[dict]:
         """Return all stream events for a conversation ordered by sequence.

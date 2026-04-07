@@ -11,6 +11,7 @@ import os
 import pytest
 
 from ai_platform_engineering.integrations.slack_bot.utils import ai
+from ai_platform_engineering.integrations.slack_bot.utils.config_models import JiraConfig
 
 
 @pytest.mark.integration
@@ -148,12 +149,7 @@ class TestAIAlertProcessing:
             "ts": "1234567890.123",
         }
 
-        channel_config = {
-            "project": "TEST",
-            "issuetype": {"name": "Bug"},
-            "labels": ["test"],
-            "components": [{"name": "Test"}],
-        }
+        channel_config = JiraConfig(project_key="TEST")
 
         # Mock session manager
         mock_session_manager = mocker.Mock()
@@ -171,15 +167,22 @@ class TestAIAlertProcessing:
             session_manager=mock_session_manager,
         )
 
-        # Verify that a response was posted to Slack
-        # Note: Without a valid user_id, streaming falls back to chat_postMessage
-        assert mock_slack_client.chat_postMessage.called, "Should post a response to Slack"
+        # Verify that a response was delivered to Slack (via streaming or fallback)
+        responded = (
+            mock_slack_client.chat_startStream.called
+            or mock_slack_client.chat_postMessage.called
+        )
+        assert responded, "Should deliver a response to Slack"
 
-        # Get the final response content from chat_postMessage calls
+        # Extract response text from streaming appendStream chunks or postMessage
         all_response_text = ""
+        for call in mock_slack_client.chat_appendStream.call_args_list:
+            kwargs = call.kwargs if call.kwargs else (call[1] if len(call) > 1 else {})
+            for chunk in kwargs.get("chunks", []):
+                if isinstance(chunk, dict) and chunk.get("type") == "markdown_text":
+                    all_response_text += chunk.get("text", "")
         for call in mock_slack_client.chat_postMessage.call_args_list:
             kwargs = call.kwargs if call.kwargs else {}
-            # Get text from blocks or direct text
             blocks = kwargs.get("blocks", [])
             for block in blocks:
                 if block.get("type") == "section":
@@ -234,12 +237,7 @@ class TestAIAlertProcessing:
             "ts": "1234567890.123",
         }
 
-        channel_config = {
-            "project": "TEST",
-            "issuetype": {"name": "Bug"},
-            "labels": ["test"],
-            "components": [{"name": "Test"}],
-        }
+        channel_config = JiraConfig(project_key="TEST")
 
         mock_session_manager = mocker.Mock()
         mock_session_manager.get_context_id.return_value = None
@@ -255,17 +253,22 @@ class TestAIAlertProcessing:
             session_manager=mock_session_manager,
         )
 
-        # Verify Slack methods were called
-        assert (
-            mock_slack_client.chat_postMessage.called or mock_slack_client.chat_update.called
-        ), "Should post a response to Slack"
+        # Verify Slack methods were called (streaming or fallback)
+        responded = (
+            mock_slack_client.chat_startStream.called
+            or mock_slack_client.chat_postMessage.called
+            or mock_slack_client.chat_update.called
+        )
+        assert responded, "Should deliver a response to Slack"
 
         # Print the AI response for debugging
-        if mock_slack_client.chat_update.called:
-            call_args = mock_slack_client.chat_update.call_args
-            if call_args:
-                response_blocks = call_args[1].get("blocks", [])
-                response_text = str(response_blocks)
-                print("\n" + "=" * 80)
-                print("AI Response for oncall rotation alert:")
-                print(response_text)
+        all_response_text = ""
+        for call in mock_slack_client.chat_appendStream.call_args_list:
+            kwargs = call.kwargs if call.kwargs else (call[1] if len(call) > 1 else {})
+            for chunk in kwargs.get("chunks", []):
+                if isinstance(chunk, dict) and chunk.get("type") == "markdown_text":
+                    all_response_text += chunk.get("text", "")
+        if all_response_text:
+            print("\n" + "=" * 80)
+            print("AI Response for oncall rotation alert:")
+            print(all_response_text)

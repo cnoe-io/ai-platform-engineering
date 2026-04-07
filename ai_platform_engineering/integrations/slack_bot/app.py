@@ -57,8 +57,8 @@ SUPERVISOR_SSE_URL = os.environ.get("SUPERVISOR_SSE_URL", CAIPE_URL)
 sse_client = SSEClient(SUPERVISOR_SSE_URL, timeout=300, auth_client=auth_client)
 logger.info(f"SSE client initialized at {SUPERVISOR_SSE_URL}")
 
-# Initialize session manager (auto-selects MongoDB or in-memory based on MONGODB_URI env var)
-session_manager = SessionManager()
+# Initialize session manager (stateless — backed by supervisor API with local TTL cache)
+session_manager = SessionManager(supervisor_url=SUPERVISOR_SSE_URL, auth_client=auth_client)
 logger.info(f"Session store type: {session_manager.get_store_type()}")
 
 hitl_handler = HITLCallbackHandler(sse_client, session_manager)
@@ -778,15 +778,14 @@ def handle_escalation_get_help(ack, body, client):
             return
 
         # Check if escalation was already triggered for this thread
-        escalation_key = f"escalated:{thread_ts}"
-        if session_manager.get_context_id(escalation_key):
+        if session_manager.is_escalated(thread_ts):
             client.chat_postEphemeral(
                 channel=channel_id, user=user_id, thread_ts=thread_ts,
                 text="Help has already been requested for this thread.",
             )
             return
         # Mark as escalated
-        session_manager.set_context_id(escalation_key, "true")
+        session_manager.set_escalated(thread_ts)
 
         # Track escalation in feedback
         submit_feedback_score(

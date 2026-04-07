@@ -57,6 +57,76 @@ def _serialise(doc: dict) -> dict:
     return result
 
 
+@router.get("/lookup", response_model=dict[str, Any])
+async def lookup_conversation(source: str, thread_ts: str) -> dict[str, Any]:
+    """Look up a conversation by source-specific thread identifier.
+
+    Parameters
+    ----------
+    source:
+        Source type (currently only ``"slack"`` is supported).
+    thread_ts:
+        The Slack thread timestamp that identifies the conversation thread.
+
+    Returns
+    -------
+    dict
+        ``{"conversation_id": ..., "metadata": {...}}``
+
+    Raises
+    ------
+    HTTPException(400):
+        When the source is not supported.
+    HTTPException(404):
+        When no matching conversation is found.
+    """
+    if source != "slack":
+        raise HTTPException(status_code=400, detail=f"Unsupported source: {source!r}")
+
+    result = _persistence.find_conversation_by_slack_thread(thread_ts)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No conversation found for slack thread {thread_ts!r}")
+    return _serialise(result)
+
+
+@router.patch("/lookup/metadata", response_model=dict[str, Any])
+async def update_conversation_metadata(
+    source: str,
+    thread_ts: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Update metadata on the latest turn for a source-specific thread.
+
+    Parameters
+    ----------
+    source:
+        Source type (currently only ``"slack"``).
+    thread_ts:
+        The Slack thread timestamp.
+    metadata:
+        Key-value pairs to merge into the turn's metadata.
+
+    Returns
+    -------
+    dict
+        ``{"ok": True}``
+
+    Raises
+    ------
+    HTTPException(400):
+        When the source is not supported.
+    HTTPException(404):
+        When no matching turn is found.
+    """
+    if source != "slack":
+        raise HTTPException(status_code=400, detail=f"Unsupported source: {source!r}")
+
+    ok = _persistence.update_turn_metadata(thread_ts, metadata)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"No turn found for slack thread {thread_ts!r}")
+    return {"ok": True}
+
+
 @router.get("/{conversation_id}/turns", response_model=list[dict[str, Any]])
 async def get_turns(conversation_id: str) -> list[dict[str, Any]]:
     """Return all turns for a conversation ordered by sequence.
