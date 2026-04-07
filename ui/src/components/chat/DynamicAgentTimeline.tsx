@@ -460,6 +460,7 @@ function DAToolSegmentView({ segment, isNested = false }: { segment: DAToolSegme
   const argsPreview = formatToolArgsPreview(tool.args);
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
+  const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
 
   return (
     <div
@@ -501,6 +502,15 @@ function DAToolSegmentView({ segment, isNested = false }: { segment: DAToolSegme
           {isRunning ? "running" : isFailed ? "failed" : "done"}
         </span>
       </div>
+      {/* Error message for failed tools */}
+      {errorDisplay && (
+        <p className={cn(
+          "text-red-400/80 mt-0.5 font-mono leading-snug",
+          isNested ? "text-[8px]" : "text-[10px]"
+        )}>
+          {errorDisplay}
+        </p>
+      )}
       {/* Arguments preview in human-friendly format */}
       {argsPreview && (
         <p className={cn(
@@ -512,6 +522,17 @@ function DAToolSegmentView({ segment, isNested = false }: { segment: DAToolSegme
       )}
     </div>
   );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Helper: Format tool error message for display
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Return the raw error string as-is for full transparency.
+ */
+function formatToolError(raw: string): string {
+  return raw;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -619,6 +640,7 @@ function DAToolItemView({ tool, isNested = false }: { tool: DAToolInfo; isNested
   const argsPreview = formatToolArgsPreview(tool.args);
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
+  const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
 
   return (
     <div
@@ -660,6 +682,15 @@ function DAToolItemView({ tool, isNested = false }: { tool: DAToolInfo; isNested
           {isRunning ? "running" : isFailed ? "failed" : "done"}
         </span>
       </div>
+      {/* Error message for failed tools */}
+      {errorDisplay && (
+        <p className={cn(
+          "text-red-400/80 mt-0.5 font-mono leading-snug",
+          isNested ? "text-[8px]" : "text-[10px]"
+        )}>
+          {errorDisplay}
+        </p>
+      )}
       {/* Arguments preview in human-friendly format - shown for both nested and non-nested */}
       {argsPreview && (
         <p className={cn(

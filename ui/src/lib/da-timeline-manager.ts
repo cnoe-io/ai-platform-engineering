@@ -277,7 +277,7 @@ export class DATimelineManager {
   /**
    * Mark a tool as failed.
    */
-  pushToolFailed(toolCallId: string, namespace: string[]): void {
+  pushToolFailed(toolCallId: string, namespace: string[], error?: string): void {
     const now = new Date();
     const currentIndex = this.eventIndex++;
 
@@ -285,6 +285,7 @@ export class DATimelineManager {
       const tool = this.rootToolMap.get(toolCallId);
       if (tool) {
         tool.status = "failed";
+        tool.error = error;
         tool.endedAt = now;
         this.lastToolEndIndex = currentIndex;
       }
@@ -301,6 +302,7 @@ export class DATimelineManager {
         const tool = subagent.toolMap.get(toolCallId);
         if (tool) {
           tool.status = "failed";
+          tool.error = error;
           tool.endedAt = now;
         }
       }
