@@ -295,7 +295,7 @@ export function getServerConfig(): Config {
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
-  const userInfoToolEnabled = env('USER_INFO_TOOL_ENABLED') === 'true';
+  const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');

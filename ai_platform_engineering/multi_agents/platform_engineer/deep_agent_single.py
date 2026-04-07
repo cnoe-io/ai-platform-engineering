@@ -34,6 +34,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, Field
 from langchain.tools.tool_node import InjectedState
 
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
 # Upstream deepagents package (pip-installed)
@@ -113,6 +114,7 @@ MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 ENABLE_USER_INFO_TOOL = os.getenv("ENABLE_USER_INFO_TOOL", "false").lower() in ("true", "1", "yes")
+FORWARD_JWT_TO_MCP = os.getenv("FORWARD_JWT_TO_MCP", "false").lower() in ("true", "1", "yes")
 
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
@@ -1165,11 +1167,18 @@ class PlatformEngineerDeepAgent:
         try:
             if self.rag_mcp_client is None:
                 logger.info(f"Initializing RAG MCP client for {RAG_SERVER_URL}/mcp")
+                rag_config: Dict[str, Any] = {
+                    "url": f"{RAG_SERVER_URL}/mcp",
+                    "transport": "streamable_http",
+                }
+                if FORWARD_JWT_TO_MCP:
+                    user_jwt_ctx = get_jwt_user_context()
+                    user_jwt = user_jwt_ctx.token if user_jwt_ctx else ""
+                    if user_jwt:
+                        rag_config["headers"] = {"Authorization": f"Bearer {user_jwt}"}
+                        logger.info("Forwarding user JWT to RAG MCP server")
                 self.rag_mcp_client = MultiServerMCPClient({
-                    "rag": {
-                        "url": f"{RAG_SERVER_URL}/mcp",
-                        "transport": "streamable_http",
-                    }
+                    "rag": rag_config,
                 })
 
             tools = await self.rag_mcp_client.get_tools()
