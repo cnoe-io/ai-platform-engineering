@@ -947,6 +947,10 @@ class AIPlatformEngineerA2ABinding:
                       # tool_call already emitted a tool_notification_start, and
                       # the completion notification below emits the end.
                       logging.debug(f"Suppressing RAG tool content for {tool_name} (tool_call notification already sent)")
+                  elif tool_name in ('fetch_url', 'fetch_markdown', 'wget', 'curl'):
+                      # URL fetch tools return raw page content (can be thousands of chars).
+                      # Suppress — the LLM uses this internally to synthesize its answer.
+                      logging.debug(f"Suppressing URL fetch content for {tool_name} ({len(tool_content)} chars)")
                   # Stream other tool content normally (actual results for user)
                   elif tool_content and tool_content.strip():
                       yield {
