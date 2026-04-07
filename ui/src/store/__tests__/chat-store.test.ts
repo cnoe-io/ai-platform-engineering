@@ -59,7 +59,7 @@ jest.mock('@/lib/timeline-manager', () => ({
 
 import { useChatStore } from '../chat-store';
 import { apiClient } from '@/lib/api-client';
-import type { Conversation, ChatMessage, A2AEvent } from '@/types/a2a';
+import type { Conversation, ChatMessage } from '@/types/a2a';
 
 // Get typed mock references
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
@@ -75,7 +75,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     createdAt: new Date(),
     updatedAt: new Date(),
     messages: [],
-    a2aEvents: [],
+    sseEvents: [],
     ...overrides,
   };
 }
@@ -86,21 +86,6 @@ function makeMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     role: 'user',
     content: 'Hello',
     timestamp: new Date(),
-    events: [],
-    ...overrides,
-  };
-}
-
-function makeA2AEvent(overrides: Partial<A2AEvent> = {}): A2AEvent {
-  return {
-    id: `evt-${Math.random().toString(36).slice(2, 9)}`,
-    timestamp: new Date(),
-    type: 'tool_start',
-    raw: {} as any,
-    displayName: 'Test Event',
-    displayContent: 'Testing...',
-    color: 'blue',
-    icon: 'wrench',
     ...overrides,
   };
 }
@@ -111,7 +96,6 @@ function resetStore() {
     activeConversationId: null,
     isStreaming: false,
     streamingConversations: new Map(),
-    a2aEvents: [],
     pendingMessage: null,
     selectedTurnIds: new Map(),
     unviewedConversations: new Set(),
@@ -163,9 +147,6 @@ describe('chat-store', () => {
           content: 'Here are 5 apps...',
           created_at: '2025-01-01T00:00:01Z',
           metadata: { turn_id: 'turn-1', is_final: true },
-          a2a_events: [
-            { id: 'evt-1', type: 'tool_start', timestamp: '2025-01-01T00:00:00.500Z', displayName: 'ArgoCD', displayContent: 'Listing...', color: 'blue', icon: 'list' },
-          ],
         },
       ];
 
@@ -192,21 +173,11 @@ describe('chat-store', () => {
       expect(updatedConv!.messages[1].id).toBe('msg-2');
       expect(updatedConv!.messages[1].content).toBe('Here are 5 apps...');
       expect(updatedConv!.messages[1].isFinal).toBe(true);
-
-      // Verify A2A events were deserialized
-      expect(updatedConv!.messages[1].events).toHaveLength(1);
-      expect(updatedConv!.messages[1].events[0].type).toBe('tool_start');
-      expect(updatedConv!.messages[1].events[0].timestamp).toBeInstanceOf(Date);
-
-      // Verify conversation-level a2aEvents reconstructed for ContextPanel
-      expect(updatedConv!.a2aEvents).toHaveLength(1);
     });
 
-    it('still loads from server even when local messages have events (for cross-device sync)', async () => {
-      const event = makeA2AEvent({ id: 'local-evt', type: 'tool_start' });
+    it('still loads from server even when local messages exist (for cross-device sync)', async () => {
       const conv = makeConversation({ id: 'has-local' });
-      conv.messages = [makeMessage({ id: 'existing-msg', content: 'Already here', events: [event] })];
-      conv.a2aEvents = [event];
+      conv.messages = [makeMessage({ id: 'existing-msg', content: 'Already here' })];
       useChatStore.setState({ conversations: [conv] });
 
       // Server may have new messages from another device
@@ -215,7 +186,7 @@ describe('chat-store', () => {
           {
             _id: 'mongo-1', message_id: 'existing-msg', conversation_id: 'has-local',
             role: 'user', content: 'Already here', created_at: '2026-01-01T00:00:00Z',
-            metadata: { turn_id: 'turn-1' }, a2a_events: [],
+            metadata: { turn_id: 'turn-1' },
           },
         ],
         total: 1,
@@ -227,17 +198,15 @@ describe('chat-store', () => {
       expect(mockApiClient.getMessages).toHaveBeenCalled();
     });
 
-    it('loads events from MongoDB when local messages exist but have no events (localStorage cache scenario)', async () => {
+    it('loads messages from MongoDB when local messages exist (cross-device sync)', async () => {
       // This simulates what happens after a page refresh or on a different device:
-      // localStorage cache has message stubs (content, role, etc.) but events: []
-      // because partialize strips them. We need to reload from MongoDB to restore
-      // Tasks and A2A Debug data.
+      // localStorage cache has message stubs (content, role, etc.).
+      // We need to reload from MongoDB to restore full data.
       const conv = makeConversation({ id: 'stubs-no-events' });
       conv.messages = [
-        makeMessage({ id: 'user-msg', role: 'user', content: 'List my apps', events: [] }),
-        makeMessage({ id: 'asst-msg', role: 'assistant', content: 'Here are 5 apps...', events: [] }),
+        makeMessage({ id: 'user-msg', role: 'user', content: 'List my apps' }),
+        makeMessage({ id: 'asst-msg', role: 'assistant', content: 'Here are 5 apps...' }),
       ];
-      conv.a2aEvents = []; // No events (stripped by partialize)
       useChatStore.setState({ conversations: [conv] });
 
       const serverMessages = [
@@ -249,7 +218,6 @@ describe('chat-store', () => {
           content: 'List my apps',
           created_at: '2026-01-01T00:00:00Z',
           metadata: { turn_id: 'turn-1' },
-          a2a_events: [],
         },
         {
           _id: 'mongo-asst',
@@ -259,36 +227,6 @@ describe('chat-store', () => {
           content: 'Here are 5 apps...',
           created_at: '2026-01-01T00:00:01Z',
           metadata: { turn_id: 'turn-1', is_final: true },
-          a2a_events: [
-            {
-              id: 'evt-tool-1',
-              type: 'tool_start',
-              timestamp: '2026-01-01T00:00:00.500Z',
-              taskId: 'task-1',
-              sourceAgent: 'argocd-agent',
-              displayName: 'ArgoCD List',
-              displayContent: 'Listing applications...',
-              color: 'blue',
-              icon: 'list',
-              artifact: {
-                name: 'tool_notification_start',
-                parts: [{ kind: 'text', text: 'Listing apps' }],
-              },
-            },
-            {
-              id: 'evt-plan-1',
-              type: 'execution_plan',
-              timestamp: '2026-01-01T00:00:00.200Z',
-              displayName: 'Execution Plan',
-              displayContent: '⏳ [ArgoCD] List all applications',
-              color: 'green',
-              icon: 'plan',
-              artifact: {
-                name: 'execution_plan_update',
-                parts: [{ kind: 'text', text: '⏳ [ArgoCD] List all applications' }],
-              },
-            },
-          ],
         },
       ];
 
@@ -302,27 +240,16 @@ describe('chat-store', () => {
 
       await useChatStore.getState().loadMessagesFromServer('stubs-no-events');
 
-      // API should have been called (local messages exist but have no events)
+      // API should have been called
       expect(mockApiClient.getMessages).toHaveBeenCalledWith('stubs-no-events', { page_size: 100 });
 
       const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'stubs-no-events');
       expect(updatedConv).toBeDefined();
 
-      // Local messages should still be there (merged, not replaced)
+      // Messages should be present from MongoDB
       expect(updatedConv!.messages).toHaveLength(2);
       expect(updatedConv!.messages[0].content).toBe('List my apps');
       expect(updatedConv!.messages[1].content).toBe('Here are 5 apps...');
-
-      // Events should now be populated from MongoDB
-      expect(updatedConv!.messages[1].events).toHaveLength(2);
-      expect(updatedConv!.messages[1].events[0].type).toBe('tool_start');
-      expect(updatedConv!.messages[1].events[0].sourceAgent).toBe('argocd-agent');
-      expect(updatedConv!.messages[1].events[1].type).toBe('execution_plan');
-
-      // Conversation-level a2aEvents should be reconstructed for ContextPanel (Tasks + Debug)
-      expect(updatedConv!.a2aEvents).toHaveLength(2);
-      expect(updatedConv!.a2aEvents.some(e => e.artifact?.name === 'execution_plan_update')).toBe(true);
-      expect(updatedConv!.a2aEvents.some(e => e.artifact?.name === 'tool_notification_start')).toBe(true);
     });
 
     it('replaces local state entirely when loading from MongoDB (no merge, feedback lost)', async () => {
@@ -334,7 +261,6 @@ describe('chat-store', () => {
           id: 'msg-with-feedback',
           role: 'assistant',
           content: 'Great answer',
-          events: [],
           feedback: { type: 'like', submitted: true }, // Local feedback — will be lost
         }),
       ];
@@ -350,9 +276,6 @@ describe('chat-store', () => {
             content: 'Great answer',
             created_at: '2026-01-01T00:00:00Z',
             metadata: { turn_id: 'turn-1', is_final: true },
-            a2a_events: [
-              { id: 'evt-1', type: 'tool_end', timestamp: '2026-01-01T00:00:00Z', displayName: 'Done', displayContent: 'Complete', color: 'green', icon: 'check' },
-            ],
           },
         ],
         total: 1,
@@ -364,19 +287,15 @@ describe('chat-store', () => {
 
       // MongoDB messages replace local state
       expect(updatedConv!.messages).toHaveLength(1);
-      expect(updatedConv!.messages[0].events).toHaveLength(1);
-      expect(updatedConv!.messages[0].events[0].type).toBe('tool_end');
 
       // Local feedback is NOT preserved — server data replaces local entirely
       // (Server response has no feedback field, so it's undefined)
       expect(updatedConv!.messages[0].feedback).toBeUndefined();
     });
 
-    it('still loads from server when conversation has local events on conversation level (for cross-device sync)', async () => {
-      const event = makeA2AEvent({ id: 'conv-level-evt' });
+    it('still loads from server when conversation has local messages (for cross-device sync)', async () => {
       const conv = makeConversation({ id: 'has-conv-events' });
-      conv.messages = [makeMessage({ id: 'msg-1', content: 'Has content', events: [] })]; // No per-message events
-      conv.a2aEvents = [event]; // But has conversation-level events
+      conv.messages = [makeMessage({ id: 'msg-1', content: 'Has content' })];
       useChatStore.setState({ conversations: [conv] });
 
       mockApiClient.getMessages.mockResolvedValue({
@@ -384,7 +303,7 @@ describe('chat-store', () => {
           {
             _id: 'mongo-1', message_id: 'msg-1', conversation_id: 'has-conv-events',
             role: 'user', content: 'Has content', created_at: '2026-01-01T00:00:00Z',
-            metadata: { turn_id: 'turn-1' }, a2a_events: [],
+            metadata: { turn_id: 'turn-1' },
           },
         ],
         total: 1,
@@ -520,8 +439,8 @@ describe('chat-store', () => {
       // server, it should merge the new messages into its local state.
       const conv = makeConversation({ id: 'follow-up-sync' });
       conv.messages = [
-        makeMessage({ id: 'msg-turn1-user', role: 'user', content: 'List my apps', events: [] }),
-        makeMessage({ id: 'msg-turn1-asst', role: 'assistant', content: 'Here are 5 apps...', events: [] }),
+        makeMessage({ id: 'msg-turn1-user', role: 'user', content: 'List my apps' }),
+        makeMessage({ id: 'msg-turn1-asst', role: 'assistant', content: 'Here are 5 apps...' }),
       ];
       useChatStore.setState({ conversations: [conv] });
 
@@ -530,30 +449,22 @@ describe('chat-store', () => {
         {
           _id: 'mongo-1', message_id: 'msg-turn1-user', conversation_id: 'follow-up-sync',
           role: 'user', content: 'List my apps', created_at: '2026-02-01T00:00:00Z',
-          metadata: { turn_id: 'turn-1' }, a2a_events: [],
+          metadata: { turn_id: 'turn-1' },
         },
         {
           _id: 'mongo-2', message_id: 'msg-turn1-asst', conversation_id: 'follow-up-sync',
           role: 'assistant', content: 'Here are 5 apps...', created_at: '2026-02-01T00:00:01Z',
           metadata: { turn_id: 'turn-1', is_final: true },
-          a2a_events: [
-            { id: 'evt-turn1', type: 'tool_start', timestamp: '2026-02-01T00:00:00.500Z',
-              displayName: 'ArgoCD', displayContent: 'Listing...', color: 'blue', icon: 'list' },
-          ],
         },
         {
           _id: 'mongo-3', message_id: 'msg-turn2-user', conversation_id: 'follow-up-sync',
           role: 'user', content: 'Show details for app-1', created_at: '2026-02-01T00:01:00Z',
-          metadata: { turn_id: 'turn-2' }, a2a_events: [],
+          metadata: { turn_id: 'turn-2' },
         },
         {
           _id: 'mongo-4', message_id: 'msg-turn2-asst', conversation_id: 'follow-up-sync',
           role: 'assistant', content: 'App-1 is healthy and synced.', created_at: '2026-02-01T00:01:01Z',
           metadata: { turn_id: 'turn-2', is_final: true },
-          a2a_events: [
-            { id: 'evt-turn2', type: 'tool_start', timestamp: '2026-02-01T00:01:00.500Z',
-              displayName: 'ArgoCD Detail', displayContent: 'Fetching app-1...', color: 'blue', icon: 'detail' },
-          ],
         },
       ];
 
@@ -576,93 +487,6 @@ describe('chat-store', () => {
       expect(updatedConv!.messages[3].content).toBe('App-1 is healthy and synced.');
     });
 
-    it('only sets a2aEvents from the LAST assistant message (not all turns)', async () => {
-      // When loading from MongoDB, a2aEvents should only contain events from the
-      // last assistant message (latest turn), matching the live-streaming behavior
-      // where clearA2AEvents() is called at the start of each new turn.
-      const conv = makeConversation({ id: 'last-turn-events' });
-      useChatStore.setState({ conversations: [conv] });
-
-      const serverMessages = [
-        {
-          _id: 'mongo-1', message_id: 'msg-t1-user', conversation_id: 'last-turn-events',
-          role: 'user', content: 'List apps', created_at: '2026-02-01T00:00:00Z',
-          metadata: { turn_id: 'turn-1' }, a2a_events: [],
-        },
-        {
-          _id: 'mongo-2', message_id: 'msg-t1-asst', conversation_id: 'last-turn-events',
-          role: 'assistant', content: 'Here are apps...', created_at: '2026-02-01T00:00:01Z',
-          metadata: { turn_id: 'turn-1', is_final: true },
-          a2a_events: [
-            { id: 'evt-old-1', type: 'tool_start', timestamp: '2026-02-01T00:00:00.500Z',
-              displayName: 'Old Tool 1', displayContent: 'Turn 1 tool', color: 'blue', icon: 'list' },
-            { id: 'evt-old-2', type: 'tool_end', timestamp: '2026-02-01T00:00:00.700Z',
-              displayName: 'Old Tool 1 Done', displayContent: 'Turn 1 done', color: 'green', icon: 'check' },
-          ],
-        },
-        {
-          _id: 'mongo-3', message_id: 'msg-t2-user', conversation_id: 'last-turn-events',
-          role: 'user', content: 'Show app-1 details', created_at: '2026-02-01T00:01:00Z',
-          metadata: { turn_id: 'turn-2' }, a2a_events: [],
-        },
-        {
-          _id: 'mongo-4', message_id: 'msg-t2-asst', conversation_id: 'last-turn-events',
-          role: 'assistant', content: 'App-1 details...', created_at: '2026-02-01T00:01:01Z',
-          metadata: { turn_id: 'turn-2', is_final: true },
-          a2a_events: [
-            { id: 'evt-new-1', type: 'tool_start', timestamp: '2026-02-01T00:01:00.500Z',
-              displayName: 'New Tool', displayContent: 'Turn 2 tool', color: 'blue', icon: 'detail' },
-          ],
-        },
-      ];
-
-      mockApiClient.getMessages.mockResolvedValue({
-        items: serverMessages, total: 4, page: 1, page_size: 100, has_more: false,
-      });
-
-      await useChatStore.getState().loadMessagesFromServer('last-turn-events');
-
-      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'last-turn-events');
-      expect(updatedConv).toBeDefined();
-
-      // Per-message events should be fully preserved
-      expect(updatedConv!.messages[1].events).toHaveLength(2); // Turn 1 assistant: 2 events
-      expect(updatedConv!.messages[3].events).toHaveLength(1); // Turn 2 assistant: 1 event
-
-      // Conversation-level a2aEvents should ONLY contain events from the LAST assistant message
-      // (turn 2), NOT accumulated from all turns
-      expect(updatedConv!.a2aEvents).toHaveLength(1);
-      expect(updatedConv!.a2aEvents[0].id).toBe('evt-new-1');
-      expect(updatedConv!.a2aEvents[0].displayName).toBe('New Tool');
-    });
-
-    it('sets empty a2aEvents when last assistant message has no events', async () => {
-      const conv = makeConversation({ id: 'no-events-last' });
-      useChatStore.setState({ conversations: [conv] });
-
-      mockApiClient.getMessages.mockResolvedValue({
-        items: [
-          {
-            _id: 'mongo-1', message_id: 'msg-user', conversation_id: 'no-events-last',
-            role: 'user', content: 'Hello', created_at: '2026-02-01T00:00:00Z',
-            metadata: { turn_id: 'turn-1' }, a2a_events: [],
-          },
-          {
-            _id: 'mongo-2', message_id: 'msg-asst', conversation_id: 'no-events-last',
-            role: 'assistant', content: 'Hi there!', created_at: '2026-02-01T00:00:01Z',
-            metadata: { turn_id: 'turn-1', is_final: true },
-            a2a_events: [], // No events
-          },
-        ],
-        total: 2,
-      });
-
-      await useChatStore.getState().loadMessagesFromServer('no-events-last');
-
-      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'no-events-last');
-      expect(updatedConv!.a2aEvents).toHaveLength(0);
-    });
-
     it('handles conversation with only user messages (no assistant) gracefully', async () => {
       const conv = makeConversation({ id: 'user-only' });
       useChatStore.setState({ conversations: [conv] });
@@ -672,7 +496,7 @@ describe('chat-store', () => {
           {
             _id: 'mongo-1', message_id: 'msg-user', conversation_id: 'user-only',
             role: 'user', content: 'Hello', created_at: '2026-02-01T00:00:00Z',
-            metadata: { turn_id: 'turn-1' }, a2a_events: [],
+            metadata: { turn_id: 'turn-1' },
           },
         ],
         total: 1,
@@ -682,7 +506,6 @@ describe('chat-store', () => {
 
       const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'user-only');
       expect(updatedConv!.messages).toHaveLength(1);
-      expect(updatedConv!.a2aEvents).toHaveLength(0);
     });
 
     it('prevents concurrent loads for the same conversation', async () => {
@@ -734,10 +557,10 @@ describe('chat-store', () => {
       // Local feedback on existing messages is lost — server is source of truth.
       const conv = makeConversation({ id: 'feedback-replace-sync' });
       conv.messages = [
-        makeMessage({ id: 'msg-user-1', role: 'user', content: 'List apps', events: [] }),
+        makeMessage({ id: 'msg-user-1', role: 'user', content: 'List apps' }),
         makeMessage({
           id: 'msg-asst-1', role: 'assistant', content: 'Here are apps...',
-          events: [], feedback: { type: 'like', submitted: true }, // Local feedback — will be lost
+          feedback: { type: 'like', submitted: true }, // Local feedback — will be lost
         }),
       ];
       useChatStore.setState({ conversations: [conv] });
@@ -747,27 +570,22 @@ describe('chat-store', () => {
           {
             _id: 'mongo-1', message_id: 'msg-user-1', conversation_id: 'feedback-replace-sync',
             role: 'user', content: 'List apps', created_at: '2026-02-01T00:00:00Z',
-            metadata: { turn_id: 'turn-1' }, a2a_events: [],
+            metadata: { turn_id: 'turn-1' },
           },
           {
             _id: 'mongo-2', message_id: 'msg-asst-1', conversation_id: 'feedback-replace-sync',
             role: 'assistant', content: 'Here are apps...', created_at: '2026-02-01T00:00:01Z',
             metadata: { turn_id: 'turn-1', is_final: true },
-            a2a_events: [
-              { id: 'evt-1', type: 'tool_start', timestamp: '2026-02-01T00:00:00.500Z',
-                displayName: 'Tool', displayContent: 'Running...', color: 'blue', icon: 'list' },
-            ],
           },
           {
             _id: 'mongo-3', message_id: 'msg-user-2', conversation_id: 'feedback-replace-sync',
             role: 'user', content: 'Follow up', created_at: '2026-02-01T00:01:00Z',
-            metadata: { turn_id: 'turn-2' }, a2a_events: [],
+            metadata: { turn_id: 'turn-2' },
           },
           {
             _id: 'mongo-4', message_id: 'msg-asst-2', conversation_id: 'feedback-replace-sync',
             role: 'assistant', content: 'Follow up response', created_at: '2026-02-01T00:01:01Z',
             metadata: { turn_id: 'turn-2', is_final: true },
-            a2a_events: [],
           },
         ],
         total: 4,
@@ -818,8 +636,8 @@ describe('chat-store', () => {
       // If local and server have the exact same messages, no duplicates should appear
       const conv = makeConversation({ id: 'no-dup-sync' });
       conv.messages = [
-        makeMessage({ id: 'msg-1', role: 'user', content: 'Hello', events: [] }),
-        makeMessage({ id: 'msg-2', role: 'assistant', content: 'Hi there', events: [] }),
+        makeMessage({ id: 'msg-1', role: 'user', content: 'Hello' }),
+        makeMessage({ id: 'msg-2', role: 'assistant', content: 'Hi there' }),
       ];
       useChatStore.setState({ conversations: [conv] });
 
@@ -828,12 +646,12 @@ describe('chat-store', () => {
           {
             _id: 'mongo-1', message_id: 'msg-1', conversation_id: 'no-dup-sync',
             role: 'user', content: 'Hello', created_at: '2026-02-01T00:00:00Z',
-            metadata: { turn_id: 'turn-1' }, a2a_events: [],
+            metadata: { turn_id: 'turn-1' },
           },
           {
             _id: 'mongo-2', message_id: 'msg-2', conversation_id: 'no-dup-sync',
             role: 'assistant', content: 'Hi there', created_at: '2026-02-01T00:00:01Z',
-            metadata: { turn_id: 'turn-1', is_final: true }, a2a_events: [],
+            metadata: { turn_id: 'turn-1', is_final: true },
           },
         ],
         total: 2,
@@ -876,7 +694,7 @@ describe('chat-store', () => {
           {
             _id: 'mongo-1', message_id: 'msg-1', conversation_id: 'nonexistent',
             role: 'user', content: 'Hello', created_at: '2026-02-01T00:00:00Z',
-            metadata: { turn_id: 'turn-1' }, a2a_events: [],
+            metadata: { turn_id: 'turn-1' },
           },
         ],
         total: 1,
@@ -1347,7 +1165,6 @@ describe('chat-store', () => {
       expect(updated!.messages[0].content).toBe('Hello world');
       expect(updated!.messages[0].role).toBe('user');
       expect(updated!.messages[0].turnId).toBe('turn-1');
-      expect(updated!.messages[0].events).toEqual([]);
     });
 
     it('auto-generates title from first user message', () => {
@@ -1386,90 +1203,6 @@ describe('chat-store', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
-  // addEventToMessage
-  // --------------------------------------------------------------------------
-
-  describe('addEventToMessage', () => {
-    it('appends A2A event to specific message', () => {
-      const conv = makeConversation({ id: 'evt-test' });
-      const msg = makeMessage({ id: 'msg-for-evt', role: 'assistant', events: [] });
-      conv.messages = [msg];
-      useChatStore.setState({ conversations: [conv] });
-
-      const event = makeA2AEvent({ id: 'new-evt', type: 'tool_start' });
-      useChatStore.getState().addEventToMessage('evt-test', 'msg-for-evt', event);
-
-      const updated = useChatStore.getState().conversations.find(c => c.id === 'evt-test');
-      expect(updated!.messages[0].events).toHaveLength(1);
-      expect(updated!.messages[0].events[0].id).toBe('new-evt');
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // addA2AEvent
-  // --------------------------------------------------------------------------
-
-  describe('addA2AEvent', () => {
-    it('adds event to both global and conversation events', () => {
-      const conv = makeConversation({ id: 'global-evt' });
-      useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'global-evt',
-      });
-
-      const event = makeA2AEvent({ id: 'global-1' });
-      useChatStore.getState().addA2AEvent(event);
-
-      expect(useChatStore.getState().a2aEvents).toHaveLength(1);
-      const updatedConv = useChatStore.getState().conversations.find(c => c.id === 'global-evt');
-      expect(updatedConv!.a2aEvents).toHaveLength(1);
-    });
-
-    it('adds event to specific conversation when ID provided', () => {
-      const conv1 = makeConversation({ id: 'specific-1' });
-      const conv2 = makeConversation({ id: 'specific-2' });
-      useChatStore.setState({
-        conversations: [conv1, conv2],
-        activeConversationId: 'specific-1',
-      });
-
-      const event = makeA2AEvent({ id: 'targeted' });
-      useChatStore.getState().addA2AEvent(event, 'specific-2');
-
-      // Event should be on conv2, not conv1
-      const updated1 = useChatStore.getState().conversations.find(c => c.id === 'specific-1');
-      const updated2 = useChatStore.getState().conversations.find(c => c.id === 'specific-2');
-      expect(updated1!.a2aEvents).toHaveLength(0);
-      expect(updated2!.a2aEvents).toHaveLength(1);
-    });
-
-    it('does not trigger periodic saves (server-side persistence handles this)', async () => {
-      // Phase 3: The UI no longer saves to MongoDB. Adding many events should
-      // never trigger saveMessagesToServer / apiClient.addMessage.
-      const conv = makeConversation({ id: 'no-periodic-save' });
-      const msg = makeMessage({ id: 'msg-nps', role: 'assistant', content: 'streaming...' });
-      conv.messages = [msg];
-
-      useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'no-periodic-save',
-      });
-
-      // Add well over the old periodic-save threshold
-      for (let i = 0; i < 25; i++) {
-        useChatStore.getState().addA2AEvent(
-          makeA2AEvent({ id: `evt-${i}` }),
-          'no-periodic-save'
-        );
-      }
-
-      await jest.runAllTimersAsync();
-
-      // Should never have saved
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
-    });
-  });
 
   // --------------------------------------------------------------------------
   // cancelConversationRequest — persistence on cancel
@@ -1568,36 +1301,6 @@ describe('chat-store', () => {
   });
 
   // --------------------------------------------------------------------------
-  // clearA2AEvents
-  // --------------------------------------------------------------------------
-
-  describe('clearA2AEvents', () => {
-    it('clears events for a specific conversation', () => {
-      const conv = makeConversation({ id: 'clear-test' });
-      conv.a2aEvents = [makeA2AEvent({ id: 'old-evt' })];
-      useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'clear-test',
-      });
-
-      useChatStore.getState().clearA2AEvents('clear-test');
-
-      const updated = useChatStore.getState().conversations.find(c => c.id === 'clear-test');
-      expect(updated!.a2aEvents).toHaveLength(0);
-    });
-
-    it('clears global events when no conversationId provided', () => {
-      useChatStore.setState({
-        a2aEvents: [makeA2AEvent({ id: 'global-old' })],
-      });
-
-      useChatStore.getState().clearA2AEvents();
-
-      expect(useChatStore.getState().a2aEvents).toHaveLength(0);
-    });
-  });
-
-  // --------------------------------------------------------------------------
   // evictOldMessageContent
   // --------------------------------------------------------------------------
 
@@ -1639,13 +1342,11 @@ describe('chat-store', () => {
     });
 
     it('clears events from evicted messages', () => {
-      const event = makeA2AEvent({ id: 'evt-old' });
       const conv = makeConversation({ id: 'events-evict' });
       conv.messages = [
         makeMessage({
           id: 'msg-with-events',
           content: 'Old answer',
-          events: [event],
           role: 'assistant',
         }),
       ];
@@ -2190,52 +1891,6 @@ describe('chat-store', () => {
 
       expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);
       expect(useChatStore.getState().isConversationInputRequired('conv-b')).toBe(true);
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // addA2AEvent — marks input-required on UserInputMetaData artifact
-  // --------------------------------------------------------------------------
-
-  describe('addA2AEvent — input-required marking', () => {
-    it('marks conversation as input-required when UserInputMetaData event arrives', () => {
-      const conv = makeConversation({ id: 'conv-hitl' });
-      useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'conv-hitl',
-      });
-
-      useChatStore.getState().addA2AEvent({
-        id: 'evt-1',
-        type: 'artifact' as any,
-        timestamp: new Date().toISOString(),
-        artifact: {
-          name: 'UserInputMetaData',
-          parts: [{ kind: 'data', data: { input_fields: [] } }],
-        } as any,
-      }, 'conv-hitl');
-
-      expect(useChatStore.getState().isConversationInputRequired('conv-hitl')).toBe(true);
-    });
-
-    it('does NOT mark as input-required for other artifact types', () => {
-      const conv = makeConversation({ id: 'conv-normal' });
-      useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'conv-normal',
-      });
-
-      useChatStore.getState().addA2AEvent({
-        id: 'evt-2',
-        type: 'artifact' as any,
-        timestamp: new Date().toISOString(),
-        artifact: {
-          name: 'partial_result',
-          parts: [{ kind: 'text', text: 'hello' }],
-        } as any,
-      }, 'conv-normal');
-
-      expect(useChatStore.getState().isConversationInputRequired('conv-normal')).toBe(false);
     });
   });
 

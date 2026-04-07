@@ -770,12 +770,79 @@ describe('ChatPanel', () => {
     })
   })
 
-  describe('Thinking section (showRawStream)', () => {
-    it('should show Thinking section expanded by default for streaming messages (isFinal=false)', () => {
+  describe('Answer collapse (Expand/Collapse)', () => {
+    it('should show Expand button for long non-streaming assistant messages that are the latest answer', () => {
+      // Content > 300 chars triggers the collapse UI
+      const longContent = 'A'.repeat(500)
       const msg = createMessage({
         role: 'assistant',
-        content: '',
-        rawStreamContent: 'Streaming data from agents...',
+        content: longContent,
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(false)
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Latest answer with > 300 chars starts expanded → shows "Collapse"
+      expect(screen.getByText('Collapse')).toBeInTheDocument()
+    })
+
+    it('should not show Expand/Collapse for short assistant messages', () => {
+      const msg = createMessage({
+        role: 'assistant',
+        content: 'Short answer',
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(false)
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      expect(screen.queryByText('Expand')).not.toBeInTheDocument()
+      expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
+    })
+
+    it('should toggle between Expand and Collapse on click', () => {
+      const longContent = 'A'.repeat(500)
+      const msg = createMessage({
+        role: 'assistant',
+        content: longContent,
+        isFinal: true,
+      })
+      mockGetActiveConversation.mockReturnValue(createConversation([
+        createMessage({ role: 'user', content: 'Hello' }),
+        msg,
+      ]))
+      mockIsConversationStreaming.mockReturnValue(false)
+
+      render(<ChatPanel endpoint="/api/test" />)
+
+      // Latest answer starts expanded → "Collapse" visible
+      expect(screen.getByText('Collapse')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Collapse'))
+
+      expect(screen.getByText('Expand')).toBeInTheDocument()
+      expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Expand'))
+
+      expect(screen.getByText('Collapse')).toBeInTheDocument()
+      expect(screen.queryByText('Expand')).not.toBeInTheDocument()
+    })
+
+    it('should not show Expand/Collapse during streaming', () => {
+      const longContent = 'A'.repeat(500)
+      const msg = createMessage({
+        role: 'assistant',
+        content: longContent,
         isFinal: false,
       })
       mockGetActiveConversation.mockReturnValue(createConversation([
@@ -786,73 +853,9 @@ describe('ChatPanel', () => {
 
       render(<ChatPanel endpoint="/api/test" />)
 
-      expect(screen.getByText('Collapse')).toBeInTheDocument()
+      // During streaming, no Expand/Collapse buttons shown
       expect(screen.queryByText('Expand')).not.toBeInTheDocument()
-    })
-
-    it('should default Thinking section to collapsed for final messages (isFinal=true)', () => {
-      const msg = createMessage({
-        role: 'assistant',
-        content: 'Final answer here',
-        rawStreamContent: 'Streaming data from agents...',
-        isFinal: true,
-      })
-      mockGetActiveConversation.mockReturnValue(createConversation([
-        createMessage({ role: 'user', content: 'Hello' }),
-        msg,
-      ]))
-      mockIsConversationStreaming.mockReturnValue(true)
-
-      render(<ChatPanel endpoint="/api/test" />)
-
-      expect(screen.getByText('Expand')).toBeInTheDocument()
       expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
-    })
-
-    it('should remain collapsed after remount for final messages (simulates conversation switch)', () => {
-      const msg = createMessage({
-        role: 'assistant',
-        content: 'Final answer here',
-        rawStreamContent: 'Streaming data from agents...',
-        isFinal: true,
-      })
-      mockGetActiveConversation.mockReturnValue(createConversation([
-        createMessage({ role: 'user', content: 'Hello' }),
-        msg,
-      ]))
-      mockIsConversationStreaming.mockReturnValue(true)
-
-      const { unmount } = render(<ChatPanel endpoint="/api/test" />)
-      expect(screen.getByText('Expand')).toBeInTheDocument()
-
-      unmount()
-
-      render(<ChatPanel endpoint="/api/test" />)
-      expect(screen.getByText('Expand')).toBeInTheDocument()
-      expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
-    })
-
-    it('should allow toggling the thinking panel regardless of initial state', () => {
-      const msg = createMessage({
-        role: 'assistant',
-        content: 'Final answer here',
-        rawStreamContent: 'Streaming data from agents...',
-        isFinal: true,
-      })
-      mockGetActiveConversation.mockReturnValue(createConversation([
-        createMessage({ role: 'user', content: 'Hello' }),
-        msg,
-      ]))
-      mockIsConversationStreaming.mockReturnValue(true)
-
-      render(<ChatPanel endpoint="/api/test" />)
-
-      expect(screen.getByText('Expand')).toBeInTheDocument()
-
-      fireEvent.click(screen.getByText('Expand'))
-
-      expect(screen.getByText('Collapse')).toBeInTheDocument()
-      expect(screen.queryByText('Expand')).not.toBeInTheDocument()
     })
   })
 
