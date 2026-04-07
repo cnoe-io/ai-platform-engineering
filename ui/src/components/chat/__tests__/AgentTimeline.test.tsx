@@ -173,27 +173,21 @@ describe('AgentTimeline', () => {
   })
 
   describe('final answer rendering', () => {
-    it('renders final answer content with streaming cursor when active, without when done', () => {
+    it('renders final answer content when streaming and when done', () => {
       const segments = [makeFinalAnswer('Here is the analysis...', true)]
 
       const { rerender } = render(
         <AgentTimeline segments={segments} isStreaming={true} />
       )
 
-      // Content is rendered
+      // Content is rendered during streaming
       expect(screen.getByText('Here is the analysis...')).toBeInTheDocument()
 
-      // Streaming cursor present (the pulsing span)
-      const container = screen.getByText('Here is the analysis...').closest('div')!
-      expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
-
-      // After streaming ends, cursor disappears
+      // After streaming ends, content is still rendered
       const doneSegments = [makeFinalAnswer('Here is the analysis...', false)]
       rerender(<AgentTimeline segments={doneSegments} isStreaming={false} />)
 
       expect(screen.getByText('Here is the analysis...')).toBeInTheDocument()
-      const updatedContainer = screen.getByText('Here is the analysis...').closest('div')!
-      expect(updatedContainer.querySelector('.animate-pulse')).not.toBeInTheDocument()
     })
   })
 

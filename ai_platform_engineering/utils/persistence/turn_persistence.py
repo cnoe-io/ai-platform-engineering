@@ -321,8 +321,8 @@ class TurnPersistence:
         if db is not None:
             try:
                 sequence = db["turns"].count_documents({"conversation_id": conversation_id})
-            except PyMongoError:
-                pass
+            except PyMongoError as exc:
+                logger.warning("TurnPersistence: count_documents failed for conv %s: %s", conversation_id, exc)
 
         doc = {
             "_id": turn_id,
@@ -397,8 +397,8 @@ class TurnPersistence:
                 turn_doc = db["turns"].find_one({"_id": turn_id}, {"conversation_id": 1})
                 if turn_doc:
                     conv_id = turn_doc.get("conversation_id")
-            except PyMongoError:
-                pass
+            except PyMongoError as exc:
+                logger.debug("TurnPersistence: conv_id lookup failed for turn %s: %s", turn_id, exc)
 
         seq = self._next_event_seq(turn_id)
         now = self._now()

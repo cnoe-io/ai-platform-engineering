@@ -21,15 +21,12 @@ def _make_datasource(
   last_updated: int | None = None,
   reload_interval: int | None = None,
 ) -> DataSourceInfo:
-  metadata = {}
-  if reload_interval is not None:
-    metadata["reload_interval"] = reload_interval
   return DataSourceInfo(
     datasource_id=datasource_id,
     ingestor_id="webloader:default",
     source_type="web",
     last_updated=last_updated,
-    metadata=metadata if metadata else None,
+    **({"reload_interval": reload_interval} if reload_interval is not None else {}),
   )
 
 
@@ -195,7 +192,7 @@ class TestCalculateNextSyncTime:
 
   @pytest.mark.asyncio
   async def test_reload_interval_zero_is_clamped_to_minimum(self):
-    """reload_interval=0 in metadata should be clamped to MIN_RELOAD_INTERVAL."""
+    """reload_interval=0 should be clamped to MIN_RELOAD_INTERVAL."""
     now = int(time.time())
     ds = _make_datasource(last_updated=now - 30, reload_interval=0)
     builder = _make_builder()

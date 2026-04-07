@@ -53,6 +53,16 @@ from ai_platform_engineering.utils.agui import (
 
 logger = logging.getLogger(__name__)
 
+# ═══════════════════════════════════════════════════════════════
+# Event Type Constants
+# ═══════════════════════════════════════════════════════════════
+
+CONTENT = "content"
+TOOL_START = "tool_start"
+TOOL_END = "tool_end"
+INPUT_REQUIRED = "input_required"
+WARNING = "warning"
+
 
 # ═══════════════════════════════════════════════════════════════
 # Helper Functions
@@ -305,16 +315,20 @@ def make_tool_start_event(
 def make_tool_end_event(
     tool_call_id: str,
     namespace: tuple[str, ...] = (),
+    error: str | None = None,
 ) -> list[BaseAGUIEvent]:
     """Tool call completed.
 
     Kept minimal - UI tracks state from tool_start and matches by tool_call_id.
+    When error is set, the UI renders the tool as failed with the error message
+    via a CUSTOM TOOL_ERROR event emitted before the TOOL_CALL_END.
 
     Args:
         tool_call_id: The tool call ID to match against tool_start
         namespace: LangGraph namespace tuple. Empty = parent agent.
+        error: Optional error message if the tool failed.
     """
-    logger.debug(f"[sse:TOOL_CALL_END] id={tool_call_id[:8]}... ns={namespace}")
+    logger.debug(f"[sse:TOOL_CALL_END] id={tool_call_id[:8]}... ns={namespace} error={bool(error)}")
     events: list[BaseAGUIEvent] = []
     if namespace:
         events.append(
@@ -323,8 +337,43 @@ def make_tool_end_event(
                 value={"namespace": list(namespace)},
             )
         )
+    if error:
+        events.append(
+            emit_custom(
+                name="TOOL_ERROR",
+                value={
+                    "tool_call_id": tool_call_id,
+                    "error": error,
+                },
+            )
+        )
     events.append(emit_tool_end(tool_call_id=tool_call_id))
     return events
+
+
+def make_warning_event(
+    message: str,
+    namespace: tuple[str, ...] = (),
+) -> BaseAGUIEvent:
+    """Non-fatal warning to display in the timeline.
+
+    Used for issues like failed MCP server connections that don't stop the
+    agent but should be visible to the user.
+
+    Emits a CUSTOM event with name="WARNING" containing the message.
+
+    Args:
+        message: Human-readable warning message.
+        namespace: LangGraph namespace tuple. Empty = parent agent.
+    """
+    logger.debug(f"[sse:{WARNING}] {message[:80]}")
+    return emit_custom(
+        name="WARNING",
+        value={
+            "message": message,
+            "namespace": list(namespace),
+        },
+    )
 
 
 def make_input_required_event(
@@ -549,6 +598,12 @@ def _handle_updates_chunk(
             # Handle ToolMessage (tool results)
             tool_call_id = getattr(msg, "tool_call_id", None)
             if tool_call_id:
-                results.extend(make_tool_end_event(tool_call_id, namespace))
+                # Detect tool errors: our wrap_tools_with_error_handling() returns
+                # "ERROR: ..." strings instead of raising exceptions.
+                content = getattr(msg, "content", "")
+                error = None
+                if isinstance(content, str) and content.startswith("ERROR: "):
+                    error = content
+                results.extend(make_tool_end_event(tool_call_id, namespace, error=error))
 
     return results

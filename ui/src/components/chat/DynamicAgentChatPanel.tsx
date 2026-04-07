@@ -1703,7 +1703,7 @@ interface ToolCall {
   tool: string;
   args?: Record<string, unknown>;
   agent?: string;
-  status: "running" | "completed";
+  status: "running" | "completed" | "failed";
 }
 
 interface SubagentCall {
@@ -1711,7 +1711,7 @@ interface SubagentCall {
   name: string;
   purpose?: string;
   parentAgent?: string;
-  status: "running" | "completed";
+  status: "running" | "completed" | "failed";
   /** tool_call_id used to match tool_end events back to this subagent */
   toolCallId?: string;
   /** MongoDB agent_id for looking up subagent config (avatar, display name, etc.) */
@@ -1817,16 +1817,16 @@ function parseStreamSegments(events: SSEAgentEvent[], isStreaming: boolean): Str
       case "tool_end":
         // Update tool or subagent status (segment already in array)
         if (event.toolData) {
-          const { tool_call_id } = event.toolData as ToolEndEventData;
+          const { tool_call_id, error } = event.toolData as ToolEndEventData;
           // Check if this is a subagent completion
           const subagent = subagentsMap.get(tool_call_id);
           if (subagent) {
-            subagent.status = "completed";
+            subagent.status = error ? "failed" : "completed";
           } else {
             // Regular tool completion
             const tool = toolsMap.get(tool_call_id);
             if (tool) {
-              tool.status = "completed";
+              tool.status = error ? "failed" : "completed";
             }
           }
         }

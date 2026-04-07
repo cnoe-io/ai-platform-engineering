@@ -21,6 +21,8 @@ export interface DAToolInfo {
   args?: Record<string, unknown>;
   /** Current status */
   status: "running" | "completed" | "failed";
+  /** Error message when status is "failed" */
+  error?: string;
   /** Timestamp when tool started */
   startedAt: Date;
   /** Timestamp when tool ended (if completed) */

@@ -3,7 +3,7 @@
 import logging
 from typing import AsyncGenerator
 
-from ai_platform_engineering.utils.agui import AGUIEventType, emit_run_error, format_sse_event
+from ai_platform_engineering.utils.agui import emit_run_error, format_sse_event
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -270,37 +270,44 @@ async def chat_invoke(
     # Set MongoDB service for subagent resolution
     cache.set_mongo_service(mongo)
 
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        request.conversation_id,
-        user=user,
-    )
+    try:
+        runtime = await cache.get_or_create(
+            agent,
+            mcp_servers,
+            request.conversation_id,
+            user=user,
+        )
 
-    content_parts: list[str] = []
-    tool_calls: list[dict] = []
+        content_parts = []
+        tool_calls = []
 
-    async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
-        event_type = event.type
+        async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
+            event_type = event.get("type", "")
+            event_data = event.get("data", "")
 
-        if event_type == AGUIEventType.TEXT_MESSAGE_CONTENT:
-            content_parts.append(event.delta)  # type: ignore[attr-defined]
-        elif event_type == AGUIEventType.TOOL_CALL_START:
-            tool_calls.append(
-                {
-                    "tool_call_id": event.tool_call_id,  # type: ignore[attr-defined]
-                    "tool_name": event.tool_call_name,  # type: ignore[attr-defined]
-                }
-            )
+            if event_type == "content":
+                content_parts.append(str(event_data))
+            elif event_type == "tool_start":
+                tool_calls.append(event_data)
 
-    return {
-        "success": True,
-        "content": "".join(content_parts),
-        "tool_calls": tool_calls,
-        "agent_id": agent.id,
-        "conversation_id": request.conversation_id,
-        "trace_id": request.trace_id,
-    }
+        return {
+            "success": True,
+            "content": "".join(content_parts),
+            "tool_calls": tool_calls,
+            "agent_id": agent.id,
+            "conversation_id": request.conversation_id,
+            "trace_id": request.trace_id,
+        }
+
+    except Exception:
+        logger.exception(f"Error invoking agent '{agent.name}'")
+        return {
+            "success": False,
+            "error": "An internal error occurred while invoking the agent.",
+            "agent_id": agent.id,
+            "conversation_id": request.conversation_id,
+            "trace_id": request.trace_id,
+        }
 
 
 @router.post("/restart-runtime")

@@ -3,10 +3,9 @@ import asyncio
 import time
 from typing import List, Optional, Dict, Any, Callable
 import aiohttp
-from common.models.rag import DataSourceInfo, DocumentMetadata
+from common.models.rag import DataSourceInfo, DocumentMetadata, StructuredEntity
 from common.models.server import DocumentIngestRequest, IngestorPingRequest, ExploreDataEntityRequest
 from common.job_manager import JobStatus, JobInfo
-from common.models.graph import Entity
 from common.constants import DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
 from langchain_core.documents import Document
 import common.utils as utils
@@ -339,7 +338,7 @@ class Client:
         logger.error(f"Periodic ping failed for ingestor {self.ingestor_name}: {e}")
         # Continue trying even if ping fails
 
-  async def ingest_entities(self, job_id: str, datasource_id: str, entities: List[Entity], fresh_until: int):
+  async def ingest_entities(self, job_id: str, datasource_id: str, entities: List[StructuredEntity], fresh_until: int):
     """
     Ingest entities into the RAG system as documents with automatic batching
     :param job_id: ID of the ingestion job
@@ -355,7 +354,7 @@ class Client:
     documents = []
     for entity in entities:
       # Extract a meaningful title based on entity properties
-      title = self._extract_graph_entity_title(entity, entity.get_external_properties())
+      title = self._extract_structured_entity_title(entity, entity.get_external_properties())
 
       document_metadata = DocumentMetadata(
         document_id="",  # Will get populated by server based on entity primary key
@@ -363,11 +362,11 @@ class Client:
         datasource_id=datasource_id,
         ingestor_id=self.ingestor_id,
         title=title,
-        description=f"Graph entity of type {entity.entity_type}",
-        is_graph_entity=True,
+        description=f"Structured entity of type {entity.entity_type}",
+        is_structured_entity=True,
         document_ingested_at=None,  # Will get populated by server
         fresh_until=fresh_until,
-        metadata={},  # Will be populated by server with graph_entity_type and graph_entity_pk
+        metadata={},  # Will be populated by server with structured_entity_type and structured_entity_pk
       ).model_dump()
 
       # Use Pydantic's own JSON serialization to preserve all fields including additional_key_properties
@@ -397,7 +396,9 @@ class Client:
     if total_documents <= self.max_docs_per_ingest():
       # Single batch - process all documents at once
       logger.info(f"Ingesting {total_documents} documents in a single batch")
-      return await self._ingest_documents_batch(job_id, datasource_id, documents, fresh_until)
+      result = await self._ingest_documents_batch(job_id, datasource_id, documents, fresh_until)
+      await self.increment_document_count(job_id, total_documents)
+      return result
 
     # Multiple batches - split documents into chunks
     logger.info(f"Ingesting {total_documents} documents in batches of {self.max_docs_per_ingest()}")
@@ -411,10 +412,11 @@ class Client:
 
       logger.info(f"Processing batch {batch_num}/{total_batches} with {len(batch_documents)} documents")
       last_response = await self._ingest_documents_batch(job_id, datasource_id, batch_documents, fresh_until)
+      await self.increment_document_count(job_id, len(batch_documents))
 
     return last_response
 
-  def _extract_graph_entity_title(self, entity: Entity, entity_properties: Dict[str, Any]) -> str:
+  def _extract_structured_entity_title(self, entity: StructuredEntity, entity_properties: Dict[str, Any]) -> str:
     """
     Extract a meaningful title from entity properties by checking common fields
     :param entity: The entity object
@@ -436,7 +438,7 @@ class Client:
           return f"{entity.entity_type}: {title}"
 
     # Fallback: Just the entity type
-    return f"Graph Entity {entity.entity_type}"
+    return f"Structured Entity {entity.entity_type}"
 
   async def _ingest_documents_batch(self, job_id: str, datasource_id: str, documents: List[Document], fresh_until: int) -> Dict[str, Any]:
     """
@@ -579,6 +581,20 @@ class Client:
         resp.raise_for_status()
         return await resp.json()
 
+  async def increment_document_count(self, job_id: str, increment: int = 1) -> Dict[str, Any]:
+    """
+    Increment job document count
+    :param job_id: Job ID
+    :param increment: Amount to increment by
+    :return: Updated document count information
+    """
+    headers = await self._get_auth_headers()
+
+    async with aiohttp.ClientSession() as session:
+      async with session.post(url=f"{self.server_addr}/v1/job/{job_id}/increment-document-count", headers=headers, params={"increment": increment}) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
   async def add_job_error(self, job_id: str, error_messages: List[str]) -> Dict[str, Any]:
     """
     Add error messages to a job
@@ -604,10 +620,10 @@ class Client:
 
   async def graph_find_entity(self, entity_type: str, entity_pk: str) -> Dict[str, Any]:
     """
-    Find a graph entity by type and primary key
+    Find a structured entity by type and primary key using the graph database
     :param entity_type: Type of the entity
     :param entity_pk: Primary key of the entity
-    :return: Entity and relations information
+    :return: StructuredEntity and relations information
     """
     explore_request = ExploreDataEntityRequest(entity_type=entity_type, entity_pk=entity_pk)
 
@@ -636,7 +652,7 @@ class IngestorBuilder:
             client.upsert_datasource(datasource)
             
             # Ingest entities
-            entities = [Entity(entity_id="1", entity_type="Document", properties={"title": "Test"})]
+            entities = [StructuredEntity(entity_id="1", entity_type="Document", properties={"title": "Test"})]
             client.ingest_entities("my-datasource", entities)
         
         # Run ingestor
@@ -773,16 +789,11 @@ class IngestorBuilder:
           logger.debug(f"Datasource {ds.datasource_id} has no last_updated, needs immediate sync")
           return (0, True)
 
-        # Get per-datasource reload interval from metadata, fall back to DEFAULT_RELOAD_INTERVAL (24h)
-        ds_reload_interval = DEFAULT_RELOAD_INTERVAL
-        if ds.metadata:
-          stored_interval = ds.metadata.get("reload_interval")
-          if stored_interval is not None:
-            ds_reload_interval = stored_interval
-            # Enforce minimum reload interval
-            if ds_reload_interval < MIN_RELOAD_INTERVAL:
-              logger.warning(f"Datasource {ds.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, using minimum")
-              ds_reload_interval = MIN_RELOAD_INTERVAL
+        # Get per-datasource reload interval, clamp to minimum to prevent tight loops
+        ds_reload_interval = ds.reload_interval
+        if ds_reload_interval < MIN_RELOAD_INTERVAL:
+          logger.warning(f"Datasource {ds.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, clamping to minimum")
+          ds_reload_interval = MIN_RELOAD_INTERVAL
 
         time_since_update = current_time - ds.last_updated
         time_until_reload = ds_reload_interval - time_since_update

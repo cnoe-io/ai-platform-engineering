@@ -1,15 +1,9 @@
-"""Tests for ConfluenceLoader.ingest_pages — document_count tracking and edge cases.
-
-Regression tests for the bug where increment_document_count was never called,
-causing the UI to show '0 documents' even after successful Confluence ingestion.
+"""Tests for ConfluenceLoader.ingest_pages — page processing and edge cases.
 
 Coverage:
-  - increment_document_count called exactly once per page with non-empty content
-  - Pages with empty/whitespace-only HTML are NOT counted (but progress IS incremented)
-  - Pages missing the 'id' field are fully skipped (no count, no progress)
-  - Pages where _ingest_batch raises are NOT counted; failure IS tracked
-  - increment_document_count is always called BEFORE increment_progress (ordering)
-  - Batching behaviour does not affect per-page document count
+  - Pages with empty/whitespace-only HTML are skipped (but progress IS incremented)
+  - Pages missing the 'id' field are fully skipped (no progress)
+  - Pages where _ingest_batch raises are tracked as failures
   - Final job status: COMPLETED / COMPLETED_WITH_ERRORS / FAILED / TERMINATED
   - generate_datasource_id helper
   - extract_text_from_html helper
@@ -19,12 +13,15 @@ Coverage:
   - Document ID uniqueness via SHA256 hashing
   - Error message format propagated to add_error_msg
   - progress always incremented on both success and failure paths
+
+Note: document_count is now auto-tracked by Client.ingest_documents(), so
+ingest_pages no longer calls job_manager.increment_document_count directly.
 """
 
 from __future__ import annotations
 
 import hashlib
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.documents import Document
@@ -162,56 +159,28 @@ def _terminal_status_calls(jm: MagicMock) -> list:
 
 
 # ===========================================================================
-# 1. document_count tracking — core regression tests
+# 1. Page processing — skipping and progress tracking
 # ===========================================================================
 
 
-class TestIngestPagesDocumentCount:
-  """Verify increment_document_count is called correctly per page."""
+class TestIngestPagesProcessing:
+  """Verify page processing, skipping, and progress tracking.
 
-  async def test_single_page_with_content_increments_once(self):
-    """A page with non-empty text content increments document_count by 1."""
+  Note: document_count is now auto-tracked by Client.ingest_documents(),
+  so ingest_pages no longer calls job_manager.increment_document_count.
+  """
+
+  async def test_single_page_with_content_increments_progress(self):
+    """A page with non-empty text content increments progress."""
     jm = make_job_manager(total=1)
     loader = make_loader(job_manager=jm)
 
     await loader.ingest_pages([make_page()], "job-1")
 
-    jm.increment_document_count.assert_called_once_with("job-1", 1)
+    jm.increment_progress.assert_called_once_with("job-1")
 
-  async def test_document_count_called_before_progress(self):
-    """increment_document_count must precede increment_progress for each page."""
-    call_order: list[str] = []
-    jm = make_job_manager(total=1)
-    jm.increment_document_count = AsyncMock(side_effect=lambda *a, **kw: call_order.append("doc_count") or 1)
-    jm.increment_progress = AsyncMock(side_effect=lambda *a, **kw: call_order.append("progress") or 1)
-    loader = make_loader(job_manager=jm)
-
-    await loader.ingest_pages([make_page()], "job-1")
-
-    assert "doc_count" in call_order
-    assert "progress" in call_order
-    assert call_order.index("doc_count") < call_order.index("progress"), "increment_document_count must be called before increment_progress"
-
-  async def test_empty_html_body_not_counted(self):
-    """A page with an empty HTML body must NOT increment document_count."""
-    jm = make_job_manager(total=1)
-    loader = make_loader(job_manager=jm)
-
-    await loader.ingest_pages([make_page(html_body="")], "job-1")
-
-    jm.increment_document_count.assert_not_called()
-
-  async def test_whitespace_only_html_not_counted(self):
-    """HTML that renders to whitespace only must NOT increment document_count."""
-    jm = make_job_manager(total=1)
-    loader = make_loader(job_manager=jm)
-
-    await loader.ingest_pages([make_page(html_body="   <p>  </p>\n  ")], "job-1")
-
-    jm.increment_document_count.assert_not_called()
-
-  async def test_empty_page_still_increments_progress(self):
-    """A skipped empty-content page must still increment progress so the job doesn't stall."""
+  async def test_empty_html_body_skipped_but_progress_incremented(self):
+    """A page with an empty HTML body is skipped but progress still incremented."""
     jm = make_job_manager(total=1)
     loader = make_loader(job_manager=jm)
 
@@ -219,8 +188,17 @@ class TestIngestPagesDocumentCount:
 
     jm.increment_progress.assert_called_once_with("job-1")
 
+  async def test_whitespace_only_html_skipped_but_progress_incremented(self):
+    """HTML that renders to whitespace only is skipped but progress incremented."""
+    jm = make_job_manager(total=1)
+    loader = make_loader(job_manager=jm)
+
+    await loader.ingest_pages([make_page(html_body="   <p>  </p>\n  ")], "job-1")
+
+    jm.increment_progress.assert_called_once_with("job-1")
+
   async def test_page_missing_id_skipped_entirely(self):
-    """A page dict without an 'id' key must be skipped — no count, no progress."""
+    """A page dict without an 'id' key must be skipped — no progress."""
     jm = make_job_manager(total=1)
     loader = make_loader(job_manager=jm)
 
@@ -230,7 +208,6 @@ class TestIngestPagesDocumentCount:
     }
     await loader.ingest_pages([no_id_page], "job-1")
 
-    jm.increment_document_count.assert_not_called()
     jm.increment_progress.assert_not_called()
 
   async def test_page_with_none_id_skipped_entirely(self):
@@ -242,11 +219,10 @@ class TestIngestPagesDocumentCount:
     none_id_page["id"] = None
     await loader.ingest_pages([none_id_page], "job-1")
 
-    jm.increment_document_count.assert_not_called()
     jm.increment_progress.assert_not_called()
 
-  async def test_exception_during_page_processing_not_counted(self):
-    """An exception raised inside the per-page try block must NOT increment document_count.
+  async def test_exception_during_page_processing_tracks_failure(self):
+    """An exception raised inside the per-page try block tracks failure.
 
     inject failure via extract_text_from_html which runs inside the per-page
     try/except, ensuring the failure path is exercised without relying on batch size.
@@ -257,15 +233,15 @@ class TestIngestPagesDocumentCount:
 
     await loader.ingest_pages([make_page()], "job-1")
 
-    jm.increment_document_count.assert_not_called()
     jm.increment_failure.assert_called_once()
+    jm.increment_progress.assert_called_once()
 
-  async def test_exception_in_ingest_batch_inloop_not_counted(self):
-    """When _ingest_batch raises during an in-loop flush (large page), page is not counted.
+  async def test_exception_in_ingest_batch_inloop_tracks_failure(self):
+    """When _ingest_batch raises during an in-loop flush (large page), failure is tracked.
 
     The in-loop flush fires when accumulated chunks >= CONFLUENCE_BATCH_SIZE.
     Because that call is inside the per-page try/except, the exception is caught,
-    failure is tracked, and document_count is NOT incremented.
+    failure is tracked.
 
     Side-effect: documents that failed to flush are NOT cleared from the buffer, so
     the post-loop flush re-attempts them and also raises an uncaught exception
@@ -282,12 +258,11 @@ class TestIngestPagesDocumentCount:
     with pytest.raises(RuntimeError, match="batch error"):
       await loader.ingest_pages([make_page(html_body=f"<p>{large_text}</p>")], "job-1")
 
-    # Per-page handler DID run: document_count skipped, failure tracked
-    jm.increment_document_count.assert_not_called()
+    # Per-page handler DID run: failure tracked
     jm.increment_failure.assert_called_once()
 
   async def test_multiple_pages_all_with_content(self):
-    """N pages with content → document_count incremented exactly N times, each with value 1."""
+    """N pages with content → progress incremented N times."""
     n = 5
     jm = make_job_manager(total=n)
     loader = make_loader(job_manager=jm)
@@ -295,27 +270,26 @@ class TestIngestPagesDocumentCount:
     pages = [make_page(page_id=str(i), title=f"Page {i}") for i in range(n)]
     await loader.ingest_pages(pages, "job-1")
 
-    assert jm.increment_document_count.call_count == n
-    for c in jm.increment_document_count.call_args_list:
-      assert c == call("job-1", 1)
+    assert jm.increment_progress.call_count == n
 
-  async def test_mixed_pages_counts_only_content_pages(self):
-    """Only pages with non-empty content increment document_count."""
+  async def test_mixed_pages_progress_for_valid_pages(self):
+    """Progress is incremented for pages with valid id (even if empty content)."""
     jm = make_job_manager(total=4)
     loader = make_loader(job_manager=jm)
 
     pages = [
-      make_page(page_id="1", html_body="<p>Content A</p>"),  # counted
-      make_page(page_id="2", html_body=""),  # empty — not counted
-      {"title": "No ID", "body": {"storage": {"value": "<p>X</p>"}}},  # missing id
-      make_page(page_id="4", html_body="<p>Content B</p>"),  # counted
+      make_page(page_id="1", html_body="<p>Content A</p>"),  # valid
+      make_page(page_id="2", html_body=""),  # empty but valid id
+      {"title": "No ID", "body": {"storage": {"value": "<p>X</p>"}}},  # missing id - skipped
+      make_page(page_id="4", html_body="<p>Content B</p>"),  # valid
     ]
     await loader.ingest_pages(pages, "job-1")
 
-    assert jm.increment_document_count.call_count == 2
+    # 3 pages have valid ids (progress incremented), 1 missing id (skipped)
+    assert jm.increment_progress.call_count == 3
 
   async def test_mixed_pages_with_processing_failure(self):
-    """Pages that fail during processing are not counted; successful ones are.
+    """Pages that fail during processing still increment progress.
 
     Inject the failure via extract_text_from_html on a specific page so the
     exception is caught by the per-page handler regardless of batch size.
@@ -341,17 +315,10 @@ class TestIngestPagesDocumentCount:
     ]
     await loader.ingest_pages(pages, "job-1")
 
-    # Pages 1 and 3 succeed; page 2 fails inside the per-page try block
-    assert jm.increment_document_count.call_count == 2
-
-  async def test_increment_uses_job_id_from_argument(self):
-    """The job_id passed to ingest_pages is forwarded to increment_document_count."""
-    jm = make_job_manager(total=1)
-    loader = make_loader(job_manager=jm)
-
-    await loader.ingest_pages([make_page()], "specific-job-xyz")
-
-    jm.increment_document_count.assert_called_once_with("specific-job-xyz", 1)
+    # All 3 pages increment progress (even the failed one)
+    assert jm.increment_progress.call_count == 3
+    # 1 failure tracked
+    assert jm.increment_failure.call_count == 1
 
 
 # ===========================================================================
@@ -360,12 +327,13 @@ class TestIngestPagesDocumentCount:
 
 
 class TestIngestPagesBatchBoundary:
-  """document_count is per-page, not per-batch-flush."""
+  """Verify batching behaviour — document_count is now auto-tracked by Client.ingest_documents()."""
 
-  async def test_large_page_producing_multiple_batches_counted_once(self):
-    """A single page producing >CONFLUENCE_BATCH_SIZE chunks counts as 1 document."""
+  async def test_large_page_producing_multiple_batches_ingested(self):
+    """A single page producing >CONFLUENCE_BATCH_SIZE chunks is ingested via multiple batch calls."""
     jm = make_job_manager(total=1)
-    loader = make_loader(job_manager=jm)
+    rag = make_rag_client()
+    loader = make_loader(job_manager=jm, rag_client=rag)
 
     # ~200 words per chunk * (BATCH_SIZE + 5) chunks = well over 1 batch
     large_text = "Word " * (CONFLUENCE_BATCH_SIZE * 200)
@@ -373,12 +341,16 @@ class TestIngestPagesBatchBoundary:
 
     await loader.ingest_pages([large_page], "job-1")
 
-    jm.increment_document_count.assert_called_once_with("job-1", 1)
+    # Client.ingest_documents should be called at least once (batching happens internally)
+    assert rag.ingest_documents.call_count >= 1
+    # Progress incremented once per page
+    jm.increment_progress.assert_called_once_with("job-1")
 
-  async def test_two_pages_both_counted_even_when_batched_together(self):
-    """Two pages whose chunks fill a shared batch are each counted independently."""
+  async def test_two_pages_both_ingested_when_batched_together(self):
+    """Two pages whose chunks fill a shared batch are each processed."""
     jm = make_job_manager(total=2)
-    loader = make_loader(job_manager=jm)
+    rag = make_rag_client()
+    loader = make_loader(job_manager=jm, rag_client=rag)
 
     pages = [
       make_page(page_id="1", html_body="<p>First page.</p>"),
@@ -386,18 +358,25 @@ class TestIngestPagesBatchBoundary:
     ]
     await loader.ingest_pages(pages, "job-1")
 
-    assert jm.increment_document_count.call_count == 2
+    # Progress incremented for each page
+    assert jm.increment_progress.call_count == 2
+    # ingest_documents called at least once
+    assert rag.ingest_documents.call_count >= 1
 
-  async def test_remaining_documents_flushed_at_end_still_counted(self):
-    """The final sub-batch (remainder after last full-batch flush) is counted correctly."""
+  async def test_remaining_documents_flushed_at_end(self):
+    """The final sub-batch (remainder after last full-batch flush) is flushed."""
     jm = make_job_manager(total=3)
-    loader = make_loader(job_manager=jm)
+    rag = make_rag_client()
+    loader = make_loader(job_manager=jm, rag_client=rag)
 
     # Three pages each just under the batch threshold — they'll flush at the end
     pages = [make_page(page_id=str(i)) for i in range(3)]
     await loader.ingest_pages(pages, "job-1")
 
-    assert jm.increment_document_count.call_count == 3
+    # Progress incremented for each page
+    assert jm.increment_progress.call_count == 3
+    # ingest_documents called at least once
+    assert rag.ingest_documents.call_count >= 1
 
 
 # ===========================================================================
@@ -684,7 +663,7 @@ class TestIngestPagesDocumentMetadata:
     """Each Document must carry the page title in its metadata."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.append(list(documents))
 
     jm = make_job_manager(total=1)
@@ -702,7 +681,7 @@ class TestIngestPagesDocumentMetadata:
     """Every document must have document_type set to 'confluence_page'."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.append(list(documents))
 
     jm = make_job_manager(total=1)
@@ -719,7 +698,7 @@ class TestIngestPagesDocumentMetadata:
     """The nested 'source' field inside metadata must be 'confluence'."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.append(list(documents))
 
     jm = make_job_manager(total=1)
@@ -735,7 +714,7 @@ class TestIngestPagesDocumentMetadata:
     """URL in metadata = confluence_url + _links.webui."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.append(list(documents))
 
     jm = make_job_manager(total=1)
@@ -753,7 +732,7 @@ class TestIngestPagesDocumentMetadata:
     """Each chunk document must carry the correct chunk_index and total_chunks."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.extend(documents)
 
     jm = make_job_manager(total=1)
@@ -776,7 +755,7 @@ class TestIngestPagesDocumentMetadata:
     """space_key and space_name from the page dict must appear in metadata."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.extend(documents)
 
     jm = make_job_manager(total=1)
@@ -794,7 +773,7 @@ class TestIngestPagesDocumentMetadata:
     """Author, version, created_date, and last_modified must be populated."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.extend(documents)
 
     jm = make_job_manager(total=1)
@@ -813,7 +792,7 @@ class TestIngestPagesDocumentMetadata:
     """document metadata must carry the loader's datasource_id."""
     captured: list[list[Document]] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.extend(documents)
 
     ds = make_datasource_info(datasource_id="src_confluence___example__SRE")
@@ -838,7 +817,7 @@ class TestDocumentIdUniqueness:
     """doc_id = sha256('{datasource_id}_{page_id}_chunk_{i}')."""
     captured: list[Document] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.extend(documents)
 
     ds = make_datasource_info(datasource_id="src_confluence___example__SRE")
@@ -856,7 +835,7 @@ class TestDocumentIdUniqueness:
     """Two different pages must not share any document ID."""
     captured: list[Document] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.extend(documents)
 
     jm = make_job_manager(total=2)
@@ -872,7 +851,7 @@ class TestDocumentIdUniqueness:
     """Within a single page, each chunk must receive a distinct ID."""
     captured: list[Document] = []
 
-    async def capture_batch(documents, job_id):
+    async def capture_batch(documents, job_id, fresh_until):
       captured.extend(documents)
 
     ds = make_datasource_info(chunk_size=50, chunk_overlap=0)
@@ -892,10 +871,10 @@ class TestDocumentIdUniqueness:
     captured_a: list[Document] = []
     captured_b: list[Document] = []
 
-    async def capture_a(documents, job_id):
+    async def capture_a(documents, job_id, fresh_until):
       captured_a.extend(documents)
 
-    async def capture_b(documents, job_id):
+    async def capture_b(documents, job_id, fresh_until):
       captured_b.extend(documents)
 
     ds_a = make_datasource_info(datasource_id="src_confluence___company_a__SRE")
@@ -921,18 +900,20 @@ class TestIngestBatch:
   """Tests for _ingest_batch — delegates to rag_client.ingest_documents and re-raises."""
 
   async def test_ingest_batch_calls_rag_client_with_correct_args(self):
-    """_ingest_batch must call rag_client.ingest_documents(job_id, datasource_id, documents)."""
+    """_ingest_batch must call rag_client.ingest_documents(job_id, datasource_id, documents, fresh_until)."""
     rag = make_rag_client()
     ds = make_datasource_info(datasource_id="src_confluence___example__SRE")
     loader = make_loader(rag_client=rag, datasource_info=ds)
 
     docs = [Document(id="d1", page_content="hello", metadata={})]
-    await loader._ingest_batch(docs, "batch-job-99")
+    fresh_until = 1234567890
+    await loader._ingest_batch(docs, "batch-job-99", fresh_until)
 
     rag.ingest_documents.assert_called_once_with(
       job_id="batch-job-99",
       datasource_id="src_confluence___example__SRE",
       documents=docs,
+      fresh_until=fresh_until,
     )
 
   async def test_ingest_batch_reraises_rag_client_exception(self):
@@ -942,7 +923,7 @@ class TestIngestBatch:
     loader = make_loader(rag_client=rag)
 
     with pytest.raises(ConnectionError, match="rag unreachable"):
-      await loader._ingest_batch([Document(id="d1", page_content="x", metadata={})], "job-1")
+      await loader._ingest_batch([Document(id="d1", page_content="x", metadata={})], "job-1", 0)
 
   async def test_ingest_batch_passes_all_documents(self):
     """All documents in the list must be forwarded — no filtering or slicing."""
@@ -950,7 +931,7 @@ class TestIngestBatch:
     loader = make_loader(rag_client=rag)
 
     docs = [Document(id=f"d{i}", page_content=f"chunk {i}", metadata={}) for i in range(5)]
-    await loader._ingest_batch(docs, "job-1")
+    await loader._ingest_batch(docs, "job-1", 0)
 
     actual_docs = rag.ingest_documents.call_args.kwargs["documents"]
     assert actual_docs == docs
@@ -1017,34 +998,43 @@ class TestIngestPagesMalformedBody:
   async def test_page_with_empty_title_still_processed(self):
     """A page with an empty title string must still be ingested if it has content."""
     jm = make_job_manager(total=1)
-    loader = make_loader(job_manager=jm)
+    rag = make_rag_client()
+    loader = make_loader(job_manager=jm, rag_client=rag)
 
     page = make_page(title="")
     await loader.ingest_pages([page], "job-1")
 
-    jm.increment_document_count.assert_called_once_with("job-1", 1)
+    # Page with content should trigger ingest_documents call
+    assert rag.ingest_documents.call_count >= 1
+    jm.increment_progress.assert_called_once_with("job-1")
 
   async def test_page_with_missing_history_does_not_crash(self):
     """A page without the 'history' key must not crash during ingestion."""
     jm = make_job_manager(total=1)
-    loader = make_loader(job_manager=jm)
+    rag = make_rag_client()
+    loader = make_loader(job_manager=jm, rag_client=rag)
 
     page = make_page()
     del page["history"]
     await loader.ingest_pages([page], "job-1")
 
-    jm.increment_document_count.assert_called_once_with("job-1", 1)
+    # Page with content should trigger ingest_documents call
+    assert rag.ingest_documents.call_count >= 1
+    jm.increment_progress.assert_called_once_with("job-1")
 
   async def test_page_with_missing_links_does_not_crash(self):
     """A page without '_links' must not crash; URL defaults to base URL."""
     jm = make_job_manager(total=1)
-    loader = make_loader(job_manager=jm)
+    rag = make_rag_client()
+    loader = make_loader(job_manager=jm, rag_client=rag)
 
     page = make_page()
     del page["_links"]
     await loader.ingest_pages([page], "job-1")
 
-    jm.increment_document_count.assert_called_once_with("job-1", 1)
+    # Page with content should trigger ingest_documents call
+    assert rag.ingest_documents.call_count >= 1
+    jm.increment_progress.assert_called_once_with("job-1")
 
 
 # ===========================================================================
@@ -1111,7 +1101,7 @@ class TestIngestPagesErrorHandling:
     assert jm.increment_progress.call_count == n
 
   async def test_failure_and_success_interleaved_correct_counts(self):
-    """Alternating success/failure pages produce the right doc_count and failure tallies."""
+    """Alternating success/failure pages produce the right progress and failure tallies."""
     from bs4 import BeautifulSoup
 
     call_n = {"n": 0}
@@ -1125,14 +1115,19 @@ class TestIngestPagesErrorHandling:
     n = 6
     # 3 fail, 3 succeed
     jm = make_job_manager(total=n, failed_counter=3)
-    loader = make_loader(job_manager=jm)
+    rag = make_rag_client()
+    loader = make_loader(job_manager=jm, rag_client=rag)
     loader.extract_text_from_html = MagicMock(side_effect=fail_even)
 
     pages = [make_page(page_id=str(i)) for i in range(n)]
     await loader.ingest_pages(pages, "job-1")
 
-    assert jm.increment_document_count.call_count == 3
+    # All 6 pages increment progress
+    assert jm.increment_progress.call_count == n
+    # 3 failures tracked
     assert jm.increment_failure.call_count == 3
+    # ingest_documents called for successful pages
+    assert rag.ingest_documents.call_count >= 1
 
   async def test_add_error_msg_called_with_job_id(self):
     """add_error_msg must receive the correct job_id as first argument."""
