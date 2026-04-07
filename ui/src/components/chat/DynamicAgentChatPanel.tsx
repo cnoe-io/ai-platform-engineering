@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
+import { DynamicAgentClient } from "@/components/dynamic-agents/da-streaming-client";
 import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData, isToolStartData, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
@@ -101,9 +101,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     updateMessage,
     // appendToMessage, // Unused in filtered code? Let's check. Used in error handling.
     appendToMessage,
-    // addEventToMessage, // Unused?
-    // addA2AEvent, // Removed
-    // clearA2AEvents, // Removed
     addSSEEvent,
     clearSSEEvents,
     setConversationStreaming,
@@ -540,8 +537,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setPendingUserInput(null);
   }, [activeConversationId]);
 
-  // Track last message events length to re-trigger restoration when events load
-  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.events?.length ?? 0;
+  // Track last message SSE events length to re-trigger restoration when events load
+  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.sseEvents?.length ?? 0;
 
   useEffect(() => {
     if (pendingUserInput || isThisConversationStreaming) return;

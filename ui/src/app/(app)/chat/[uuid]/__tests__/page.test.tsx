@@ -10,8 +10,8 @@
  * - 404 fallback to empty conversation
  * - Non-404 API errors (network failures)
  * - Invalid UUID shows error state
- * - loadMessagesFromServer failure (metadata-only stub path)
- * - loadMessagesFromServer failure (not-in-store path)
+ * - loadTurnsFromServer failure (metadata-only stub path, Platform Engineer)
+ * - loadTurnsFromServer failure (not-in-store path, Platform Engineer)
  * - Unexpected outer error fallback
  * - setActiveConversation always called across all paths
  * - Background sync fires for conversations already loaded with messages
@@ -80,11 +80,12 @@ jest.mock("@/lib/api-client", () => ({
 const mockSetActiveConversation = jest.fn();
 let resolveLoadMessages: () => void;
 let rejectLoadMessages: (err: any) => void;
-const mockLoadMessagesFromServer = jest.fn(
+// Platform Engineer conversations (no agent_id) use loadTurnsFromServer
+const mockLoadTurnsFromServer = jest.fn(
   () =>
     new Promise<void>((resolve, reject) => {
       resolveLoadMessages = () => {
-        // Simulate what the real loadMessagesFromServer does: populate
+        // Simulate what the real loadTurnsFromServer does: populate
         // the conversation's messages array so storeHasMessages flips true.
         const conv = mockConversations.find((c: any) => c.id === mockUuid);
         if (conv && conv.messages.length === 0) {
@@ -95,6 +96,8 @@ const mockLoadMessagesFromServer = jest.fn(
       rejectLoadMessages = reject;
     })
 );
+// Dynamic Agent conversations (with agent_id) use loadMessagesFromServer
+const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined);
 const mockCreateConversation = jest.fn(() => "new-id");
 
 let mockConversations: any[] = [];
@@ -110,6 +113,7 @@ jest.mock("@/store/chat-store", () => {
     const state = {
       setActiveConversation: mockSetActiveConversation,
       loadMessagesFromServer: mockLoadMessagesFromServer,
+      loadTurnsFromServer: mockLoadTurnsFromServer,
       createConversation: mockCreateConversation,
       conversations: mockConversations,
       activeConversationId: mockActiveConversationId,
@@ -230,9 +234,9 @@ describe("ChatContainer", () => {
       updated_at: new Date().toISOString(),
     });
 
-    // Wait for loadMessagesFromServer to be called and chat panel to render
+    // Wait for loadTurnsFromServer to be called and chat panel to render
     await waitFor(() => {
-      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
     });
 
     // Chat panel shows while messages are loading (new behavior)
@@ -293,11 +297,9 @@ describe("ChatContainer", () => {
     // The chat panel will receive isLoadingMessages=true internally
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
-    // loadMessagesFromServer should be called with force=true
+    // loadTurnsFromServer should be called (no force option — turns endpoint is idempotent)
     await waitFor(() => {
-      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid, {
-        force: true,
-      });
+      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
     });
 
     // Resolve messages
@@ -351,7 +353,7 @@ describe("ChatContainer", () => {
     expect(mockSetActiveConversation).toHaveBeenCalledWith(mockUuid);
   });
 
-  it("shows chat panel immediately even when loadMessagesFromServer fails on metadata-only stub", async () => {
+  it("shows chat panel immediately even when loadTurnsFromServer fails on metadata-only stub", async () => {
     mockConversations = [
       {
         id: mockUuid,
@@ -370,13 +372,11 @@ describe("ChatContainer", () => {
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid, {
-        force: true,
-      });
+      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
     });
 
     // Reject the message load — chat panel should still be visible
-    rejectLoadMessages(new Error("Failed to fetch messages"));
+    rejectLoadMessages(new Error("Failed to fetch turns"));
 
     // Chat panel remains visible after failed load
     await waitFor(() => {
@@ -384,7 +384,7 @@ describe("ChatContainer", () => {
     });
   });
 
-  it("dismisses spinner when loadMessagesFromServer fails on not-in-store path", async () => {
+  it("dismisses spinner when loadTurnsFromServer fails on not-in-store path", async () => {
     render(<ChatContainer />);
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
@@ -398,11 +398,11 @@ describe("ChatContainer", () => {
     });
 
     await waitFor(() => {
-      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
     });
 
-    // Reject message load
-    rejectLoadMessages(new Error("Messages endpoint down"));
+    // Reject turns load
+    rejectLoadMessages(new Error("Turns endpoint down"));
 
     // fetchDone=true but storeHasMessages=false and title != "New Conversation"
     // → spinner persists (defensive: don't show blank Welcome screen)
@@ -449,7 +449,7 @@ describe("ChatContainer", () => {
     render(<ChatContainer />);
 
     await waitFor(() => {
-      expect(mockLoadMessagesFromServer).toHaveBeenCalled();
+      expect(mockLoadTurnsFromServer).toHaveBeenCalled();
     });
 
     rejectLoadMessages(new Error("fail"));
@@ -496,9 +496,9 @@ describe("ChatContainer", () => {
     expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
-    // But background sync should still fire
+    // But background sync should still fire (Platform Engineer uses loadTurnsFromServer)
     await waitFor(() => {
-      expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
+      expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
     });
   });
 
@@ -519,7 +519,7 @@ describe("ChatContainer", () => {
     render(<ChatContainer />);
 
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
-    expect(mockLoadMessagesFromServer).not.toHaveBeenCalled();
+    expect(mockLoadTurnsFromServer).not.toHaveBeenCalled();
   });
 
   // ========================================================================
@@ -561,12 +561,12 @@ describe("ChatContainer", () => {
   // ========================================================================
 
   it("shows chat panel immediately even during Sidebar race (storeHasMessages false)", async () => {
-    // Simulate: loadMessagesFromServer resolved but Sidebar's
+    // Simulate: loadTurnsFromServer resolved but Sidebar's
     // loadConversationsFromServer concurrently wiped messages.
-    // The mock loadMessagesFromServer normally populates messages,
+    // The mock loadTurnsFromServer normally populates messages,
     // but here we override to simulate the wipe.
-    const originalMock = mockLoadMessagesFromServer.getMockImplementation();
-    mockLoadMessagesFromServer.mockImplementation(
+    const originalMock = mockLoadTurnsFromServer.getMockImplementation();
+    mockLoadTurnsFromServer.mockImplementation(
       () =>
         new Promise<void>((resolve, reject) => {
           resolveLoadMessages = () => {
@@ -596,7 +596,7 @@ describe("ChatContainer", () => {
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(mockLoadMessagesFromServer).toHaveBeenCalled();
+      expect(mockLoadTurnsFromServer).toHaveBeenCalled();
     });
 
     // Resolve without populating messages (simulates race)
@@ -608,7 +608,7 @@ describe("ChatContainer", () => {
     });
 
     // Restore original mock
-    if (originalMock) mockLoadMessagesFromServer.mockImplementation(originalMock);
+    if (originalMock) mockLoadTurnsFromServer.mockImplementation(originalMock);
   });
 
   // ========================================================================
@@ -848,7 +848,7 @@ describe("ChatContainer", () => {
       });
 
       await waitFor(() => {
-        expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
+        expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
       });
 
       // After conversation metadata is loaded, chat panel should render
@@ -884,7 +884,7 @@ describe("ChatContainer", () => {
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
 
       await waitFor(() => {
-        expect(mockLoadMessagesFromServer).toHaveBeenCalled();
+        expect(mockLoadTurnsFromServer).toHaveBeenCalled();
       });
 
       resolveLoadMessages();
@@ -924,8 +924,8 @@ describe("ChatContainer", () => {
     it("renders chat panel for conversation in store even if messages are empty (sidebar race)", async () => {
       // New behavior: ChatContainer renders chat panel immediately for conversations in store
       // The panel handles empty messages internally (shows skeleton via isLoadingMessages)
-      const originalMock = mockLoadMessagesFromServer.getMockImplementation();
-      mockLoadMessagesFromServer.mockImplementation(
+      const originalMock = mockLoadTurnsFromServer.getMockImplementation();
+      mockLoadTurnsFromServer.mockImplementation(
         () =>
           new Promise<void>((resolve, reject) => {
             resolveLoadMessages = () => {
@@ -956,7 +956,7 @@ describe("ChatContainer", () => {
       expect(screen.queryByText("Loading conversation...")).not.toBeInTheDocument();
 
       await waitFor(() => {
-        expect(mockLoadMessagesFromServer).toHaveBeenCalled();
+        expect(mockLoadTurnsFromServer).toHaveBeenCalled();
       });
 
       resolveLoadMessages();
@@ -966,7 +966,7 @@ describe("ChatContainer", () => {
         expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
       });
 
-      if (originalMock) mockLoadMessagesFromServer.mockImplementation(originalMock);
+      if (originalMock) mockLoadTurnsFromServer.mockImplementation(originalMock);
     });
 
     it("triggers background sync for large conversation already loaded", async () => {
@@ -992,9 +992,9 @@ describe("ChatContainer", () => {
       // Chat panel renders immediately
       expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
-      // Background sync should still be triggered
+      // Background sync should still be triggered (Platform Engineer uses loadTurnsFromServer)
       await waitFor(() => {
-        expect(mockLoadMessagesFromServer).toHaveBeenCalledWith(mockUuid);
+        expect(mockLoadTurnsFromServer).toHaveBeenCalledWith(mockUuid);
       });
     });
   });

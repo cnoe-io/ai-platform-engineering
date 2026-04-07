@@ -1,77 +1,42 @@
-"""Tests for plan-mode streaming in ai.py.
+"""Tests for plan-mode streaming in ai.py using the SSE path.
 
 Covers: lazy stream start, setStatus behavior, plan step streaming,
-force-complete at finalization, no markdown streaming with plan,
-should_append=False replaces thinking, bot user guard, stopStream final answer,
-and StreamBuffer batching.
+force-complete at finalization, stopStream final answer, and StreamBuffer batching.
 """
 
 import time
 from unittest.mock import Mock
 
-from ai_platform_engineering.integrations.slack_bot.utils.ai import stream_a2a_response, StreamBuffer
+from ai_platform_engineering.integrations.slack_bot.utils.ai import stream_sse_response, StreamBuffer
+from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, SSEEventType
 
 
 # ---------------------------------------------------------------------------
-# Helpers to build A2A events
+# Helpers to build SSE events
 # ---------------------------------------------------------------------------
 
-def _task_event(context_id="ctx-1"):
-    return {"kind": "task", "id": "t1", "contextId": context_id}
+def _content_event(text):
+    return SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta=text)
 
 
 def _plan_event(steps):
-    """Build an execution_plan artifact-update with structured DataPart."""
-    return {
-        "kind": "artifact-update",
-        "artifact": {
-            "name": "execution_plan_update",
-            "parts": [{"kind": "data", "data": {"steps": steps}}],
-        },
-    }
+    return SSEEvent(type=SSEEventType.STATE_DELTA, steps=steps)
 
 
-def _streaming_result(text, append=True):
-    return {
-        "kind": "artifact-update",
-        "append": append,
-        "artifact": {
-            "name": "streaming_result",
-            "parts": [{"kind": "text", "text": text}],
-        },
-    }
+def _tool_start_event(name="search"):
+    return SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name=name)
 
 
-def _final_result(text):
-    return {
-        "kind": "artifact-update",
-        "artifact": {
-            "name": "final_result",
-            "parts": [{"kind": "text", "text": text}],
-        },
-    }
+def _tool_end_event(name="search"):
+    return SSEEvent(type=SSEEventType.TOOL_CALL_END, tool_call_name=name)
 
 
-def _tool_start(name="search"):
-    return {
-        "kind": "artifact-update",
-        "artifact": {
-            "name": "tool_notification_start",
-            "metadata": {"tool_name": name},
-            "parts": [],
-        },
-    }
+def _done_event(run_id="run-1"):
+    return SSEEvent(type=SSEEventType.RUN_FINISHED, run_id=run_id)
 
 
-def _tool_end(name="search"):
-    return {
-        "kind": "artifact-update",
-        "artifact": {
-            "name": "tool_notification_end",
-            "metadata": {"tool_name": name},
-            "parts": [],
-        },
-    }
+def _error_event(message="Something failed"):
+    return SSEEvent(type=SSEEventType.RUN_ERROR, message=message)
 
 
 def _make_step(step_id, title, status="pending", order=0, agent=""):
@@ -90,6 +55,13 @@ def _mock_slack():
     return mock
 
 
+def _mock_sse_client(events):
+    """Create a mock SSE client that yields the given events."""
+    mock = Mock()
+    mock.stream_chat.return_value = iter(events)
+    return mock
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -98,18 +70,17 @@ class TestLazyStreamAndSetStatus:
     """Verify setStatus is called before startStream, and startStream is deferred."""
 
     def test_set_status_called_before_start_stream(self):
-        """setStatus('is thinking...') fires immediately; startStream fires on first plan."""
+        """setStatus('is thinking...') fires immediately; startStream fires on first content."""
         events = [
-            _task_event(),
             _plan_event([_make_step("s1", "Search docs", "in_progress", 0)]),
-            _final_result("Done"),
+            _content_event("Done"),
+            _done_event(),
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
+        mock_sse = _mock_sse_client(events)
         mock_slack = _mock_slack()
 
-        stream_a2a_response(
-            a2a_client=mock_a2a,
+        stream_sse_response(
+            sse_client=mock_sse,
             slack_client=mock_slack,
             channel_id="C1",
             thread_ts="t1",
@@ -124,10 +95,10 @@ class TestLazyStreamAndSetStatus:
         assert first_set_status.kwargs["status"] == "is thinking..."
         assert "loading_messages" in first_set_status.kwargs
 
-        # startStream should have been called (lazily, when plan arrived)
+        # startStream should have been called
         mock_slack.chat_startStream.assert_called_once()
 
-        # Verify setStatus was called BEFORE startStream by checking call order
+        # Verify setStatus was called BEFORE startStream
         all_calls = mock_slack.method_calls
         set_status_idx = next(
             i for i, c in enumerate(all_calls) if c[0] == "assistant_threads_setStatus"
@@ -137,18 +108,17 @@ class TestLazyStreamAndSetStatus:
         )
         assert set_status_idx < start_stream_idx
 
-    def test_start_stream_not_called_without_content(self):
-        """If only a task event + final_result (no plan, no streaming_result), stream still starts for final."""
+    def test_start_stream_with_content_only(self):
+        """If no plan but content arrives, startStream fires and final text goes via stopStream."""
         events = [
-            _task_event(),
-            _final_result("Here is the answer"),
+            _content_event("Here is the answer"),
+            _done_event(),
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
+        mock_sse = _mock_sse_client(events)
         mock_slack = _mock_slack()
 
-        stream_a2a_response(
-            a2a_client=mock_a2a,
+        stream_sse_response(
+            sse_client=mock_sse,
             slack_client=mock_slack,
             channel_id="C1",
             thread_ts="t1",
@@ -157,133 +127,10 @@ class TestLazyStreamAndSetStatus:
             user_id="U123",
         )
 
-        # Stream should still start at finalization for the final answer
+        # Stream should start because we have content
         mock_slack.chat_startStream.assert_called_once()
-        # stopStream should carry the final text since nothing was streamed
-        stop_call = mock_slack.chat_stopStream.call_args
-        chunks = stop_call.kwargs.get("chunks") or (stop_call[1].get("chunks") if len(stop_call) > 1 else None)
-        assert chunks is not None
-        assert any("Here is the answer" in c.get("text", "") for c in chunks)
-
-
-class TestBotUserNoSetStatus:
-    """Bot users (user_id starts with 'B') should never get setStatus calls."""
-
-    def test_no_set_status_for_bot_user(self):
-        events = [
-            _task_event(),
-            _plan_event([_make_step("s1", "Search", "in_progress", 0)]),
-            _final_result("answer"),
-        ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
-        mock_slack = _mock_slack()
-
-        stream_a2a_response(
-            a2a_client=mock_a2a,
-            slack_client=mock_slack,
-            channel_id="C1",
-            thread_ts="t1",
-            message_text="hi",
-            team_id="T1",
-            user_id="B123",
-        )
-
-        mock_slack.assistant_threads_setStatus.assert_not_called()
-        # Bot users don't use streaming API
-        mock_slack.chat_startStream.assert_not_called()
-
-
-class TestLastStepStreamedAsMarkdown:
-    """When plan_steps exist, the last step's STREAMING_RESULT is streamed live as markdown."""
-
-    def test_last_step_streaming_result_sent_as_markdown(self):
-        """When a plan is active, streaming_result for the last step IS streamed as markdown_text in real-time."""
-        events = [
-            _task_event(),
-            # Plan with one step (which is both first and last)
-            _plan_event([_make_step("s1", "Analyze", "in_progress", 0)]),
-            # Streaming result for the last step — should be streamed live
-            _streaming_result("Some streaming text"),
-            _final_result("Final answer"),
-        ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
-        mock_slack = _mock_slack()
-
-        stream_a2a_response(
-            a2a_client=mock_a2a,
-            slack_client=mock_slack,
-            channel_id="C1",
-            thread_ts="t1",
-            message_text="hi",
-            team_id="T1",
-            user_id="U123",
-        )
-
-        # The last step's streaming_result should produce a markdown_text chunk
-        markdown_chunks = []
-        for c in mock_slack.chat_appendStream.call_args_list:
-            chunks = c.kwargs.get("chunks", [])
-            for chunk in chunks:
-                if chunk.get("type") == "markdown_text":
-                    markdown_chunks.append(chunk)
-        assert len(markdown_chunks) > 0, (
-            "Last step streaming_result should be streamed as markdown_text"
-        )
-        assert any("Some streaming text" in c["text"] for c in markdown_chunks)
-
-
-class TestShouldAppendFalseReplacesThinking:
-    """When streaming_result has append=False, step_thinking is replaced not concatenated."""
-
-    def test_append_false_replaces_step_thinking(self):
-        """Intermediate step thinking with append=False should replace previous thinking."""
-        events = [
-            _task_event(),
-            # Two-step plan: s1 is intermediate (not last), s2 is last
-            _plan_event([
-                _make_step("s1", "Research", "in_progress", 0, agent="DocSearch"),
-                _make_step("s2", "Summarize", "pending", 1),
-            ]),
-            # Stream some thinking for s1 (append=True by default)
-            _streaming_result("thinking part 1"),
-            # Replace with new thinking (append=False)
-            _streaming_result("replaced thinking", append=False),
-            # Complete s1, start s2
-            _plan_event([
-                _make_step("s1", "Research", "completed", 0, agent="DocSearch"),
-                _make_step("s2", "Summarize", "in_progress", 1),
-            ]),
-            _final_result("Summary done"),
-        ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
-        mock_slack = _mock_slack()
-
-        stream_a2a_response(
-            a2a_client=mock_a2a,
-            slack_client=mock_slack,
-            channel_id="C1",
-            thread_ts="t1",
-            message_text="hi",
-            team_id="T1",
-            user_id="U123",
-        )
-
-        # Find the appendStream call that sent the step completion for s1
-        # It should contain "replaced thinking" not "thinking part 1"
-        found_details = None
-        for c in mock_slack.chat_appendStream.call_args_list:
-            chunks = c.kwargs.get("chunks", [])
-            for chunk in chunks:
-                if chunk.get("type") == "task_update" and chunk.get("id") == "s1":
-                    if "details" in chunk:
-                        found_details = chunk["details"]
-
-        assert found_details is not None, "s1 completion should include details"
-        assert "replaced thinking" in found_details
-        assert "thinking part 1" not in found_details
+        # stopStream should be called to finalize
+        mock_slack.chat_stopStream.assert_called_once()
 
 
 class TestForceCompleteAtFinalization:
@@ -292,20 +139,19 @@ class TestForceCompleteAtFinalization:
     def test_pending_steps_force_completed(self):
         """Steps that never reached 'completed' are force-completed at finalization."""
         events = [
-            _task_event(),
             _plan_event([
                 _make_step("s1", "Step 1", "completed", 0),
                 _make_step("s2", "Step 2", "in_progress", 1),
                 _make_step("s3", "Step 3", "pending", 2),
             ]),
-            _final_result("All done"),
+            _content_event("All done"),
+            _done_event(),
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
+        mock_sse = _mock_sse_client(events)
         mock_slack = _mock_slack()
 
-        stream_a2a_response(
-            a2a_client=mock_a2a,
+        stream_sse_response(
+            sse_client=mock_sse,
             slack_client=mock_slack,
             channel_id="C1",
             thread_ts="t1",
@@ -329,21 +175,19 @@ class TestForceCompleteAtFinalization:
 
 
 class TestStopStreamCarriesFinalAnswer:
-    """When plan_steps exist, stopStream is called with chunks containing the final answer."""
+    """When content is streamed live, stopStream has no chunks (already in stream)."""
 
-    def test_stop_stream_has_final_text_with_plan(self):
+    def test_stop_stream_called_after_streaming(self):
+        """Content streamed live; stopStream called to finalize with feedback blocks."""
         events = [
-            _task_event(),
-            _plan_event([_make_step("s1", "Search", "in_progress", 0)]),
-            _plan_event([_make_step("s1", "Search", "completed", 0)]),
-            _final_result("Here is my final answer"),
+            _content_event("Here is my final answer"),
+            _done_event(),
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
+        mock_sse = _mock_sse_client(events)
         mock_slack = _mock_slack()
 
-        stream_a2a_response(
-            a2a_client=mock_a2a,
+        stream_sse_response(
+            sse_client=mock_sse,
             slack_client=mock_slack,
             channel_id="C1",
             thread_ts="t1",
@@ -354,24 +198,31 @@ class TestStopStreamCarriesFinalAnswer:
 
         mock_slack.chat_stopStream.assert_called_once()
         stop_call = mock_slack.chat_stopStream.call_args
+        # Content was streamed live, so stop chunks should be None or empty
         chunks = stop_call.kwargs.get("chunks")
-        assert chunks is not None, "stopStream should have chunks"
-        assert len(chunks) == 1
-        assert chunks[0]["type"] == "markdown_text"
-        assert chunks[0]["text"] == "Here is my final answer"
+        assert chunks is None or len(chunks) == 0, (
+            "Content was already streamed; stopStream should not duplicate it in chunks"
+        )
+        # But feedback blocks should be present
+        blocks = stop_call.kwargs.get("blocks")
+        assert blocks is not None and len(blocks) > 0, "stopStream must have feedback blocks"
 
-    def test_stop_stream_has_final_text_when_nothing_streamed(self):
-        """Even without a plan, if no text was streamed, final text goes in stopStream."""
+
+class TestToolEvents:
+    """Tool start/end events start the stream and flush the buffer."""
+
+    def test_tool_start_initiates_stream(self):
+        """TOOL_START calls _start_stream_if_needed, which initiates the Slack stream."""
         events = [
-            _task_event(),
-            _final_result("Quick answer"),
+            _tool_start_event("rag_search"),
+            _content_event("Result"),
+            _done_event(),
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
+        mock_sse = _mock_sse_client(events)
         mock_slack = _mock_slack()
 
-        stream_a2a_response(
-            a2a_client=mock_a2a,
+        stream_sse_response(
+            sse_client=mock_sse,
             slack_client=mock_slack,
             channel_id="C1",
             thread_ts="t1",
@@ -380,39 +231,23 @@ class TestStopStreamCarriesFinalAnswer:
             user_id="U123",
         )
 
-        stop_call = mock_slack.chat_stopStream.call_args
-        chunks = stop_call.kwargs.get("chunks")
-        assert chunks is not None
-        assert any(c["text"] == "Quick answer" for c in chunks)
+        # TOOL_START should trigger startStream so plan cards can appear immediately
+        mock_slack.chat_startStream.assert_called_once()
 
-
-class TestToolEndNoTaskUpdate:
-    """TOOL_NOTIFICATION_END no longer sends task_update thinking via appendStream."""
-
-    def test_tool_end_does_not_send_thinking(self):
-        """tool_end should not trigger an appendStream with task_update details."""
+    def test_tool_start_typing_status_when_no_stream_yet(self):
+        """When stream hasn't started and no team/user ID, tool name appears in typing status."""
         events = [
-            _task_event(),
-            _plan_event([
-                _make_step("s1", "Search", "in_progress", 0),
-                _make_step("s2", "Analyze", "pending", 1),
-            ]),
-            _streaming_result("some thinking for s1"),
-            _tool_start("rag_search"),
-            _tool_end("rag_search"),
-            # Step completes via plan update (this is where thinking is sent)
-            _plan_event([
-                _make_step("s1", "Search", "completed", 0),
-                _make_step("s2", "Analyze", "in_progress", 1),
-            ]),
-            _final_result("Result"),
+            _tool_start_event("rag_search"),
+            _content_event("Result"),
+            _done_event(),
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
+        mock_sse = _mock_sse_client(events)
         mock_slack = _mock_slack()
+        # Make startStream fail so stream_ts stays None — then typing status gets the tool name
+        mock_slack.chat_startStream.side_effect = Exception("startStream unavailable")
 
-        stream_a2a_response(
-            a2a_client=mock_a2a,
+        stream_sse_response(
+            sse_client=mock_sse,
             slack_client=mock_slack,
             channel_id="C1",
             thread_ts="t1",
@@ -421,38 +256,29 @@ class TestToolEndNoTaskUpdate:
             user_id="U123",
         )
 
-        # Find appendStream calls. The first should be from the initial plan,
-        # then from the step completion plan update, then force-complete.
-        # None should be triggered directly by tool_end.
-        # We verify indirectly: all appendStream calls should come with
-        # task_update chunks (plan updates), not markdown_text from tool_end.
-        for c in mock_slack.chat_appendStream.call_args_list:
-            chunks = c.kwargs.get("chunks", [])
-            for chunk in chunks:
-                assert chunk.get("type") == "task_update", (
-                    f"Only task_update chunks expected in appendStream, got: {chunk.get('type')}"
-                )
-
-
-class TestStreamWithoutPlanStreamsMarkdown:
-    """When no plan exists, STREAMING_RESULT is buffered (not streamed live) to avoid
-    leaking intermediate tool outputs or response metadata into Slack.
-    The clean FINAL_RESULT is delivered via stopStream instead."""
-
-    def test_no_plan_streaming_result_buffered_final_result_in_stop_chunks(self):
-        """No-plan flow: STREAMING_RESULT events are buffered; FINAL_RESULT goes in stopStream."""
-        events = [
-            _task_event(),
-            _streaming_result("Hello "),
-            _streaming_result("world"),
-            _final_result("Hello world"),
+        status_calls = [
+            c.kwargs.get("status", "")
+            for c in mock_slack.assistant_threads_setStatus.call_args_list
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
-        mock_slack = _mock_slack()
+        assert any("rag_search" in s for s in status_calls), (
+            "Should update typing status with tool name when stream not started"
+        )
 
-        stream_a2a_response(
-            a2a_client=mock_a2a,
+    def test_tool_end_typing_status_when_no_stream(self):
+        """TOOL_END updates typing status to 'is working...' when stream has not started."""
+        events = [
+            _tool_start_event("my_tool"),
+            _tool_end_event("my_tool"),
+            _content_event("Done"),
+            _done_event(),
+        ]
+        mock_sse = _mock_sse_client(events)
+        mock_slack = _mock_slack()
+        # Make startStream fail so stream_ts stays None
+        mock_slack.chat_startStream.side_effect = Exception("startStream unavailable")
+
+        stream_sse_response(
+            sse_client=mock_sse,
             slack_client=mock_slack,
             channel_id="C1",
             thread_ts="t1",
@@ -461,61 +287,13 @@ class TestStreamWithoutPlanStreamsMarkdown:
             user_id="U123",
         )
 
-        # STREAMING_RESULT events should NOT be streamed via appendStream (no live markdown)
-        markdown_texts = []
-        for c in mock_slack.chat_appendStream.call_args_list:
-            chunks = c.kwargs.get("chunks", [])
-            for chunk in chunks:
-                if chunk.get("type") == "markdown_text":
-                    markdown_texts.append(chunk["text"])
-        assert len(markdown_texts) == 0, (
-            "No-plan STREAMING_RESULT events must not be streamed live to avoid metadata leak"
-        )
-
-        # stopStream MUST carry the clean FINAL_RESULT text
-        stop_call = mock_slack.chat_stopStream.call_args
-        chunks = stop_call.kwargs.get("chunks")
-        assert chunks is not None, "stopStream should carry the FINAL_RESULT text"
-        assert any("Hello world" in c.get("text", "") for c in chunks), (
-            "stopStream chunks should contain the FINAL_RESULT text"
-        )
-
-    def test_no_plan_fallback_to_buffered_streaming_when_no_final_result(self):
-        """No-plan flow without FINAL_RESULT: buffered STREAMING_RESULT used as fallback."""
-        events = [
-            _task_event(),
-            _streaming_result("Fallback "),
-            _streaming_result("content"),
+        status_calls = [
+            c.kwargs.get("status", "")
+            for c in mock_slack.assistant_threads_setStatus.call_args_list
         ]
-        mock_a2a = Mock()
-        mock_a2a.send_message_stream.return_value = iter(events)
-        mock_slack = _mock_slack()
-
-        stream_a2a_response(
-            a2a_client=mock_a2a,
-            slack_client=mock_slack,
-            channel_id="C1",
-            thread_ts="t1",
-            message_text="hi",
-            team_id="T1",
-            user_id="U123",
+        assert any("working" in s for s in status_calls), (
+            "Should update typing status to 'is working...' after tool end when stream not started"
         )
-
-        # No live streaming
-        markdown_texts = []
-        for c in mock_slack.chat_appendStream.call_args_list:
-            chunks = c.kwargs.get("chunks", [])
-            for chunk in chunks:
-                if chunk.get("type") == "markdown_text":
-                    markdown_texts.append(chunk["text"])
-        assert len(markdown_texts) == 0
-
-        # stopStream should use the buffered streaming content as fallback
-        stop_call = mock_slack.chat_stopStream.call_args
-        chunks = stop_call.kwargs.get("chunks")
-        assert chunks is not None, "stopStream should carry buffered content as fallback"
-        combined = "".join(c.get("text", "") for c in chunks)
-        assert "Fallback" in combined and "content" in combined
 
 
 class TestStreamBuffer:

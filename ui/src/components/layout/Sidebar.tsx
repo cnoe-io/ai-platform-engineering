@@ -56,6 +56,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     deleteConversation,
     loadConversationsFromServer,
     loadMessagesFromServer,
+    loadTurnsFromServer,
     isConversationStreaming,
     hasUnviewedMessages,
     isConversationInputRequired,
@@ -151,7 +152,14 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       // Also force-reload the active conversation's messages to pick up
       // follow-up messages from other devices and refresh A2A events
       if (activeConversationId) {
-        await loadMessagesFromServer(activeConversationId, { force: true });
+        const activeConv = useChatStore.getState().conversations.find(c => c.id === activeConversationId);
+        if (activeConv?.agent_id) {
+          // Dynamic Agent — use old messages path
+          await loadMessagesFromServer(activeConversationId, { force: true });
+        } else {
+          // Platform Engineer — use turns path
+          await loadTurnsFromServer(activeConversationId);
+        }
       }
     } catch (error) {
       console.error('[Sidebar] Failed to reload conversations:', error);
@@ -177,7 +185,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           createdAt: new Date(conversation.created_at),
           updatedAt: new Date(conversation.updated_at),
           messages: [],
-          a2aEvents: [],
           sseEvents: [], // SSE events for Dynamic Agents
           agent_id: conversation.agent_id, // Include agent_id in local store
         };

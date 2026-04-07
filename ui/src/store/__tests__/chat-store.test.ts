@@ -5,11 +5,9 @@
  * Unit tests for chat-store.ts — MongoDB sync features
  *
  * Covers:
- * - serializeA2AEvent: strips raw payload, preserves key fields
- * - saveMessagesToServer: upserts all messages every call (API upserts on message_id), handles errors
  * - loadMessagesFromServer: loads from MongoDB, when NOT streaming replaces local state entirely
  * - loadConversationsFromServer: server conversations replace local; messages start empty (filled by loadMessagesFromServer)
- * - setConversationStreaming: triggers auto-save when streaming completes
+ * - setConversationStreaming: marks unviewed when streaming completes (no longer triggers saves)
  * - createConversation: creates on server in MongoDB mode
  * - deleteConversation: deletes on server in MongoDB mode
  */
@@ -37,13 +35,22 @@ jest.mock('@/lib/storage-config', () => ({
   shouldUseLocalStorage: () => (global as any).__mockStorageMode === 'localStorage',
 }));
 
-jest.mock('@/lib/a2a-client', () => ({
-  A2AClient: jest.fn(),
+jest.mock('@/lib/agui/hooks', () => ({
+  streamAGUIEvents: jest.fn().mockReturnValue({
+    abortableClient: { abort: jest.fn() },
+    streamPromise: Promise.resolve(),
+  }),
 }));
 
 jest.mock('@/lib/utils', () => ({
   generateId: () => `test-id-${Math.random().toString(36).slice(2, 9)}`,
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
+}));
+
+jest.mock('@/lib/timeline-manager', () => ({
+  TimelineManager: {
+    buildFromEvents: jest.fn().mockReturnValue([]),
+  },
 }));
 
 // ============================================================================
@@ -128,239 +135,6 @@ describe('chat-store', () => {
     jest.useRealTimers();
   });
 
-  // --------------------------------------------------------------------------
-  // saveMessagesToServer
-  // --------------------------------------------------------------------------
-
-  describe('saveMessagesToServer', () => {
-    it('saves unsaved messages to MongoDB via apiClient.addMessage', async () => {
-      const conv = makeConversation({ id: 'save-test-1' });
-      const userMsg = makeMessage({ id: 'user-1', role: 'user', content: 'What is K8s?', turnId: 'turn-1' });
-      const assistantMsg = makeMessage({ id: 'asst-1', role: 'assistant', content: 'Kubernetes is...', turnId: 'turn-1', isFinal: true });
-      conv.messages = [userMsg, assistantMsg];
-
-      useChatStore.setState({ conversations: [conv] });
-
-      await useChatStore.getState().saveMessagesToServer('save-test-1');
-
-      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(2);
-
-      // Verify user message
-      expect(mockApiClient.addMessage).toHaveBeenCalledWith('save-test-1', expect.objectContaining({
-        message_id: 'user-1',
-        role: 'user',
-        content: 'What is K8s?',
-        metadata: expect.objectContaining({ turn_id: 'turn-1' }),
-      }));
-
-      // Verify assistant message
-      expect(mockApiClient.addMessage).toHaveBeenCalledWith('save-test-1', expect.objectContaining({
-        message_id: 'asst-1',
-        role: 'assistant',
-        content: 'Kubernetes is...',
-        metadata: expect.objectContaining({ turn_id: 'turn-1', is_final: true }),
-      }));
-    });
-
-    it('upserts all messages on every call', async () => {
-      const conv = makeConversation({ id: 'upsert-test' });
-      conv.messages = [
-        makeMessage({ id: 'msg-1', role: 'user', content: 'First' }),
-        makeMessage({ id: 'msg-2', role: 'assistant', content: 'Response', isFinal: true }),
-      ];
-
-      useChatStore.setState({ conversations: [conv] });
-
-      // First save — upserts both messages
-      await useChatStore.getState().saveMessagesToServer('upsert-test');
-      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(2);
-      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-1' }));
-      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-2' }));
-
-      // Second save — upserts ALL messages again (API does upsert on message_id)
-      mockApiClient.addMessage.mockClear();
-      await useChatStore.getState().saveMessagesToServer('upsert-test');
-      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(2);
-      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-1' }));
-      expect(mockApiClient.addMessage).toHaveBeenCalledWith('upsert-test', expect.objectContaining({ message_id: 'msg-2' }));
-    });
-
-    it('serializes A2A events when saving assistant messages', async () => {
-      const event = makeA2AEvent({
-        id: 'evt-tool-1',
-        type: 'tool_start',
-        taskId: 'task-123',
-        sourceAgent: 'argocd-agent',
-      });
-
-      const conv = makeConversation({ id: 'events-test' });
-      const msg = makeMessage({
-        id: 'msg-with-events',
-        role: 'assistant',
-        content: 'Done!',
-        events: [event],
-        isFinal: true,
-      });
-      conv.messages = [msg];
-
-      useChatStore.setState({ conversations: [conv] });
-
-      await useChatStore.getState().saveMessagesToServer('events-test');
-
-      expect(mockApiClient.addMessage).toHaveBeenCalledWith('events-test', expect.objectContaining({
-        a2a_events: [expect.objectContaining({
-          id: 'evt-tool-1',
-          type: 'tool_start',
-          taskId: 'task-123',
-          sourceAgent: 'argocd-agent',
-          displayName: 'Test Event',
-          // raw should NOT be included
-        })],
-      }));
-
-      // Verify raw is excluded
-      const savedEvents = mockApiClient.addMessage.mock.calls[0][1].a2a_events;
-      expect(savedEvents[0]).not.toHaveProperty('raw');
-    });
-
-    it('attaches conversation-level a2aEvents to last assistant message when msg.events is empty', async () => {
-      // This is the real-world scenario: during streaming, events go to conv.a2aEvents
-      // via addA2AEvent() and NOT to individual msg.events via addEventToMessage().
-      // The save must pick up conv.a2aEvents and attach them to the assistant message.
-      const event1 = makeA2AEvent({ id: 'conv-evt-1', type: 'tool_start', displayName: 'GitHub lookup' });
-      const event2 = makeA2AEvent({ id: 'conv-evt-2', type: 'tool_end', displayName: 'GitHub done' });
-
-      const conv = makeConversation({
-        id: 'conv-level-events',
-        a2aEvents: [event1, event2], // Events at conversation level
-      });
-      const userMsg = makeMessage({ id: 'user-1', role: 'user', content: 'show my github profile' });
-      const assistantMsg = makeMessage({
-        id: 'asst-1',
-        role: 'assistant',
-        content: 'Here is your profile...',
-        events: [], // Empty — events are on conv, not on msg
-        isFinal: true,
-      });
-      conv.messages = [userMsg, assistantMsg];
-
-      useChatStore.setState({ conversations: [conv] });
-      await useChatStore.getState().saveMessagesToServer('conv-level-events');
-
-      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(2);
-
-      // User message should NOT have events
-      const userCall = mockApiClient.addMessage.mock.calls.find(
-        (call) => call[1].message_id === 'user-1'
-      );
-      expect(userCall![1].a2a_events).toBeUndefined();
-
-      // Assistant message should have the conversation-level events
-      const assistantCall = mockApiClient.addMessage.mock.calls.find(
-        (call) => call[1].message_id === 'asst-1'
-      );
-      expect(assistantCall![1].a2a_events).toBeDefined();
-      expect(assistantCall![1].a2a_events).toHaveLength(2);
-      expect(assistantCall![1].a2a_events![0]).toEqual(expect.objectContaining({
-        id: 'conv-evt-1',
-        type: 'tool_start',
-        displayName: 'GitHub lookup',
-      }));
-      expect(assistantCall![1].a2a_events![1]).toEqual(expect.objectContaining({
-        id: 'conv-evt-2',
-        type: 'tool_end',
-        displayName: 'GitHub done',
-      }));
-    });
-
-    it('prefers per-message events over conversation-level events', async () => {
-      // If msg.events is populated (unlikely in current code but possible),
-      // it should take priority over conv.a2aEvents.
-      const perMsgEvent = makeA2AEvent({ id: 'per-msg-evt', type: 'tool_start' });
-      const convEvent = makeA2AEvent({ id: 'conv-evt', type: 'tool_end' });
-
-      const conv = makeConversation({
-        id: 'per-msg-priority',
-        a2aEvents: [convEvent],
-      });
-      const assistantMsg = makeMessage({
-        id: 'asst-1',
-        role: 'assistant',
-        content: 'Done',
-        events: [perMsgEvent], // Has its own events
-        isFinal: true,
-      });
-      conv.messages = [assistantMsg];
-
-      useChatStore.setState({ conversations: [conv] });
-      await useChatStore.getState().saveMessagesToServer('per-msg-priority');
-
-      const savedEvents = mockApiClient.addMessage.mock.calls[0][1].a2a_events;
-      expect(savedEvents).toHaveLength(1);
-      expect(savedEvents![0]).toEqual(expect.objectContaining({ id: 'per-msg-evt' }));
-    });
-
-    it('does not attach conv events to user messages even if no assistant message exists', async () => {
-      const convEvent = makeA2AEvent({ id: 'conv-evt', type: 'tool_start' });
-
-      const conv = makeConversation({
-        id: 'only-user-msg',
-        a2aEvents: [convEvent],
-      });
-      const userMsg = makeMessage({ id: 'user-1', role: 'user', content: 'hello' });
-      conv.messages = [userMsg];
-
-      useChatStore.setState({ conversations: [conv] });
-      await useChatStore.getState().saveMessagesToServer('only-user-msg');
-
-      // Events should NOT be attached to user message
-      const savedEvents = mockApiClient.addMessage.mock.calls[0][1].a2a_events;
-      expect(savedEvents).toBeUndefined();
-    });
-
-    it('skips save in localStorage mode', async () => {
-      (global as any).__mockStorageMode = 'localStorage';
-
-      const conv = makeConversation({ id: 'ls-test' });
-      conv.messages = [makeMessage()];
-      useChatStore.setState({ conversations: [conv] });
-
-      await useChatStore.getState().saveMessagesToServer('ls-test');
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
-    });
-
-    it('skips save for empty conversations', async () => {
-      const conv = makeConversation({ id: 'empty-test' });
-      useChatStore.setState({ conversations: [conv] });
-
-      await useChatStore.getState().saveMessagesToServer('empty-test');
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
-    });
-
-    it('skips save for non-existent conversation', async () => {
-      await useChatStore.getState().saveMessagesToServer('non-existent');
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
-    });
-
-    it('continues saving other messages if one fails', async () => {
-      mockApiClient.addMessage
-        .mockRejectedValueOnce(new Error('Network error'))
-        .mockResolvedValueOnce({});
-
-      const conv = makeConversation({ id: 'partial-fail' });
-      conv.messages = [
-        makeMessage({ id: 'fail-msg', role: 'user', content: 'Will fail' }),
-        makeMessage({ id: 'ok-msg', role: 'assistant', content: 'Will succeed' }),
-      ];
-
-      useChatStore.setState({ conversations: [conv] });
-
-      await useChatStore.getState().saveMessagesToServer('partial-fail');
-
-      // Both messages should be attempted
-      expect(mockApiClient.addMessage).toHaveBeenCalledTimes(2);
-    });
-  });
 
   // --------------------------------------------------------------------------
   // loadMessagesFromServer
@@ -1386,11 +1160,11 @@ describe('chat-store', () => {
   });
 
   // --------------------------------------------------------------------------
-  // setConversationStreaming — auto-save trigger
+  // setConversationStreaming — unviewed tracking
   // --------------------------------------------------------------------------
 
-  describe('setConversationStreaming — auto-save', () => {
-    it('triggers saveMessagesToServer when streaming stops', async () => {
+  describe('setConversationStreaming — unviewed tracking', () => {
+    it('does not trigger saveMessagesToServer when streaming stops (server handles persistence)', async () => {
       const conv = makeConversation({ id: 'auto-save-conv' });
       const msg = makeMessage({ id: 'auto-save-msg', content: 'Auto saved' });
       conv.messages = [msg];
@@ -1406,21 +1180,36 @@ describe('chat-store', () => {
 
       expect(useChatStore.getState().isStreaming).toBe(true);
 
-      // Stop streaming (triggers auto-save via setTimeout)
+      // Stop streaming
       useChatStore.getState().setConversationStreaming('auto-save-conv', null);
 
       expect(useChatStore.getState().isStreaming).toBe(false);
 
-      // No save yet (debounced by 500ms)
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
-
-      // Advance timers
-      jest.advanceTimersByTime(600);
-
-      // Wait for the async save to complete
+      // Advance timers — no save should happen
+      jest.advanceTimersByTime(1000);
       await jest.runAllTimersAsync();
 
-      expect(mockApiClient.addMessage).toHaveBeenCalled();
+      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
+    });
+
+    it('marks conversation unviewed when streaming stops and a different conversation is active', () => {
+      const conv1 = makeConversation({ id: 'active-conv' });
+      const conv2 = makeConversation({ id: 'background-conv' });
+      useChatStore.setState({
+        conversations: [conv1, conv2],
+        activeConversationId: 'active-conv',
+      });
+
+      useChatStore.getState().setConversationStreaming('background-conv', {
+        conversationId: 'background-conv',
+        messageId: 'msg-1',
+        client: {} as any,
+      });
+
+      useChatStore.getState().setConversationStreaming('background-conv', null);
+
+      expect(useChatStore.getState().hasUnviewedMessages('background-conv')).toBe(true);
+      expect(useChatStore.getState().hasUnviewedMessages('active-conv')).toBe(false);
     });
 
     it('does not trigger save when streaming starts', () => {
@@ -1435,7 +1224,7 @@ describe('chat-store', () => {
 
       jest.advanceTimersByTime(1000);
 
-      // Should not have called addMessage on start
+      // Should not have called addMessage
       expect(mockApiClient.addMessage).not.toHaveBeenCalled();
     });
   });
@@ -1655,72 +1444,29 @@ describe('chat-store', () => {
       expect(updated2!.a2aEvents).toHaveLength(1);
     });
 
-    it('triggers periodic save after PERIODIC_SAVE_EVENT_THRESHOLD (20) events', async () => {
-      const conv = makeConversation({ id: 'periodic-save-test' });
-      const userMsg = makeMessage({ id: 'msg-ps-user', role: 'user', content: 'hello' });
-      const msg = makeMessage({ id: 'msg-ps', role: 'assistant', content: 'streaming...' });
-      conv.messages = [userMsg, msg];
-
-      useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'periodic-save-test',
-      });
-
-      // Add 19 events — should NOT trigger save yet
-      for (let i = 0; i < 19; i++) {
-        useChatStore.getState().addA2AEvent(
-          makeA2AEvent({ id: `evt-${i}` }),
-          'periodic-save-test'
-        );
-      }
-
-      // Let any async saves settle
-      await jest.runAllTimersAsync();
-      mockApiClient.addMessage.mockClear();
-
-      // Add the 20th event — should trigger periodic save
-      useChatStore.getState().addA2AEvent(
-        makeA2AEvent({ id: 'evt-19-trigger' }),
-        'periodic-save-test'
-      );
-
-      // Wait for async save to complete
-      await jest.runAllTimersAsync();
-
-      // saveMessagesToServer should have been called
-      expect(mockApiClient.addMessage).toHaveBeenCalled();
-    });
-
-    it('resets periodic save counter after reaching threshold', async () => {
-      const conv = makeConversation({ id: 'counter-reset-test' });
-      const msg = makeMessage({ id: 'msg-cr', role: 'assistant', content: 'data' });
+    it('does not trigger periodic saves (server-side persistence handles this)', async () => {
+      // Phase 3: The UI no longer saves to MongoDB. Adding many events should
+      // never trigger saveMessagesToServer / apiClient.addMessage.
+      const conv = makeConversation({ id: 'no-periodic-save' });
+      const msg = makeMessage({ id: 'msg-nps', role: 'assistant', content: 'streaming...' });
       conv.messages = [msg];
 
       useChatStore.setState({
         conversations: [conv],
-        activeConversationId: 'counter-reset-test',
+        activeConversationId: 'no-periodic-save',
       });
 
-      // Add 20 events (triggers first periodic save)
-      for (let i = 0; i < 20; i++) {
+      // Add well over the old periodic-save threshold
+      for (let i = 0; i < 25; i++) {
         useChatStore.getState().addA2AEvent(
-          makeA2AEvent({ id: `evt-a-${i}` }),
-          'counter-reset-test'
+          makeA2AEvent({ id: `evt-${i}` }),
+          'no-periodic-save'
         );
       }
-      await jest.runAllTimersAsync();
-      mockApiClient.addMessage.mockClear();
 
-      // Add 19 more events (should NOT trigger second save — counter was reset)
-      for (let i = 0; i < 19; i++) {
-        useChatStore.getState().addA2AEvent(
-          makeA2AEvent({ id: `evt-b-${i}` }),
-          'counter-reset-test'
-        );
-      }
       await jest.runAllTimersAsync();
 
-      // Should NOT have saved again (only 19 since last reset)
+      // Should never have saved
       expect(mockApiClient.addMessage).not.toHaveBeenCalled();
     });
   });
@@ -1730,7 +1476,7 @@ describe('chat-store', () => {
   // --------------------------------------------------------------------------
 
   describe('cancelConversationRequest', () => {
-    it('saves to MongoDB after cancelling a streaming conversation', async () => {
+    it('does not save to MongoDB after cancelling (server-side persistence handles it)', async () => {
       const conv = makeConversation({ id: 'cancel-save-test' });
       const msg = makeMessage({
         id: 'cancel-msg',
@@ -1765,15 +1511,11 @@ describe('chat-store', () => {
       expect(useChatStore.getState().isStreaming).toBe(false);
       expect(useChatStore.getState().streamingConversations.size).toBe(0);
 
-      // No immediate save (uses setTimeout with 500ms delay)
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
-
-      // Advance past the 500ms save delay
+      // No save should be triggered at any point — server handles persistence
       jest.advanceTimersByTime(600);
       await jest.runAllTimersAsync();
 
-      // Now save should have been triggered
-      expect(mockApiClient.addMessage).toHaveBeenCalled();
+      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
     });
 
     it('marks the streaming message as cancelled with isFinal=true', () => {
@@ -1822,57 +1564,6 @@ describe('chat-store', () => {
       // No save triggered
       jest.advanceTimersByTime(1000);
       expect(mockApiClient.addMessage).not.toHaveBeenCalled();
-    });
-  });
-
-  // --------------------------------------------------------------------------
-  // setConversationStreaming — resets periodic save counter on stream end
-  // --------------------------------------------------------------------------
-
-  describe('setConversationStreaming — periodic save counter reset', () => {
-    it('resets periodic save counter when streaming completes (state=null)', async () => {
-      const conv = makeConversation({ id: 'counter-clear-test' });
-      const msg = makeMessage({ id: 'cc-msg', role: 'assistant', content: 'data' });
-      conv.messages = [msg];
-
-      useChatStore.setState({
-        conversations: [conv],
-        activeConversationId: 'counter-clear-test',
-      });
-
-      // Add 30 events (accumulate counter but don't trigger threshold)
-      for (let i = 0; i < 30; i++) {
-        useChatStore.getState().addA2AEvent(
-          makeA2AEvent({ id: `evt-cc-${i}` }),
-          'counter-clear-test'
-        );
-      }
-
-      // Start streaming
-      useChatStore.getState().setConversationStreaming('counter-clear-test', {
-        conversationId: 'counter-clear-test',
-        messageId: 'cc-msg',
-        client: {} as any,
-      });
-
-      // Stop streaming (resets counter)
-      useChatStore.getState().setConversationStreaming('counter-clear-test', null);
-
-      await jest.runAllTimersAsync();
-      mockApiClient.addMessage.mockClear();
-
-      // Now add 49 more events — should NOT trigger save
-      // (counter was reset to 0 when streaming stopped)
-      for (let i = 0; i < 49; i++) {
-        useChatStore.getState().addA2AEvent(
-          makeA2AEvent({ id: `evt-after-${i}` }),
-          'counter-clear-test'
-        );
-      }
-      await jest.runAllTimersAsync();
-
-      // Save was already called for the stream-end save, but not for periodic threshold
-      // (49 < 50 threshold after reset)
     });
   });
 
@@ -2379,10 +2070,6 @@ describe('chat-store', () => {
   });
 
   // --------------------------------------------------------------------------
-  // beforeunload refresh guard
-  // --------------------------------------------------------------------------
-
-  // --------------------------------------------------------------------------
   // inputRequiredConversations — CRUD
   // --------------------------------------------------------------------------
 
@@ -2552,55 +2239,4 @@ describe('chat-store', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
-  // beforeunload — refresh guard
-  // --------------------------------------------------------------------------
-
-  describe('beforeunload — refresh guard', () => {
-    it('calls preventDefault on beforeunload event when conversations are streaming', () => {
-      useChatStore.setState({
-        streamingConversations: new Map([
-          ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} as any }],
-        ]),
-        isStreaming: true,
-      });
-
-      const event = new Event('beforeunload') as BeforeUnloadEvent;
-      const preventDefaultSpy = jest.spyOn(event, 'preventDefault');
-
-      window.dispatchEvent(event);
-
-      expect(preventDefaultSpy).toHaveBeenCalled();
-    });
-
-    it('sets returnValue when streaming (browser-level confirmation)', () => {
-      useChatStore.setState({
-        streamingConversations: new Map([
-          ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} as any }],
-        ]),
-        isStreaming: true,
-      });
-
-      const event = new Event('beforeunload') as BeforeUnloadEvent;
-      window.dispatchEvent(event);
-
-      // jsdom coerces returnValue to boolean; in real browsers this is the
-      // descriptive string "You have 1 live chat receiving a response..."
-      expect(event.returnValue).toBeTruthy();
-    });
-
-    it('does NOT call preventDefault when no conversations are streaming', () => {
-      useChatStore.setState({
-        streamingConversations: new Map(),
-        isStreaming: false,
-      });
-
-      const event = new Event('beforeunload') as BeforeUnloadEvent;
-      const preventDefaultSpy = jest.spyOn(event, 'preventDefault');
-
-      window.dispatchEvent(event);
-
-      expect(preventDefaultSpy).not.toHaveBeenCalled();
-    });
-  });
 });

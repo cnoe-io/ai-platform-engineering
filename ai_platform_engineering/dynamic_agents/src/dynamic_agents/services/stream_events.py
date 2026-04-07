@@ -2,18 +2,16 @@
 SSE Event Types for Dynamic Agents.
 
 This module handles the transformation of LangGraph stream chunks into
-structured SSE events for the UI. It contains:
+AG-UI events for the UI. It contains:
 
-1. Event type constants
-2. Event builder functions (make_*_event)
-3. LangGraph message helpers (detection/extraction)
-4. Stream transformation (transform_stream_chunk)
-5. Namespace correlation (tasks stream mode handling)
+1. LangGraph message helpers (detection/extraction)
+2. Stream transformation (transform_stream_chunk)
+3. Namespace correlation (tasks stream mode handling)
+4. AG-UI event builders (wrapping the agui emitter module)
 
 To add a new event type:
-1. Add a constant (e.g., MY_EVENT = "my_event")
-2. Add a builder function (make_my_event)
-3. Add detection logic in _handle_messages_chunk or _handle_updates_chunk
+1. Add a builder function using the AG-UI emitter helpers
+2. Add detection logic in _handle_messages_chunk or _handle_updates_chunk
 
 ## Namespace Correlation
 
@@ -29,32 +27,36 @@ with the correlated `tool_call_id` before emitting SSE events.
 
 This correlation is done server-side so all clients (Web UI, Slack, Webex,
 Backstage) receive pre-correlated events without duplicating logic.
+
+## AG-UI Event Format
+
+All events are now standard AG-UI events (Pydantic models) rather than plain
+dicts.  Namespace metadata is carried in CUSTOM events (type="NAMESPACE_CONTEXT")
+so consumers can correlate subagent output with its parent tool invocation.
 """
 
 import logging
-import uuid
 from typing import Any
 
+from ai_platform_engineering.utils.agui import (
+    BaseAGUIEvent,
+    emit_custom,
+    emit_run_error,
+    emit_run_finished,
+    emit_run_started,
+    emit_text_content,
+    emit_text_end,
+    emit_text_start,
+    emit_tool_end,
+    emit_tool_start,
+)
+
 logger = logging.getLogger(__name__)
-
-# ═══════════════════════════════════════════════════════════════
-# Event Type Constants
-# ═══════════════════════════════════════════════════════════════
-
-CONTENT = "content"
-TOOL_START = "tool_start"
-TOOL_END = "tool_end"
-INPUT_REQUIRED = "input_required"
 
 
 # ═══════════════════════════════════════════════════════════════
 # Helper Functions
 # ═══════════════════════════════════════════════════════════════
-
-
-def _make_event_id() -> str:
-    """Generate a unique event ID."""
-    return f"evt-{uuid.uuid4().hex[:12]}"
 
 
 def _truncate(value: str, max_len: int = 100) -> str:
@@ -188,19 +190,75 @@ def _correlate_namespace(
 
 
 # ═══════════════════════════════════════════════════════════════
-# Event Builder Functions
+# AG-UI Event Builders
 # ═══════════════════════════════════════════════════════════════
 
 
-def make_content_event(content: str, namespace: tuple[str, ...] = ()) -> dict[str, Any]:
+def make_run_started_event(
+    run_id: str | None = None,
+    thread_id: str | None = None,
+) -> BaseAGUIEvent:
+    """Emit a RUN_STARTED event at the beginning of a stream.
+
+    Args:
+        run_id: Optional run identifier (auto-generated if not provided)
+        thread_id: Optional thread/session identifier
+    """
+    return emit_run_started(run_id=run_id, thread_id=thread_id)
+
+
+def make_run_finished_event(run_id: str, thread_id: str) -> BaseAGUIEvent:
+    """Emit a RUN_FINISHED event at the end of a successful stream.
+
+    Args:
+        run_id: Run identifier (must match the RUN_STARTED event)
+        thread_id: Thread/session identifier
+    """
+    return emit_run_finished(run_id=run_id, thread_id=thread_id)
+
+
+def make_run_error_event(message: str, code: str | None = None) -> BaseAGUIEvent:
+    """Emit a RUN_ERROR event when an unrecoverable error terminates the stream.
+
+    Args:
+        message: Human-readable description of the error
+        code: Optional machine-readable error code
+    """
+    return emit_run_error(message=message, code=code)
+
+
+def make_text_start_event(message_id: str | None = None) -> BaseAGUIEvent:
+    """Emit a TEXT_MESSAGE_START event before streaming text content.
+
+    Args:
+        message_id: Optional message identifier (auto-generated if not provided)
+    """
+    return emit_text_start(message_id=message_id)
+
+
+def make_content_event(
+    content: str,
+    message_id: str,
+) -> BaseAGUIEvent:
     """LLM token streaming content.
+
+    Emits a single TEXT_MESSAGE_CONTENT event.  Namespace context is sent
+    once at TEXT_MESSAGE_START time (see _handle_messages_chunk).
 
     Args:
         content: The content text
-        namespace: LangGraph namespace tuple. Empty = parent agent.
+        message_id: The message identifier to attach content to
     """
-    # No debug log for content - too noisy
-    return {"type": CONTENT, "data": content, "namespace": list(namespace)}
+    return emit_text_content(message_id=message_id, delta=content)
+
+
+def make_text_end_event(message_id: str) -> BaseAGUIEvent:
+    """Emit a TEXT_MESSAGE_END event after all content chunks have been sent.
+
+    Args:
+        message_id: The message identifier (must match the TEXT_MESSAGE_START event)
+    """
+    return emit_text_end(message_id=message_id)
 
 
 def make_tool_start_event(
@@ -208,8 +266,11 @@ def make_tool_start_event(
     tool_call_id: str,
     args: dict[str, Any],
     namespace: tuple[str, ...] = (),
-) -> dict[str, Any]:
+) -> list[BaseAGUIEvent]:
     """Tool call started.
+
+    Emits a TOOL_CALL_START event carrying the tool name and a CUSTOM
+    TOOL_ARGS event with the (truncated) arguments.
 
     Args:
         tool_name: Name of the tool being called
@@ -217,19 +278,34 @@ def make_tool_start_event(
         args: Tool arguments (will be truncated)
         namespace: LangGraph namespace tuple. Empty = parent agent.
     """
-    logger.debug(f"[sse:{TOOL_START}] {tool_name} id={tool_call_id[:8]}... ns={namespace}")
-    return {
-        "type": TOOL_START,
-        "data": {
-            "tool_name": tool_name,
-            "tool_call_id": tool_call_id,
-            "args": _truncate_args(args),
-        },
-        "namespace": list(namespace),
-    }
+    logger.debug(f"[sse:TOOL_CALL_START] {tool_name} id={tool_call_id[:8]}... ns={namespace}")
+    events: list[BaseAGUIEvent] = []
+    if namespace:
+        events.append(
+            emit_custom(
+                name="NAMESPACE_CONTEXT",
+                value={"namespace": list(namespace)},
+            )
+        )
+    events.append(emit_tool_start(tool_call_id=tool_call_id, tool_call_name=tool_name))
+    # Emit tool args as a CUSTOM event so clients can display them without
+    # streaming the full JSON delta (args are available all at once here)
+    events.append(
+        emit_custom(
+            name="TOOL_ARGS",
+            value={
+                "tool_call_id": tool_call_id,
+                "args": _truncate_args(args),
+            },
+        )
+    )
+    return events
 
 
-def make_tool_end_event(tool_call_id: str, namespace: tuple[str, ...] = ()) -> dict[str, Any]:
+def make_tool_end_event(
+    tool_call_id: str,
+    namespace: tuple[str, ...] = (),
+) -> list[BaseAGUIEvent]:
     """Tool call completed.
 
     Kept minimal - UI tracks state from tool_start and matches by tool_call_id.
@@ -238,14 +314,17 @@ def make_tool_end_event(tool_call_id: str, namespace: tuple[str, ...] = ()) -> d
         tool_call_id: The tool call ID to match against tool_start
         namespace: LangGraph namespace tuple. Empty = parent agent.
     """
-    logger.debug(f"[sse:{TOOL_END}] id={tool_call_id[:8]}... ns={namespace}")
-    return {
-        "type": TOOL_END,
-        "data": {
-            "tool_call_id": tool_call_id,
-        },
-        "namespace": list(namespace),
-    }
+    logger.debug(f"[sse:TOOL_CALL_END] id={tool_call_id[:8]}... ns={namespace}")
+    events: list[BaseAGUIEvent] = []
+    if namespace:
+        events.append(
+            emit_custom(
+                name="NAMESPACE_CONTEXT",
+                value={"namespace": list(namespace)},
+            )
+        )
+    events.append(emit_tool_end(tool_call_id=tool_call_id))
+    return events
 
 
 def make_input_required_event(
@@ -254,11 +333,13 @@ def make_input_required_event(
     fields: list[dict[str, Any]],
     agent: str,
     namespace: tuple[str, ...] = (),
-) -> dict[str, Any]:
+) -> BaseAGUIEvent:
     """Input required from user (HITL form).
 
     Sent when the agent calls request_user_input and execution is paused.
     The UI should render a form and call resume-stream with the result.
+
+    Emits a CUSTOM event with name="INPUT_REQUIRED" containing all form metadata.
 
     Args:
         interrupt_id: Unique ID for this interrupt (used to resume).
@@ -267,21 +348,21 @@ def make_input_required_event(
         agent: The agent name that requested input.
         namespace: LangGraph namespace tuple. Empty = parent agent.
     """
-    logger.debug(f"[sse:{INPUT_REQUIRED}] agent={agent} fields={len(fields)} ns={namespace}")
-    return {
-        "type": INPUT_REQUIRED,
-        "data": {
+    logger.debug(f"[sse:INPUT_REQUIRED] agent={agent} fields={len(fields)} ns={namespace}")
+    return emit_custom(
+        name="INPUT_REQUIRED",
+        value={
             "interrupt_id": interrupt_id,
             "prompt": prompt,
             "fields": fields,
             "agent": agent,
+            "namespace": list(namespace),
         },
-        "namespace": list(namespace),
-    }
+    )
 
 
 # ═══════════════════════════════════════════════════════════════
-# Stream Transformation (LangGraph → SSE)
+# Stream Transformation (LangGraph → AG-UI Events)
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -289,8 +370,9 @@ def transform_stream_chunk(
     chunk: tuple,
     accumulated_content: list[str],
     namespace_mapping: dict[str, str],
-) -> list[dict[str, Any]]:
-    """Transform a LangGraph astream() chunk into SSE events.
+    active_message_ids: dict[str, str | None],
+) -> list[BaseAGUIEvent]:
+    """Transform a LangGraph astream() chunk into AG-UI events.
 
     Handles the multi-mode streaming format from astream() with subgraphs=True.
     Chunks come as tuples: (namespace, mode, data) or (mode, data).
@@ -304,9 +386,12 @@ def transform_stream_chunk(
         chunk: Raw chunk from graph.astream()
         accumulated_content: List to accumulate content tokens (mutated)
         namespace_mapping: Mapping from LangGraph namespace to tool_call_id (mutated by tasks mode)
+        active_message_ids: Mutable dict tracking the active TEXT_MESSAGE message_id
+            per namespace key.  Key "" is used for the parent agent; subagent
+            namespaces use their correlated tool_call_id as key.
 
     Returns:
-        List of SSE event dicts, each containing a 'namespace' field
+        List of AG-UI event models
     """
     # Parse chunk format: (namespace, mode, data) or (mode, data)
     if len(chunk) == 3:
@@ -332,27 +417,40 @@ def transform_stream_chunk(
 
     # Process events with correlated namespace
     if mode == "messages":
-        return _handle_messages_chunk(data, accumulated_content, correlated_namespace)
+        return _handle_messages_chunk(data, accumulated_content, correlated_namespace, active_message_ids)
     elif mode == "updates":
-        return _handle_updates_chunk(data, correlated_namespace)
+        return _handle_updates_chunk(data, correlated_namespace, active_message_ids)
 
     return []
+
+
+def _namespace_key(namespace: tuple[str, ...]) -> str:
+    """Return a stable dict key for a namespace tuple."""
+    return namespace[0] if namespace else ""
 
 
 def _handle_messages_chunk(
     data: Any,
     accumulated_content: list[str],
     namespace: tuple[str, ...],
-) -> list[dict[str, Any]]:
-    """Handle 'messages' mode chunks → content events.
+    active_message_ids: dict[str, str | None],
+) -> list[BaseAGUIEvent]:
+    """Handle 'messages' mode chunks → AG-UI text content events.
+
+    Emits TEXT_MESSAGE_START on the first content chunk for each namespace,
+    TEXT_MESSAGE_CONTENT for each subsequent token, and TEXT_MESSAGE_END
+    when the message ends.  In streaming mode the end signal is not directly
+    available here, so callers are expected to emit TEXT_MESSAGE_END once the
+    stream loop finishes (see agent_runtime.py).
 
     Args:
         data: The data portion of the chunk (message, metadata) tuple
         accumulated_content: List to accumulate content tokens (mutated)
         namespace: LangGraph namespace tuple
+        active_message_ids: Mutable dict tracking active message_id per namespace key
 
     Returns:
-        List of content events (0 or 1 items)
+        List of AG-UI events (0 or more items)
     """
     if not isinstance(data, tuple) or len(data) != 2:
         return []
@@ -370,30 +468,63 @@ def _handle_messages_chunk(
         return []
 
     content = _extract_content(msg_chunk)
-    if content:
-        accumulated_content.append(content)
-        return [make_content_event(content, namespace)]
+    if not content:
+        return []
 
-    return []
+    accumulated_content.append(content)
+
+    ns_key = _namespace_key(namespace)
+    events: list[BaseAGUIEvent] = []
+
+    # Emit TEXT_MESSAGE_START the first time we see content for this namespace
+    if active_message_ids.get(ns_key) is None:
+        start_event = make_text_start_event()
+        # Retrieve the auto-generated message_id from the emitted event
+        message_id: str = start_event.message_id  # type: ignore[attr-defined]
+        active_message_ids[ns_key] = message_id
+        if namespace:
+            events.append(
+                emit_custom(
+                    name="NAMESPACE_CONTEXT",
+                    value={"namespace": list(namespace)},
+                )
+            )
+        events.append(start_event)
+
+    message_id = active_message_ids[ns_key]  # type: ignore[assignment]
+    events.append(make_content_event(content, message_id=message_id))
+    return events
 
 
 def _handle_updates_chunk(
     data: Any,
     namespace: tuple[str, ...],
-) -> list[dict[str, Any]]:
-    """Handle 'updates' mode chunks → tool events.
+    active_message_ids: dict[str, str | None],
+) -> list[BaseAGUIEvent]:
+    """Handle 'updates' mode chunks → AG-UI tool events.
+
+    Also closes any open TEXT_MESSAGE for this namespace when an updates chunk
+    arrives (tool invocations interrupt the text stream).
 
     Args:
         data: The data portion of the chunk (dict of node updates)
         namespace: LangGraph namespace tuple
+        active_message_ids: Mutable dict tracking active message_id per namespace key
 
     Returns:
-        List of SSE events
+        List of AG-UI events
     """
-    results: list[dict[str, Any]] = []
+    results: list[BaseAGUIEvent] = []
 
     if not isinstance(data, dict):
         return results
+
+    ns_key = _namespace_key(namespace)
+
+    # Close any open text message for this namespace before tool events
+    if active_message_ids.get(ns_key) is not None:
+        results.append(make_text_end_event(active_message_ids[ns_key]))  # type: ignore[arg-type]
+        active_message_ids[ns_key] = None
 
     for _node_name, node_data in data.items():
         if not isinstance(node_data, dict):
@@ -413,11 +544,11 @@ def _handle_updates_chunk(
                     tool_call_id = tc_info["id"]
                     args = tc_info["args"]
 
-                    results.append(make_tool_start_event(tool_name, tool_call_id, args, namespace))
+                    results.extend(make_tool_start_event(tool_name, tool_call_id, args, namespace))
 
             # Handle ToolMessage (tool results)
             tool_call_id = getattr(msg, "tool_call_id", None)
             if tool_call_id:
-                results.append(make_tool_end_event(tool_call_id, namespace))
+                results.extend(make_tool_end_event(tool_call_id, namespace))
 
     return results

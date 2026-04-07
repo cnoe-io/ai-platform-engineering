@@ -337,10 +337,10 @@ def format_form_submission_response(
 
 
 class HITLCallbackHandler:
-    """Handles HITL form callbacks and submits responses back to CAIPE."""
+    """Handles HITL form callbacks and submits responses back to CAIPE via SSE."""
 
-    def __init__(self, a2a_client, session_manager=None):
-        self.a2a_client = a2a_client
+    def __init__(self, sse_client, session_manager=None):
+        self.sse_client = sse_client
         self.session_manager = session_manager
 
     def handle_interaction(self, payload: Dict[str, Any], slack_client) -> Optional[Dict[str, Any]]:
@@ -390,10 +390,18 @@ class HITLCallbackHandler:
             )
 
             if context_id:
-                for event in self.a2a_client.send_message_stream(
-                    message_text=response_message,
-                    context_id=context_id,
-                ):
+                try:
+                    from ..sse_client import ChatRequest
+                except ImportError:
+                    from sse_client import ChatRequest  # type: ignore[no-redef]
+
+                request = ChatRequest(
+                    message=response_message,
+                    conversation_id=context_id,
+                    source="slack",
+                )
+                # Consume the stream to submit the response; the result is not displayed
+                for _ in self.sse_client.stream_chat(request):
                     pass
 
             return {"response_action": "clear"}

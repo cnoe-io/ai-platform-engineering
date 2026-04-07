@@ -9,24 +9,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.rag_prompts import g
 import logging
 logger = logging.getLogger(__name__)
 
-# [FINAL ANSWER] marker section - only included when structured response is disabled
-# This tells the LLM to use the marker-based approach for final answers
-FINAL_ANSWER_MARKER_SECTION = """
-**OUTPUT FORMAT - MANDATORY [FINAL ANSWER] Marker:**
-- EVERY response to the user MUST start with `[FINAL ANSWER]` on its own line
-- This marker separates your internal thinking/planning from the user-facing answer
-- Content BEFORE `[FINAL ANSWER]` = hidden (thinking, tool calls, search messages)
-- Content AFTER `[FINAL ANSWER]` = shown to user (the actual answer)
-- Example format:
-  ```
-  I'll search the knowledge base...
-  🔍 search...
-  [FINAL ANSWER]
-  ## Your Actual Answer Here
-  The information you requested is...
-  ```
-- NEVER include "I'll search...", "Let me...", "🔍 search..." AFTER the marker
-"""
 
 # ============================================================================
 # Load YAML config
@@ -163,20 +145,11 @@ def generate_system_prompt(agents: Dict[str, Any], rag_config: Optional[Dict[str
   logger.debug(f"System Prompt Template: {yaml_template}")
   logger.debug(f"Tool Instructions: {tool_instructions_str}")
 
-  # Conditionally include [FINAL ANSWER] marker section based on structured response mode
-  # When structured response is enabled, we use the ResponseFormat tool instead of markers
-  final_answer_instructions = "" if use_structured_response else FINAL_ANSWER_MARKER_SECTION
-
-  if use_structured_response:
-    logger.info("Structured response mode enabled - excluding [FINAL ANSWER] marker section from prompt")
-  else:
-    logger.info("Unstructured response mode - including [FINAL ANSWER] marker section in prompt")
-
   if yaml_template:
       return yaml_template.format(
         rag_instructions=rag_instructions,
         tool_instructions=tool_instructions_str,
-        final_answer_instructions=final_answer_instructions
+        final_answer_instructions=""  # Kept for template compatibility, always empty
       )
   else:
       return f"""
@@ -185,8 +158,6 @@ You are an AI Platform Engineer, a multi-agent system designed to manage operati
 LLM Instructions:
 - Only respond to requests related to the integrated tools. Always call the appropriate agent or tool.
 - When responding, use markdown format. Make sure all URLs are presented as clickable links.
-
-{final_answer_instructions}
 
 {tool_instructions_str}
 """

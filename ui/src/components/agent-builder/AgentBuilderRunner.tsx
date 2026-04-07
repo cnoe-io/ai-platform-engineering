@@ -38,7 +38,7 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
 import type { AgentSkill } from "@/types/agent-skill";
-import { A2ASDKClient, type ParsedA2AEvent } from "@/lib/a2a-sdk-client";
+import { SSEClient, type SSEEvent } from "@/lib/sse-streaming-client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useWorkflowRunStore } from "@/store/workflow-run-store";
@@ -739,8 +739,8 @@ export function AgentBuilderRunner({
   // Router for navigation
   const router = useRouter();
 
-  // A2A client ref
-  const clientRef = useRef<A2ASDKClient | null>(null);
+  // SSE client ref
+  const clientRef = useRef<SSEClient | null>(null);
   const abortedRef = useRef(false);
   const hasAutoStarted = useRef(false);
   
@@ -769,9 +769,6 @@ export function AgentBuilderRunner({
   useEffect(() => {
     finalResultRef.current = finalResult;
   }, [finalResult]);
-
-  // Get A2A endpoint from config (same as ChatPanel)
-  const endpoint = getConfig('caipeUrl');
 
   /**
    * Handle copy to clipboard
@@ -838,42 +835,34 @@ export function AgentBuilderRunner({
   );
 
   /**
-   * Handle A2A streaming events
+   * Handle SSE streaming events
    */
   const handleEvent = useCallback(
-    async (event: ParsedA2AEvent) => {
-      const artifactName = event.artifactName || "";
-      const content = event.displayContent || "";
+    async (event: SSEEvent) => {
+      const content = event.text || event.description || event.message || "";
 
-      // Handle execution plan updates
-      if (
-        artifactName === "execution_plan_update" ||
-        artifactName === "execution_plan_status_update"
-      ) {
-        const parsedSteps = parseExecutionPlan(content);
+      // Handle plan updates
+      if (event.type === "plan_update" && event.steps) {
+        const parsedSteps = event.steps.map((s, i) => ({
+          id: s.id || `step-${i}`,
+          agent: s.agent || "Agent",
+          description: s.description,
+          status: s.status as ExecutionStep["status"],
+          order: i,
+        }));
         if (parsedSteps.length > 0) {
           setSteps(parsedSteps);
-          // Check if any step is in progress
-          const hasInProgress = parsedSteps.some(
-            (s) => s.status === "in_progress"
-          );
+          const hasInProgress = parsedSteps.some((s) => s.status === "in_progress");
           setIsThinking(hasInProgress);
         }
         return;
       }
 
       // Handle tool notifications
-      if (artifactName === "tool_notification_start") {
-        // Extract tool name from content (for identification)
-        const toolMatch = content.match(
-          /(?:Calling|Tool)\s+(?:Agent\s+)?(\w+)/i
-        );
-        const toolName = toolMatch ? toolMatch[1] : "tool";
+      if (event.type === "tool_start") {
+        const toolName = event.tool || "tool";
         const toolId = `tool-${Date.now()}`;
-
-        // Use the full content as description (already includes emojis and details)
-        // Example: "🔧 Fetching applications..."
-        const description = content.trim() || `Calling ${toolName}`;
+        const description = event.description || `Calling ${toolName}`;
 
         setToolCalls((prev) => [
           ...prev,
@@ -889,8 +878,7 @@ export function AgentBuilderRunner({
         return;
       }
 
-      if (artifactName === "tool_notification_end") {
-        // Mark most recent running tool as completed
+      if (event.type === "tool_end") {
         setToolCalls((prev) => {
           const updated = [...prev];
           const runningIdx = updated.findIndex((t) => t.status === "running");
@@ -902,88 +890,65 @@ export function AgentBuilderRunner({
         return;
       }
 
-      // Handle structured user input request (from request_user_input tool)
-      if (event.requireUserInput && event.metadata?.input_fields) {
-        console.log("[AgentBuilderRunner] 📝 Received structured user input request");
-        const fields = event.metadata.input_fields;
-        
-        // Convert backend field format to DetectedInputField format
-        const convertedFields: DetectedInputField[] = fields.map((f) => ({
-          name: f.field_name,
-          label: f.field_label || f.field_name,
-          description: f.field_description,
-          type: (f.field_type === "select" ? "select" : 
-                 f.field_type === "boolean" ? "boolean" : "text") as "text" | "select" | "boolean",
-          options: f.field_values,
+      // Handle structured user input request (HITL)
+      if (event.type === "input_required" && event.fields && event.fields.length > 0) {
+        console.log("[AgentBuilderRunner] 📝 Received user input request");
+
+        const convertedFields: DetectedInputField[] = event.fields.map((f) => ({
+          name: f.name,
+          label: f.label || f.name,
+          description: undefined,
+          type: "text" as const,
+          options: undefined,
           required: f.required ?? true,
         }));
-        
+
         setStructuredInputFields(convertedFields);
-        setStructuredInputTitle(event.metadata.input_title || "User Input Required");
-        setFinalResult(content); // Show the description as content
+        setStructuredInputTitle("User Input Required");
         setStatus("completed"); // Pause for user input
         setIsThinking(false);
         return;
       }
 
-      // Handle final result
-      if (artifactName === "final_result" || artifactName === "partial_result") {
-        if (content) {
-          setFinalResult(content);
+      // Handle stream completion — use accumulated streamingContent as final result
+      if (event.type === "done") {
+        const finalContent = streamingContentRef.current;
+        if (finalContent) {
+          setFinalResult(finalContent);
           setStatus("completed");
           setIsThinking(false);
-          
-          // Mark all remaining tool calls as completed when we get final result
-          setToolCalls((prev) => {
-            const updated = prev.map(tool => 
-              tool.status === "running" 
-                ? { ...tool, status: "completed" as const }
-                : tool
-            );
-            const runningCount = prev.filter(t => t.status === "running").length;
-            if (runningCount > 0) {
-              console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final_result received)`);
-            }
-            return updated;
-          });
-          
-          // Save execution artifacts to MongoDB immediately
-          // (Need to use refs to get current state values to avoid closure issues)
+
+          setToolCalls((prev) =>
+            prev.map(tool =>
+              tool.status === "running" ? { ...tool, status: "completed" as const } : tool
+            )
+          );
+
           const saveExecutionArtifacts = async () => {
             if (!runIdRef.current || !startTimeRef.current) {
               console.warn("[AgentBuilderRunner] ⚠️ No runId or startTime available to save final result");
               return;
             }
-            
+
             setIsSavingWorkflow(true);
-            
+
             try {
               const endTime = new Date();
-              
-              // Use refs to get current state (avoid closure issues)
               const currentSteps = stepsRef.current;
               const currentToolCalls = toolCallsRef.current;
               const currentStreamingContent = streamingContentRef.current;
-              
-              // Get current state values - need to compute completed tools synchronously
-              const finalToolCalls = currentToolCalls.map(tool => 
-                tool.status === "running" 
+
+              const finalToolCalls = currentToolCalls.map(tool =>
+                tool.status === "running"
                   ? { ...tool, status: "completed" as const }
                   : tool
               );
-              
-              console.log(`[AgentBuilderRunner] 💾 Saving execution artifacts for run ${runIdRef.current}`, {
-                stepsCount: currentSteps.length,
-                toolCallsCount: finalToolCalls.length,
-                contentLength: content.length
-              });
-              
-              // CRITICAL: Wait for save to complete before proceeding
+
               await updateRun(runIdRef.current, {
                 status: "completed",
                 completed_at: endTime,
                 duration_ms: endTime.getTime() - startTimeRef.current.getTime(),
-                result_summary: content,
+                result_summary: finalContent,
                 steps_completed: currentSteps.filter(s => s.status === "completed").length,
                 steps_total: currentSteps.length,
                 tools_called: finalToolCalls.map(t => t.tool),
@@ -1006,47 +971,25 @@ export function AgentBuilderRunner({
                   streaming_content: currentStreamingContent,
                 },
               });
-              
-              console.log(`[AgentBuilderRunner] ✅ Successfully saved execution artifacts for run ${runIdRef.current}`);
-              
-              // Mark as saved so we don't duplicate on stream end
+
               workflowSavedRef.current = true;
             } catch (error) {
               console.error("[AgentBuilderRunner] ❌ Failed to save execution artifacts:", error);
-              console.error("[AgentBuilderRunner] Error details:", {
-                runId: runIdRef.current,
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined
-              });
-              
-              // Show error to user
               setError(`Failed to save workflow: ${error instanceof Error ? error.message : String(error)}`);
             } finally {
               setIsSavingWorkflow(false);
             }
           };
-          
-          // IMPORTANT: Await the save to ensure it completes
+
           await saveExecutionArtifacts();
-          
-          onComplete?.(content);
+          onComplete?.(finalContent);
         }
         return;
       }
 
       // Accumulate streaming content for display
-      if (
-        event.type === "message" ||
-        (event.type === "artifact" &&
-          !["tool_notification_start", "tool_notification_end"].includes(
-            artifactName
-          ))
-      ) {
-        if (content) {
-          setStreamingContent((prev) =>
-            event.shouldAppend === false ? content : prev + content
-          );
-        }
+      if (event.type === "content" && content) {
+        setStreamingContent((prev) => prev + content);
       }
     },
     [parseExecutionPlan, onComplete, steps, toolCalls, streamingContent, updateRun]
@@ -1094,13 +1037,6 @@ export function AgentBuilderRunner({
 
     // Create A2A client
     // Include user email so agents know who is making the request
-    const client = new A2ASDKClient({
-      endpoint,
-      accessToken,
-      userEmail: session?.user?.email ?? undefined,
-    });
-    clientRef.current = client;
-
     // Build the prompt:
     // - For quick-start workflows, use the actual task prompt
     // - For multi-step workflows, use the workflow title/description
@@ -1115,41 +1051,31 @@ export function AgentBuilderRunner({
 
     console.log(`[AgentBuilderRunner] Starting workflow: "${prompt.substring(0, 100)}..."`);
 
+    // Create SSE client
+    const client = new SSEClient({
+      endpoint: "/api/chat/stream",
+      accessToken,
+      onEvent: (event) => {
+        if (!abortedRef.current) {
+          handleEvent(event);
+        }
+      },
+      onError: (err) => {
+        if (!abortedRef.current) {
+          setError(err.message || "Workflow execution failed");
+          setStatus("failed");
+          setIsThinking(false);
+        }
+      },
+    });
+    clientRef.current = client;
+
     try {
-      // Stream events from supervisor
-      for await (const event of client.sendMessageStream(prompt)) {
-        if (abortedRef.current) {
-          console.log("[AgentBuilderRunner] Workflow aborted");
-          break;
-        }
-
-        await handleEvent(event);
-
-        // Check for completion
-        if (event.type === "status" && event.isFinal) {
-          console.log("[AgentBuilderRunner] Workflow complete (final status)");
-          if (!finalResult) {
-            // If no final result yet, mark as completed with streaming content
-            setStatus("completed");
-            setIsThinking(false);
-            
-            // Mark all remaining tool calls as completed when we get final status
-            setToolCalls((prev) => {
-              const updated = prev.map(tool => 
-                tool.status === "running" 
-                  ? { ...tool, status: "completed" as const }
-                  : tool
-              );
-              const runningCount = prev.filter(t => t.status === "running").length;
-              if (runningCount > 0) {
-                console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed (final status received)`);
-              }
-              return updated;
-            });
-          }
-          break;
-        }
-      }
+      await client.sendMessage({
+        message: prompt,
+        user_email: session?.user?.email ?? undefined,
+        source: "web",
+      });
 
       // Finalize
       if (!abortedRef.current) {
@@ -1157,19 +1083,11 @@ export function AgentBuilderRunner({
         setIsThinking(false);
 
         // Mark all remaining tool calls as completed
-        // (some tools may not have sent explicit end notifications)
-        setToolCalls((prev) => {
-          const updated = prev.map(tool => 
-            tool.status === "running" 
-              ? { ...tool, status: "completed" as const }
-              : tool
-          );
-          const runningCount = prev.filter(t => t.status === "running").length;
-          if (runningCount > 0) {
-            console.log(`[AgentBuilderRunner] ✅ Marking ${runningCount} remaining tool(s) as completed`);
-          }
-          return updated;
-        });
+        setToolCalls((prev) =>
+          prev.map(tool =>
+            tool.status === "running" ? { ...tool, status: "completed" as const } : tool
+          )
+        );
 
         // Update workflow run as completed (only if not already saved by final_result handler)
         if (runId && !workflowSavedRef.current) {
@@ -1297,7 +1215,7 @@ export function AgentBuilderRunner({
     } finally {
       clientRef.current = null;
     }
-  }, [config, endpoint, accessToken, handleEvent, finalResult, status, steps, toolCalls, streamingContent, createRun, updateRun]);
+  }, [config, accessToken, handleEvent, finalResult, status, steps, toolCalls, streamingContent, createRun, updateRun]);
 
   /**
    * Stop workflow execution
@@ -1480,34 +1398,32 @@ export function AgentBuilderRunner({
     setIsThinking(true);
     abortedRef.current = false;
     
-    // Create A2A client
-    // Include user email so agents know who is making the request
-    const client = new A2ASDKClient({
-      endpoint,
+    // Create SSE client for user input submission
+    const client = new SSEClient({
+      endpoint: "/api/chat/stream",
       accessToken,
-      userEmail: session?.user?.email ?? undefined,
+      onEvent: (event) => {
+        if (!abortedRef.current) {
+          handleEvent(event);
+        }
+      },
+      onError: (err) => {
+        if (!abortedRef.current) {
+          setError(err.message || "Failed to submit input");
+          setStatus("failed");
+          setIsThinking(false);
+        }
+      },
     });
     clientRef.current = client;
-    
+
     try {
-      // Send the user's input as a follow-up message
-      for await (const event of client.sendMessageStream(formattedResponse)) {
-        if (abortedRef.current) {
-          console.log("[AgentBuilderRunner] Workflow aborted");
-          break;
-        }
-        
-        await handleEvent(event);
-        
-        // Check for completion
-        if (event.type === "status" && event.isFinal) {
-          console.log("[AgentBuilderRunner] Workflow complete (final status)");
-          setStatus("completed");
-          setIsThinking(false);
-          break;
-        }
-      }
-      
+      await client.sendMessage({
+        message: formattedResponse,
+        user_email: session?.user?.email ?? undefined,
+        source: "web",
+      });
+
       // Finalize
       if (!abortedRef.current && status !== "completed") {
         setStatus("completed");
@@ -1524,7 +1440,7 @@ export function AgentBuilderRunner({
       clientRef.current = null;
       setIsSubmittingInput(false);
     }
-  }, [endpoint, accessToken, handleEvent, status]);
+  }, [accessToken, handleEvent, status]);
 
   // Get current active step
   const activeStepIndex = steps.findIndex((s) => s.status === "in_progress");

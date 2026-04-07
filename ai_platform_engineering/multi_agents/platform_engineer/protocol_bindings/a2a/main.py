@@ -156,9 +156,39 @@ app = a2a_server.build()
 ################################################################################
 from fastapi import FastAPI as _FastAPI
 from ai_platform_engineering.skills_middleware.router import router as _skills_router
+from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.turns_routes import (
+    router as _turns_router,
+)
+
+# AG-UI LangGraph integration
+from ag_ui_langgraph import add_langgraph_fastapi_endpoint
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import AIPlatformEngineerMAS
 
 _skills_api = _FastAPI()
 _skills_api.include_router(_skills_router)
+_skills_api.include_router(_turns_router)
+
+
+# ---------------------------------------------------------------------------
+# AG-UI / SSE streaming endpoint using official ag-ui-langgraph adapter
+# ---------------------------------------------------------------------------
+# Create the MAS instance and wrap the LangGraph in AG-UI LangGraphAgent
+_mas_instance = AIPlatformEngineerMAS()
+_langgraph = _mas_instance.get_graph()
+
+from ai_platform_engineering.multi_agents.platform_engineer.agui_persistence import PersistedLangGraphAgent
+
+_agui_agent = PersistedLangGraphAgent(
+    name="platform-engineer",
+    graph=_langgraph,
+    description="AI Platform Engineer - DevOps assistant for platform engineering tasks",
+)
+
+# Add the AG-UI endpoint at /chat/stream
+add_langgraph_fastapi_endpoint(_skills_api, _agui_agent, path="/chat/stream")
+
+logger.info("[AG-UI] Added /chat/stream endpoint using ag-ui-langgraph adapter")
+
 app.mount("/", _skills_api)
 
 ################################################################################

@@ -49,6 +49,7 @@ const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
+const mockLoadTurnsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn((_id: string) => false)
 const mockHasUnviewedMessages = jest.fn((_id: string) => false)
 const mockIsConversationInputRequired = jest.fn((_id: string) => false)
@@ -68,6 +69,7 @@ jest.mock('@/store/chat-store', () => {
       deleteConversation: mockDeleteConversation,
       loadConversationsFromServer: mockLoadConversationsFromServer,
       loadMessagesFromServer: mockLoadMessagesFromServer,
+      loadTurnsFromServer: mockLoadTurnsFromServer,
       isConversationStreaming: mockIsConversationStreaming,
       hasUnviewedMessages: mockHasUnviewedMessages,
       isConversationInputRequired: mockIsConversationInputRequired,
@@ -168,7 +170,6 @@ function makeConv(id: string, title: string, overrides: any = {}) {
     createdAt: new Date(),
     updatedAt: new Date(),
     messages: [],
-    a2aEvents: [],
     sseEvents: [],
     ...overrides,
   }

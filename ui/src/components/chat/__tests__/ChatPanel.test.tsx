@@ -60,14 +60,13 @@ jest.mock('@/store/chat-store', () => ({
     addMessage: jest.fn(),
     updateMessage: jest.fn(),
     appendToMessage: jest.fn(),
-    addEventToMessage: jest.fn(),
-    addA2AEvent: jest.fn(),
-    clearA2AEvents: jest.fn(),
     setConversationStreaming: jest.fn(),
     isConversationStreaming: mockIsConversationStreaming,
     cancelConversationRequest: jest.fn(),
     updateMessageFeedback: jest.fn(),
     consumePendingMessage: jest.fn(() => null),
+    sendMessage: jest.fn(),
+    updateConversationTitle: jest.fn(),
   })),
 }))
 
@@ -82,12 +81,6 @@ jest.mock('@/lib/config', () => ({
     }
     return configs[key]
   }),
-}))
-
-// Mock A2A SDK client
-jest.mock('@/lib/a2a-sdk-client', () => ({
-  A2ASDKClient: jest.fn(),
-  toStoreEvent: jest.fn(),
 }))
 
 // Mock utils
@@ -209,7 +202,7 @@ function createMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     role: 'user',
     content: 'Hello, world!',
     timestamp: new Date(),
-    events: [],
+
     isFinal: true,
     ...overrides,
   }
@@ -739,7 +732,7 @@ describe('ChatPanel', () => {
         role: 'assistant',
         content: 'Partial content...',
         isFinal: true, // final_result arrived, but stream is still open
-        events: [],
+    
       })
       mockGetActiveConversation.mockReturnValue(createConversation([
         createMessage({ role: 'user', content: 'Hello' }),

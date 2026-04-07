@@ -36,6 +36,9 @@ from dynamic_agents.services.mcp_client import (
 )
 from dynamic_agents.services.stream_events import (
     make_input_required_event,
+    make_run_finished_event,
+    make_run_started_event,
+    make_text_end_event,
     transform_stream_chunk,
 )
 
@@ -68,7 +71,7 @@ class AgentRuntime:
         settings: Settings | None = None,
         mongo_service: "MongoDBService | None" = None,
         user: UserContext | None = None,
-        event_adapter: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        event_adapter: Callable[..., Any] | None = None,  # Deprecated: no longer used (events are now AG-UI models)
     ):
         self.config = config
         self.mcp_servers = mcp_servers
@@ -417,16 +420,16 @@ class AgentRuntime:
         session_id: str,
         user_id: str,
         trace_id: str | None = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    ) -> AsyncGenerator[Any, None]:
         """Stream agent response for a user message.
 
-        Emits structured SSE events for the UI:
-        - content: Streaming text tokens
-        - tool_start: Tool call started (with args). For task tool, includes agent_id.
-        - tool_end: Tool call completed
-        - input_required: Agent requests user input (HITL form)
-
-        The stream ends with a 'done' SSE event (handled by the HTTP layer).
+        Emits AG-UI events for the UI:
+        - RUN_STARTED: Stream begins
+        - TEXT_MESSAGE_START/CONTENT/END: Streaming text tokens
+        - TOOL_CALL_START: Tool call started (with args via CUSTOM TOOL_ARGS)
+        - TOOL_CALL_END: Tool call completed
+        - CUSTOM(INPUT_REQUIRED): Agent requests user input (HITL form)
+        - RUN_FINISHED: Stream ends successfully
 
         Args:
             message: User's input message
@@ -435,7 +438,7 @@ class AgentRuntime:
             trace_id: Optional trace ID for Langfuse tracing
 
         Yields:
-            SSE-compatible event dicts
+            AG-UI BaseAGUIEvent instances
         """
         if not self._initialized:
             await self.initialize()
@@ -449,8 +452,14 @@ class AgentRuntime:
         # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
         # See stream_events.py for details on why this mapping is needed.
         namespace_mapping: dict[str, str] = {}
+        # active_message_ids tracks the current open TEXT_MESSAGE per namespace key
+        active_message_ids: dict[str, str | None] = {}
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
+
+        run_event = make_run_started_event(thread_id=session_id)
+        run_id: str = run_event.run_id  # type: ignore[attr-defined]
+        yield run_event
 
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(
@@ -467,10 +476,14 @@ class AgentRuntime:
                 )
                 return
 
-            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
-                if self._event_adapter:
-                    event = self._event_adapter(event)
+            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping, active_message_ids):
                 yield event
+
+        # Close any still-open text messages
+        for ns_key, msg_id in list(active_message_ids.items()):
+            if msg_id is not None:
+                yield make_text_end_event(msg_id)
+                active_message_ids[ns_key] = None
 
         # Check for pending interrupt (agent called request_user_input)
         logger.debug("[stream] Stream loop completed, checking for pending interrupt...")
@@ -486,13 +499,13 @@ class AgentRuntime:
             )
             return  # Don't continue, stream paused for user input
 
-        # Stream complete - the frontend relies on the SSE 'done' event to know
-        # streaming has finished. Content was already sent via 'content' events.
+        # Stream complete
         final_text = "".join(accumulated_content)
         logger.info(
             f"[stream] Completed stream for agent '{self.config.name}': "
             f"conv={session_id}, content_length={len(final_text)}"
         )
+        yield make_run_finished_event(run_id=run_id, thread_id=session_id)
 
     async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
         """Check if there's a pending interrupt for the given session.
@@ -563,7 +576,7 @@ class AgentRuntime:
         user_id: str,
         form_data: str,
         trace_id: str | None = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    ) -> AsyncGenerator[Any, None]:
         """Resume agent execution after user provides form input.
 
         Uses the HumanInTheLoopMiddleware pattern from deepagents. The form_data
@@ -577,7 +590,7 @@ class AgentRuntime:
             trace_id: Optional trace ID for Langfuse tracing
 
         Yields:
-            SSE-compatible event dicts
+            AG-UI BaseAGUIEvent instances
         """
         if not self._initialized:
             await self.initialize()
@@ -590,8 +603,14 @@ class AgentRuntime:
         accumulated_content: list[str] = []
         # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
         namespace_mapping: dict[str, str] = {}
+        # active_message_ids tracks the current open TEXT_MESSAGE per namespace key
+        active_message_ids: dict[str, str | None] = {}
 
         logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
+
+        run_event = make_run_started_event(thread_id=session_id)
+        run_id: str = run_event.run_id  # type: ignore[attr-defined]
+        yield run_event
 
         # Check if this is a rejection (dismiss) or submission
         # Rejection message format: "User dismissed the input form without providing values."
@@ -658,10 +677,14 @@ class AgentRuntime:
                 )
                 return
 
-            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping):
-                if self._event_adapter:
-                    event = self._event_adapter(event)
+            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping, active_message_ids):
                 yield event
+
+        # Close any still-open text messages
+        for ns_key, msg_id in list(active_message_ids.items()):
+            if msg_id is not None:
+                yield make_text_end_event(msg_id)
+                active_message_ids[ns_key] = None
 
         # Check for another pending interrupt (agent might request more input)
         interrupt_data = await self.has_pending_interrupt(session_id)
@@ -675,13 +698,13 @@ class AgentRuntime:
             )
             return  # Don't continue, stream paused
 
-        # Stream complete - the frontend relies on the SSE 'done' event to know
-        # streaming has finished. Content was already sent via 'content' events.
+        # Stream complete
         final_text = "".join(accumulated_content)
         logger.info(
             f"[resume] Completed resume for agent '{self.config.name}': "
             f"conv={session_id}, content_length={len(final_text)}"
         )
+        yield make_run_finished_event(run_id=run_id, thread_id=session_id)
 
     async def cleanup(self) -> None:
         """Cleanup MCP client connections and MongoDB checkpointer."""

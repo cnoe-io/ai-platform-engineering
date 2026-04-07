@@ -1,153 +1,4 @@
-// A2A Protocol Types - Spec Conformant
-// Based on https://github.com/google/A2A
-
 import type { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
-
-export interface A2AMessage {
-  jsonrpc: "2.0";
-  id: string;
-  method?: string;
-  result?: A2AResult;
-  error?: A2AError;
-}
-
-export interface A2ARequest {
-  jsonrpc: "2.0";
-  id: string;
-  method: "message/stream" | "message/send" | "tasks/get" | "tasks/cancel";
-  params: A2AParams;
-}
-
-export interface A2AParams {
-  message?: {
-    messageId: string;
-    role: "user" | "assistant";
-    parts: MessagePart[];
-    /** Context ID for conversation continuity - MUST be inside message per A2A spec */
-    contextId?: string;
-  };
-  taskId?: string;
-  /** @deprecated Use message.contextId instead for A2A conversation continuity */
-  contextId?: string;
-}
-
-export interface MessagePart {
-  kind?: "text" | "file" | "data";
-  text?: string;
-  file?: {
-    name: string;
-    mimeType: string;
-    bytes?: string;
-    uri?: string;
-  };
-  data?: Record<string, unknown>;
-}
-
-export interface A2AResult {
-  kind: "task" | "artifact-update" | "status-update" | "message";
-  taskId?: string;
-  contextId?: string;
-
-  // Task result fields
-  status?: TaskStatus;
-
-  // Artifact update fields
-  artifact?: Artifact;
-  append?: boolean;
-  lastChunk?: boolean;
-
-  // Status update fields
-  final?: boolean;
-
-  // Message result fields
-  parts?: MessagePart[];
-  role?: "user" | "agent";
-}
-
-export interface A2AError {
-  code: number;
-  message: string;
-  data?: unknown;
-}
-
-export interface TaskStatus {
-  state: "submitted" | "working" | "input-required" | "completed" | "failed" | "cancelled";
-  message?: Message;
-  timestamp?: string;
-}
-
-export interface Message {
-  messageId: string;
-  role: "user" | "assistant" | "agent";
-  parts: MessagePart[];
-  timestamp?: string;
-}
-
-export interface ArtifactMetadata {
-  sourceAgent?: string;
-  agentType?: "supervisor" | "sub-agent" | "notification" | "streaming";
-  [key: string]: unknown;
-}
-
-export interface Artifact {
-  artifactId: string;
-  name: string;
-  description?: string;
-  parts: ArtifactPart[];
-  index?: number;
-  mimeType?: string;
-  metadata?: ArtifactMetadata;
-}
-
-export interface ArtifactPart {
-  kind: "text" | "file" | "data" | "inlineData";
-  text?: string;
-  file?: {
-    name: string;
-    mimeType: string;
-    bytes?: string;
-    uri?: string;
-  };
-  data?: Record<string, unknown>;
-  inlineData?: {
-    mimeType: string;
-    data: string;
-  };
-}
-
-// Parsed A2A Event for UI rendering
-export interface A2AEvent {
-  id: string;
-  timestamp: Date;
-  type:
-    | "task"
-    | "artifact"
-    | "status"
-    | "message"
-    | "tool_start"
-    | "tool_end"
-    | "execution_plan"
-    | "error";
-  raw: A2AMessage;
-
-  // Parsed fields
-  taskId?: string;
-  contextId?: string;
-  status?: TaskStatus;
-  artifact?: Artifact;
-  isFinal?: boolean;
-  isLastChunk?: boolean;
-  shouldAppend?: boolean; // A2A append flag: true = append, false = replace
-
-  // Source agent tracking for sub-agent message grouping
-  sourceAgent?: string;
-
-  // UI display helpers
-  displayName: string;
-  displayContent: string;
-  color: string;
-  icon: string;
-}
 
 // Widget types for A2UI support
 export interface Widget {
@@ -174,9 +25,7 @@ export interface Conversation {
   createdAt: Date;
   updatedAt: Date;
   messages: ChatMessage[];
-  /** A2A events for this conversation (for debug panel, tasks, output) */
-  a2aEvents: A2AEvent[];
-  /** SSE events for Dynamic Agents (separate from A2A) */
+  /** SSE events for Dynamic Agents */
   sseEvents: SSEAgentEvent[];
   /** Dynamic agent ID; undefined = Platform Engineer (default) */
   agent_id?: string;
@@ -236,8 +85,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
-  events: A2AEvent[];
-  /** SSE events for Dynamic Agents (stored per-message, like A2A events) */
+  /** SSE events for Dynamic Agents (stored per-message) */
   sseEvents?: SSEAgentEvent[];
   widgets?: Widget[];
   isFinal?: boolean;
@@ -246,8 +94,6 @@ export interface ChatMessage {
   turnId?: string;
   /** Raw accumulated stream content - never overwritten, always appended */
   rawStreamContent?: string;
-  /** A2A task ID from the backend — used for crash recovery (tasks/get polling) */
-  taskId?: string;
   /** True when streaming was interrupted by a crash/reload before completion */
   isInterrupted?: boolean;
   /**
@@ -260,6 +106,10 @@ export interface ChatMessage {
   senderImage?: string;
   /** Structured timeline segments built during streaming */
   timelineSegments?: TimelineSegment[];
+  /** Character offset in `content` where the first timeline event (tool/plan) appeared.
+   *  Text before this offset is "pre-timeline" (rendered above tools/plan).
+   *  Text from this offset onward is "post-timeline" (rendered below tools/plan). */
+  timelineTextOffset?: number;
   /** Turn status for Dynamic Agents: done, interrupted, or waiting_for_input */
   turnStatus?: TurnStatus;
 }

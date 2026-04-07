@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-A2A Streaming Integration
+Slack AI Streaming Integration
 
 This module handles all interactions with the CAIPE supervisor, including:
-- Streaming responses from AI agents
+- Streaming responses via SSE (the only streaming path for the Slack bot)
 - Alert processing and Jira ticket creation
 - Real-time progress updates in Slack
 """
@@ -19,10 +19,6 @@ from loguru import logger
 from . import slack_formatter
 from . import utils as _utils
 from .config import config
-from .event_parser import (
-  parse_event,
-  EventType,
-)
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 
@@ -112,579 +108,6 @@ Please try a different approach:
 - Avoid spawning complex subagents - keep it simple
 
 """
-
-
-def stream_a2a_response(
-  a2a_client,
-  slack_client,
-  channel_id,
-  thread_ts,
-  message_text,
-  team_id,
-  user_id,
-  context_id=None,
-  metadata=None,
-  session_manager=None,
-  triggered_by_user_id=None,
-  additional_footer=None,
-  overthink_mode=False,
-  escalation_config=None,
-):
-  """
-  Stream an A2A response to Slack.
-
-  Uses Slack's streaming API (startStream/appendStream/stopStream) for real-time
-  responses with plan cards and text streaming. If startStream fails (e.g., missing
-  auth info), falls back to posting the final response directly.
-
-  Returns:
-      List of Slack blocks for the final response, or dict with retry_needed=True on recoverable errors,
-      or dict with skipped=True if overthink_mode filtered the response
-  """
-  from .hitl_handler import parse_form_data, format_hitl_form_blocks
-
-  # Plan-mode streaming state
-  thread_deleted = False  # True if Slack reports the thread_ts is gone
-  stream_ts = None  # ts from chat.startStream (None = not started)
-  stream_buf = None  # StreamBuffer instance (created when stream starts)
-  plan_steps = {}  # step_id -> step dict (latest plan state)
-  sent_step_status = {}  # step_id -> last status we sent to Slack
-  step_thinking = {}  # step_id -> accumulated thinking text per step
-  current_step_id = None  # which step is in_progress
-  needs_separator = False  # insert \n\n before next streamed markdown (after tool_end)
-
-  # Loading messages shown in the animated typing indicator before stream starts
-  _loading_messages = [
-    "is thinking...",
-    "Convincing the AI to stop overthinking...",
-    "is resorting to some magic",
-  ]
-
-  def _set_typing_status(status_text, loading_messages=None):
-    """Set the typing indicator status (best-effort, non-blocking).
-
-    IMPORTANT: Only call this BEFORE startStream. Calling setStatus after
-    startStream creates a second message in the thread.
-    """
-    if overthink_mode:
-      return
-    try:
-      kwargs = dict(
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        status=status_text,
-      )
-      if loading_messages:
-        kwargs["loading_messages"] = loading_messages
-      slack_client.assistant_threads_setStatus(**kwargs)
-      # logger.info(f"[{thread_ts}] SLACK setStatus('{status_text}')")
-    except Exception as e:
-      logger.warning(f"[{thread_ts}] SLACK setStatus('{status_text}') FAILED: {e}")
-
-  def _start_stream_if_needed():
-    """Lazily start the Slack stream on first real content. Returns stream_ts or None."""
-    nonlocal stream_ts, stream_buf, thread_deleted
-    if thread_deleted:
-      return None
-    if stream_ts:
-      return stream_ts  # Already started
-    if overthink_mode:
-      return None
-    try:
-      # Get team_id and bot's user_id from auth - needed for streaming
-      effective_team_id = team_id
-      effective_user_id = user_id if user_id and user_id[0] in ("U", "W") else None
-
-      if not effective_team_id or not effective_user_id:
-        try:
-          auth_info = slack_client.auth_test()
-          if not effective_team_id:
-            effective_team_id = auth_info.get("team_id")
-          if not effective_user_id:
-            # Use the bot's associated user_id (starts with U, not the bot_id which starts with B)
-            effective_user_id = auth_info.get("user_id")
-          logger.debug(f"[{thread_ts}] Got from auth_test: team_id={effective_team_id}, user_id={effective_user_id}")
-        except Exception as auth_err:
-          logger.warning(f"[{thread_ts}] Failed to get info from auth_test: {auth_err}")
-
-      start_kwargs = {
-        "channel": channel_id,
-        "thread_ts": thread_ts,
-        "recipient_team_id": effective_team_id,
-        "recipient_user_id": effective_user_id,
-        "task_display_mode": "plan",
-      }
-
-      logger.debug(f"[{thread_ts}] SLACK startStream kwargs: {start_kwargs}")
-      start_response = slack_client.chat_startStream(**start_kwargs)
-      stream_ts = start_response["ts"]
-      stream_buf = StreamBuffer(slack_client, channel_id, stream_ts)
-      logger.info(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
-      # Clear the typing status now that the stream message is visible
-      _set_typing_status("")
-      return stream_ts
-    except Exception as e:
-      if "invalid_thread_ts" in str(e) or "thread_not_found" in str(e):
-        thread_deleted = True
-        logger.warning(f"[{thread_ts}] Thread was deleted mid-processing — aborting response")
-      else:
-        logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
-      return None
-
-  if not overthink_mode:
-    # Show the animated typing indicator while we wait for content.
-    # The stream itself is deferred until we have something to show.
-    _set_typing_status("is thinking...", loading_messages=_loading_messages)
-
-  # State tracking - keep final content separate, don't accumulate
-  final_message_text = None  # From MESSAGE events (role=agent)
-  final_result_text = None  # From FINAL_RESULT artifact
-  partial_result_text = None  # From PARTIAL_RESULT artifact (fallback)
-  last_artifacts = []
-  is_new_context = context_id is None
-  current_tool = None
-  task_error = None  # Track errors but don't raise immediately - allow recovery
-  trace_id = None  # Langfuse trace ID for feedback scoring
-  # streamed_any_text is tracked by stream_buf.has_flushed
-  streaming_final_answer = False  # Latch: once last plan step streams, keep streaming
-  no_plan_streaming_chunks: list[str] = []  # Buffer for no-plan flows; fallback if FINAL_RESULT absent
-
-  try:
-    for event_data in a2a_client.send_message_stream(
-      message_text=message_text,
-      context_id=context_id,
-      metadata=metadata,
-    ):
-      if thread_deleted:
-        logger.info(f"[{thread_ts}] Thread deleted — stopping A2A stream processing")
-        break
-
-      parsed = parse_event(event_data)
-
-      # # Debug: uncomment to log every A2A event for diagnostics
-      # _artifact_name = parsed.artifact_name or ""
-      # _text_len = len(parsed.text_content) if parsed.text_content else 0
-      # _extra = ""
-      # if parsed.plan_data:
-      #     _statuses = [f"{s.get('step_id','?')}:{s.get('status','?')}" for s in parsed.plan_data.get("steps", [])]
-      #     _extra = f" steps=[{', '.join(_statuses)}]"
-      # elif parsed.tool_notification:
-      #     _extra = f" tool={parsed.tool_notification.tool_name} status={parsed.tool_notification.status}"
-      # elif _text_len:
-      #     _preview = (parsed.text_content or "")[:80].replace("\n", "\\n")
-      #     _extra = f" preview={_preview!r}"
-      # logger.info(
-      #     f"[{thread_ts}] A2A #{event_data.get('kind', '?')}: "
-      #     f"type={parsed.event_type.value} artifact={_artifact_name!r} "
-      #     f"text_len={_text_len} append={parsed.should_append} "
-      #     f"final={parsed.is_final}{_extra}"
-      # )
-
-      if parsed.event_type == EventType.TASK:
-        if parsed.context_id and is_new_context and session_manager:
-          session_manager.set_context_id(thread_ts, parsed.context_id)
-          is_new_context = False
-          logger.info(f"[{thread_ts}] Stored context ID {parsed.context_id}")
-
-        if parsed.metadata:
-          # Extract trace_id for feedback scoring
-          if parsed.metadata.get("trace_id") and not trace_id:
-            trace_id = parsed.metadata["trace_id"]
-            logger.info(f"[{thread_ts}] Got trace_id from TASK: {trace_id}")
-
-      elif parsed.event_type == EventType.MESSAGE:
-        # Keep the last MESSAGE with role=agent as potential final content
-        if parsed.text_content:
-          final_message_text = parsed.text_content
-
-      elif parsed.event_type == EventType.STATUS_UPDATE:
-        # Extract trace_id from completion status metadata
-        if parsed.metadata and parsed.metadata.get("trace_id") and not trace_id:
-          trace_id = parsed.metadata["trace_id"]
-          logger.info(f"[{thread_ts}] Got trace_id from STATUS_UPDATE: {trace_id}")
-        if parsed.status:
-          state = parsed.status.get("state")
-          if state == "completed":
-            logger.info(f"[{thread_ts}] Task completed")
-          elif state == "failed":
-            # Log warning but continue - we may still get FINAL_RESULT with partial content
-            error_msg = _extract_error_message(parsed.status)
-            logger.warning(f"[{thread_ts}] Subtask failed: {error_msg}")
-            task_error = f"Agent task failed: {error_msg}"
-
-      elif parsed.event_type == EventType.STREAMING_RESULT:
-        # logger.info(
-        #     f"[{thread_ts}] STREAMING_RESULT: {len(parsed.text_content or '')} chars, "
-        #     f"append={parsed.should_append}, step={current_step_id}"
-        # )
-        if parsed.text_content:
-          # Routing: intermediate step → accumulate silently,
-          # last step or no plan → stream markdown in real-time.
-          if current_step_id and plan_steps and not streaming_final_answer:
-            sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
-            last_step = sorted_steps[-1]
-            is_last = last_step.get("step_id") == current_step_id
-            if is_last:
-              streaming_final_answer = True
-            else:
-              # Intermediate step — accumulate thinking silently
-              if parsed.should_append is False:
-                step_thinking[current_step_id] = [parsed.text_content]
-              else:
-                step_thinking.setdefault(current_step_id, [])
-                step_thinking[current_step_id].append(parsed.text_content)
-              if not stream_ts:
-                step = plan_steps.get(current_step_id, {})
-                title = step.get("title", "working")
-                _set_typing_status(f"is {title}...")
-              continue
-
-          # Stream markdown only for plan-based final-answer steps.
-          # No-plan flows buffer silently and wait for FINAL_RESULT to avoid
-          # leaking intermediate tool outputs or response metadata to Slack.
-          if streaming_final_answer or plan_steps:
-            _start_stream_if_needed()
-            if stream_buf:
-              text = parsed.text_content
-              if needs_separator and stream_buf.has_flushed:
-                text = "\n\n" + text
-                needs_separator = False
-              stream_buf.append(text)
-          else:
-            no_plan_streaming_chunks.append(parsed.text_content)
-
-
-      elif parsed.event_type == EventType.FINAL_RESULT:
-        # This is the authoritative final content
-        if parsed.text_content:
-          final_result_text = parsed.text_content
-          logger.debug(f"[{thread_ts}] Got FINAL_RESULT: {len(parsed.text_content)} chars")
-        # Extract trace_id from artifact metadata
-        if parsed.artifact and not trace_id:
-          artifact_metadata = parsed.artifact.get("metadata", {})
-          if artifact_metadata.get("trace_id"):
-            trace_id = artifact_metadata["trace_id"]
-            logger.info(f"[{thread_ts}] Got trace_id from FINAL_RESULT: {trace_id}")
-        # Don't add FINAL_RESULT to last_artifacts - we already captured text_content
-
-      elif parsed.event_type == EventType.PARTIAL_RESULT:
-        # Keep partial_result as fallback if no final_result comes
-        if parsed.text_content:
-          partial_result_text = parsed.text_content
-          logger.debug(f"[{thread_ts}] Got partial_result: {len(parsed.text_content)} chars")
-
-      elif parsed.event_type == EventType.TOOL_NOTIFICATION_START:
-        if stream_buf:
-          stream_buf.flush()
-        if parsed.tool_notification:
-          tool_name = parsed.tool_notification.tool_name
-          tool_id = parsed.tool_notification.tool_id
-          current_tool = tool_name or tool_id or None
-          logger.info(f"[{thread_ts}] Tool started: {current_tool or '(unknown)'}")
-          # Start stream early on first tool so plan cards can appear immediately
-          if not overthink_mode:
-            _start_stream_if_needed()
-          if not stream_ts and current_tool:
-            _set_typing_status(f"is {current_tool}-ing...")
-
-      elif parsed.event_type == EventType.TOOL_NOTIFICATION_END:
-        if parsed.tool_notification:
-          tool_name = parsed.tool_notification.tool_name
-          tool_id = parsed.tool_notification.tool_id
-          failed = parsed.tool_notification.status == "failed"
-          display_name = tool_name or tool_id or "(unknown)"
-          if failed:
-            logger.warning(f"[{thread_ts}] Tool failed: {display_name}")
-          else:
-            logger.info(f"[{thread_ts}] Tool completed: {display_name}")
-          current_tool = None
-          needs_separator = True
-          if not stream_ts:
-            _set_typing_status("is working...")
-
-      elif parsed.event_type == EventType.EXECUTION_PLAN:
-        if stream_buf:
-          stream_buf.flush()
-        if parsed.plan_data and parsed.plan_data.get("steps"):
-          # Update plan state from structured DataPart
-          for step in parsed.plan_data["steps"]:
-            plan_steps[step["step_id"]] = step
-
-          # Track current in_progress step
-          for step in parsed.plan_data["steps"]:
-            if step.get("status") == "in_progress":
-              current_step_id = step["step_id"]
-              break
-
-          # Send only new or changed steps to avoid duplicate plan cards
-          if not overthink_mode:
-            _start_stream_if_needed()
-          if not overthink_mode and stream_ts:
-            changed_steps = []
-            for step in plan_steps.values():
-              sid = step["step_id"]
-              cur_status = step.get("status", "pending")
-              if sid not in sent_step_status or sent_step_status[sid] != cur_status:
-                changed_steps.append(step)
-                sent_step_status[sid] = cur_status
-            if changed_steps:
-              # Attach accumulated thinking as details for completed steps
-              details_map = {}
-              for step in changed_steps:
-                sid = step["step_id"]
-                if step.get("status") in ("completed", "failed") and sid in step_thinking:
-                  thinking = "".join(step_thinking[sid])
-                  if thinking:
-                    details_map[sid] = thinking[:500]
-              chunks = slack_formatter.build_task_update_chunks(changed_steps, step_details=details_map)
-              try:
-                slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
-                logger.info(f"[{thread_ts}] SLACK appendStream plan chunks: {[c.get('id', '?') + ':' + c.get('status', '?') for c in chunks]}")
-              except Exception as e:
-                logger.warning(f"[{thread_ts}] SLACK appendStream plan FAILED: {e}")
-
-          # Update typing status with current step title (only when stream not started;
-          # when streaming, the plan card itself shows progress)
-          if not stream_ts and current_step_id and current_step_id in plan_steps:
-            step_title = plan_steps[current_step_id].get("title", "")
-            if step_title:
-              _set_typing_status(f"is working on: {step_title}")
-
-          logger.info(f"[{thread_ts}] Received structured execution plan update ({len(plan_steps)} steps)")
-        elif parsed.text_content:
-          # Text-only plan — no structured data, just log it
-          logger.info(f"[{thread_ts}] Received text-only execution plan (no structured steps)")
-
-      elif parsed.event_type == EventType.CAIPE_FORM:
-        if parsed.form_data:
-          logger.info(f"[{thread_ts}] Displaying HITL form")
-          form = parse_form_data(
-            parsed.form_data,
-            task_id=parsed.task_id,
-            context_id=parsed.context_id,
-          )
-          form_blocks = format_hitl_form_blocks(form)
-          # Post the form directly
-          slack_client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            blocks=form_blocks,
-            text="Action required",
-          )
-          # Stop any active stream before returning to prevent orphaned streams
-          if stream_ts:
-            try:
-              slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
-            except Exception as e:
-              logger.debug(f"[{thread_ts}] Failed to stop stream before HITL form: {e}")
-          return form_blocks
-
-      elif parsed.event_type == EventType.OTHER_ARTIFACT:
-        # Collect artifacts that might contain response content
-        # Skip only tool/plan artifacts (shown as progress, not final response)
-        if parsed.artifact:
-          artifact_name = parsed.artifact.get("name", "").lower()
-          # Only skip tool notifications and execution plan artifacts
-          skip_patterns = [
-            "tool_notification_start",
-            "tool_notification_end",
-            "execution_plan_update",
-            "execution_plan_status_update",
-          ]
-          should_skip = any(p in artifact_name for p in skip_patterns)
-          if not should_skip:
-            logger.debug(f"[{thread_ts}] Collecting artifact: {artifact_name}")
-            last_artifacts.append(parsed.artifact)
-          else:
-            logger.debug(f"[{thread_ts}] Skipping artifact: {artifact_name}")
-
-    # Store trace_id for feedback scoring if we have one
-    if trace_id and session_manager:
-      session_manager.set_trace_id(thread_ts, trace_id)
-      logger.info(f"[{thread_ts}] Stored trace_id for feedback: {trace_id}")
-
-    # Get final content - prefer FINAL_RESULT, fall back to PARTIAL_RESULT, then MESSAGE
-    logger.info(f"[{thread_ts}] Content sources:")
-    logger.info(f"[{thread_ts}]   final_result_text: {len(final_result_text) if final_result_text else 0} chars")
-    logger.info(f"[{thread_ts}]   partial_result_text: {len(partial_result_text) if partial_result_text else 0} chars")
-    logger.info(f"[{thread_ts}]   final_message_text: {len(final_message_text) if final_message_text else 0} chars")
-    logger.info(f"[{thread_ts}]   artifacts count: {len(last_artifacts)}")
-    if final_result_text:
-      logger.debug(f"[{thread_ts}]   FINAL_RESULT preview: {final_result_text[:200]}...")
-    if partial_result_text:
-      logger.debug(f"[{thread_ts}]   PARTIAL_RESULT preview: {partial_result_text[:200]}...")
-    if final_message_text:
-      logger.debug(f"[{thread_ts}]   MESSAGE preview: {final_message_text[:200]}...")
-
-    final_text = _get_final_text(final_result_text, partial_result_text, final_message_text, last_artifacts, thread_ts)
-
-    # For no-plan flows where FINAL_RESULT never arrived, fall back to buffered streaming content.
-    # This preserves backward compatibility with agents that don't emit final_result artifacts.
-    if not final_result_text and no_plan_streaming_chunks and (not final_text or final_text == "I've completed your request."):
-      buffered = "".join(no_plan_streaming_chunks).strip()
-      if buffered:
-        logger.info(f"[{thread_ts}] Falling back to buffered no-plan streaming content: {len(buffered)} chars")
-        final_text = buffered
-
-    # Overthink mode: check for skip markers before posting
-    if overthink_mode and final_text:
-      skip_result = _check_overthink_skip(final_text, thread_ts)
-      if skip_result:
-        # No progress message to delete in overthink mode (silent processing)
-        return skip_result
-
-      # Strip the [CONFIDENCE: HIGH] marker before posting
-      if "[CONFIDENCE: HIGH]" in final_text:
-        final_text = final_text.replace("[CONFIDENCE: HIGH]", "").rstrip()
-        logger.info(f"[{thread_ts}] Stripped [CONFIDENCE: HIGH] marker from response")
-
-    # Handle graceful degradation: if we have content, show it even if there was an error
-    if final_text and final_text != "I've completed your request.":
-      if task_error:
-        logger.info(f"[{thread_ts}] Recovered from error - showing final content despite: {task_error}")
-      logger.info(f"[{thread_ts}] Selected final text: {len(final_text)} chars, preview: {final_text[:100]}...")
-    elif task_error:
-      # No useful content AND we had an error - return retry marker for caller to handle
-      logger.error(f"[{thread_ts}] No content received and task had error: {task_error}")
-      # Clean up: stop active stream with error blocks, or delete progress message
-      if stream_ts:
-        try:
-          error_blocks = slack_formatter.format_error_message(str(task_error))
-          error_blocks.extend(
-            _build_feedback_blocks(
-              channel_id, thread_ts,
-              triggered_by_user_id=triggered_by_user_id,
-              additional_footer=additional_footer,
-              escalation_config=escalation_config,
-            )
-          )
-          slack_client.chat_stopStream(
-            channel=channel_id, ts=stream_ts, blocks=error_blocks
-          )
-        except Exception as e:
-          logger.debug(f"[{thread_ts}] Failed to stop stream {stream_ts}: {e}")
-      # Return marker to trigger retry at caller level
-      return {"retry_needed": True, "error": task_error}
-    else:
-      logger.info(f"[{thread_ts}] Selected final text: {len(final_text)} chars, preview: {final_text[:100]}...")
-
-    # Clear typing status before final response
-    _set_typing_status("")
-
-    # --- Finalization: single path per delivery mode ---
-    # If stream was never started (no content arrived), start it now for the final answer
-    _start_stream_if_needed()
-
-    if stream_ts:
-      # Everything in ONE stream message
-      # Flush any remaining buffered text before finalizing
-      if stream_buf:
-        stream_buf.flush()
-
-      streamed_any_text = stream_buf.has_flushed if stream_buf else False
-      logger.info(f"[{thread_ts}] Finalizing plan stream: {len(final_text)} chars, streamed_any_text={streamed_any_text}, plan_steps={len(plan_steps)}, sent_step_status={sent_step_status}")
-
-      # 1. Force-complete all plan steps at finalization.
-      # Steps left in_progress/pending when the stream ends cause Slack
-      # to show "Something went wrong". Mark them all as complete.
-      if plan_steps:
-        final_chunks = []
-        for step in plan_steps.values():
-          sid = step["step_id"]
-          cur_sent = sent_step_status.get(sid)
-          if cur_sent != "completed":
-            thinking = "".join(step_thinking.get(sid, []))
-            final_chunks.append(
-              slack_formatter.build_single_task_update(
-                step_id=sid,
-                title=slack_formatter._format_step_title(step),
-                status="completed",
-                details=thinking[:500] if thinking else None,
-              )
-            )
-        if final_chunks:
-          try:
-            slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=final_chunks)
-            logger.info(f"[{thread_ts}] SLACK appendStream final step completions: {len(final_chunks)}")
-          except Exception as e:
-            logger.warning(f"[{thread_ts}] SLACK appendStream final steps FAILED: {e}")
-
-      # 2. Build stop call with final answer + feedback blocks.
-      # Skip final_text if the answer was already streamed live.
-      # For plan flows: only streaming_final_answer means the answer was streamed
-      #   (pre-plan chatter sets streamed_any_text but isn't the answer).
-      # For no-plan flows: we no longer stream intermediate chunks to avoid leaking
-      #   tool outputs or metadata, so the final answer is always sent via stop_chunks.
-      stop_chunks = []
-      already_streamed = streaming_final_answer
-      needs_final = not already_streamed
-      if needs_final and final_text:
-        stop_chunks.append({"type": "markdown_text", "text": final_text})
-
-      stop_blocks = _build_feedback_blocks(
-        channel_id,
-        thread_ts,
-        triggered_by_user_id=triggered_by_user_id,
-        additional_footer=additional_footer,
-        escalation_config=escalation_config,
-      )
-      logger.info(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
-      slack_client.chat_stopStream(
-        channel=channel_id,
-        ts=stream_ts,
-        chunks=stop_chunks if stop_chunks else None,
-        blocks=stop_blocks,
-      )
-      return stop_blocks
-
-    else:
-      # startStream failed — post as regular message
-      if thread_deleted:
-        logger.warning(f"[{thread_ts}] Thread deleted — dropping response to avoid posting in main channel")
-        return None
-      logger.info(f"[{thread_ts}] Stream not started, posting final response directly")
-      return _post_final_response(
-        slack_client,
-        channel_id,
-        thread_ts,
-        final_text,
-        triggered_by_user_id=triggered_by_user_id,
-        additional_footer=additional_footer,
-        escalation_config=escalation_config,
-      )
-
-  except Exception as e:
-    logger.exception(f"[{thread_ts}] Error during streaming: {e}")
-    error_blocks = slack_formatter.format_error_message(str(e))
-    # Append feedback blocks so users can still rate even on errors
-    try:
-      error_blocks.extend(
-        _build_feedback_blocks(
-          channel_id, thread_ts,
-          triggered_by_user_id=triggered_by_user_id,
-          additional_footer=additional_footer,
-          escalation_config=escalation_config,
-        )
-      )
-    except Exception:
-      logger.warning(f"[{thread_ts}] Failed to build feedback blocks for error response")
-    if stream_ts:
-      # Stop the plan stream with error in blocks
-      try:
-        slack_client.chat_stopStream(channel=channel_id, ts=stream_ts, blocks=error_blocks)
-      except Exception as slack_err:
-        logger.warning(f"[{thread_ts}] Failed to stop stream with error: {slack_err}")
-    elif not thread_deleted:
-      try:
-        slack_client.chat_postMessage(
-          channel=channel_id,
-          thread_ts=thread_ts,
-          blocks=error_blocks,
-          text="Error",
-        )
-      except Exception as slack_err:
-        logger.warning(f"[{thread_ts}] Failed to post error to Slack: {slack_err}")
-    return error_blocks
 
 
 def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
@@ -856,8 +279,398 @@ def _extract_error_message(status):
   return error_msg or "Task failed"
 
 
+def stream_sse_response(
+  sse_client,
+  slack_client,
+  channel_id,
+  thread_ts,
+  message_text,
+  team_id,
+  user_id,
+  conversation_id=None,
+  user_email=None,
+  trace_id=None,
+  session_manager=None,
+  triggered_by_user_id=None,
+  additional_footer=None,
+  overthink_mode=False,
+  escalation_config=None,
+):
+  """
+  Stream a response from the Platform Engineer SSE endpoint to Slack.
+
+  Uses the simple /chat/stream SSE endpoint instead of the A2A protocol.
+  Drives the same Slack streaming API (startStream/appendStream/stopStream)
+  and reuses all existing plan-card, feedback, and fallback logic.
+
+  Returns:
+      List of Slack blocks for the final response, or dict with retry_needed=True
+      on recoverable errors, or dict with skipped=True if overthink_mode filtered
+      the response.
+  """
+  try:
+    from ..sse_client import ChatRequest, SSEEventType
+  except ImportError:
+    # Fallback for direct execution where slack_bot/ is on sys.path
+    from sse_client import ChatRequest, SSEEventType  # type: ignore[no-redef]
+
+  # Plan-mode streaming state
+  thread_deleted = False
+  stream_ts = None
+  stream_buf = None
+  plan_steps = {}        # step_id -> step dict
+  sent_step_status = {}  # step_id -> last status sent to Slack
+  needs_separator = False
+
+  _loading_messages = [
+    "is thinking...",
+    "Convincing the AI to stop overthinking...",
+    "is resorting to some magic",
+  ]
+
+  def _set_typing_status(status_text, loading_messages=None):
+    if overthink_mode:
+      return
+    try:
+      kwargs = dict(channel_id=channel_id, thread_ts=thread_ts, status=status_text)
+      if loading_messages:
+        kwargs["loading_messages"] = loading_messages
+      slack_client.assistant_threads_setStatus(**kwargs)
+    except Exception as e:
+      logger.warning(f"[{thread_ts}] SLACK setStatus('{status_text}') FAILED: {e}")
+
+  def _start_stream_if_needed():
+    nonlocal stream_ts, stream_buf, thread_deleted
+    if thread_deleted:
+      return None
+    if stream_ts:
+      return stream_ts
+    if overthink_mode:
+      return None
+    try:
+      effective_team_id = team_id
+      effective_user_id = user_id if user_id and user_id[0] in ("U", "W") else None
+
+      if not effective_team_id or not effective_user_id:
+        try:
+          auth_info = slack_client.auth_test()
+          if not effective_team_id:
+            effective_team_id = auth_info.get("team_id")
+          if not effective_user_id:
+            effective_user_id = auth_info.get("user_id")
+        except Exception as auth_err:
+          logger.warning(f"[{thread_ts}] Failed to get info from auth_test: {auth_err}")
+
+      start_kwargs = {
+        "channel": channel_id,
+        "thread_ts": thread_ts,
+        "recipient_team_id": effective_team_id,
+        "recipient_user_id": effective_user_id,
+        "task_display_mode": "plan",
+      }
+      start_response = slack_client.chat_startStream(**start_kwargs)
+      stream_ts = start_response["ts"]
+      stream_buf = StreamBuffer(slack_client, channel_id, stream_ts)
+      logger.info(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
+      _set_typing_status("")
+      return stream_ts
+    except Exception as e:
+      if "invalid_thread_ts" in str(e) or "thread_not_found" in str(e):
+        thread_deleted = True
+        logger.warning(f"[{thread_ts}] Thread was deleted mid-processing — aborting response")
+      else:
+        logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
+      return None
+
+  if not overthink_mode:
+    _set_typing_status("is thinking...", loading_messages=_loading_messages)
+
+  final_text_parts: list[str] = []
+  streaming_final_answer = False
+  current_tool = None
+  task_error = None
+
+  try:
+    request = ChatRequest(
+      message=message_text,
+      conversation_id=conversation_id,
+      user_email=user_email,
+      trace_id=trace_id,
+      source="slack",
+      slack_channel_id=channel_id,
+      slack_thread_ts=thread_ts,
+      slack_user_id=user_id,
+    )
+
+    for event in sse_client.stream_chat(request):
+      if thread_deleted:
+        logger.info(f"[{thread_ts}] Thread deleted — stopping SSE stream processing")
+        break
+
+      if event.type == SSEEventType.RUN_STARTED:
+        logger.info(f"[{thread_ts}] AG-UI run started, run_id={event.run_id}")
+
+      elif event.type == SSEEventType.TEXT_MESSAGE_START:
+        logger.debug(f"[{thread_ts}] AG-UI text message start, message_id={event.message_id}")
+
+      elif event.type == SSEEventType.TEXT_MESSAGE_CONTENT:
+        text = event.delta or ""
+        if text:
+          final_text_parts.append(text)
+          _start_stream_if_needed()
+          if stream_buf:
+            out = text
+            if needs_separator and stream_buf.has_flushed:
+              out = "\n\n" + out
+              needs_separator = False
+            stream_buf.append(out)
+          streaming_final_answer = True
+
+      elif event.type == SSEEventType.TEXT_MESSAGE_END:
+        logger.debug(f"[{thread_ts}] AG-UI text message end, message_id={event.message_id}")
+
+      elif event.type == SSEEventType.TOOL_CALL_START:
+        if stream_buf:
+          stream_buf.flush()
+        current_tool = event.tool_call_name or "(unknown)"
+        logger.info(f"[{thread_ts}] Tool started: {current_tool}")
+        if not overthink_mode:
+          _start_stream_if_needed()
+        if not stream_ts and current_tool:
+          _set_typing_status(f"is {current_tool}-ing...")
+
+      elif event.type == SSEEventType.TOOL_CALL_END:
+        display_name = event.tool_call_name or current_tool or "(unknown)"
+        logger.info(f"[{thread_ts}] Tool completed: {display_name}")
+        current_tool = None
+        needs_separator = True
+        if not stream_ts:
+          _set_typing_status("is working...")
+
+      elif event.type == SSEEventType.STATE_DELTA:
+        # STATE_DELTA carries plan step updates as JSON Patch operations
+        if stream_buf:
+          stream_buf.flush()
+        steps = event.steps or []
+        if steps:
+          for step in steps:
+            if isinstance(step, dict) and "step_id" in step:
+              plan_steps[step["step_id"]] = step
+
+          if not overthink_mode:
+            _start_stream_if_needed()
+          if not overthink_mode and stream_ts:
+            changed_steps = []
+            for step in steps:
+              if not isinstance(step, dict) or "step_id" not in step:
+                continue
+              sid = step["step_id"]
+              cur_status = step.get("status", "pending")
+              if sid not in sent_step_status or sent_step_status[sid] != cur_status:
+                changed_steps.append(step)
+                sent_step_status[sid] = cur_status
+            if changed_steps:
+              chunks = slack_formatter.build_task_update_chunks(changed_steps)
+              try:
+                slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
+                logger.info(f"[{thread_ts}] SLACK appendStream plan chunks: {len(chunks)}")
+              except Exception as e:
+                logger.warning(f"[{thread_ts}] SLACK appendStream plan FAILED: {e}")
+
+          logger.info(f"[{thread_ts}] Received AG-UI STATE_DELTA plan update ({len(plan_steps)} steps)")
+
+      elif event.type == SSEEventType.STATE_SNAPSHOT:
+        # STATE_SNAPSHOT carries the full LangGraph state including todos from write_todos
+        snapshot = event.snapshot or {}
+        todos = snapshot.get("todos")
+        if isinstance(todos, list) and todos:
+          if stream_buf:
+            stream_buf.flush()
+          # Convert todos [{content, status}] → plan steps [{step_id, title, status}]
+          for idx, todo in enumerate(todos):
+            if not isinstance(todo, dict):
+              continue
+            sid = todo.get("id") or f"todo-{idx}"
+            plan_steps[sid] = {
+              "step_id": sid,
+              "title": todo.get("content", ""),
+              "status": todo.get("status", "pending"),
+            }
+
+          if not overthink_mode:
+            _start_stream_if_needed()
+          if not overthink_mode and stream_ts:
+            changed_steps = []
+            for sid, step in plan_steps.items():
+              cur_status = step.get("status", "pending")
+              if sid not in sent_step_status or sent_step_status[sid] != cur_status:
+                changed_steps.append(step)
+                sent_step_status[sid] = cur_status
+            if changed_steps:
+              chunks = slack_formatter.build_task_update_chunks(changed_steps)
+              try:
+                slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
+                logger.info(f"[{thread_ts}] SLACK appendStream todo chunks: {len(chunks)}")
+              except Exception as e:
+                logger.warning(f"[{thread_ts}] SLACK appendStream todos FAILED: {e}")
+
+          logger.info(f"[{thread_ts}] Received AG-UI STATE_SNAPSHOT with {len(todos)} todos")
+
+      elif event.type == SSEEventType.CUSTOM:
+        # CUSTOM events with name=INPUT_REQUIRED trigger a Block Kit HITL form
+        if event.name == "INPUT_REQUIRED":
+          input_value = event.value or {}
+          fields = input_value.get("fields", []) if isinstance(input_value, dict) else []
+          logger.info(f"[{thread_ts}] Input required — fields: {fields}")
+          # Stop any active stream before returning
+          if stream_ts:
+            try:
+              slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
+            except Exception as e:
+              logger.debug(f"[{thread_ts}] Failed to stop stream before INPUT_REQUIRED: {e}")
+          # Post plain message asking for input
+          fields_text = ", ".join(f.get("label", f.get("name", "?")) for f in fields)
+          slack_client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=f"Input required. Please provide: {fields_text}" if fields_text else "Input required.",
+          )
+          return []
+        else:
+          logger.debug(f"[{thread_ts}] AG-UI CUSTOM event: name={event.name}")
+
+      elif event.type == SSEEventType.RUN_FINISHED:
+        run_id = event.run_id
+        if run_id and session_manager:
+          session_manager.set_trace_id(thread_ts, run_id)
+          logger.info(f"[{thread_ts}] Stored run_id for feedback: {run_id}")
+        logger.info(f"[{thread_ts}] AG-UI run finished, run_id={run_id}")
+
+      elif event.type == SSEEventType.RUN_ERROR:
+        task_error = event.message or "Unknown error from SSE endpoint"
+        logger.error(f"[{thread_ts}] AG-UI run error: {task_error}")
+
+    final_text = "".join(final_text_parts).strip() or None
+
+    # Overthink mode filtering
+    if overthink_mode and final_text:
+      skip_result = _check_overthink_skip(final_text, thread_ts)
+      if skip_result:
+        return skip_result
+      if "[CONFIDENCE: HIGH]" in final_text:
+        final_text = final_text.replace("[CONFIDENCE: HIGH]", "").rstrip()
+
+    if not final_text and task_error:
+      logger.error(f"[{thread_ts}] No content received and SSE had error: {task_error}")
+      if stream_ts:
+        try:
+          error_blocks = slack_formatter.format_error_message(str(task_error))
+          error_blocks.extend(
+            _build_feedback_blocks(
+              channel_id, thread_ts,
+              triggered_by_user_id=triggered_by_user_id,
+              additional_footer=additional_footer,
+              escalation_config=escalation_config,
+            )
+          )
+          slack_client.chat_stopStream(channel=channel_id, ts=stream_ts, blocks=error_blocks)
+        except Exception as e:
+          logger.debug(f"[{thread_ts}] Failed to stop stream {stream_ts}: {e}")
+      return {"retry_needed": True, "error": task_error}
+
+    _set_typing_status("")
+    _start_stream_if_needed()
+
+    if stream_ts:
+      if stream_buf:
+        stream_buf.flush()
+
+      # Force-complete any plan steps still in_progress/pending
+      if plan_steps:
+        final_chunks = []
+        for step in plan_steps.values():
+          sid = step["step_id"]
+          if sent_step_status.get(sid) != "completed":
+            final_chunks.append(
+              slack_formatter.build_single_task_update(
+                step_id=sid,
+                title=slack_formatter._format_step_title(step),
+                status="completed",
+              )
+            )
+        if final_chunks:
+          try:
+            slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=final_chunks)
+          except Exception as e:
+            logger.warning(f"[{thread_ts}] SLACK appendStream final steps FAILED: {e}")
+
+      stop_chunks = []
+      if not streaming_final_answer and final_text:
+        stop_chunks.append({"type": "markdown_text", "text": final_text})
+
+      stop_blocks = _build_feedback_blocks(
+        channel_id, thread_ts,
+        triggered_by_user_id=triggered_by_user_id,
+        additional_footer=additional_footer,
+        escalation_config=escalation_config,
+      )
+      slack_client.chat_stopStream(
+        channel=channel_id,
+        ts=stream_ts,
+        chunks=stop_chunks if stop_chunks else None,
+        blocks=stop_blocks,
+      )
+      return stop_blocks
+
+    else:
+      if thread_deleted:
+        logger.warning(f"[{thread_ts}] Thread deleted — dropping response")
+        return None
+      logger.info(f"[{thread_ts}] Stream not started, posting final response directly")
+      return _post_final_response(
+        slack_client,
+        channel_id,
+        thread_ts,
+        final_text or "I've completed your request.",
+        triggered_by_user_id=triggered_by_user_id,
+        additional_footer=additional_footer,
+        escalation_config=escalation_config,
+      )
+
+  except Exception as e:
+    logger.exception(f"[{thread_ts}] Error during SSE streaming: {e}")
+    error_blocks = slack_formatter.format_error_message(str(e))
+    try:
+      error_blocks.extend(
+        _build_feedback_blocks(
+          channel_id, thread_ts,
+          triggered_by_user_id=triggered_by_user_id,
+          additional_footer=additional_footer,
+          escalation_config=escalation_config,
+        )
+      )
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to build feedback blocks for error response")
+    if stream_ts:
+      try:
+        slack_client.chat_stopStream(channel=channel_id, ts=stream_ts, blocks=error_blocks)
+      except Exception as slack_err:
+        logger.warning(f"[{thread_ts}] Failed to stop stream with error: {slack_err}")
+    elif not thread_deleted:
+      try:
+        slack_client.chat_postMessage(
+          channel=channel_id,
+          thread_ts=thread_ts,
+          blocks=error_blocks,
+          text="Error",
+        )
+      except Exception as slack_err:
+        logger.warning(f"[{thread_ts}] Failed to post error to Slack: {slack_err}")
+    return error_blocks
+
+
 def handle_ai_alert_processing(
-  a2a_client,
+  sse_client,
   slack_client,
   event,
   channel_id,
@@ -913,20 +726,15 @@ def handle_ai_alert_processing(
 
   context_id = session_manager.get_context_id(thread_ts)
 
-  result = stream_a2a_response(
-    a2a_client=a2a_client,
+  result = stream_sse_response(
+    sse_client=sse_client,
     slack_client=slack_client,
     channel_id=channel_id,
     thread_ts=thread_ts,
     message_text=prompt,
     team_id=team_id,
     user_id=user_id,
-    context_id=context_id,
-    metadata={
-      "alert_bot": bot_username,
-      "channel_id": channel_id,
-      "jira_config": channel_config.model_dump(),
-    },
+    conversation_id=context_id,
     session_manager=session_manager,
     escalation_config=escalation_config,
   )

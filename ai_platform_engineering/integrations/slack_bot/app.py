@@ -3,7 +3,7 @@
 """
 CAIPE Slack Bot - Entry Point
 
-A Slack bot that uses the A2A protocol to communicate with the CAIPE supervisor.
+A Slack bot that communicates with the CAIPE supervisor exclusively via SSE streaming.
 Supports @mention queries, Q&A mode, AI alert processing, HITL forms, and feedback.
 """
 
@@ -23,10 +23,9 @@ from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 
-from a2a_client import A2AClient
+from sse_client import SSEClient
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
-from utils.interaction_tracker import InteractionTracker
 from utils.config_models import get_escalation_config
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
@@ -41,34 +40,40 @@ if AUTH_ENABLED:
 
   try:
     auth_client = OAuth2ClientCredentials.from_env()
-    logger.info("OAuth2 client credentials auth enabled for A2A requests")
+    logger.info("OAuth2 client credentials auth enabled for supervisor requests")
   except RuntimeError as e:
     logger.error(f"Failed to initialize OAuth2 auth: {e}")
     raise
 else:
-  logger.info("A2A auth disabled (set SLACK_INTEGRATION_ENABLE_AUTH=true to enable)")
+  logger.info("Auth disabled (set SLACK_INTEGRATION_ENABLE_AUTH=true to enable)")
 
-# Initialize A2A client - CAIPE_URL is required
+# Initialize SSE client - CAIPE_URL is required
 CAIPE_URL = os.environ.get("CAIPE_URL")
 if not CAIPE_URL:
   raise ValueError("CAIPE_URL environment variable is required")
-a2a_client = A2AClient(CAIPE_URL, timeout=300, auth_client=auth_client)
+
+# Defaults to CAIPE_URL if SUPERVISOR_SSE_URL is not set
+SUPERVISOR_SSE_URL = os.environ.get("SUPERVISOR_SSE_URL", CAIPE_URL)
+sse_client = SSEClient(SUPERVISOR_SSE_URL, timeout=300, auth_client=auth_client)
+logger.info(f"SSE client initialized at {SUPERVISOR_SSE_URL}")
 
 # Initialize session manager (auto-selects MongoDB or in-memory based on MONGODB_URI env var)
 session_manager = SessionManager()
 logger.info(f"Session store type: {session_manager.get_store_type()}")
 
-hitl_handler = HITLCallbackHandler(a2a_client, session_manager)
-interaction_tracker = InteractionTracker(session_manager)
+hitl_handler = HITLCallbackHandler(sse_client, session_manager)
 
 max_retries = int(os.environ.get("CAIPE_CONNECT_RETRIES", "10"))
 retry_delay = int(os.environ.get("CAIPE_CONNECT_RETRY_DELAY", "6"))
 
 for attempt in range(1, max_retries + 1):
   try:
-    logger.info(f"Connecting to {APP_NAME} at {CAIPE_URL} (attempt {attempt}/{max_retries})")
-    agent_card = a2a_client.get_agent_card()
-    logger.info(f"Connected to agent: {agent_card.get('name', 'Unknown')}, version: {agent_card.get('version', 'Unknown')}")
+    logger.info(f"Connecting to {APP_NAME} at {SUPERVISOR_SSE_URL} (attempt {attempt}/{max_retries})")
+    health_resp = _requests.get(f"{SUPERVISOR_SSE_URL.rstrip('/')}/chat/stream/health", timeout=10)
+    if health_resp.ok:
+      logger.info(f"Connected to {APP_NAME} supervisor (status {health_resp.status_code})")
+    else:
+      raise Exception(f"Health check returned {health_resp.status_code}: {health_resp.text}")
     break
   except Exception as e:
     if attempt < max_retries:
@@ -151,40 +156,37 @@ def handle_mention(event, say, client):
     if config.defaults.response_style_instruction not in final_message:
       final_message += "\n\n" + config.defaults.response_style_instruction
 
-    request_metadata = {}
+    request_metadata = {
+      "source": "slack",
+      "slack_channel_id": channel_id,
+      "slack_thread_ts": thread_ts,
+      "slack_user_id": user_id,
+      "slack_interaction_type": "mention",
+    }
+    if channel_config and hasattr(channel_config, "name") and channel_config.name:
+      request_metadata["slack_channel_name"] = channel_config.name
     if user_email:
       final_message = f"The user email is {user_email}\n\n{final_message}"
       request_metadata["user_email"] = user_email
+    if user_name:
+      request_metadata["user_name"] = user_name
 
     team_id = event.get("team")
 
     esc_config = get_escalation_config(channel_config)
 
-    result = ai.stream_a2a_response(
-      a2a_client=a2a_client,
+    result = ai.stream_sse_response(
+      sse_client=sse_client,
       slack_client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
       message_text=final_message,
       team_id=team_id,
       user_id=user_id,
-      context_id=context_id,
-      metadata=request_metadata if request_metadata else None,
+      conversation_id=context_id,
+      user_email=user_email,
       session_manager=session_manager,
       escalation_config=esc_config,
-    )
-
-    # Track interaction for platform statistics
-    interaction_tracker.record_interaction(
-      thread_ts=thread_ts,
-      channel_id=channel_id,
-      channel_name=channel_config.name if hasattr(channel_config, "name") else None,
-      user_id=user_id,
-      user_email=user_email,
-      interaction_type="mention",
-      trace_id=session_manager.get_trace_id(thread_ts),
-      context_id=context_id,
-      user_name=user_name,
     )
 
     if isinstance(result, dict) and result.get("retry_needed"):
@@ -261,23 +263,35 @@ def handle_qanda_message(event, say, client):
 
     final_message = channel_config.qanda.custom_prompt.format(message_text=message_text)
     jira_config = channel_config.other.jira.model_dump() if channel_config.other.jira else {}
-    request_metadata = {"channel_id": channel_id, "channel_config": jira_config}
+    request_metadata = {
+      "channel_id": channel_id,
+      "channel_config": jira_config,
+      "source": "slack",
+      "slack_channel_id": channel_id,
+      "slack_thread_ts": thread_ts,
+      "slack_user_id": user_id,
+      "slack_interaction_type": "qanda",
+    }
+    if channel_config and hasattr(channel_config, "name") and channel_config.name:
+      request_metadata["slack_channel_name"] = channel_config.name
     if user_email:
       final_message = f"The user email is {user_email}\n\n{final_message}"
       request_metadata["user_email"] = user_email
+    if user_name:
+      request_metadata["user_name"] = user_name
 
     esc_config = get_escalation_config(channel_config)
 
-    result = ai.stream_a2a_response(
-      a2a_client=a2a_client,
+    result = ai.stream_sse_response(
+      sse_client=sse_client,
       slack_client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
       message_text=final_message,
       team_id=team_id,
       user_id=user_id,
-      context_id=context_id,
-      metadata=request_metadata,
+      conversation_id=context_id,
+      user_email=user_email,
       session_manager=session_manager,
       overthink_mode=channel_config.qanda.overthink,
       escalation_config=esc_config,
@@ -288,19 +302,6 @@ def handle_qanda_message(event, say, client):
       logger.info(f"[{thread_ts}] Overthink: skipped response ({reason}) for {user_name}")
       session_manager.set_skipped(thread_ts, True)
       return
-
-    # Track interaction for platform statistics
-    interaction_tracker.record_interaction(
-      thread_ts=thread_ts,
-      channel_id=channel_id,
-      channel_name=channel_config.name if hasattr(channel_config, "name") else None,
-      user_id=user_id,
-      user_email=user_email,
-      interaction_type="qanda",
-      trace_id=session_manager.get_trace_id(thread_ts),
-      context_id=context_id,
-      user_name=user_name,
-    )
 
     logger.info(f"[{thread_ts}] Completed Q&A request for {user_name}")
 
@@ -354,37 +355,33 @@ def handle_dm_message(event, say, client):
     if config.defaults.response_style_instruction not in final_message:
       final_message += "\n\n" + config.defaults.response_style_instruction
 
-    request_metadata = {}
+    request_metadata = {
+      "source": "slack",
+      "slack_channel_id": channel_id,
+      "slack_thread_ts": thread_ts,
+      "slack_user_id": user_id,
+      "slack_interaction_type": "dm",
+      "slack_channel_name": "DM",
+    }
     if user_email:
       final_message = f"The user email is {user_email}\n\n{final_message}"
       request_metadata["user_email"] = user_email
+    if user_name:
+      request_metadata["user_name"] = user_name
 
     team_id = event.get("team")
 
-    result = ai.stream_a2a_response(
-      a2a_client=a2a_client,
+    result = ai.stream_sse_response(
+      sse_client=sse_client,
       slack_client=client,
       channel_id=event.get("channel"),
       thread_ts=thread_ts,
       message_text=final_message,
       team_id=team_id,
       user_id=user_id,
-      context_id=context_id,
-      metadata=request_metadata if request_metadata else None,
-      session_manager=session_manager,
-    )
-
-    # Track interaction for platform statistics
-    interaction_tracker.record_interaction(
-      thread_ts=thread_ts,
-      channel_id=channel_id,
-      channel_name="DM",
-      user_id=user_id,
+      conversation_id=context_id,
       user_email=user_email,
-      interaction_type="dm",
-      trace_id=session_manager.get_trace_id(thread_ts),
-      context_id=context_id,
-      user_name=user_name,
+      session_manager=session_manager,
     )
 
     if isinstance(result, dict) and result.get("retry_needed"):
@@ -484,25 +481,6 @@ def handle_message_events(body, say, client):
     return
 
   if not event.get("bot_id"):
-    # ── Escalation detection ─────────────────────────────────
-    # A non-bot user replied inside a thread. If this thread is
-    # tracked in conversations (source: "slack") AND the replier
-    # is not the original asker, mark the thread as escalated.
-    thread_ts = event.get("thread_ts")
-    if thread_ts and is_thread:
-      user_id = event.get("user")
-      try:
-        db = session_manager.get_db()
-        if db is not None:
-          conversation_id = f"slack-{thread_ts}"
-          doc = db["conversations"].find_one(
-            {"_id": conversation_id, "source": "slack"},
-            {"slack_meta.user_id": 1},
-          )
-          if doc and doc.get("slack_meta", {}).get("user_id") != user_id:
-            interaction_tracker.mark_escalated(thread_ts, channel_id)
-      except Exception as e:
-        logger.debug(f"Escalation check failed for {thread_ts}: {e}")
     return
 
   thread_ts = event.get("thread_ts")
@@ -527,7 +505,7 @@ def handle_message_events(body, say, client):
 
     esc_config = get_escalation_config(channel_config)
     ai.handle_ai_alert_processing(
-      a2a_client,
+      sse_client,
       client,
       event,
       channel_id,
@@ -536,17 +514,6 @@ def handle_message_events(body, say, client):
       session_manager,
       custom_prompt=channel_config.ai_alerts.custom_prompt,
       escalation_config=esc_config,
-    )
-
-    # Track alert interaction for platform statistics
-    interaction_tracker.record_interaction(
-      thread_ts=alert_ts,
-      channel_id=channel_id,
-      channel_name=channel_config.name if hasattr(channel_config, "name") else None,
-      user_id=bot_id,
-      user_email=None,
-      interaction_type="alert",
-      trace_id=session_manager.get_trace_id(alert_ts),
     )
 
 
@@ -669,19 +636,19 @@ def handle_feedback_more_detail(ack, body, client):
     channel_config = config.channels.get(channel_id)
     esc_config = get_escalation_config(channel_config) if channel_config else None
 
-    ai.stream_a2a_response(
-      a2a_client=a2a_client,
+    ai.stream_sse_response(
+      sse_client=sse_client,
       slack_client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
       message_text="The user wants more detail on your previous answer. Search for at least 5 additional sources beyond what you already cited. Keep your response to 2-3 short paragraphs. Focus on details you left out the first time. End with sources and links.",
       team_id=team_id,
       user_id=user_id,
-      context_id=context_id,
+      conversation_id=context_id,
       session_manager=session_manager,
       additional_footer=f"More detail requested by <@{user_id}>",
       escalation_config=esc_config,
-          )
+    )
   except Exception as e:
     logger.exception(f"Error handling more detail feedback: {e}")
 
@@ -718,19 +685,19 @@ def handle_feedback_less_verbose(ack, body, client):
     channel_config = config.channels.get(channel_id)
     esc_config = get_escalation_config(channel_config) if channel_config else None
 
-    ai.stream_a2a_response(
-      a2a_client=a2a_client,
+    ai.stream_sse_response(
+      sse_client=sse_client,
       slack_client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
       message_text="Please provide a more concise response. Summarize the key points briefly. Be direct and to the point.",
       team_id=team_id,
       user_id=user_id,
-      context_id=context_id,
+      conversation_id=context_id,
       session_manager=session_manager,
       additional_footer=f"Shorter response requested by <@{user_id}>",
       escalation_config=esc_config,
-          )
+    )
   except Exception as e:
     logger.exception(f"Error handling less verbose feedback: {e}")
 
@@ -777,16 +744,15 @@ def handle_caipe_retry(ack, body, client):
       retry_message = f"The user email is {user_email}\n\n{retry_message}"
       request_metadata["user_email"] = user_email
 
-    ai.stream_a2a_response(
-      a2a_client=a2a_client,
+    ai.stream_sse_response(
+      sse_client=sse_client,
       slack_client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
       message_text=retry_message,
       team_id=team_id,
       user_id=user_id,
-      context_id=None,
-      metadata=request_metadata if request_metadata else None,
+      conversation_id=None,
       session_manager=session_manager,
       additional_footer=f"Retried by <@{user_id}>",
     )
@@ -847,7 +813,7 @@ def handle_escalation_get_help(ack, body, client):
         parent_ts = message.get("thread_ts") or thread_ts
 
         execute_escalation(
-            slack_client=client, a2a_client=a2a_client,
+            slack_client=client, sse_client=sse_client,
             channel_id=channel_id, thread_ts=thread_ts,
             parent_ts=parent_ts, user_id=user_id,
             escalation_config=esc_config,
@@ -991,19 +957,19 @@ def handle_wrong_answer_submission(ack, body, client, view):
     channel_config = config.channels.get(channel_id)
     esc_config = get_escalation_config(channel_config) if channel_config else None
 
-    ai.stream_a2a_response(
-      a2a_client=a2a_client,
+    ai.stream_sse_response(
+      sse_client=sse_client,
       slack_client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
       message_text=correction_prompt,
       team_id=team_id,
       user_id=user_id,
-      context_id=context_id,
+      conversation_id=context_id,
       session_manager=session_manager,
       additional_footer=f"Correction requested by <@{user_id}>",
       escalation_config=esc_config,
-          )
+    )
   except Exception as e:
     logger.exception(f"Error handling wrong answer submission: {e}")
 

@@ -47,7 +47,7 @@ jest.mock('framer-motion', () => ({
 const mockGetActiveConversation = jest.fn()
 const mockIsConversationStreaming = jest.fn(() => false)
 const mockEvictOldMessageContent = jest.fn()
-const mockLoadMessagesFromServer = jest.fn()
+const mockLoadTurnsFromServer = jest.fn()
 let mockActiveConversationId = 'conv-1'
 
 jest.mock('@/store/chat-store', () => ({
@@ -58,9 +58,9 @@ jest.mock('@/store/chat-store', () => ({
     addMessage: jest.fn(),
     updateMessage: jest.fn(),
     appendToMessage: jest.fn(),
-    addEventToMessage: jest.fn(),
-    addA2AEvent: jest.fn(),
-    clearA2AEvents: jest.fn(),
+
+    addSSEEvent: jest.fn(),
+    clearSSEEvents: jest.fn(),
     setConversationStreaming: jest.fn(),
     isConversationStreaming: mockIsConversationStreaming,
     cancelConversationRequest: jest.fn(),
@@ -68,7 +68,9 @@ jest.mock('@/store/chat-store', () => ({
     consumePendingMessage: jest.fn(() => null),
     recoverInterruptedTask: jest.fn(),
     evictOldMessageContent: mockEvictOldMessageContent,
-    loadMessagesFromServer: mockLoadMessagesFromServer,
+    loadTurnsFromServer: mockLoadTurnsFromServer,
+    updateConversationTitle: jest.fn(),
+    sendMessage: jest.fn().mockResolvedValue(undefined),
   })),
 }))
 
@@ -84,10 +86,6 @@ jest.mock('@/lib/config', () => ({
   }),
 }))
 
-jest.mock('@/lib/a2a-sdk-client', () => ({
-  A2ASDKClient: jest.fn(),
-  toStoreEvent: jest.fn(),
-}))
 
 jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
@@ -198,7 +196,6 @@ function createMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     role: 'user',
     content: `Message ${msgCounter}`,
     timestamp: new Date(2026, 1, 10, 12, msgCounter),
-    events: [],
     isFinal: true,
     ...overrides,
   }
@@ -243,9 +240,9 @@ describe('ChatPanel — Message Windowing', () => {
       addMessage: jest.fn(),
       updateMessage: jest.fn(),
       appendToMessage: jest.fn(),
-      addEventToMessage: jest.fn(),
-      addA2AEvent: jest.fn(),
-      clearA2AEvents: jest.fn(),
+  
+      addSSEEvent: jest.fn(),
+      clearSSEEvents: jest.fn(),
       setConversationStreaming: jest.fn(),
       isConversationStreaming: mockIsConversationStreaming,
       cancelConversationRequest: jest.fn(),
@@ -253,7 +250,9 @@ describe('ChatPanel — Message Windowing', () => {
       consumePendingMessage: jest.fn(() => null),
       recoverInterruptedTask: jest.fn(),
       evictOldMessageContent: mockEvictOldMessageContent,
-      loadMessagesFromServer: mockLoadMessagesFromServer,
+      loadTurnsFromServer: mockLoadTurnsFromServer,
+      updateConversationTitle: jest.fn(),
+      sendMessage: jest.fn().mockResolvedValue(undefined),
     }))
   })
 
@@ -431,9 +430,9 @@ describe('ChatPanel — Message Windowing', () => {
         addMessage: jest.fn(),
         updateMessage: jest.fn(),
         appendToMessage: jest.fn(),
-        addEventToMessage: jest.fn(),
-        addA2AEvent: jest.fn(),
-        clearA2AEvents: jest.fn(),
+    
+        addSSEEvent: jest.fn(),
+        clearSSEEvents: jest.fn(),
         setConversationStreaming: jest.fn(),
         isConversationStreaming: mockIsConversationStreaming,
         cancelConversationRequest: jest.fn(),
@@ -441,7 +440,9 @@ describe('ChatPanel — Message Windowing', () => {
         consumePendingMessage: jest.fn(() => null),
         recoverInterruptedTask: jest.fn(),
         evictOldMessageContent: mockEvictOldMessageContent,
-        loadMessagesFromServer: mockLoadMessagesFromServer,
+        loadTurnsFromServer: mockLoadTurnsFromServer,
+        updateConversationTitle: jest.fn(),
+        sendMessage: jest.fn().mockResolvedValue(undefined),
       }))
 
       rerender(<ChatPanel endpoint="/api/test" />)

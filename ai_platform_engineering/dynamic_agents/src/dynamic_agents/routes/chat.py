@@ -1,9 +1,9 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
-import json
 import logging
 from typing import AsyncGenerator
 
+from ai_platform_engineering.utils.agui import AGUIEventType, emit_run_error, format_sse_event
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -18,19 +18,6 @@ from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-def _encode_sse_data(data: str) -> str:
-    """Encode data for SSE format, handling newlines properly.
-
-    In SSE, newlines in data values must be sent as multiple 'data:' lines.
-    For example, "line1\\nline2" becomes "data: line1\\ndata: line2".
-    """
-    if "\n" not in data:
-        return f"data: {data}"
-    # Split on newlines and prefix each line with "data: "
-    lines = data.split("\n")
-    return "\n".join(f"data: {line}" for line in lines)
 
 
 class RestartRuntimeRequest(BaseModel):
@@ -58,7 +45,7 @@ async def _generate_sse_events(
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Generate SSE events from agent streaming."""
+    """Generate AG-UI SSE events from agent streaming."""
     # Set conversation context for logging
     conversation_id_var.set(session_id)
 
@@ -79,30 +66,11 @@ async def _generate_sse_events(
 
         # Stream response with trace_id for Langfuse tracing
         async for event in runtime.stream(message, session_id, user.email, trace_id):
-            event_type = event.get("type", "event")
-            event_data = event.get("data", "")
-            namespace = event.get("namespace", [])
-
-            # Format as SSE - include namespace in data payload
-            if isinstance(event_data, dict):
-                # Add namespace to dict data
-                event_data["namespace"] = namespace
-                data = json.dumps(event_data)
-            else:
-                # For content events (string data), wrap with namespace
-                data = json.dumps({"text": event_data, "namespace": namespace})
-
-            # Use proper SSE encoding (handles newlines in content)
-            sse_data = _encode_sse_data(data)
-            yield f"event: {event_type}\n{sse_data}\n\n"
-
-        # Send done event
-        yield "event: done\ndata: {}\n\n"
+            yield format_sse_event(event)
 
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        error_data = json.dumps({"error": str(e)})
-        yield f"event: error\ndata: {error_data}\n\n"
+        yield format_sse_event(emit_run_error(message=str(e)))
 
 
 @router.post("/start-stream")
@@ -113,18 +81,21 @@ async def chat_start_stream(
 ) -> StreamingResponse:
     """Start streaming a chat response from a dynamic agent.
 
-    Uses Server-Sent Events (SSE) for real-time streaming.
+    Uses Server-Sent Events (SSE) for real-time streaming with AG-UI events.
 
-    Events:
-    - content: Streaming text chunks
-    - tool_start: Tool invocation started
-    - tool_end: Tool invocation completed
-    - input_required: Agent requests user input via form (HITL)
-    - error: Error occurred
-    - done: Streaming complete
+    Events (AG-UI standard):
+    - RUN_STARTED: Stream begins
+    - TEXT_MESSAGE_START/CONTENT/END: Streaming text chunks
+    - TOOL_CALL_START: Tool invocation started
+    - CUSTOM(TOOL_ARGS): Tool arguments payload
+    - TOOL_CALL_END: Tool invocation completed
+    - CUSTOM(INPUT_REQUIRED): Agent requests user input via form (HITL)
+    - CUSTOM(NAMESPACE_CONTEXT): Subagent correlation metadata
+    - RUN_FINISHED: Stream ends successfully
+    - RUN_ERROR: Unrecoverable error
 
-    If the agent calls request_user_input, streaming will end with an
-    input_required event. Use /resume-stream to continue after user input.
+    If the agent calls request_user_input, streaming will end with a
+    CUSTOM(INPUT_REQUIRED) event. Use /resume-stream to continue after user input.
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
@@ -178,7 +149,7 @@ async def _generate_resume_sse_events(
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Generate SSE events from agent resume streaming."""
+    """Generate AG-UI SSE events from agent resume streaming."""
     # Set conversation context for logging
     conversation_id_var.set(session_id)
 
@@ -199,30 +170,11 @@ async def _generate_resume_sse_events(
 
         # Resume streaming with form data
         async for event in runtime.resume(session_id, user.email, form_data, trace_id):
-            event_type = event.get("type", "event")
-            event_data = event.get("data", "")
-            namespace = event.get("namespace", [])
-
-            # Format as SSE - include namespace in data payload
-            if isinstance(event_data, dict):
-                # Add namespace to dict data
-                event_data["namespace"] = namespace
-                data = json.dumps(event_data)
-            else:
-                # For content events (string data), wrap with namespace
-                data = json.dumps({"text": event_data, "namespace": namespace})
-
-            # Use proper SSE encoding (handles newlines in content)
-            sse_data = _encode_sse_data(data)
-            yield f"event: {event_type}\n{sse_data}\n\n"
-
-        # Send done event
-        yield "event: done\ndata: {}\n\n"
+            yield format_sse_event(event)
 
     except Exception as e:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
-        error_data = json.dumps({"error": str(e)})
-        yield f"event: error\ndata: {error_data}\n\n"
+        yield format_sse_event(emit_run_error(message=str(e)))
 
 
 @router.post("/resume-stream")
@@ -233,17 +185,17 @@ async def chat_resume_stream(
 ) -> StreamingResponse:
     """Resume an interrupted stream after user provides form input.
 
-    Called after the agent emitted an input_required event. The form_data
+    Called after the agent emitted a CUSTOM(INPUT_REQUIRED) event. The form_data
     should be a JSON string of the form values, or a rejection message
     if the user dismissed the form.
 
-    Events:
-    - content: Streaming text chunks
-    - tool_start: Tool invocation started
-    - tool_end: Tool invocation completed
-    - input_required: Agent requests more user input (can happen multiple times)
-    - error: Error occurred
-    - done: Streaming complete
+    Events (AG-UI standard):
+    - RUN_STARTED: Stream begins
+    - TEXT_MESSAGE_START/CONTENT/END: Streaming text chunks
+    - TOOL_CALL_START / TOOL_CALL_END: Tool invocations
+    - CUSTOM(INPUT_REQUIRED): Agent requests more user input (can repeat)
+    - RUN_FINISHED: Stream ends successfully
+    - RUN_ERROR: Unrecoverable error
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
@@ -325,17 +277,21 @@ async def chat_invoke(
         user=user,
     )
 
-    content_parts = []
-    tool_calls = []
+    content_parts: list[str] = []
+    tool_calls: list[dict] = []
 
     async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
-        event_type = event.get("type", "")
-        event_data = event.get("data", "")
+        event_type = event.type
 
-        if event_type == "content":
-            content_parts.append(str(event_data))
-        elif event_type == "tool_start":
-            tool_calls.append(event_data)
+        if event_type == AGUIEventType.TEXT_MESSAGE_CONTENT:
+            content_parts.append(event.delta)  # type: ignore[attr-defined]
+        elif event_type == AGUIEventType.TOOL_CALL_START:
+            tool_calls.append(
+                {
+                    "tool_call_id": event.tool_call_id,  # type: ignore[attr-defined]
+                    "tool_name": event.tool_call_name,  # type: ignore[attr-defined]
+                }
+            )
 
     return {
         "success": True,
