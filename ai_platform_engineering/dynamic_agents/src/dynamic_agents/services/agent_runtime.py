@@ -15,6 +15,7 @@ from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
+from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.types import Command
@@ -199,6 +200,9 @@ class AgentRuntime:
             name=safe_name,
             subagents=subagents if subagents else None,
             interrupt_on={"request_user_input": True},
+            middleware=[
+                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+            ],
         )
 
         self._initialized = True
@@ -333,6 +337,9 @@ class AgentRuntime:
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
+                "middleware": [
+                    ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+                ],
             }
 
             # Note: Nested subagents (subagent of subagent) are not supported in this MVP.
