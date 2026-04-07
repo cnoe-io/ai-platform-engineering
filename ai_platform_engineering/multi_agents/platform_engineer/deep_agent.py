@@ -38,7 +38,6 @@ from ai_platform_engineering.multi_agents.tools import (
     yq,         # yq("yq '.spec.replicas' deployment.yaml")
 )
 from deepagents import create_deep_agent
-from ai_platform_engineering.skills_middleware import get_merged_skills, build_skills_files
 from ai_platform_engineering.utils.store import create_store
 from ai_platform_engineering.utils.checkpointer import create_checkpointer
 
@@ -67,9 +66,6 @@ class AIPlatformEngineerMAS:
     self._graph_lock = threading.RLock()
     self._graph = None
     self._graph_generation = 0  # Track graph version for debugging
-    self._skills_merged_at: str | None = None  # ISO-8601 UTC after last successful merge (FR-016)
-    self._skills_loaded_count: int = 0
-    self._last_built_catalog_generation: int | None = None  # catalog gen snapshot after last _build_graph (FR-026)
 
     # RAG-related instance variables
     self.rag_enabled = ENABLE_RAG # if the server is not reachable, this will be set to False
@@ -147,49 +143,6 @@ class AIPlatformEngineerMAS:
       else:
         status["rag_enabled"] = False
       return status
-
-  def _apply_skill_summary_cap(self, skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Limit skills passed into SkillsMiddleware when MAX_SKILL_SUMMARIES_IN_PROMPT > 0 (FR-024)."""
-    raw = os.getenv("MAX_SKILL_SUMMARIES_IN_PROMPT", "0").strip()
-    try:
-      n = int(raw)
-    except ValueError:
-      n = 0
-    if n <= 0 or len(skills) <= n:
-      return skills
-    sorted_skills = sorted(
-      skills,
-      key=lambda s: (str(s.get("source", "")), str(s.get("name", "")).lower()),
-    )
-    logger.info(
-      "MAX_SKILL_SUMMARIES_IN_PROMPT=%d: using %d of %d merged skills for supervisor prompt/backends",
-      n,
-      n,
-      len(skills),
-    )
-    return sorted_skills[:n]
-
-  def get_skills_status(self) -> dict:
-    """Snapshot of skills load metadata for operators (FR-016, FR-026)."""
-    from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
-
-    with self._graph_lock:
-      cache_gen = get_catalog_cache_generation()
-      last_built = self._last_built_catalog_generation
-      if last_built is None:
-        sync_status = "unknown"
-      elif last_built == cache_gen:
-        sync_status = "in_sync"
-      else:
-        sync_status = "supervisor_stale"
-      return {
-        "graph_generation": self._graph_generation,
-        "skills_loaded_count": self._skills_loaded_count,
-        "skills_merged_at": self._skills_merged_at,
-        "catalog_cache_generation": cache_gen,
-        "last_built_catalog_generation": last_built,
-        "sync_status": sync_status,
-      }
 
   def get_rag_tool_names(self) -> set[str]:
     """Get the set of RAG tool names loaded from the MCP server."""
@@ -308,31 +261,12 @@ class AIPlatformEngineerMAS:
 
     logger.info(f"📝 Generated system prompt: {len(system_prompt)} chars")
 
-    # Load skills catalog and build StateBackend files for SkillsMiddleware (FR-015)
-    try:
-        skills = get_merged_skills(include_content=True)
-        skills = self._apply_skill_summary_cap(skills)
-        self._skills_files, self._skills_sources = build_skills_files(skills)
-        self._skills_loaded_count = len(skills)
-        self._skills_merged_at = datetime.now(timezone.utc).isoformat()
-        logger.info(f"📚 Loaded {len(skills)} skills for supervisor ({len(self._skills_sources)} sources)")
-    except Exception as e:
-        logger.warning(f"Failed to load skills catalog: {e}")
-        self._skills_files = {}
-        self._skills_sources = []
-        self._skills_loaded_count = 0
-
-    # Skills sources are passed to create_deep_agent's `skills` parameter,
-    # which places SkillsMiddleware before FilesystemMiddleware in the stack.
-
     # Get fresh tools from registry (for tool notifications and visibility)
     all_agents = platform_registry.get_all_agents()
 
     # Add utility tools: reflection, markdown, URL, date, workspace, user input, and command-line tools
     # NOTE: read_file, write_file, ls, grep, glob, edit_file are provided by
     # deepagents' built-in FilesystemMiddleware (operates on StateBackend).
-    # Do NOT add custom duplicates here — they shadow the built-in tools and
-    # break SkillsMiddleware which needs StateBackend access.
     all_tools = all_agents + [
         fetch_url,
         get_current_date,
@@ -383,12 +317,21 @@ class AIPlatformEngineerMAS:
       "system_prompt": system_prompt,
       "subagents": subagents,
       "model": base_model,
-      "skills": self._skills_sources if self._skills_sources else None,
     }
 
     if USE_STRUCTURED_RESPONSE:
       from langchain.agents.structured_output import ToolStrategy
       deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
+      # Restore the "stop calling tools" behaviour that the old tuple-based response_format
+      # provided via its explicit instruction. Without this, ToolStrategy gives no signal
+      # to stop fetching documents, so the LLM reads every search result exhaustively.
+      system_prompt = system_prompt + (
+          "\n\n## Answering\n"
+          "When you have gathered enough information to answer confidently, call the "
+          "PlatformEngineerResponse tool immediately. Do NOT fetch every document returned "
+          "by search — retrieve only the 2-3 most relevant documents, then synthesize your answer."
+      )
+      deep_agent_kwargs["system_prompt"] = system_prompt
       logger.info("Structured response mode enabled (ToolStrategy + PlatformEngineerResponse)")
 
     # Create cross-thread store for long-term memory
@@ -409,13 +352,6 @@ class AIPlatformEngineerMAS:
     # Atomically update graph and increment generation
     self._graph = deep_agent
     self._graph_generation += 1
-
-    try:
-      from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
-
-      self._last_built_catalog_generation = get_catalog_cache_generation()
-    except Exception:
-      self._last_built_catalog_generation = None
 
     logger.debug(f"Deep agent created successfully (generation {self._graph_generation})")
     logger.info(f"✅ Deep agent updated with {len(all_agents)} tools and {len(subagents)} subagents")
@@ -450,9 +386,6 @@ class AIPlatformEngineerMAS:
               }
           ],
       }
-      # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
-      if getattr(self, "_skills_files", None):
-          state_dict["files"] = dict(self._skills_files)
       result = await graph.ainvoke(
           state_dict,
           {"configurable": {"thread_id": uuid.uuid4()}}
@@ -502,10 +435,6 @@ class AIPlatformEngineerMAS:
               }
           ],
       }
-      # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
-      if getattr(self, "_skills_files", None):
-          state_dict["files"] = dict(self._skills_files)
-
       # Stream events from the graph
       async for event in graph.astream_events(
           state_dict,
