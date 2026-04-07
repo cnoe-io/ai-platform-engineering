@@ -82,6 +82,7 @@ major_version_zero = true
 dev = [
     "asyncpg==0.31.0",
     "psycopg[binary]==3.3.3",
+    "pytest>=9.0.2",
     "ruff==0.14.8",
 ]
 unittest = [

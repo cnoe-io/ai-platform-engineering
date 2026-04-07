@@ -151,6 +151,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
           1. Emoji + [Agent] format: "⏳ [Jira] Search for tickets"
           2. Bullet + emoji format (write_todos): "- ⏳ Search for tickets"
           3. Markdown checkbox format: "- [x] step" / "- [ ] step"
+          4. Bare emoji format: "⏳ Search for tickets" (no agent, no bullet)
         """
         items: list[dict] = []
 
@@ -162,6 +163,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         bullet_emoji_pattern = re.compile(r'-\s*([⏳✅🔄❌])\s+(.+)')
         # Pattern 3: Markdown checkbox
         checkbox_pattern = re.compile(r'-\s*\[([xX ])\]\s*(.+)')
+        # Pattern 4: Bare emoji + description (no agent, no bullet) — produced by
+        # _build_todo_plan_text() in agent.py when content has no [Agent] prefix
+        bare_emoji_pattern = re.compile(r'^([⏳✅🔄❌])\s+(.+)')
 
         order = 0
         for line in text.strip().split('\n'):
@@ -196,6 +200,19 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             match = checkbox_pattern.match(stripped)
             if match:
                 status = 'completed' if match.group(1).lower() == 'x' else 'pending'
+                title = match.group(2).strip()
+                agent = "Supervisor"
+                step_id = self._make_step_id(title, agent)
+                items.append({
+                    'step_id': step_id, 'title': title, 'agent': agent,
+                    'status': status, 'order': order,
+                })
+                order += 1
+                continue
+
+            match = bare_emoji_pattern.match(stripped)
+            if match:
+                status = emoji_status_map.get(match.group(1), 'pending')
                 title = match.group(2).strip()
                 agent = "Supervisor"
                 step_id = self._make_step_id(title, agent)
