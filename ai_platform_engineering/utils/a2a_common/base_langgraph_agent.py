@@ -43,6 +43,8 @@ from ai_platform_engineering.utils.mcp_config import (
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
+FORWARD_JWT_TO_MCP = os.getenv("FORWARD_JWT_TO_MCP", "false").lower() in ("true", "1", "yes")
+
 
 logger = logging.getLogger(__name__)
 
@@ -369,7 +371,7 @@ Use this as the reference point for all date calculations. When users say "today
             logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
             mcp_url = resolve_mcp_url(agent_name)
             headers: dict[str, str] = {}
-            if os.getenv("FORWARD_JWT_TO_MCP", "false").lower() in ("true", "1", "yes"):
+            if FORWARD_JWT_TO_MCP:
                 user_jwt_ctx = get_jwt_user_context()
                 user_jwt = user_jwt_ctx.token if user_jwt_ctx else ""
                 if user_jwt:
