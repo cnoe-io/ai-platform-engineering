@@ -14,7 +14,7 @@ from common.models.rag import DataSourceInfo
 from common.job_manager import JobManager, JobStatus
 from common.ingestor import Client
 from common.utils import get_logger, get_fresh_until
-from common.constants import DEFAULT_RELOAD_INTERVAL
+from common.constants import MIN_RELOAD_INTERVAL
 
 from .worker_pool import get_worker_pool
 from .worker_types import CrawlRequest, CrawlProgress, CrawlDocuments, CrawlResult, CrawlStatus
@@ -92,11 +92,11 @@ class ScrapyLoader:
       # Get worker pool
       pool = await get_worker_pool()
 
-      # Get reload_interval from datasource (first-class field with migration from metadata)
+      # Get reload_interval from datasource, clamp to minimum to prevent tight loops
       reload_interval = self.datasource_info.reload_interval
-      if not reload_interval:
-        reload_interval = DEFAULT_RELOAD_INTERVAL
-        self.logger.warning(f"No reload_interval set on datasource, using default: {reload_interval}s ({reload_interval // 3600}h)")
+      if reload_interval < MIN_RELOAD_INTERVAL:
+        self.logger.warning(f"Datasource {self.datasource_info.datasource_id} has reload_interval {reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, clamping to minimum")
+        reload_interval = MIN_RELOAD_INTERVAL
 
       # Calculate fresh_until for document ingestion
       fresh_until = get_fresh_until(reload_interval)
@@ -186,10 +186,9 @@ class ScrapyLoader:
             documents=documents,
             fresh_until=fresh_until,
           )
+          # Note: document_count is auto-incremented by Client.ingest_documents()
 
           documents_ingested += len(documents)
-          await self.job_manager.increment_document_count(job_id, len(documents))
-
           self.logger.info(f"Ingested batch {docs.batch_number} ({len(documents)} documents, {documents_ingested} total)")
           return True  # Continue crawling
 
@@ -353,10 +352,8 @@ class ScrapyLoader:
             documents=batch,
             fresh_until=fresh_until,
           )
+          # Note: document_count is auto-incremented by Client.ingest_documents()
           self.logger.info(f"Ingested final batch {batch_num}/{total_batches} ({len(batch)} documents)")
-
-          # Track document count
-          await self.job_manager.increment_document_count(job_id, len(batch))
 
         except Exception as e:
           error_msg = f"Failed to ingest final batch {batch_num}/{total_batches}: {e}"

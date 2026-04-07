@@ -348,7 +348,7 @@ class TestRAGEndToEnd:
       "ingestor_name": "test_ingestor",
       "ingestor_type": "test_ingestor_type",
       "fresh_until": int(time.time()) + 3600,  # 1 hour from now
-      "entities": [{"entity_type": "TestEntity", "additional_labels": [], "all_properties": {"name": "Test Entity 1", "description": "A test entity for E2E testing", "test_property": "test_value"}, "primary_key_properties": ["name"], "additional_key_properties": []}],
+      "entities": [{"entity_type": "TestEntity", "additional_types": [], "all_properties": {"name": "Test Entity 1", "description": "A test entity for E2E testing", "test_property": "test_value"}, "primary_key_properties": ["name"], "additional_key_properties": []}],
     }
 
     response = requests.post(f"{self.base_url}/v1/graph/ingest/entities", json=entity_data)
@@ -375,7 +375,7 @@ class TestRAGEndToEnd:
       "ranker_type": "weighted",
       "ranker_params": {"weights": [0.3, 0.7]},  # Bias towards keyword matching (BM25)
       "filters": {
-        "doc_type": "graph_entity"  # Filter to graph entities only
+        "doc_type": "structured_entity"  # Filter to structured entities only
       },
     }
 
@@ -394,7 +394,7 @@ class TestRAGEndToEnd:
       metadata = document.get("metadata", {})
 
       # Check if this is our test entity
-      if metadata.get("graph_entity_type") == "TestEntity" and metadata.get("graph_ingestor_id") == "test_ingestor_type/test_ingestor":
+      if metadata.get("structured_entity_type") == "TestEntity" and metadata.get("structured_ingestor_id") == "test_ingestor_type/test_ingestor":
         found_test_entity = True
 
         # Verify the content contains our test data
@@ -411,7 +411,7 @@ class TestRAGEndToEnd:
       print("📋 Search results received:")
       for i, result in enumerate(query_results["results"]):
         metadata = result.get("document", {}).get("metadata", {})
-        print(f"  {i + 1}. Type: {metadata.get('doc_type')}, Entity Type: {metadata.get('graph_entity_type')}, Ingestor: {metadata.get('graph_ingestor_id')}")
+        print(f"  {i + 1}. Type: {metadata.get('doc_type')}, Entity Type: {metadata.get('structured_entity_type')}, Ingestor: {metadata.get('structured_ingestor_id')}")
 
       raise AssertionError("Test entity not found in search results")
 

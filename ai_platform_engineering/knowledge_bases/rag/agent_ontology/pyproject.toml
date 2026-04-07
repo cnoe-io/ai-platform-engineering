@@ -33,6 +33,11 @@ build-backend = "uv_build"
 [tool.uv.sources]
 common = { path = "../common" }
 
+[dependency-groups]
+dev = [
+    "ruff==0.11.10",
+]
+
 [tool.ruff]
 line-length = 300
 indent-width = 2

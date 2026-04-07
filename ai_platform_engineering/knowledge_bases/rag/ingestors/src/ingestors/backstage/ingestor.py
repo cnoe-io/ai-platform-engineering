@@ -5,7 +5,7 @@ import requests
 from typing import List, Dict, Optional
 
 from common.ingestor import IngestorBuilder, Client
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobStatus
 import common.utils as utils
@@ -192,7 +192,7 @@ async def sync_backstage_entities(client: Client):
   job_id = job_response["job_id"]
   logging.info(f"Created job {job_id} for datasource={datasource_id} with {len(filtered_items)} entities")
 
-  # 3. Convert Backstage items to Entity objects
+  # 3. Convert Backstage items to StructuredEntity objects
   entities = []
   for item in filtered_items:
     try:
@@ -200,16 +200,16 @@ async def sync_backstage_entities(client: Client):
       # Copy item properties
       props = item.copy()
 
-      # Create Entity with proper primary and additional keys using dot notation
-      entity = Entity(entity_type=f"Backstage{kind}", all_properties=props, primary_key_properties=["metadata.uid"], additional_key_properties=[["metadata.name"]])
+      # Create StructuredEntity with proper primary and additional keys using dot notation
+      entity = StructuredEntity(entity_type=f"Backstage{kind}", all_properties=props, primary_key_properties=["metadata.uid"], additional_key_properties=[["metadata.name"]])
       entities.append(entity)
 
     except Exception as e:
-      logging.error(f"Error converting Backstage item to Entity: {e}", exc_info=True)
+      logging.error(f"Error converting Backstage item to StructuredEntity: {e}", exc_info=True)
       await client.add_job_error(job_id, [f"Error converting item: {str(e)}"])
       await client.increment_job_failure(job_id, 1)
 
-  logging.info(f"Converted {len(entities)} Backstage items to Entity objects")
+  logging.info(f"Converted {len(entities)} Backstage items to StructuredEntity objects")
 
   # 4. Ingest entities using automatic batching
   try:
@@ -232,7 +232,7 @@ async def sync_backstage_entities(client: Client):
 
   except Exception as e:
     # Mark job as failed
-    error_msg = f"Entity ingestion failed: {str(e)}"
+    error_msg = f"StructuredEntity ingestion failed: {str(e)}"
     await client.add_job_error(job_id, [error_msg])
     await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=error_msg)
     logging.error(error_msg, exc_info=True)
