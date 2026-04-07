@@ -347,11 +347,11 @@ async def chat_invoke(
             "trace_id": request.trace_id,
         }
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error invoking agent '{agent.name}'")
         return {
             "success": False,
-            "error": str(e),
+            "error": "An internal error occurred while invoking the agent.",
             "agent_id": agent.id,
             "conversation_id": request.conversation_id,
             "trace_id": request.trace_id,
