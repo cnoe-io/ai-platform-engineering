@@ -227,7 +227,6 @@ export function DynamicAgentTimeline({
         <StreamingMarkdown
           content={finalAnswer}
           isStreaming={true}
-          variant="final"
         />
       </div>
     );
@@ -277,8 +276,6 @@ export function DynamicAgentTimeline({
                     <TimelineDot color="primary" />
                     <StreamingMarkdown
                       content={finalAnswer}
-                      isStreaming={true}
-                      variant="thinking"
                     />
                   </div>
                 )}
@@ -313,8 +310,6 @@ export function DynamicAgentTimeline({
           <div className="animate-reveal-ltr bg-muted/30 border border-border/30 rounded-lg px-4 py-3">
             <StreamingMarkdown
               content={finalAnswer}
-              isStreaming={false}
-              variant="final"
             />
           </div>
         )}
@@ -451,8 +446,6 @@ function DAContentSegmentView({
   return (
     <StreamingMarkdown
       content={segment.text}
-      isStreaming={isStreaming}
-      variant="thinking"
     />
   );
 }
