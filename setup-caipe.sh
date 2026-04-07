@@ -2914,9 +2914,7 @@ deploy_caipe() {
     _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX.yaml)
 
     # Build models list from llm-secret LLM_PROVIDER
-    local _provider="anthropic"
-    if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *bedrock* ]]; then _provider="aws-bedrock"; fi
-    if [[ -n "$LLM_PROVIDER" && "$LLM_PROVIDER" == *azure* ]]; then _provider="azure-openai"; fi
+    local _provider="${LLM_PROVIDER:-anthropic-claude}"
 
     # Write auth/OIDC config into the values file
     cat > "$_da_values_file" <<DAEOF
