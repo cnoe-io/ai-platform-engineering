@@ -3,7 +3,7 @@
  * Tests OIDC configuration, token refresh, and group authorization
  */
 
-import { hasRequiredGroup, isAdminUser, canViewAdminDashboard } from '../auth-config'
+import { hasRequiredGroup, isAdminUser, canViewAdminDashboard, canAccessDynamicAgents } from '../auth-config'
 
 // Note: We don't test the full authOptions NextAuth config here
 // as it requires complex NextAuth mocking. Instead, we focus on
@@ -287,6 +287,97 @@ describe('auth-config', () => {
 
     it('returns true even with empty groups when no view group configured', () => {
       expect(canViewAdminDashboard([])).toBe(true)
+    })
+  })
+
+  describe('canAccessDynamicAgents (OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP)', () => {
+    const originalEnv = process.env
+
+    beforeEach(() => {
+      jest.resetModules()
+      process.env = { ...originalEnv }
+    })
+
+    afterAll(() => {
+      process.env = originalEnv
+    })
+
+    it('returns false for empty groups when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is not set (falls back to admin check)', () => {
+      // No env var set → fallback to isAdminUser → REQUIRED_ADMIN_GROUP is '' → false
+      expect(canAccessDynamicAgents([])).toBe(false)
+    })
+
+    it('returns false for non-admin groups when env var not set (admin fallback)', () => {
+      expect(canAccessDynamicAgents(['eng', 'backend'])).toBe(false)
+    })
+
+    it('returns true when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set and user is in that group', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        expect(fn(['custom-agents-users', 'eng'])).toBe(true)
+      })
+    })
+
+    it('returns false when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set but user is not in that group', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        expect(fn(['eng', 'backstage-access'])).toBe(false)
+      })
+    })
+
+    it('check is case-insensitive', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'Custom-Agents-Users'
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        expect(fn(['custom-agents-users'])).toBe(true)
+      })
+    })
+
+    it('matches LDAP DN format (cn=... substring)', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        expect(fn(['CN=custom-agents-users,OU=Groups,DC=example,DC=com'])).toBe(true)
+      })
+    })
+
+    it('does not match partial substring outside of DN format', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'agents'
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        // "custom-agents-users" contains "agents" as substring but should NOT match
+        // (only exact or cn=... match is valid)
+        expect(fn(['custom-agents-users'])).toBe(false)
+      })
+    })
+
+    it('returns false for empty groups even when env var is set', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        expect(fn([])).toBe(false)
+      })
+    })
+
+    it('ignores admin group when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
+        process.env.OIDC_REQUIRED_ADMIN_GROUP = 'sre-admin'
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        // User is in admin group but NOT in custom-agents-users → should return false
+        expect(fn(['sre-admin'])).toBe(false)
+      })
+    })
+
+    it('env var set to empty string falls back to admin check', () => {
+      jest.isolateModules(() => {
+        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = ''
+        // REQUIRED_ADMIN_GROUP defaults to '' → isAdminUser returns false
+        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        expect(fn(['eng'])).toBe(false)
+      })
     })
   })
 })

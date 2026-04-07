@@ -318,33 +318,44 @@ async def chat_invoke(
     # Set MongoDB service for subagent resolution
     cache.set_mongo_service(mongo)
 
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        request.conversation_id,
-        user=user,
-    )
+    try:
+        runtime = await cache.get_or_create(
+            agent,
+            mcp_servers,
+            request.conversation_id,
+            user=user,
+        )
 
-    content_parts = []
-    tool_calls = []
+        content_parts = []
+        tool_calls = []
 
-    async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
-        event_type = event.get("type", "")
-        event_data = event.get("data", "")
+        async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
+            event_type = event.get("type", "")
+            event_data = event.get("data", "")
 
-        if event_type == "content":
-            content_parts.append(str(event_data))
-        elif event_type == "tool_start":
-            tool_calls.append(event_data)
+            if event_type == "content":
+                content_parts.append(str(event_data))
+            elif event_type == "tool_start":
+                tool_calls.append(event_data)
 
-    return {
-        "success": True,
-        "content": "".join(content_parts),
-        "tool_calls": tool_calls,
-        "agent_id": agent.id,
-        "conversation_id": request.conversation_id,
-        "trace_id": request.trace_id,
-    }
+        return {
+            "success": True,
+            "content": "".join(content_parts),
+            "tool_calls": tool_calls,
+            "agent_id": agent.id,
+            "conversation_id": request.conversation_id,
+            "trace_id": request.trace_id,
+        }
+
+    except Exception:
+        logger.exception(f"Error invoking agent '{agent.name}'")
+        return {
+            "success": False,
+            "error": "An internal error occurred while invoking the agent.",
+            "agent_id": agent.id,
+            "conversation_id": request.conversation_id,
+            "trace_id": request.trace_id,
+        }
 
 
 @router.post("/restart-runtime")

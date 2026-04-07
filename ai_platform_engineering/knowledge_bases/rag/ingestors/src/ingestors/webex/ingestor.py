@@ -329,7 +329,7 @@ class WebexSpaceSyncer:
       document_id=f"webex-thread-{space_id}-{parent_id}",
       title=f"Thread: {thread_preview}",
       description=f"Webex thread started by {parent_email} with {len(replies)} replies",
-      is_graph_entity=False,
+      is_structured_entity=False,
       fresh_until=0,
       metadata={
         "space_name": space_name,
@@ -388,7 +388,7 @@ class WebexSpaceSyncer:
       document_id=f"webex-message-{space_id}-{message_id}",
       title=f"Message: {message_preview}",
       description=f"Webex message from {person_email}",
-      is_graph_entity=False,
+      is_structured_entity=False,
       fresh_until=0,
       metadata={"space_name": space_name, "space_id": space_id, "message_id": message_id, "person_email": person_email, "created": created, "has_files": len(files) > 0, "type": "webex_message", "source_uri": f"https://web.webex.com/spaces/{space_id}", "last_modified": iso_to_timestamp(created)},
     )

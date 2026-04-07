@@ -10,7 +10,7 @@ from mcp_jira.api.client import make_api_request
 from mcp_jira.models.jira.search import JiraSearchResult
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("mcp-jira")
 
 DEFAULT_READ_JIRA_FIELDS = ["summary", "status", "assignee", "priority", "issuetype", "created", "updated"]
@@ -96,12 +96,7 @@ async def search(
     url = f"{base_url}/rest/api/3/search/jql"
 
     try:
-        # Log request details
-        print("\n=== HTTP REQUEST ===")
-        print(f"URL: {url}")
-        print("Method: POST")
-        print(f"Headers: {headers}")
-        print(f"Payload: {payload}")
+        logger.debug("HTTP REQUEST: POST %s payload=%s", url, payload)
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -110,23 +105,16 @@ async def search(
                 headers=headers
             )
 
-            # Log response details
-            print("\n=== HTTP RESPONSE ===")
-            print(f"Status Code: {response.status_code}")
-            print(f"Headers: {dict(response.headers)}")
-            print(f"Response Body: {response.text[:1000]}...")  # First 1000 chars
+            logger.debug("HTTP RESPONSE: status=%s", response.status_code)
 
             if response.status_code == 200:
                 response_data = response.json()
-                print(f"Parsed JSON: {response_data}")
                 return JiraSearchResult.from_api_response(response_data, requested_fields=fields_list)
             else:
                 error_data = response.json() if response.content else {}
-                print(f"Error Response: {error_data}")
                 raise ValueError(f"Failed to search Jira issues: {error_data}")
 
     except Exception as e:
-        print(f"Exception: {str(e)}")
         raise ValueError(f"Failed to search Jira issues: {str(e)}")
 
 

@@ -410,3 +410,160 @@ describe('useAdminRole — canViewAdmin', () => {
     expect(result.current.canViewAdmin).toBe(false);
   });
 });
+
+// ============================================================================
+// canAccessDynamicAgents tests — OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP gating
+// ============================================================================
+
+describe('useAdminRole — canAccessDynamicAgents', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetConfig = {};
+    (global.fetch as jest.Mock) = jest.fn();
+  });
+
+  it('canAccessDynamicAgents=true when session.canAccessDynamicAgents is true', async () => {
+    mockUseSession.mockReturnValue({
+      data: { role: 'user', canAccessDynamicAgents: true, user: { email: 'user@test.com' } },
+      status: 'authenticated',
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ role: 'user' }),
+    });
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canAccessDynamicAgents).toBe(true);
+    expect(result.current.isAdmin).toBe(false);
+  });
+
+  it('canAccessDynamicAgents=false when session.canAccessDynamicAgents is false', async () => {
+    mockUseSession.mockReturnValue({
+      data: { role: 'user', canAccessDynamicAgents: false, user: { email: 'user@test.com' } },
+      status: 'authenticated',
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ role: 'user' }),
+    });
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canAccessDynamicAgents).toBe(false);
+  });
+
+  it('canAccessDynamicAgents=false when session.canAccessDynamicAgents is not set', async () => {
+    mockUseSession.mockReturnValue({
+      data: { role: 'user', user: { email: 'user@test.com' } },
+      status: 'authenticated',
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ role: 'user' }),
+    });
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canAccessDynamicAgents).toBe(false);
+  });
+
+  it('canAccessDynamicAgents=true for dev admin (SSO disabled + allowDevAdmin + mongodb)', async () => {
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
+    mockGetConfig = {
+      ssoEnabled: false,
+      allowDevAdminWhenSsoDisabled: true,
+      storageMode: 'mongodb',
+    };
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canAccessDynamicAgents).toBe(true);
+  });
+
+  it('canAccessDynamicAgents=false for unauthenticated user (no session, SSO enabled)', async () => {
+    mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' });
+    mockGetConfig = { ssoEnabled: true, storageMode: 'mongodb' };
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canAccessDynamicAgents).toBe(false);
+  });
+
+  it('canAccessDynamicAgents=true during render when session already has canAccessDynamicAgents=true', () => {
+    mockUseSession.mockReturnValue({
+      data: { role: 'user', canAccessDynamicAgents: true, user: { email: 'user@test.com' } },
+      status: 'authenticated',
+    });
+    // Fetch never resolves — simulates in-flight API call
+    (global.fetch as jest.Mock).mockImplementation(() => new Promise(() => {}));
+
+    const { result } = renderHook(() => useAdminRole());
+
+    expect(result.current.canAccessDynamicAgents).toBe(true);
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('canAccessDynamicAgents independent of canViewAdmin', async () => {
+    // canViewAdmin=false, canAccessDynamicAgents=true (different group for each)
+    mockUseSession.mockReturnValue({
+      data: {
+        role: 'user',
+        canViewAdmin: false,
+        canAccessDynamicAgents: true,
+        user: { email: 'user@test.com' },
+      },
+      status: 'authenticated',
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ role: 'user' }),
+    });
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canViewAdmin).toBe(false);
+    expect(result.current.canAccessDynamicAgents).toBe(true);
+    expect(result.current.isAdmin).toBe(false);
+  });
+
+  it('canAccessDynamicAgents=true when user is admin (admin flag overrides)', async () => {
+    mockUseSession.mockReturnValue({
+      data: { role: 'admin', canAccessDynamicAgents: true, user: { email: 'admin@test.com' } },
+      status: 'authenticated',
+    });
+
+    const { result } = renderHook(() => useAdminRole());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canAccessDynamicAgents).toBe(true);
+    expect(result.current.isAdmin).toBe(true);
+  });
+});

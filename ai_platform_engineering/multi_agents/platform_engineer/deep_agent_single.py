@@ -52,12 +52,14 @@ from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
 from ai_platform_engineering.utils.deepagents_custom.self_service_middleware import (
     SelfServiceWorkflowMiddleware,
 )
+from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
 )
 from ai_platform_engineering.utils.deepagents_custom.tool_error_handling import (
     wrap_tools_with_error_handling,
+    wrap_tools_with_self_service_gate,
 )
 
 # Skills middleware: upstream SkillsMiddleware + custom catalog layer
@@ -631,6 +633,7 @@ def create_user_input_subagent_def() -> dict:
         "tools": tools,
         "interrupt_on": {"CAIPEAgentResponse": True},
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name="user_input", agent_type="subagent"),
         ],
     }
@@ -697,6 +700,7 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         "system_prompt": system_prompt,
         "tools": tools,
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name=name, agent_type="subagent"),
         ],
     }
@@ -726,11 +730,10 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
       STDIO path auto-derives a Python server_path that doesn't exist
       (GitHub MCP is a Go project at mcp/mcp_github/, not Python).
 
-    The gh CLI tool is always added alongside MCP tools. policy.lp controls
-    which tools are allowed:
-    - readonly MCP tools (get_file_contents, etc.) are always allowed
-    - write MCP tools (push_files, create_branch, etc.) require self_service_mode
-    - gh_cli_execute is allowed in both modes (policy marks it readonly + self_service)
+    MCP tools are gated behind self-service mode: they only execute during
+    deterministic workflow execution (``is_self_service_mode() == True``).
+    Outside of self-service mode the LLM receives a message directing it to
+    use ``gh_cli_execute`` instead.  The gh CLI tool is always available.
     """
     from ai_platform_engineering.utils.mcp_config import resolve_mcp_mode, is_http_mode
 
@@ -763,6 +766,11 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
         except Exception as e:
             logger.warning(f"{name}: Failed to load MCP tools from local server: {e}", exc_info=True)
 
+    # Gate MCP tools behind self-service mode — outside of self-service
+    # workflows the LLM is directed to use gh_cli_execute instead.
+    if mcp_tools:
+        mcp_tools = wrap_tools_with_self_service_gate(mcp_tools, agent_name=name)
+
     tools = list(mcp_tools)
 
     # gh CLI as fallback for when MCP is unavailable or for simple operations
@@ -783,6 +791,7 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
         "system_prompt": system_prompt,
         "tools": tools,
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name=name, agent_type="subagent"),
         ],
     }
@@ -888,6 +897,7 @@ async def create_aws_subagent_def(prompt_config: dict = None) -> dict:
         "system_prompt": system_prompt,
         "tools": tools,
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name=name, agent_type="subagent"),
         ],
     }
@@ -934,11 +944,42 @@ async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
     return await create_subagent_def(agent, "confluence", "Confluence: wiki documentation", prompt_config)
 
 
+async def create_gitlab_remote_subagent_def(prompt_config: dict = None) -> dict:
+    """Create GitLab subagent that delegates to the remote A2A gitlab agent container.
+
+    NOTE: This is a stub subagent definition at the moment and needs building out.
+    The remote A2A GitLab agent must be running and reachable for this to function.
+    """
+    agent_url = _infer_remote_agent_url("gitlab")
+    logger.info(f"Creating remote gitlab subagent pointing to {agent_url}")
+
+    a2a_tool = A2ARemoteAgentConnectTool(
+        name="gitlab_a2a",
+        remote_agent_card=agent_url,
+        skill_id="",
+        description="Interact with GitLab: projects, issues, merge requests, CI/CD pipelines, repository files, and branches",
+    )
+
+    system_prompt = "You are a GitLab assistant. Use the gitlab_a2a tool to interact with GitLab resources."
+    if prompt_config:
+        agent_cfg = prompt_config.get("agents", {}).get("gitlab", {})
+        if agent_cfg.get("system_prompt"):
+            system_prompt = agent_cfg["system_prompt"]
+
+    return {
+        "name": "gitlab",
+        "description": "GitLab: projects, issues, merge requests, CI/CD pipelines, repository operations",
+        "system_prompt": system_prompt,
+        "tools": [a2a_tool],
+    }
+
+
 # Registry of in-process subagents for single-node mode.
 # Each entry maps agent name to its creation function.
 # Agents are loaded only when ENABLE_<NAME> env var is "true" (default).
 SINGLE_NODE_AGENTS = [
     ("github", create_github_subagent_def),
+    ("gitlab", create_gitlab_remote_subagent_def),
     ("aigateway", create_aigateway_subagent_def),
     ("backstage", create_backstage_subagent_def),
     ("jira", create_jira_subagent_def),
@@ -1386,6 +1427,7 @@ This format is required so the UI can display agent stickers next to each task.
             subagents=subagent_defs,
             model=base_model,
             middleware=[
+                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
                 PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
                 *skills_middleware_list,
                 DeterministicTaskMiddleware(),

@@ -19,7 +19,7 @@ dependencies = [
     "slim-bindings==0.6.3",
     "click==8.3.1",
     "langchain-anthropic==1.0.0",
-    "langchain-core==1.1.2",
+    "langchain-core==1.2.26",
     "langchain-mcp-adapters==0.2.1",
     "langchain-openai==1.1.0",
     "langgraph==1.0.4",
@@ -43,11 +43,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.5",
-    "pytest-asyncio>=0.25.0",
-    "pytest-cov>=6.0.0",
-    "ruff>=0.8.0",
-    "mypy>=1.13.0",
+    "pytest==8.3.5",
+    "pytest-asyncio==1.1.0",
+    "pytest-cov==6.2.1",
+    "ruff==0.12.11",
+    "mypy==1.17.1",
 ]
 
 [project.scripts]

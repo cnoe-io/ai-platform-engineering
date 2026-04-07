@@ -27,6 +27,7 @@ from a2a_client import A2AClient
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.interaction_tracker import InteractionTracker
+from utils.config_models import get_escalation_config
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -157,6 +158,8 @@ def handle_mention(event, say, client):
 
     team_id = event.get("team")
 
+    esc_config = get_escalation_config(channel_config)
+
     result = ai.stream_a2a_response(
       a2a_client=a2a_client,
       slack_client=client,
@@ -168,6 +171,7 @@ def handle_mention(event, say, client):
       context_id=context_id,
       metadata=request_metadata if request_metadata else None,
       session_manager=session_manager,
+      escalation_config=esc_config,
     )
 
     # Track interaction for platform statistics
@@ -252,17 +256,17 @@ def handle_qanda_message(event, say, client):
       return
 
     channel_config = config.channels[channel_id]
-    default_config = channel_config.default
-    if not default_config or not isinstance(default_config, dict):
-      raise ValueError(f"Channel {channel_id} is missing required 'default' config")
 
     context_id = session_manager.get_context_id(thread_ts)
 
     final_message = channel_config.qanda.custom_prompt.format(message_text=message_text)
-    request_metadata = {"channel_id": channel_id, "channel_config": default_config}
+    jira_config = channel_config.other.jira.model_dump() if channel_config.other.jira else {}
+    request_metadata = {"channel_id": channel_id, "channel_config": jira_config}
     if user_email:
       final_message = f"The user email is {user_email}\n\n{final_message}"
       request_metadata["user_email"] = user_email
+
+    esc_config = get_escalation_config(channel_config)
 
     result = ai.stream_a2a_response(
       a2a_client=a2a_client,
@@ -276,6 +280,7 @@ def handle_qanda_message(event, say, client):
       metadata=request_metadata,
       session_manager=session_manager,
       overthink_mode=channel_config.qanda.overthink,
+      escalation_config=esc_config,
     )
 
     if isinstance(result, dict) and result.get("skipped"):
@@ -516,19 +521,21 @@ def handle_message_events(body, say, client):
   if channel_config.ai_alerts.enabled:
     alert_ts = event.get("ts", "unknown")
     logger.info(f"[{alert_ts}] Routing alert from {bot_username} to AI processing")
-    default_config = channel_config.default
-    if not default_config or not isinstance(default_config, dict):
-      raise ValueError(f"Channel {channel_id} is missing required 'default' config")
+    jira_config = channel_config.other.jira
+    if not jira_config:
+      raise ValueError(f"Channel {channel_id} is missing required 'other.jira' config")
 
+    esc_config = get_escalation_config(channel_config)
     ai.handle_ai_alert_processing(
       a2a_client,
       client,
       event,
       channel_id,
       bot_username,
-      default_config,
+      jira_config,
       session_manager,
       custom_prompt=channel_config.ai_alerts.custom_prompt,
+      escalation_config=esc_config,
     )
 
     # Track alert interaction for platform statistics
@@ -599,15 +606,25 @@ def handle_caipe_feedback(ack, body, client):
         text="Thanks for the feedback! Glad it was helpful.",
       )
     else:
+      action_value = f"{channel_id}|{thread_ts}|{message_ts}"
+      action_elements = [
+        {"type": "button", "text": {"type": "plain_text", "text": "More detail"}, "action_id": "caipe_feedback_more_detail", "value": action_value},
+        {"type": "button", "text": {"type": "plain_text", "text": "Briefer"}, "action_id": "caipe_feedback_less_verbose", "value": action_value},
+        {"type": "button", "text": {"type": "plain_text", "text": "Wrong answer"}, "action_id": "caipe_feedback_wrong_answer", "value": action_value},
+        {"type": "button", "text": {"type": "plain_text", "text": "Other"}, "action_id": "caipe_feedback_other", "value": action_value},
+      ]
+
+      # Add "Get help" button if escalation is configured
+      channel_config = config.channels.get(channel_id)
+      esc_config = get_escalation_config(channel_config) if channel_config else None
+      if esc_config:
+        action_elements.append(
+          {"type": "button", "text": {"type": "plain_text", "text": "🙋 Get help"}, "action_id": "caipe_escalation_get_help", "value": action_value}
+        )
+
       refinement_blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": "Sorry that wasn't helpful. What could be improved?"}},
-        {
-          "type": "actions",
-          "elements": [
-            {"type": "button", "text": {"type": "plain_text", "text": "Wrong answer"}, "action_id": "caipe_feedback_wrong_answer", "value": f"{channel_id}|{thread_ts}|{message_ts}"},
-            {"type": "button", "text": {"type": "plain_text", "text": "Other"}, "action_id": "caipe_feedback_other", "value": f"{channel_id}|{thread_ts}|{message_ts}"},
-          ],
-        },
+        {"type": "actions", "elements": action_elements},
       ]
       client.chat_postEphemeral(
         channel=channel_id,
@@ -649,6 +666,9 @@ def handle_feedback_more_detail(ack, body, client):
     context_id = session_manager.get_context_id(thread_ts)
     team_id = body.get("team", {}).get("id")
 
+    channel_config = config.channels.get(channel_id)
+    esc_config = get_escalation_config(channel_config) if channel_config else None
+
     ai.stream_a2a_response(
       a2a_client=a2a_client,
       slack_client=client,
@@ -660,7 +680,8 @@ def handle_feedback_more_detail(ack, body, client):
       context_id=context_id,
       session_manager=session_manager,
       additional_footer=f"More detail requested by <@{user_id}>",
-    )
+      escalation_config=esc_config,
+          )
   except Exception as e:
     logger.exception(f"Error handling more detail feedback: {e}")
 
@@ -694,6 +715,9 @@ def handle_feedback_less_verbose(ack, body, client):
     context_id = session_manager.get_context_id(thread_ts)
     team_id = body.get("team", {}).get("id")
 
+    channel_config = config.channels.get(channel_id)
+    esc_config = get_escalation_config(channel_config) if channel_config else None
+
     ai.stream_a2a_response(
       a2a_client=a2a_client,
       slack_client=client,
@@ -705,7 +729,8 @@ def handle_feedback_less_verbose(ack, body, client):
       context_id=context_id,
       session_manager=session_manager,
       additional_footer=f"Shorter response requested by <@{user_id}>",
-    )
+      escalation_config=esc_config,
+          )
   except Exception as e:
     logger.exception(f"Error handling less verbose feedback: {e}")
 
@@ -767,6 +792,109 @@ def handle_caipe_retry(ack, body, client):
     )
   except Exception as e:
     logger.exception(f"Error handling retry: {e}")
+
+
+# =============================================================================
+# Escalation Action Handlers
+# =============================================================================
+@app.action("caipe_escalation_get_help")
+def handle_escalation_get_help(ack, body, client):
+    ack()
+    try:
+        from utils.escalation import execute_escalation
+
+        user_id = body.get("user", {}).get("id")
+        action = body.get("actions", [{}])[0]
+        parts = action.get("value", "").split("|")
+        channel_id = parts[0] if len(parts) > 0 else None
+        thread_ts = parts[1] if len(parts) > 1 else None
+        if not channel_id or not thread_ts:
+            return
+
+        # Check if escalation was already triggered for this thread
+        escalation_key = f"escalated:{thread_ts}"
+        if session_manager.get_context_id(escalation_key):
+            client.chat_postEphemeral(
+                channel=channel_id, user=user_id, thread_ts=thread_ts,
+                text="Help has already been requested for this thread.",
+            )
+            return
+        # Mark as escalated
+        session_manager.set_context_id(escalation_key, "true")
+
+        # Track escalation in feedback
+        submit_feedback_score(
+            thread_ts=thread_ts, user_id=user_id, channel_id=channel_id,
+            feedback_value="escalation_requested", slack_client=client,
+            session_manager=session_manager, config=config,
+        )
+
+        client.chat_postEphemeral(
+            channel=channel_id, user=user_id, thread_ts=thread_ts,
+            text="Got it! Connecting you with a human...",
+        )
+
+        # Get escalation config for this channel
+        channel_config = config.channels.get(channel_id)
+        if not channel_config:
+            return
+        esc_config = get_escalation_config(channel_config)
+        if not esc_config:
+            return
+
+        # Determine the parent message ts (root of thread)
+        message = body.get("message", {})
+        parent_ts = message.get("thread_ts") or thread_ts
+
+        execute_escalation(
+            slack_client=client, a2a_client=a2a_client,
+            channel_id=channel_id, thread_ts=thread_ts,
+            parent_ts=parent_ts, user_id=user_id,
+            escalation_config=esc_config,
+        )
+    except Exception as e:
+        logger.exception(f"Error handling escalation: {e}")
+
+
+@app.action("caipe_delete_message")
+def handle_delete_message(ack, body, client):
+    ack()
+    try:
+        user_id = body.get("user", {}).get("id")
+        channel_id = body.get("channel", {}).get("id")
+        message = body.get("message", {})
+        message_ts = message.get("ts")
+        thread_ts = message.get("thread_ts") or message_ts
+
+        if not channel_id or not message_ts:
+            return
+
+        # Check if user is authorized to delete
+        channel_config = config.channels.get(channel_id)
+        delete_admins = []
+        if channel_config and channel_config.other:
+            delete_admins = channel_config.other.delete_admins or []
+
+        if delete_admins and user_id not in delete_admins:
+            client.chat_postEphemeral(
+                channel=channel_id,
+                user=user_id,
+                thread_ts=thread_ts,
+                text="You don't have permission to delete this message.",
+            )
+            logger.warning(f"[{thread_ts}] Unauthorized delete attempt by <@{user_id}>")
+            return
+
+        submit_feedback_score(
+            thread_ts=thread_ts, user_id=user_id, channel_id=channel_id,
+            feedback_value="message_deleted", slack_client=client,
+            session_manager=session_manager, config=config,
+        )
+
+        client.chat_delete(channel=channel_id, ts=message_ts)
+        logger.info(f"[{thread_ts}] Message {message_ts} deleted by <@{user_id}>")
+    except Exception as e:
+        logger.exception(f"Error handling message delete: {e}")
 
 
 def _open_feedback_modal(ack, body, client, feedback_type):
@@ -859,6 +987,10 @@ def handle_wrong_answer_submission(ack, body, client, view):
     context_id = session_manager.get_context_id(thread_ts)
     correction_prompt = f'The user indicated your previous response was incorrect and provided the following IMPORTANT context: "{correction_text}"\n\nPlease carefully review this feedback and provide a corrected response.'
 
+    # Get escalation config for this channel
+    channel_config = config.channels.get(channel_id)
+    esc_config = get_escalation_config(channel_config) if channel_config else None
+
     ai.stream_a2a_response(
       a2a_client=a2a_client,
       slack_client=client,
@@ -870,7 +1002,8 @@ def handle_wrong_answer_submission(ack, body, client, view):
       context_id=context_id,
       session_manager=session_manager,
       additional_footer=f"Correction requested by <@{user_id}>",
-    )
+      escalation_config=esc_config,
+          )
   except Exception as e:
     logger.exception(f"Error handling wrong answer submission: {e}")
 

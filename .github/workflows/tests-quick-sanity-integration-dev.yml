@@ -1,10 +1,19 @@
 name: "[Tests][Dev] Quick Sanity Integration"
-description: "Run quick sanity integration tests using docker-compose.dev.yaml with all agents + RAG"
+description: "Run quick sanity integration tests using prebuilt GHCR images with all agents + RAG"
 
 on:
-  push:
-    branches: [ main ]
+  # Trigger after the supervisor CI build completes on main — images are ready
+  workflow_run:
+    workflows: ["[CI][A2A] Supervisor Agent Docker Build and Push"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Explicit IMAGE_TAG to test (e.g. 0.2.43). Leave blank to test the latest non-RC release.'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: caipe-integration-dev
@@ -12,10 +21,15 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   quick-sanity-dev:
     runs-on: caipe-integration-tests
+    # For workflow_run: only proceed when supervisor CI succeeded
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Cleanup previous run artifacts
@@ -35,6 +49,60 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # For workflow_run: test the commit that triggered the build
+          # For workflow_dispatch: test HEAD of the triggered branch
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Detect image tag
+        id: image-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # workflow_dispatch with explicit tag overrides everything
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+            echo "Using explicit override: ${{ inputs.image_tag }}"
+            exit 0
+          fi
+
+          # workflow_dispatch with no tag: human-triggered run against the
+          # latest non-RC (final) release (e.g. 0.2.43)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG=$(gh api /repos/${{ github.repository }}/releases/latest \
+              --jq '.tag_name' 2>/dev/null || true)
+            if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+              echo "::warning::No final release found, falling back to 'main'"
+              TAG="main"
+            fi
+            echo "tag=${TAG}" >> $GITHUB_OUTPUT
+            echo "Using latest final release: ${TAG}"
+            exit 0
+          fi
+
+          # workflow_run (automatic): use the RC tag rc-tag.yml created for
+          # this exact commit (e.g. 0.2.43-rc.1). CI builds already waited for
+          # it, so the tag exists and images are pushed by the time we run.
+          git fetch --tags --quiet
+          TAG=$(git tag --points-at HEAD \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' \
+            | sort -V | tail -1)
+
+          if [ -z "$TAG" ]; then
+            echo "::warning::No RC tag on HEAD (doc-only push?), falling back to 'main'"
+            TAG="main"
+          fi
+
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Using image tag: ${TAG}"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create .env from GitHub Secrets
         run: |
           set -euo pipefail
@@ -117,7 +185,28 @@ jobs:
           df -h /
           echo "::endgroup::"
 
+      - name: Pull prebuilt images
+        env:
+          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          echo "Pulling GHCR images with IMAGE_TAG=${IMAGE_TAG}"
+          PROFILES=(
+            caipe-supervisor caipe-mongodb deps caipe-ui
+            all-agents netutils-agent rag
+          )
+          PROFILE_FLAGS=""
+          for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
+
+          # Pull all prebuilt images — individual failures are tolerated (e.g.
+          # agents that weren't rebuilt in this CI run still have a valid
+          # latest tag from a previous build).
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS pull \
+            || echo "::warning::Some image pulls failed (expected for agents not rebuilt in this run)"
+
       - name: Start services
+        env:
+          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
         run: |
           set -euo pipefail
           PROFILES=(
@@ -127,13 +216,9 @@ jobs:
           PROFILE_FLAGS=""
           for p in "${PROFILES[@]}"; do PROFILE_FLAGS+=" --profile $p"; done
 
-          # Build images first (succeeds even if some will fail at runtime)
-          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS build
-
-          # Start services — tolerate partial failures from agents with
-          # missing credentials (e.g. webex, splunk). The readiness check
-          # below validates the supervisor is healthy.
-          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS up -d \
+          # Start with --no-build: uses the pulled GHCR images, never rebuilds locally.
+          # Tolerates partial failures from agents with missing credentials.
+          docker compose -f docker-compose.dev.yaml $PROFILE_FLAGS up -d --no-build \
             || echo "::warning::Some containers failed to start (expected for agents without credentials)"
 
       - name: Stream service logs (background)
