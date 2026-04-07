@@ -21,7 +21,6 @@ data:
   {{- if $mcp.useRemoteMcpServer }}
   {{ $ENV }}_MCP_MODE: "stdio"
   {{- else if and $agw.enabled $.Values.global.agentgateway.enabled }}
-  {{- /* Route MCP through agentgateway proxy */ -}}
   {{ $ENV }}_MCP_MODE: "http"
   {{ $ENV }}_MCP_HOST: {{ printf "%s-agentgateway-proxy" $.Release.Name | quote }}
   {{ $ENV }}_MCP_PORT: {{ $.Values.global.agentgateway.proxyPort | default 8080 | quote }}
