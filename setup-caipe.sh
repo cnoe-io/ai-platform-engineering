@@ -1182,7 +1182,62 @@ install_nginx_ingress() {
           -j ACCEPT 2>/dev/null \
           || warn "Could not add DOCKER-USER forward rule — traffic from outside may be blocked"
       fi
+      # Also allow return traffic from the ingress IP back to external clients.
+      if ! sudo iptables -C DOCKER-USER -s "$ingress_ip" -j ACCEPT 2>/dev/null; then
+        sudo iptables -A DOCKER-USER -s "$ingress_ip" -j ACCEPT 2>/dev/null || true
+      fi
     fi
+
+    # Persist iptables rules and ip_forward so they survive a reboot.
+    _persist_iptables "$ingress_ip"
+  fi
+}
+
+# Persist iptables rules across reboots (no iptables-persistent package needed).
+_persist_iptables() {
+  local ingress_ip="$1"
+
+  # 1. Ensure ip_forward=1 survives reboot via sysctl.conf.
+  if sudo grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf 2>/dev/null; then
+    sudo sed -i 's/^net.ipv4.ip_forward.*/net.ipv4.ip_forward=1/' /etc/sysctl.conf 2>/dev/null || true
+  else
+    echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.conf >/dev/null 2>/dev/null || true
+  fi
+  # Remove any duplicate lines leaving only the first occurrence.
+  sudo awk '/net.ipv4.ip_forward/ && seen { next } /net.ipv4.ip_forward/ { seen=1 } { print }' \
+    /etc/sysctl.conf 2>/dev/null | sudo tee /etc/sysctl.conf.tmp >/dev/null 2>/dev/null \
+    && sudo mv /etc/sysctl.conf.tmp /etc/sysctl.conf 2>/dev/null || true
+
+  # 2. Set the kind container to restart=always so it comes back after a host reboot.
+  local kind_container
+  kind_container=$(docker ps --filter 'label=io.x-k8s.kind.role=control-plane' --format '{{.Names}}' 2>/dev/null | head -1)
+  if [[ -n "$kind_container" ]]; then
+    docker update --restart=always "$kind_container" >/dev/null 2>&1 || true
+    log "Kind container '${kind_container}' restart policy set to always"
+  fi
+
+  # 3. Save iptables rules and install a one-shot systemd service to restore them at boot.
+  sudo mkdir -p /etc/iptables 2>/dev/null || true
+  sudo iptables-save 2>/dev/null | sudo tee /etc/iptables/rules.v4 >/dev/null || true
+  if [[ ! -f /etc/systemd/system/iptables-restore.service ]]; then
+    sudo tee /etc/systemd/system/iptables-restore.service >/dev/null 2>/dev/null <<'SVCEOF'
+[Unit]
+Description=Restore iptables rules
+After=network.target docker.service
+Wants=docker.service
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'iptables-restore < /etc/iptables/rules.v4'
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+    sudo systemctl daemon-reload 2>/dev/null || true
+    sudo systemctl enable iptables-restore.service 2>/dev/null || true
+    log "iptables-restore.service installed and enabled"
+  else
+    # Re-save with latest rules (idempotent on re-runs).
+    log "iptables rules saved to /etc/iptables/rules.v4"
   fi
 }
 
@@ -2021,10 +2076,29 @@ try:
 except Exception:
     pass
 
+# ── Fix 3: Strip langchain internal "config" kwarg from Anthropic API calls ──
+# langchain-anthropic passes LangChain RunnableConfig as "config" kwarg to
+# AsyncMessages.create() which the Anthropic SDK does not accept.
+try:
+    import anthropic
+    _orig_async_create = anthropic.resources.messages.AsyncMessages.create
+    async def _patched_async_create(self, *args, **kwargs):
+        kwargs.pop("config", None)
+        return await _orig_async_create(self, *args, **kwargs)
+    anthropic.resources.messages.AsyncMessages.create = _patched_async_create
+
+    _orig_sync_create = anthropic.resources.messages.Messages.create
+    def _patched_sync_create(self, *args, **kwargs):
+        kwargs.pop("config", None)
+        return _orig_sync_create(self, *args, **kwargs)
+    anthropic.resources.messages.Messages.create = _patched_sync_create
+except Exception:
+    pass
+
 # ── Note: OpenAI response dedup is handled separately by the agent-fix ──
 # ── ConfigMap (see _create_agent_fix_configmap / _apply_agent_fix_volume). ──
 ' --dry-run=client -o json | kubectl apply -f - &>/dev/null
-  log "Applied agent-patches ConfigMap (sys.path fix + schema fix + httpx redirect)"
+  log "Applied agent-patches ConfigMap (sys.path fix + schema fix + httpx redirect + anthropic config fix)"
 }
 
 _apply_agent_patches_volume() {
