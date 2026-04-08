@@ -6,7 +6,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
 
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     _get_distributed_agents,

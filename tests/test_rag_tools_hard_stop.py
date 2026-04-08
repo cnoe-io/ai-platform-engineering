@@ -13,7 +13,6 @@ Usage:
     pytest tests/test_rag_tools_hard_stop.py -v
 """
 
-import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -329,7 +328,6 @@ class TestSearchResultCapping:
     async def test_search_limit_cap_logs_info(self, caplog):
         """A limit above the cap produces an info log message."""
         import logging
-        from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
         wrapper, _ = _make_search_wrapper(max_calls=5)
         with caplog.at_level(logging.INFO, logger="ai_platform_engineering.multi_agents.platform_engineer.rag_tools"):
             with _patch_thread("thread-limit-log"):
@@ -426,7 +424,6 @@ class TestOutputTruncation:
     @pytest.mark.asyncio
     async def test_search_output_not_truncated_when_under_limit(self):
         """Small tool outputs are returned verbatim (no truncation marker)."""
-        from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
         small_result = "small content"
         wrapper, original = _make_search_wrapper(max_calls=5)
         original.arun = AsyncMock(return_value=small_result)
