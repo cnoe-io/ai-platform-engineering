@@ -4,6 +4,7 @@ set -e
 
 # Parse command line arguments
 JSON_MODE=false
+FORCE_MODE=false
 ARGS=()
 
 for arg in "$@"; do
@@ -11,9 +12,13 @@ for arg in "$@"; do
         --json) 
             JSON_MODE=true 
             ;;
+        --force)
+            FORCE_MODE=true
+            ;;
         --help|-h) 
-            echo "Usage: $0 [--json]"
+            echo "Usage: $0 [--json] [--force]"
             echo "  --json    Output results in JSON format"
+            echo "  --force   Overwrite existing plan.md with template"
             echo "  --help    Show this help message"
             exit 0 
             ;;
@@ -38,15 +43,18 @@ check_feature_branch "$CURRENT_BRANCH" "$HAS_GIT" || exit 1
 # Ensure the feature directory exists
 mkdir -p "$FEATURE_DIR"
 
-# Copy plan template if it exists
+# Copy plan template only if plan.md does not already exist
 TEMPLATE=$(resolve_template "plan-template" "$REPO_ROOT")
-if [[ -n "$TEMPLATE" ]] && [[ -f "$TEMPLATE" ]]; then
-    cp "$TEMPLATE" "$IMPL_PLAN"
-    echo "Copied plan template to $IMPL_PLAN"
+if [[ -f "$IMPL_PLAN" ]] && ! $FORCE_MODE; then
+    echo "Plan already exists at $IMPL_PLAN — skipping template copy (use --force to overwrite)"
 else
-    echo "Warning: Plan template not found"
-    # Create a basic plan file if template doesn't exist
-    touch "$IMPL_PLAN"
+    if [[ -n "$TEMPLATE" ]] && [[ -f "$TEMPLATE" ]]; then
+        cp "$TEMPLATE" "$IMPL_PLAN"
+        echo "Copied plan template to $IMPL_PLAN"
+    else
+        echo "Warning: Plan template not found"
+        touch "$IMPL_PLAN"
+    fi
 fi
 
 # Output results

@@ -100,6 +100,53 @@ As a platform administrator, I want the skills middleware REST API to be availab
 
 ---
 
+### User Story 6 - RAG Tool Reliability: Call Caps, Output Truncation, and Context Protection (Priority: P1)
+
+As a user querying the knowledge base via the platform, I want RAG tool calls to be capped and their output truncated so that queries complete successfully instead of hitting LangGraph recursion limits or context window overflow.
+
+**Why this priority**: Without caps, the model enters runaway loops — calling `fetch_document` or `search` indefinitely until the recursion limit (previously 100) is hit, producing the generic error "I ran into an issue while processing your request." Output truncation prevents a single RAG result from consuming the entire context window (~128K tokens).
+
+**Design**: Two wrapper classes (`FetchDocumentCapWrapper`, `SearchCapWrapper`) enforce per-query call limits. A shared `_CapCounterMixin` provides thread-safe counting keyed by LangGraph `thread_id`. When the cap is hit, wrappers return a normal-looking success string (not an exception) instructing the model to synthesize from retrieved content. Per-call output is truncated to `RAG_MAX_OUTPUT_CHARS` (default 10K chars). Search results per call are capped to `RAG_MAX_SEARCH_RESULTS` (default 3).
+
+**Key design decision**: Returning a success string instead of raising `ToolInvocationError`. Raising exceptions created `is_error=True` ToolMessages, which the model interpreted as "this document failed, try the next one" — defeating the cap. A normal-looking response signals completion, not failure.
+
+**Environment variables**:
+- `FETCH_DOCUMENT_MAX_CALLS` (default 10): max fetch_document calls per query
+- `SEARCH_MAX_CALLS` (default 5): max search calls per query
+- `RAG_MAX_OUTPUT_CHARS` (default 10000): per-call output character limit
+- `RAG_MAX_SEARCH_RESULTS` (default 3): max results returned per search call
+- `LANGGRAPH_RECURSION_LIMIT` (default 500): configurable LangGraph recursion limit
+
+**Independent Test**: Ask a broad RAG query (e.g., "what is agntcy slim?") and verify the response completes within 60 seconds without hitting the recursion limit, and the answer is synthesized from retrieved documents.
+
+**Acceptance Scenarios**:
+
+1. **Given** `FETCH_DOCUMENT_MAX_CALLS=10`, **When** a RAG query triggers more than 10 fetch_document calls, **Then** the 11th call returns a success message instructing synthesis, and the model stops calling fetch_document.
+2. **Given** `SEARCH_MAX_CALLS=5`, **When** a RAG query triggers more than 5 search calls, **Then** the 6th call returns a success message and the model synthesizes from existing results.
+3. **Given** `RAG_MAX_OUTPUT_CHARS=10000`, **When** a single fetch_document result exceeds 10K characters, **Then** the output is truncated with a "[Output truncated]" suffix.
+4. **Given** `RAG_MAX_SEARCH_RESULTS=3`, **When** the model requests `limit=10` in a search call, **Then** the wrapper overrides it to 3 before calling the underlying tool.
+5. **Given** `LANGGRAPH_RECURSION_LIMIT=500`, **When** a runaway loop occurs despite caps, **Then** the error is caught via `GraphRecursionError` isinstance check and handled gracefully.
+
+---
+
+### User Story 7 - Slack Narrative Text Streaming (Priority: P1)
+
+As a user interacting via Slack, I want to see the model's intermediate narration (e.g., "I'll search the knowledge base for relevant information") in real-time, so that I understand what the system is doing between tool calls.
+
+**Why this priority**: Previously, ALL text during intermediate plan steps was silently accumulated in `step_thinking` and never displayed. Users only saw "Thinking..." followed by the final answer, with no visibility into the multi-step process.
+
+**Design**: Removed the `continue` statement that suppressed intermediate step `STREAMING_RESULT` events. Narrative text now falls through to the Slack streaming code. Post-tool echo suppression is handled separately by the `any_subagent_completed` flag, which only activates after non-RAG tools complete.
+
+**Key distinction**: RAG tools (`search`, `fetch_document`, `list_datasources`, `fetch_url`) are excluded from the sub-agent echo suppression because their post-tool `STREAMING_RESULT` IS the synthesized answer.
+
+**Acceptance Scenarios**:
+
+1. **Given** a RAG query with a plan, **When** the model generates narrative text before calling search/fetch_document, **Then** the narrative appears in the Slack stream in real-time.
+2. **Given** a sub-agent query (e.g., GitHub), **When** a non-RAG tool completes, **Then** post-tool echo text is suppressed (not shown in Slack), but the final FINAL_RESULT answer is displayed.
+3. **Given** a mixed query (RAG + sub-agent), **When** the RAG step produces narrative, **Then** the narrative streams to the user even after a sub-agent tool has completed in a prior step.
+
+---
+
 ### Edge Cases
 
 - What happens when `DISTRIBUTED_MODE=true` but a remote agent container is unreachable? The system creates the remote A2A subagent definition anyway; the `A2ARemoteAgentConnectTool` fetches the agent card on first use and surfaces the connection error to the LLM.
@@ -107,6 +154,16 @@ As a platform administrator, I want the skills middleware REST API to be availab
 - What happens when `LANGGRAPH_DEV` environment variable is set? The checkpointer attachment is skipped, allowing LangGraph Studio to manage its own checkpointer.
 - What happens when `DISTRIBUTED_AGENTS=argocd` but `ENABLE_ARGOCD=false`? ArgoCD is skipped entirely. The `ENABLE_*` flags are evaluated first; only enabled agents are considered for distribution mode selection.
 - What happens when both `DISTRIBUTED_MODE=true` and `DISTRIBUTED_AGENTS=argocd` are set? `DISTRIBUTED_AGENTS` takes precedence (more specific wins), so only ArgoCD runs remotely.
+
+## Clarifications
+
+### Session 2026-04-08
+- Q: Should RAG reliability (call caps, output truncation, SearchCapWrapper) be a separate user story, edge case, or separate spec? → A: New User Story within this spec (Option A)
+- Q: What test level should the harness target for all-in-one, distributed, Slack, and streaming? → A: Both — unit/component tests (mocked deps, fast CI) + lightweight integration suite (Docker Compose test profile)
+- Q: How should streaming event assertions work in unit tests? → A: Collect yielded events from the binding's async generator into a list, assert on artifact names/content/order
+- Q: How should Slack message rendering be tested? → A: Both — StreamBuffer output for content/ordering logic + mock Slack WebClient for message lifecycle (create/update/finalize)
+- Q: How should distributed mode be tested without real containers? → A: Both — mock HTTP responses (httpx patch for canned agent card + SSE streams) for fast unit tests + fake in-process A2A server (FastAPI with canned responses) for richer path testing
+- Q: What RAG test fixture strategy should the harness use? → A: Both — mock BaseTool for wrapper cap/truncation/thread-scoping logic + JSON fixtures in `tests/fixtures/` for integration tests exercising the full RAG → binding → streaming pipeline
 
 ## Requirements *(mandatory)*
 
@@ -126,6 +183,15 @@ As a platform administrator, I want the skills middleware REST API to be availab
 - **FR-010**: The system MUST use lazy imports for agent classes in `deep_agent.py` to avoid requiring agent-specific PYTHONPATH at module import time (test compatibility).
 - **FR-011**: Both the `platform-engineer` and `platform-engineer-single` CLI commands MUST point to the same unified `main:app` entry point.
 - **FR-012**: The system MUST update all internal imports and external references from `_single` module paths to the original module paths.
+- **FR-015**: The system MUST enforce per-query call caps on `fetch_document` and `search` RAG tools via `FetchDocumentCapWrapper` and `SearchCapWrapper`, returning a normal success string (not an exception) when the cap is hit.
+- **FR-016**: The system MUST truncate per-call RAG tool output to `RAG_MAX_OUTPUT_CHARS` to prevent context window overflow.
+- **FR-017**: The system MUST cap per-call search results to `RAG_MAX_SEARCH_RESULTS` regardless of the model's requested `limit` parameter.
+- **FR-018**: The system MUST make the LangGraph recursion limit configurable via `LANGGRAPH_RECURSION_LIMIT` environment variable.
+- **FR-019**: The system MUST detect `GraphRecursionError` via proper `isinstance` check (with string-match fallback for older LangGraph versions).
+- **FR-020**: The Slack bot MUST stream intermediate plan step narrative text (e.g., "I'll search the knowledge base...") instead of silently accumulating it.
+- **FR-021**: The Slack bot MUST distinguish RAG tools from sub-agent tools for post-tool echo suppression — RAG tool post-tool text MUST stream through; sub-agent post-tool text MUST be suppressed.
+- **FR-022**: The system MUST auto-enable agent connectivity checks when `DISTRIBUTED_AGENTS` is set (non-empty), without requiring explicit `SKIP_AGENT_CONNECTIVITY_CHECK=false`.
+- **FR-023**: Docker-compose MUST define a single `caipe-supervisor` service (not separate all-in-one and distributed services).
 
 ### Key Entities
 
@@ -146,3 +212,28 @@ As a platform administrator, I want the skills middleware REST API to be availab
 - **SC-006**: All import paths that previously referenced `_single` modules continue to work (either via the unified file or because no external consumers existed).
 - **SC-007**: Setting `DISTRIBUTED_AGENTS=argocd` results in ArgoCD running as a remote A2A subagent while all other enabled agents load MCP tools in-process within the same supervisor process.
 - **SC-008**: Setting `DISTRIBUTED_AGENTS=all` produces identical behavior to the legacy `DISTRIBUTED_MODE=true`.
+- **SC-009**: A broad RAG query (e.g., "what is agntcy slim?") completes within 60 seconds without hitting the LangGraph recursion limit, and returns a synthesized answer.
+- **SC-010**: When `FETCH_DOCUMENT_MAX_CALLS=10`, the (N+1)th call returns a success message; the model stops calling `fetch_document` and synthesizes.
+- **SC-011**: Narrative text like "I'll search the knowledge base for relevant information" appears in Slack in real-time during intermediate plan steps.
+- **SC-012**: The final synthesized answer from the supervisor arrives in Slack as a non-empty `FINAL_RESULT` artifact.
+
+## Implementation Progress
+
+### Completed
+
+| File | Change | Stories |
+|------|--------|---------|
+| `rag_tools.py` | `FetchDocumentCapWrapper` and `SearchCapWrapper` with success-string caps, output truncation, per-call search limit capping | US-6 |
+| `deep_agent.py` | Wired cap wrappers into tool loading; env-configurable limits | US-6 |
+| `agent.py` (a2a binding) | Configurable `LANGGRAPH_RECURSION_LIMIT`; `GraphRecursionError` isinstance detection | US-6 |
+| `base_langgraph_agent.py` | Configurable recursion limit | US-6 |
+| `prompt_config.deep_agent.yaml` | Updated RAG instructions: "up to 3-5 documents"; stop on cap messages | US-6 |
+| `ai.py` (slack_bot) | Removed `continue` that suppressed intermediate narrative; RAG tool echo pass-through | US-7 |
+| `docker-compose.dev.yaml` | Merged supervisor services; `DISTRIBUTED_AGENTS`, RAG env vars, `LANGGRAPH_RECURSION_LIMIT=500` | US-1, US-6 |
+| `agent_registry.py` | Auto-enable connectivity check when `DISTRIBUTED_AGENTS` is set | US-1 |
+
+### In Progress
+
+| File | Change | Stories |
+|------|--------|---------|
+| `agent.py` (a2a binding) | Fix `final_response['content'] = ''` clearing the synthesized answer before FINAL_RESULT event | US-7, SC-012 |
