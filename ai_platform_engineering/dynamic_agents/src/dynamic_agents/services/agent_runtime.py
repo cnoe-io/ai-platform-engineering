@@ -7,9 +7,10 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
@@ -30,19 +31,12 @@ from dynamic_agents.services.builtin_tools import (
     create_sleep_tool,
     create_user_info_tool,
 )
+from dynamic_agents.services.encoders import StreamEncoder
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
     get_tools_with_resilience,
     wrap_tools_with_error_handling,
-)
-from dynamic_agents.services.stream_events import (
-    make_input_required_event,
-    make_run_finished_event,
-    make_run_started_event,
-    make_text_end_event,
-    make_warning_event,
-    transform_stream_chunk,
 )
 
 if TYPE_CHECKING:
@@ -74,14 +68,12 @@ class AgentRuntime:
         settings: Settings | None = None,
         mongo_service: "MongoDBService | None" = None,
         user: UserContext | None = None,
-        event_adapter: Callable[..., Any] | None = None,  # Deprecated: no longer used (events are now AG-UI models)
     ):
         self.config = config
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
         self._user = user
-        self._event_adapter = event_adapter
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
@@ -441,54 +433,50 @@ class AgentRuntime:
         session_id: str,
         user_id: str,
         trace_id: str | None = None,
-    ) -> AsyncGenerator[Any, None]:
+        encoder: StreamEncoder | None = None,
+    ) -> AsyncGenerator[str, None]:
         """Stream agent response for a user message.
 
-        Emits AG-UI events for the UI:
-        - RUN_STARTED: Stream begins
-        - TEXT_MESSAGE_START/CONTENT/END: Streaming text tokens
-        - TOOL_CALL_START: Tool call started (with args via CUSTOM TOOL_ARGS)
-        - TOOL_CALL_END: Tool call completed
-        - CUSTOM(INPUT_REQUIRED): Agent requests user input (HITL form)
-        - RUN_FINISHED: Stream ends successfully
+        Yields SSE frame strings produced by the encoder. The encoder handles
+        all protocol-specific formatting — this method only orchestrates the
+        LangGraph stream lifecycle.
 
         Args:
             message: User's input message
             session_id: Conversation/session ID for checkpointing
             user_id: User's email/identifier
             trace_id: Optional trace ID for Langfuse tracing
+            encoder: StreamEncoder instance for protocol-specific formatting.
+                     Must be provided by the caller.
 
         Yields:
-            AG-UI BaseAGUIEvent instances
+            SSE frame strings
         """
         if not self._initialized:
             await self.initialize()
+
+        assert encoder is not None, "encoder must be provided"
 
         # Reset cancellation flag at start of each stream
         self._cancelled = False
 
         config = self._build_stream_config(session_id, user_id, trace_id)
-
-        accumulated_content: list[str] = []
-        # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
-        # See stream_events.py for details on why this mapping is needed.
-        namespace_mapping: dict[str, str] = {}
-        # active_message_ids tracks the current open TEXT_MESSAGE per namespace key
-        active_message_ids: dict[str, str | None] = {}
+        run_id = f"run-{uuid4().hex[:12]}"
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
 
-        run_event = make_run_started_event(thread_id=session_id)
-        run_id: str = run_event.run_id  # type: ignore[attr-defined]
-        yield run_event
+        # ── Core lifecycle: run start ──
+        for frame in encoder.on_run_start(run_id, session_id):
+            yield frame
 
-        # Emit warnings for MCP servers that failed during initialization
+        # ── Core lifecycle: warnings ──
         for server_name in self._failed_servers:
-            yield make_warning_event(
+            for frame in encoder.on_warning(
                 f"MCP server '{server_name}' is unavailable. Tools from this server will not work.",
-            )
+            ):
+                yield frame
 
-        # Stream with subgraphs=True and both messages and updates modes
+        # ── Core lifecycle: chunks ──
         async for chunk in self._graph.astream(
             {"messages": [{"role": "user", "content": message}]},
             config=config,
@@ -503,36 +491,35 @@ class AgentRuntime:
                 )
                 return
 
-            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping, active_message_ids):
-                yield event
+            for frame in encoder.on_chunk(chunk):
+                yield frame
 
-        # Close any still-open text messages
-        for ns_key, msg_id in list(active_message_ids.items()):
-            if msg_id is not None:
-                yield make_text_end_event(msg_id)
-                active_message_ids[ns_key] = None
+        # ── Core lifecycle: stream end (flush) ──
+        for frame in encoder.on_stream_end():
+            yield frame
 
-        # Check for pending interrupt (agent called request_user_input)
+        # ── HITL interrupt check ──
         logger.debug("[stream] Stream loop completed, checking for pending interrupt...")
         interrupt_data = await self.has_pending_interrupt(session_id)
         logger.debug(f"[stream] has_pending_interrupt result: {interrupt_data}")
         if interrupt_data:
             logger.debug(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
-            yield make_input_required_event(
+            for frame in encoder.on_input_required(
                 interrupt_id=interrupt_data["interrupt_id"],
                 prompt=interrupt_data["prompt"],
                 fields=interrupt_data["fields"],
                 agent=self.config.name,
-            )
+            ):
+                yield frame
             return  # Don't continue, stream paused for user input
 
-        # Stream complete
-        final_text = "".join(accumulated_content)
+        # ── Core lifecycle: run finish ──
         logger.info(
             f"[stream] Completed stream for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(final_text)}"
+            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
         )
-        yield make_run_finished_event(run_id=run_id, thread_id=session_id)
+        for frame in encoder.on_run_finish(run_id, session_id):
+            yield frame
 
     async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
         """Check if there's a pending interrupt for the given session.
@@ -603,7 +590,8 @@ class AgentRuntime:
         user_id: str,
         form_data: str,
         trace_id: str | None = None,
-    ) -> AsyncGenerator[Any, None]:
+        encoder: StreamEncoder | None = None,
+    ) -> AsyncGenerator[str, None]:
         """Resume agent execution after user provides form input.
 
         Uses the HumanInTheLoopMiddleware pattern from deepagents. The form_data
@@ -615,29 +603,28 @@ class AgentRuntime:
             form_data: JSON string of form values (e.g. {"field_name": "value"}),
                       or rejection message if user dismissed the form
             trace_id: Optional trace ID for Langfuse tracing
+            encoder: StreamEncoder instance for protocol-specific formatting.
+                     Must be provided by the caller.
 
         Yields:
-            AG-UI BaseAGUIEvent instances
+            SSE frame strings
         """
         if not self._initialized:
             await self.initialize()
+
+        assert encoder is not None, "encoder must be provided"
 
         # Reset cancellation flag at start of resume
         self._cancelled = False
 
         config = self._build_stream_config(session_id, user_id, trace_id)
-
-        accumulated_content: list[str] = []
-        # Namespace mapping: LangGraph task UUID → tool_call_id for subagent correlation
-        namespace_mapping: dict[str, str] = {}
-        # active_message_ids tracks the current open TEXT_MESSAGE per namespace key
-        active_message_ids: dict[str, str | None] = {}
+        run_id = f"run-{uuid4().hex[:12]}"
 
         logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
 
-        run_event = make_run_started_event(thread_id=session_id)
-        run_id: str = run_event.run_id  # type: ignore[attr-defined]
-        yield run_event
+        # ── Core lifecycle: run start ──
+        for frame in encoder.on_run_start(run_id, session_id):
+            yield frame
 
         # Check if this is a rejection (dismiss) or submission
         # Rejection message format: "User dismissed the input form without providing values."
@@ -690,7 +677,7 @@ class AgentRuntime:
 
         logger.debug(f"[resume] Resume payload: {resume_payload}")
 
-        # Resume with Command containing the decisions
+        # ── Core lifecycle: chunks ──
         async for chunk in self._graph.astream(
             Command(resume=resume_payload),
             config=config,
@@ -704,34 +691,33 @@ class AgentRuntime:
                 )
                 return
 
-            for event in transform_stream_chunk(chunk, accumulated_content, namespace_mapping, active_message_ids):
-                yield event
+            for frame in encoder.on_chunk(chunk):
+                yield frame
 
-        # Close any still-open text messages
-        for ns_key, msg_id in list(active_message_ids.items()):
-            if msg_id is not None:
-                yield make_text_end_event(msg_id)
-                active_message_ids[ns_key] = None
+        # ── Core lifecycle: stream end (flush) ──
+        for frame in encoder.on_stream_end():
+            yield frame
 
-        # Check for another pending interrupt (agent might request more input)
+        # ── HITL interrupt check ──
         interrupt_data = await self.has_pending_interrupt(session_id)
         if interrupt_data:
             logger.debug(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
-            yield make_input_required_event(
+            for frame in encoder.on_input_required(
                 interrupt_id=interrupt_data["interrupt_id"],
                 prompt=interrupt_data["prompt"],
                 fields=interrupt_data["fields"],
                 agent=self.config.name,
-            )
+            ):
+                yield frame
             return  # Don't continue, stream paused
 
-        # Stream complete
-        final_text = "".join(accumulated_content)
+        # ── Core lifecycle: run finish ──
         logger.info(
             f"[resume] Completed resume for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(final_text)}"
+            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
         )
-        yield make_run_finished_event(run_id=run_id, thread_id=session_id)
+        for frame in encoder.on_run_finish(run_id, session_id):
+            yield frame
 
     async def cleanup(self) -> None:
         """Cleanup MCP client connections and MongoDB checkpointer."""
