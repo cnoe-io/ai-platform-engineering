@@ -2533,7 +2533,9 @@ subprocess.run(['kubectl','patch','cm','caipe-dynamic-agents-config',
 
   # Patch MONGODB_URI into the supervisor ConfigMap so it reads task configs
   # from MongoDB instead of falling back to task_config.yaml only.
-  local cur_sup_uri
+  # In multi-node mode the supervisor mounts caipe-supervisor-agent-env;
+  # in single-node mode it mounts caipe-single-node-agent-env — patch both.
+  local cur_sup_uri needs_restart=0
   cur_sup_uri=$(kubectl get cm caipe-supervisor-agent-env -n caipe \
     -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
   if [[ "$cur_sup_uri" != "$mongo_uri" ]]; then
@@ -2543,8 +2545,27 @@ patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}', 'MONGODB_DATABASE': 
 subprocess.run(['kubectl','patch','cm','caipe-supervisor-agent-env',
   '-n','caipe','--type','merge','-p',patch], check=True)
 "
+    needs_restart=1
+    log "supervisor MONGODB_URI patched (multi-node cm) → ${mongo_uri}"
+  fi
+  # Also patch caipe-single-node-agent-env (single-node deployments)
+  if kubectl get cm caipe-single-node-agent-env -n caipe &>/dev/null; then
+    local cur_sn_uri
+    cur_sn_uri=$(kubectl get cm caipe-single-node-agent-env -n caipe \
+      -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
+    if [[ "$cur_sn_uri" != "$mongo_uri" ]]; then
+      python3 -c "
+import subprocess, json
+patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}', 'MONGODB_DATABASE': 'caipe'}})
+subprocess.run(['kubectl','patch','cm','caipe-single-node-agent-env',
+  '-n','caipe','--type','merge','-p',patch], check=True)
+"
+      needs_restart=1
+      log "supervisor MONGODB_URI patched (single-node cm) → ${mongo_uri}"
+    fi
+  fi
+  if [[ "$needs_restart" -eq 1 ]]; then
     kubectl rollout restart deploy/caipe-supervisor-agent -n caipe &>/dev/null
-    log "supervisor MONGODB_URI patched → ${mongo_uri}"
   fi
 }
 
