@@ -147,3 +147,127 @@ No constitution violations. No complexity justification needed.
 | New abstractions | 0 (two module-level helper functions) |
 | New env vars | 1 (`DISTRIBUTED_AGENTS`) |
 | Breaking changes | 0 (`DISTRIBUTED_MODE` remains supported) |
+
+---
+
+## Session 2 — RAG Reliability & Slack Narrative Streaming (US-6, US-7)
+
+**Date**: 2026-04-08
+
+### Updated Summary
+
+In addition to per-agent distribution, this branch now includes RAG tool reliability (call caps, output truncation, context protection) and Slack narrative text streaming fixes. These arose from production debugging where RAG queries hit runaway loops and Slack displayed no intermediate narration or final answers.
+
+### Updated Technical Context
+
+**Testing**: pytest (sync tests; no pytest-asyncio — use `asyncio.run()` wrappers)
+**Performance Goals**: RAG queries complete within 60s; streaming latency <500ms per chunk
+**Constraints**: Context window ~128K tokens; recursion limit configurable (default 500)
+
+### Phase B: RAG Reliability (US-6) — COMPLETED
+
+Implemented `FetchDocumentCapWrapper` and `SearchCapWrapper` with:
+- Per-query call caps (thread_id scoped via `_CapCounterMixin`)
+- Success-string response on cap hit (not exceptions — key design decision)
+- Per-call output truncation (`RAG_MAX_OUTPUT_CHARS`)
+- Search result limit capping (`RAG_MAX_SEARCH_RESULTS`)
+- Configurable `LANGGRAPH_RECURSION_LIMIT`
+- `GraphRecursionError` isinstance detection (with string-match fallback)
+
+**Files**: `rag_tools.py`, `deep_agent.py`, `agent.py`, `base_langgraph_agent.py`, `prompt_config.deep_agent.yaml`, `docker-compose.dev.yaml`
+
+### Phase C: Slack Narrative Streaming (US-7) — IN PROGRESS
+
+1. **COMPLETED**: Removed `continue` statement suppressing intermediate narrative
+2. **COMPLETED**: Added RAG tool exclusion from echo suppression
+3. **IN PROGRESS**: Fix `final_response['content'] = ''` in `agent.py` to include `response_format_result` content in `FINAL_RESULT` artifact
+
+**Files**: `ai.py` (slack_bot), `agent.py` (a2a binding)
+
+### Phase D: Test Harness — PLANNED
+
+Build a comprehensive test harness covering all deployment modes, Slack rendering, and streaming events. Two tiers: unit/component tests (mocked deps, fast CI) + lightweight integration tests (Docker Compose test profile).
+
+#### D.1 — Unit Tests: A2A Binding Streaming Events (`test_binding_streaming_events.py`)
+
+**What**: Call the A2A binding's async generator directly with mocked LangGraph graph. Collect yielded events into a list. Assert on artifact names, content, and ordering.
+
+**Covers**: SC-003 (tool notifications), SC-012 (final result content), US-2, US-7
+
+**Approach**:
+- Mock `CompiledStateGraph.astream_events()` to yield canned LangGraph events
+- Call `AIPlatformEngineerA2ABinding._process_request()` (or equivalent generator)
+- Collect all yielded A2A events
+- Assert: `TOOL_NOTIFICATION_START` has correct `source_agent` (not "task")
+- Assert: `EXECUTION_PLAN_UPDATE` present with agent-tagged steps
+- Assert: `STREAMING_RESULT` events contain narrative text
+- Assert: `FINAL_RESULT` has non-empty content
+
+**Key mocks**:
+- `CompiledStateGraph` → yields canned `on_chat_model_stream`, `on_tool_start`, `on_tool_end` events
+- `StreamState` → real instance (lightweight dataclass, no deps)
+- Checkpointer/Store → `InMemorySaver`
+
+#### D.2 — Unit Tests: Slack Narrative & Echo Suppression (`test_slack_narrative_streaming.py`)
+
+**What**: Feed mock A2A events into the Slack bot's event processing logic. Capture StreamBuffer output and mock Slack WebClient calls.
+
+**Covers**: SC-011 (narrative visible), US-7 acceptance scenarios 1-3
+
+**Approach**:
+- Create a sequence of mock A2A events: `EXECUTION_PLAN_UPDATE` → `STREAMING_RESULT` (narrative) → `TOOL_NOTIFICATION_START` → `TOOL_NOTIFICATION_END` → `STREAMING_RESULT` (post-tool) → `FINAL_RESULT`
+- Mock `slack_sdk.WebClient` (`chat_postMessage`, `chat_update`)
+- Call the event processing function
+- Assert: narrative text appears in StreamBuffer output
+- Assert: RAG post-tool text is NOT suppressed
+- Assert: non-RAG sub-agent post-tool echo IS suppressed
+- Assert: `chat_postMessage` called for message creation, `chat_update` for streaming updates
+
+#### D.3 — Unit Tests: FINAL_RESULT Content (`test_final_result_content.py`)
+
+**What**: Test that the A2A binding correctly includes `response_format_result` content in the `FINAL_RESULT` artifact.
+
+**Covers**: SC-012, Research item 12
+
+**Approach**:
+- Mock a LangGraph stream that produces a `ResponseFormat` tool call with content
+- Verify `final_response['content']` is non-empty after processing
+- Verify the yielded `FINAL_RESULT` event carries the full synthesized answer
+- Test edge case: no `response_format_result` → content from accumulated model output
+
+#### D.4 — Unit Tests: Distributed Mode Binding (`test_distributed_mode_binding.py`)
+
+**What**: Test the distributed A2A path without real containers by mocking HTTP responses.
+
+**Covers**: SC-007, SC-008, US-5
+
+**Approach**:
+- Patch `httpx.AsyncClient` to return a canned agent card JSON
+- Patch SSE stream to yield canned task events
+- Verify `A2ARemoteAgentConnectTool` correctly fetches the agent card
+- Verify remote task delegation produces expected A2A events
+- Test fallback behavior when agent is unreachable (edge case)
+
+**Key fixtures**: `tests/fixtures/a2a_agent_card.json`, `tests/fixtures/a2a_task_sse_stream.json`
+
+#### D.5 — JSON Test Fixtures (`tests/fixtures/`)
+
+**Files**:
+- `rag_search_response.json` — representative RAG search result (3 documents with IDs)
+- `rag_fetch_document_response.json` — single document content (~5K chars)
+- `a2a_agent_card.json` — minimal valid A2A agent card
+- `a2a_task_sse_stream.json` — complete task lifecycle SSE events
+
+#### D.6 — Integration Tests: Docker Compose Test Profile (`integration/test_streaming_harness.py`)
+
+**What**: Lightweight integration tests using `make quick-sanity` infrastructure (supervisor + github + netutils).
+
+**Covers**: SC-003, SC-005, SC-011, SC-012
+
+**Approach**:
+- Start supervisor + minimal agents via Docker Compose
+- Send queries via A2A HTTP endpoint
+- Consume SSE stream, parse events
+- Assert: tool notifications, narrative text, non-empty final result
+
+**Prerequisites**: `docker compose -f docker-compose.dev.yaml --profile github --profile netutils-agent up -d --build`
