@@ -772,7 +772,7 @@ services:
   # Ports:
   #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
   dynamic-agents:
-    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.21}
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.43}
     container_name: dynamic-agents
     ports: ["8100:8001"]
     volumes:
@@ -801,7 +801,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s

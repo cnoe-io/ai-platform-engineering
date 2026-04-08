@@ -144,8 +144,10 @@ services:
       # RAG Service Configuration
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
-      - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-5}
+      - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-3}
       - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
+      - RAG_MAX_SEARCH_RESULTS=${RAG_MAX_SEARCH_RESULTS:-3}
+      - LANGGRAPH_RECURSION_LIMIT=${LANGGRAPH_RECURSION_LIMIT:-500}
 
       # GitHub Token for git operations
       - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
@@ -1267,9 +1269,13 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      # CORS_ORIGINS: Set DYNAMIC_AGENTS_CORS_ORIGINS in .env as JSON array
-      # e.g., DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]'
-      # Omitted here to use Pydantic default ["*"]
+      # CORS_ORIGINS: must be a JSON array (bare "*" from prod default is not valid JSON for list[str])
+      # To restrict origins, set DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]' in .env
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
+      # Seed config: use the volume-mounted source config so changes take effect
+      # without rebuilding the image (Python imports config.yaml from site-packages by
+      # default, which is frozen at image-build time)
+      - SEED_CONFIG_PATH=/app/dynamic_agents/src/dynamic_agents/services/config.yaml
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
@@ -1673,7 +1679,6 @@ services:
     image: milvusdb/milvus:v2.6.0
     container_name: milvus-standalone
     command: ["milvus", "run", "standalone"]
-    security_opt: [seccomp:unconfined]
     environment:
       - MINIO_REGION=us-east-1
       - ETCD_ENDPOINTS=etcd:2379
