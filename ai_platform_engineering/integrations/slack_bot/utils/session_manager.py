@@ -1,176 +1,242 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Session Manager for A2A Conversations
+Stateless Session Manager
 
-Provides a pluggable interface for session storage with support for:
-- MongoDBSessionStore: Persistent storage across restarts (production)
-- InMemorySessionStore: Default in-memory storage (dev/test)
-
-The SessionManager class automatically selects the appropriate backend
-based on environment configuration (MONGODB_URI).
+Provides a thin caching layer over the supervisor's turn-lookup API.
+All authoritative state lives server-side; the Slack bot only keeps a
+short-lived in-memory TTL cache for performance.
 """
 
-import os
-from abc import ABC, abstractmethod
-from typing import Optional, Dict
+import time
+from typing import Optional, Dict, Tuple
+
+import requests as _requests
 from loguru import logger
 
 
-class SessionStore(ABC):
-    """Abstract interface for session storage backends."""
+# ---------------------------------------------------------------------------
+# TTL cache
+# ---------------------------------------------------------------------------
 
-    @abstractmethod
-    def get_context_id(self, thread_ts: str) -> Optional[str]:
-        pass
+class TTLCache:
+    """Simple in-memory cache with per-entry TTL."""
 
-    @abstractmethod
-    def set_context_id(self, thread_ts: str, context_id: str) -> None:
-        pass
+    def __init__(self, ttl_seconds: int = 3600):
+        self._store: Dict[str, Tuple[object, float]] = {}
+        self._ttl = ttl_seconds
 
-    @abstractmethod
-    def get_trace_id(self, thread_ts: str) -> Optional[str]:
-        pass
+    def get(self, key: str):
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        value, expires_at = entry
+        if time.monotonic() > expires_at:
+            del self._store[key]
+            return None
+        return value
 
-    @abstractmethod
-    def set_trace_id(self, thread_ts: str, trace_id: str) -> None:
-        pass
+    def set(self, key: str, value):
+        self._store[key] = (value, time.monotonic() + self._ttl)
 
-    @abstractmethod
-    def get_user_info(self, user_id: str) -> Optional[dict]:
-        pass
+    def delete(self, key: str):
+        self._store.pop(key, None)
 
-    @abstractmethod
-    def set_user_info(self, user_id: str, user_info: dict) -> None:
-        pass
+    def __len__(self):
+        return len(self._store)
 
 
-class InMemorySessionStore(SessionStore):
-    """In-memory session storage for development and testing."""
-
-    def __init__(self):
-        self._sessions: Dict[str, str] = {}
-        self._trace_ids: Dict[str, str] = {}
-        self._skipped: Dict[str, bool] = {}
-        self._user_info: Dict[str, dict] = {}
-
-    def get_context_id(self, thread_ts: str) -> Optional[str]:
-        return self._sessions.get(thread_ts)
-
-    def set_context_id(self, thread_ts: str, context_id: str) -> None:
-        self._sessions[thread_ts] = context_id
-
-    def get_trace_id(self, thread_ts: str) -> Optional[str]:
-        return self._trace_ids.get(thread_ts)
-
-    def set_trace_id(self, thread_ts: str, trace_id: str) -> None:
-        self._trace_ids[thread_ts] = trace_id
-
-    def delete_context_id(self, thread_ts: str) -> None:
-        self._sessions.pop(thread_ts, None)
-
-    def set_skipped(self, thread_ts: str, skipped: bool = True) -> None:
-        self._skipped[thread_ts] = skipped
-
-    def is_skipped(self, thread_ts: str) -> bool:
-        return self._skipped.get(thread_ts, False)
-
-    def clear_skipped(self, thread_ts: str) -> None:
-        self._skipped.pop(thread_ts, None)
-
-    def get_user_info(self, user_id: str) -> Optional[dict]:
-        return self._user_info.get(user_id)
-
-    def set_user_info(self, user_id: str, user_info: dict) -> None:
-        self._user_info[user_id] = user_info
-
-    def get_stats(self) -> dict:
-        return {
-            "type": "in_memory",
-            "session_count": len(self._sessions),
-            "skipped_count": len(self._skipped),
-        }
-
+# ---------------------------------------------------------------------------
+# Session Manager
+# ---------------------------------------------------------------------------
 
 class SessionManager:
+    """Stateless session manager backed by the supervisor's lookup API.
+
+    On construction, requires the supervisor base URL.  All state is
+    stored server-side in the ``turns`` collection; this class keeps only
+    a short-lived in-memory TTL cache.
+
+    Parameters
+    ----------
+    supervisor_url:
+        Base URL of the supervisor (e.g. ``http://localhost:8000``).
+    auth_client:
+        Optional OAuth2 client for authenticated supervisor requests.
     """
-    High-level session manager that auto-selects the appropriate backend.
 
-    On initialization:
-    1. If MONGODB_URI is set, attempts to connect to MongoDB
-    2. Falls back to in-memory storage if MongoDB unavailable
-    """
+    def __init__(self, supervisor_url: str, auth_client=None):
+        self._supervisor_url = supervisor_url.rstrip("/")
+        self._auth_client = auth_client
 
-    def __init__(self, store: Optional[SessionStore] = None):
-        if store:
-            self._store = store
-        else:
-            self._store = self._create_store()
+        # Fast-path caches (authoritative source is always the API)
+        self._context_cache = TTLCache(ttl_seconds=3600)
+        self._trace_cache = TTLCache(ttl_seconds=3600)
+        self._user_info_cache = TTLCache(ttl_seconds=600)
+        self._skipped_cache = TTLCache(ttl_seconds=300)
 
-    def _create_store(self) -> SessionStore:
-        """Create the appropriate session store based on environment."""
-        mongodb_uri = os.environ.get("MONGODB_URI")
+        # Escalation dedup — purely ephemeral, acceptable to lose on restart
+        self._escalated_threads: set[str] = set()
 
-        if mongodb_uri:
+    def _get_headers(self) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if self._auth_client:
             try:
-                from .mongodb_session import MongoDBSessionStore
-
-                mongo_store = MongoDBSessionStore.from_env()
-                if mongo_store and mongo_store.is_available():
-                    logger.info("Using MongoDB session store for persistent sessions")
-                    return mongo_store
+                token = self._auth_client.get_access_token()
+                headers["Authorization"] = f"Bearer {token}"
             except Exception as e:
-                logger.warning(f"Failed to initialize MongoDB session store: {e}")
+                logger.warning(f"SessionManager: failed to get auth token: {e}")
+        return headers
 
-        logger.warning(
-            "Using in-memory session store - sessions will be lost on restart. "
-            "Set MONGODB_URI environment variable for persistent sessions."
-        )
-        return InMemorySessionStore()
+    # ------------------------------------------------------------------
+    # Context ID (conversation_id / LangGraph thread_id)
+    # ------------------------------------------------------------------
 
     def get_context_id(self, thread_ts: str) -> Optional[str]:
-        return self._store.get_context_id(thread_ts)
+        """Get the conversation ID for a Slack thread.
+
+        Fast path: local cache.
+        Slow path: ``GET /api/v1/conversations/lookup?source=slack&thread_ts=...``
+        """
+        cached = self._context_cache.get(thread_ts)
+        if cached is not None:
+            return cached
+
+        try:
+            resp = _requests.get(
+                f"{self._supervisor_url}/api/v1/conversations/lookup",
+                params={"source": "slack", "thread_ts": thread_ts},
+                headers=self._get_headers(),
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                conv_id = data.get("conversation_id")
+                if conv_id:
+                    self._context_cache.set(thread_ts, conv_id)
+                    # Also cache trace_id if present
+                    trace_id = (data.get("metadata") or {}).get("trace_id")
+                    if trace_id:
+                        self._trace_cache.set(thread_ts, trace_id)
+                    return conv_id
+            # 404 is expected for new threads — not an error
+            elif resp.status_code != 404:
+                logger.warning(f"SessionManager: lookup returned {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"SessionManager: lookup API failed for {thread_ts}: {e}")
+
+        return None
 
     def set_context_id(self, thread_ts: str, context_id: str) -> None:
-        self._store.set_context_id(thread_ts, context_id)
+        """Cache the conversation ID locally (written by RUN_FINISHED handler)."""
+        self._context_cache.set(thread_ts, context_id)
+
+    # ------------------------------------------------------------------
+    # Trace ID (Langfuse run_id)
+    # ------------------------------------------------------------------
 
     def get_trace_id(self, thread_ts: str) -> Optional[str]:
-        return self._store.get_trace_id(thread_ts)
+        """Get the Langfuse trace/run ID for a Slack thread."""
+        cached = self._trace_cache.get(thread_ts)
+        if cached is not None:
+            return cached
+
+        # Trigger a lookup which also caches trace_id
+        self.get_context_id(thread_ts)
+        return self._trace_cache.get(thread_ts)
 
     def set_trace_id(self, thread_ts: str, trace_id: str) -> None:
-        self._store.set_trace_id(thread_ts, trace_id)
+        """Cache the trace_id locally (written by RUN_FINISHED handler)."""
+        self._trace_cache.set(thread_ts, trace_id)
+
+    # ------------------------------------------------------------------
+    # Skipped (overthink mode)
+    # ------------------------------------------------------------------
 
     def set_skipped(self, thread_ts: str, skipped: bool = True) -> None:
-        if hasattr(self._store, "set_skipped"):
-            self._store.set_skipped(thread_ts, skipped)
+        """Mark a thread as skipped in overthink mode."""
+        self._skipped_cache.set(thread_ts, skipped)
+        # Best-effort server-side update
+        try:
+            _requests.patch(
+                f"{self._supervisor_url}/api/v1/conversations/lookup/metadata",
+                params={"source": "slack", "thread_ts": thread_ts},
+                json={"is_skipped": skipped},
+                headers=self._get_headers(),
+                timeout=3,
+            )
+        except Exception as e:
+            logger.debug(f"SessionManager: failed to persist is_skipped for {thread_ts}: {e}")
 
     def is_skipped(self, thread_ts: str) -> bool:
-        if hasattr(self._store, "is_skipped"):
-            return self._store.is_skipped(thread_ts)
+        """Check if a thread was skipped in overthink mode."""
+        cached = self._skipped_cache.get(thread_ts)
+        if cached is not None:
+            return cached
         return False
 
     def clear_skipped(self, thread_ts: str) -> None:
-        if hasattr(self._store, "clear_skipped"):
-            self._store.clear_skipped(thread_ts)
+        """Clear the skipped flag."""
+        self._skipped_cache.delete(thread_ts)
+        try:
+            _requests.patch(
+                f"{self._supervisor_url}/api/v1/conversations/lookup/metadata",
+                params={"source": "slack", "thread_ts": thread_ts},
+                json={"is_skipped": False},
+                headers=self._get_headers(),
+                timeout=3,
+            )
+        except Exception as e:
+            logger.debug(f"SessionManager: failed to clear is_skipped for {thread_ts}: {e}")
+
+    # ------------------------------------------------------------------
+    # Escalation dedup
+    # ------------------------------------------------------------------
+
+    def is_escalated(self, thread_ts: str) -> bool:
+        """Check if this thread has already been escalated."""
+        return thread_ts in self._escalated_threads
+
+    def set_escalated(self, thread_ts: str) -> None:
+        """Mark a thread as escalated (idempotent)."""
+        self._escalated_threads.add(thread_ts)
+        # Best-effort server-side update
+        try:
+            _requests.patch(
+                f"{self._supervisor_url}/api/v1/conversations/lookup/metadata",
+                params={"source": "slack", "thread_ts": thread_ts},
+                json={"escalated": True},
+                headers=self._get_headers(),
+                timeout=3,
+            )
+        except Exception as e:
+            logger.debug(f"SessionManager: failed to persist escalated for {thread_ts}: {e}")
+
+    # ------------------------------------------------------------------
+    # User info cache (pure local — avoids Slack API rate limits)
+    # ------------------------------------------------------------------
 
     def get_user_info(self, user_id: str) -> Optional[dict]:
-        return self._store.get_user_info(user_id)
+        """Get cached Slack user info."""
+        return self._user_info_cache.get(user_id)
 
     def set_user_info(self, user_id: str, user_info: dict) -> None:
-        self._store.set_user_info(user_id, user_info)
+        """Cache Slack user info to avoid rate limits."""
+        self._user_info_cache.set(user_id, user_info)
 
-    def get_db(self):
-        """Return the MongoDB database handle if using MongoDB backend, else None."""
-        if hasattr(self._store, '_db'):
-            return self._store._db
-        return None
+    # ------------------------------------------------------------------
+    # Introspection
+    # ------------------------------------------------------------------
 
     def get_store_type(self) -> str:
-        if isinstance(self._store, InMemorySessionStore):
-            return "in_memory"
-        return "mongodb"
+        return "api"
 
     def get_stats(self) -> dict:
-        if hasattr(self._store, "get_stats"):
-            return self._store.get_stats()
-        return {"type": "unknown"}
+        return {
+            "type": "api",
+            "supervisor_url": self._supervisor_url,
+            "context_cache_size": len(self._context_cache),
+            "trace_cache_size": len(self._trace_cache),
+            "user_cache_size": len(self._user_info_cache),
+            "escalated_threads": len(self._escalated_threads),
+        }

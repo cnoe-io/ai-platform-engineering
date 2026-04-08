@@ -579,6 +579,9 @@ def stream_sse_response(
         if run_id and session_manager:
           session_manager.set_trace_id(thread_ts, run_id)
           logger.info(f"[{thread_ts}] Stored run_id for feedback: {run_id}")
+        if event.thread_id and session_manager:
+          session_manager.set_context_id(thread_ts, event.thread_id)
+          logger.info(f"[{thread_ts}] Stored conversation_id: {event.thread_id}")
         logger.info(f"[{thread_ts}] AG-UI run finished, run_id={run_id}")
 
       elif event.type == SSEEventType.RUN_ERROR:

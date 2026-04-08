@@ -83,9 +83,9 @@ def _ping_victorops_oncall(sse_client, slack_client, channel_id, thread_ts, team
         logger.debug(f"[{thread_ts}] VictorOps: raw SSE response: {full_text!r}")
 
         if full_text:
-            email_match = re.search(r'[\w.+-]+@[\w-]+\.[\w.]+', full_text)
+            email_match = re.search(r'[a-zA-Z0-9.+-]+@[\w-]+\.[\w.]+', full_text)
             if email_match:
-                oncall_email = email_match.group(0)
+                oncall_email = email_match.group(0).strip('.')
 
         if not oncall_email:
             logger.warning(f"[{thread_ts}] VictorOps: no email found in AI response for team {team}")
