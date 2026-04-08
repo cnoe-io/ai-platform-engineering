@@ -150,7 +150,17 @@ a2a_server = A2AStarletteApplication(
     http_handler=request_handler
 )
 
-app = a2a_server.build()
+_a2a_app = a2a_server.build()
+
+# Wrap in FastAPI to expose skills catalog API (GET /skills, etc.) alongside A2A server.
+# The A2A Starlette app is mounted at "/" so all A2A paths (/.well-known/*, /message/stream,
+# etc.) are forwarded to it after FastAPI's own routes are checked first.
+from fastapi import FastAPI as _FastAPI  # noqa: E402
+from ai_platform_engineering.skills_middleware.router import router as skills_router  # noqa: E402
+
+app = _FastAPI()
+app.include_router(skills_router)
+app.mount("/", _a2a_app)
 
 ################################################################################
 # Eager initialisation — load MCP tools at startup, not on first request
