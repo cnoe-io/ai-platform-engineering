@@ -259,7 +259,8 @@ def stream_a2a_response(
   last_artifacts = []
   is_new_context = context_id is None
   current_tool = None
-  any_tool_completed = False  # Set after first TOOL_NOTIFICATION_END; suppress post-tool streaming_result echoes
+  any_subagent_completed = False  # Set after first sub-agent TOOL_NOTIFICATION_END; suppress post-tool echoes
+  completed_tool_names = set()  # Track which tools have completed for sub-agent vs RAG distinction
   task_error = None  # Track errors but don't raise immediately - allow recovery
   trace_id = None  # Langfuse trace ID for feedback scoring
   # streamed_any_text is tracked by stream_buf.has_flushed
@@ -365,17 +366,20 @@ def stream_a2a_response(
           if "is_task_complete=" in text or text.startswith("Returning structured response"):
             logger.debug(f"[{thread_ts}] Suppressing metadata STREAMING_RESULT chunk")
             continue
-          # After any tool has completed, suppress streaming_result from the main chat.
-          # The supervisor's LLM echoes sub-agent responses verbatim in its post-tool
-          # reasoning text. Showing this floods the response with raw agent output.
-          # The clean FINAL_RESULT (ResponseFormat) is the right content to display.
-          if any_tool_completed:
-            # Route to step thinking if there's an active plan step, otherwise drop it.
+          # After a sub-agent tool has completed, suppress streaming_result from
+          # the main chat. The supervisor's LLM echoes sub-agent responses verbatim
+          # in its post-tool reasoning text. Showing this floods the response with
+          # raw agent output. The clean FINAL_RESULT (ResponseFormat) is better.
+          #
+          # BUT: for RAG-only queries (search, fetch_document, list_datasources),
+          # the post-tool STREAMING_RESULT IS the actual synthesized answer — don't
+          # suppress it or the user sees nothing.
+          if any_subagent_completed:
             if current_step_id and plan_steps:
               step_thinking.setdefault(current_step_id, [])
               step_thinking[current_step_id].append(text)
             else:
-              logger.debug(f"[{thread_ts}] Suppressing post-tool STREAMING_RESULT ({len(text)} chars)")
+              logger.debug(f"[{thread_ts}] Suppressing post-subagent STREAMING_RESULT ({len(text)} chars)")
             continue
           _start_stream_if_needed()
           if stream_buf:
@@ -446,7 +450,13 @@ def stream_a2a_response(
           else:
             logger.info(f"[{thread_ts}] Tool completed: {display_name}")
           current_tool = None
-          any_tool_completed = True  # LLM post-tool text echoes sub-agent results — suppress it
+          completed_tool_names.add(display_name)
+          # Only suppress post-tool streaming for sub-agent tools (which echo
+          # full responses). RAG/MCP tools (search, fetch_document, etc.) produce
+          # the actual synthesized answer as post-tool STREAMING_RESULT.
+          _RAG_TOOL_NAMES = {"search", "fetch_document", "list_datasources", "fetch_url"}
+          if display_name not in _RAG_TOOL_NAMES:
+            any_subagent_completed = True
           needs_separator = True
           if not stream_ts:
             _set_typing_status("is working...")
