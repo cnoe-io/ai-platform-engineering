@@ -142,12 +142,12 @@ class TestHandleTaskComplete:
         return eq
 
     @pytest.mark.asyncio
-    async def test_from_response_format_tool_uses_content_directly(
+    async def test_from_response_format_tool_uses_content_via_get_final(
         self, executor, task, event_queue
     ):
-        """With from_response_format_tool, uses content directly (not _get_final_content)."""
+        """_handle_task_complete always consults _get_final_content; falls back to event content."""
         state = StreamState()
-        state.supervisor_content = ["accumulated but ignored"]
+        state.supervisor_content = ["accumulated"]
         content = "Direct final answer from ResponseFormat tool"
         event = {"from_response_format_tool": True}
 
@@ -156,8 +156,7 @@ class TestHandleTaskComplete:
         ) as mock_get_final:
             await executor._handle_task_complete(event, state, content, task, event_queue)
 
-        # _get_final_content must NOT be called when from_response_format_tool
-        mock_get_final.assert_not_called()
+        mock_get_final.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_from_response_format_tool_sends_final_result_artifact(
@@ -291,47 +290,14 @@ class TestHandleUserInputRequired:
         return eq
 
     @pytest.mark.asyncio
-    async def test_with_input_fields_sends_user_input_metadata_artifact(
+    async def test_sends_input_required_status(
         self, executor, task, event_queue
     ):
-        """With metadata containing input_fields, sends UserInputMetaData artifact."""
+        """Sends input_required status with content as message."""
         content = "Please provide repo name"
-        metadata = {
-            "user_input": True,
-            "input_fields": [
-                {
-                    "field_name": "repo_name",
-                    "field_label": "Repository Name",
-                    "field_type": "text",
-                    "required": True,
-                }
-            ],
-        }
 
         await executor._handle_user_input_required(
-            content, task, event_queue, metadata=metadata
-        )
-
-        calls = event_queue.enqueue_event.call_args_list
-        artifact_events = [c[0][0] for c in calls if isinstance(c[0][0], TaskArtifactUpdateEvent)]
-        assert len(artifact_events) >= 1
-        # First should be UserInputMetaData
-        user_input_artifact = next(
-            (e for e in artifact_events if e.artifact.name == "UserInputMetaData"),
-            None,
-        )
-        assert user_input_artifact is not None
-        assert user_input_artifact.artifact.parts[0].root.data == metadata
-
-    @pytest.mark.asyncio
-    async def test_with_input_fields_then_sends_input_required_status(
-        self, executor, task, event_queue
-    ):
-        """With input_fields, sends UserInputMetaData then input_required status."""
-        metadata = {"input_fields": [{"field_name": "x"}]}
-
-        await executor._handle_user_input_required(
-            "Fill form", task, event_queue, metadata=metadata
+            content, task, event_queue
         )
 
         calls = event_queue.enqueue_event.call_args_list
@@ -342,19 +308,34 @@ class TestHandleUserInputRequired:
         assert status_events[-1].status.state == TaskState.input_required
 
     @pytest.mark.asyncio
-    async def test_without_metadata_only_sends_input_required_status(
+    async def test_input_required_status_is_final(
         self, executor, task, event_queue
     ):
-        """Without metadata, only sends input_required status."""
+        """Input required status event has final=True."""
         await executor._handle_user_input_required(
-            "Need more info", task, event_queue, metadata=None
+            "Fill form", task, event_queue
+        )
+
+        calls = event_queue.enqueue_event.call_args_list
+        status_events = [
+            c[0][0] for c in calls if isinstance(c[0][0], TaskStatusUpdateEvent)
+        ]
+        assert len(status_events) == 1
+        assert status_events[0].final is True
+        assert status_events[0].status.state == TaskState.input_required
+
+    @pytest.mark.asyncio
+    async def test_no_artifact_sent_for_input_required(
+        self, executor, task, event_queue
+    ):
+        """No artifact events are sent for input_required (status only)."""
+        await executor._handle_user_input_required(
+            "Need more info", task, event_queue
         )
 
         calls = event_queue.enqueue_event.call_args_list
         artifact_events = [c[0][0] for c in calls if isinstance(c[0][0], TaskArtifactUpdateEvent)]
-        # No UserInputMetaData artifact
-        user_meta = [e for e in artifact_events if e.artifact.name == "UserInputMetaData"]
-        assert len(user_meta) == 0
+        assert len(artifact_events) == 0
 
         status_events = [
             c[0][0] for c in calls if isinstance(c[0][0], TaskStatusUpdateEvent)
@@ -363,19 +344,15 @@ class TestHandleUserInputRequired:
         assert status_events[0].status.state == TaskState.input_required
 
     @pytest.mark.asyncio
-    async def test_with_empty_metadata_only_sends_input_required_status(
+    async def test_input_required_with_different_content(
         self, executor, task, event_queue
     ):
-        """With empty metadata (no input_fields), only sends input_required status."""
+        """Different content strings are passed through correctly."""
         await executor._handle_user_input_required(
-            "Clarification needed", task, event_queue, metadata={}
+            "Clarification needed", task, event_queue
         )
 
         calls = event_queue.enqueue_event.call_args_list
-        artifact_events = [c[0][0] for c in calls if isinstance(c[0][0], TaskArtifactUpdateEvent)]
-        user_meta = [e for e in artifact_events if e.artifact.name == "UserInputMetaData"]
-        assert len(user_meta) == 0
-
         status_events = [
             c[0][0] for c in calls if isinstance(c[0][0], TaskStatusUpdateEvent)
         ]

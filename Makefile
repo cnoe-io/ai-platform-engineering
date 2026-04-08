@@ -137,7 +137,7 @@ run-a2a: install-deps ## Run the AI Platform Engineer single-node deep agent wit
 	export MONGODB_DATABASE=$${MONGODB_DATABASE:-caipe}; \
 	export PYTHONPATH="$${PWD}/ai_platform_engineering/agents/github:$${PWD}/ai_platform_engineering/agents/backstage:$${PWD}/ai_platform_engineering/agents/jira:$${PWD}/ai_platform_engineering/agents/webex:$${PWD}/ai_platform_engineering/agents/argocd:$${PWD}/ai_platform_engineering/agents/aigateway:$${PWD}/ai_platform_engineering/agents/pagerduty:$${PWD}/ai_platform_engineering/agents/slack:$${PWD}/ai_platform_engineering/agents/splunk:$${PWD}/ai_platform_engineering/agents/komodor:$${PWD}/ai_platform_engineering/agents/confluence:$${PWD}/ai_platform_engineering/agents/aws:$${PYTHONPATH}"; \
 	echo "Starting AI Platform Engineer A2A server (single-node) on $$HOST:$$PORT"; \
-	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main_single:app --host $$HOST --port $$PORT --reload
+	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app --host $$HOST --port $$PORT --reload
 
 run-a2a-client: ## Run the agent-chat-cli client to connect to the A2A agent
 	@HOST=$${A2A_HOST:-localhost}; \

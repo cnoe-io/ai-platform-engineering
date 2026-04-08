@@ -102,25 +102,44 @@ class TestConnectivityChecks(unittest.TestCase):
     """Test connectivity checking functionality."""
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    def test_connectivity_disabled_by_default(self, mock_load):
-        """Test that connectivity checks are disabled by default."""
+    def test_connectivity_disabled_when_no_distributed_agents(self, mock_load):
+        """Test that connectivity checks are disabled when DISTRIBUTED_AGENTS is empty."""
         mock_load.return_value = None
 
-        # Default should have checks disabled
-        with patch.dict(os.environ, {'SKIP_AGENT_CONNECTIVITY_CHECK': 'true'}, clear=True):
+        with patch.dict(os.environ, {}, clear=True):
             registry = AgentRegistry()
             self.assertFalse(registry._check_connectivity)
-        print("✓ Connectivity checks disabled by default")
+        print("✓ Connectivity checks disabled when no distributed agents")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    def test_connectivity_can_be_enabled(self, mock_load):
-        """Test that connectivity checks can be enabled."""
+    def test_connectivity_enabled_when_distributed_agents_set(self, mock_load):
+        """Test that connectivity checks are auto-enabled when DISTRIBUTED_AGENTS is set."""
+        mock_load.return_value = None
+
+        with patch.dict(os.environ, {'DISTRIBUTED_AGENTS': 'all'}, clear=True):
+            registry = AgentRegistry()
+            self.assertTrue(registry._check_connectivity)
+        print("✓ Connectivity checks auto-enabled with DISTRIBUTED_AGENTS")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_connectivity_explicit_skip_overrides_distributed(self, mock_load):
+        """Test that SKIP_AGENT_CONNECTIVITY_CHECK overrides DISTRIBUTED_AGENTS."""
+        mock_load.return_value = None
+
+        with patch.dict(os.environ, {'DISTRIBUTED_AGENTS': 'all', 'SKIP_AGENT_CONNECTIVITY_CHECK': 'true'}, clear=True):
+            registry = AgentRegistry()
+            self.assertFalse(registry._check_connectivity)
+        print("✓ Explicit SKIP_AGENT_CONNECTIVITY_CHECK overrides DISTRIBUTED_AGENTS")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_connectivity_explicit_enable_without_distributed(self, mock_load):
+        """Test that SKIP_AGENT_CONNECTIVITY_CHECK=false forces checks even without DISTRIBUTED_AGENTS."""
         mock_load.return_value = None
 
         with patch.dict(os.environ, {'SKIP_AGENT_CONNECTIVITY_CHECK': 'false'}, clear=True):
             registry = AgentRegistry()
             self.assertTrue(registry._check_connectivity)
-        print("✓ Connectivity checks can be enabled")
+        print("✓ Explicit SKIP_AGENT_CONNECTIVITY_CHECK=false forces checks")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
     def test_connectivity_timeout_config(self, mock_load):

@@ -5,15 +5,19 @@
 # For setup instructions and agent orchestration details, refer to:
 #   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
 #
-# Two supervisor modes (select via profile):
+# Unified supervisor service controlled by DISTRIBUTED_AGENTS env var:
 #
-#   Single-node (MCP tools in-process, all agents in one container):
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one --profile caipe-mongodb up --build
-#     Service: caipe-supervisor-all-in-one
+#   All-in-one (all-in-one) — MCP tools in-process, all agents in one container:
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb up --build
+#     Set: DISTRIBUTED_AGENTS= (empty, default)
 #
-#   Multi-agent / distributed (separate A2A agent containers):
-#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-distributed --profile <agent-profiles> up --build
-#     Service: caipe-supervisor
+#   Fully distributed — separate A2A agent containers:
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
+#     Set: DISTRIBUTED_AGENTS=all
+#
+#   Hybrid — mix of in-process and distributed agents:
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
+#     Set: DISTRIBUTED_AGENTS=argocd,github  (only listed agents are remote)
 #
 # Agent selection and configuration are controlled through environment variables
 # in the .env file—see documentation for full list and descriptions.
@@ -22,17 +26,24 @@
 services:
 
   ####################################################################################################
-  #                                 CAIPE Supervisor Deep Agent (Single-Node / All-in-One)          #
+  #                              CAIPE Supervisor Deep Agent (Unified)                              #
   ####################################################################################################
-  # Single-node mode: all MCP-based agents run in-process inside this container via stdio transport.
-  # Start with: docker compose --profile caipe-supervisor-all-in-one --profile caipe-mongodb up --build
-  caipe-supervisor-all-in-one:
+  # Unified supervisor: mode is controlled by DISTRIBUTED_AGENTS env var, not separate services.
+  #
+  #   All-in-one:     DISTRIBUTED_AGENTS= (empty)            — all agents run in-process via MCP
+  #   Fully distributed:  DISTRIBUTED_AGENTS=all             — all agents run as remote A2A containers
+  #   Hybrid:         DISTRIBUTED_AGENTS=argocd,jira         — only listed agents are remote
+  #
+  # Start with: docker compose --profile caipe-supervisor [--profile <agent-profiles>] up --build
+  caipe-supervisor:
     build:
       context: .
       dockerfile: build/Dockerfile
-    container_name: caipe-supervisor-all-in-one
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-localtag}
+    container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_RAG_PATH:-./charts/ai-platform-engineering/data/prompt_config.rag.yaml}:/app/prompt_config.rag.yaml
       - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
       - ${HOME}/.aws:/home/appuser/.aws:ro
@@ -62,13 +73,15 @@ services:
 
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
-      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
-      # Single-node mode: agents run as local MCP tools, no remote A2A registry needed
-      - CAIPE_DISTRIBUTED_AGENTS=false
       - ENABLE_ARTIFACT_STREAMING=true
       - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
 
-      # Remote A2A agent hostname mappings (used when individual agent containers are started)
+      # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
+      # Leave empty for all-in-one mode (all agents in-process via MCP).
+      # Examples: DISTRIBUTED_AGENTS=argocd,aws  or  DISTRIBUTED_AGENTS=all
+      - DISTRIBUTED_AGENTS=${DISTRIBUTED_AGENTS:-}
+
+      # Remote A2A agent hostname mappings (used when agents are distributed)
       - ARGOCD_AGENT_HOST=agent-argocd
       - AWS_AGENT_HOST=agent-aws
       - BACKSTAGE_AGENT_HOST=agent-backstage
@@ -89,8 +102,8 @@ services:
       - JARVIS_AGENT_HOST=agent-jarvis
       - JARVIS_AGENT_PORT=58000
 
-      # MCP server hostname mappings for single-node (all-in-one) mode.
-      # In this mode, agents run in-process and must connect to MCP servers by container name.
+      # MCP server hostname mappings for in-process (all-in-one) mode.
+      # When agents run in-process, they connect to MCP servers by container name.
       - ARGOCD_MCP_HOST=mcp-argocd
       - BACKSTAGE_MCP_HOST=mcp-backstage
       - CONFLUENCE_MCP_HOST=mcp-confluence
@@ -130,6 +143,9 @@ services:
 
       # RAG Service Configuration
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
+      - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-5}
+      - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
 
       # GitHub Token for git operations
       - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
@@ -140,6 +156,8 @@ services:
       - LANGGRAPH_STORE_POSTGRES_DSN=${LANGGRAPH_STORE_POSTGRES_DSN:-}
       - LANGGRAPH_STORE_MONGODB_URI=${LANGGRAPH_STORE_MONGODB_URI:-}
       - LANGGRAPH_STORE_TTL_MINUTES=${LANGGRAPH_STORE_TTL_MINUTES:-10080}
+      # Embeddings for semantic memory search (shared with RAG stack via EMBEDDINGS_*)
+      # LANGGRAPH_STORE_EMBEDDINGS_* overrides take precedence over EMBEDDINGS_*
       - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-}
       - LANGGRAPH_STORE_EMBEDDINGS_DIMS=${LANGGRAPH_STORE_EMBEDDINGS_DIMS:-}
@@ -155,6 +173,7 @@ services:
       - LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION:-}
       - LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION:-}
       - LANGGRAPH_CHECKPOINT_TTL_MINUTES=${LANGGRAPH_CHECKPOINT_TTL_MINUTES:-0}
+      # REDIS_URL is required by redisvl (used internally by langgraph-checkpoint-redis)
       - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
 
       # Self-service task configuration
@@ -184,7 +203,7 @@ services:
       - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
       - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
 
-      # Tracing configuration
+      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
@@ -195,137 +214,9 @@ services:
     depends_on:
       caipe-mongodb:
         condition: service_healthy
-    command: platform-engineer-single
-    profiles:
-      - caipe-supervisor-all-in-one
-
-  ####################################################################################################
-  #                                 CAIPE Supervisor Deep Agent (Multi-Agent / Distributed)         #
-  ####################################################################################################
-  caipe-supervisor:
-    build:
-      context: .
-      dockerfile: build/Dockerfile
-    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-localtag}
-    container_name: caipe-supervisor
-    volumes:
-      - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
-      - ${PROMPT_CONFIG_RAG_PATH:-./charts/ai-platform-engineering/data/prompt_config.rag.yaml}:/app/prompt_config.rag.yaml
-      - ./ai_platform_engineering:/app/ai_platform_engineering
-      - ${HOME}/.aws:/home/appuser/.aws:ro
-    env_file:
-      - .env
-    ports:
-      - "8000:8000"
-    environment:
-      - AWS_CONFIG_FILE=/home/appuser/.aws/config
-      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
-      # A2A transport configuration (p2p or slim)
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      # Prompt configuration file path
-      - PROMPT_CONFIG_PATH=${PROMPT_CONFIG_PATH:-./prompt_config.yaml}
-
-      # Slim dataplane endpoint configuration
-      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
-
-      # Agent connectivity configuration
-      - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
-      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
-      - ENABLE_ARTIFACT_STREAMING=true
-      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
-
-      # Agent hostname mappings for agent connectivity.
-      # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
-      # If you add new agents/services, include a corresponding *_AGENT_HOST assignment below.
-      - ARGOCD_AGENT_HOST=agent-argocd
-      - AWS_AGENT_HOST=agent-aws
-      - BACKSTAGE_AGENT_HOST=agent-backstage
-      - CONFLUENCE_AGENT_HOST=agent-confluence
-      - GITLAB_AGENT_HOST=agent-gitlab
-      - GITHUB_AGENT_HOST=agent-github
-      - JIRA_AGENT_HOST=agent-jira
-      - KOMODOR_AGENT_HOST=agent-komodor
-      - PAGERDUTY_AGENT_HOST=agent-pagerduty
-      - PETSTORE_AGENT_HOST=agent-petstore
-      - SLACK_AGENT_HOST=agent-slack
-      - SPLUNK_AGENT_HOST=agent-splunk
-      - WEATHER_AGENT_HOST=agent-weather
-      - VICTOROPS_AGENT_HOST=agent-victorops
-      - WEBEX_AGENT_HOST=agent-webex
-      - NETUTILS_AGENT_HOST=agent-netutils
-      - JARVIS_AGENT_HOST=agent-jarvis
-      - JARVIS_AGENT_PORT=58000
-
-      # Cross-Thread Store Configuration
-      - LANGGRAPH_STORE_TYPE=${LANGGRAPH_STORE_TYPE:-memory}
-      - LANGGRAPH_STORE_REDIS_URL=${LANGGRAPH_STORE_REDIS_URL:-}
-      - LANGGRAPH_STORE_POSTGRES_DSN=${LANGGRAPH_STORE_POSTGRES_DSN:-}
-      - LANGGRAPH_STORE_MONGODB_URI=${LANGGRAPH_STORE_MONGODB_URI:-}
-      - LANGGRAPH_STORE_TTL_MINUTES=${LANGGRAPH_STORE_TTL_MINUTES:-10080}
-      # Embeddings for semantic memory search (shared with RAG stack via EMBEDDINGS_*)
-      # LANGGRAPH_STORE_EMBEDDINGS_* overrides take precedence over EMBEDDINGS_*
-      - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-}
-      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-}
-      - LANGGRAPH_STORE_EMBEDDINGS_DIMS=${LANGGRAPH_STORE_EMBEDDINGS_DIMS:-}
-      - ENABLE_FACT_EXTRACTION=${ENABLE_FACT_EXTRACTION:-false}
-      - FACT_EXTRACTION_MODEL=${FACT_EXTRACTION_MODEL:-}
-
-      # In-Thread Checkpoint Persistence Configuration
-      - LANGGRAPH_CHECKPOINT_TYPE=${LANGGRAPH_CHECKPOINT_TYPE:-memory}
-      - LANGGRAPH_CHECKPOINT_REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
-      - LANGGRAPH_CHECKPOINT_POSTGRES_DSN=${LANGGRAPH_CHECKPOINT_POSTGRES_DSN:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${LANGGRAPH_CHECKPOINT_MONGODB_URI:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME=${LANGGRAPH_CHECKPOINT_MONGODB_DB_NAME:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_COLLECTION:-}
-      - LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION=${LANGGRAPH_CHECKPOINT_MONGODB_WRITES_COLLECTION:-}
-      - LANGGRAPH_CHECKPOINT_TTL_MINUTES=${LANGGRAPH_CHECKPOINT_TTL_MINUTES:-0}
-      # REDIS_URL is required by redisvl (used internally by langgraph-checkpoint-redis)
-      - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
-
-      # RAG Service Configuration
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - ENABLE_RAG=${ENABLE_RAG:-false}
-      - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-10}
-
-      # GitHub Token for git operations
-      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
-
-      # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
-      # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
-      # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
-      # These flags allow you to fine-tune which domain-specific agents are available as tools to the main platform engineer agent at runtime.
-      # Update these variables as needed based on your deployment requirements, security posture, or available agent containers.
-
-      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
-      - ENABLE_AWS=${ENABLE_AWS:-false}
-      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
-      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
-      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
-      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
-      - ENABLE_JIRA=${ENABLE_JIRA:-false}
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
-      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
-      - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
-      - ENABLE_RAG=${ENABLE_RAG:-false}
-      - ENABLE_SLACK=${ENABLE_SLACK:-false}
-      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
-      - ENABLE_VICTOROPS=${ENABLE_VICTOROPS:-false}
-      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
-      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
-      - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
-      - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
-
-      # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-NOT_SET}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-NOT_SET}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
-      - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     command: platform-engineer
     profiles:
-      - caipe-supervisor-distributed
+      - caipe-supervisor
 
   ####################################################################################################
   #                                          MongoDB                                                 #
@@ -354,7 +245,7 @@ services:
       start_period: 40s
     profiles:
       - caipe-mongodb
-      - caipe-supervisor-all-in-one
+      - caipe-supervisor
       - deps
 
   # MongoDB Admin UI
@@ -1325,9 +1216,6 @@ services:
       caipe-supervisor:
         condition: service_started
         required: false
-      caipe-supervisor-all-in-one:
-        condition: service_started
-        required: false
     profiles:
       - caipe-ui
 
@@ -2077,9 +1965,6 @@ services:
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
       caipe-supervisor:
-        condition: service_started
-        required: false
-      caipe-supervisor-all-in-one:
         condition: service_started
         required: false
       caipe-mongodb:
