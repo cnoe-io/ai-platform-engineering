@@ -31,13 +31,18 @@ from pydantic import PrivateAttr
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_FETCH_DOCUMENT_CALLS = 5
-_DEFAULT_MAX_SEARCH_CALLS = 5
+_DEFAULT_MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("RAG_MAX_FETCH_DOCUMENT_CALLS", "5"))
+_DEFAULT_MAX_SEARCH_CALLS = int(os.getenv("RAG_MAX_SEARCH_CALLS", "5"))
 _STALE_ENTRY_TTL_SECONDS = 300
+
 
 # Per-call output truncation limits (chars). Prevents a single tool call from
 # consuming a huge chunk of the context window. ~10K chars ≈ 2.5K tokens.
 _DEFAULT_MAX_OUTPUT_CHARS = int(os.getenv("RAG_MAX_OUTPUT_CHARS", "10000"))
+
+# Max results the search tool returns per call. The model often requests
+# limit=10 or higher, flooding the context window with document metadata.
+_DEFAULT_MAX_SEARCH_RESULTS = int(os.getenv("RAG_MAX_SEARCH_RESULTS", "3"))
 
 
 class _RagToolCapExhausted(ToolInvocationError):
@@ -144,6 +149,7 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
       logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
+      _record_rag_cap_hit(thread_id)
       # Return a normal-looking result so the model doesn't retry with different
       # document_ids. Raising ToolInvocationError creates is_error=True ToolMessages
       # which the model treats as "this doc failed, try the next" — causing a loop.
@@ -205,11 +211,20 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
       logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
+      _record_rag_cap_hit(thread_id)
       return (
         f"[Search complete] You have performed {self.max_calls} searches which is the maximum allowed. "
         "All relevant results have been collected. Do NOT call search or fetch_document again. "
         "You MUST now synthesize your final answer using ONLY the information already retrieved above."
       )
+
+    # Cap per-call results to prevent context window flooding.
+    if "limit" in kwargs and isinstance(kwargs["limit"], int):
+      if kwargs["limit"] > _DEFAULT_MAX_SEARCH_RESULTS:
+        logger.info(f"search limit capped: {kwargs['limit']} -> {_DEFAULT_MAX_SEARCH_RESULTS}")
+        kwargs["limit"] = _DEFAULT_MAX_SEARCH_RESULTS
+    elif "limit" not in kwargs:
+      kwargs["limit"] = _DEFAULT_MAX_SEARCH_RESULTS
 
     count = self._global_counts.get(thread_id, 0)
     logger.debug(f"search call {count}/{self.max_calls} for thread_id={thread_id}")
@@ -218,3 +233,45 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
 
   def _run(self, *args: Any, **kwargs: Any) -> str:
     raise NotImplementedError("SearchCapWrapper only supports async execution via _arun")
+
+
+# Hard-stop tracking: after the first post-cap call, mark the thread so
+# DeterministicTaskMiddleware.after_model can terminate the graph cleanly
+# instead of running 500 recursion steps.
+_rag_cap_hit_counts: dict[str, int] = {}
+_rag_hard_stop_set: set[str] = set()
+_rag_hard_stop_lock = threading.Lock()
+
+
+def _record_rag_cap_hit(thread_id: str) -> None:
+    """Record a post-cap tool call; mark thread as hard-stopped after first hit."""
+    with _rag_hard_stop_lock:
+        count = _rag_cap_hit_counts.get(thread_id, 0) + 1
+        _rag_cap_hit_counts[thread_id] = count
+        if count >= 1:
+            _rag_hard_stop_set.add(thread_id)
+            logger.info(f"RAG hard-stop set for thread_id={thread_id} (cap_hit_count={count})")
+
+
+def is_rag_hard_stopped(thread_id: str) -> bool:
+    """Return True if this thread hit the RAG cap and should terminate the graph loop."""
+    with _rag_hard_stop_lock:
+        return thread_id in _rag_hard_stop_set
+
+
+def clear_rag_state(thread_id: str) -> None:
+    """Reset RAG cap counters for a thread at the start of a new query.
+
+    Called at the start of each stream() invocation so that per-query caps are
+    not carried over from a previous query on the same conversation thread.
+    """
+    with _rag_hard_stop_lock:
+        _rag_hard_stop_set.discard(thread_id)
+        _rag_cap_hit_counts.pop(thread_id, None)
+    with FetchDocumentCapWrapper._global_lock:
+        FetchDocumentCapWrapper._global_counts.pop(thread_id, None)
+        FetchDocumentCapWrapper._global_timestamps.pop(thread_id, None)
+    with SearchCapWrapper._global_lock:
+        SearchCapWrapper._global_counts.pop(thread_id, None)
+        SearchCapWrapper._global_timestamps.pop(thread_id, None)
+    logger.debug(f"RAG state cleared for new query on thread_id={thread_id}")

@@ -99,7 +99,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import Fet
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
-MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "5"))
+MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
 MAX_SEARCH_CALLS = int(os.getenv("SEARCH_MAX_CALLS", "5"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 

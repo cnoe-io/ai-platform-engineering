@@ -34,12 +34,13 @@ from ai_platform_engineering.utils.a2a_common.langmem_utils import (
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.types import Command
 
-# Import GraphInterrupt for proper HITL handling
+# Import LangGraph error types for proper handling
 try:
-    from langgraph.errors import GraphInterrupt
+    from langgraph.errors import GraphInterrupt, GraphRecursionError
 except ImportError:
     # Fallback for older versions
     GraphInterrupt = None
+    GraphRecursionError = None
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -48,6 +49,45 @@ RESPONSE_FORMAT_TOOL_NAMES = frozenset({
     'responseformat', 'platformengineerresponse',
 })
 
+
+def _tool_narration(tool_name: str, tool_args: dict) -> str | None:
+    """Generate a brief narration sentence to stream before a tool call.
+
+    Returns None for internal/structural tools that should not narrate.
+    Yields word-by-word in the caller to simulate LLM token streaming.
+    """
+    name_lower = tool_name.lower()
+
+    if name_lower in ("write_todos", "responseformat", "platformengineerresponse",
+                      "read_file", "write_file", "ls", "glob", "grep", "edit_file",
+                      "reflect_on_output", "format_markdown", "get_current_date"):
+        return None
+
+    if "search" in name_lower:
+        query = tool_args.get("query", "") or tool_args.get("q", "")
+        if query and len(query) < 150:
+            return f"I'll search the knowledge base for information about **{query[:120]}**.\n\n"
+        thought = tool_args.get("thought", "")
+        if thought and len(thought) < 150:
+            return f"I'll search the knowledge base — *{thought[:100]}*\n\n"
+        return "I'll search the knowledge base for relevant information.\n\n"
+
+    if "fetch_document" in name_lower or "fetch_doc" in name_lower:
+        thought = tool_args.get("thought", "")
+        if thought and len(thought) < 150:
+            return f"Let me fetch the full document — *{thought[:100]}*\n\n"
+        return "Let me fetch the full document for more details.\n\n"
+
+    if "rag" in name_lower or "knowledge" in name_lower:
+        return "I'll query the knowledge base for relevant information.\n\n"
+
+    purpose = tool_args.get("query", "") or tool_args.get("task", "") or tool_args.get("message", "")
+    if purpose and len(purpose) < 120:
+        label = tool_name.replace("_", " ").replace("-", " ").title()
+        return f"I'll use {label} to help with: *{purpose[:100]}*\n\n"
+
+    label = tool_name.replace("_", " ").replace("-", " ").title()
+    return f"I'll use the {label} tool to gather the information you need.\n\n"
 
 
 class AIPlatformEngineerA2ABinding:
@@ -343,6 +383,58 @@ class AIPlatformEngineerA2ABinding:
       logging.info(f"[{label}] __interrupt__ event received")
       return self._build_hitl_form_event(intr_value, label=label)
 
+  async def _direct_structured_response(self, config: dict, context: str = "") -> dict | None:
+      """Produce a final structured response by calling the LLM directly.
+
+      Bypasses the LangGraph graph entirely so no RAG tools or middleware can
+      interfere.  Uses with_structured_output(PlatformEngineerResponse) to
+      force the model to produce a clean final answer from the accumulated
+      conversation history.
+
+      Returns a response_format_result dict or None on failure.
+      """
+      from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+      from langchain_core.messages import HumanMessage as _HumanMessage
+
+      try:
+          state = await self.graph.aget_state(config)
+          raw_messages = (state.values or {}).get("messages", []) if state else []
+          # Trim to last 30 messages to stay well within context limits
+          messages = list(raw_messages)[-30:]
+          if not messages:
+              return None
+
+          wrap_prompt = (
+              "You have finished gathering information. "
+              "Based ONLY on what was retrieved above, write your final answer now. "
+              "Do not call any more tools."
+          )
+          if context:
+              wrap_prompt = f"[Recovery after error: {context[:200]}]\n\n" + wrap_prompt
+
+          messages = messages + [_HumanMessage(content=wrap_prompt)]
+
+          llm = LLMFactory().get_llm()
+          structured_llm = llm.with_structured_output(PlatformEngineerResponse)
+          result = await structured_llm.ainvoke(messages)
+          if result is None:
+              return None
+
+          content = getattr(result, 'content', None) or str(result)
+          # Prepend a blank line so the answer is visually separated from
+          # the last narration line that precedes it in the stream.
+          if content and not content.startswith("\n"):
+              content = "\n\n" + content
+          return {
+              'content': content,
+              'is_task_complete': getattr(result, 'is_task_complete', True),
+              'require_user_input': getattr(result, 'require_user_input', False),
+              'from_response_format_tool': True,
+          }
+      except Exception as e:
+          logging.error(f"_direct_structured_response failed: {e}")
+          return None
+
   # NOTE: Not using @trace_agent_stream decorator because it doesn't support the 'command' parameter
   # needed for HITL resume functionality. Manual tracing is handled via TracingManager.
   async def stream(
@@ -361,6 +453,12 @@ class AIPlatformEngineerA2ABinding:
       # Track tool calls to ensure every AIMessage.tool_call gets a ToolMessage
       pending_tool_calls = {}  # {tool_call_id: tool_name}
 
+      # Dedup narration: Bedrock streams many AIMessageChunks per tool call,
+      # each with tool_calls populated — gate by call ID so we emit once per call.
+      # Also dedup by text: identical RAG searches would emit the same line twice.
+      _narrated_tool_call_ids: set[str] = set()
+      _narrated_texts: set[str] = set()
+
       # Build input based on whether we have a query or a command (resume from interrupt)
       if command is not None:
           inputs = command
@@ -377,7 +475,7 @@ class AIPlatformEngineerA2ABinding:
       # Set recursion limit - LangGraph default is 25 which is too low for
       # deterministic task workflows (e.g. S3 creation has 8 steps, each with
       # model + tools cycles). Match the multi-node agent's limit of 100.
-      config['recursion_limit'] = 100
+      config['recursion_limit'] = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "200"))
 
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
@@ -440,6 +538,19 @@ class AIPlatformEngineerA2ABinding:
           self._previous_todos = {}
           self._task_plan_entries = {}
           self._in_self_service_workflow = False
+
+      # Reset RAG caps and hard-stop state so each new query starts fresh.
+      # Cap counters use a TTL-based cleanup that spans 5 minutes; without an
+      # explicit reset, a previous query on the same thread would exhaust the
+      # caps before the new query even calls a RAG tool.
+      thread_id_for_rag = (config or {}).get("configurable", {}).get("thread_id")
+      if thread_id_for_rag:
+          try:
+              from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import clear_rag_state  # noqa: PLC0415
+              clear_rag_state(thread_id_for_rag)
+              logging.debug(f"RAG state cleared for thread_id={thread_id_for_rag}")
+          except Exception as rag_clear_err:
+              logging.debug(f"Could not clear RAG state: {rag_clear_err}")
 
       # ========================================================================
       # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
@@ -924,6 +1035,23 @@ class AIPlatformEngineerA2ABinding:
                               continue
 
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
+
+                          # Emit narration word-by-word before the tool notification.
+                          # Haiku doesn't generate pre-tool text naturally, so we need
+                          # this to give users visible progress between tool calls.
+                          # When stream_ts is already set (2nd+ tool), text streams into
+                          # Slack. For the 1st tool, it briefly shows in the typing status.
+                          _call_id = tc_id or tool_name
+                          if _call_id not in _narrated_tool_call_ids:
+                              _narrated_tool_call_ids.add(_call_id)
+                              narration = _tool_narration(tool_name, tool_call.get("args", {}) or {})
+                              if narration and narration not in _narrated_texts:
+                                  _narrated_texts.add(narration)
+                                  yield {
+                                      "is_task_complete": False,
+                                      "require_user_input": False,
+                                      "content": narration,
+                                  }
 
                           # Stream tool start notification to client with metadata
                           tool_name_formatted = tool_name.title()
@@ -1412,7 +1540,10 @@ class AIPlatformEngineerA2ABinding:
               logging.warning("[Interrupt] Could not extract form data, falling through to error handling")
 
           error_str = str(e)
-          is_recursion_limit = "recursion limit" in error_str.lower()
+          is_recursion_limit = (
+              (GraphRecursionError is not None and isinstance(e, GraphRecursionError))
+              or "recursion limit" in error_str.lower()
+          )
           logging.warning(f"Primary stream failed (recursion_limit={is_recursion_limit}): {error_str}")
 
           # ==============================================================
@@ -1607,37 +1738,22 @@ class AIPlatformEngineerA2ABinding:
           # Phase 2: Wrap-up -- if retry was skipped (recursion limit) or
           # retry didn't produce a structured response, re-invoke the
           # graph's generate_structured_response node. We inject an
-          # AIMessage describing the error (as_node="agent") so the
+          # AIMessage describing the error (as_node="model") so the
           # graph routes to structured response generation using its
           # own system prompt and the full conversation context.
           # ==============================================================
+          # Phase 2: direct LLM call with structured output.
+          # Bypasses the graph entirely so RAG tools cannot interfere.
+          # Uses with_structured_output(PlatformEngineerResponse) to force
+          # a clean final answer from the accumulated conversation context.
+          # ==============================================================
           if not response_format_result:
-              logging.info(f"Phase 2 wrap-up via generate_structured_response (error: {error_str[:120]}...)")
+              logging.info(f"Phase 2 wrap-up: direct LLM structured output call (error: {error_str[:80]}...)")
               try:
-                  await self._repair_orphaned_tool_calls(config)
-
-                  error_summary = (
-                      f"I encountered an error and need to wrap up: {error_str[:500]}\n\n"
-                      "I will now summarize what was accomplished so far and provide my final response."
-                  )
-                  await self.graph.aupdate_state(
-                      config,
-                      {"messages": [AIMessage(content=error_summary)]},
-                      as_node="agent",
-                  )
-
-                  async for item_type, item in self.graph.astream(
-                      None, config,
-                      stream_mode=['updates'],
-                  ):
-                      if item_type == 'updates' and isinstance(item, dict) and 'generate_structured_response' in item:
-                          structured_resp = item['generate_structured_response'].get('structured_response')
-                          if structured_resp is not None:
-                              parsed = self.handle_structured_response(structured_resp)
-                              parsed['from_response_format_tool'] = True
-                              response_format_result = parsed
-                              logging.info(f"Phase 2 structured response captured (content_len={len(parsed.get('content', ''))})")
-                              yield parsed
+                  response_format_result = await self._direct_structured_response(config, error_str)
+                  if response_format_result:
+                      logging.info(f"Phase 2 structured response captured (content_len={len(response_format_result.get('content',''))})")
+                      yield response_format_result
               except Exception as wrapup_err:
                   logging.error(f"Phase 2 wrap-up failed: {wrapup_err}")
 
@@ -1720,6 +1836,20 @@ class AIPlatformEngineerA2ABinding:
               logging.warning(f"Could not retrieve graph state for final message: {state_err}")
 
       # After EITHER primary or fallback streaming completes, parse the final response to extract is_task_complete
+      # Phase 2.5: stream ended normally (no exception) but WITHOUT a structured response.
+      # This happens when DeterministicTaskMiddleware terminates the loop early via
+      # jump_to="end" before the model calls PlatformEngineerResponse.
+      # Use the same direct LLM approach as Phase 2 — bypasses the graph entirely.
+      if USE_STRUCTURED_RESPONSE and not response_format_result:
+          logging.info("Phase 2.5: Stream ended without ResponseFormat — direct LLM structured output call")
+          try:
+              response_format_result = await self._direct_structured_response(config)
+              if response_format_result:
+                  logging.info(f"Phase 2.5 response captured (content_len={len(response_format_result.get('content',''))})")
+                  yield response_format_result
+          except Exception as wrapup25_err:
+              logging.error(f"Phase 2.5 wrap-up failed: {wrapup25_err}")
+
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, response_format_result={'yes' if response_format_result else 'no'}")
 
       # If structured response was already extracted from ResponseFormat tool,

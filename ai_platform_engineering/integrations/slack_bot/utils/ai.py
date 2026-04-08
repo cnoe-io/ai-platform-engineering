@@ -335,8 +335,7 @@ def stream_a2a_response(
         #     f"append={parsed.should_append}, step={current_step_id}"
         # )
         if parsed.text_content:
-          # Routing: intermediate step → accumulate silently,
-          # last step or no plan → stream markdown in real-time.
+          # Track plan progress and latch final-answer streaming.
           if current_step_id and plan_steps and not streaming_final_answer:
             sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
             last_step = sorted_steps[-1]
@@ -344,7 +343,7 @@ def stream_a2a_response(
             if is_last:
               streaming_final_answer = True
             else:
-              # Intermediate step — accumulate thinking silently
+              # Accumulate for step-detail cards (shown on step completion)
               if parsed.should_append is False:
                 step_thinking[current_step_id] = [parsed.text_content]
               else:
@@ -354,7 +353,9 @@ def stream_a2a_response(
                 step = plan_steps.get(current_step_id, {})
                 title = step.get("title", "working")
                 _set_typing_status(f"is {title}...")
-              continue
+            # Fall through to stream — narrative text like "I'll search
+            # the knowledge base..." should be visible. Post-tool echo
+            # suppression is handled by any_subagent_completed below.
 
           # Stream markdown (no plan, or final answer)
           # Filter LangChain ToolStrategy metadata that leaks into STREAMING_RESULT.
@@ -380,6 +381,15 @@ def stream_a2a_response(
               step_thinking[current_step_id].append(text)
             else:
               logger.debug(f"[{thread_ts}] Suppressing post-subagent STREAMING_RESULT ({len(text)} chars)")
+            continue
+          # Before the stream starts (typing indicator still visible), show narration
+          # text as a typing status update rather than immediately opening the stream.
+          # The stream will start when the first tool fires (TOOL_NOTIFICATION_START).
+          # This keeps CAIPE in "thinking/typing" state while it searches/fetches.
+          if not stream_ts:
+            status = text.strip().rstrip('\n')
+            if status:
+              _set_typing_status(status[:80])
             continue
           _start_stream_if_needed()
           if stream_buf:
