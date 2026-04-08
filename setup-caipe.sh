@@ -2342,6 +2342,27 @@ post_deploy_patches() {
       && log "Deleted caipe-agent-aws-mcp (AWS agent does not use MCP)"
   fi
 
+  # ── 8b. Set MCP_MODE=http on all agents that have a separate MCP sidecar pod ──
+  # By default MCP_MODE is unset (= "stdio"), which causes agents to try to spawn
+  # the MCP server as a local subprocess. In the Helm deployment the MCP server
+  # runs as a separate pod (caipe-agent-<name>-mcp), so each agent must use HTTP
+  # mode to connect to the sidecar over the cluster network instead.
+  # Without this fix agents only have fallback tools (tool_result_to_file, wait)
+  # and cannot perform any real operations (e.g. Webex post_message, Jira create_issue).
+  local mcp_agents=(argocd backstage confluence jira komodor netutils pagerduty slack splunk webex)
+  for _agent in "${mcp_agents[@]}"; do
+    local _deploy="caipe-agent-${_agent}"
+    if kubectl get deployment "$_deploy" -n caipe &>/dev/null; then
+      local cur_mode
+      cur_mode=$(kubectl get deployment "$_deploy" -n caipe \
+        -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MCP_MODE")].value}' 2>/dev/null || true)
+      if [[ "$cur_mode" != "http" ]]; then
+        kubectl set env deployment/"$_deploy" -n caipe MCP_MODE=http &>/dev/null \
+          && log "${_agent} agent: MCP_MODE set to http (was: ${cur_mode:-stdio})"
+      fi
+    fi
+  done
+
   # ── 9. Expose supervisor via nginx ingress at /supervisor sub-path ──
   # The A2A chat streaming and health checks in the UI are client-side browser
   # fetches to caipeUrl (A2A_BASE_URL). The supervisor must be reachable from
