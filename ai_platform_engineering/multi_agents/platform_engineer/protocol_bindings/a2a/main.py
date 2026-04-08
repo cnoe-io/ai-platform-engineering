@@ -1,5 +1,11 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
+"""
+A2A server entry point for the Platform Engineer supervisor.
+
+Supports both single-node (all-in-one, in-process MCP tools) and distributed
+(remote A2A agents) modes via the DISTRIBUTED_MODE environment variable.
+"""
 
 import logging
 import os
@@ -11,8 +17,13 @@ from ai_platform_engineering.utils.logging_config import configure_logging
 from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
 
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
-from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import AIPlatformEngineerA2AExecutor # type: ignore[import-untyped]
+from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor import (
+    AIPlatformEngineerA2AExecutor
+)
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -22,85 +33,74 @@ from a2a.server.tasks import (
     InMemoryTaskStore,
 )
 from a2a.types import (
-  AgentCapabilities,
-  AgentCard,
-  AgentSkill,
+    AgentCapabilities,
+    AgentCard,
+    AgentSkill,
 )
 
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
-  agent_name,
-  agent_description,
-  agent_skill_examples
+    agent_name,
+    agent_description,
+    agent_skill_examples,
 )
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
 logger = logging.getLogger(__name__)
 
+
 def get_version():
-  """
-  Read version from multiple sources (in order of preference):
-  1. Package metadata (works with pip/uvx installed packages)
-  2. pyproject.toml (works in development/editable installs)
-  3. Fallback to "0.0.0"
-  """
-  # Try package metadata first (works for installed packages via pip/uvx)
-  try:
-    from importlib.metadata import version
-    return version("ai-platform-engineering")
-  except Exception:
-    pass
+    """Read version from package metadata or pyproject.toml."""
+    try:
+        from importlib.metadata import version
+        return version("ai-platform-engineering")
+    except Exception:
+        pass
 
-  # Try reading from pyproject.toml (works in development/Docker)
-  try:
-    # Find pyproject.toml relative to this file (go up to project root)
-    # Path: ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/main.py
-    # Need to go up 6 levels to reach project root
-    current_file = Path(__file__)
-    pyproject_path = current_file.parent.parent.parent.parent.parent.parent / "pyproject.toml"
-    if pyproject_path.exists():
-      import tomllib
-      with open(pyproject_path, "rb") as f:
-        pyproject_data = tomllib.load(f)
-      return pyproject_data["project"]["version"]
-  except Exception:
-    pass
+    try:
+        current_file = Path(__file__)
+        pyproject_path = current_file.parent.parent.parent.parent.parent.parent / "pyproject.toml"
+        if pyproject_path.exists():
+            import tomllib
+            with open(pyproject_path, "rb") as f:
+                pyproject_data = tomllib.load(f)
+            return pyproject_data["project"]["version"]
+    except Exception:
+        pass
 
-  # Fallback
-  return "0.0.0"
+    return "0.0.0"
+
 
 def get_agent_card(host: str, port: int, external_url: str = None):
-  capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+    """Build agent card for A2A protocol."""
+    capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
-  # Get enabled agents and add 'devops' as a base tag
-  tags = platform_registry.AGENT_NAMES  # this is just a list of agent names
+    tags = platform_registry.AGENT_NAMES
 
-  skill = AgentSkill(
-    id='ai_platform_engineer',
-    name=agent_name,
-    description=agent_description,
-    tags=tags,
-    examples=agent_skill_examples,
-  )
+    skill = AgentSkill(
+        id='ai_platform_engineer',
+        name=agent_name,
+        description=agent_description,
+        tags=tags,
+        examples=agent_skill_examples,
+    )
 
-  # Check for external URL override first
-  if external_url:
-    # Use external URL as-is (should include protocol and path)
-    agent_url = external_url
-  else:
-    # Use traditional host:port construction for internal URLs
-    agent_url = f'http://{host}:{port}/'
+    if external_url:
+        agent_url = external_url
+    else:
+        agent_url = f'http://{host}:{port}/'
 
-  return AgentCard(
-    name=agent_name,
-    description=agent_description,
-    url=agent_url,
-    version=get_version(),
-    defaultInputModes=['text', 'text/plain'],
-    defaultOutputModes=['text', 'text/plain'],
-    capabilities=capabilities,
-    skills=[skill],
-  )
+    return AgentCard(
+        name=agent_name,
+        description=agent_description,
+        url=agent_url,
+        version=get_version(),
+        defaultInputModes=['text', 'text/plain'],
+        defaultOutputModes=['text', 'text/plain'],
+        capabilities=capabilities,
+        skills=[skill],
+    )
+
 
 # Load environment variables from a .env file if present
 load_dotenv()
@@ -115,38 +115,71 @@ external_url = os.getenv('EXTERNAL_URL')
 
 # Use CLI argument if provided, else environment variable, else default
 host = env_host or 'localhost'
-# Handle empty string and None values for port
 if env_port and env_port.strip():
-  try:
-    port = int(env_port)
-  except ValueError:
-    port = 8000
+    try:
+        port = int(env_port)
+    except ValueError:
+        port = 8000
 else:
-  port = 8000
+    port = 8000
 
 httpx_client = httpx.AsyncClient()
 
 push_config_store = InMemoryPushNotificationConfigStore()
-push_sender = BasePushNotificationSender(httpx_client=httpx_client,
-                config_store=push_config_store)
-
-push_config_store = InMemoryPushNotificationConfigStore()
-push_sender = BasePushNotificationSender(httpx_client=httpx_client, config_store=push_config_store)
+push_sender = BasePushNotificationSender(
+    httpx_client=httpx_client,
+    config_store=push_config_store
+)
 
 request_handler = DefaultRequestHandler(
-  agent_executor=AIPlatformEngineerA2AExecutor(),
-  task_store=InMemoryTaskStore(),
-  push_config_store=push_config_store,
-  push_sender= push_sender
+    agent_executor=AIPlatformEngineerA2AExecutor(),
+    task_store=InMemoryTaskStore(),
+    push_config_store=push_config_store,
+    push_sender=push_sender
 )
 
 # Build A2A Starlette app
 a2a_server = A2AStarletteApplication(
-  agent_card=get_agent_card(host, port, external_url),
-  http_handler=request_handler
+    agent_card=get_agent_card(host, port, external_url),
+    http_handler=request_handler
 )
 
 app = a2a_server.build()
+
+################################################################################
+# Eager initialisation — load MCP tools at startup, not on first request
+################################################################################
+_binding = request_handler.agent_executor.agent
+
+
+async def _startup_initialize():
+    logger.info("Initialising agent (loading MCP tools)...")
+    try:
+        await _binding.ensure_initialized()
+        logger.info("Agent initialised successfully")
+    except Exception:
+        logger.exception("Agent initialisation failed — will retry on first request")
+
+
+app.add_event_handler("startup", _startup_initialize)
+
+################################################################################
+# /tools endpoint – returns tool names per subagent from the running MAS
+################################################################################
+
+
+async def _tools_endpoint(request: Request) -> JSONResponse:
+    """Return dynamically discovered tool names grouped by subagent."""
+    try:
+        if not _binding._initialized:
+            await _binding.ensure_initialized()
+        return JSONResponse({"tools": _binding._mas_instance.get_subagent_tools()})
+    except Exception as e:
+        logger.warning(f"/tools endpoint error: {e}")
+        return JSONResponse({"tools": {}, "error": str(e)}, status_code=500)
+
+
+app.routes.append(Route("/tools", _tools_endpoint, methods=["GET"]))
 
 ################################################################################
 # Mount the skills middleware REST API alongside the A2A routes.
@@ -165,36 +198,34 @@ app.mount("/", _skills_api)
 # Add authentication middleware if enabled
 ################################################################################
 A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
-
 A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
 
 if A2A_AUTH_SHARED_KEY:
-  logger.info("Using shared key authentication")
-  from ai_platform_engineering.utils.auth.shared_key_middleware import SharedKeyMiddleware
-  app.add_middleware(
-    SharedKeyMiddleware,
-    agent_card=get_agent_card(host, port, external_url),
-    public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
-  )
+    logger.info("Using shared key authentication")
+    from ai_platform_engineering.utils.auth.shared_key_middleware import SharedKeyMiddleware
+    app.add_middleware(
+        SharedKeyMiddleware,
+        agent_card=get_agent_card(host, port, external_url),
+        public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
+    )
 elif A2A_AUTH_OAUTH2:
-  logger.info("Using OAuth2 authentication")
-  from ai_platform_engineering.utils.auth.oauth2_middleware import OAuth2Middleware
-  app.add_middleware(
-    OAuth2Middleware,
-    agent_card=get_agent_card(host, port, external_url),
-    public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
-  )
+    logger.info("Using OAuth2 authentication")
+    from ai_platform_engineering.utils.auth.oauth2_middleware import OAuth2Middleware
+    app.add_middleware(
+        OAuth2Middleware,
+        agent_card=get_agent_card(host, port, external_url),
+        public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
+    )
 else:
-  logger.info("Using no authentication")
+    logger.info("Using no authentication")
 
-# Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-# Note: Added AFTER auth middleware so it executes BEFORE auth (middleware runs in reverse order)
+# Add CORSMiddleware to allow requests from any origin
 app.add_middleware(
-  CORSMiddleware,
-  allow_origins=["*"],  # Allow all origins
-  allow_credentials=True,  # Allow credentials (cookies, authorization headers, etc.)
-  allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-  allow_headers=["*"],  # Allow all headers
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 ################################################################################
@@ -203,18 +234,17 @@ app.add_middleware(
 METRICS_ENABLED = os.getenv('METRICS_ENABLED', 'true').lower() == 'true'
 
 if METRICS_ENABLED:
-  logger.info("Enabling Prometheus metrics at /metrics endpoint")
-  app.add_middleware(
-    PrometheusMetricsMiddleware,
-    excluded_paths=['/.well-known/agent.json', '/.well-known/agent-card.json', '/health', '/ready'],
-    metrics_path='/metrics',
-  )
+    logger.info("Enabling Prometheus metrics at /metrics endpoint")
+    app.add_middleware(
+        PrometheusMetricsMiddleware,
+        excluded_paths=['/.well-known/agent.json', '/.well-known/agent-card.json', '/health', '/ready'],
+        metrics_path='/metrics',
+    )
 
-  # Set agent info for metrics
-  agent_metrics.set_agent_info(
-    version=get_version(),
-    routing_mode=os.getenv('ROUTING_MODE', 'DEEP_AGENT_PARALLEL_ORCHESTRATION'),
-    enabled_agents=platform_registry.AGENT_NAMES,
-  )
+    agent_metrics.set_agent_info(
+        version=get_version(),
+        routing_mode=os.getenv('ROUTING_MODE', 'DEEP_AGENT_PARALLEL_ORCHESTRATION'),
+        enabled_agents=platform_registry.AGENT_NAMES,
+    )
 else:
-  logger.info("Prometheus metrics disabled (METRICS_ENABLED=false)")
+    logger.info("Prometheus metrics disabled (METRICS_ENABLED=false)")
