@@ -2500,6 +2500,22 @@ subprocess.run(['kubectl','patch','cm','caipe-dynamic-agents-config',
       -p="[{\"op\":\"add\",\"path\":\"/data/MONGODB_URI\",\"value\":\"${ui_uri_b64}\"}]" \
       &>/dev/null || true
   fi
+
+  # Patch MONGODB_URI into the supervisor ConfigMap so it reads task configs
+  # from MongoDB instead of falling back to task_config.yaml only.
+  local cur_sup_uri
+  cur_sup_uri=$(kubectl get cm caipe-supervisor-agent-env -n caipe \
+    -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
+  if [[ "$cur_sup_uri" != "$mongo_uri" ]]; then
+    python3 -c "
+import subprocess, json
+patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}', 'MONGODB_DATABASE': 'caipe'}})
+subprocess.run(['kubectl','patch','cm','caipe-supervisor-agent-env',
+  '-n','caipe','--type','merge','-p',patch], check=True)
+"
+    kubectl rollout restart deploy/caipe-supervisor-agent -n caipe &>/dev/null
+    log "supervisor MONGODB_URI patched → ${mongo_uri}"
+  fi
 }
 
 _wait_for_milvus() {
