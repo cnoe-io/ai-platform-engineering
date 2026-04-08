@@ -2344,24 +2344,33 @@ post_deploy_patches() {
 
   # ── 8b. Set MCP_MODE=http on all agents that have a separate MCP sidecar pod ──
   # By default MCP_MODE is unset (= "stdio"), which causes agents to try to spawn
-  # the MCP server as a local subprocess. In the Helm deployment the MCP server
-  # runs as a separate pod (caipe-agent-<name>-mcp), so each agent must use HTTP
-  # mode to connect to the sidecar over the cluster network instead.
+  # the MCP server as a local subprocess. In both single-node and distributed Helm
+  # deployments the MCP server runs as a separate pod (caipe-agent-<name>-mcp), so
+  # each agent must use HTTP mode to reach it over the cluster network.
   # Without this fix agents only have fallback tools (tool_result_to_file, wait)
   # and cannot perform any real operations (e.g. Webex post_message, Jira create_issue).
-  local mcp_agents=(argocd backstage confluence jira komodor netutils pagerduty slack splunk webex)
+  # We patch MCP_MODE into each agent's secret (preferred) so it survives pod restarts.
+  local mcp_agents=(argocd backstage confluence jira komodor pagerduty slack splunk webex)
   for _agent in "${mcp_agents[@]}"; do
+    local _secret="caipe-${_agent}-secret"
     local _deploy="caipe-agent-${_agent}"
     if kubectl get deployment "$_deploy" -n caipe &>/dev/null; then
-      local cur_mode
-      cur_mode=$(kubectl get deployment "$_deploy" -n caipe \
-        -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MCP_MODE")].value}' 2>/dev/null || true)
-      if [[ "$cur_mode" != "http" ]]; then
+      if kubectl get secret "$_secret" -n caipe &>/dev/null; then
+        kubectl patch secret "$_secret" -n caipe --type=merge \
+          -p '{"stringData":{"MCP_MODE":"http"}}' &>/dev/null \
+          && log "${_agent} agent: MCP_MODE=http patched into secret"
+      else
+        # netutils and others without a dedicated secret: use kubectl set env
         kubectl set env deployment/"$_deploy" -n caipe MCP_MODE=http &>/dev/null \
-          && log "${_agent} agent: MCP_MODE set to http (was: ${cur_mode:-stdio})"
+          && log "${_agent} agent: MCP_MODE=http set via deployment env"
       fi
     fi
   done
+  # netutils has no dedicated secret
+  if kubectl get deployment caipe-agent-netutils -n caipe &>/dev/null; then
+    kubectl set env deployment/caipe-agent-netutils -n caipe MCP_MODE=http &>/dev/null \
+      && log "netutils agent: MCP_MODE=http set via deployment env"
+  fi
 
   # ── 9. Expose supervisor via nginx ingress at /supervisor sub-path ──
   # The A2A chat streaming and health checks in the UI are client-side browser
