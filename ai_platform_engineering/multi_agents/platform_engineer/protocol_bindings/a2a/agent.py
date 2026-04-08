@@ -490,6 +490,49 @@ class AIPlatformEngineerA2ABinding:
                           current_agent = tool_name
                           logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
 
+                          # write_todos in AIMessageChunk: emit execution plan.
+                          # The AIMessage path (below) is only reached in non-streaming
+                          # mode. In streaming mode, tool calls arrive as chunks — we
+                          # must capture write_todos args here while they're available.
+                          if tool_name == "write_todos":
+                              tool_args = tool_call.get("args", {})
+                              todos = tool_args.get("todos", [])
+                              if todos:
+                                  plan_changed = False
+                                  for idx, todo in enumerate(todos):
+                                      todo_id = str(todo.get("id", idx))
+                                      new_status = todo.get("status", "pending")
+                                      todo_content = todo.get("content", f"Step {todo_id}")
+                                      old_entry = self._previous_todos.get(todo_id)
+                                      if old_entry is None or old_entry.get("status") != new_status:
+                                          plan_changed = True
+                                      self._previous_todos[todo_id] = {
+                                          "status": new_status,
+                                          "content": todo_content,
+                                      }
+                                  if plan_changed or not self._execution_plan_sent:
+                                      plan_text = self._build_todo_plan_text()
+                                      artifact_name = (
+                                          "execution_plan_update"
+                                          if not self._execution_plan_sent
+                                          else "execution_plan_status_update"
+                                      )
+                                      self._execution_plan_sent = True
+                                      logging.info(
+                                          f"📋 [CHUNK] Emitting {artifact_name} from write_todos "
+                                          f"({len(todos)} todos)"
+                                      )
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "artifact": {
+                                              "name": artifact_name,
+                                              "description": "TODO-based execution plan",
+                                              "text": plan_text,
+                                          },
+                                      }
+                              continue  # Skip generic tool notification for write_todos
+
                           # Agent returned the final structured response
                           if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
                             tool_args = tool_call.get("args", {})

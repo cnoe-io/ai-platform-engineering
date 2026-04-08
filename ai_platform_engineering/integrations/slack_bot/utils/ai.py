@@ -259,6 +259,7 @@ def stream_a2a_response(
   last_artifacts = []
   is_new_context = context_id is None
   current_tool = None
+  any_tool_completed = False  # Set after first TOOL_NOTIFICATION_END; suppress post-tool streaming_result echoes
   task_error = None  # Track errors but don't raise immediately - allow recovery
   trace_id = None  # Langfuse trace ID for feedback scoring
   # streamed_any_text is tracked by stream_buf.has_flushed
@@ -364,6 +365,18 @@ def stream_a2a_response(
           if "is_task_complete=" in text or text.startswith("Returning structured response"):
             logger.debug(f"[{thread_ts}] Suppressing metadata STREAMING_RESULT chunk")
             continue
+          # After any tool has completed, suppress streaming_result from the main chat.
+          # The supervisor's LLM echoes sub-agent responses verbatim in its post-tool
+          # reasoning text. Showing this floods the response with raw agent output.
+          # The clean FINAL_RESULT (ResponseFormat) is the right content to display.
+          if any_tool_completed:
+            # Route to step thinking if there's an active plan step, otherwise drop it.
+            if current_step_id and plan_steps:
+              step_thinking.setdefault(current_step_id, [])
+              step_thinking[current_step_id].append(text)
+            else:
+              logger.debug(f"[{thread_ts}] Suppressing post-tool STREAMING_RESULT ({len(text)} chars)")
+            continue
           _start_stream_if_needed()
           if stream_buf:
             if needs_separator and stream_buf.has_flushed:
@@ -433,6 +446,7 @@ def stream_a2a_response(
           else:
             logger.info(f"[{thread_ts}] Tool completed: {display_name}")
           current_tool = None
+          any_tool_completed = True  # LLM post-tool text echoes sub-agent results — suppress it
           needs_separator = True
           if not stream_ts:
             _set_typing_status("is working...")
@@ -677,13 +691,32 @@ def stream_a2a_response(
         escalation_config=escalation_config,
               )
       logger.info(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
-      slack_client.chat_stopStream(
-        channel=channel_id,
-        ts=stream_ts,
-        chunks=stop_chunks if stop_chunks else None,
-        blocks=stop_blocks,
-      )
-      return stop_blocks
+      try:
+        slack_client.chat_stopStream(
+          channel=channel_id,
+          ts=stream_ts,
+          chunks=stop_chunks if stop_chunks else None,
+          blocks=stop_blocks,
+        )
+        return stop_blocks
+      except Exception as stop_err:
+        err_str = str(stop_err)
+        if "message_not_in_streaming_state" in err_str or "not_in_streaming_state" in err_str:
+          # Stream expired (long-running query). Fall back to regular message.
+          logger.warning(
+            f"[{thread_ts}] Streaming message expired — posting final answer as regular message"
+          )
+          return _post_final_response(
+            slack_client,
+            channel_id,
+            thread_ts,
+            final_text,
+            response_ts,
+            triggered_by_user_id=triggered_by_user_id,
+            additional_footer=additional_footer,
+            escalation_config=escalation_config,
+          )
+        raise
 
     elif can_stream:
       if thread_deleted:
