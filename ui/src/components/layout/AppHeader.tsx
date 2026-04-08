@@ -21,7 +21,7 @@ import {
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
@@ -41,6 +41,19 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+/** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
+function formatInterval(seconds: number): string {
+  if (seconds >= 3600) {
+    const hours = seconds / 3600;
+    return hours % 1 === 0 ? `${hours}h` : `${hours.toFixed(1)}h`;
+  }
+  if (seconds >= 60) {
+    const minutes = Math.round(seconds / 60);
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
 
 function GuardedLink({
   href,
@@ -76,7 +89,7 @@ function GuardedLink({
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin, canViewAdmin } = useAdminRole();
+  const { isAdmin, canViewAdmin, canAccessDynamicAgents } = useAdminRole();
   const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
@@ -128,7 +141,8 @@ export function AppHeader() {
     status: ragStatus,
     url: ragUrl,
     secondsUntilNextCheck: ragNextCheck,
-    graphRagEnabled
+    graphRagEnabled,
+    cleanupConfig
   } = useRAGHealth();
 
   // Check if RAG is enabled in config
@@ -166,11 +180,11 @@ export function AppHeader() {
   return (
     <>
     <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 min-w-0">
         {/* Logo - clickable to home */}
         <GuardedLink
           href="/"
-          className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
+          className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity shrink-0"
         >
           <img
             src={config.logoUrl}
@@ -186,38 +200,38 @@ export function AppHeader() {
         </GuardedLink>
 
         {/* Navigation Pills */}
-        <div className="flex items-center bg-muted/50 rounded-full p-1">
+        <div className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1">
           <GuardedLink
             href="/"
             prefetch={true}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
               activeTab === "home"
                 ? "gradient-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            <Home className="h-3.5 w-3.5" />
+            <Home className="h-3.5 w-3.5 shrink-0" />
             Home
           </GuardedLink>
           <GuardedLink
             href="/skills"
             prefetch={true}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
               activeTab === "skills"
                 ? "gradient-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            <Zap className="h-3.5 w-3.5" />
+            <Zap className="h-3.5 w-3.5 shrink-0" />
             Skills
           </GuardedLink>
           <GuardedLink
             href="/chat"
             prefetch={true}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
               activeTab === "chat"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -252,13 +266,13 @@ export function AppHeader() {
             href="/task-builder"
             prefetch={true}
             className={cn(
-              "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
               activeTab === "task-builder"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            <Workflow className="h-3.5 w-3.5" />
+            <Workflow className="h-3.5 w-3.5 shrink-0" />
             Task Builder
           </GuardedLink>
           {/* Knowledge Bases tab - only show if RAG is enabled */}
@@ -267,29 +281,29 @@ export function AppHeader() {
               href="/knowledge-bases"
               prefetch={true}
               className={cn(
-                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
                 activeTab === "knowledge"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Database className="h-3.5 w-3.5" />
+              <Database className="h-3.5 w-3.5 shrink-0" />
               Knowledge Bases
             </GuardedLink>
           )}
-          {/* Dynamic Agents tab - admin only */}
-          {isAdmin && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+          {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
+          {canAccessDynamicAgents && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
             <GuardedLink
               href="/dynamic-agents"
               prefetch={true}
               className={cn(
-                "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
                 activeTab === "dynamic-agents"
                   ? "bg-purple-500 text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Bot className="h-3.5 w-3.5" />
+              <Bot className="h-3.5 w-3.5 shrink-0" />
               Custom Agents
             </GuardedLink>
           )}
@@ -303,7 +317,7 @@ export function AppHeader() {
                       href="/admin"
                       prefetch={true}
                       className={cn(
-                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all",
+                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
                         activeTab === "admin" && isAdmin
                           ? "bg-red-500 text-white shadow-sm"
                           : activeTab === "admin"
@@ -311,17 +325,17 @@ export function AppHeader() {
                           : "text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      <Shield className="h-3.5 w-3.5" />
+                      <Shield className="h-3.5 w-3.5 shrink-0" />
                       Admin
                     </GuardedLink>
                   ) : (
                     <div
                       className={cn(
-                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all cursor-not-allowed",
+                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all cursor-not-allowed",
                         "text-muted-foreground/50 opacity-50"
                       )}
                     >
-                      <Shield className="h-3.5 w-3.5" />
+                      <Shield className="h-3.5 w-3.5 shrink-0" />
                       Admin
                     </div>
                   )}
@@ -551,6 +565,35 @@ export function AppHeader() {
                             {graphRagEnabled ? "ON" : "OFF"}
                           </div>
                         </div>
+
+                        {/* Auto-Cleanup Status */}
+                        {cleanupConfig && (
+                          <div className="bg-muted/20 rounded px-2 py-1.5 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-muted-foreground">Auto-Cleanup</div>
+                              <div className={cn(
+                                "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                                cleanupConfig.enabled
+                                  ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                                  : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
+                              )}>
+                                {cleanupConfig.enabled ? formatInterval(cleanupConfig.interval_seconds) : "OFF"}
+                              </div>
+                            </div>
+                            {cleanupConfig.enabled && (
+                              <div className="text-[10px] text-muted-foreground">
+                                {cleanupConfig.last_cleanup ? (
+                                  <>
+                                    <div>Last: {formatRelativeTime(cleanupConfig.last_cleanup)}</div>
+                                    <div>Next: {formatRelativeTime(cleanupConfig.last_cleanup + cleanupConfig.interval_seconds)}</div>
+                                  </>
+                                ) : (
+                                  <>Waiting for first cleanup...</>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </>
                   )}

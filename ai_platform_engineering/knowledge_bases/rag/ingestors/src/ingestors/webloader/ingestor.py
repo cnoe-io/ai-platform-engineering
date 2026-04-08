@@ -20,7 +20,7 @@ from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo
 from common.models.server import IngestorRequest, UrlIngestRequest, WebIngestorCommand, UrlReloadRequest, ScrapySettings, CrawlMode
 from common.job_manager import JobStatus, JobManager
-from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
+from common.constants import WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, MIN_RELOAD_INTERVAL
 from common.utils import get_logger, generate_datasource_id_from_url
 
 from loader.scrapy_loader import ScrapyLoader
@@ -357,6 +357,11 @@ async def periodic_reload(client: Client):
   Called periodically by IngestorBuilder or on-demand via Redis.
   """
   logger.info("Starting datasource reload check...")
+
+  # Ensure worker pool is running before attempting any reloads
+  # This handles the race condition where periodic_reload is called before redis_listener has started the pool
+  await get_worker_pool()
+
   job_manager = JobManager(redis_client)
   current_time = int(time.time())
 
@@ -369,16 +374,11 @@ async def periodic_reload(client: Client):
 
     for datasource_info in datasources:
       try:
-        # Get per-datasource reload interval from metadata, fall back to default for old datasources
-        ds_reload_interval = DEFAULT_RELOAD_INTERVAL
-        if datasource_info.metadata:
-          stored_interval = datasource_info.metadata.get("reload_interval")
-          if stored_interval is not None:
-            ds_reload_interval = stored_interval
-            # Enforce minimum reload interval
-            if ds_reload_interval < MIN_RELOAD_INTERVAL:
-              logger.warning(f"Datasource {datasource_info.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, using minimum")
-              ds_reload_interval = MIN_RELOAD_INTERVAL
+        # Get per-datasource reload interval, clamp to minimum to prevent tight loops
+        ds_reload_interval = datasource_info.reload_interval
+        if ds_reload_interval < MIN_RELOAD_INTERVAL:
+          logger.warning(f"Datasource {datasource_info.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, clamping to minimum")
+          ds_reload_interval = MIN_RELOAD_INTERVAL
 
         # Check if datasource is due for reload
         if datasource_info.last_updated is not None:

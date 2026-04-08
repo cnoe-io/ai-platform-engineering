@@ -36,7 +36,9 @@ import {
   Search,
   HelpCircle,
   ArrowRight,
-  Layers
+  Layers,
+  Info,
+  Eraser
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
@@ -51,16 +53,27 @@ import {
   deleteIngestor,
   reloadDataSource,
   terminateJob,
+  getDatasourceDocuments,
+  getChunkContent,
+  cleanupDataSource,
   WEBLOADER_INGESTOR_ID,
   CONFLUENCE_INGESTOR_ID
 } from './api/index'
+import type { DatasourceDocumentsResponse, DocumentInfo, ChunkInfo } from './api/index'
 import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
 import { useRagPermissions, Permission } from '@/hooks/useRagPermissions'
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { cn, formatNextReload, isRefreshOverdue, formatFreshUntil, formatRelativeTime, DEFAULT_RELOAD_INTERVAL } from "@/lib/utils"
 
 // Animation variants
 const fadeIn = {
@@ -232,17 +245,41 @@ export default function IngestView() {
   const [showDeleteDataSourceConfirm, setShowDeleteDataSourceConfirm] = useState<string | null>(null)
   const [showDeleteIngestorConfirm, setShowDeleteIngestorConfirm] = useState<string | null>(null)
   const [showReIngestConfirm, setShowReIngestConfirm] = useState<string | null>(null)
+  const [showCleanupConfirm, setShowCleanupConfirm] = useState<string | null>(null)
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false)
   const [isReIngesting, setIsReIngesting] = useState(false)
+  const [isCleaningUp, setIsCleaningUp] = useState(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
 
-  // Utility function to format timestamps as relative time
-  const formatRelativeTime = (timestamp: number): string => {
-    return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true })
-  }
+  // Jobs section state (per datasource - collapsible)
+  const [expandedJobsSections, setExpandedJobsSections] = useState<Set<string>>(new Set())
+
+  // Documents state (per datasource)
+  const [expandedDocumentsSections, setExpandedDocumentsSections] = useState<Set<string>>(new Set())
+  const [datasourceDocuments, setDatasourceDocuments] = useState<Record<string, DatasourceDocumentsResponse>>({})
+  const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set())
+  const [expandedDocuments, setExpandedDocuments] = useState<Set<string>>(new Set())
+  const [expandedChunks, setExpandedChunks] = useState<Set<string>>(new Set())
+  const [chunkContents, setChunkContents] = useState<Record<string, string>>({})
+  const [loadingChunkContent, setLoadingChunkContent] = useState<Set<string>>(new Set())
+  
+  // Pagination state for documents (per datasource)
+  const [documentsPagination, setDocumentsPagination] = useState<Record<string, {
+    offset: number;
+    hasMore: boolean;
+  }>>({})
+
+  // Metadata modal state
+  const [metadataModal, setMetadataModal] = useState<{
+    isOpen: boolean;
+    type: 'document' | 'chunk';
+    title: string;
+    id: string;
+    metadata: Record<string, unknown>;
+  } | null>(null)
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -412,12 +449,64 @@ export default function IngestView() {
     return () => clearInterval(interval)
   }, [dataSourceJobs])
 
+  // Helper to clear documents state for a datasource (collapse and purge cached data)
+  const clearDocumentsState = useCallback((datasourceId?: string) => {
+    if (datasourceId) {
+      // Clear specific datasource
+      setExpandedDocumentsSections(prev => {
+        const next = new Set(prev)
+        next.delete(datasourceId)
+        return next
+      })
+      setDatasourceDocuments(prev => {
+        const { [datasourceId]: _, ...rest } = prev
+        return rest
+      })
+      setDocumentsPagination(prev => {
+        const { [datasourceId]: _, ...rest } = prev
+        return rest
+      })
+      // Clear expanded documents/chunks for this datasource
+      setExpandedDocuments(prev => {
+        const next = new Set(prev)
+        for (const id of prev) {
+          if (id.startsWith(datasourceId)) next.delete(id)
+        }
+        return next
+      })
+      setExpandedChunks(prev => {
+        const next = new Set(prev)
+        for (const id of prev) {
+          if (id.startsWith(datasourceId)) next.delete(id)
+        }
+        return next
+      })
+      setChunkContents(prev => {
+        const filtered: Record<string, string> = {}
+        for (const [id, content] of Object.entries(prev)) {
+          if (!id.startsWith(datasourceId)) filtered[id] = content
+        }
+        return filtered
+      })
+    } else {
+      // Clear all documents state
+      setExpandedDocumentsSections(new Set())
+      setDatasourceDocuments({})
+      setDocumentsPagination({})
+      setExpandedDocuments(new Set())
+      setExpandedChunks(new Set())
+      setChunkContents({})
+    }
+  }, [])
+
   const fetchJobsForDataSource = async (datasourceId: string) => {
     try {
       const jobs = await getJobsByDataSource(datasourceId)
       // Sort by created_at (Unix timestamp in seconds) - newest first
       const sortedJobs = jobs.sort((a, b) => b.created_at - a.created_at)
       setDataSourceJobs(prev => ({ ...prev, [datasourceId]: sortedJobs }))
+      // Clear documents state since data may have changed
+      clearDocumentsState(datasourceId)
     } catch (error) {
       console.error(`Failed to fetch jobs for datasource ${datasourceId}:`, error)
     }
@@ -440,6 +529,8 @@ export default function IngestView() {
     const isRefresh = dataSources.length > 0
     if (isRefresh) {
       setRefreshingDataSources(true)
+      // Clear all documents state on refresh since data may have changed
+      clearDocumentsState()
     } else {
       setLoadingDataSources(true)
     }
@@ -537,6 +628,184 @@ export default function IngestView() {
     })
   }
 
+  // Jobs section toggle (per datasource)
+  const toggleJobsSection = (datasourceId: string) => {
+    setExpandedJobsSections(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(datasourceId)) {
+        newSet.delete(datasourceId)
+      } else {
+        newSet.add(datasourceId)
+      }
+      return newSet
+    })
+  }
+
+  // Documents section toggle and fetch
+  const toggleDocumentsSection = async (datasourceId: string) => {
+    const isExpanding = !expandedDocumentsSections.has(datasourceId)
+    
+    setExpandedDocumentsSections(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(datasourceId)) {
+        newSet.delete(datasourceId)
+      } else {
+        newSet.add(datasourceId)
+      }
+      return newSet
+    })
+
+    // Fetch first page if expanding and not already loaded
+    if (isExpanding && !datasourceDocuments[datasourceId]) {
+      await fetchDocumentsPage(datasourceId, 0)
+    }
+  }
+
+  const fetchDocumentsPage = async (datasourceId: string, offset: number) => {
+    setLoadingDocuments(prev => new Set(prev).add(datasourceId))
+    
+    try {
+      const response = await getDatasourceDocuments(datasourceId, offset, 100)
+      
+      if (offset === 0) {
+        // First page - replace
+        setDatasourceDocuments(prev => ({ ...prev, [datasourceId]: response }))
+      } else {
+        // Subsequent pages - merge documents
+        setDatasourceDocuments(prev => {
+          const existing = prev[datasourceId]
+          if (!existing) return prev
+          
+          // Merge documents by document_id
+          const mergedDocsMap = new Map<string, DocumentInfo>()
+          
+          // Add existing documents
+          existing.documents.forEach(doc => {
+            mergedDocsMap.set(doc.document_id, { ...doc, chunks: [...doc.chunks] })
+          })
+          
+          // Merge new documents
+          response.documents.forEach(doc => {
+            if (mergedDocsMap.has(doc.document_id)) {
+              // Append chunks to existing document
+              mergedDocsMap.get(doc.document_id)!.chunks.push(...doc.chunks)
+            } else {
+              // Add new document
+              mergedDocsMap.set(doc.document_id, { ...doc })
+            }
+          })
+          
+          return {
+            ...prev,
+            [datasourceId]: {
+              ...response,
+              documents: Array.from(mergedDocsMap.values()),
+              total_documents: mergedDocsMap.size,
+              total_chunks: existing.total_chunks + response.total_chunks,
+            }
+          }
+        })
+      }
+      
+      // Update pagination state
+      setDocumentsPagination(prev => ({
+        ...prev,
+        [datasourceId]: {
+          offset: offset + response.total_chunks,
+          hasMore: response.has_more,
+        }
+      }))
+      
+    } catch (error) {
+      console.error(`Failed to fetch documents for ${datasourceId}:`, error)
+    } finally {
+      setLoadingDocuments(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(datasourceId)
+        return newSet
+      })
+    }
+  }
+
+  const toggleDocument = (documentId: string) => {
+    setExpandedDocuments(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(documentId)) {
+        newSet.delete(documentId)
+      } else {
+        newSet.add(documentId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleChunk = (chunkId: string) => {
+    setExpandedChunks(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(chunkId)) {
+        newSet.delete(chunkId)
+        // Purge content from memory when collapsing to avoid MBs of data in state
+        setChunkContents(prevContents => {
+          const { [chunkId]: _, ...rest } = prevContents
+          return rest
+        })
+      } else {
+        newSet.add(chunkId)
+      }
+      return newSet
+    })
+  }
+
+  const fetchChunkContent = async (chunkId: string) => {
+    if (chunkContents[chunkId] || loadingChunkContent.has(chunkId)) return
+
+    setLoadingChunkContent(prev => new Set(prev).add(chunkId))
+    try {
+      const response = await getChunkContent(chunkId)
+      setChunkContents(prev => ({ ...prev, [chunkId]: response.text_content }))
+    } catch (error) {
+      console.error(`Failed to fetch chunk content for ${chunkId}:`, error)
+    } finally {
+      setLoadingChunkContent(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(chunkId)
+        return newSet
+      })
+    }
+  }
+
+  // Open metadata modal for document or chunk
+  const openDocumentMetadata = (doc: DocumentInfo, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setMetadataModal({
+      isOpen: true,
+      type: 'document',
+      title: doc.title,
+      id: doc.document_id,
+      metadata: {
+        document_id: doc.document_id,
+        title: doc.title,
+        total_chunks: doc.chunks.length,
+      }
+    })
+  }
+
+  const openChunkMetadata = (chunk: ChunkInfo, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setMetadataModal({
+      isOpen: true,
+      type: 'chunk',
+      title: `Chunk ${chunk.chunk_index + 1}/${chunk.total_chunks}`,
+      id: chunk.id,
+      metadata: {
+        id: chunk.id,
+        chunk_index: chunk.chunk_index,
+        total_chunks: chunk.total_chunks,
+        ...chunk.metadata
+      }
+    })
+  }
+
   const handleIngest = async () => {
     if (!url) return
 
@@ -616,6 +885,22 @@ export default function IngestView() {
     } finally {
       setIsReIngesting(false)
       setShowReIngestConfirm(null)
+    }
+  }
+
+  const handleCleanupDataSource = async (datasourceId: string) => {
+    setIsCleaningUp(true)
+    try {
+      const result = await cleanupDataSource(datasourceId)
+      // Clear documents state since cleanup may have removed chunks
+      clearDocumentsState(datasourceId)
+      alert(`✅ ${result.message}`)
+    } catch (error: any) {
+      console.error('Error cleaning up data source:', error)
+      alert(`❌ Cleanup failed: ${error?.message || 'unknown error'}`)
+    } finally {
+      setIsCleaningUp(false)
+      setShowCleanupConfirm(null)
     }
   }
 
@@ -1268,6 +1553,11 @@ export default function IngestView() {
                       const supportsReload = isWebloaderDatasource || isConfluenceDatasource
                       const icon = getIconForType(ds.source_type)
                       
+                      // Get reload interval (first-class field or default)
+                      const dsReloadInterval = ds.reload_interval ?? DEFAULT_RELOAD_INTERVAL
+                      const hasReloadInterval = ds.reload_interval !== undefined && ds.reload_interval !== null
+                      const isOverdue = isRefreshOverdue(ds.last_updated, dsReloadInterval)
+                      
                       // Find latest completed job for metrics display
                       const completedJob = jobs.find(j => j.status === 'completed' || j.status === 'completed_with_errors')
                       const hasMetrics = completedJob && ((completedJob.document_count ?? 0) > 0 || (completedJob.chunk_count ?? 0) > 0)
@@ -1306,9 +1596,17 @@ export default function IngestView() {
                                   {ds.source_type}
                                 </Badge>
                               </div>
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                Updated {formatRelativeTime(ds.last_updated)}
-                              </p>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                                <span>Updated {formatRelativeTime(ds.last_updated)}</span>
+                                {hasReloadInterval && (
+                                  <>
+                                    <span className="text-border">|</span>
+                                    <span className={isOverdue ? "text-amber-500" : ""}>
+                                      {formatNextReload(ds.last_updated, dsReloadInterval)}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0">
@@ -1335,6 +1633,16 @@ export default function IngestView() {
                                   title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions' : !supportsReload ? 'Re-ingest not supported' : hasActiveJob ? 'Job in progress' : 'Re-ingest'}
                                 >
                                   <RotateCcw className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowCleanupConfirm(ds.datasource_id)}
+                                  disabled={hasActiveJob || !hasPermission(Permission.DELETE)}
+                                  className="h-7 w-7 p-0 hover:bg-amber-500/10 hover:text-amber-500"
+                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions' : hasActiveJob ? 'Job in progress' : 'Cleanup stale data'}
+                                >
+                                  <Eraser className="h-3.5 w-3.5" />
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -1383,8 +1691,7 @@ export default function IngestView() {
                                       <p className="text-xs font-medium text-muted-foreground mb-1">Reload Interval</p>
                                       <p className="text-foreground">
                                         {(() => {
-                                          const interval = ds.metadata?.reload_interval as number | undefined
-                                          if (!interval) return 'Default'
+                                          const interval = ds.reload_interval ?? DEFAULT_RELOAD_INTERVAL
                                           if (interval >= 86400) return `${Math.round(interval / 86400)}d`
                                           if (interval >= 3600) return `${Math.round(interval / 3600)}h`
                                           return `${interval}s`
@@ -1422,167 +1729,456 @@ export default function IngestView() {
                                     </details>
                                   )}
 
-                                  {/* Jobs Section */}
+                                  {/* Jobs Section - Collapsible */}
                                   {jobs.length > 0 && (
-                                    <div>
-                                      <div className="flex items-center justify-between mb-3">
-                                        <h5 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                          <Activity className="h-4 w-4" />
-                                          Ingestion Jobs
-                                        </h5>
-                                        <Badge variant="secondary" className="text-xs">
+                                    <div className="border-t border-border/50 pt-4">
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); toggleJobsSection(ds.datasource_id); }}
+                                        className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary transition-colors w-full text-left"
+                                      >
+                                        <motion.div
+                                          animate={{ rotate: expandedJobsSections.has(ds.datasource_id) ? 90 : 0 }}
+                                          transition={{ duration: 0.1 }}
+                                          className="shrink-0"
+                                        >
+                                          <ChevronRight className="h-4 w-4" />
+                                        </motion.div>
+                                        <Activity className="h-4 w-4 shrink-0" />
+                                        <span className="shrink-0">Ingestion Jobs</span>
+                                        <Badge variant="secondary" className="text-[10px] shrink-0">
                                           {jobs.length} total
                                         </Badge>
-                                      </div>
-                                      <div className="space-y-2">
-                                        {jobs.map((job) => {
-                                          const isJobExpanded = expandedJobs.has(job.job_id)
-                                          const isJobActive = job.status === 'in_progress' || job.status === 'pending'
-                                          const jobTotal = job.total ?? 0
-                                          const progress = (jobTotal > 0 && job.progress_counter >= 0)
-                                            ? Math.min(100, (job.progress_counter / jobTotal) * 100)
-                                            : 0
+                                        {/* Show latest job status when collapsed */}
+                                        {!expandedJobsSections.has(ds.datasource_id) && jobs[0] && (
+                                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <span className="text-muted-foreground shrink-0">•</span>
+                                            <StatusBadge status={jobs[0].status} />
+                                            <span className="text-xs text-muted-foreground truncate">
+                                              {jobs[0].message}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </button>
 
-                                          return (
-                                            <div
-                                              key={job.job_id}
-                                              className="border border-border rounded-lg bg-card overflow-hidden"
-                                            >
-                                              <div 
-                                                className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
-                                                onClick={(e) => { e.stopPropagation(); toggleJob(job.job_id); }}
-                                              >
-                                                <div className="flex items-center justify-between gap-2">
-                                                  <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                      <motion.div
-                                                        animate={{ rotate: isJobExpanded ? 90 : 0 }}
-                                                        transition={{ duration: 0.2 }}
-                                                      >
-                                                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                                                      </motion.div>
-                                                      <span className="font-mono text-xs text-muted-foreground truncate">
-                                                        {job.job_id}
-                                                      </span>
-                                                      <StatusBadge status={job.status} />
-                                                    </div>
+                                      <AnimatePresence>
+                                        {expandedJobsSections.has(ds.datasource_id) && (
+                                          <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: "auto", opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.15 }}
+                                            className="overflow-hidden"
+                                          >
+                                            <div className="mt-3 space-y-2">
+                                              {jobs.map((job) => {
+                                                const isJobExpanded = expandedJobs.has(job.job_id)
+                                                const isJobActive = job.status === 'in_progress' || job.status === 'pending'
+                                                const jobTotal = job.total ?? 0
+                                                const progress = (jobTotal > 0 && job.progress_counter >= 0)
+                                                  ? Math.min(100, (job.progress_counter / jobTotal) * 100)
+                                                  : 0
 
-                                                    {isJobActive && jobTotal > 0 && (
-                                                      <ProgressBar 
-                                                        progress={progress} 
-                                                        total={jobTotal} 
-                                                        current={job.progress_counter} 
-                                                      />
-                                                    )}
-
-                                                    {!isJobExpanded && (
-                                                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
-                                                        {job.message}
-                                                      </p>
-                                                    )}
-                                                  </div>
-
-                                                  {isJobActive && (
-                                                    <Button
-                                                      variant="ghost"
-                                                      size="sm"
-                                                      onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
-                                                      disabled={!hasPermission(Permission.INGEST)}
-                                                      className="h-7 px-2 hover:bg-destructive/10 hover:text-destructive"
-                                                    >
-                                                      <StopCircle className="h-3.5 w-3.5 mr-1" />
-                                                      Stop
-                                                    </Button>
-                                                  )}
-                                                </div>
-                                              </div>
-
-                                              <AnimatePresence>
-                                                {isJobExpanded && (
-                                                  <motion.div
-                                                    initial={{ height: 0, opacity: 0 }}
-                                                    animate={{ height: "auto", opacity: 1 }}
-                                                    exit={{ height: 0, opacity: 0 }}
-                                                    transition={{ duration: 0.15 }}
-                                                    className="overflow-hidden"
+                                                return (
+                                                  <div
+                                                    key={job.job_id}
+                                                    className="border border-border rounded-lg bg-card overflow-hidden"
                                                   >
-                                                    <div className="px-3 pb-3 pt-2 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
-                                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                                                        <div>
-                                                          <span className="font-medium text-muted-foreground">Created:</span>
-                                                          <p className="text-foreground">{new Date(job.created_at * 1000).toLocaleString()}</p>
-                                                        </div>
-                                                        {job.completed_at && (
-                                                          <div>
-                                                            <span className="font-medium text-muted-foreground">Completed:</span>
-                                                            <p className="text-foreground">{new Date(job.completed_at * 1000).toLocaleString()}</p>
-                                                          </div>
-                                                        )}
-                                                        <div>
-                                                          <span className="font-medium text-muted-foreground">Processed:</span>
-                                                          <p className="text-foreground">{job.progress_counter}</p>
-                                                        </div>
-                                                        <div>
-                                                          <span className="font-medium text-muted-foreground">Failed:</span>
-                                                          <p className={job.failed_counter > 0 ? "text-destructive" : "text-foreground"}>
-                                                            {job.failed_counter}
-                                                          </p>
-                                                        </div>
-                                                        <div>
-                                                          <span className="font-medium text-muted-foreground">Documents:</span>
-                                                          <p className="text-foreground">{job.document_count ?? 0}</p>
-                                                        </div>
-                                                        <div>
-                                                          <span className="font-medium text-muted-foreground">Chunks:</span>
-                                                          <p className="text-foreground">{job.chunk_count ?? 0}</p>
-                                                        </div>
-                                                      </div>
-                                                      
-                                                      <div className="text-xs">
-                                                        <span className="font-medium text-muted-foreground">Status:</span>
-                                                        <div className={cn(
-                                                          "mt-1 px-3 py-2 rounded-md font-mono text-xs",
-                                                          isJobActive 
-                                                            ? "bg-zinc-900 text-green-400 border border-zinc-700" 
-                                                            : "bg-muted/50 text-foreground"
-                                                        )}>
-                                                          {job.message}
-                                                          {isJobActive && (
-                                                            <span className="inline-flex ml-1">
-                                                              <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
-                                                              <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
-                                                              <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+                                                    <div 
+                                                      className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                                                      onClick={(e) => { e.stopPropagation(); toggleJob(job.job_id); }}
+                                                    >
+                                                      <div className="flex items-center justify-between gap-2">
+                                                        <div className="flex-1 min-w-0">
+                                                          <div className="flex items-center gap-2">
+                                                            <motion.div
+                                                              animate={{ rotate: isJobExpanded ? 90 : 0 }}
+                                                              transition={{ duration: 0.2 }}
+                                                            >
+                                                              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                                            </motion.div>
+                                                            <span className="font-mono text-xs text-muted-foreground truncate">
+                                                              {job.job_id}
                                                             </span>
+                                                            <StatusBadge status={job.status} />
+                                                          </div>
+
+                                                          {isJobActive && jobTotal > 0 && (
+                                                            <ProgressBar 
+                                                              progress={progress} 
+                                                              total={jobTotal} 
+                                                              current={job.progress_counter} 
+                                                            />
+                                                          )}
+
+                                                          {!isJobExpanded && (
+                                                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                                                              {job.message}
+                                                            </p>
                                                           )}
                                                         </div>
-                                                      </div>
 
-                                                      {job.error_msgs && job.error_msgs.length > 0 && (
-                                                        <details className="rounded-md bg-zinc-900 border border-zinc-700 overflow-hidden">
-                                                          <summary className="cursor-pointer text-xs font-mono px-3 py-1.5 hover:bg-zinc-800 flex items-center gap-2 text-zinc-400">
-                                                            <span className="text-red-400">✗</span>
-                                                            <span className="text-red-400">{job.error_msgs.length}</span> error{job.error_msgs.length !== 1 ? 's' : ''}
-                                                          </summary>
-                                                          <div className="px-3 pb-2 pt-1 max-h-48 overflow-y-auto font-mono text-xs space-y-0.5 border-t border-zinc-800">
-                                                            {job.error_msgs.map((error: string, index: number) => (
-                                                              <div key={index} className="text-red-400/90 py-0.5 flex">
-                                                                <span className="text-zinc-600 mr-2 select-none">›</span>
-                                                                <span className="break-all">{error}</span>
-                                                              </div>
-                                                            ))}
-                                                          </div>
-                                                        </details>
-                                                      )}
+                                                        {isJobActive && (
+                                                          <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
+                                                            disabled={!hasPermission(Permission.INGEST)}
+                                                            className="h-7 px-2 hover:bg-destructive/10 hover:text-destructive"
+                                                          >
+                                                            <StopCircle className="h-3.5 w-3.5 mr-1" />
+                                                            Stop
+                                                          </Button>
+                                                        )}
+                                                      </div>
                                                     </div>
-                                                  </motion.div>
-                                                )}
-                                              </AnimatePresence>
+
+                                                    <AnimatePresence>
+                                                      {isJobExpanded && (
+                                                        <motion.div
+                                                          initial={{ height: 0, opacity: 0 }}
+                                                          animate={{ height: "auto", opacity: 1 }}
+                                                          exit={{ height: 0, opacity: 0 }}
+                                                          transition={{ duration: 0.15 }}
+                                                          className="overflow-hidden"
+                                                        >
+                                                          <div className="px-3 pb-3 pt-2 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Created:</span>
+                                                                <p className="text-foreground">
+                                                                  {new Date(job.created_at * 1000).toLocaleString()}
+                                                                  <span className="text-muted-foreground ml-1">({formatRelativeTime(job.created_at)})</span>
+                                                                </p>
+                                                              </div>
+                                                              {job.completed_at && (
+                                                                <div>
+                                                                  <span className="font-medium text-muted-foreground">Completed:</span>
+                                                                  <p className="text-foreground">
+                                                                    {new Date(job.completed_at * 1000).toLocaleString()}
+                                                                    <span className="text-muted-foreground ml-1">({formatRelativeTime(job.completed_at)})</span>
+                                                                  </p>
+                                                                </div>
+                                                              )}
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Processed:</span>
+                                                                <p className="text-foreground">{job.progress_counter}</p>
+                                                              </div>
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Failed:</span>
+                                                                <p className={job.failed_counter > 0 ? "text-destructive" : "text-foreground"}>
+                                                                  {job.failed_counter}
+                                                                </p>
+                                                              </div>
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Documents:</span>
+                                                                <p className="text-foreground">{job.document_count ?? 0}</p>
+                                                              </div>
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Chunks:</span>
+                                                                <p className="text-foreground">{job.chunk_count ?? 0}</p>
+                                                              </div>
+                                                            </div>
+                                                            
+                                                            <div className="text-xs">
+                                                              <span className="font-medium text-muted-foreground">Status:</span>
+                                                              <div className={cn(
+                                                                "mt-1 px-3 py-2 rounded-md font-mono text-xs",
+                                                                isJobActive 
+                                                                  ? "bg-zinc-900 text-green-400 border border-zinc-700" 
+                                                                  : "bg-muted/50 text-foreground"
+                                                              )}>
+                                                                {job.message}
+                                                                {isJobActive && (
+                                                                  <span className="inline-flex ml-1">
+                                                                    <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+                                                                    <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
+                                                                    <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+                                                                  </span>
+                                                                )}
+                                                              </div>
+                                                            </div>
+
+                                                            {job.error_msgs && job.error_msgs.length > 0 && (
+                                                              <details className="rounded-md bg-zinc-900 border border-zinc-700 overflow-hidden">
+                                                                <summary className="cursor-pointer text-xs font-mono px-3 py-1.5 hover:bg-zinc-800 flex items-center gap-2 text-zinc-400">
+                                                                  <span className="text-red-400">✗</span>
+                                                                  <span className="text-red-400">{job.error_msgs.length}</span> error{job.error_msgs.length !== 1 ? 's' : ''}
+                                                                </summary>
+                                                                <div className="px-3 pb-2 pt-1 max-h-48 overflow-y-auto font-mono text-xs space-y-0.5 border-t border-zinc-800">
+                                                                  {job.error_msgs.map((error: string, index: number) => (
+                                                                    <div key={index} className="text-red-400/90 py-0.5 flex">
+                                                                      <span className="text-zinc-600 mr-2 select-none">›</span>
+                                                                      <span className="break-all">{error}</span>
+                                                                    </div>
+                                                                  ))}
+                                                                </div>
+                                                              </details>
+                                                            )}
+                                                          </div>
+                                                        </motion.div>
+                                                      )}
+                                                    </AnimatePresence>
+                                                  </div>
+                                                )
+                                              })}
                                             </div>
-                                          )
-                                        })}
-                                      </div>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
                                     </div>
                                   )}
+
+                                  {/* Documents Section */}
+                                  <div className="border-t border-border/50 pt-4">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); toggleDocumentsSection(ds.datasource_id); }}
+                                      className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary transition-colors w-full text-left"
+                                    >
+                                      <motion.div
+                                        animate={{ rotate: expandedDocumentsSections.has(ds.datasource_id) ? 90 : 0 }}
+                                        transition={{ duration: 0.1 }}
+                                      >
+                                        <ChevronRight className="h-4 w-4" />
+                                      </motion.div>
+                                      <FileText className="h-4 w-4" />
+                                      <span>View Documents</span>
+                                      {datasourceDocuments[ds.datasource_id] && (
+                                        <Badge variant="secondary" className="text-[10px] ml-1">
+                                          {datasourceDocuments[ds.datasource_id].total_documents} docs / {datasourceDocuments[ds.datasource_id].total_chunks} chunks
+                                        </Badge>
+                                      )}
+                                      {loadingDocuments.has(ds.datasource_id) && (
+                                        <Loader2 className="h-3 w-3 animate-spin ml-1" />
+                                      )}
+                                    </button>
+
+                                    <AnimatePresence>
+                                      {expandedDocumentsSections.has(ds.datasource_id) && (
+                                        <motion.div
+                                          initial={{ height: 0, opacity: 0 }}
+                                          animate={{ height: "auto", opacity: 1 }}
+                                          exit={{ height: 0, opacity: 0 }}
+                                          transition={{ duration: 0.15 }}
+                                          className="overflow-hidden"
+                                        >
+                                          <div className="mt-3 space-y-2">
+                                            {loadingDocuments.has(ds.datasource_id) ? (
+                                              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                Loading documents...
+                                              </div>
+                                            ) : datasourceDocuments[ds.datasource_id]?.documents.length === 0 ? (
+                                              <p className="text-sm text-muted-foreground py-2">No documents found</p>
+                                            ) : (
+                                              <div className="space-y-1 max-h-[32rem] overflow-y-auto pr-2">
+                                                {datasourceDocuments[ds.datasource_id]?.documents.map((doc: DocumentInfo) => {
+                                                  const isDocExpanded = expandedDocuments.has(doc.document_id)
+                                                  return (
+                                                    <div key={doc.document_id} className="border border-border/50 rounded-lg bg-muted/30">
+                                                      <button
+                                                        onClick={(e) => { e.stopPropagation(); toggleDocument(doc.document_id); }}
+                                                        className="flex items-center gap-2 w-full p-2 text-left hover:bg-muted/50 rounded-lg transition-colors"
+                                                      >
+                                                        <motion.div
+                                                          animate={{ rotate: isDocExpanded ? 90 : 0 }}
+                                                          transition={{ duration: 0.1 }}
+                                                        >
+                                                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                                        </motion.div>
+                                                        <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                        <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                          <span className="text-xs font-medium truncate" title={doc.title}>
+                                                            {doc.title}
+                                                          </span>
+                                                          <Info 
+                                                            className="h-3 w-3 text-muted-foreground/40 hover:text-primary shrink-0 cursor-pointer transition-colors" 
+                                                            onClick={(e) => openDocumentMetadata(doc, e)}
+                                                          />
+                                                        </div>
+                                                        <span 
+                                                          className="text-[9px] text-muted-foreground/60 font-mono w-[360px] overflow-hidden text-ellipsis whitespace-nowrap shrink-0" 
+                                                          style={{ direction: 'rtl', textAlign: 'right' }}
+                                                          title={doc.document_id}
+                                                        >
+                                                          {doc.document_id}
+                                                        </span>
+                                                        <Badge variant="outline" className="text-[9px] shrink-0">
+                                                          {doc.chunks.length} chunks
+                                                        </Badge>
+                                                      </button>
+
+                                                      <AnimatePresence>
+                                                        {isDocExpanded && (
+                                                          <motion.div
+                                                            initial={{ height: 0, opacity: 0 }}
+                                                            animate={{ height: "auto", opacity: 1 }}
+                                                            exit={{ height: 0, opacity: 0 }}
+                                                            transition={{ duration: 0.1 }}
+                                                            className="overflow-hidden"
+                                                          >
+                                                            <div className="px-2 pb-2 space-y-1">
+                                                              {doc.chunks.map((chunk: ChunkInfo) => {
+                                                                const isChunkExpanded = expandedChunks.has(chunk.id)
+                                                                const chunkContent = chunkContents[chunk.id]
+                                                                const isLoadingChunk = loadingChunkContent.has(chunk.id)
+                                                                
+                                                                return (
+                                                                  <div key={chunk.id} className="border border-border/30 rounded bg-background/50">
+                                                                    <button
+                                                                      onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        toggleChunk(chunk.id)
+                                                                        if (!isChunkExpanded && !chunkContent) {
+                                                                          fetchChunkContent(chunk.id)
+                                                                        }
+                                                                      }}
+                                                                      className="flex items-center gap-2 w-full p-1.5 text-left hover:bg-muted/30 rounded transition-colors"
+                                                                    >
+                                                                      <motion.div
+                                                                        animate={{ rotate: isChunkExpanded ? 90 : 0 }}
+                                                                        transition={{ duration: 0.1 }}
+                                                                        className="shrink-0"
+                                                                      >
+                                                                        <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
+                                                                      </motion.div>
+                                                                      <Layers className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                                                                      <div className="flex items-center gap-1 shrink-0">
+                                                                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                                                          Chunk {chunk.chunk_index + 1}/{chunk.total_chunks}
+                                                                        </span>
+                                                                        <Info 
+                                                                          className="h-2.5 w-2.5 text-muted-foreground/40 hover:text-primary cursor-pointer transition-colors" 
+                                                                          onClick={(e) => openChunkMetadata(chunk, e)}
+                                                                        />
+                                                                      </div>
+                                                                      {chunk.metadata.fresh_until && (
+                                                                        <span className={cn(
+                                                                          "text-[9px] shrink-0 whitespace-nowrap",
+                                                                          chunk.metadata.fresh_until * 1000 < Date.now() 
+                                                                            ? "text-destructive" 
+                                                                            : "text-muted-foreground"
+                                                                        )}>
+                                                                          {formatFreshUntil(chunk.metadata.fresh_until)}
+                                                                        </span>
+                                                                      )}
+                                                                      <span className="flex-1 min-w-0" />
+                                                                      {isLoadingChunk && (
+                                                                        <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
+                                                                      )}
+                                                                      <span 
+                                                                        className="text-[8px] text-muted-foreground/60 font-mono w-[300px] overflow-hidden text-ellipsis whitespace-nowrap shrink-0" 
+                                                                        style={{ direction: 'rtl', textAlign: 'right' }}
+                                                                        title={chunk.id}
+                                                                      >
+                                                                        {chunk.id}
+                                                                      </span>
+                                                                    </button>
+
+                                                                    <AnimatePresence>
+                                                                      {isChunkExpanded && (
+                                                                        <motion.div
+                                                                          initial={{ height: 0, opacity: 0 }}
+                                                                          animate={{ height: "auto", opacity: 1 }}
+                                                                          exit={{ height: 0, opacity: 0 }}
+                                                                          transition={{ duration: 0.1 }}
+                                                                          className="overflow-hidden"
+                                                                        >
+                                                                          <div className="px-2 pb-2 pt-1 border-t border-border/30">
+                                                                            {/* Chunk metadata */}
+                                                                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-muted-foreground mb-2">
+                                                                              {chunk.metadata.document_type && (
+                                                                                <span>Type: {chunk.metadata.document_type}</span>
+                                                                              )}
+                                                                              {chunk.metadata.document_ingested_at && (
+                                                                                <span>Ingested: {formatRelativeTime(chunk.metadata.document_ingested_at)}</span>
+                                                                              )}
+                                                                              {chunk.metadata.is_structured_entity && (
+                                                                                <Badge variant="outline" className="text-[8px] h-4 px-1">Structured</Badge>
+                                                                              )}
+                                                                              {chunk.metadata.source && (
+                                                                                <span className="truncate max-w-[200px]" title={chunk.metadata.source}>
+                                                                                  Source: {chunk.metadata.source}
+                                                                                </span>
+                                                                              )}
+                                                                            </div>
+                                                                            
+                                                                            {/* Chunk content */}
+                                                                            {isLoadingChunk ? (
+                                                                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground py-2">
+                                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                                                Loading content...
+                                                                              </div>
+                                                                            ) : chunkContent ? (
+                                                                              <div className="bg-zinc-900 rounded p-2 max-h-48 overflow-y-auto">
+                                                                                <pre className="text-[10px] text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed">
+                                                                                  {chunkContent}
+                                                                                </pre>
+                                                                              </div>
+                                                                            ) : (
+                                                                              <p className="text-[10px] text-muted-foreground italic">
+                                                                                Content not loaded
+                                                                              </p>
+                                                                            )}
+                                                                          </div>
+                                                                        </motion.div>
+                                                                      )}
+                                                                    </AnimatePresence>
+                                                                  </div>
+                                                                )
+                                                              })}
+                                                            </div>
+                                                          </motion.div>
+                                                        )}
+                                                      </AnimatePresence>
+                                                    </div>
+                                                  )
+                                                })}
+                                              </div>
+                                            )}
+                                            
+                                            {/* Warning badge for approaching 16k Milvus limit */}
+                                            {documentsPagination[ds.datasource_id]?.offset >= 16000 && 
+                                             documentsPagination[ds.datasource_id]?.hasMore && (
+                                              <div className="mt-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                                                <p className="text-xs text-yellow-600 dark:text-yellow-500 flex items-center gap-1">
+                                                  <AlertCircle className="h-3 w-3" />
+                                                  Approaching Milvus query limit (16,384 chunks). Only first 16,383 chunks can be loaded.
+                                                </p>
+                                              </div>
+                                            )}
+                                            
+                                            {/* Load More button */}
+                                            {documentsPagination[ds.datasource_id]?.hasMore && (
+                                              <div className="pt-2 text-center border-t border-border/50 mt-2">
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    const pagination = documentsPagination[ds.datasource_id]
+                                                    if (pagination) {
+                                                      fetchDocumentsPage(ds.datasource_id, pagination.offset)
+                                                    }
+                                                  }}
+                                                  disabled={loadingDocuments.has(ds.datasource_id)}
+                                                  className="text-xs"
+                                                >
+                                                  {loadingDocuments.has(ds.datasource_id) ? (
+                                                    <>
+                                                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                                      Loading...
+                                                    </>
+                                                  ) : (
+                                                    <>Load More Chunks</>
+                                                  )}
+                                                </Button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+                                  </div>
                                 </div>
                               </motion.div>
                             )}
@@ -1927,6 +2523,59 @@ export default function IngestView() {
         )}
       </AnimatePresence>
 
+      {/* Cleanup Confirmation Dialog */}
+      <AnimatePresence>
+        {showCleanupConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowCleanupConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-amber-500/10">
+                  <Eraser className="h-5 w-5 text-amber-500" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Cleanup Stale Data</h3>
+              </div>
+              <p className="text-muted-foreground mb-4">
+                This will delete stale chunks and graph entities from this data source where the <code className="text-xs bg-muted px-1 py-0.5 rounded">fresh_until</code> timestamp has expired.
+              </p>
+              <div className="bg-amber-500/10 border-l-4 border-amber-500 p-3 mb-6 rounded-r-lg">
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  <strong>Note:</strong> This only removes data that is past its expiration time. Active data will not be affected.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowCleanupConfirm(null)}
+                  disabled={isCleaningUp}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => handleCleanupDataSource(showCleanupConfirm)}
+                  disabled={isCleaningUp}
+                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                >
+                  {isCleaningUp && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {isCleaningUp ? 'Cleaning up...' : 'Cleanup'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Delete Ingestor Confirmation Dialog */}
       <AnimatePresence>
         {showDeleteIngestorConfirm && (
@@ -2111,6 +2760,57 @@ export default function IngestView() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Metadata Modal */}
+      <Dialog open={metadataModal?.isOpen ?? false} onOpenChange={(open) => !open && setMetadataModal(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {metadataModal?.type === 'document' ? (
+                <FileText className="h-4 w-4" />
+              ) : (
+                <Layers className="h-4 w-4" />
+              )}
+              {metadataModal?.type === 'document' ? 'Document' : 'Chunk'} Metadata
+            </DialogTitle>
+            <DialogDescription className="truncate" title={metadataModal?.title}>
+              {metadataModal?.title}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            <div className="space-y-2">
+              {metadataModal?.metadata && Object.entries(metadataModal.metadata).map(([key, value]) => (
+                <div key={key} className="flex flex-col gap-0.5 py-1.5 border-b border-border/50 last:border-0">
+                  <span className="text-xs font-medium text-muted-foreground">{key}</span>
+                  <span className="text-sm font-mono break-all">
+                    {value === null || value === undefined ? (
+                      <span className="text-muted-foreground/50 italic">null</span>
+                    ) : typeof value === 'boolean' ? (
+                      <Badge variant={value ? "default" : "secondary"} className="text-[10px]">
+                        {value ? 'true' : 'false'}
+                      </Badge>
+                    ) : typeof value === 'number' ? (
+                      key.includes('time') || key.includes('until') || key.includes('at') ? (
+                        <span title={new Date(value * 1000).toISOString()}>
+                          {formatRelativeTime(value)} <span className="text-muted-foreground/60">({value})</span>
+                        </span>
+                      ) : (
+                        String(value)
+                      )
+                    ) : typeof value === 'object' ? (
+                      <pre className="text-[10px] bg-muted/50 p-2 rounded overflow-x-auto">
+                        {JSON.stringify(value, null, 2)}
+                      </pre>
+                    ) : (
+                      String(value)
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -36,15 +36,21 @@ jest.mock('lucide-react', () => ({
   Clock: (props: any) => <svg data-testid="icon-clock" {...props} />,
 }))
 
-jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
-}))
+jest.mock('@/lib/utils', () => {
+  // Get the actual implementation for functions we want to test
+  const actual = jest.requireActual('@/lib/utils')
+  return {
+    cn: (...args: any[]) => args.filter(Boolean).join(' '),
+    formatRelativeTimeCompact: actual.formatRelativeTimeCompact,
+  }
+})
 
 // ============================================================================
 // Imports — after mocks
 // ============================================================================
 
-import { ConversationCard, formatRelativeTime } from '../ConversationCard'
+import { ConversationCard } from '../ConversationCard'
+import { formatRelativeTimeCompact } from '@/lib/utils'
 
 // ============================================================================
 // Tests
@@ -138,42 +144,42 @@ describe('ConversationCard', () => {
   })
 })
 
-describe('formatRelativeTime', () => {
+describe('formatRelativeTimeCompact', () => {
   it('returns "Just now" for times less than 1 minute ago', () => {
     const now = new Date()
-    expect(formatRelativeTime(now)).toBe('Just now')
+    expect(formatRelativeTimeCompact(now)).toBe('Just now')
   })
 
   it('returns "Xm ago" for times less than 60 minutes ago', () => {
     const thirtyMinsAgo = new Date(Date.now() - 30 * 60000)
-    expect(formatRelativeTime(thirtyMinsAgo)).toBe('30m ago')
+    expect(formatRelativeTimeCompact(thirtyMinsAgo)).toBe('30m ago')
   })
 
   it('returns "1m ago" for exactly 1 minute ago', () => {
     const oneMinAgo = new Date(Date.now() - 60000)
-    expect(formatRelativeTime(oneMinAgo)).toBe('1m ago')
+    expect(formatRelativeTimeCompact(oneMinAgo)).toBe('1m ago')
   })
 
   it('returns "Xh ago" for times less than 24 hours ago', () => {
     const threeHoursAgo = new Date(Date.now() - 3 * 3600000)
-    expect(formatRelativeTime(threeHoursAgo)).toBe('3h ago')
+    expect(formatRelativeTimeCompact(threeHoursAgo)).toBe('3h ago')
   })
 
   it('returns "Xd ago" for times less than 7 days ago', () => {
     const twoDaysAgo = new Date(Date.now() - 2 * 86400000)
-    expect(formatRelativeTime(twoDaysAgo)).toBe('2d ago')
+    expect(formatRelativeTimeCompact(twoDaysAgo)).toBe('2d ago')
   })
 
   it('returns locale date string for times 7+ days ago', () => {
     const tenDaysAgo = new Date(Date.now() - 10 * 86400000)
-    const result = formatRelativeTime(tenDaysAgo)
+    const result = formatRelativeTimeCompact(tenDaysAgo)
     // Should be a date string, not "Xd ago"
     expect(result).not.toContain('d ago')
     expect(result).not.toBe('Just now')
   })
 
   it('accepts string dates', () => {
-    const result = formatRelativeTime(new Date().toISOString())
+    const result = formatRelativeTimeCompact(new Date().toISOString())
     expect(result).toBe('Just now')
   })
 })

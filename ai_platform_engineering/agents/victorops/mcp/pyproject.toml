@@ -9,9 +9,9 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "fastmcp==2.13.3",
+  "fastmcp==3.2.0",
   "httpx==0.28.1",
-  "mcp==1.21.0",
+  "mcp==1.26.0",
   "pydantic==2.12.5",
   "python-dotenv==1.2.1",
 ]

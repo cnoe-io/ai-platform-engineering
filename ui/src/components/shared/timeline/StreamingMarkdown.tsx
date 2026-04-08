@@ -36,21 +36,15 @@ const thinkingMarkdownComponents: Record<string, React.ComponentType<any>> = {
 };
 
 /**
- * Renders markdown content with an optional streaming cursor.
+ * Renders markdown content with configurable styling.
  * Used for both thinking segments and final answers in agent timelines.
  */
 export function StreamingMarkdown({
   content,
-  isStreaming,
   variant = "final",
   className,
 }: StreamingMarkdownProps) {
   if (!content) return null;
-
-  // Streaming cursor element
-  const cursor = isStreaming ? (
-    <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
-  ) : null;
 
   // Use simple styling for thinking variant to avoid prose-related issues
   if (variant === "thinking") {
@@ -59,7 +53,6 @@ export function StreamingMarkdown({
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={thinkingMarkdownComponents}>
           {content}
         </ReactMarkdown>
-        {cursor}
       </div>
     );
   }
@@ -69,7 +62,6 @@ export function StreamingMarkdown({
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
         {content}
       </ReactMarkdown>
-      {cursor}
     </div>
   );
 }

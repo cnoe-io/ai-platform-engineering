@@ -195,7 +195,6 @@ class GHCLITool(BaseTool):
             logger.warning(f"gh CLI command blocked: {command} - {error_msg}")
             return f"❌ {error_msg}"
 
-        # Get token (auto-refreshed if using GitHub App mode)
         github_token = get_github_token()
         if not github_token:
             return "❌ Error: No GitHub auth configured. Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth."

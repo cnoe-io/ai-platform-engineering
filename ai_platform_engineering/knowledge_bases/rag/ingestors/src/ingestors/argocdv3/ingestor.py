@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from urllib.parse import urljoin
 
 from common.ingestor import IngestorBuilder, Client
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobStatus
 import common.utils as utils
@@ -206,7 +206,7 @@ def extract_project_roles(project: Dict[str, Any]) -> List[Dict[str, Any]]:
   return roles
 
 
-async def process_project_entities(client: Client, argocd_client: ArgoCDClient, project_data: Dict[str, Any], job_id: str, datasource_id: str, batch_entities: List[Entity]) -> int:
+async def process_project_entities(client: Client, argocd_client: ArgoCDClient, project_data: Dict[str, Any], job_id: str, datasource_id: str, batch_entities: List[StructuredEntity]) -> int:
   """
   Process entities for a single project and add them to the batch.
   Returns the count of entities processed.
@@ -221,7 +221,7 @@ async def process_project_entities(client: Client, argocd_client: ArgoCDClient, 
     filtered_project = utils.filter_nested_dict(project_data, IGNORE_FIELD_LIST)
     filtered_project["argocd_instance"] = argocd_instance_name  # type: ignore
 
-    project_entity = Entity(
+    project_entity = StructuredEntity(
       entity_type="ArgoCDProject",
       all_properties=filtered_project,  # type: ignore
       primary_key_properties=["argocd_instance", "metadata.uid"],
@@ -234,7 +234,7 @@ async def process_project_entities(client: Client, argocd_client: ArgoCDClient, 
     roles = extract_project_roles(project_data)
     for role in roles:
       role["argocd_instance"] = argocd_instance_name
-      role_entity = Entity(entity_type="ArgoCDProjectRole", all_properties=role, primary_key_properties=["argocd_instance", "project_name", "role_name"], additional_key_properties=[["role_name"]])
+      role_entity = StructuredEntity(entity_type="ArgoCDProjectRole", all_properties=role, primary_key_properties=["argocd_instance", "project_name", "role_name"], additional_key_properties=[["role_name"]])
       batch_entities.append(role_entity)
       entities_processed += 1
 
@@ -247,7 +247,7 @@ async def process_project_entities(client: Client, argocd_client: ArgoCDClient, 
         filtered_app = utils.filter_nested_dict(app, IGNORE_FIELD_LIST)
         filtered_app["argocd_instance"] = argocd_instance_name  # type: ignore
 
-        app_entity = Entity(
+        app_entity = StructuredEntity(
           entity_type="ArgoCDApplication",
           all_properties=filtered_app,  # type: ignore
           primary_key_properties=["argocd_instance", "metadata.uid"],
@@ -256,7 +256,7 @@ async def process_project_entities(client: Client, argocd_client: ArgoCDClient, 
         batch_entities.append(app_entity)
         entities_processed += 1
       except Exception as e:
-        logging.error(f"  Error converting application to Entity: {e}", exc_info=True)
+        logging.error(f"  Error converting application to StructuredEntity: {e}", exc_info=True)
         await client.add_job_error(job_id, [f"Error converting application in project {project_name}: {str(e)}"])
         await client.increment_job_failure(job_id, 1)
 
@@ -269,7 +269,7 @@ async def process_project_entities(client: Client, argocd_client: ArgoCDClient, 
         filtered_appset = utils.filter_nested_dict(appset, IGNORE_FIELD_LIST)
         filtered_appset["argocd_instance"] = argocd_instance_name  # type: ignore
 
-        appset_entity = Entity(
+        appset_entity = StructuredEntity(
           entity_type="ArgoCDApplicationSet",
           all_properties=filtered_appset,  # type: ignore
           primary_key_properties=["argocd_instance", "metadata.uid"],
@@ -278,7 +278,7 @@ async def process_project_entities(client: Client, argocd_client: ArgoCDClient, 
         batch_entities.append(appset_entity)
         entities_processed += 1
       except Exception as e:
-        logging.error(f"  Error converting applicationset to Entity: {e}", exc_info=True)
+        logging.error(f"  Error converting applicationset to StructuredEntity: {e}", exc_info=True)
         await client.add_job_error(job_id, [f"Error converting applicationset in project {project_name}: {str(e)}"])
         await client.increment_job_failure(job_id, 1)
 
@@ -317,6 +317,7 @@ async def sync_argocd_entities(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={"argocd_url": SERVER_URL, "filter_projects": FILTER_PROJECTS, "verify_ssl": ARGOCD_VERIFY_SSL, "ignore_fields": IGNORE_FIELD_LIST},
   )
   await client.upsert_datasource(datasource_info)
@@ -361,7 +362,7 @@ async def sync_argocd_entities(client: Client):
 
   try:
     # 6. Create ArgoCDInstance entity first
-    instance_entity = Entity(
+    instance_entity = StructuredEntity(
       entity_type="ArgoCDInstance",
       all_properties={
         "server_url": SERVER_URL,
@@ -375,7 +376,7 @@ async def sync_argocd_entities(client: Client):
     )
 
     # Start with instance entity in the batch
-    current_batch: List[Entity] = [instance_entity]
+    current_batch: List[StructuredEntity] = [instance_entity]
     total_entities_processed += 1
 
     # 7. Process each project one at a time (streaming approach)
@@ -392,7 +393,7 @@ async def sync_argocd_entities(client: Client):
         # If batch is large enough, ingest it and start a new batch
         if len(current_batch) >= INGEST_BATCH_SIZE:
           logging.info(f"Batch reached {len(current_batch)} entities, ingesting...")
-          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
           await client.increment_job_progress(job_id, len(current_batch))
           logging.info(f"Ingested batch of {len(current_batch)} entities")
 
@@ -413,7 +414,7 @@ async def sync_argocd_entities(client: Client):
         filtered_cluster = utils.filter_nested_dict(cluster, IGNORE_FIELD_LIST)
         filtered_cluster["argocd_instance"] = argocd_instance_name  # type: ignore
 
-        cluster_entity = Entity(
+        cluster_entity = StructuredEntity(
           entity_type="ArgoCDCluster",
           all_properties=filtered_cluster,  # type: ignore
           primary_key_properties=["argocd_instance", "server"],
@@ -424,13 +425,13 @@ async def sync_argocd_entities(client: Client):
 
         # Batch ingest if needed
         if len(current_batch) >= INGEST_BATCH_SIZE:
-          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
           await client.increment_job_progress(job_id, len(current_batch))
           logging.info(f"Ingested batch of {len(current_batch)} entities")
           current_batch = []
 
       except Exception as e:
-        logging.error(f"Error converting cluster to Entity: {e}", exc_info=True)
+        logging.error(f"Error converting cluster to StructuredEntity: {e}", exc_info=True)
         await client.add_job_error(job_id, [f"Error converting cluster: {str(e)}"])
         await client.increment_job_failure(job_id, 1)
 
@@ -440,7 +441,7 @@ async def sync_argocd_entities(client: Client):
         filtered_repo = utils.filter_nested_dict(repo, IGNORE_FIELD_LIST)
         filtered_repo["argocd_instance"] = argocd_instance_name  # type: ignore
 
-        repo_entity = Entity(
+        repo_entity = StructuredEntity(
           entity_type="ArgoCDRepository",
           all_properties=filtered_repo,  # type: ignore
           primary_key_properties=["argocd_instance", "repo"],
@@ -451,20 +452,20 @@ async def sync_argocd_entities(client: Client):
 
         # Batch ingest if needed
         if len(current_batch) >= INGEST_BATCH_SIZE:
-          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+          await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
           await client.increment_job_progress(job_id, len(current_batch))
           logging.info(f"Ingested batch of {len(current_batch)} entities")
           current_batch = []
 
       except Exception as e:
-        logging.error(f"Error converting repository to Entity: {e}", exc_info=True)
+        logging.error(f"Error converting repository to StructuredEntity: {e}", exc_info=True)
         await client.add_job_error(job_id, [f"Error converting repository: {str(e)}"])
         await client.increment_job_failure(job_id, 1)
 
     # 9. Ingest any remaining entities in the final batch
     if current_batch:
       logging.info(f"Ingesting final batch of {len(current_batch)} entities...")
-      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_default_fresh_until())
+      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=current_batch, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
       await client.increment_job_progress(job_id, len(current_batch))
       logging.info(f"Ingested final batch of {len(current_batch)} entities")
 
@@ -474,7 +475,7 @@ async def sync_argocd_entities(client: Client):
 
   except Exception as e:
     # Mark job as failed
-    error_msg = f"Entity ingestion failed: {str(e)}"
+    error_msg = f"StructuredEntity ingestion failed: {str(e)}"
     await client.add_job_error(job_id, [error_msg])
     await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=error_msg)
     logging.error(error_msg, exc_info=True)

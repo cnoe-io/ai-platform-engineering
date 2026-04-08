@@ -89,6 +89,17 @@ export const deleteDataSource = async (datasourceId: string): Promise<void> => {
     return apiDelete('/v1/datasource', { datasource_id: datasourceId });
 };
 
+// Cleanup response type
+export interface CleanupResponse {
+    datasource_id: string | null;
+    success: boolean;
+    message: string;
+}
+
+export const cleanupDataSource = async (datasourceId: string): Promise<CleanupResponse> => {
+    return apiPost(`/v1/datasource/${encodeURIComponent(datasourceId)}/cleanup`);
+};
+
 // ScrapySettings interface for web scraping configuration
 export interface ScrapySettings {
     crawl_mode: 'single' | 'sitemap' | 'recursive';
@@ -141,6 +152,57 @@ export const reloadDataSource = async (datasourceId: string): Promise<{ datasour
     } else {
         return apiPost('/v1/ingest/webloader/reload', { datasource_id: datasourceId });
     }
+};
+
+// ============================================================================
+// Documents API
+// ============================================================================
+
+export interface ChunkInfo {
+    id: string;
+    chunk_index: number;
+    total_chunks: number;
+    metadata: {
+        fresh_until?: number;
+        document_type?: string;
+        document_ingested_at?: number;
+        is_structured_entity?: boolean;
+        source?: string;
+        [key: string]: unknown;
+    };
+}
+
+export interface DocumentInfo {
+    document_id: string;
+    title: string;
+    chunks: ChunkInfo[];
+}
+
+export interface DatasourceDocumentsResponse {
+    datasource_id: string;
+    documents: DocumentInfo[];
+    total_documents: number;
+    total_chunks: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+}
+
+export interface ChunkContentResponse {
+    id: string;
+    text_content: string;
+}
+
+export const getDatasourceDocuments = async (
+    datasourceId: string,
+    offset: number = 0,
+    limit: number = 100
+): Promise<DatasourceDocumentsResponse> => {
+    return apiGet(`/v1/datasource/${encodeURIComponent(datasourceId)}/documents`, { offset, limit });
+};
+
+export const getChunkContent = async (chunkId: string): Promise<ChunkContentResponse> => {
+    return apiGet(`/v1/chunk/${encodeURIComponent(chunkId)}/content`);
 };
 
 // ============================================================================

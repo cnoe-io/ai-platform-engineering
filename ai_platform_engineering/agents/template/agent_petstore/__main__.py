@@ -14,22 +14,14 @@ disable_a2a_tracing()
 # =====================================================
 
 import click
-import httpx
-import uvicorn
 import asyncio
 import os
-import logging
 from dotenv import load_dotenv
-from agntcy_app_sdk.factory import AgntcyFactory
 
 from agent_petstore.protocol_bindings.a2a_server.agent_executor import PetStoreAgentExecutor # type: ignore[import-untyped]
-from agent_petstore.agentcard import create_agent_card
-from a2a.server.apps import A2AStarletteApplication
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import (
-    BasePushNotificationSender,
-    InMemoryPushNotificationConfigStore,
-    InMemoryTaskStore,
+from ai_platform_engineering.utils.a2a_common.a2a_server import A2AServer
+from a2a.types import (
+  AgentSkill
 )
 
 from starlette.middleware.cors import CORSMiddleware
@@ -41,6 +33,42 @@ A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
 SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
+AGENT_NAME = 'petstore'
+AGENT_DESCRIPTION = (
+  "A comprehensive petstore management AI agent that handles pet inventory, customer orders, and user accounts. "
+  "Provides full CRUD operations for pets, order processing, user management, and store analytics."
+)
+
+agent_skill = AgentSkill(
+  id="petstore_agent_skill",
+  name="Petstore Management",
+  description="Manages pets, orders, and users in the petstore system with comprehensive CRUD operations.",
+  tags=[
+    "petstore",
+    "pets",
+    "ecommerce",
+    "inventory",
+    "orders",
+    "users"],
+    examples=[
+      # Discovery & Getting Started
+      "What actions can you perform?",
+      "Show me what you can do with pets",
+      # Simple Pet Queries (work immediately)
+      "Find all available pets in the store",
+      "Get all cats that are pending",
+      "Show me dogs with 'sold' status",
+      "Get a summary of pets by status",
+      "Show me pets with 'friendly' tags",
+      # Interactive Operations (will ask for details)
+      "I want to add a new pet to the store",
+      "Help me place an order for a pet",
+      "Create a user account for me",
+      # Advanced Operations
+      "Check current store inventory levels",
+      "Update information for pet ID 12345"
+  ])
+
 # We can't use click decorators for async functions so we wrap the main function in a sync function
 @click.command()
 @click.option('--host', 'host', default='localhost')
@@ -49,16 +77,17 @@ def main(host: str, port: int):
     asyncio.run(async_main(host, port))
 
 async def async_main(host: str, port: int):
-    client = httpx.AsyncClient()
-    push_config_store = InMemoryPushNotificationConfigStore()
-    push_sender = BasePushNotificationSender(httpx_client=client,
-                    config_store=push_config_store)
-    request_handler = DefaultRequestHandler(
+    server = A2AServer(
+        agent_name=AGENT_NAME,
+        agent_description=AGENT_DESCRIPTION,
+        agent_skills=[agent_skill],
+        host=host,
+        port=port,
         agent_executor=PetStoreAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-      push_config_store=push_config_store,
-      push_sender= push_sender
+        metrics_enabled=METRICS_ENABLED,
     )
+    
+    await server.serve()
 
     if A2A_TRANSPORT == "slim":
         agent_url = SLIM_ENDPOINT

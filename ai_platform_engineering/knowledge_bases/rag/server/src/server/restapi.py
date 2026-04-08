@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import re
 import traceback
 import uuid
@@ -33,8 +34,13 @@ from common.models.server import (
   JobsBatchRequest,
   MCPToolInvokeRequest,
   MCPToolInvokeResponse,
+  DatasourceDocumentsResponse,
+  DocumentInfo,
+  ChunkInfo,
+  ChunkContentResponse,
+  CleanupResponse,
 )
-from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig
+from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
 from common.graph_db.neo4j.graph_db import Neo4jDB
@@ -50,7 +56,7 @@ import httpx
 from server.query_service import VectorDBQueryService
 from langchain_core.globals import set_verbose as set_langchain_verbose
 from server.ingestion import DocumentProcessor
-from common.utils import get_default_fresh_until, sanitize_url
+from common.utils import get_fresh_until, sanitize_url
 
 metadata_storage: Optional[MetadataStorage] = None
 vector_db: Optional[Milvus] = None
@@ -68,6 +74,7 @@ if logger.level == logging.DEBUG:  # enable langchain verbose logging
 
 # Read configuration from environment variables
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours
+cleanup_enabled = os.getenv("CLEANUP_ENABLED", "true").lower() in ("true", "1", "yes")
 ontology_agent_client = httpx.AsyncClient(base_url=os.getenv("ONTOLOGY_AGENT_RESTAPI_ADDR", "http://localhost:8098"))
 graph_rag_enabled = os.getenv("ENABLE_GRAPH_RAG", "true").lower() in ("true", "1", "yes")
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -93,6 +100,139 @@ if graph_rag_enabled:
   logger.warning("Graph RAG is ENABLED ✅")
 else:
   logger.warning("Graph RAG is DISABLED ❌")
+
+if cleanup_enabled:
+  logger.info(f"Periodic cleanup is ENABLED (interval: {clean_up_interval}s / {clean_up_interval / 3600:.1f}h)")
+else:
+  logger.info("Periodic cleanup is DISABLED")
+
+# Background task handle for periodic cleanup
+cleanup_task: asyncio.Task | None = None
+# Track last cleanup timestamp (Unix seconds)
+last_cleanup_timestamp: int | None = None
+
+
+async def run_safe_bulk_cleanup() -> tuple[int, int, int]:
+  """
+  Run a safe bulk cleanup that:
+  1. Iterates over each datasource
+  2. Skips cleanup if latest job has failed
+  3. Cleans up stale data for datasources with successful jobs
+  4. Cleans up orphaned documents where datasource_id doesn't exist
+
+  Returns tuple of (datasources_cleaned, datasources_skipped, orphaned_cleaned).
+  """
+  if not vector_db or not metadata_storage or not jobmanager:
+    raise RuntimeError("Server not initialized")
+
+  now = int(time.time())
+  datasources_cleaned = 0
+  datasources_skipped = 0
+
+  # Get all datasources
+  datasources = await metadata_storage.fetch_all_datasource_info()
+  datasource_ids = {ds.datasource_id for ds in datasources}
+
+  logger.info(f"Safe bulk cleanup: checking {len(datasources)} datasources")
+
+  # Process each datasource
+  for ds in datasources:
+    try:
+      # Get the latest job for this datasource
+      jobs = await jobmanager.get_jobs_by_datasource(ds.datasource_id)
+      latest_job = jobs[0] if jobs else None
+
+      # Skip cleanup if latest job has failed
+      if latest_job and latest_job.status == JobStatus.FAILED:
+        logger.warning(f"Skipping cleanup for datasource {ds.datasource_id} - latest job {latest_job.job_id} has status FAILED")
+        datasources_skipped += 1
+        continue
+
+      logger.debug(f"Cleaning up stale data for datasource {ds.datasource_id}")
+
+      # Clean up stale Milvus chunks for this datasource
+      expr = f"datasource_id == '{ds.datasource_id}' and fresh_until < {now}"
+      try:
+        await vector_db.adelete(expr=expr)
+      except Exception as e:
+        logger.error(f"Failed to delete stale chunks for datasource {ds.datasource_id}: {e}")
+        continue
+
+      # Clean up stale Neo4j entities for this datasource
+      if graph_rag_enabled and data_graph_db:
+        try:
+          await data_graph_db.remove_stale_entities(datasource_id=ds.datasource_id)
+        except Exception as e:
+          logger.warning(f"Failed to delete stale structured entities for datasource {ds.datasource_id}: {e}")
+          # Don't fail the whole operation if graph cleanup fails
+
+      datasources_cleaned += 1
+      logger.debug(f"Cleanup completed for datasource {ds.datasource_id}")
+
+    except Exception as e:
+      logger.error(f"Error cleaning up datasource {ds.datasource_id}: {e}")
+      datasources_skipped += 1
+
+  # Clean up orphaned documents (where datasource_id doesn't exist in metadata storage)
+  orphaned_cleaned = 0
+  try:
+    # Query Milvus to get distinct datasource_ids that have stale chunks
+    # We can't easily get distinct values, so we delete orphans by checking
+    # chunks where datasource_id is not in our known set
+    # Build a NOT IN expression for orphan cleanup
+    if datasource_ids:
+      # Milvus doesn't support NOT IN directly, so we need to find orphans differently
+      # Query all stale chunks and filter client-side, then delete
+      results = vector_db.client.query(
+        collection_name=default_collection_name_docs,
+        filter=f"fresh_until < {now}",
+        output_fields=["id", "datasource_id"],
+        limit=16383,  # Milvus max
+      )
+
+      # Find orphaned chunk IDs (where datasource_id is not in known datasources)
+      orphan_ids = [r["id"] for r in results if r.get("datasource_id") not in datasource_ids]
+
+      if orphan_ids:
+        logger.info(f"Found {len(orphan_ids)} orphaned stale chunks to delete")
+        # Delete in batches to avoid hitting limits
+        batch_size = 1000
+        for i in range(0, len(orphan_ids), batch_size):
+          batch = orphan_ids[i : i + batch_size]
+          await vector_db.adelete(ids=batch)
+        orphaned_cleaned = len(orphan_ids)
+
+  except Exception as e:
+    logger.error(f"Failed to cleanup orphaned documents: {e}")
+
+  logger.info(f"Safe bulk cleanup completed: {datasources_cleaned} datasources cleaned, {datasources_skipped} skipped, {orphaned_cleaned} orphaned chunks removed")
+  return datasources_cleaned, datasources_skipped, orphaned_cleaned
+
+
+async def periodic_cleanup_task():
+  """
+  Background task that periodically removes stale chunks from Milvus and Neo4j.
+  Uses safe bulk cleanup that skips datasources with failed latest jobs.
+  """
+  global last_cleanup_timestamp
+  logger.info(f"Starting periodic cleanup task (interval: {clean_up_interval}s)")
+  while True:
+    try:
+      await asyncio.sleep(clean_up_interval)
+      logger.info("Running periodic cleanup...")
+
+      await run_safe_bulk_cleanup()
+
+      # Update last cleanup timestamp
+      last_cleanup_timestamp = int(time.time())
+      logger.info("Periodic cleanup completed")
+
+    except asyncio.CancelledError:
+      logger.info("Periodic cleanup task cancelled")
+      break
+    except Exception as e:
+      logger.error(f"Periodic cleanup task error: {e}")
+      # Continue running despite errors
 
 
 # Application lifespan management - initalization and cleanup
@@ -180,9 +320,25 @@ async def app_lifespan(app: FastAPI):
     # setup ingestor without graph db
     ingestor = DocumentProcessor(vstore=vector_db, job_manager=jobmanager, graph_rag_enabled=graph_rag_enabled, batch_size=max_documents_per_ingest)
 
+  # Start periodic cleanup background task
+  global cleanup_task
+  if cleanup_enabled:
+    cleanup_task = asyncio.create_task(periodic_cleanup_task())
+    logger.info("Periodic cleanup task started")
+
   yield
+
   # Shutdown
   logging.info("Shutting down the app...")
+
+  # Cancel the cleanup task
+  if cleanup_task:
+    cleanup_task.cancel()
+    try:
+      await cleanup_task
+    except asyncio.CancelledError:
+      pass
+    logger.info("Periodic cleanup task stopped")
 
 
 if mcp_enabled:
@@ -457,6 +613,89 @@ async def delete_datasource(datasource_id: str, user: UserContext = Depends(requ
   return status.HTTP_200_OK
 
 
+@app.post("/v1/datasource/{datasource_id}/cleanup", response_model=CleanupResponse)
+async def cleanup_datasource_stale(
+  datasource_id: str,
+  user: UserContext = Depends(require_role(Role.ADMIN)),
+):
+  """
+  Delete stale chunks from a specific datasource.
+
+  Stale chunks are those where fresh_until < current time.
+  This is useful for cleaning up orphaned data without removing
+  the entire datasource.
+  """
+  if not vector_db or not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  # Verify datasource exists
+  datasource_info = await metadata_storage.get_datasource_info(datasource_id)
+  if not datasource_info:
+    raise HTTPException(status_code=404, detail="Datasource not found")
+
+  now = int(time.time())
+
+  # Delete stale Milvus chunks for this datasource
+  expr = f"datasource_id == '{datasource_id}' and fresh_until < {now}"
+  try:
+    await vector_db.adelete(expr=expr)
+  except Exception as e:
+    logger.error(f"Failed to delete stale chunks for datasource {datasource_id}: {e}")
+    raise HTTPException(status_code=500, detail=f"Failed to delete stale chunks: {e}")
+
+  # Delete stale Neo4j entities for this datasource
+  if graph_rag_enabled and data_graph_db:
+    try:
+      await data_graph_db.remove_stale_entities(datasource_id=datasource_id)
+    except Exception as e:
+      logger.warning(f"Failed to delete stale structured entities for datasource {datasource_id}: {e}")
+      # Don't fail the whole operation if graph cleanup fails
+
+  logger.info(f"Cleanup completed for datasource {datasource_id}")
+
+  return CleanupResponse(datasource_id=datasource_id, success=True, message="Cleanup completed successfully")
+
+
+@app.post("/v1/datasources/cleanup", response_model=CleanupResponse)
+async def cleanup_all_stale(
+  user: UserContext = Depends(require_role(Role.ADMIN)),
+):
+  """
+  Delete all stale chunks across all datasources safely.
+
+  This operation:
+  1. Iterates over each datasource
+  2. Skips cleanup if the latest job has failed (to avoid deleting data that may need recovery)
+  3. Cleans up stale data for datasources with successful/non-failed jobs
+  4. Cleans up orphaned documents where datasource_id doesn't exist in metadata
+
+  Stale chunks are those where fresh_until < current time.
+  """
+  if not vector_db or not metadata_storage or not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  try:
+    datasources_cleaned, datasources_skipped, orphaned_cleaned = await run_safe_bulk_cleanup()
+
+    # Update last cleanup timestamp
+    global last_cleanup_timestamp
+    last_cleanup_timestamp = int(time.time())
+
+    message = f"Bulk cleanup completed: {datasources_cleaned} datasources cleaned"
+    if datasources_skipped > 0:
+      message += f", {datasources_skipped} skipped (failed jobs)"
+    if orphaned_cleaned > 0:
+      message += f", {orphaned_cleaned} orphaned chunks removed"
+
+    return CleanupResponse(datasource_id=None, success=True, message=message)
+
+  except RuntimeError as e:
+    raise HTTPException(status_code=500, detail=str(e))
+  except Exception as e:
+    logger.error(f"Bulk cleanup failed: {e}")
+    raise HTTPException(status_code=500, detail=f"Bulk cleanup failed: {e}")
+
+
 @app.get("/v1/datasources")
 async def list_datasources(ingestor_id: Optional[str] = None, user: UserContext = Depends(require_role(Role.READONLY))):
   """List all stored datasources"""
@@ -469,6 +708,127 @@ async def list_datasources(ingestor_id: Optional[str] = None, user: UserContext 
     return {"success": True, "datasources": datasources, "count": len(datasources)}
   except Exception as e:
     logger.error(f"Failed to list datasources: {e}")
+    raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/datasource/{datasource_id}/documents", response_model=DatasourceDocumentsResponse)
+async def list_datasource_documents(
+  datasource_id: str,
+  offset: int = Query(default=0, ge=0, description="Number of chunks to skip"),
+  limit: int = Query(default=100, ge=1, le=1000, description="Number of chunks to fetch"),
+  user: UserContext = Depends(require_role(Role.READONLY)),
+):
+  """List documents and chunks for a datasource with pagination (without content)."""
+  if not vector_db:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  # Validate Milvus constraint: offset + limit must be < 16384
+  if offset + limit >= 16384:
+    raise HTTPException(
+      status_code=400,
+      detail="offset + limit must be less than 16,384 (Milvus query limitation)",
+    )
+
+  try:
+    # Fetch limit + 1 to determine if more chunks exist
+    results = vector_db.client.query(
+      collection_name=default_collection_name_docs,
+      filter=f"datasource_id == '{datasource_id}'",
+      output_fields=["id", "document_id", "title", "chunk_index", "total_chunks", "fresh_until", "document_type", "document_ingested_at", "is_structured_entity", "source"],
+      offset=offset,
+      limit=limit + 1,
+    )
+
+    # Determine if more chunks exist beyond this batch
+    has_more = len(results) > limit
+    actual_results = results[:limit]  # Trim to requested limit
+
+    # Group chunks by document_id
+    documents_map: dict[str, DocumentInfo] = {}
+    for chunk in actual_results:
+      doc_id = chunk.get("document_id", "unknown")
+
+      if doc_id not in documents_map:
+        documents_map[doc_id] = DocumentInfo(
+          document_id=doc_id,
+          title=chunk.get("title", ""),
+          chunks=[],
+        )
+
+      # Build chunk metadata (exclude fields that are already top-level or not needed)
+      metadata = {
+        "fresh_until": chunk.get("fresh_until"),
+        "document_type": chunk.get("document_type"),
+        "document_ingested_at": chunk.get("document_ingested_at"),
+        "is_structured_entity": chunk.get("is_structured_entity", False),
+        "source": chunk.get("source"),
+      }
+
+      documents_map[doc_id].chunks.append(
+        ChunkInfo(
+          id=chunk.get("id", ""),
+          chunk_index=chunk.get("chunk_index", 0),
+          total_chunks=chunk.get("total_chunks", 1),
+          metadata=metadata,
+        )
+      )
+
+    # Sort chunks within each document by chunk_index
+    for doc in documents_map.values():
+      doc.chunks.sort(key=lambda c: c.chunk_index)
+
+    # Convert to list and sort by document_id
+    documents = sorted(documents_map.values(), key=lambda d: d.document_id)
+    total_chunks = sum(len(doc.chunks) for doc in documents)
+
+    return DatasourceDocumentsResponse(
+      datasource_id=datasource_id,
+      documents=documents,
+      total_documents=len(documents),
+      total_chunks=total_chunks,
+      offset=offset,
+      limit=limit,
+      has_more=has_more,
+    )
+
+  except HTTPException:
+    raise
+  except Exception as e:
+    logger.error(f"Failed to list documents for datasource {datasource_id}: {e}")
+    raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/chunk/{chunk_id:path}/content", response_model=ChunkContentResponse)
+async def get_chunk_content(
+  chunk_id: str,
+  user: UserContext = Depends(require_role(Role.READONLY)),
+):
+  """Fetch the text content of a specific chunk."""
+  if not vector_db:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  try:
+    # Query Milvus for the specific chunk by ID
+    results = vector_db.client.query(
+      collection_name=default_collection_name_docs,
+      filter=f"id == '{chunk_id}'",
+      output_fields=["id", "text"],
+      limit=1,
+    )
+
+    if not results:
+      raise HTTPException(status_code=404, detail="Chunk not found")
+
+    chunk = results[0]
+    return ChunkContentResponse(
+      id=chunk.get("id", chunk_id),
+      text_content=chunk.get("text", ""),
+    )
+
+  except HTTPException:
+    raise
+  except Exception as e:
+    logger.error(f"Failed to fetch chunk content for {chunk_id}: {e}")
     raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -623,6 +983,20 @@ async def increment_job_failure(job_id: str, increment: int = 1, user: UserConte
 
   logger.debug(f"Incremented failure for job {job_id} by {increment}, new value: {new_value}")
   return {"job_id": job_id, "failed_counter": new_value}
+
+
+@app.post("/v1/job/{job_id}/increment-document-count")
+async def increment_job_document_count(job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+  """Increment the document count for a job."""
+  if not jobmanager:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  new_value = await jobmanager.increment_document_count(job_id, increment)
+  if new_value == -1:
+    raise HTTPException(status_code=400, detail="Cannot increment document count - job is terminated")
+
+  logger.debug(f"Incremented document count for job {job_id} by {increment}, new value: {new_value}")
+  return {"job_id": job_id, "document_count": new_value}
 
 
 @app.post("/v1/job/{job_id}/add-errors")
@@ -946,8 +1320,9 @@ async def ingest_documents(ingest_request: DocumentIngestRequest, user: UserCont
   if len(ingest_request.documents) > max_documents_per_ingest:
     return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": f"Number of documents exceeds the maximum limit of {max_documents_per_ingest} per ingestion request."})
 
-  if ingest_request.fresh_until is None:
-    ingest_request.fresh_until = get_default_fresh_until()
+  if ingest_request.fresh_until is None or ingest_request.fresh_until == 0:
+    # Calculate fresh_until from datasource reload_interval
+    ingest_request.fresh_until = get_fresh_until(datasource_info.reload_interval)
 
   if datasource_info.default_chunk_overlap is None:
     datasource_info.default_chunk_overlap = 0
@@ -1265,14 +1640,19 @@ async def health_check():
 
   config = {
     "graph_rag_enabled": graph_rag_enabled,
+    "cleanup": {
+      "enabled": cleanup_enabled,
+      "interval_seconds": clean_up_interval,
+      "last_cleanup": last_cleanup_timestamp,
+    },
     "search": {
       "keys": valid_metadata_keys(),
+      "filter_keys": valid_metadata_keys_with_types(),
     },
     "vector_db": {"milvus": {"uri": milvus_uri, "collections": [default_collection_name_docs], "index_params": {"dense": dense_index_params, "sparse": sparse_index_params}}},
     "embeddings": {"model": embeddings_model},
     "metadata_storage": {"redis": {"url": redis_url}},
     "ui_url": ui_url,
-    "datasources": await metadata_storage.fetch_all_datasource_info() if metadata_storage else [],
   }
 
   if graph_rag_enabled:
@@ -1280,7 +1660,7 @@ async def health_check():
       config["graph_db"] = {
         "data_graph": {"type": data_graph_db.database_type, "query_language": data_graph_db.query_language, "uri": neo4j_addr, "tenant_label": data_graph_db.tenant_label},
         "ontology_graph": {"type": ontology_graph_db.database_type, "query_language": ontology_graph_db.query_language, "uri": neo4j_addr, "tenant_label": ontology_graph_db.tenant_label},
-        "graph_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
+        "structured_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
       }
 
   response = {"status": health_status, "timestamp": int(time.time()), "details": health_details, "config": config}
@@ -1513,10 +1893,10 @@ async def get_mcp_tool_schemas(user: UserContext = Depends(require_role(Role.REA
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Get all registered tools from FastMCP
-  registered_tools = await mcp.get_tools()
+  registered_tools = await mcp.list_tools()
 
   tools_with_schemas = []
-  for tool in registered_tools.values():
+  for tool in registered_tools:
     tools_with_schemas.append(
       {
         "name": tool.name,
@@ -1548,8 +1928,8 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
   # Find the tool
-  registered_tools = await mcp.get_tools()
-  tool = registered_tools.get(request.tool_name)
+  registered_tools = await mcp.list_tools()
+  tool = next((t for t in registered_tools if t.name == request.tool_name), None)
 
   if not tool:
     raise HTTPException(status_code=404, detail=f"MCP tool '{request.tool_name}' not found")

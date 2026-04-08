@@ -18,12 +18,12 @@ from langchain_core.documents import Document
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.job_manager import JobStatus
-from common import utils
+from common.utils import get_logger, get_fresh_until
 
-logger = utils.get_logger(__name__)
+logger = get_logger(__name__)
 
 
-# Get sync interval
+# Sync interval (also used to calculate fresh_until)
 sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
@@ -329,7 +329,7 @@ class WebexSpaceSyncer:
       document_id=f"webex-thread-{space_id}-{parent_id}",
       title=f"Thread: {thread_preview}",
       description=f"Webex thread started by {parent_email} with {len(replies)} replies",
-      is_graph_entity=False,
+      is_structured_entity=False,
       fresh_until=0,
       metadata={
         "space_name": space_name,
@@ -388,7 +388,7 @@ class WebexSpaceSyncer:
       document_id=f"webex-message-{space_id}-{message_id}",
       title=f"Message: {message_preview}",
       description=f"Webex message from {person_email}",
-      is_graph_entity=False,
+      is_structured_entity=False,
       fresh_until=0,
       metadata={"space_name": space_name, "space_id": space_id, "message_id": message_id, "person_email": person_email, "created": created, "has_files": len(files) > 0, "type": "webex_message", "source_uri": f"https://web.webex.com/spaces/{space_id}", "last_modified": iso_to_timestamp(created)},
     )
@@ -442,6 +442,7 @@ async def sync_webex_spaces(client: Client):
       last_updated=int(time.time()),
       default_chunk_size=10000,
       default_chunk_overlap=2000,
+      reload_interval=sync_interval,
       metadata={"space_id": space_id, "space_name": space_name, "last_message_time": newest_time, "bot_name": bot_name},
     )
     await client.upsert_datasource(datasource)
@@ -460,8 +461,8 @@ async def sync_webex_spaces(client: Client):
     job_id = job_response["job_id"]
 
     try:
-      # Ingest documents with fresh_until timestamp
-      fresh_until = iso_to_timestamp(newest_time) if newest_time else int(time.time())
+      # Ingest documents with fresh_until based on sync interval (not message timestamp)
+      fresh_until = get_fresh_until(sync_interval)
       await client.ingest_documents(job_id=job_id, datasource_id=datasource_id, documents=documents, fresh_until=fresh_until)
 
       # Update job status

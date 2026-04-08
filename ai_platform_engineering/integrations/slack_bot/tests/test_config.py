@@ -25,7 +25,7 @@ class TestChannelIDToJira:
         # Uses default from conftest
         cfg = Config.from_env()
         assert "C123" in cfg.channels
-        assert cfg.channels["C123"].default["project_key"] == "TEST"
+        assert cfg.channels["C123"].other.jira.project_key == "TEST"
 
     def test_config_missing_env_var_raises(self, monkeypatch):
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
@@ -38,20 +38,21 @@ class TestChannelIDToJira:
         with pytest.raises(Exception):  # JSON decode error
             Config.from_env()
 
-    def test_config_missing_default_raises(self, monkeypatch):
+    def test_config_without_other_uses_defaults(self, monkeypatch):
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
             '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "false"}, "ai_alerts": {"enabled": "false"}}}',
         )
-        with pytest.raises(Exception):  # Pydantic validation error - missing required field
-            Config.from_env()
+        cfg = Config.from_env()
+        assert cfg.channels["C123"].other is not None
+        assert cfg.channels["C123"].other.jira is None  # No jira config by default
 
     def test_config_with_custom_prompt(self, monkeypatch):
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
-            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "Custom: {message_text}"}, "ai_alerts": {"enabled": "false"}, "default": {"project_key": "TEST"}}}',
+            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "Custom: {message_text}"}, "ai_alerts": {"enabled": "false"}, "other": {"jira": {"project_key": "TEST"}}}}',
         )
         cfg = Config.from_env()
         cfg.apply_defaults_to_channels()
@@ -76,7 +77,7 @@ class TestChannelIDToJira:
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
-            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "test"}, "ai_alerts": {"enabled": "false"}, "default": {"project_key": "TEST"}}}',
+            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "test"}, "ai_alerts": {"enabled": "false"}, "other": {"jira": {"project_key": "TEST"}}}}',
         )
         cfg = Config.from_env()
         cfg.apply_defaults_to_channels()
@@ -92,7 +93,7 @@ class TestChannelIDToJira:
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
-            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "include_bots": {"enabled": "true", "bot_list": ["Bot1", "Bot2"]}}, "ai_alerts": {"enabled": "false"}, "default": {"project_key": "TEST"}}}',
+            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "include_bots": {"enabled": "true", "bot_list": ["Bot1", "Bot2"]}}, "ai_alerts": {"enabled": "false"}, "other": {"jira": {"project_key": "TEST"}}}}',
         )
         cfg = Config.from_env()
         assert cfg.channels["C123"].qanda.include_bots.enabled is True
@@ -127,7 +128,7 @@ C123:
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         monkeypatch.setenv(
             "CAIPE_BOT_CONFIG",
-            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "include_bots": {"enabled": "true"}}, "ai_alerts": {"enabled": "true"}, "default": {"project_key": "TEST"}}}',
+            '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "include_bots": {"enabled": "true"}}, "ai_alerts": {"enabled": "true"}, "other": {"jira": {"project_key": "TEST"}}}}',
         )
         with pytest.raises(Exception, match="Cannot enable both"):
             Config.from_env()

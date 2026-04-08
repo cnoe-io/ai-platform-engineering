@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any, Set
 
 from common.ingestor import IngestorBuilder, Client
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobStatus
 import common.utils as utils
@@ -132,9 +132,9 @@ async def ensure_cluster_entity_exists(client: Client, cluster_name: str, dataso
   try:
     logging.info(f"Ingesting K8sCluster entity for cluster: {cluster_name}")
 
-    cluster_entity = Entity(entity_type="K8sCluster", primary_key_properties=["name"], all_properties={"name": cluster_name})
+    cluster_entity = StructuredEntity(entity_type="K8sCluster", primary_key_properties=["name"], all_properties={"name": cluster_name})
 
-    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=[cluster_entity], fresh_until=utils.get_default_fresh_until())
+    await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=[cluster_entity], fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
     logging.info(f"Ingested K8sCluster entity: {cluster_name}")
 
   except Exception as e:
@@ -207,6 +207,7 @@ async def sync_k8s_resources(client: Client):
     last_updated=int(time.time()),
     default_chunk_size=0,  # Skip chunking for graph entities
     default_chunk_overlap=0,
+    reload_interval=SYNC_INTERVAL,
     metadata={
       "cluster_name": CLUSTER_NAME,
       "resource_types": list(RESOURCE_LIST),
@@ -270,7 +271,7 @@ async def sync_k8s_resources(client: Client):
           logging.warning(f"Cannot access {resource.kind}: {e}")
           continue
 
-        # Convert each object to an Entity
+        # Convert each object to an StructuredEntity
         for obj in objects.items:
           try:
             # Generate unique identifier for logging
@@ -296,8 +297,8 @@ async def sync_k8s_resources(client: Client):
             if metadata.get("uid"):
               additional_keys.append(["cluster_name", "metadata.uid"])
 
-            # Create Entity
-            entity = Entity(entity_type=normalize_k8s_kind_to_entity_type(resource.kind), primary_key_properties=primary_key_props, additional_key_properties=additional_keys, all_properties=filtered_resource)
+            # Create StructuredEntity
+            entity = StructuredEntity(entity_type=normalize_k8s_kind_to_entity_type(resource.kind), primary_key_properties=primary_key_props, additional_key_properties=additional_keys, all_properties=filtered_resource)
             all_entities.append(entity)
 
           except Exception as e:
@@ -322,7 +323,7 @@ async def sync_k8s_resources(client: Client):
     if all_entities:
       logging.info(f"Ingesting {len(all_entities)} entities with automatic batching")
 
-      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=all_entities, fresh_until=utils.get_default_fresh_until())
+      await client.ingest_entities(job_id=job_id, datasource_id=datasource_id, entities=all_entities, fresh_until=utils.get_fresh_until(SYNC_INTERVAL))
 
       # Update progress
       await client.increment_job_progress(job_id, len(all_entities))

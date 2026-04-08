@@ -251,15 +251,15 @@ huggingface = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cymple", specifier = ">=0.12.0" },
-    { name = "langchain-aws", specifier = ">=0.2.24" },
-    { name = "langchain-cohere", specifier = ">=0.3.0" },
-    { name = "langchain-huggingface", marker = "extra == 'huggingface'", specifier = ">=0.3.0" },
-    { name = "langchain-ollama", specifier = ">=0.3.0" },
-    { name = "langchain-openai", specifier = ">=0.3.18" },
-    { name = "neo4j", specifier = ">=5.28.1" },
-    { name = "pydantic", specifier = ">=2.11.7" },
-    { name = "redis", specifier = ">=6.2.0" },
+    { name = "cymple", specifier = "==0.12.0" },
+    { name = "langchain-aws", specifier = "==1.1.0" },
+    { name = "langchain-cohere", specifier = "==0.5.0" },
+    { name = "langchain-huggingface", marker = "extra == 'huggingface'", specifier = "==1.0.1" },
+    { name = "langchain-ollama", specifier = "==1.0.0" },
+    { name = "langchain-openai", specifier = "==1.0.3" },
+    { name = "neo4j", specifier = "==5.28.2" },
+    { name = "pydantic", specifier = "==2.11.9" },
+    { name = "redis", specifier = "==6.4.0" },
 ]
 provides-extras = ["huggingface"]
 
@@ -628,7 +628,7 @@ wheels = [
 
 [[package]]
 name = "langchain-aws"
-version = "1.0.0"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
@@ -636,9 +636,9 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/52/7e57fb7fc34c386625f66f0ab31da9cf2788b03ef15ae78ccd4c627b30cf/langchain_aws-1.0.0.tar.gz", hash = "sha256:597342bda0e7384e13590e9ab69c872ddcfbbf07d81ac6bb0f8a67970252212e", size = 214146, upload-time = "2025-10-17T19:06:49.001Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/1d/bb306951b1c394b7a27effb8eb6c9ee65dd77fcc4be7c20f76e3299a9e1e/langchain_aws-1.1.0.tar.gz", hash = "sha256:1e2f8570328eae4907c3cf7e900dc68d8034ddc865d9dc96823c9f9d8cccb901", size = 393899, upload-time = "2025-11-24T14:35:24.216Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/5d/5b3c07780a8eb4b916ffe504893896f87f318924c86dcbeb89562baa2d20/langchain_aws-1.0.0-py3-none-any.whl", hash = "sha256:68f6965b5030d0779b02e731ce1c910a5f4518bfe0e2ae82999a5342bc46dbd5", size = 150400, upload-time = "2025-10-17T19:06:47.926Z" },
+    { url = "https://files.pythonhosted.org/packages/26/33/91b8d2a7570657b371382b45054142c54165a51706990a5c1b4cc40c0e9a/langchain_aws-1.1.0-py3-none-any.whl", hash = "sha256:8ec074615b42839e035354063717374c32c63f5028ef5221ba073fd5f3ef5e37", size = 152432, upload-time = "2025-11-24T14:35:23.004Z" },
 ]
 
 [[package]]

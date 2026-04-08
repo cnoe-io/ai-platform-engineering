@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple, Union
-from common.models.graph import Entity, Relation, EntityIdentifier
+from common.models.rag import StructuredEntity, StructuredEntityId
+from common.models.graph import Relation
 
 
 class GraphDB(ABC):
@@ -27,7 +28,7 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def fuzzy_search_batch(self, batch_keywords: List[List[List[Union[str, Tuple[float, str]]]]], exclude_type_filter: List[str] = [], num_record_per_type: int = 0, require_single_match_per_type: bool = False, strict: bool = True, max_results=100) -> List[List[Tuple[Entity, float]]]:
+  async def fuzzy_search_batch(self, batch_keywords: List[List[List[Union[str, Tuple[float, str]]]]], exclude_type_filter: List[str] = [], num_record_per_type: int = 0, require_single_match_per_type: bool = False, strict: bool = True, max_results=100) -> List[List[Tuple[StructuredEntity, float]]]:
     """
     Executes multiple fuzzy search queries in a batch for improved efficiency.
     Implementation should use a single database call (e.g., using UNWIND in Cypher) to minimize network overhead.
@@ -84,7 +85,7 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def fetch_entities_batch(self, offset: int = 0, limit: int = 10000, entity_type: str | None = None) -> List[Entity]:
+  async def fetch_entities_batch(self, offset: int = 0, limit: int = 10000, entity_type: str | None = None) -> List[StructuredEntity]:
     """
     Fetch entities in batches for efficient bulk processing.
 
@@ -101,7 +102,7 @@ class GraphDB(ABC):
     Fetch raw entity properties in batches without pydantic parsing.
     Returns simple dictionaries with only the requested properties.
 
-    :param labels: List of labels to match (e.g., ["NxsDataEntity"])
+    :param labels: List of labels to match (e.g., ["NxsDataStructuredEntity"])
     :param properties: List of property names to return (e.g., ["_entity_pk", "_entity_type"])
     :param offset: Number of entities to skip (for pagination)
     :param limit: Maximum number of entities to return
@@ -111,7 +112,7 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def find_entity(self, entity_type: str | None, properties: dict | None, max_results=10000) -> List[Entity]:
+  async def find_entity(self, entity_type: str | None, properties: dict | None, max_results=10000) -> List[StructuredEntity]:
     """
     Finds an entity in the graph database
     :param entity_type: type of entity, empty for any
@@ -122,7 +123,7 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def fetch_entity(self, entity_type: str, primary_key_value: str) -> Entity | None:
+  async def fetch_entity(self, entity_type: str, primary_key_value: str) -> StructuredEntity | None:
     """
     Gets a single entity by type and primary key value
     :param entity_type: type of entity
@@ -166,7 +167,7 @@ class GraphDB(ABC):
     """
     raise NotImplementedError("Subclasses must implement this method.")
 
-  async def update_entity(self, entity_type: str, entities: List[Entity]):
+  async def update_entity(self, entity_type: str, entities: List[StructuredEntity]):
     """
     Batch update entities of a single type in the graph database (Creates if it does not exist).
     This is a backwards-compatible wrapper that calls update_entity_batch().
@@ -178,7 +179,7 @@ class GraphDB(ABC):
     return await self.update_entity_batch(entities, batch_size=1000)
 
   @abstractmethod
-  async def update_entity_batch(self, entities: List[Entity], batch_size: int = 1000):
+  async def update_entity_batch(self, entities: List[StructuredEntity], batch_size: int = 1000):
     """
     Batch update entities in the graph database (Creates if it does not exist).
     This method handles grouping internally and executes all updates in minimal network calls.
@@ -231,9 +232,15 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def remove_stale_entities(self):
+  async def remove_stale_entities(self, datasource_id: str | None = None) -> int:
     """
-    Removes all entities that are stale (not updated for a long time)
+    Removes all entities that are stale (not updated for a long time).
+
+    Args:
+      datasource_id: Optional filter to only clean specific datasource.
+
+    Returns:
+      Number of entities deleted.
     """
     raise NotImplementedError("Subclasses must implement this method.")
 
@@ -287,11 +294,11 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def shortest_path(self, entity_a: EntityIdentifier, entity_b: EntityIdentifier, ignore_direction=True, max_depth=20):
+  async def shortest_path(self, entity_a: StructuredEntityId, entity_b: StructuredEntityId, ignore_direction=True, max_depth=20):
     """
     Finds all shortest paths between two entities in the graph database
-    :param entity_a: EntityIdentifier of the first entity
-    :param entity_b: EntityIdentifier of the second entity
+    :param entity_a: StructuredEntityId of the first entity
+    :param entity_b: StructuredEntityId of the second entity
     :param ignore_direction: If True, treat relationships as undirected
     :param max_depth: Maximum path length to search
     :return: A list of tuples, each containing (entities_path, relations_path)
@@ -366,7 +373,7 @@ class GraphDB(ABC):
     raise NotImplementedError("Subclasses must implement this method.")
 
   @abstractmethod
-  async def fetch_random_entities(self, count: int = 10, entity_type: str | None = None) -> List[Entity]:
+  async def fetch_random_entities(self, count: int = 10, entity_type: str | None = None) -> List[StructuredEntity]:
     """
     Fetch random entities from the graph database.
 

@@ -291,8 +291,8 @@ Queries support filtering by metadata fields:
 **Valid Filter Keys:**
 - `datasource_id` - Filter by data source
 - `ingestor_id` - Filter by ingestor
-- `is_graph_entity` - Filter for graph entities only
-- `graph_entity_type` - Filter by entity type (e.g., Pod)
+- `is_structured_entity` - Filter for structured entities only
+- `structured_entity_type` - Filter by entity type (e.g., Pod)
 - `document_type` - Filter by document type
 
 Multiple filters can be combined with AND logic.

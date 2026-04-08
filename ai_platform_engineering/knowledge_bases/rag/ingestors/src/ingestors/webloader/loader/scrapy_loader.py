@@ -13,7 +13,8 @@ from common.models.server import ScrapySettings
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobManager, JobStatus
 from common.ingestor import Client
-from common.utils import get_logger
+from common.utils import get_logger, get_fresh_until
+from common.constants import MIN_RELOAD_INTERVAL
 
 from .worker_pool import get_worker_pool
 from .worker_types import CrawlRequest, CrawlProgress, CrawlDocuments, CrawlResult, CrawlStatus
@@ -91,6 +92,15 @@ class ScrapyLoader:
       # Get worker pool
       pool = await get_worker_pool()
 
+      # Get reload_interval from datasource, clamp to minimum to prevent tight loops
+      reload_interval = self.datasource_info.reload_interval
+      if reload_interval < MIN_RELOAD_INTERVAL:
+        self.logger.warning(f"Datasource {self.datasource_info.datasource_id} has reload_interval {reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, clamping to minimum")
+        reload_interval = MIN_RELOAD_INTERVAL
+
+      # Calculate fresh_until for document ingestion
+      fresh_until = get_fresh_until(reload_interval)
+
       # Build crawl request
       request = CrawlRequest(
         job_id=job_id,
@@ -111,6 +121,7 @@ class ScrapyLoader:
         user_agent=settings.user_agent,
         ingestor_id=self.client.ingestor_id or "",
         datasource_name=getattr(self.datasource_info, "name", "") or "",
+        reload_interval=reload_interval,
       )
 
       # Progress tracking state
@@ -173,11 +184,11 @@ class ScrapyLoader:
             job_id=job_id,
             datasource_id=self.datasource_info.datasource_id,
             documents=documents,
+            fresh_until=fresh_until,
           )
+          # Note: document_count is auto-incremented by Client.ingest_documents()
 
           documents_ingested += len(documents)
-          await self.job_manager.increment_document_count(job_id, len(documents))
-
           self.logger.info(f"Ingested batch {docs.batch_number} ({len(documents)} documents, {documents_ingested} total)")
           return True  # Continue crawling
 
@@ -208,7 +219,7 @@ class ScrapyLoader:
       self.logger.info(f"Crawl completed: {result.pages_crawled} pages, status: {result.status}, documents_ingested: {documents_ingested}")
 
       # Process final result (handles any remaining documents and status)
-      await self._process_result(result, job_id, url, documents_ingested, crawl_cancelled)
+      await self._process_result(result, job_id, url, fresh_until, documents_ingested, crawl_cancelled)
 
     except Exception as e:
       self.logger.error(f"Crawl failed: {e}")
@@ -229,6 +240,7 @@ class ScrapyLoader:
     result: CrawlResult,
     job_id: str,
     url: str,
+    fresh_until: int,
     documents_already_ingested: int = 0,
     crawl_cancelled: bool = False,
   ):
@@ -243,6 +255,7 @@ class ScrapyLoader:
         result: Crawl result from worker
         job_id: Job ID
         url: Original URL
+        fresh_until: Timestamp until which data is considered fresh (epoch seconds)
         documents_already_ingested: Count of documents already sent to server via streaming
         crawl_cancelled: True if crawl was cancelled (e.g., job terminated)
     """
@@ -337,11 +350,10 @@ class ScrapyLoader:
             job_id=job_id,
             datasource_id=self.datasource_info.datasource_id,
             documents=batch,
+            fresh_until=fresh_until,
           )
+          # Note: document_count is auto-incremented by Client.ingest_documents()
           self.logger.info(f"Ingested final batch {batch_num}/{total_batches} ({len(batch)} documents)")
-
-          # Track document count
-          await self.job_manager.increment_document_count(job_id, len(batch))
 
         except Exception as e:
           error_msg = f"Failed to ingest final batch {batch_num}/{total_batches}: {e}"

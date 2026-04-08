@@ -110,6 +110,7 @@ def _create_datasource_info(
     last_updated=int(time.time()),
     default_chunk_size=1000,
     default_chunk_overlap=200,
+    reload_interval=RELOAD_INTERVAL,
   )
 
 
