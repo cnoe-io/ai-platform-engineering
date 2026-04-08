@@ -5,10 +5,10 @@ import { signOut } from "next-auth/react";
 import { motion } from "framer-motion";
 import { ShieldX, LogOut, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { REQUIRED_GROUP } from "@/lib/auth-config";
 import { config } from "@/lib/config";
 
 export default function UnauthorizedPage() {
-  const requiredGroup = config.oidcRequiredGroup;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -44,7 +44,7 @@ export default function UnauthorizedPage() {
           <div className="bg-muted/50 rounded-lg p-4 mb-6 border border-border">
             <p className="text-xs text-muted-foreground mb-1">Required Group Membership</p>
             <code className="text-sm font-mono text-foreground bg-background px-2 py-1 rounded">
-              {requiredGroup}
+              {REQUIRED_GROUP}
             </code>
           </div>
 
@@ -54,7 +54,7 @@ export default function UnauthorizedPage() {
             <ul className="text-sm text-muted-foreground space-y-2">
               <li className="flex items-start gap-2">
                 <span className="text-primary mt-0.5">•</span>
-                Contact your IT administrator to request access to the <strong>{requiredGroup}</strong> group
+                Contact your IT administrator to request access to the <strong>{REQUIRED_GROUP}</strong> group
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-primary mt-0.5">•</span>
