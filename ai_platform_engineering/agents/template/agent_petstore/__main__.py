@@ -24,13 +24,8 @@ from a2a.types import (
   AgentSkill
 )
 
-from starlette.middleware.cors import CORSMiddleware
-from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
-
 load_dotenv()
 
-A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
 METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
 AGENT_NAME = 'petstore'
@@ -88,56 +83,6 @@ async def async_main(host: str, port: int):
     )
     
     await server.serve()
-
-    if A2A_TRANSPORT == "slim":
-        agent_url = SLIM_ENDPOINT
-    else:
-        agent_url = f'http://{host}:{port}'
-
-    server = A2AStarletteApplication(
-        agent_card=create_agent_card(agent_url), http_handler=request_handler
-    )
-
-    if A2A_TRANSPORT == 'slim':
-        # Run A2A server over SLIM transport
-        # https://docs.agntcy.org/messaging/slim-core/
-        print("Running A2A server in SLIM mode.")
-        factory = AgntcyFactory()
-        transport = factory.create_transport("SLIM", endpoint=agent_url)
-        print("Transport created successfully.")
-
-        bridge = factory.create_bridge(server, transport=transport)
-        print("Bridge created successfully. Starting the bridge.")
-        await bridge.start(blocking=True)
-    else:
-        # Run a p2p A2A server
-        print("Running A2A server in p2p mode.")
-        app = server.build()
-
-        # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],  # Allow all origins
-            allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-            allow_headers=["*"],  # Allow all headers
-        )
-
-        # Add Prometheus metrics middleware if enabled
-        if METRICS_ENABLED:
-            app.add_middleware(
-                PrometheusMetricsMiddleware,
-                excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/healthz", "/ready"],
-                metrics_path="/metrics",
-                agent_name="petstore",
-            )
-
-        # Configure uvicorn access log to DEBUG level for health checks
-        access_logger = logging.getLogger("uvicorn.access")
-        access_logger.setLevel(logging.DEBUG)
-
-        config = uvicorn.Config(app, host=host, port=port, access_log=True)
-        server = uvicorn.Server(config=config)
-        await server.serve()
 
 if __name__ == '__main__':
     main()
