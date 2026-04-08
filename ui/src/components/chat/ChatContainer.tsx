@@ -34,7 +34,7 @@ export function ChatContainer() {
   const [agentNotFound, setAgentNotFound] = useState(false);
 
   // Only subscribe to stable functions — NOT to `conversations`.
-  const { setActiveConversation, loadMessagesFromServer } = useChatStore();
+  const { setActiveConversation, loadMessagesFromServer, loadTurnsFromServer } = useChatStore();
 
   // Subscribe reactively to agent_id for this conversation.
   const selectedAgentId = useChatStore(
@@ -50,7 +50,9 @@ export function ChatContainer() {
     if (selectedAgentId && dynamicAgentsEnabled) {
       return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
     }
-    return caipeUrl;
+    // Platform Engineer: AG-UI client talks directly to the backend
+    // The backend has CORS enabled so browser can connect directly
+    return `${caipeUrl}/chat/stream`;
   }, [selectedAgentId, dynamicAgentsEnabled, dynamicAgentsUrl, caipeUrl]);
 
   const storageMode = getStorageMode();
@@ -135,6 +137,7 @@ export function ChatContainer() {
         }
 
         const hasMessages = localConv.messages && localConv.messages.length > 0;
+        const isDynamicAgent = !!localConv.agent_id;
 
         if (hasMessages) {
           console.log("[ChatContainer] Found conversation in store with messages, loading instantly");
@@ -142,14 +145,25 @@ export function ChatContainer() {
           setFetchDone(true);
 
           if (storageMode === 'mongodb') {
-            loadMessagesFromServer(uuid).catch((err) => {
-              console.warn('[ChatContainer] Failed to sync messages from server:', err);
-            });
+            // Dynamic Agents use the old messages path; Platform Engineer uses turns
+            if (isDynamicAgent) {
+              loadMessagesFromServer(uuid).catch((err) => {
+                console.warn('[ChatContainer] Failed to sync messages from server:', err);
+              });
+            } else {
+              loadTurnsFromServer(uuid).catch((err) => {
+                console.warn('[ChatContainer] Failed to sync turns from server:', err);
+              });
+            }
           }
         } else if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Found conversation in store but no messages, loading from MongoDB...");
           try {
-            await loadMessagesFromServer(uuid, { force: true });
+            if (isDynamicAgent) {
+              await loadMessagesFromServer(uuid, { force: true });
+            } else {
+              await loadTurnsFromServer(uuid);
+            }
           } catch (err) {
             console.warn('[ChatContainer] Failed to load messages from server:', err);
           } finally {
@@ -179,7 +193,7 @@ export function ChatContainer() {
               createdAt: new Date(conv.created_at),
               updatedAt: new Date(conv.updated_at),
               messages: [],
-              a2aEvents: [],
+
               sseEvents: [],
               agent_id: conv.agent_id,
             };
@@ -191,7 +205,12 @@ export function ChatContainer() {
             setConversation(localConv);
 
             try {
-              await loadMessagesFromServer(uuid);
+              // Dynamic Agents use the old messages path; Platform Engineer uses turns
+              if (conv.agent_id) {
+                await loadMessagesFromServer(uuid);
+              } else {
+                await loadTurnsFromServer(uuid);
+              }
             } catch (err) {
               console.warn('[ChatContainer] Failed to load messages from server:', err);
             }
@@ -214,7 +233,7 @@ export function ChatContainer() {
               createdAt: new Date(),
               updatedAt: new Date(),
               messages: [],
-              a2aEvents: [],
+
               sseEvents: [],
             };
 
@@ -232,7 +251,6 @@ export function ChatContainer() {
             createdAt: new Date(),
             updatedAt: new Date(),
             messages: [],
-            a2aEvents: [],
             sseEvents: [],
           };
 
@@ -250,7 +268,6 @@ export function ChatContainer() {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          a2aEvents: [],
           sseEvents: [],
         };
 
@@ -268,7 +285,7 @@ export function ChatContainer() {
 
     loadConversation();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer]);
+  }, [uuid, storageMode, setActiveConversation, loadMessagesFromServer, loadTurnsFromServer]);
 
   // Fetch agent info when a dynamic agent is selected
   useEffect(() => {

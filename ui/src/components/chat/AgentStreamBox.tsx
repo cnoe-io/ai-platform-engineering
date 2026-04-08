@@ -4,14 +4,12 @@ import React, { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, Copy, Check, Radio, Loader2, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { A2AEvent } from "@/types/a2a";
 import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
 
-// Union type to support both A2A and SSE events
-type AgentEvent = A2AEvent | SSEAgentEvent;
+type AgentEvent = SSEAgentEvent;
 
 interface AgentStreamBoxProps {
   agentName: string;
@@ -47,12 +45,6 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
     for (const event of events) {
       // Skip tool notifications - they're shown in Tasks panel
       if (event.type === "tool_start" || event.type === "tool_end") {
-        continue;
-      }
-
-      // Skip execution plan artifacts - shown in Tasks panel (A2A events only)
-      if ('artifact' in event && event.artifact?.name === "execution_plan_update" ||
-          'artifact' in event && event.artifact?.name === "execution_plan_status_update") {
         continue;
       }
 
@@ -123,11 +115,7 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
     }
 
     // Check completion status
-    // For A2A events, check artifact name; for SSE events, check isFinal
-    const hasFinalResult = events.some(e =>
-      ('artifact' in e && (e.artifact?.name === "final_result" || e.artifact?.name === "partial_result")) ||
-      e.isFinal === true
-    );
+    const hasFinalResult = events.some(e => e.isFinal === true);
     if (hasFinalResult) return "completed";
 
     const hasErrors = events.some(e => e.type === "error");

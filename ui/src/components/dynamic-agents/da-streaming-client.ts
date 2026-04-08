@@ -1,12 +1,13 @@
 /**
- * Dynamic Agent Client
+ * Dynamic Agent Streaming Client
  *
  * Lightweight SSE streaming client for Dynamic Agents.
  * POSTs to the UI proxy route and parses SSE events, yielding
- * SSEAgentEvent objects for ChatPanel to process.
+ * SSEAgentEvent objects for DynamicAgentChatPanel to process.
  *
- * This client is intentionally separate from A2ASDKClient to maintain
- * clean architectural separation between A2A and Dynamic Agents.
+ * This client is intentionally separate from the AG-UI path to maintain
+ * clean architectural separation between the Platform Engineer (AG-UI)
+ * and Dynamic Agents (custom SSE protocol) streaming paths.
  *
  * SSE event types from the backend (stream_events.py):
  *   - content: streaming text token (data is a string)
@@ -200,12 +201,12 @@ export class DynamicAgentClient {
 
         // Debug: log warning events
         if (rawEvent.event === "warning") {
-          console.log(`[DynamicAgent] ⚠️ Received warning event:`, rawEvent.data);
+          console.log(`[DynamicAgent] Received warning event:`, rawEvent.data);
         }
 
         // Handle input_required event (HITL form request)
         if (rawEvent.event === "input_required") {
-          console.log(`[DynamicAgent] 📝 Input required:`, rawEvent.data);
+          console.log(`[DynamicAgent] Input required:`, rawEvent.data);
           // Continue to yield the event so UI can render form
         }
 
@@ -303,7 +304,7 @@ export class DynamicAgentClient {
 
         // Handle input_required event (agent may request more input)
         if (rawEvent.event === "input_required") {
-          console.log(`[DynamicAgent] 📝 Additional input required:`, rawEvent.data);
+          console.log(`[DynamicAgent] Additional input required:`, rawEvent.data);
         }
 
         const agentEvent = this.mapToAgentEvent(rawEvent);
@@ -432,11 +433,11 @@ export class DynamicAgentClient {
 
     // ─── error: agent error ──────────────────────────────────────────
     if (event === "error") {
-      console.log(`[DynamicAgent] ❌ Received error event:`, data);
+      console.log(`[DynamicAgent] Received error event:`, data);
       try {
         const parsed = JSON.parse(data);
         const errorMsg = parsed.error || "Unknown error";
-        console.log(`[DynamicAgent] ❌ Parsed error message:`, errorMsg);
+        console.log(`[DynamicAgent] Parsed error message:`, errorMsg);
         return {
           id: `sse-error-${Date.now()}`,
           timestamp: new Date(),
@@ -448,7 +449,7 @@ export class DynamicAgentClient {
           namespace: parsed.namespace ?? [],
         };
       } catch {
-        console.log(`[DynamicAgent] ❌ Failed to parse error, using raw data`);
+        console.log(`[DynamicAgent] Failed to parse error, using raw data`);
         return {
           id: `sse-error-${Date.now()}`,
           timestamp: new Date(),

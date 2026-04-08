@@ -28,6 +28,9 @@ from a2a.utils import new_agent_text_message, new_task, new_text_artifact
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
     AIPlatformEngineerA2ABinding
 )
+from ai_platform_engineering.multi_agents.platform_engineer.persisted_stream import (
+    PersistedStreamHandler,
+)
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 
 logger = logging.getLogger(__name__)
@@ -83,6 +86,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # The step_id the LLM is currently working on (set when write_todos
         # marks a step as in_progress). All tool notifications inherit this.
         self._current_plan_step_id: str | None = None
+
+        # Server-side turn persistence (no-op when MongoDB is unavailable)
+        self._persistence = PersistedStreamHandler()
 
     def _is_last_plan_step_active(self) -> bool:
         """Check if the last plan step is currently in_progress.
@@ -849,11 +855,33 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         state = StreamState()
         state.trace_id = trace_id  # For client feedback/scoring
 
+        conversation_id = context_id or task.context_id or str(uuid.uuid4())
+
         try:
             self.agent._pending_user_email = user_email
             stream_params = inspect.signature(self.agent.stream).parameters
             stream_kwargs = {"user_id": user_id} if "user_id" in stream_params else {}
-            async for event in self.agent.stream(query, context_id, trace_id, **stream_kwargs):
+
+            # Wrap the supervisor stream with turn persistence.
+            # PersistedStreamHandler handles create_turn / append_event /
+            # append_content / complete_turn so the executor stays focused on
+            # A2A protocol translation.
+            raw_stream = self.agent.stream(query, context_id, trace_id, **stream_kwargs)
+            persisted_stream = self._persistence.stream_with_persistence(
+                source=raw_stream,
+                conversation_id=conversation_id,
+                user_message={
+                    "content": query or "",
+                    "sender_email": user_email,
+                },
+                metadata={
+                    "source": "web",
+                    "trace_id": trace_id,
+                    "agent_id": "platform_engineer",
+                },
+            )
+
+            async for event in persisted_stream:
                 # FIX for A2A Streaming Duplication (Retry/Fallback):
                 # When the agent encounters an error (e.g., orphaned tool calls) and retries,
                 # the executor may have already accumulated content from the failed attempt.

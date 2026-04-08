@@ -1,18 +1,27 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus } from "@/types/a2a";
+import { Conversation, ChatMessage, MessageFeedback, TurnStatus } from "@/types/a2a";
 import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
-import { A2AClient } from "@/lib/a2a-client";
-import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
+import { DynamicAgentClient } from "@/components/dynamic-agents/da-streaming-client";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
+import { TimelineManager } from "@/lib/timeline-manager";
+import { parsePlanStepsFromTodos } from "@/lib/timeline-parsers";
+import { streamAGUIEvents } from "@/lib/agui/hooks";
+import type { InputRequiredPayload } from "@/lib/agui/types";
+
+/** Minimal interface required for streaming client references. */
+interface AbortableClient {
+  abort(): void;
+}
 
 // Track streaming state per conversation
 interface StreamingState {
   conversationId: string;
   messageId: string;
-  client: A2AClient;
+  /** Streaming client — only abort() is required */
+  client: AbortableClient;
   // For Dynamic Agents: client reference for backend cancellation
   dynamicAgentClient?: DynamicAgentClient;
 }
@@ -22,7 +31,6 @@ interface ChatState {
   activeConversationId: string | null;
   isStreaming: boolean;
   streamingConversations: Map<string, StreamingState>;
-  a2aEvents: A2AEvent[];
   pendingMessage: string | null; // Message to auto-submit when ChatPanel mounts
 
   // Per-turn event tracking: selectedTurnId per conversation
@@ -37,17 +45,13 @@ interface ChatState {
   // Actions
   createConversation: (agentId?: string) => string;
   setActiveConversation: (id: string) => void;
-  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => string;
+  addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (conversationId: string, messageId: string, content: string) => void;
-  addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => void;
   setStreaming: (streaming: boolean) => void;
   setConversationStreaming: (conversationId: string, state: StreamingState | null) => void;
   isConversationStreaming: (conversationId: string) => boolean;
   cancelConversationRequest: (conversationId: string) => void;
-  addA2AEvent: (event: A2AEvent, conversationId?: string) => void;
-  clearA2AEvents: (conversationId?: string) => void;
-  getConversationEvents: (conversationId: string) => A2AEvent[];
   // SSE Agent events (for Dynamic Agents)
   addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => void;
   clearSSEEvents: (conversationId?: string) => void;
@@ -61,10 +65,24 @@ interface ChatState {
   setPendingMessage: (message: string | null) => void;
   consumePendingMessage: () => string | null;
   loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
-  saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
+  loadTurnsFromServer: (conversationId: string) => Promise<void>; // Load turns + events from Supervisor A2A and map to ChatMessages
   evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
+
+  /**
+   * Send a message using the SSE endpoint (Platform Engineer only).
+   * Returns once the stream has completed or errored.
+   */
+  sendMessage: (params: {
+    message: string;
+    conversationId?: string;
+    endpoint?: string;
+    accessToken?: string;
+    userEmail?: string;
+    userName?: string;
+    userImage?: string;
+  }) => Promise<void>;
 
   // Unviewed conversation actions
   markConversationUnviewed: (conversationId: string) => void;
@@ -79,7 +97,6 @@ interface ChatState {
   // Turn selection actions for per-message event tracking
   setSelectedTurn: (conversationId: string, turnId: string | null) => void;
   getSelectedTurnId: (conversationId?: string) => string | null;
-  getSelectedTurnEvents: (conversationId?: string) => A2AEvent[];
   isMessageSelectable: () => boolean;
   getTurnCount: (conversationId?: string) => number;
   getCurrentTurnIndex: (conversationId?: string) => number;
@@ -87,11 +104,6 @@ interface ChatState {
 
 // Track loading state to prevent multiple simultaneous loads
 let isLoadingConversations = false;
-
-// NOTE: savedMessageIds / savedMessageState tracking removed.
-// With the upsert-based API, saveMessagesToServer sends ALL messages every
-// time and the server handles insert-or-update via message_id. This eliminates
-// the "two sources of truth" drift that caused stale content in MongoDB.
 
 // Track in-flight and recently completed message loads to prevent:
 // 1. Concurrent requests for the same conversation
@@ -101,71 +113,6 @@ let isLoadingConversations = false;
 const messageLoadState = new Map<string, { inFlight: boolean; lastLoadedAt: number }>();
 const MESSAGE_LOAD_COOLDOWN_MS = 5000; // 5 second cooldown between automatic syncs
 
-// Track event counts per conversation for periodic saves during long streaming sessions.
-// When event count hits the threshold, a background save is triggered to avoid data loss
-// if the user closes the tab or the browser crashes mid-stream.
-const eventCountSinceLastSave = new Map<string, number>();
-const PERIODIC_SAVE_EVENT_THRESHOLD = 20; // Save every 20 events during streaming (reduced from 50 for better crash recovery)
-
-// Track conversations that have a pending save (streaming just completed, save
-// is scheduled but not yet flushed to MongoDB). During this window, MongoDB
-// contains stale intermediate content — loadMessagesFromServer must NOT
-// overwrite the correct in-memory state with that stale data.
-const pendingSaveTimestamps = new Map<string, number>();
-const PENDING_SAVE_GRACE_MS = 5000; // 5 second grace period after streaming ends
-
-// Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
-function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
-  return {
-    id: event.id,
-    timestamp: event.timestamp,
-    type: event.type,
-    taskId: event.taskId,
-    contextId: event.contextId,
-    status: event.status,
-    isFinal: event.isFinal,
-    sourceAgent: event.sourceAgent,
-    displayName: event.displayName,
-    displayContent: event.displayContent,
-    color: event.color,
-    icon: event.icon,
-    artifact: event.artifact ? {
-      artifactId: event.artifact.artifactId,
-      name: event.artifact.name,
-      description: event.artifact.description,
-      parts: event.artifact.parts?.map(p => ({
-        kind: p.kind,
-        text: p.text,
-        ...(p.data ? { data: p.data } : {}),
-      })),
-      metadata: event.artifact.metadata,
-    } : undefined,
-    // Omit event.raw to avoid circular refs and large payloads
-  };
-}
-
-// Serialize SSE event for MongoDB storage (strip raw data, preserve structured fields)
-function serializeSSEEvent(event: SSEAgentEvent): Record<string, unknown> {
-  return {
-    id: event.id,
-    timestamp: event.timestamp,
-    type: event.type,
-    taskId: event.taskId,
-    isFinal: event.isFinal,
-    namespace: event.namespace,
-    // Structured event data
-    toolData: event.toolData,
-    warningData: event.warningData,
-    inputRequiredData: event.inputRequiredData,
-    // Content fields
-    content: event.content,
-    displayContent: event.displayContent,
-    // HITL support
-    contextId: event.contextId,
-    metadata: event.metadata,
-    // Omit event.raw to avoid circular refs and large payloads
-  };
-}
 
 // Create store with conditional persistence
 const storeImplementation = (set: any, get: any) => ({
@@ -173,7 +120,6 @@ const storeImplementation = (set: any, get: any) => ({
       activeConversationId: null,
       isStreaming: false,
       streamingConversations: new Map<string, StreamingState>(),
-      a2aEvents: [],
       pendingMessage: null,
       selectedTurnIds: new Map<string, string>(),
       unviewedConversations: new Set<string>(),
@@ -187,7 +133,6 @@ const storeImplementation = (set: any, get: any) => ({
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          a2aEvents: [], // Initialize with empty events
           sseEvents: [], // Initialize with empty SSE events for Dynamic Agents
           agent_id: agentId, // Dynamic agent ID; undefined = Platform Engineer
         };
@@ -213,7 +158,6 @@ const storeImplementation = (set: any, get: any) => ({
         set((state: ChatState) => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
-          a2aEvents: [], // Clear global events for new conversation
         }));
 
         return id;
@@ -232,7 +176,7 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => {
+      addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp">, turnId?: string, messageId?: string) => {
         const msgId = messageId || generateId();
 
         // Generate turnId for user messages, use provided turnId for assistant messages
@@ -245,7 +189,6 @@ const storeImplementation = (set: any, get: any) => ({
           ...message,
           id: msgId,
           timestamp: new Date(),
-          events: [],
           turnId: messageTurnId,
         };
 
@@ -324,23 +267,6 @@ const storeImplementation = (set: any, get: any) => ({
         }));
       },
 
-      addEventToMessage: (conversationId: string, messageId: string, event: A2AEvent) => {
-        set((state: ChatState) => ({
-          conversations: state.conversations.map((conv: Conversation) =>
-            conv.id === conversationId
-              ? {
-                  ...conv,
-                  messages: conv.messages.map((msg: ChatMessage) =>
-                    msg.id === messageId
-                      ? { ...msg, events: [...msg.events, event] }
-                      : msg
-                  ),
-                }
-              : conv
-          ),
-        }));
-      },
-
       setStreaming: (streaming: boolean) => {
         set({ isStreaming: streaming });
       },
@@ -370,9 +296,8 @@ const storeImplementation = (set: any, get: any) => ({
           };
         });
 
-        // When streaming completes, save messages to MongoDB and mark unviewed
+        // When streaming completes, mark as unviewed if the user is in a different conversation
         if (!state) {
-          // Mark as unviewed if the user is looking at a different conversation
           const current = get();
           if (current.activeConversationId !== conversationId) {
             const newUnviewed = new Set(current.unviewedConversations);
@@ -380,25 +305,6 @@ const storeImplementation = (set: any, get: any) => ({
             set({ unviewedConversations: newUnviewed });
             console.log(`[Store] Marked conversation as unviewed: ${conversationId.substring(0, 8)}`);
           }
-
-          // Reset periodic save counter for this conversation
-          eventCountSinceLastSave.delete(conversationId);
-          // Mark save as pending — prevents loadMessagesFromServer from
-          // overwriting the correct in-memory state with stale MongoDB data
-          // before this save completes.
-          pendingSaveTimestamps.set(conversationId, Date.now());
-          // Use setTimeout to let the final message update settle before saving
-          setTimeout(() => {
-            get().saveMessagesToServer(conversationId)
-              .then(() => {
-                pendingSaveTimestamps.delete(conversationId);
-                console.log(`[ChatStore] Post-stream save completed for: ${conversationId.substring(0, 8)}`);
-              })
-              .catch((error) => {
-                pendingSaveTimestamps.delete(conversationId);
-                console.error('[ChatStore] Background save failed:', error);
-              });
-          }, 500);
         }
       },
 
@@ -454,109 +360,7 @@ const storeImplementation = (set: any, get: any) => ({
             });
           }
 
-          // Reset periodic save counter and save to MongoDB after cancel —
-          // previously skipped because cancel bypassed setConversationStreaming(null).
-          eventCountSinceLastSave.delete(conversationId);
-          pendingSaveTimestamps.set(conversationId, Date.now());
-          setTimeout(() => {
-            get().saveMessagesToServer(conversationId)
-              .then(() => {
-                pendingSaveTimestamps.delete(conversationId);
-                console.log(`[ChatStore] Post-cancel save completed for: ${conversationId.substring(0, 8)}`);
-              })
-              .catch((error) => {
-                pendingSaveTimestamps.delete(conversationId);
-                console.error('[ChatStore] Save after cancel failed:', error);
-              });
-          }, 500);
         }
-      },
-
-      addA2AEvent: (event: A2AEvent, conversationId?: string) => {
-        const convId = conversationId || get().activeConversationId;
-        const artifactName = event.artifact?.name || 'n/a';
-        const isImportant = ['execution_plan_update', 'execution_plan_status_update', 'tool_notification_start', 'tool_notification_end', 'final_result', 'partial_result'].includes(artifactName);
-        if (isImportant) {
-          const prevConv = get().conversations.find((c: Conversation) => c.id === convId);
-          console.log(`[A2A-DEBUG] ➕ addA2AEvent: ${event.type}/${artifactName} to conv=${convId?.substring(0, 8)}`, {
-            eventId: event.id,
-            prevEventCount: prevConv?.a2aEvents?.length ?? 0,
-            artifactText: event.artifact?.parts?.[0]?.text?.substring(0, 100),
-          });
-        }
-        set((prev: ChatState) => {
-          // Add to global events for current session display
-          const newGlobalEvents = [...prev.a2aEvents, event];
-
-          // Also add to the specific conversation's events if we have a convId
-          if (convId) {
-            const conv = prev.conversations.find((c: Conversation) => c.id === convId);
-            const newCount = (conv?.a2aEvents?.length ?? 0) + 1;
-            if (isImportant) {
-              console.log(`[A2A-DEBUG] ➕ addA2AEvent APPLIED: conv=${convId?.substring(0, 8)} newEventCount=${newCount}`);
-            }
-            return {
-              a2aEvents: newGlobalEvents,
-              conversations: prev.conversations.map((c: Conversation) =>
-                c.id === convId
-                  ? { ...c, a2aEvents: [...c.a2aEvents, event] }
-                  : c
-              ),
-            };
-          }
-
-          return { a2aEvents: newGlobalEvents };
-        });
-
-        // Mark conversation as input-required when a UserInputMetaData artifact arrives
-        if (convId && artifactName === 'UserInputMetaData') {
-          const current = get();
-          const newInputRequired = new Set(current.inputRequiredConversations);
-          newInputRequired.add(convId);
-          set({ inputRequiredConversations: newInputRequired });
-          console.log(`[Store] Marked conversation as input-required: ${convId.substring(0, 8)}`);
-        }
-
-        // Periodic save: trigger a background save every PERIODIC_SAVE_EVENT_THRESHOLD
-        // events to avoid data loss during long streaming sessions.
-        if (convId) {
-          const count = (eventCountSinceLastSave.get(convId) || 0) + 1;
-          eventCountSinceLastSave.set(convId, count);
-          if (count >= PERIODIC_SAVE_EVENT_THRESHOLD) {
-            eventCountSinceLastSave.set(convId, 0);
-            console.log(`[ChatStore] Periodic save triggered after ${PERIODIC_SAVE_EVENT_THRESHOLD} events for: ${convId}`);
-            get().saveMessagesToServer(convId, { skipNonFinal: true }).catch((error) => {
-              console.error('[ChatStore] Periodic save failed:', error);
-            });
-          }
-        }
-      },
-
-      clearA2AEvents: (conversationId?: string) => {
-        if (conversationId) {
-          const prevConv = get().conversations.find((c: Conversation) => c.id === conversationId);
-          const prevCount = prevConv?.a2aEvents?.length ?? 0;
-          const prevExecPlans = prevConv?.a2aEvents?.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length ?? 0;
-          const prevToolStarts = prevConv?.a2aEvents?.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length ?? 0;
-          console.log(`[A2A-DEBUG] 🧹 clearA2AEvents(${conversationId.substring(0, 8)}): clearing ${prevCount} events (${prevExecPlans} exec_plans, ${prevToolStarts} tool_starts)`);
-          // Clear events for a specific conversation
-          set((prev: ChatState) => ({
-            conversations: prev.conversations.map((conv: Conversation) =>
-              conv.id === conversationId
-                ? { ...conv, a2aEvents: [] }
-                : conv
-            ),
-          }));
-        } else {
-          console.log(`[A2A-DEBUG] 🧹 clearA2AEvents(global): clearing ${get().a2aEvents.length} global events`);
-          // Clear global session-only events
-          set({ a2aEvents: [] });
-        }
-      },
-
-      getConversationEvents: (conversationId: string) => {
-        const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
-        return conv?.a2aEvents || [];
       },
 
       // ═══════════════════════════════════════════════════════════════
@@ -630,7 +434,6 @@ const storeImplementation = (set: any, get: any) => ({
           return {
             conversations: newConversations,
             activeConversationId: newActiveId,
-            a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
 
@@ -654,7 +457,6 @@ const storeImplementation = (set: any, get: any) => ({
         set({
           conversations: [],
           activeConversationId: null,
-          a2aEvents: [],
         });
       },
 
@@ -853,7 +655,6 @@ const storeImplementation = (set: any, get: any) => ({
               // Preserve messages/events when streaming, already loaded, or actively
               // being viewed (prevents race with concurrent loadMessagesFromServer)
               messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
-              a2aEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.a2aEvents : [],
               sseEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.sseEvents || []) : [],
               agent_id: conv.agent_id, // Dynamic agent ID; undefined = Platform Engineer
               owner_id: conv.owner_id,
@@ -893,7 +694,6 @@ const storeImplementation = (set: any, get: any) => ({
             conversations: sortedConversations,
             ...(activeId && !activeStillExists ? {
               activeConversationId: sortedConversations.length > 0 ? sortedConversations[0].id : null,
-              a2aEvents: [],
             } : {}),
           });
 
@@ -915,232 +715,22 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      // Save messages to MongoDB via upsert (idempotent).
-      // The API uses updateOne + upsert on message_id, so this can be called
-      // multiple times safely — periodic saves during streaming AND the final
-      // save after streaming completes all go through the same code path.
-      // No localStorage cache, no "saved vs stale" tracking needed.
-      //
-      // Options:
-      //   skipNonFinal: When true, skip saving assistant messages that don't have
-      //     isFinal=true. Used by periodic saves during streaming to avoid writing
-      //     stale intermediate content to MongoDB. The final save (after streaming
-      //     ends) omits this flag so the correct final content is written.
-      saveMessagesToServer: async (conversationId: string, options?: { skipNonFinal?: boolean }) => {
-        const storageMode = getStorageMode();
-        if (storageMode !== 'mongodb') return;
-
-        const state = get();
-        const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
-        if (!conv || conv.messages.length === 0) return;
-
-        // Determine if this is a Dynamic Agent conversation (has agent_id)
-        const isDynamicAgent = !!conv.agent_id;
-
-        // A2A events during streaming are stored at the conversation level (conv.a2aEvents)
-        // via addA2AEvent(), NOT on individual msg.events (addEventToMessage is not called).
-        // To persist events to MongoDB, we attach the conversation-level events to the
-        // last assistant message being saved (the one that was just streamed).
-        // Similarly, SSE events for Dynamic Agents are stored at conv.sseEvents.
-        const convA2AEvents = conv.a2aEvents || [];
-        const convSSEEvents = conv.sseEvents || [];
-        const lastAssistantIdx = (() => {
-          for (let i = conv.messages.length - 1; i >= 0; i--) {
-            if (conv.messages[i].role === 'assistant') return i;
-          }
-          return -1;
-        })();
-
-        if (isDynamicAgent) {
-          const toolStartCount = convSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_start').length;
-          const toolEndCount = convSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_end').length;
-          console.log(`[SSE-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, sseEvents=${convSSEEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), lastAssistantIdx=${lastAssistantIdx}`);
-        } else {
-          const execPlanCount = convA2AEvents.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length;
-          const toolStartCount = convA2AEvents.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length;
-          console.log(`[A2A-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, convEvents=${convA2AEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}`);
-        }
-
-        let savedCount = 0;
-        for (let i = 0; i < conv.messages.length; i++) {
-          const msg = conv.messages[i];
-
-          // PERIODIC SAVE GUARD: Skip non-final assistant messages during
-          // periodic saves. These messages contain intermediate streaming
-          // content that would overwrite (poison) MongoDB. The correct final
-          // content is written only by the post-stream save (which omits
-          // skipNonFinal), ensuring MongoDB always ends up with the right data.
-          if (options?.skipNonFinal && msg.role === 'assistant' && !msg.isFinal) {
-            console.log(`[ChatStore] Periodic save: skipping non-final assistant message ${msg.id.substring(0, 8)} (intermediate streaming content)`);
-            continue;
-          }
-
-          try {
-            // Determine A2A events for this message:
-            // 1. If the message already has per-message events, use those
-            // 2. If this is the last assistant message and conversation has events, use conv events
-            // 3. Otherwise, don't send events (leave existing events in MongoDB unchanged)
-            let serializedA2AEvents: Record<string, unknown>[] | undefined;
-            let serializedSSEEvents: Record<string, unknown>[] | undefined;
-
-            if (isDynamicAgent) {
-              // Dynamic Agent: serialize SSE events
-              if (i === lastAssistantIdx && convSSEEvents.length > 0) {
-                serializedSSEEvents = convSSEEvents.map(serializeSSEEvent);
-                console.log(`[ChatStore] Attaching ${convSSEEvents.length} conversation-level SSE events to assistant message ${msg.id}`);
-              }
-            } else {
-              // A2A/Platform Engineer: serialize A2A events
-              if (msg.events?.length > 0) {
-                serializedA2AEvents = msg.events.map(serializeA2AEvent);
-              } else if (i === lastAssistantIdx && convA2AEvents.length > 0) {
-                serializedA2AEvents = convA2AEvents.map(serializeA2AEvent);
-                console.log(`[ChatStore] Attaching ${convA2AEvents.length} conversation-level A2A events to assistant message ${msg.id}`);
-              }
-            }
-
-            // The API does upsert on message_id — inserts on first call,
-            // updates content/metadata/events on subsequent calls.
-            await apiClient.addMessage(conversationId, {
-              message_id: msg.id,
-              role: msg.role,
-              content: msg.content,
-              // Include sender identity so shared conversations attribute messages correctly.
-              // These are set in $setOnInsert on the API side (immutable after first write).
-              ...(msg.senderEmail && { sender_email: msg.senderEmail }),
-              ...(msg.senderName && { sender_name: msg.senderName }),
-              ...(msg.senderImage && { sender_image: msg.senderImage }),
-              metadata: {
-                turn_id: msg.turnId || `turn-${Date.now()}`,
-                is_final: msg.isFinal ?? false,
-                ...(msg.taskId && { task_id: msg.taskId }),
-                ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
-                ...(msg.turnStatus && { turn_status: msg.turnStatus }),
-                ...(msg.timelineSegments && msg.timelineSegments.length > 0 && {
-                  timeline_segments: msg.timelineSegments,
-                }),
-              },
-              a2a_events: serializedA2AEvents,
-              sse_events: serializedSSEEvents,
-            });
-
-            savedCount++;
-          } catch (error: any) {
-            console.error(`[ChatStore] Failed to save message ${msg.id}:`, error?.message);
-          }
-        }
-
-        console.log(`[ChatStore] Upserted ${savedCount}/${conv.messages.length} messages to MongoDB`);
-      },
-
       // ═══════════════════════════════════════════════════════════════
       // LEVEL 2: Task recovery — poll tasks/get for interrupted messages
       // When a tab crashes or reloads mid-stream, the backend task may still
       // be running (or may have completed). This action checks the task status
       // and recovers the final result if available.
       // ═══════════════════════════════════════════════════════════════
-      recoverInterruptedTask: async (conversationId: string, messageId: string, endpoint: string, accessToken?: string): Promise<boolean> => {
+      recoverInterruptedTask: async (conversationId: string, messageId: string, _endpoint: string, _accessToken?: string): Promise<boolean> => {
+        // A2A task polling has been removed. The server persists all stream events,
+        // so interrupted messages can be reloaded via loadTurnsFromServer instead.
+        // Mark as unrecoverable so the "interrupted" banner clears.
         const state = get();
         const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
         if (!conv) return false;
-
         const msg = conv.messages.find((m: ChatMessage) => m.id === messageId);
-        if (!msg || !msg.taskId || !msg.isInterrupted) return false;
-
-        const taskId = msg.taskId;
-        console.log(`[ChatStore] Attempting to recover interrupted task: ${taskId} for message ${messageId} via endpoint ${endpoint}`);
-
-        // Use the legacy A2A client for tasks/get (it has the method built-in)
-        const { A2AClient } = await import("@/lib/a2a-client");
-        const client = new A2AClient({ endpoint, accessToken });
-
-        const MAX_POLLS = 30; // Max 30 polls (5 minutes at 10s intervals)
-        const POLL_INTERVAL = 10000; // 10 seconds between polls
-
-        for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
-          try {
-            const result = await client.getTaskStatus(taskId) as any;
-
-            if (result?.error) {
-              // Task not found — backend may have restarted (InMemoryTaskStore lost)
-              console.log(`[ChatStore] Task ${taskId} not found on server — marking as unrecoverable`);
-              get().updateMessage(conversationId, messageId, {
-                isInterrupted: false, // Clear the interrupted flag, nothing to recover
-              });
-              return false;
-            }
-
-            const task = result?.result;
-            if (!task) {
-              console.log(`[ChatStore] Task ${taskId} returned empty result`);
-              get().updateMessage(conversationId, messageId, { isInterrupted: false });
-              return false;
-            }
-
-            const taskState = task.status?.state;
-            console.log(`[ChatStore] Task ${taskId} state: ${taskState} (poll ${attempt + 1}/${MAX_POLLS})`);
-
-            if (taskState === "completed") {
-              // Extract final content from task artifacts
-              const artifacts = task.artifacts || [];
-              let finalContent = "";
-              for (const artifact of artifacts) {
-                for (const part of artifact.parts || []) {
-                  if (part.text) {
-                    finalContent += part.text;
-                  }
-                }
-              }
-
-              if (finalContent) {
-                console.log(`[ChatStore] Recovered ${finalContent.length} chars from completed task ${taskId}`);
-                get().updateMessage(conversationId, messageId, {
-                  content: finalContent,
-                  isFinal: true,
-                  isInterrupted: false,
-                });
-                // Save recovered content to MongoDB
-                get().saveMessagesToServer(conversationId).catch((err) => {
-                  console.error('[ChatStore] Failed to save recovered message:', err);
-                });
-                return true;
-              } else {
-                console.log(`[ChatStore] Task ${taskId} completed but no content in artifacts`);
-                get().updateMessage(conversationId, messageId, { isInterrupted: false });
-                return false;
-              }
-            }
-
-            if (taskState === "failed" || taskState === "canceled" || taskState === "cancelled") {
-              console.log(`[ChatStore] Task ${taskId} ended with state: ${taskState}`);
-              get().updateMessage(conversationId, messageId, {
-                isInterrupted: false,
-                content: msg.content + `\n\n*Task ${taskState}. Use Retry to re-send the prompt.*`,
-                isFinal: true,
-              });
-              return false;
-            }
-
-            // Task is still running — wait and poll again
-            if (taskState === "working" || taskState === "submitted" || taskState === "input-required") {
-              await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
-              continue;
-            }
-
-            // Unknown state — stop polling
-            console.log(`[ChatStore] Unknown task state: ${taskState} — stopping recovery`);
-            get().updateMessage(conversationId, messageId, { isInterrupted: false });
-            return false;
-          } catch (error) {
-            console.error(`[ChatStore] Error polling task ${taskId}:`, error);
-            // On network error, stop trying — the user can manually retry
-            get().updateMessage(conversationId, messageId, { isInterrupted: false });
-            return false;
-          }
-        }
-
-        // Exceeded max polls
-        console.log(`[ChatStore] Task ${taskId} recovery timed out after ${MAX_POLLS} polls`);
+        if (!msg || !msg.isInterrupted) return false;
+        console.log(`[ChatStore] recoverInterruptedTask: A2A polling removed — marking message ${messageId} as unrecoverable, user can retry`);
         get().updateMessage(conversationId, messageId, { isInterrupted: false });
         return false;
       },
@@ -1160,24 +750,6 @@ const storeImplementation = (set: any, get: any) => ({
         if (loadState?.inFlight) {
           console.log('[ChatStore] Already loading messages for:', conversationId);
           return;
-        }
-
-        // CRITICAL: Skip if a post-streaming save is pending.
-        // When streaming ends, the correct final content is in the Zustand store
-        // but not yet saved to MongoDB. If we fetch from MongoDB now, we'd
-        // overwrite the correct in-memory state with stale intermediate content.
-        // Only force=true (manual reload) can bypass this guard.
-        if (!force) {
-          const savePendingSince = pendingSaveTimestamps.get(conversationId);
-          if (savePendingSince) {
-            const elapsed = Date.now() - savePendingSince;
-            if (elapsed < PENDING_SAVE_GRACE_MS) {
-              console.log(`[ChatStore] Skipping load — save pending for ${conversationId.substring(0, 8)} (${elapsed}ms ago, grace ${PENDING_SAVE_GRACE_MS}ms)`);
-              return;
-            }
-            // Grace period expired but flag wasn't cleared (save may have failed silently)
-            pendingSaveTimestamps.delete(conversationId);
-          }
         }
 
         // Skip if recently loaded (within cooldown) unless force=true (manual reload)
@@ -1208,12 +780,6 @@ const storeImplementation = (set: any, get: any) => ({
 
           // Convert MongoDB messages to ChatMessage format
           const messages: ChatMessage[] = rawItems.map((msg: any, idx: number) => {
-            // Deserialize A2A events
-            const events: A2AEvent[] = (msg.a2a_events || []).map((e: any) => ({
-              ...e,
-              timestamp: new Date(e.timestamp),
-            }));
-
             // Deserialize SSE events (for Dynamic Agents)
             const sseEvents: SSEAgentEvent[] = (msg.sse_events || []).map((e: any) => ({
               ...e,
@@ -1241,24 +807,17 @@ const storeImplementation = (set: any, get: any) => ({
             }
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
-            const hasHitlForm = events.some((e: A2AEvent) => e.artifact?.name === 'UserInputMetaData');
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
               content: msg.content,
               timestamp: new Date(msg.created_at),
-              events,
               sseEvents: sseEvents.length > 0 ? sseEvents : undefined, // Only set if present
               isFinal,
               turnId: msg.metadata?.turn_id,
-              taskId: msg.metadata?.task_id,
               // Restore turnStatus from MongoDB (defaults to undefined for legacy messages)
               turnStatus: msg.metadata?.turn_status as TurnStatus | undefined,
-              // Mark as interrupted only if explicitly flagged in MongoDB, or
-              // if this is the very last assistant message and it's not final
-              // (genuinely mid-stream when saved, with no follow-up).
-              // HITL messages are not interrupted — they're waiting for user input.
-              isInterrupted: hasHitlForm ? false : (isExplicitlyInterrupted || (msg.role === 'assistant' && !isFinal)),
+              isInterrupted: isExplicitlyInterrupted || (msg.role === 'assistant' && !isFinal),
               feedback: msg.feedback ? {
                 type: msg.feedback.rating === 'positive' ? 'like' : msg.feedback.rating === 'negative' ? 'dislike' : null,
                 submitted: true,
@@ -1279,73 +838,18 @@ const storeImplementation = (set: any, get: any) => ({
             return chatMsg;
           });
 
-          // Reconstruct a2aEvents/sseEvents for the ContextPanel / Tasks / Debug.
-          // Only use events from the LAST assistant message (current/latest turn),
-          // matching the live-streaming behavior where clearA2AEvents()/clearSSEEvents() is called
-          // at the start of each new turn. This prevents completed tools from
-          // old turns from accumulating in the Tasks panel.
-          //
-          // CRITICAL: If the conversation is currently streaming, do NOT overwrite
-          // a2aEvents/sseEvents — they were cleared at the start of the new turn
-          // and are being populated from the live stream. Overwriting them with
-          // MongoDB data would restore the PREVIOUS turn's events.
+          // Preserve SSE events for Dynamic Agents from the last turn.
           const isCurrentlyStreaming = get().streamingConversations.has(conversationId);
-          const localConv = get().conversations.find((c: Conversation) => c.id === conversationId);
-          const isDynamicAgent = !!localConv?.agent_id;
           const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
-          const lastTurnA2AEvents: A2AEvent[] = lastAssistantMsg?.events || [];
           const lastTurnSSEEvents: SSEAgentEvent[] = lastAssistantMsg?.sseEvents || [];
 
-          if (isDynamicAgent) {
-            const toolStartCount = lastTurnSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_start').length;
-            const toolEndCount = lastTurnSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_end').length;
-            console.log(`[SSE-DEBUG] 📥 loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnSSEEvents=${lastTurnSSEEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), isStreaming=${isCurrentlyStreaming}`);
-          } else {
-            const loadedExecPlans = lastTurnA2AEvents.filter(e => e.artifact?.name === 'execution_plan_update').length;
-            const loadedToolStarts = lastTurnA2AEvents.filter(e => e.artifact?.name === 'tool_notification_start').length;
-            console.log(`[A2A-DEBUG] 📥 loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnEvents=${lastTurnA2AEvents.length} (${loadedExecPlans} exec_plans, ${loadedToolStarts} tool_starts), isStreaming=${isCurrentlyStreaming}`, {
-              allMsgEventCounts: messages.map(m => ({ id: m.id.substring(0, 8), role: m.role, events: m.events.length })),
-              execPlanTexts: lastTurnA2AEvents.filter(e => e.artifact?.name === 'execution_plan_update').map(e => e.artifact?.parts?.[0]?.text?.substring(0, 100)),
-            });
-          }
+          console.log(`[ChatStore] loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, isStreaming=${isCurrentlyStreaming}`);
 
           if (isCurrentlyStreaming) {
-            // Conversation is actively streaming — the in-memory Zustand state is the
-            // live buffer being built by the stream. Don't overwrite it with stale MongoDB
-            // data. Only merge events from MongoDB into local messages that lack them.
-            console.log(`[A2A-DEBUG] ⚠️ loadMessagesFromServer: conversation is streaming — merging events only, preserving live messages`);
-
-            const serverEventsByMsgId = new Map<string, A2AEvent[]>();
-            for (const msg of messages) {
-              if (msg.events.length > 0) {
-                serverEventsByMsgId.set(msg.id, msg.events);
-              }
-            }
-
-            set((state: ChatState) => ({
-              conversations: state.conversations.map((c: Conversation) =>
-                c.id === conversationId
-                  ? {
-                      ...c,
-                      // Don't overwrite a2aEvents/sseEvents during streaming
-                      messages: c.messages.map((localMsg: ChatMessage) => {
-                        const serverEvents = serverEventsByMsgId.get(localMsg.id);
-                        if (serverEvents && localMsg.events.length === 0) {
-                          return { ...localMsg, events: serverEvents };
-                        }
-                        return localMsg;
-                      }),
-                    }
-                  : c
-              ),
-            }));
+            // Conversation is actively streaming — don't overwrite live state
+            console.log(`[ChatStore] loadMessagesFromServer: conversation is streaming — skipping store update`);
           } else {
-            // Not streaming — MongoDB is the source of truth, but we must
-            // guard against a race where periodic saves wrote stale intermediate
-            // content.  If a local message is already marked isFinal=true but
-            // MongoDB still has isFinal=false (periodic save hadn't been
-            // overwritten by the final save yet), keep the local version to
-            // prevent the UI from regressing to stale content.
+            // Not streaming — MongoDB is the source of truth.
             set((state: ChatState) => {
               const existingConv = state.conversations.find((c: Conversation) => c.id === conversationId);
               const localMsgMap = new Map<string, ChatMessage>();
@@ -1357,12 +861,7 @@ const storeImplementation = (set: any, get: any) => ({
 
               const mergedMessages = messages.map((serverMsg: ChatMessage) => {
                 const localMsg = localMsgMap.get(serverMsg.id);
-                // Preserve local final content when MongoDB still has non-final
-                // (stale periodic-save data). Once MongoDB catches up (final save
-                // completes), isFinal will be true on both sides and we'll use
-                // the server version normally.
                 if (localMsg?.isFinal && !serverMsg.isFinal) {
-                  console.log(`[ChatStore] Preserving local final message ${serverMsg.id.substring(0, 8)} (MongoDB has stale non-final version)`);
                   return localMsg;
                 }
                 return serverMsg;
@@ -1374,7 +873,6 @@ const storeImplementation = (set: any, get: any) => ({
                     ? {
                         ...c,
                         messages: mergedMessages,
-                        a2aEvents: lastTurnA2AEvents,
                         sseEvents: lastTurnSSEEvents,
                       }
                     : c
@@ -1382,11 +880,7 @@ const storeImplementation = (set: any, get: any) => ({
               };
             });
 
-            if (isDynamicAgent) {
-              console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnSSEEvents.length} SSE events from MongoDB for: ${conversationId}`);
-            } else {
-              console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnA2AEvents.length} events from MongoDB for: ${conversationId}`);
-            }
+            console.log(`[ChatStore] Loaded ${messages.length} messages from MongoDB for: ${conversationId}`);
           }
 
         } catch (error: any) {
@@ -1399,6 +893,366 @@ const storeImplementation = (set: any, get: any) => ({
           }
         } finally {
           messageLoadState.set(conversationId, { inFlight: false, lastLoadedAt: Date.now() });
+        }
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // PHASE 3: Load turns + events from the Supervisor A2A server.
+      // The A2A server (Phase 1) now persists all streaming data.  This
+      // action fetches Turn[] + StreamEvent[] from the proxy routes and
+      // maps them into ChatMessage[] so existing UI components continue to
+      // work unchanged.  It replaces the MongoDB-backed loadMessagesFromServer
+      // for conversations that have server-side turn persistence.
+      //
+      // STREAM RECOVERY: If the latest turn has assistant_message.status ==
+      // "streaming" (the server was still processing when the page refreshed),
+      // we immediately render a loading placeholder and then poll
+      // GET /api/v1/conversations/{id}/turns/{turn_id} every 2 s until the
+      // turn transitions to a terminal state.  On completion we re-fetch the
+      // full turn list and replace the placeholder with the real content.
+      // ═══════════════════════════════════════════════════════════════
+      loadTurnsFromServer: async (conversationId: string) => {
+        const storageMode = getStorageMode();
+        if (storageMode !== 'mongodb') return;
+
+        // Skip if actively streaming — the live in-memory buffer is authoritative.
+        if (get().streamingConversations.has(conversationId)) {
+          console.log(`[ChatStore] loadTurnsFromServer: skipping — conversation is streaming: ${conversationId.substring(0, 8)}`);
+          return;
+        }
+
+        // ---------------------------------------------------------------------------
+        // Internal helper: fetch turns + events from the proxy and map to messages.
+        // Returns null on non-retryable errors (already logged).
+        // ---------------------------------------------------------------------------
+        const fetchAndMapTurns = async (): Promise<{
+          messages: ChatMessage[];
+          turns: any[];
+          allEvents: any[];
+        } | null> => {
+          const [turnsRes, eventsRes] = await Promise.all([
+            fetch(`/api/dynamic-agents/conversations/${conversationId}/turns`),
+            fetch(`/api/dynamic-agents/conversations/${conversationId}/events`),
+          ]);
+
+          if (!turnsRes.ok || !eventsRes.ok) {
+            const turnsStatus = turnsRes.status;
+            const eventsStatus = eventsRes.status;
+            if (turnsStatus === 404 || turnsStatus === 503 || eventsStatus === 404 || eventsStatus === 503) {
+              console.log(`[ChatStore] loadTurnsFromServer: server-side turns not available (turns=${turnsStatus}, events=${eventsStatus}) — falling back`);
+              return null;
+            }
+            if (turnsStatus === 401 || eventsStatus === 401) {
+              console.log('[ChatStore] loadTurnsFromServer: not authenticated, skipping');
+              return null;
+            }
+            console.error(`[ChatStore] loadTurnsFromServer: unexpected error (turns=${turnsStatus}, events=${eventsStatus})`);
+            return null;
+          }
+
+          const turnsData = await turnsRes.json();
+          const eventsData = await eventsRes.json();
+
+          const turns: any[] = Array.isArray(turnsData) ? turnsData : (turnsData.items ?? []);
+          const allEvents: any[] = Array.isArray(eventsData) ? eventsData : (eventsData.items ?? []);
+
+          if (turns.length === 0) {
+            return { messages: [], turns, allEvents };
+          }
+
+          // Build a map of turn_id → events for O(1) lookup per turn
+          const eventsByTurnId = new Map<string, any[]>();
+          for (const ev of allEvents) {
+            const tid = ev.turn_id ?? ev.turnId;
+            if (!tid) continue;
+            const bucket = eventsByTurnId.get(tid) ?? [];
+            bucket.push(ev);
+            eventsByTurnId.set(tid, bucket);
+          }
+
+          // Map each Turn into a pair of ChatMessages (user + assistant).
+          // Turn shape (from A2A server):
+          //   { _id: turn_id, conversation_id, user_message, assistant_message: { status, content, ... }, status, created_at, updated_at }
+          // StreamEvent shape:
+          //   { event_id, turn_id, conversation_id, event_type, payload, created_at }
+          const messages: ChatMessage[] = [];
+
+          for (const turn of turns) {
+            // _id is the MongoDB document ID (same as turn_id for TurnPersistence documents)
+            const turnId: string = turn._id ?? turn.turn_id ?? turn.id ?? generateId();
+
+            // ── User message ──────────────────────────────────────────
+            const userContent: string =
+              turn.user_message?.content ??
+              turn.user_message?.parts?.map((p: any) => p.text ?? '').join('') ??
+              '';
+
+            if (userContent) {
+              messages.push({
+                id: turn.user_message?.message_id ?? `${turnId}-user`,
+                role: 'user',
+                content: userContent,
+                timestamp: new Date(turn.created_at ?? Date.now()),
+                isFinal: true,
+                turnId,
+                senderEmail: turn.user_message?.sender_email,
+                senderName: turn.user_message?.sender_name,
+                senderImage: turn.user_message?.sender_image,
+              });
+            }
+
+            // ── Assistant message ─────────────────────────────────────
+            const assistantContent: string =
+              turn.assistant_message?.content ??
+              turn.assistant_message?.parts?.map((p: any) => p.text ?? '').join('') ??
+              '';
+
+            const turnEvents: any[] = eventsByTurnId.get(turnId) ?? [];
+
+            // Reconstruct AG-UI BaseEvent objects from persisted stream_events.
+            // Each event has data.agui_type set by PersistedLangGraphAgent.
+            const aguiEvents: import("@ag-ui/core").BaseEvent[] = turnEvents
+              .filter((e: any) => e.data?.agui_type)
+              .map((e: any) => {
+                const data = e.data;
+                const baseEvent: any = { type: data.agui_type };
+                switch (data.agui_type) {
+                  case "TEXT_MESSAGE_CONTENT":
+                    baseEvent.delta = data.content;
+                    break;
+                  case "TOOL_CALL_START":
+                    baseEvent.toolCallId = data.tool_call_id;
+                    baseEvent.toolCallName = data.tool_name;
+                    break;
+                  case "TOOL_CALL_END":
+                    baseEvent.toolCallId = data.tool_call_id;
+                    break;
+                  case "STATE_DELTA":
+                    baseEvent.delta = data.delta;
+                    break;
+                  case "STATE_SNAPSHOT":
+                    baseEvent.snapshot = { todos: data.todos };
+                    break;
+                  case "CUSTOM":
+                    baseEvent.name = data.custom_name;
+                    baseEvent.value = data.fields;
+                    break;
+                }
+                return baseEvent as import("@ag-ui/core").BaseEvent;
+              });
+
+            // Build timeline from the reconstructed AG-UI events
+            const timelineSegments = TimelineManager.buildFromAGUIEvents(aguiEvents);
+
+            // Compute timelineTextOffset: count text chars before first tool/plan event
+            let reconstructedOffset: number | undefined;
+            let textAccum = 0;
+            for (const ev of aguiEvents) {
+              if ((ev as any).type === "TEXT_MESSAGE_CONTENT") {
+                textAccum += ((ev as any).delta ?? "").length;
+              } else if (
+                (ev as any).type === "TOOL_CALL_START" ||
+                (ev as any).type === "STATE_DELTA" ||
+                (ev as any).type === "STATE_SNAPSHOT"
+              ) {
+                reconstructedOffset = textAccum;
+                break;
+              }
+            }
+
+            // assistant_message.status is set by TurnPersistence: "streaming" while
+            // in-flight, then "completed" / "interrupted" / "failed" at the end.
+            // Fall back to the top-level turn.status for older documents that don't
+            // have the nested field.
+            const assistantMsgStatus: string =
+              turn.assistant_message?.status ?? turn.status ?? '';
+            const isServerStreaming = assistantMsgStatus === 'streaming';
+            const isFinal =
+              !isServerStreaming &&
+              (assistantMsgStatus === 'completed' || assistantMsgStatus === 'done' ||
+               turn.status === 'completed' || turn.status === 'done');
+            const isInterrupted =
+              !isServerStreaming &&
+              (assistantMsgStatus === 'interrupted' || assistantMsgStatus === 'failed' ||
+               turn.status === 'interrupted' || turn.status === 'failed');
+
+            // Emit an assistant message whenever there is content, events, or the
+            // turn is still in-flight (so the loading indicator renders on refresh).
+            if (assistantContent || aguiEvents.length > 0 || isServerStreaming) {
+              messages.push({
+                id: turn.assistant_message?.message_id ?? `${turnId}-assistant`,
+                role: 'assistant',
+                content: assistantContent,
+                timestamp: new Date(turn.updated_at ?? turn.created_at ?? Date.now()),
+                isFinal,
+                isInterrupted,
+                turnId,
+                turnStatus: isFinal ? 'done' : isInterrupted ? 'interrupted' : undefined,
+                timelineSegments: timelineSegments.length > 0 ? timelineSegments : undefined,
+                timelineTextOffset: reconstructedOffset,
+              });
+            }
+          }
+
+          return { messages, turns, allEvents };
+        };
+
+        // ---------------------------------------------------------------------------
+        // Internal helper: commit a ChatMessage[] array to the Zustand store.
+        // ---------------------------------------------------------------------------
+        const commitMessages = (messages: ChatMessage[]) => {
+          set((state: ChatState) => ({
+            conversations: state.conversations.map((c: Conversation) =>
+              c.id === conversationId
+                ? {
+                    ...c,
+                    messages,
+                    sseEvents: [],
+                  }
+                : c
+            ),
+          }));
+        };
+
+        try {
+          console.log(`[ChatStore] loadTurnsFromServer: fetching turns for ${conversationId.substring(0, 8)}`);
+
+          const result = await fetchAndMapTurns();
+          if (!result) return; // Non-retryable error — already logged
+
+          const { messages, turns, allEvents } = result;
+
+          if (messages.length === 0) {
+            console.log(`[ChatStore] loadTurnsFromServer: no turns found for ${conversationId.substring(0, 8)}`);
+            return;
+          }
+
+          // Commit initial messages (may include a streaming placeholder with isFinal=false)
+          commitMessages(messages);
+          console.log(`[ChatStore] loadTurnsFromServer: loaded ${messages.length} messages (${turns.length} turns, ${allEvents.length} events) for: ${conversationId.substring(0, 8)}`);
+
+          // ── Stream recovery: poll until the latest turn reaches a terminal state ──
+          const lastTurn = turns[turns.length - 1];
+          const lastAssistantStatus: string =
+            lastTurn?.assistant_message?.status ?? lastTurn?.status ?? '';
+
+          if (lastAssistantStatus !== 'streaming') return; // Nothing to recover
+
+          const lastTurnId: string = lastTurn?._id ?? lastTurn?.turn_id ?? lastTurn?.id ?? '';
+          if (!lastTurnId) {
+            console.warn('[ChatStore] loadTurnsFromServer: cannot poll — last turn has no ID');
+            return;
+          }
+
+          console.log(`[ChatStore] loadTurnsFromServer: turn ${lastTurnId.substring(0, 8)} is streaming — starting recovery poll`);
+
+          const POLL_INTERVAL_MS = 2000;
+          const MAX_POLL_ATTEMPTS = 150; // 5 minutes maximum
+          let attempts = 0;
+
+          const poll = async (): Promise<void> => {
+            // Cancel if the user started a fresh live stream
+            if (get().streamingConversations.has(conversationId)) {
+              console.log('[ChatStore] loadTurnsFromServer: poll cancelled — conversation started live streaming');
+              return;
+            }
+
+            if (attempts >= MAX_POLL_ATTEMPTS) {
+              console.warn(`[ChatStore] loadTurnsFromServer: poll timed out after ${MAX_POLL_ATTEMPTS} attempts for turn ${lastTurnId.substring(0, 8)}`);
+              // Mark the placeholder as interrupted so the retry banner renders
+              set((state: ChatState) => ({
+                conversations: state.conversations.map((c: Conversation) =>
+                  c.id === conversationId
+                    ? {
+                        ...c,
+                        messages: c.messages.map((m: ChatMessage) =>
+                          m.turnId === lastTurnId && m.role === 'assistant' && !m.isFinal
+                            ? { ...m, isFinal: true, isInterrupted: true }
+                            : m
+                        ),
+                      }
+                    : c
+                ),
+              }));
+              return;
+            }
+
+            attempts++;
+
+            await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+            // Recheck after the wait
+            if (get().streamingConversations.has(conversationId)) {
+              console.log('[ChatStore] loadTurnsFromServer: poll cancelled — conversation started live streaming');
+              return;
+            }
+
+            try {
+              const turnRes = await fetch(
+                `/api/dynamic-agents/conversations/${conversationId}/turns/${lastTurnId}`
+              );
+
+              if (!turnRes.ok) {
+                if (turnRes.status === 401) {
+                  console.log('[ChatStore] loadTurnsFromServer: poll not authenticated, stopping');
+                  return;
+                }
+                // Transient error — keep polling
+                console.warn(`[ChatStore] loadTurnsFromServer: poll got ${turnRes.status}, retrying (attempt ${attempts})`);
+                return poll();
+              }
+
+              const turnDoc = await turnRes.json();
+              const polledStatus: string =
+                turnDoc?.assistant_message?.status ?? turnDoc?.status ?? '';
+              console.log(`[ChatStore] loadTurnsFromServer: poll ${attempts} — turn status: ${polledStatus}`);
+
+              if (polledStatus === 'streaming') {
+                // Update the placeholder with any content the server has buffered so far
+                const bufferedContent: string = turnDoc?.assistant_message?.content ?? '';
+                if (bufferedContent) {
+                  set((state: ChatState) => ({
+                    conversations: state.conversations.map((c: Conversation) =>
+                      c.id === conversationId
+                        ? {
+                            ...c,
+                            messages: c.messages.map((m: ChatMessage) =>
+                              m.turnId === lastTurnId && m.role === 'assistant' && !m.isFinal
+                                ? { ...m, content: bufferedContent }
+                                : m
+                            ),
+                          }
+                        : c
+                    ),
+                  }));
+                }
+                return poll();
+              }
+
+              // Terminal state reached — reload the full turn list
+              console.log(`[ChatStore] loadTurnsFromServer: turn ${lastTurnId.substring(0, 8)} completed (status=${polledStatus}) — reloading turns`);
+              const freshResult = await fetchAndMapTurns();
+              if (freshResult && freshResult.messages.length > 0) {
+                commitMessages(freshResult.messages);
+                console.log(`[ChatStore] loadTurnsFromServer: recovery complete — ${freshResult.messages.length} messages loaded`);
+              }
+            } catch (pollError: any) {
+              console.warn('[ChatStore] loadTurnsFromServer: poll error, retrying:', pollError?.message);
+              return poll();
+            }
+          };
+
+          // Fire and forget — the caller awaits the initial load, recovery runs in background
+          poll().catch((err) => {
+            console.error('[ChatStore] loadTurnsFromServer: unexpected poll failure:', err);
+          });
+
+        } catch (error: any) {
+          if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
+            console.log('[ChatStore] loadTurnsFromServer: not authenticated, skipping');
+          } else {
+            console.error('[ChatStore] loadTurnsFromServer failed:', error);
+          }
         }
       },
 
@@ -1434,6 +1288,215 @@ const storeImplementation = (set: any, get: any) => ({
         }));
 
         console.log(`[ChatStore] Evicted content from ${evictedCount} messages (~${(freedChars / 1024).toFixed(0)}KB freed) for: ${conversationId.substring(0, 8)}`);
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // AG-UI streaming for Platform Engineer conversations.
+      // Uses the /api/chat/stream proxy route via @ag-ui/client HttpAgent.
+      // ═══════════════════════════════════════════════════════════════
+      sendMessage: async ({
+        message,
+        conversationId: providedConvId = undefined,
+        endpoint = "/api/chat/stream",
+        accessToken = undefined,
+        userEmail = undefined,
+        userName = undefined,
+        userImage = undefined,
+      }) => {
+        const state = get();
+
+        // Resolve or create the conversation
+        let convId = providedConvId || state.activeConversationId;
+        if (!convId) {
+          convId = state.createConversation();
+        }
+
+        // Generate a shared turn ID linking the user message to its response
+        const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+        // Add user message
+        state.addMessage(
+          convId,
+          {
+            role: "user",
+            content: message,
+            senderEmail: userEmail,
+            senderName: userName,
+            senderImage: userImage,
+          },
+          turnId
+        );
+
+        // Add assistant message placeholder
+        const assistantMsgId = state.addMessage(convId, { role: "assistant", content: "" }, turnId);
+
+        let accumulatedText = "";
+        let hasReceivedDone = false;
+        let eventCount = 0;
+        let timelineTextOffset: number | undefined; // char offset where first tool/plan appeared
+        let sawWriteTodos = false; // track if write_todos was called this turn
+        const timeline = new TimelineManager();
+
+        const conv = get().conversations.find((c: Conversation) => c.id === convId);
+        const isDynamicAgent = !!conv?.agent_id;
+        if (isDynamicAgent) {
+          console.warn("[ChatStore] sendMessage called for a Dynamic Agent conversation — use the Dynamic Agent client instead");
+        }
+
+        console.log(`[AG-UI] Starting stream for conv=${convId?.substring(0, 8)}, msg=${assistantMsgId.substring(0, 8)}`);
+
+        // Start the AG-UI stream — returns the abortable client synchronously
+        const { abortableClient, streamPromise } = streamAGUIEvents({
+          endpoint,
+          accessToken,
+          convId: convId!,
+          assistantMsgId,
+          turnId,
+          message,
+
+          onTextDelta: (delta: string) => {
+            eventCount++;
+            accumulatedText += delta;
+            get().appendToMessage(convId!, assistantMsgId, delta);
+            // When a plan exists, route text into thinking segments tagged
+            // with the active plan step so the timeline nests them properly.
+            if (timeline.getHasPlan()) {
+              timeline.pushThinking(delta, eventCount);
+              get().updateMessage(convId!, assistantMsgId, { timelineSegments: timeline.getSegments() });
+            }
+          },
+
+          onToolStart: (_toolCallId: string, toolName: string) => {
+            eventCount++;
+            if (toolName === "write_todos") sawWriteTodos = true;
+            if (timelineTextOffset === undefined) {
+              timelineTextOffset = accumulatedText.length;
+              get().updateMessage(convId!, assistantMsgId, { timelineTextOffset });
+            }
+            timeline.pushToolStart(
+              { agent: toolName, tool: toolName, planStepId: timeline.getCurrentPlanStepId() || undefined },
+              eventCount,
+            );
+            get().updateMessage(convId!, assistantMsgId, { timelineSegments: timeline.getSegments() });
+          },
+
+          onToolEnd: (_toolCallId: string, toolName: string) => {
+            eventCount++;
+            timeline.completeToolByName(toolName);
+            get().updateMessage(convId!, assistantMsgId, { timelineSegments: timeline.getSegments() });
+          },
+
+          onStateDelta: (patch: Array<{ op: string; path: string; value?: any }>) => {
+            const stepsOp = patch.find(
+              (op) => op.path === "/steps" || op.path === "/plan/steps"
+            );
+            if (stepsOp && Array.isArray(stepsOp.value)) {
+              eventCount++;
+              if (timelineTextOffset === undefined) {
+                timelineTextOffset = accumulatedText.length;
+                get().updateMessage(convId!, assistantMsgId, { timelineTextOffset });
+              }
+              timeline.pushPlan(stepsOp.value, eventCount);
+              get().updateMessage(convId!, assistantMsgId, { timelineSegments: timeline.getSegments() });
+            }
+          },
+
+          onStateSnapshot: (snapshot: Record<string, unknown>) => {
+            // Only process todos from STATE_SNAPSHOT if write_todos was called
+            // this turn. The end-of-run snapshot always carries the full state
+            // (including todos from previous turns) which would create ghost plans.
+            if (!sawWriteTodos) return;
+            const todos = snapshot.todos;
+            if (Array.isArray(todos) && todos.length > 0) {
+              const planSteps = parsePlanStepsFromTodos(todos);
+              if (planSteps.length > 0) {
+                eventCount++;
+                if (timelineTextOffset === undefined) {
+                  timelineTextOffset = accumulatedText.length;
+                  get().updateMessage(convId!, assistantMsgId, { timelineTextOffset });
+                }
+                timeline.pushPlan(planSteps, eventCount);
+                get().updateMessage(convId!, assistantMsgId, { timelineSegments: timeline.getSegments() });
+              }
+            }
+          },
+
+          onInputRequired: (_payload: InputRequiredPayload) => {
+            get().markConversationInputRequired(convId!);
+          },
+
+          onDone: () => {
+            hasReceivedDone = true;
+            const finalSegments = timeline.getSegments();
+            get().updateMessage(convId!, assistantMsgId, {
+              isFinal: true,
+              rawStreamContent: accumulatedText,
+              turnId,
+              ...(finalSegments.length > 0 ? { timelineSegments: finalSegments } : {}),
+            });
+            console.log(`[AG-UI] Stream done: turn_id=${turnId}, content=${accumulatedText.length} chars`);
+          },
+
+          onError: (errorMessage: string) => {
+            console.error("[AG-UI] Stream error:", errorMessage);
+            get().appendToMessage(convId!, assistantMsgId, `\n\n**Error:** ${errorMessage}`);
+            get().updateMessage(convId!, assistantMsgId, { isFinal: true });
+          },
+        });
+
+        // Mark conversation as streaming with the AG-UI abortable client
+        set((prev: ChatState) => {
+          const newMap = new Map(prev.streamingConversations);
+          newMap.set(convId!, {
+            conversationId: convId!,
+            messageId: assistantMsgId,
+            client: abortableClient,
+          });
+          return {
+            streamingConversations: newMap,
+            isStreaming: true,
+          };
+        });
+
+        try {
+          await streamPromise;
+        } catch (error) {
+          console.error("[AG-UI] Stream promise rejected:", error);
+          get().appendToMessage(convId!, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to streaming endpoint"}`);
+          get().updateMessage(convId!, assistantMsgId, { isFinal: true });
+        } finally {
+          // Finalize: if no done event received, mark message as final anyway
+          if (!hasReceivedDone) {
+            const finalSegments = timeline.getSegments();
+            get().updateMessage(convId!, assistantMsgId, {
+              isFinal: true,
+              rawStreamContent: accumulatedText,
+              ...(finalSegments.length > 0 ? { timelineSegments: finalSegments } : {}),
+            });
+          }
+
+          // Clear streaming state
+          set((prev: ChatState) => {
+            const newMap = new Map(prev.streamingConversations);
+            newMap.delete(convId!);
+            const isStreaming = newMap.size > 0;
+
+            // Mark as unviewed if the user is looking at a different conversation
+            const current = get();
+            const newUnviewed = new Set(current.unviewedConversations);
+            if (current.activeConversationId !== convId) {
+              newUnviewed.add(convId!);
+            }
+
+            return {
+              streamingConversations: newMap,
+              isStreaming,
+              unviewedConversations: newUnviewed,
+            };
+          });
+
+          console.log(`[AG-UI] Stream finished for conv=${convId?.substring(0, 8)}`);
+        }
       },
 
       markConversationUnviewed: (conversationId: string) => {
@@ -1496,28 +1559,6 @@ const storeImplementation = (set: any, get: any) => ({
         return state.selectedTurnIds.get(convId) || null;
       },
 
-      getSelectedTurnEvents: (conversationId) => {
-        const state = get();
-        const convId = conversationId || state.activeConversationId;
-        if (!convId) return [];
-
-        const conv = state.conversations.find((c) => c.id === convId);
-        if (!conv) return [];
-
-        const selectedTurnId = state.selectedTurnIds.get(convId);
-        if (!selectedTurnId) {
-          // No turn selected - return events from the most recent assistant message
-          const lastAssistantMsg = [...conv.messages].reverse().find((m) => m.role === "assistant");
-          return lastAssistantMsg?.events || [];
-        }
-
-        // Find the assistant message with the matching turnId
-        const assistantMessage = conv.messages.find(
-          (m) => m.role === "assistant" && m.turnId === selectedTurnId
-        );
-        return assistantMessage?.events || [];
-      },
-
       isMessageSelectable: () => {
         // Hard lock: no message selection while any conversation is streaming
         const state = get();
@@ -1570,11 +1611,9 @@ export const useChatStore = shouldUseLocalStorage()
         partialize: (state) => ({
           conversations: state.conversations.map((conv) => ({
             ...conv,
-            a2aEvents: [], // Don't persist events (too large)
             sseEvents: [], // Don't persist SSE events (too large)
             messages: conv.messages.map((msg) => ({
               ...msg,
-              events: [], // Don't persist events
             })),
           })),
           activeConversationId: state.activeConversationId,
@@ -1586,7 +1625,6 @@ export const useChatStore = shouldUseLocalStorage()
               ...conv,
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
-              a2aEvents: [],
               sseEvents: [],
               messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
@@ -1603,7 +1641,6 @@ export const useChatStore = shouldUseLocalStorage()
                 return {
                   ...msg,
                   timestamp: new Date(msg.timestamp),
-                  events: [],
                   isFinal: healed ? true : msg.isFinal,
                   isInterrupted: healed
                     ? false
@@ -1616,7 +1653,6 @@ export const useChatStore = shouldUseLocalStorage()
                 };
               }),
             }));
-            state.a2aEvents = [];
             const storedArray = (state as unknown as { selectedTurnIdsArray?: [string, string][] }).selectedTurnIdsArray;
             state.selectedTurnIds = new Map(storedArray || []);
           }
@@ -1653,9 +1689,7 @@ if (typeof window !== 'undefined') {
         contentPreview: (m.content || '').substring(0, 80),
         isFinal: m.isFinal,
         isInterrupted: m.isInterrupted,
-        taskId: m.taskId?.substring(0, 8),
         turnId: m.turnId?.substring(0, 8),
-        events: m.events?.length || 0,
       })));
       return conv.messages;
     },
@@ -1693,8 +1727,6 @@ if (typeof window !== 'undefined') {
             finalMatch: local && mongo ? (Boolean(local.isFinal) === Boolean(mongo.metadata?.is_final) ? '✅' : '❌') : '—',
             localInterrupted: local?.isInterrupted,
             mongoInterrupted: mongo?.metadata?.is_interrupted,
-            localEvents: local?.events?.length || 0,
-            mongoEvents: mongo?.a2a_events?.length || 0,
           });
         }
         console.table(rows);
@@ -1778,51 +1810,10 @@ if (typeof window !== 'undefined') {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PERSISTENCE HARDENING: Save in-flight conversations on tab close / navigation
+// UNLOAD HANDLER: No warning needed.
 // ═══════════════════════════════════════════════════════════════
-// Uses visibilitychange (recommended by Page Lifecycle API) as the primary handler,
-// with beforeunload as a fallback. When the tab is hidden or the user navigates away,
-// we save any conversations that were streaming to avoid data loss.
-if (typeof window !== 'undefined') {
-  const saveInflightConversations = () => {
-    const state = useChatStore.getState();
-    if (state.streamingConversations.size === 0) return;
-
-    console.log(`[ChatStore] Tab hidden/closing — saving ${state.streamingConversations.size} in-flight conversation(s)`);
-    for (const [conversationId] of state.streamingConversations) {
-      // Reset periodic save counter
-      eventCountSinceLastSave.delete(conversationId);
-      // Fire-and-forget save (browser may kill the page before completion,
-      // but periodic saves during streaming provide a safety net)
-      state.saveMessagesToServer(conversationId).catch((error) => {
-        console.error(`[ChatStore] Save on unload failed for ${conversationId}:`, error);
-      });
-    }
-  };
-
-  // Primary: visibilitychange fires reliably on tab close, navigation, app switch.
-  // Browsers give ~5s of execution time for this handler.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      saveInflightConversations();
-    }
-  });
-
-  // Fallback: beforeunload for older browsers and explicit tab close.
-  // Also prompts the user to confirm if any conversations are actively streaming,
-  // so they don't accidentally lose an in-flight response.
-  window.addEventListener('beforeunload', (e: BeforeUnloadEvent) => {
-    saveInflightConversations();
-
-    const state = useChatStore.getState();
-    if (state.streamingConversations.size > 0) {
-      e.preventDefault();
-      const count = state.streamingConversations.size;
-      const msg =
-        count === 1
-          ? 'You have 1 live chat receiving a response. Refreshing will interrupt it.'
-          : `You have ${count} live chats receiving responses. Refreshing will interrupt them.`;
-      e.returnValue = msg;
-    }
-  });
-}
+// The server-side TurnPersistence layer saves every streaming event and
+// the final content to MongoDB in real-time.  A page refresh no longer
+// loses data — loadTurnsFromServer will detect the in-progress turn on
+// reload and poll until the server finishes.  There is nothing to warn
+// the user about, so the beforeunload prompt has been removed.

@@ -7,6 +7,9 @@
  */
 
 import type { TimelineSegment, PlanStep } from "@/types/a2a";
+import { parsePlanStepsFromData, parsePlanStepsFromTodos } from "./timeline-parsers";
+import { EventType } from "@ag-ui/core";
+import type { BaseEvent, TextMessageContentEvent, ToolCallStartEvent, ToolCallEndEvent, StateDeltaEvent, StateSnapshotEvent } from "@ag-ui/core";
 
 export class TimelineManager {
   private segments: TimelineSegment[] = [];
@@ -220,6 +223,16 @@ export class TimelineManager {
     return [...this.segments];
   }
 
+  /** Get the current in-progress plan step ID (for nesting tool calls). */
+  getCurrentPlanStepId(): string | null {
+    return this.currentPlanStepId;
+  }
+
+  /** Whether a plan has been pushed. */
+  getHasPlan(): boolean {
+    return this.hasPlan;
+  }
+
   /** Quick stats for the summary bar. */
   getStats(): { toolCount: number; stepCount: number; completedTools: number } {
     const tools = this.segments.filter((s) => s.type === "tool_call");
@@ -229,5 +242,105 @@ export class TimelineManager {
       stepCount: planSeg?.planSteps?.length ?? 0,
       completedTools: tools.filter((s) => s.toolCall?.status === "completed").length,
     };
+  }
+
+  /**
+   * Reconstruct a timeline from raw AG-UI events persisted by the backend.
+   *
+   * AG-UI → timeline segment mapping:
+   *   TOOL_CALL_START  → tool_call segment (status: running)
+   *   TOOL_CALL_END    → tool_call segment (status: completed)
+   *   STATE_DELTA      → execution_plan segment (when patch contains /steps)
+   *   TEXT_MESSAGE_CONTENT → thinking or final_answer segment
+   */
+  static buildFromAGUIEvents(events: BaseEvent[]): TimelineSegment[] {
+    const manager = new TimelineManager();
+    // Track active tool calls (toolCallId → toolName) for TOOL_CALL_END lookup
+    const activeToolCalls = new Map<string, string>();
+    // Track accumulated state for STATE_DELTA application
+    let agentState: Record<string, unknown> = {};
+
+    events.forEach((event, idx) => {
+      const eventNum = idx + 1;
+
+      switch (event.type) {
+        case EventType.TEXT_MESSAGE_CONTENT: {
+          const e = event as TextMessageContentEvent;
+          if (e.delta) {
+            // During streaming: text before plan = thinking; text after plan = final_answer.
+            // Check whether a plan segment already exists to decide which segment type to use.
+            const hasPlanSegment = manager.getSegments().some((s) => s.type === "execution_plan");
+            if (hasPlanSegment) {
+              manager.pushFinalAnswer(e.delta, eventNum, /* authoritative */ false);
+            } else {
+              manager.pushThinking(e.delta, eventNum);
+            }
+          }
+          break;
+        }
+
+        case EventType.TOOL_CALL_START: {
+          const e = event as ToolCallStartEvent;
+          const toolName = e.toolCallName ?? e.toolCallId ?? "Unknown Tool";
+          activeToolCalls.set(e.toolCallId, toolName);
+          manager.pushToolStart(
+            { agent: toolName, tool: toolName, planStepId: manager.getCurrentPlanStepId() || undefined },
+            eventNum,
+          );
+          break;
+        }
+
+        case EventType.TOOL_CALL_END: {
+          const e = event as ToolCallEndEvent;
+          const toolName = activeToolCalls.get(e.toolCallId) ?? e.toolCallId;
+          activeToolCalls.delete(e.toolCallId);
+          manager.completeToolByName(toolName);
+          break;
+        }
+
+        case EventType.STATE_DELTA: {
+          const e = event as StateDeltaEvent;
+          if (!Array.isArray(e.delta)) break;
+
+          // Apply the patch to maintain a running state snapshot
+          for (const op of e.delta as Array<{ op: string; path: string; value?: unknown }>) {
+            if (op.op === "replace" || op.op === "add") {
+              // Handle top-level /steps or /plan/steps paths
+              if (op.path === "/steps" || op.path === "/plan/steps") {
+                agentState = { ...agentState, steps: op.value };
+              }
+            }
+          }
+
+          // If the state now has steps, push/merge the plan
+          if (Array.isArray(agentState.steps)) {
+            const planSteps = parsePlanStepsFromData({ steps: agentState.steps });
+            if (planSteps.length > 0) {
+              manager.pushPlan(planSteps, eventNum);
+            }
+          }
+          break;
+        }
+
+        case EventType.STATE_SNAPSHOT: {
+          const e = event as StateSnapshotEvent;
+          const snapshot = e.snapshot as Record<string, unknown> | undefined;
+          if (snapshot && Array.isArray(snapshot.todos) && snapshot.todos.length > 0) {
+            const planSteps = parsePlanStepsFromTodos(snapshot.todos);
+            if (planSteps.length > 0) {
+              manager.pushPlan(planSteps, eventNum);
+            }
+          }
+          break;
+        }
+
+        // RUN_FINISHED, RUN_ERROR, TOOL_CALL_ARGS, etc. — no timeline segment needed
+        default:
+          break;
+      }
+    });
+
+    manager.finalize();
+    return manager.getSegments();
   }
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { motion } from "framer-motion";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ContextPanel } from "@/components/a2a/ContextPanel";
+import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 
 interface PlatformEngineerChatViewProps {
   /** The Platform Engineer (supervisor) backend endpoint */
@@ -18,13 +18,10 @@ interface PlatformEngineerChatViewProps {
   readOnlyReason?: "admin_audit" | "shared_readonly";
   /** Which admin tab the user navigated from */
   adminOrigin?: "audit-logs" | "feedback" | null;
-  /** Whether to show the context panel */
-  contextPanelVisible?: boolean;
 }
 
 /**
  * Chat view for Platform Engineer (Supervisor).
- * Combines ChatPanel with full ContextPanel (A2A debug, execution plan, tasks).
  */
 export function PlatformEngineerChatView({
   endpoint,
@@ -33,13 +30,12 @@ export function PlatformEngineerChatView({
   readOnly,
   readOnlyReason,
   adminOrigin,
-  contextPanelVisible = true,
 }: PlatformEngineerChatViewProps) {
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
+  const { status } = useCAIPEHealth();
+  const isDisconnected = status === "disconnected";
 
   return (
-    <div className="flex-1 min-w-0 flex h-full">
-      {/* Chat Panel */}
+    <div className="flex-1 min-w-0 flex h-full relative">
       <motion.div
         key="chat"
         initial={{ opacity: 0 }}
@@ -54,16 +50,9 @@ export function PlatformEngineerChatView({
           readOnly={readOnly}
           readOnlyReason={readOnlyReason}
           adminOrigin={adminOrigin}
+          isDisconnected={isDisconnected}
         />
       </motion.div>
-
-      {/* Context Panel - A2A debug */}
-      {contextPanelVisible && (
-        <ContextPanel
-          collapsed={contextPanelCollapsed}
-          onCollapse={setContextPanelCollapsed}
-        />
-      )}
     </div>
   );
 }

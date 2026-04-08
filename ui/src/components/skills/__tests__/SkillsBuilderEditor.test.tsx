@@ -110,12 +110,53 @@ jest.mock("@/lib/config", () => ({
   },
 }));
 
-const mockSendMessageStream = jest.fn();
-jest.mock("@/lib/a2a-sdk-client", () => ({
-  A2ASDKClient: jest.fn().mockImplementation(() => ({
-    sendMessageStream: mockSendMessageStream,
-  })),
+let mockOnEvent: ((event: any) => void) | null = null;
+const mockSendMessage = jest.fn().mockResolvedValue(undefined);
+const mockAbort = jest.fn();
+
+jest.mock("@/lib/sse-streaming-client", () => ({
+  SSEClient: jest.fn().mockImplementation((config: any) => {
+    mockOnEvent = config.onEvent ?? null;
+    return {
+      sendMessage: mockSendMessage,
+      abort: mockAbort,
+    };
+  }),
 }));
+
+/**
+ * Set up mockSendMessage to fire SSE events then resolve.
+ * Events use the new SSEClient format: { type: "content", text: "..." } or { type: "done" }.
+ */
+function mockSSEEvents(sseEvents: Array<{ type: string; text?: string; message?: string }>) {
+  mockSendMessage.mockImplementation(async () => {
+    if (mockOnEvent) {
+      for (const ev of sseEvents) {
+        mockOnEvent(ev);
+      }
+    }
+  });
+}
+
+/**
+ * Set up mockSendMessage to block until the returned resolve function is called.
+ * After resolving, fires the provided SSE events.
+ */
+function mockSSEBlocking(sseEvents: Array<{ type: string; text?: string }> = []): { resolve: () => void } {
+  let resolveStream!: () => void;
+  const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
+
+  mockSendMessage.mockImplementation(async () => {
+    await blockingPromise;
+    if (mockOnEvent) {
+      for (const ev of sseEvents) {
+        mockOnEvent(ev);
+      }
+    }
+  });
+
+  return { resolve: resolveStream };
+}
 
 jest.mock("@/lib/utils", () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(" "),
@@ -154,6 +195,9 @@ const MOCK_TEAMS = [
   { _id: "team-alpha", name: "Alpha Team" },
   { _id: "team-beta", name: "Beta Team" },
 ];
+
+// jsdom doesn't implement scrollIntoView
+Element.prototype.scrollIntoView = jest.fn();
 
 const originalFetch = global.fetch;
 beforeAll(() => {
@@ -779,12 +823,6 @@ describe("SkillsBuilderEditor — template menu and preview toggles", () => {
 // AI Generate / Enhance
 // ---------------------------------------------------------------------------
 
-function makeAsyncGenerator(events: any[]): AsyncGenerator<any> {
-  return (async function* () {
-    for (const e of events) yield e;
-  })();
-}
-
 const AI_RESPONSE_SKILL = `---
 name: pagerduty-investigator
 description: Investigate PagerDuty incidents
@@ -843,11 +881,7 @@ describe("SkillsBuilderEditor — AI Generate", () => {
   });
 
   it("submitting generate calls A2ASDKClient and updates editor with result", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -859,7 +893,7 @@ describe("SkillsBuilderEditor — AI Generate", () => {
     });
 
     await waitFor(() => {
-      expect(mockSendMessageStream).toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalled();
     });
 
     await waitFor(() => {
@@ -871,11 +905,7 @@ describe("SkillsBuilderEditor — AI Generate", () => {
   });
 
   it("Enter key in input triggers generate", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
 
@@ -898,16 +928,12 @@ describe("SkillsBuilderEditor — AI Generate", () => {
     });
 
     await waitFor(() => {
-      expect(mockSendMessageStream).toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalled();
     });
   });
 
   it("populates form name from generated SKILL.md frontmatter", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -931,11 +957,7 @@ describe("SkillsBuilderEditor — AI Generate", () => {
   });
 
   it("shows error toast when AI generation fails", async () => {
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        throw new Error("Network error");
-      })()
-    );
+    mockSendMessage.mockRejectedValueOnce(new Error("Network error"));
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -956,11 +978,8 @@ describe("SkillsBuilderEditor — AI Generate", () => {
   });
 
   it("shows error toast when AI returns empty response", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: "", type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    // Simulate stream that emits a done event with no content
+    mockSSEEvents([{ type: "done" }]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -1030,11 +1049,7 @@ description: An enhanced test skill
 - Better guideline
 `;
 
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: enhancedSkill, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: enhancedSkill }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1045,7 +1060,7 @@ description: An enhanced test skill
     });
 
     await waitFor(() => {
-      expect(mockSendMessageStream).toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalled();
     });
 
     await waitFor(() => {
@@ -1068,11 +1083,7 @@ description: An enhanced test skill
 1. Custom enhanced
 `;
 
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: enhancedSkill, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: enhancedSkill }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1086,7 +1097,7 @@ description: An enhanced test skill
     });
 
     await waitFor(() => {
-      expect(mockSendMessageStream).toHaveBeenCalled();
+      expect(mockSendMessage).toHaveBeenCalled();
     });
 
     await waitFor(() => {
@@ -1095,11 +1106,7 @@ description: An enhanced test skill
   });
 
   it("shows error toast when AI enhancement fails", async () => {
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        throw new Error("Service unavailable");
-      })()
-    );
+    mockSendMessage.mockRejectedValueOnce(new Error("Service unavailable"));
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1121,15 +1128,7 @@ description: An enhanced test skill
 
 describe("SkillsBuilderEditor — AI progress overlay", () => {
   it("shows progress overlay with generating message during AI Generate", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -1145,7 +1144,7 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
     });
 
     await act(async () => {
-      resolveStream!();
+      resolveStream();
     });
 
     await waitFor(() => {
@@ -1154,15 +1153,7 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
   });
 
   it("shows progress overlay with enhancing message during AI Enhance", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1177,7 +1168,7 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
     });
 
     await act(async () => {
-      resolveStream!();
+      resolveStream();
     });
 
     await waitFor(() => {
@@ -1186,15 +1177,7 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
   });
 
   it("cancel button in overlay reverts editor content", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: "overwritten content", type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: "overwritten content" }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1222,19 +1205,11 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
     const editorAfter = (screen.getByTestId("codemirror") as HTMLTextAreaElement).value;
     expect(editorAfter).toBe(editorBefore);
 
-    await act(async () => { resolveStream!(); });
+    await act(async () => { resolveStream(); });
   });
 
   it("AI Generate button is disabled while AI is in flight", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1249,7 +1224,7 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
       expect(screen.getByRole("button", { name: /ai enhance/i })).toBeDisabled();
     });
 
-    await act(async () => { resolveStream!(); });
+    await act(async () => { resolveStream(); });
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /ai generate/i })).not.toBeDisabled();
@@ -1263,15 +1238,7 @@ describe("SkillsBuilderEditor — AI progress overlay", () => {
 
 describe("SkillsBuilderEditor — AI debug console", () => {
   it("shows 'Show Details' button in progress overlay", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1288,19 +1255,11 @@ describe("SkillsBuilderEditor — AI debug console", () => {
     const detailsBtn = screen.getByRole("button", { name: /show details/i });
     expect(detailsBtn).toBeInTheDocument();
 
-    await act(async () => { resolveStream!(); });
+    await act(async () => { resolveStream(); });
   });
 
   it("clicking 'Show Details' reveals the debug console", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1324,19 +1283,11 @@ describe("SkillsBuilderEditor — AI debug console", () => {
 
     expect(screen.getByText("A2A Stream")).toBeInTheDocument();
 
-    await act(async () => { resolveStream!(); });
+    await act(async () => { resolveStream(); });
   });
 
   it("clicking 'Hide Details' collapses the debug console", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     const existing = makeExistingConfig();
     renderEditor({ existingConfig: existing });
@@ -1362,16 +1313,15 @@ describe("SkillsBuilderEditor — AI debug console", () => {
       expect(screen.queryByTestId("ai-debug-console")).not.toBeInTheDocument();
     });
 
-    await act(async () => { resolveStream!(); });
+    await act(async () => { resolveStream(); });
   });
 
   it("debug console shows streaming event log entries after completion", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: false, displayContent: "partial...", type: "artifact", artifactName: "tool_notification_start", shouldAppend: false },
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([
+      { type: "content", text: "partial..." },
+      { type: "content", text: AI_RESPONSE_SKILL },
+      { type: "done" },
+    ]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -1388,15 +1338,7 @@ describe("SkillsBuilderEditor — AI debug console", () => {
   });
 
   it("debug console shows 'Waiting for events...' when log is empty", async () => {
-    let resolveStream: (value: void) => void;
-    const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
-
-    mockSendMessageStream.mockReturnValue(
-      (async function* () {
-        await blockingPromise;
-        yield { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false };
-      })()
-    );
+    const { resolve: resolveStream } = mockSSEBlocking([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -1421,7 +1363,7 @@ describe("SkillsBuilderEditor — AI debug console", () => {
     const consoleEl = screen.getByTestId("ai-debug-console");
     expect(consoleEl.textContent).toContain("Connecting to");
 
-    await act(async () => { resolveStream!(); });
+    await act(async () => { resolveStream(); });
   });
 });
 
@@ -1438,11 +1380,7 @@ describe("SkillsBuilderEditor — Undo / Redo", () => {
   });
 
   it("enables Undo after AI Generate replaces content, and clicking Undo reverts", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
 
@@ -1472,11 +1410,7 @@ describe("SkillsBuilderEditor — Undo / Redo", () => {
   });
 
   it("Redo re-applies the AI content after Undo", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -1499,11 +1433,7 @@ describe("SkillsBuilderEditor — Undo / Redo", () => {
   });
 
   it("Redo stack clears when new content is pushed after undo", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
 
@@ -1522,11 +1452,7 @@ describe("SkillsBuilderEditor — Undo / Redo", () => {
     expect(redoBtn).not.toBeDisabled();
 
     // Second AI Generate (should clear redo stack)
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ])
-    );
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
     const input2 = screen.getByPlaceholderText(/investigate pagerduty/i);
     fireEvent.change(input2, { target: { value: "second gen" } });
@@ -1541,19 +1467,16 @@ describe("SkillsBuilderEditor — Undo / Redo", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Streaming accumulation (status events must not overwrite content)
+// Streaming accumulation (multiple content chunks are concatenated)
 // ---------------------------------------------------------------------------
 describe("SkillsBuilderEditor — streaming accumulation", () => {
-  it("accumulates streaming_result chunks and ignores status displayContent", async () => {
-    mockSendMessageStream.mockReturnValue(
-      makeAsyncGenerator([
-        { type: "artifact", artifactName: "tool_notification_start", displayContent: "Calling agent...", isFinal: false, shouldAppend: false },
-        { type: "artifact", artifactName: "streaming_result", displayContent: "---\nname: test\n", isFinal: false, shouldAppend: false },
-        { type: "artifact", artifactName: "streaming_result", displayContent: "description: A test skill\n---\n", isFinal: false, shouldAppend: true },
-        { type: "artifact", artifactName: "streaming_result", displayContent: "\n# Test Skill\nDo things.", isFinal: false, shouldAppend: true },
-        { type: "status", displayContent: "Status: completed (final) - Task: abc123...", isFinal: true, shouldAppend: false },
-      ])
-    );
+  it("accumulates multiple content chunks into the final skill content", async () => {
+    mockSSEEvents([
+      { type: "content", text: "---\nname: test\n" },
+      { type: "content", text: "description: A test skill\n---\n" },
+      { type: "content", text: "\n# Test Skill\nDo things." },
+      { type: "done" },
+    ]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
@@ -1573,27 +1496,38 @@ describe("SkillsBuilderEditor — streaming accumulation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Input-Required Auto-Reply
+// SSEClient sendMessage invocation
 // ---------------------------------------------------------------------------
-describe("SkillsBuilderEditor — input-required auto-reply", () => {
-  it("auto-replies when backend sends input-required, then collects final result", async () => {
-    let callCount = 0;
-    mockSendMessageStream.mockImplementation(() => {
-      callCount++;
-      if (callCount === 1) {
-        return makeAsyncGenerator([
-          { type: "status", displayContent: "input-required", requireUserInput: true, contextId: "ctx-123", isFinal: false, shouldAppend: false },
-        ]);
-      }
-      return makeAsyncGenerator([
-        { isFinal: true, displayContent: AI_RESPONSE_SKILL, type: "artifact", artifactName: "final_result", shouldAppend: false },
-      ]);
-    });
+describe("SkillsBuilderEditor — SSEClient sendMessage", () => {
+  it("calls sendMessage with a prompt containing the user description", async () => {
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
 
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
     const input = screen.getByPlaceholderText(/investigate pagerduty/i);
-    fireEvent.change(input, { target: { value: "input-required test" } });
+    fireEvent.change(input, { target: { value: "investigate pagerduty alerts" } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
+    });
+
+    await waitFor(() => {
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    const callArg = mockSendMessage.mock.calls[0][0];
+    expect(callArg).toMatchObject(
+      expect.objectContaining({ message: expect.stringContaining("investigate pagerduty alerts") })
+    );
+  });
+
+  it("only calls sendMessage once per generate action", async () => {
+    mockSSEEvents([{ type: "content", text: AI_RESPONSE_SKILL }, { type: "done" }]);
+
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
+    const input = screen.getByPlaceholderText(/investigate pagerduty/i);
+    fireEvent.change(input, { target: { value: "single call test" } });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
@@ -1603,37 +1537,7 @@ describe("SkillsBuilderEditor — input-required auto-reply", () => {
       expect(mockToast).toHaveBeenCalledWith("Skill generated by AI", "success");
     });
 
-    // Should have called sendMessageStream twice: original + auto-reply
-    expect(mockSendMessageStream).toHaveBeenCalledTimes(2);
-    // Second call should include the contextId from the first stream
-    expect(mockSendMessageStream).toHaveBeenLastCalledWith(
-      expect.stringContaining("Please proceed"),
-      "ctx-123"
-    );
-  });
-
-  it("stops retrying after MAX_INPUT_REQUIRED_RETRIES", async () => {
-    mockSendMessageStream.mockImplementation(() =>
-      makeAsyncGenerator([
-        { type: "status", displayContent: "input-required", requireUserInput: true, contextId: "ctx-loop", isFinal: false, shouldAppend: false },
-      ])
-    );
-
-    renderEditor();
-    fireEvent.click(screen.getByRole("button", { name: /ai generate/i }));
-    const input = screen.getByPlaceholderText(/investigate pagerduty/i);
-    fireEvent.change(input, { target: { value: "loop test" } });
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
-    });
-
-    await waitFor(() => {
-      expect(mockToast).toHaveBeenCalled();
-    });
-
-    // 1 initial + 3 retries = 4 total calls
-    expect(mockSendMessageStream).toHaveBeenCalledTimes(4);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
   });
 });
 

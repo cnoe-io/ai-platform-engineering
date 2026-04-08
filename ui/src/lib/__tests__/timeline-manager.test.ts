@@ -5,6 +5,8 @@
 
 import { TimelineManager } from "../timeline-manager";
 import type { PlanStep } from "@/types/a2a";
+import { EventType } from "@ag-ui/core";
+import type { BaseEvent } from "@ag-ui/core";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -382,5 +384,101 @@ describe("TimelineManager.seedFromPrevious", () => {
 
     // Should have no segments (standalone thinking without planStepId is not carried)
     expect(tm.getSegments()).toHaveLength(0);
+  });
+});
+
+// ─── buildFromAGUIEvents — raw AG-UI event format ────────────────────────────
+
+describe("TimelineManager.buildFromAGUIEvents", () => {
+  it("creates tool_call segments from TOOL_CALL_START and TOOL_CALL_END", () => {
+    const events: BaseEvent[] = [
+      { type: EventType.TOOL_CALL_START, toolCallId: "tc-1", toolCallName: "search_docs", timestamp: Date.now() } as any,
+      { type: EventType.TOOL_CALL_END, toolCallId: "tc-1", timestamp: Date.now() } as any,
+    ];
+
+    const segments = TimelineManager.buildFromAGUIEvents(events);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].type).toBe("tool_call");
+    expect(segments[0].toolCall?.tool).toBe("search_docs");
+    expect(segments[0].toolCall?.status).toBe("completed");
+  });
+
+  it("creates execution_plan segment from STATE_DELTA with /steps path", () => {
+    const steps = [
+      { id: "s1", agent: "Agent", description: "Step one", status: "in_progress" },
+      { id: "s2", agent: "Agent", description: "Step two", status: "pending" },
+    ];
+    const events: BaseEvent[] = [
+      {
+        type: EventType.STATE_DELTA,
+        delta: [{ op: "replace", path: "/steps", value: steps }],
+        timestamp: Date.now(),
+      } as any,
+    ];
+
+    const segments = TimelineManager.buildFromAGUIEvents(events);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].type).toBe("execution_plan");
+    expect(segments[0].planSteps).toHaveLength(2);
+    expect(segments[0].planSteps![0]).toMatchObject({ id: "s1", status: "in_progress" });
+  });
+
+  it("creates thinking segment from TEXT_MESSAGE_CONTENT before plan", () => {
+    const events: BaseEvent[] = [
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m1", delta: "Let me think...", timestamp: Date.now() } as any,
+    ];
+
+    const segments = TimelineManager.buildFromAGUIEvents(events);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].type).toBe("thinking");
+    expect(segments[0].content).toBe("Let me think...");
+  });
+
+  it("creates final_answer segment from TEXT_MESSAGE_CONTENT after plan", () => {
+    const steps = [{ id: "s1", agent: "Agent", description: "Step", status: "in_progress" }];
+    const events: BaseEvent[] = [
+      {
+        type: EventType.STATE_DELTA,
+        delta: [{ op: "replace", path: "/steps", value: steps }],
+        timestamp: Date.now(),
+      } as any,
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m1", delta: "Here is the answer.", timestamp: Date.now() } as any,
+    ];
+
+    const segments = TimelineManager.buildFromAGUIEvents(events);
+    const answer = segments.find((s) => s.type === "final_answer");
+    expect(answer).toBeDefined();
+    expect(answer?.content).toBe("Here is the answer.");
+  });
+
+  it("handles a full sequence: text -> plan -> tool -> text", () => {
+    const steps = [
+      { id: "s1", agent: "Agent", description: "Search", status: "in_progress" },
+    ];
+    const events: BaseEvent[] = [
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m1", delta: "Thinking...", timestamp: Date.now() } as any,
+      {
+        type: EventType.STATE_DELTA,
+        delta: [{ op: "replace", path: "/steps", value: steps }],
+        timestamp: Date.now(),
+      } as any,
+      { type: EventType.TOOL_CALL_START, toolCallId: "tc-1", toolCallName: "search_docs", timestamp: Date.now() } as any,
+      { type: EventType.TOOL_CALL_END, toolCallId: "tc-1", timestamp: Date.now() } as any,
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m1", delta: "Done.", timestamp: Date.now() } as any,
+    ];
+
+    const segments = TimelineManager.buildFromAGUIEvents(events);
+    const types = segments.map((s) => s.type);
+    expect(types).toContain("thinking");
+    expect(types).toContain("execution_plan");
+    expect(types).toContain("tool_call");
+    expect(types).toContain("final_answer");
+
+    const answer = segments.find((s) => s.type === "final_answer");
+    expect(answer?.content).toBe("Done.");
+  });
+
+  it("returns empty array for empty event list", () => {
+    expect(TimelineManager.buildFromAGUIEvents([])).toHaveLength(0);
   });
 });
