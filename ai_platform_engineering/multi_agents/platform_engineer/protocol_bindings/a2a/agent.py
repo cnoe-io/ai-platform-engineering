@@ -1839,9 +1839,11 @@ class AIPlatformEngineerA2ABinding:
             'content': post_content,
           }
         else:
-          logging.info("Content appears to be plain text; returning working structured response.")
+          # Plain text with no [FINAL ANSWER] marker and no JSON — model didn't follow
+          # the format instruction but clearly answered. Treat as complete.
+          logging.info("Content is plain text with no marker; treating as complete response.")
           return {
-            'is_task_complete': False,
+            'is_task_complete': True,
             'require_user_input': False,
             'content': content,
           }
@@ -1852,14 +1854,14 @@ class AIPlatformEngineerA2ABinding:
         logging.info("Successfully parsed JSON response (fallback)")
         return response_dict
       else:
-        logging.warning("Parsed JSON is not a dictionary; returning working structured response with text content.")
+        logging.warning("Parsed JSON is not a dictionary; treating as complete plain-text response.")
         return {
-          'is_task_complete': False,
+          'is_task_complete': True,
           'require_user_input': False,
           'content': content,
         }
     except json.JSONDecodeError as e:
-      logging.warning(f"Failed to decode content as JSON, returning working structured response: {e}")
+      logging.warning(f"Failed to decode content as JSON, treating as complete plain-text response: {e}")
       logging.warning(f"Content that failed to parse: {repr(content)}")
       # Extract post-marker content if marker present
       marker = '[FINAL ANSWER]'
@@ -1869,7 +1871,7 @@ class AIPlatformEngineerA2ABinding:
           post_content = content.split(used, 1)[1].strip()
           return {'is_task_complete': True, 'require_user_input': False, 'content': post_content}
       return {
-        'is_task_complete': False,
+        'is_task_complete': True,
         'require_user_input': False,
         'content': content,
       }

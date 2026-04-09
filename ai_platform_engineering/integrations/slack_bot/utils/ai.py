@@ -402,18 +402,22 @@ def stream_a2a_response(
         # This is the authoritative final content
         if parsed.text_content:
           final_result_text = parsed.text_content
-          logger.info(f"[{thread_ts}] Got FINAL_RESULT: {len(parsed.text_content)} chars")
-          # Stream the final answer live (paragraph-by-paragraph) so users
-          # see it appear progressively rather than all at once in stopStream.
-          # This restores the streaming feel from the old STREAMING_RESULT path.
-          _start_stream_if_needed()
-          if stream_buf:
-            if needs_separator and stream_buf.has_flushed:
-              stream_buf.append("\n\n")
-              needs_separator = False
-            stream_buf.append(parsed.text_content)
-            stream_buf.flush()  # Flush immediately — don't wait for the interval
-            streaming_final_answer = True  # Mark as already streamed
+          logger.info(f"[{thread_ts}] Got FINAL_RESULT: {len(parsed.text_content)} chars, streaming_final_answer={streaming_final_answer}")
+          if streaming_final_answer:
+            # Answer was already streamed token-by-token via STREAMING_RESULT chunks.
+            # Skip re-streaming to avoid duplicate output in Slack.
+            logger.info(f"[{thread_ts}] Skipping FINAL_RESULT re-stream — already streamed via STREAMING_RESULT")
+          else:
+            # Stream the final answer live so users see it progressively
+            # rather than all at once in stopStream.
+            _start_stream_if_needed()
+            if stream_buf:
+              if needs_separator and stream_buf.has_flushed:
+                stream_buf.append("\n\n")
+                needs_separator = False
+              stream_buf.append(parsed.text_content)
+              stream_buf.flush()  # Flush immediately — don't wait for the interval
+              streaming_final_answer = True  # Mark as already streamed
         # Extract trace_id from artifact metadata
         if parsed.artifact and not trace_id:
           artifact_metadata = parsed.artifact.get("metadata", {})
