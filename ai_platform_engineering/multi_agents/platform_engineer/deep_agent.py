@@ -86,7 +86,6 @@ from ai_platform_engineering.multi_agents.tools import (
     jq,
     yq,
 )
-from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -173,10 +172,6 @@ def _get_subagent_model(name: str) -> Optional[Union[str, LanguageModelLike]]:
         return model
 
     return None
-
-# Structured Response Configuration
-# When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker
-USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
 
 # Remote A2A agents (run as separate containers, communicate via A2A protocol)
 
@@ -1539,12 +1534,7 @@ This format is required so the UI can display agent stickers next to each task.
             ],
         )
 
-        if USE_STRUCTURED_RESPONSE:
-            from langchain.agents.structured_output import ToolStrategy
-            deep_agent_kwargs["response_format"] = ToolStrategy(schema=PlatformEngineerResponse)
-            logger.info("✅ Structured response mode enabled (ToolStrategy + PlatformEngineerResponse)")
-        else:
-            logger.info("❌ Structured response mode disabled - using [FINAL ANSWER] marker")
+        logger.info("Using [FINAL ANSWER] marker mode for plain-text token streaming")
 
         # Attach cross-thread store for long-term memory (both modes)
         try:

@@ -74,7 +74,6 @@ services:
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
       - ENABLE_ARTIFACT_STREAMING=true
-      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
 
       # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
       # Leave empty for all-in-one mode (all agents in-process via MCP).

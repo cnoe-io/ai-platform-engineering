@@ -358,30 +358,25 @@ def stream_a2a_response(
             # suppression is handled by any_subagent_completed below.
 
           # Stream markdown (no plan, or final answer)
-          # Filter LangChain ToolStrategy metadata that leaks into STREAMING_RESULT.
-          # When USE_STRUCTURED_RESPONSE is on, the LLM packages its answer as a
-          # JSON tool call (PlatformEngineerResponse) and LangChain emits the raw
-          # "Returning structured response: is_task_complete=True ..." string as a
-          # streaming token. This is internal metadata — never show it to the user.
+          # Safety filter: suppress any ToolStrategy metadata that may have leaked.
           text = parsed.text_content
           if "is_task_complete=" in text or text.startswith("Returning structured response"):
             logger.debug(f"[{thread_ts}] Suppressing metadata STREAMING_RESULT chunk")
             continue
-          # After a sub-agent tool has completed, suppress streaming_result from
-          # the main chat. The supervisor's LLM echoes sub-agent responses verbatim
-          # in its post-tool reasoning text. Showing this floods the response with
-          # raw agent output. The clean FINAL_RESULT (ResponseFormat) is better.
-          #
-          # BUT: for RAG-only queries (search, fetch_document, list_datasources),
-          # the post-tool STREAMING_RESULT IS the actual synthesized answer — don't
-          # suppress it or the user sees nothing.
+          # After a sub-agent completes, allow post-subagent STREAMING_RESULT through
+          # when the stream is already open. In [FINAL ANSWER] mode, pre-marker thinking
+          # is suppressed at the agent level so only the clean final answer reaches here.
+          # If the stream is not yet open (typing indicator), accumulate for step cards.
           if any_subagent_completed:
-            if current_step_id and plan_steps:
-              step_thinking.setdefault(current_step_id, [])
-              step_thinking[current_step_id].append(text)
-            else:
-              logger.debug(f"[{thread_ts}] Suppressing post-subagent STREAMING_RESULT ({len(text)} chars)")
-            continue
+            if not stream_ts:
+              if current_step_id and plan_steps:
+                step_thinking.setdefault(current_step_id, [])
+                step_thinking[current_step_id].append(text)
+              else:
+                logger.debug(f"[{thread_ts}] Suppressing pre-stream post-subagent chunk ({len(text)} chars)")
+              continue
+            # Stream is open — this is the final answer; let it through
+            streaming_final_answer = True
           # Before the stream starts (typing indicator still visible), show narration
           # text as a typing status update rather than immediately opening the stream.
           # The stream will start when the first tool fires (TOOL_NOTIFICATION_START).

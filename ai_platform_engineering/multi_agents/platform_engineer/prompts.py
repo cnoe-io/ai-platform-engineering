@@ -195,12 +195,8 @@ LLM Instructions:
 {tool_instructions_str}
 """
 
-# Generate the system prompt
-# USE_STRUCTURED_RESPONSE is read from the environment here to avoid a circular
-# import with deep_agent.py (which imports system_prompt from this module).
-import os as _os
-_use_structured_response = _os.getenv("USE_STRUCTURED_RESPONSE", "false").lower() == "true"
-system_prompt = generate_system_prompt(agents, use_structured_response=_use_structured_response)
+# Generate the system prompt — always use [FINAL ANSWER] marker mode (plain-text streaming)
+system_prompt = generate_system_prompt(agents, use_structured_response=False)
 
 logger.debug("="*50)
 logger.debug(f"System Prompt Generated:\n{system_prompt}")
