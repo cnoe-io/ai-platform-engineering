@@ -1,6 +1,6 @@
 apiVersion: v2
 name: slack-bot
 description: Slack bot integration for AI Platform Engineering using A2A protocol
-version: 0.2.43-rc.helm.2
+version: 0.2.43-rc.helm.3
 appVersion: 0.2.43
 type: application
