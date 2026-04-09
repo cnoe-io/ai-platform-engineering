@@ -1476,6 +1476,8 @@ func Test_CreateRepository(t *testing.T) {
 	assert.Contains(t, schema.Properties, "organization")
 	assert.Contains(t, schema.Properties, "private")
 	assert.Contains(t, schema.Properties, "autoInit")
+	assert.Contains(t, schema.Properties, "template_owner")
+	assert.Contains(t, schema.Properties, "template_repo")
 	assert.ElementsMatch(t, schema.Required, []string{"name"})
 
 	// Setup mock repository response
@@ -1584,6 +1586,79 @@ func Test_CreateRepository(t *testing.T) {
 			},
 			expectError:    true,
 			expectedErrMsg: "failed to create repository",
+		},
+		{
+			name: "successful repository creation from template",
+			mockedClient: NewMockedHTTPClient(
+				WithRequestMatchHandler(
+					EndpointPattern("GET /user"),
+					mockResponse(t, http.StatusOK, &github.User{Login: github.Ptr("testuser")}),
+				),
+				WithRequestMatchHandler(
+					EndpointPattern("POST /repos/template-org/template-repo/generate"),
+					expectRequestBody(t, map[string]any{
+						"name":        "test-repo",
+						"owner":       "testuser",
+						"description": "Created from template",
+						"private":     true,
+					}).andThen(
+						mockResponse(t, http.StatusCreated, mockRepo),
+					),
+				),
+			),
+			requestArgs: map[string]any{
+				"name":           "test-repo",
+				"description":    "Created from template",
+				"private":        true,
+				"template_owner": "template-org",
+				"template_repo":  "template-repo",
+			},
+			expectError:  false,
+			expectedRepo: mockRepo,
+		},
+		{
+			name: "successful repository creation from template in organization",
+			mockedClient: NewMockedHTTPClient(
+				WithRequestMatchHandler(
+					EndpointPattern("POST /repos/template-org/template-repo/generate"),
+					expectRequestBody(t, map[string]any{
+						"name":        "test-repo",
+						"owner":       "testorg",
+						"description": "",
+						"private":     false,
+					}).andThen(
+						mockResponse(t, http.StatusCreated, mockRepo),
+					),
+				),
+			),
+			requestArgs: map[string]any{
+				"name":           "test-repo",
+				"organization":   "testorg",
+				"template_owner": "template-org",
+				"template_repo":  "template-repo",
+			},
+			expectError:  false,
+			expectedRepo: mockRepo,
+		},
+		{
+			name:         "template creation fails with only template_owner",
+			mockedClient: NewMockedHTTPClient(),
+			requestArgs: map[string]any{
+				"name":           "test-repo",
+				"template_owner": "template-org",
+			},
+			expectError:    true,
+			expectedErrMsg: "both template_owner and template_repo must be provided together",
+		},
+		{
+			name:         "template creation fails with only template_repo",
+			mockedClient: NewMockedHTTPClient(),
+			requestArgs: map[string]any{
+				"name":          "test-repo",
+				"template_repo": "template-repo",
+			},
+			expectError:    true,
+			expectedErrMsg: "both template_owner and template_repo must be provided together",
 		},
 	}
 
