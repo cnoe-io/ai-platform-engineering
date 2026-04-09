@@ -1,0 +1,72 @@
+# Test Job — verifies DocumentDB connectivity and prints basic collection counts.
+#
+# Usage:
+#   kubectl -n sdp-ai apply -f scripts/migrations/0.3.0/k8s-job-test.yaml
+#   kubectl -n sdp-ai logs -f job/migration-0.3.0-test
+#   kubectl -n sdp-ai delete job migration-0.3.0-test
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-0.3.0-test
+  namespace: sdp-ai
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      annotations:
+        traffic.sidecar.istio.io/excludeOutboundPorts: "27017"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: test
+          image: python:3.12-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --quiet pymongo
+
+              case "${ENV:-}" in
+                prod) export MONGODB_URI="$MONGODB_URI_PROD" ;;
+                dev)  export MONGODB_URI="$MONGODB_URI_DEV" ;;
+                *)    echo "ERROR: ENV must be 'dev' or 'prod'"; exit 1 ;;
+              esac
+
+              python3 - <<'EOF'
+              import os
+              from pymongo import MongoClient
+
+              uri = os.environ["MONGODB_URI"]
+              db_name = os.environ.get("MONGODB_DATABASE", "caipe")
+
+              print(f"Connecting to {db_name}...")
+              client = MongoClient(uri, serverSelectionTimeoutMS=10000)
+              db = client[db_name]
+
+              # Verify connection
+              client.admin.command("ping")
+              print("Connected OK\n")
+
+              # Print collection counts
+              for coll in ["conversations", "messages", "users", "feedback"]:
+                  count = db[coll].count_documents({})
+                  print(f"  {coll}: {count}")
+
+              client.close()
+              EOF
+          envFrom:
+            - secretRef:
+                name: migration-0.3.0-env
+          env:
+            - name: ENV
+              value: "dev"    # set to "prod" for prod cluster
+          volumeMounts:
+            - name: rds-ca-bundle
+              mountPath: /etc/ssl/certs/global-bundle.pem
+              subPath: global-bundle.pem
+              readOnly: true
+      volumes:
+        - name: rds-ca-bundle
+          configMap:
+            name: rds-ca-bundle

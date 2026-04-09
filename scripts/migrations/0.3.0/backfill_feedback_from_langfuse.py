@@ -12,8 +12,22 @@ Modes:
   --from-json FILE    Load scores from a previously dumped JSON file instead of hitting Langfuse
   (default)           Fetch from Langfuse and write directly to MongoDB
 
+Incremental mode:
+  --incremental       When used with --dump-json, only fetch scores newer than the latest
+                      timestamp already in the file, then merge them in. Enables a
+                      "bulk dump now, top-up at cutover" workflow:
+
+                        # Step 1: Full dump (run days/weeks before cutover)
+                        python backfill_feedback_from_langfuse.py --dump-json data/langfuse_scores.json
+
+                        # Step 2: Top-up at cutover (only fetches new scores since Step 1)
+                        python backfill_feedback_from_langfuse.py --dump-json data/langfuse_scores.json --incremental
+
+                        # Step 3: Load the merged file into MongoDB
+                        python backfill_feedback_from_langfuse.py --from-json data/langfuse_scores.json
+
 Required env vars (when fetching from Langfuse):
-  LANGFUSE_HOST       e.g. https://langfuse.sdp.dev.svc.splunk8s.io
+  LANGFUSE_BASE_URL   e.g. https://langfuse.sdp.dev.svc.splunk8s.io
   LANGFUSE_PUBLIC_KEY
   LANGFUSE_SECRET_KEY
 
@@ -53,8 +67,13 @@ def get_env(name: str) -> str:
     return val
 
 
-def fetch_langfuse_scores(host: str, public_key: str, secret_key: str):
-    """Paginate through Langfuse /api/public/scores for 'all slack channels'."""
+def fetch_langfuse_scores(host: str, public_key: str, secret_key: str, from_timestamp: str | None = None):
+    """Paginate through Langfuse /api/public/scores for 'all slack channels'.
+
+    Args:
+        from_timestamp: ISO-8601 string. When set, only scores with createdAt > this
+                        value are fetched (incremental mode).
+    """
     url = f"{host.rstrip('/')}/api/public/scores"
     page = 1
     limit = 100
@@ -62,6 +81,8 @@ def fetch_langfuse_scores(host: str, public_key: str, secret_key: str):
 
     while True:
         params = {"name": "all slack channels", "page": page, "limit": limit}
+        if from_timestamp:
+            params["fromTimestamp"] = from_timestamp
         print(f"  Fetching page {page}...", end="", flush=True)
         resp = requests.get(url, params=params, auth=(public_key, secret_key), timeout=30)
         resp.raise_for_status()
@@ -83,6 +104,42 @@ def fetch_langfuse_scores(host: str, public_key: str, secret_key: str):
         if page >= total_pages:
             break
         page += 1
+
+
+def get_latest_timestamp(scores: list[dict]) -> str | None:
+    """Return the latest createdAt ISO string from a list of raw Langfuse score dicts."""
+    timestamps = []
+    for s in scores:
+        ts = s.get("createdAt")
+        if ts:
+            try:
+                timestamps.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
+            except (ValueError, AttributeError):
+                pass
+    if not timestamps:
+        return None
+    return max(timestamps).isoformat()
+
+
+def load_json_file(path: Path) -> tuple[list[dict], dict]:
+    """Load a dump file. Returns (scores, metadata).
+
+    The dump format is either:
+      - Legacy: a plain JSON array of score objects
+      - New: {"_meta": {...}, "scores": [...]}
+    """
+    with open(path) as f:
+        raw = json.load(f)
+    if isinstance(raw, list):
+        return raw, {}
+    return raw.get("scores", []), raw.get("_meta", {})
+
+
+def save_json_file(path: Path, scores: list[dict], meta: dict) -> None:
+    """Save scores + metadata to a dump file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"_meta": meta, "scores": scores}, f, indent=2, default=str)
 
 
 def map_rating(value: str) -> str:
@@ -129,33 +186,73 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Print without writing to MongoDB")
     parser.add_argument("--dump-json", metavar="FILE", help="Fetch from Langfuse and save raw scores to JSON file")
     parser.add_argument("--from-json", metavar="FILE", help="Load scores from a previously dumped JSON file")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help=(
+            "When used with --dump-json: only fetch scores newer than the latest timestamp "
+            "already in the file, then merge. Requires the file to exist from a prior dump."
+        ),
+    )
     args = parser.parse_args()
 
-    # --- Mode 1: Dump raw Langfuse scores to JSON ---
+    if args.incremental and not args.dump_json:
+        print("ERROR: --incremental requires --dump-json", file=sys.stderr)
+        sys.exit(1)
+
+    # --- Mode 1: Dump raw Langfuse scores to JSON (with optional incremental top-up) ---
     if args.dump_json:
-        host = get_env("LANGFUSE_HOST")
+        outpath = Path(args.dump_json)
+
+        existing_scores: list[dict] = []
+        existing_meta: dict = {}
+        from_timestamp: str | None = None
+
+        if args.incremental:
+            if not outpath.exists():
+                print(f"ERROR: --incremental specified but {outpath} does not exist. Run a full dump first.", file=sys.stderr)
+                sys.exit(1)
+            existing_scores, existing_meta = load_json_file(outpath)
+            from_timestamp = existing_meta.get("latest_timestamp") or get_latest_timestamp(existing_scores)
+            if not from_timestamp:
+                print("WARNING: could not determine latest timestamp from existing file — fetching all scores", file=sys.stderr)
+            else:
+                print(f"Incremental mode: fetching scores newer than {from_timestamp}")
+
+        host = get_env("LANGFUSE_BASE_URL")
         public_key = get_env("LANGFUSE_PUBLIC_KEY")
         secret_key = get_env("LANGFUSE_SECRET_KEY")
 
         print(f"Fetching scores from {host}...")
-        all_scores = list(fetch_langfuse_scores(host, public_key, secret_key))
-        print(f"Fetched {len(all_scores)} total scores")
+        new_scores = list(fetch_langfuse_scores(host, public_key, secret_key, from_timestamp=from_timestamp))
+        print(f"Fetched {len(new_scores)} new scores")
 
-        outpath = Path(args.dump_json)
-        outpath.parent.mkdir(parents=True, exist_ok=True)
-        with open(outpath, "w") as f:
-            json.dump(all_scores, f, indent=2, default=str)
-        print(f"Saved to {outpath}")
+        if args.incremental and existing_scores:
+            # Dedup by score ID so a re-run of the incremental step is safe
+            existing_ids = {s.get("id") for s in existing_scores if s.get("id")}
+            deduped_new = [s for s in new_scores if s.get("id") not in existing_ids]
+            print(f"Merging: {len(existing_scores)} existing + {len(deduped_new)} new (deduped from {len(new_scores)} fetched)")
+            all_scores = existing_scores + deduped_new
+        else:
+            all_scores = new_scores
+
+        latest_ts = get_latest_timestamp(all_scores)
+        meta = {
+            "latest_timestamp": latest_ts,
+            "total_scores": len(all_scores),
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
+        save_json_file(outpath, all_scores, meta)
+        print(f"Saved {len(all_scores)} scores to {outpath} (latest_timestamp: {latest_ts})")
         return
 
     # --- Load scores: from JSON file or live from Langfuse ---
     if args.from_json:
         print(f"Loading scores from {args.from_json}...")
-        with open(args.from_json) as f:
-            scores = json.load(f)
+        scores, _ = load_json_file(Path(args.from_json))
         print(f"Loaded {len(scores)} scores from file")
     else:
-        host = get_env("LANGFUSE_HOST")
+        host = get_env("LANGFUSE_BASE_URL")
         public_key = get_env("LANGFUSE_PUBLIC_KEY")
         secret_key = get_env("LANGFUSE_SECRET_KEY")
         print(f"Fetching scores from {host}...")

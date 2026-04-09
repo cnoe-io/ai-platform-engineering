@@ -1,0 +1,112 @@
+# One-off migration Job — runs both backfill scripts in-cluster against DocumentDB.
+#
+# Usage:
+#   # 1. Create the Secret from your .env file
+#   kubectl -n sdp-ai create secret generic migration-0.3.0-env --from-env-file=scripts/migrations/0.3.0/.env
+#
+#   # 2. Create ConfigMaps for the scripts
+#   kubectl -n sdp-ai create configmap migration-0.3.0-scripts \
+#     --from-file=backfill_feedback_from_langfuse.py=scripts/migrations/0.3.0/backfill_feedback_from_langfuse.py \
+#     --from-file=backfill_slack_interactions.py=scripts/migrations/0.3.0/backfill_slack_interactions.py
+#
+#   # 3. Apply the Job
+#   kubectl -n sdp-ai apply -f scripts/migrations/0.3.0/k8s-job.yaml
+#
+#   # 4. Watch logs
+#   kubectl -n sdp-ai logs -f job/migration-0.3.0
+#
+#   # 5. Clean up after success
+#   kubectl -n sdp-ai delete job migration-0.3.0
+#   kubectl -n sdp-ai delete secret migration-0.3.0-env
+#   kubectl -n sdp-ai delete configmap migration-0.3.0-scripts
+#
+# To re-run (e.g. incremental top-up), delete the job first then re-apply.
+# Toggle INCREMENTAL below between "false" (full dump + load) and "true" (top-up + load).
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-0.3.0
+  namespace: sdp-ai
+spec:
+  ttlSecondsAfterFinished: 86400  # auto-delete after 24h
+  template:
+    metadata:
+      annotations:
+        traffic.sidecar.istio.io/excludeOutboundPorts: "27017"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migration
+          image: python:3.12-slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              pip install --quiet pymongo requests slack-sdk
+
+              DATA_DIR=/data
+              LANGFUSE_JSON=$DATA_DIR/langfuse_scores.json
+              SLACK_JSON=$DATA_DIR/slack_interactions.json
+              INCREMENTAL="${INCREMENTAL:-false}"
+
+              # Resolve MONGODB_URI from env-specific var
+              case "${ENV:-}" in
+                prod) export MONGODB_URI="$MONGODB_URI_PROD" ;;
+                dev)  export MONGODB_URI="$MONGODB_URI_DEV" ;;
+                *)    echo "ERROR: ENV must be 'dev' or 'prod'"; exit 1 ;;
+              esac
+
+              echo "=== Migration 0.3.0 (ENV=$ENV) ==="
+              echo "INCREMENTAL=$INCREMENTAL"
+              echo ""
+
+              # Step 1: Langfuse feedback
+              echo "--- Step 1: Langfuse feedback ---"
+              if [ "$INCREMENTAL" = "true" ] && [ -f "$LANGFUSE_JSON" ]; then
+                python /scripts/backfill_feedback_from_langfuse.py --dump-json "$LANGFUSE_JSON" --incremental
+              else
+                python /scripts/backfill_feedback_from_langfuse.py --dump-json "$LANGFUSE_JSON"
+              fi
+              python /scripts/backfill_feedback_from_langfuse.py --from-json "$LANGFUSE_JSON"
+
+              echo ""
+
+              # Step 2: Slack interactions
+              echo "--- Step 2: Slack interactions ---"
+              if [ "$INCREMENTAL" = "true" ] && [ -f "$SLACK_JSON" ]; then
+                python /scripts/backfill_slack_interactions.py --dump-json "$SLACK_JSON" --incremental
+              else
+                python /scripts/backfill_slack_interactions.py --dump-json "$SLACK_JSON"
+              fi
+              python /scripts/backfill_slack_interactions.py --from-json "$SLACK_JSON"
+
+              echo ""
+              echo "=== Done ==="
+          envFrom:
+            - secretRef:
+                name: migration-0.3.0-env
+          env:
+            - name: INCREMENTAL
+              value: "false"  # set to "true" for cutover top-up run
+            - name: ENV
+              value: "dev"    # set to "prod" when running against prod cluster
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: rds-ca-bundle
+              mountPath: /etc/ssl/certs/global-bundle.pem
+              subPath: global-bundle.pem
+              readOnly: true
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: scripts
+          configMap:
+            name: migration-0.3.0-scripts
+        - name: rds-ca-bundle
+          configMap:
+            name: rds-ca-bundle
+        - name: data
+          emptyDir: {}
