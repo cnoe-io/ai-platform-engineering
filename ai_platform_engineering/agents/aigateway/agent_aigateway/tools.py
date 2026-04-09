@@ -3,6 +3,7 @@
 
 """AIGateway Tools for managing LLM access via LiteLLM with Vault-backed key storage."""
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
@@ -25,6 +26,15 @@ LITELLM_API_URL = os.getenv("LITELLM_API_URL") or os.getenv("LITELLM_PROXY_URL",
 LITELLM_API_KEY = os.getenv("LITELLM_API_KEY") or os.getenv("LITELLM_MASTER_KEY", "")
 WEBEX_TOKEN = os.getenv("WEBEX_TOKEN", "")
 LITELLM_DOCS_URL = os.getenv("LITELLM_DOCS_URL", f"{LITELLM_API_URL}/")
+
+_user_key_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_user_lock(user_email: str) -> asyncio.Lock:
+  """Get or create a per-user asyncio lock to serialize concurrent key operations."""
+  if user_email not in _user_key_locks:
+    _user_key_locks[user_email] = asyncio.Lock()
+  return _user_key_locks[user_email]
 
 
 def _vault_store(user_email: str, key: str, metadata: dict | None = None) -> bool:
@@ -422,19 +432,26 @@ async def _get_key_info(token: str) -> Optional[dict]:
     return data.get("info", data)
 
 
-async def _update_key_models(token: str, new_model: str) -> dict:
-  """Add a model to an existing key's allowed models list."""
+async def _update_key_models_batch(token: str, new_models: list[str]) -> dict:
+  """Add multiple models to a key in a single atomic read-modify-write.
+
+  Reads the current model list once, computes the union, and writes once,
+  avoiding the per-model read-modify-write loop that was vulnerable to
+  concurrent overwrites.
+  """
   key_info = await _get_key_info(token)
   if key_info is None:
     logger.warning("Key does not exist in LiteLLM (404). Cannot update models.")
     return {"key_not_found": True, "models": []}
 
   current_models = key_info.get("models") or []
-  if new_model in current_models:
-    logger.info(f"Model {new_model} already in key's models list")
+  models_to_add = [m for m in new_models if m not in current_models]
+
+  if not models_to_add:
+    logger.info(f"All requested models already in key's models list: {new_models}")
     return {"models": current_models, "already_exists": True}
 
-  updated_models = current_models + [new_model]
+  updated_models = current_models + models_to_add
   headers = _litellm_headers()
 
   async with httpx.AsyncClient() as client:
@@ -448,8 +465,17 @@ async def _update_key_models(token: str, new_model: str) -> dict:
       logger.error(f"Error updating key models: {response.text}")
       return {"error": True, "message": response.text}
 
-  logger.info(f"Added model {new_model} to key. Total models: {len(updated_models)}")
-  return {"models": updated_models, "model_added": new_model}
+  logger.info(f"Added {len(models_to_add)} model(s) to key: {models_to_add}. Total models: {len(updated_models)}")
+
+  verified_info = await _get_key_info(token)
+  if verified_info:
+    verified_models = verified_info.get("models") or []
+    missing = [m for m in updated_models if m not in verified_models]
+    if missing:
+      logger.warning(f"Models missing after update (possible concurrent overwrite): {missing}")
+    return {"models": verified_models, "models_added": models_to_add}
+
+  return {"models": updated_models, "models_added": models_to_add}
 
 
 async def _generate_key(user_id: str, user_email: str, models: list[str], max_budget: float = 100.0) -> dict:
@@ -496,15 +522,13 @@ async def _generate_key(user_id: str, user_email: str, models: list[str], max_bu
       if existing:
         token = existing.get("key") or existing.get("token", "")
         if token:
-          for model in models:
-            result = await _update_key_models(token, model)
-            if result.get("error") or result.get("key_not_found"):
-              logger.error(f"Failed to add model {model} to existing key: {result}")
-              return {"error": f"Key exists but failed to add models: {result.get('message', 'unknown')}"}
-          updated_info = await _get_key_info(token)
+          result = await _update_key_models_batch(token, models)
+          if result.get("error") or result.get("key_not_found"):
+            logger.error(f"Failed to add models to existing key: {result}")
+            return {"error": f"Key exists but failed to add models: {result.get('message', 'unknown')}"}
           return {
             "key": token,
-            "models": updated_info.get("models", models) if updated_info else models,
+            "models": result.get("models", models),
             "existing_key_updated": True,
           }
 
@@ -626,108 +650,94 @@ async def create_llm_api_key(provider_name: str, model_name: str, user_email: st
     primary_model = model_names[0]
     full_model_name = f"{provider_name}/{primary_model}"
 
-    user_max_budget = 100.0
-    preserved_budget: dict = {}
-    initial_existing_key = await _get_existing_key(user_email, preserve_budget=preserved_budget)
+    async with _get_user_lock(user_email):
+      user_max_budget = 100.0
+      preserved_budget: dict = {}
+      initial_existing_key = await _get_existing_key(user_email, preserve_budget=preserved_budget)
 
-    if preserved_budget.get("max_budget") is not None:
-      user_max_budget = preserved_budget["max_budget"]
+      if preserved_budget.get("max_budget") is not None:
+        user_max_budget = preserved_budget["max_budget"]
 
-    user_id = await _get_or_create_user(user_email, max_budget=user_max_budget)
-    if not user_id:
-      return f"Failed to create/get user {user_email}"
+      user_id = await _get_or_create_user(user_email, max_budget=user_max_budget)
+      if not user_id:
+        return f"Failed to create/get user {user_email}"
 
-    budget_info = await _get_user_budget_info(user_email)
-    actual_budget = budget_info.get("max_budget")
-    if actual_budget is not None:
-      user_max_budget = actual_budget
+      budget_info = await _get_user_budget_info(user_email)
+      actual_budget = budget_info.get("max_budget")
+      if actual_budget is not None:
+        user_max_budget = actual_budget
 
-    existing_key = await _get_existing_key(user_email)
+      existing_key = await _get_existing_key(user_email)
 
-    if existing_key:
-      token = existing_key.get("key") or existing_key.get("token", "")
-      if not token:
-        logger.warning(f"Existing key found for {user_email} but no token available")
-      else:
-        all_models_result = {"models": [], "already_exists": False}
-        key_not_found = False
-
-        for vm in validated_models:
-          update_result = await _update_key_models(token, vm)
+      if existing_key:
+        token = existing_key.get("key") or existing_key.get("token", "")
+        if not token:
+          logger.warning(f"Existing key found for {user_email} but no token available")
+        else:
+          update_result = await _update_key_models_batch(token, validated_models)
 
           if update_result.get("key_not_found"):
-            key_not_found = True
-            break
-          if update_result.get("error"):
+            logger.warning(f"Stale key detected for {user_email}. Cleaning up and regenerating.")
+            _vault_delete(user_email)
+            await _delete_user_keys_from_litellm(user_email)
+          elif update_result.get("error"):
             return f"Failed to update existing key: {update_result.get('message', 'Unknown error')}"
-
-          all_models_result["models"] = update_result.get("models", [])
-          if not update_result.get("already_exists"):
-            all_models_result["already_exists"] = False
-
-        if key_not_found:
-          logger.warning(f"Stale key detected for {user_email}. Cleaning up and regenerating.")
-          _vault_delete(user_email)
-          await _delete_user_keys_from_litellm(user_email)
-        else:
-          models = all_models_result.get("models", [])
-          all_already_existed = all(
-            vm in (existing_key.get("models") or [])
-            for vm in validated_models
-          )
-          status = "already_configured" if all_already_existed else "model_added"
-
-          webex_msg = _build_webex_message(
-            user_email=user_email, provider_name=provider_name,
-            model_name=primary_model, full_model_name=full_model_name,
-            api_key=token, models=models, status=status,
-            user_max_budget=user_max_budget,
-          )
-          await _send_webex_message(user_email, webex_msg)
-
-          if all_already_existed:
-            return (
-              f"You already have access to model(s) {', '.join(f'`{m}`' for m in validated_models)}. "
-              f"All models on your key: {', '.join(f'`{m}`' for m in models)}. "
-              f"Your API key and usage instructions have been sent to {user_email} via Webex."
-            )
           else:
-            return (
-              f"Model(s) added to your existing API key. "
-              f"All models on your key: {', '.join(f'`{m}`' for m in models)}. "
-              f"Your API key and usage instructions have been sent to {user_email} via Webex."
+            models = update_result.get("models", [])
+            all_already_existed = update_result.get("already_exists", False)
+            status = "already_configured" if all_already_existed else "model_added"
+
+            webex_msg = _build_webex_message(
+              user_email=user_email, provider_name=provider_name,
+              model_name=primary_model, full_model_name=full_model_name,
+              api_key=token, models=models, status=status,
+              user_max_budget=user_max_budget,
             )
+            await _send_webex_message(user_email, webex_msg)
 
-    key_response = await _generate_key(
-      user_id=user_id,
-      user_email=user_email,
-      models=validated_models,
-      max_budget=user_max_budget,
-    )
+            if all_already_existed:
+              return (
+                f"You already have access to model(s) {', '.join(f'`{m}`' for m in validated_models)}. "
+                f"All models on your key: {', '.join(f'`{m}`' for m in models)}. "
+                f"Your API key and usage instructions have been sent to {user_email} via Webex."
+              )
+            else:
+              return (
+                f"Model(s) added to your existing API key. "
+                f"All models on your key: {', '.join(f'`{m}`' for m in models)}. "
+                f"Your API key and usage instructions have been sent to {user_email} via Webex."
+              )
 
-    if "error" in key_response:
-      return f"Failed to generate API key: {key_response['error']}"
+      key_response = await _generate_key(
+        user_id=user_id,
+        user_email=user_email,
+        models=validated_models,
+        max_budget=user_max_budget,
+      )
 
-    api_key = key_response.get("key", "")
-    status = "key_regenerated" if initial_existing_key else "created"
+      if "error" in key_response:
+        return f"Failed to generate API key: {key_response['error']}"
 
-    webex_msg = _build_webex_message(
-      user_email=user_email, provider_name=provider_name,
-      model_name=primary_model, full_model_name=full_model_name,
-      api_key=api_key, models=validated_models, status=status,
-      user_max_budget=user_max_budget,
-    )
-    await _send_webex_message(user_email, webex_msg)
+      api_key = key_response.get("key", "")
+      status = "key_regenerated" if initial_existing_key else "created"
 
-    if errors:
-      error_note = " Some models could not be added: " + "; ".join(errors)
-    else:
-      error_note = ""
+      webex_msg = _build_webex_message(
+        user_email=user_email, provider_name=provider_name,
+        model_name=primary_model, full_model_name=full_model_name,
+        api_key=api_key, models=validated_models, status=status,
+        user_max_budget=user_max_budget,
+      )
+      await _send_webex_message(user_email, webex_msg)
 
-    return (
-      f"LLM API key for model(s) {', '.join(f'`{m}`' for m in validated_models)} has been created successfully. "
-      f"Your API key and usage instructions have been sent to {user_email} via Webex.{error_note}"
-    )
+      if errors:
+        error_note = " Some models could not be added: " + "; ".join(errors)
+      else:
+        error_note = ""
+
+      return (
+        f"LLM API key for model(s) {', '.join(f'`{m}`' for m in validated_models)} has been created successfully. "
+        f"Your API key and usage instructions have been sent to {user_email} via Webex.{error_note}"
+      )
 
   except Exception as e:
     error_msg = f"Failed to create LLM API key: {e}"
