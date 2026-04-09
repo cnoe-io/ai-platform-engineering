@@ -52,6 +52,7 @@ from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
 from ai_platform_engineering.utils.deepagents_custom.self_service_middleware import (
     SelfServiceWorkflowMiddleware,
 )
+from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
@@ -646,6 +647,7 @@ def create_user_input_subagent_def() -> dict:
         "tools": tools,
         "interrupt_on": {"CAIPEAgentResponse": True},
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name="user_input", agent_type="subagent"),
         ],
     }
@@ -712,6 +714,7 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         "system_prompt": system_prompt,
         "tools": tools,
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name=name, agent_type="subagent"),
         ],
     }
@@ -799,6 +802,7 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
         "system_prompt": system_prompt,
         "tools": tools,
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name=name, agent_type="subagent"),
         ],
     }
@@ -909,6 +913,7 @@ async def create_aws_subagent_def(prompt_config: dict = None) -> dict:
         "system_prompt": system_prompt,
         "tools": tools,
         "middleware": [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
             PolicyMiddleware(agent_name=name, agent_type="subagent"),
         ],
     }
@@ -1526,6 +1531,7 @@ This format is required so the UI can display agent stickers next to each task.
             subagents=subagent_defs,
             model=base_model,
             middleware=[
+                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
                 PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
                 *skills_middleware_list,
                 DeterministicTaskMiddleware(),
