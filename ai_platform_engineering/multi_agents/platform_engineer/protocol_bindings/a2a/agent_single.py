@@ -19,6 +19,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single im
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
 )
+from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
 )
@@ -73,6 +74,7 @@ class AIPlatformEngineerA2ABinding:
 
       await self._mas_instance.ensure_initialized()
       self.graph = self._mas_instance.get_graph()
+      set_mas_instance(self._mas_instance)
       self._initialized = True
       logging.info("✅ AIPlatformEngineerA2ABinding initialized with MCP tools")
 

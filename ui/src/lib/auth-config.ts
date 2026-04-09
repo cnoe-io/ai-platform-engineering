@@ -439,8 +439,12 @@ export const authOptions: NextAuthOptions = {
       // admin view group is configured (all authenticated users can view).
       session.canViewAdmin = (token.canViewAdmin as boolean)
         ?? (REQUIRED_ADMIN_VIEW_GROUP === '' ? true : false);
+      // For pre-upgrade JWTs that lack canAccessDynamicAgents:
+      // - If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is unset, fall back to admin check
+      //   (same logic as canAccessDynamicAgents() at sign-in time)
+      // - If it IS set, deny access — user must re-login to get the right claim
       session.canAccessDynamicAgents = (token.canAccessDynamicAgents as boolean)
-        ?? (REQUIRED_DYNAMIC_AGENTS_GROUP === '' ? false : false);
+        ?? (REQUIRED_DYNAMIC_AGENTS_GROUP === '' ? session.role === 'admin' : false);
 
       // If token refresh failed, mark session as invalid and DON'T include tokens
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
