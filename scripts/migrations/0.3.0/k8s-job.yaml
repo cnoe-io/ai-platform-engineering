@@ -61,6 +61,14 @@ spec:
               echo "INCREMENTAL=$INCREMENTAL"
               echo ""
 
+              DRY_RUN="${DRY_RUN:-false}"
+              DRY_RUN_FLAG=""
+              if [ "$DRY_RUN" = "true" ]; then
+                DRY_RUN_FLAG="--dry-run"
+                echo "*** DRY RUN MODE — no data will be written to MongoDB ***"
+              fi
+              echo ""
+
               # Step 1: Langfuse feedback
               echo "--- Step 1: Langfuse feedback ---"
               if [ "$INCREMENTAL" = "true" ] && [ -f "$LANGFUSE_JSON" ]; then
@@ -68,7 +76,7 @@ spec:
               else
                 python /scripts/backfill_feedback_from_langfuse.py --dump-json "$LANGFUSE_JSON"
               fi
-              python /scripts/backfill_feedback_from_langfuse.py --from-json "$LANGFUSE_JSON"
+              python /scripts/backfill_feedback_from_langfuse.py --from-json "$LANGFUSE_JSON" $DRY_RUN_FLAG
 
               echo ""
 
@@ -79,7 +87,7 @@ spec:
               else
                 python /scripts/backfill_slack_interactions.py --dump-json "$SLACK_JSON"
               fi
-              python /scripts/backfill_slack_interactions.py --from-json "$SLACK_JSON"
+              python /scripts/backfill_slack_interactions.py --from-json "$SLACK_JSON" $DRY_RUN_FLAG
 
               echo ""
               echo "=== Done ==="
@@ -89,6 +97,8 @@ spec:
           env:
             - name: INCREMENTAL
               value: "false"  # set to "true" for cutover top-up run
+            - name: DRY_RUN
+              value: "false"  # set to "true" to preview without writing to MongoDB
             - name: ENV
               value: "dev"    # set to "prod" when running against prod cluster
           volumeMounts:
