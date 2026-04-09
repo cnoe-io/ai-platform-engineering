@@ -20,9 +20,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
 )
-from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
-    _bedrock_timeout_kwargs,
-)
+from botocore.config import Config as BotocoreConfig
 from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
@@ -39,6 +37,15 @@ from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
 _log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, _log_level, logging.INFO), format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def _bedrock_timeout_kwargs() -> dict:
+    """Return botocore timeout config when the provider is Bedrock."""
+    if "bedrock" in os.getenv("LLM_PROVIDER", "").lower():
+        read_timeout = int(os.getenv("BEDROCK_READ_TIMEOUT", "300"))
+        connect_timeout = int(os.getenv("BEDROCK_CONNECT_TIMEOUT", "60"))
+        return {"config": BotocoreConfig(read_timeout=read_timeout, connect_timeout=connect_timeout)}
+    return {}
 
 
 class AIPlatformEngineerA2ABinding:

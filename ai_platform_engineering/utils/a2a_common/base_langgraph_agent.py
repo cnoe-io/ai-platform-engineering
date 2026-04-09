@@ -106,7 +106,9 @@ class BaseLangGraphAgent(ABC):
         """Initialize the agent with LLM, tracing, and graph setup."""
         llm_kwargs = {}
         if "bedrock" in os.getenv("LLM_PROVIDER", "").lower():
-            llm_kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
+            read_timeout = int(os.getenv("BEDROCK_READ_TIMEOUT", "300"))
+            connect_timeout = int(os.getenv("BEDROCK_CONNECT_TIMEOUT", "60"))
+            llm_kwargs["config"] = BotocoreConfig(read_timeout=read_timeout, connect_timeout=connect_timeout)
         self.model = LLMFactory().get_llm(**llm_kwargs)
         self.tracing = TracingManager()
         self.graph = None

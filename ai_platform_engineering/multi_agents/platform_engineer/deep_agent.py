@@ -239,7 +239,9 @@ class AIPlatformEngineerMAS:
 
     llm_kwargs = {}
     if "bedrock" in os.getenv("LLM_PROVIDER", "").lower():
-        llm_kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
+        read_timeout = int(os.getenv("BEDROCK_READ_TIMEOUT", "300"))
+        connect_timeout = int(os.getenv("BEDROCK_CONNECT_TIMEOUT", "60"))
+        llm_kwargs["config"] = BotocoreConfig(read_timeout=read_timeout, connect_timeout=connect_timeout)
     base_model = LLMFactory().get_llm(**llm_kwargs)
 
     # Dynamically generate system prompt and subagents from current registry

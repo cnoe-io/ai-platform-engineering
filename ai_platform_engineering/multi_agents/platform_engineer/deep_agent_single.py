@@ -124,11 +124,17 @@ def _bedrock_timeout_kwargs(provider: Optional[str] = None) -> dict:
     during large-context or long-output generations.  The default botocore
     read_timeout (60 s) is insufficient and causes spurious
     ``ReadTimeoutError`` on the supervisor and subagent paths.
+
+    Configurable via env vars:
+        BEDROCK_READ_TIMEOUT  – seconds (default 300)
+        BEDROCK_CONNECT_TIMEOUT – seconds (default 60)
     """
     if provider is None:
         provider = os.getenv("LLM_PROVIDER", "")
     if "bedrock" in provider.lower():
-        return {"config": BotocoreConfig(read_timeout=300, connect_timeout=60)}
+        read_timeout = int(os.getenv("BEDROCK_READ_TIMEOUT", "300"))
+        connect_timeout = int(os.getenv("BEDROCK_CONNECT_TIMEOUT", "60"))
+        return {"config": BotocoreConfig(read_timeout=read_timeout, connect_timeout=connect_timeout)}
     return {}
 
 
