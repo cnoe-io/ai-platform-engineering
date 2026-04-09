@@ -330,11 +330,14 @@ def stream_a2a_response(
             task_error = f"Agent task failed: {error_msg}"
 
       elif parsed.event_type == EventType.STREAMING_RESULT:
-        # logger.info(
-        #     f"[{thread_ts}] STREAMING_RESULT: {len(parsed.text_content or '')} chars, "
-        #     f"append={parsed.should_append}, step={current_step_id}"
-        # )
         if parsed.text_content:
+          # Deterministic chunker tags its chunks with is_final_answer=True.
+          # Latch streaming_final_answer so the FINAL_RESULT handler skips
+          # re-streaming the same content (prevents duplicate output).
+          artifact_meta = (parsed.artifact or {}).get("metadata", {})
+          if artifact_meta.get("is_final_answer") and not streaming_final_answer:
+            streaming_final_answer = True
+
           # Track plan progress and latch final-answer streaming.
           if current_step_id and plan_steps and not streaming_final_answer:
             sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
@@ -381,13 +384,22 @@ def stream_a2a_response(
               else:
                 logger.debug(f"[{thread_ts}] Suppressing pre-stream post-subagent chunk ({len(text)} chars)")
               continue
-            # Stream is open — this is the final answer; let it through
-            streaming_final_answer = True
+            # Latch streaming_final_answer only when ALL plan steps are done.
+            # In multi-step plans, sub-agent N's narration arrives after sub-agent
+            # N-1 completes (any_subagent_completed=True) but while sub-agent N is
+            # still in_progress.  Latching here would cause FINAL_RESULT to be skipped,
+            # leaving the user with only intermediate narration and no real answer.
+            all_steps_done = not plan_steps or all(
+              s.get("status") == "completed" for s in plan_steps.values()
+            )
+            if all_steps_done:
+              streaming_final_answer = True
           # Before the stream starts (typing indicator still visible), show narration
           # text as a typing status update rather than immediately opening the stream.
           # The stream will start when the first tool fires (TOOL_NOTIFICATION_START).
           # This keeps CAIPE in "thinking/typing" state while it searches/fetches.
-          if not stream_ts:
+          # Exception: is_final_answer chunks ARE the answer — open the stream for them.
+          if not stream_ts and not streaming_final_answer:
             status = text.strip().rstrip('\n')
             if status:
               _set_typing_status(status[:80])

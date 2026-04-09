@@ -477,6 +477,11 @@ const sidebars: SidebarsConfig = {
           id: 'evaluations/tracing-implementation-guide',
           label: 'Tracing Implementation Guide',
         },
+        {
+          type: 'doc',
+          id: 'evaluations/slack-streaming-conformance',
+          label: 'Slack Streaming Conformance',
+        },
       ],
     },
     {

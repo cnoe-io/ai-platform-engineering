@@ -1,0 +1,35 @@
+{
+  "name": "mock-github-agent",
+  "url": "http://mock-github-agent:8000",
+  "version": "1.0.0",
+  "description": "Mock GitHub agent for testing A2A protocol interactions",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "skills": [
+    {
+      "id": "github-profile",
+      "name": "GitHub Profile Lookup",
+      "description": "Look up a GitHub user profile and return their information",
+      "tags": ["github", "profile", "user"],
+      "examples": [
+        "Get the GitHub profile for testuser",
+        "What repos does testuser have?"
+      ]
+    },
+    {
+      "id": "github-repo",
+      "name": "GitHub Repository Info",
+      "description": "Get information about a specific GitHub repository",
+      "tags": ["github", "repository", "code"],
+      "examples": [
+        "Show me the repo octocat/hello-world",
+        "What languages are used in this repo?"
+      ]
+    }
+  ],
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"]
+}

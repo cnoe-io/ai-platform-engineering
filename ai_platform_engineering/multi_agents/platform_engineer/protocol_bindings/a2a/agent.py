@@ -470,7 +470,7 @@ class AIPlatformEngineerA2ABinding:
       # Set recursion limit - LangGraph default is 25 which is too low for
       # deterministic task workflows (e.g. S3 creation has 8 steps, each with
       # model + tools cycles). Match the multi-node agent's limit of 100.
-      config['recursion_limit'] = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "200"))
+      config['recursion_limit'] = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "500"))
 
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
@@ -1051,39 +1051,13 @@ class AIPlatformEngineerA2ABinding:
                           else:
                               # Pre-marker: suppress (thinking/reasoning)
                               continue
-                      # Post-marker content: stream to client
-                      if not content:
-                          continue
-
-                  if content:  # Only yield if there's actual content
-                      yielded_chunk_count += 1
-                      # Check for querying announcements and emit as tool_update events
-                      import re
-                      querying_pattern = r'🔍\s+Querying\s+(\w+)\s+for\s+([^.]+?)\.\.\.'
-                      match = re.search(querying_pattern, content)
-
-                      if match:
-                          agent_name = match.group(1)
-                          purpose = match.group(2)
-                          logging.debug(f"Tool update detected: {agent_name} - {purpose}")
-                          # Emit as tool_update event
+                      if content:
+                          yielded_chunk_count += 1
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": content,
-                              "tool_update": {
-                                  "name": agent_name.lower(),
-                                  "purpose": purpose,
-                                  "status": "querying",
-                                  "type": "update"
-                              }
-                          }
-                      else:
-                          # Regular content - no special handling
-                          yield {
-                              "is_task_complete": False,
-                              "require_user_input": False,
-                              "content": content,
+                              "is_final_answer": True,
                           }
 
               # Handle AIMessage with tool calls (tool start indicators)
@@ -1722,6 +1696,12 @@ class AIPlatformEngineerA2ABinding:
       # Dedup: clear streaming content when it was already streamed to the client.
       # The final_model_content field (above) is NOT cleared — the executor uses
       # it to build the final_result artifact that replaces the streaming text.
+      #
+      # Pass yielded_chunk_count to the executor so it can decide whether to
+      # emit deterministic streaming chunks for the final answer.  When > 0 the
+      # answer was already streamed live (post-marker tokens); when 0 the pre-marker
+      # buffer held everything back and the executor must chunk-stream it now.
+      final_response['streaming_chunks_yielded'] = yielded_chunk_count
       if yielded_chunk_count > 1:
           logging.info(f"⏭️ Clearing content from final response - already streamed {yielded_chunk_count} chunks (accumulated {len(accumulated_ai_content)})")
           final_response['content'] = ''

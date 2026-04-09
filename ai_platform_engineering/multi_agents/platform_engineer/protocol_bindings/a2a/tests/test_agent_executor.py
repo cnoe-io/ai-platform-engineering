@@ -856,7 +856,8 @@ class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
         executor = _make_executor()
         self.assertFalse(executor._is_last_plan_step_active())
 
-    async def test_streaming_chunk_tagged_as_final_answer_when_last_step_active(self):
+    async def test_streaming_chunk_not_tagged_as_final_answer_even_when_last_step_active(self):
+        """is_final_answer is only set by the deterministic chunker, not inline streaming."""
         executor = _make_executor()
         executor._execution_plan_emitted = True
         executor._latest_execution_plan = [
@@ -873,7 +874,9 @@ class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
 
         event_sent = executor._safe_enqueue_event.call_args[0][1]
         artifact = event_sent.artifact
-        self.assertTrue(artifact.metadata.get('is_final_answer'))
+        self.assertTrue(
+            artifact.metadata is None or 'is_final_answer' not in artifact.metadata
+        )
 
     async def test_streaming_chunk_not_tagged_when_intermediate_step(self):
         executor = _make_executor()

@@ -226,14 +226,15 @@ As a user interacting via Slack, I want to see the model's intermediate narratio
 | `rag_tools.py` | `FetchDocumentCapWrapper` and `SearchCapWrapper` with success-string caps, output truncation, per-call search limit capping | US-6 |
 | `deep_agent.py` | Wired cap wrappers into tool loading; env-configurable limits | US-6 |
 | `agent.py` (a2a binding) | Configurable `LANGGRAPH_RECURSION_LIMIT`; `GraphRecursionError` isinstance detection | US-6 |
+| `agent.py` (a2a binding) | Fix `final_response['content']` to include `response_format_result`; `final_model_content` fallback from ResponseFormat | US-7, SC-012 |
 | `base_langgraph_agent.py` | Configurable recursion limit | US-6 |
 | `prompt_config.deep_agent.yaml` | Updated RAG instructions: "up to 3-5 documents"; stop on cap messages | US-6 |
 | `ai.py` (slack_bot) | Removed `continue` that suppressed intermediate narrative; RAG tool echo pass-through | US-7 |
 | `docker-compose.dev.yaml` | Merged supervisor services; `DISTRIBUTED_AGENTS`, RAG env vars, `LANGGRAPH_RECURSION_LIMIT=500` | US-1, US-6 |
 | `agent_registry.py` | Auto-enable connectivity check when `DISTRIBUTED_AGENTS` is set | US-1 |
-
-### In Progress
-
-| File | Change | Stories |
-|------|--------|---------|
-| `agent.py` (a2a binding) | Fix `final_response['content'] = ''` clearing the synthesized answer before FINAL_RESULT event | US-7, SC-012 |
+| `test_final_result_content.py` | 26 tests: FINAL_RESULT content propagation, dedup survival, regression guards | US-7, SC-012 |
+| `test_binding_streaming_events.py` | 11 tests: tool notification source_agent, execution plan, narrative streaming, event ordering | US-2, US-7 |
+| `test_slack_narrative_streaming.py` | 11 tests: event type parsing, RAG tool exclusion, _get_final_text priority | US-7, SC-011 |
+| `test_distributed_mode_binding.py` | 9 tests: DISTRIBUTED_AGENTS parsing edge cases, per-agent routing, ENABLE_* integration | US-5, SC-007 |
+| `tests/fixtures/` | 4 JSON fixtures: rag_search_response, rag_fetch_document_response, a2a_agent_card, a2a_task_sse_stream | Test infra |
+| `integration/test_streaming_harness.py` | Integration test: health check, tool notifications, event ordering, final result content | SC-003, SC-012 |
