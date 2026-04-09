@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatContainer } from "@/components/chat/ChatContainer";
+import { AuthGuard } from "@/components/auth-guard";
 
 /**
  * Chat layout — renders the Sidebar and ChatContainer once and persists them
@@ -52,7 +53,7 @@ export default function ChatLayout({
       />
 
       {/* Chat content - ChatContainer persists, children used only for /chat redirect */}
-      {hasUuid ? <ChatContainer /> : children}
+      {hasUuid ? <AuthGuard><ChatContainer /></AuthGuard> : children}
     </div>
   );
 }
