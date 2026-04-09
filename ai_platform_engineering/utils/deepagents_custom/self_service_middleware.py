@@ -101,9 +101,8 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
             return
         # ModelRequest uses `system_message` (SystemMessage object), not `system_prompt`
         if hasattr(request, "system_message") and request.system_message is not None:
-            from langchain_core.messages import SystemMessage
-            existing = request.system_message.content or ""
-            request.system_message = SystemMessage(content=existing + section)
+            from deepagents.middleware._utils import append_to_system_message
+            request.system_message = append_to_system_message(request.system_message, section)
         elif hasattr(request, "system_prompt") and request.system_prompt:
             # Fallback for any future API that uses a plain string
             request.system_prompt = request.system_prompt + section
