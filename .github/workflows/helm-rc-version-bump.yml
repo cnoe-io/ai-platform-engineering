@@ -3,6 +3,11 @@ description: "Automatically bump chart versions for changed charts and their par
 
 on:
   pull_request:
+    # Exclude PRs targeting release/* branches — those use release-helm-rc.yml
+    # instead, which derives its version from the branch name rather than the
+    # latest stable release and never commits an auto-bump.
+    branches-ignore:
+      - 'release/**'
     paths:
       - 'charts/**'
     types: [opened, synchronize]
@@ -29,7 +34,7 @@ jobs:
       should_prerelease: ${{ steps.prerelease-check.outputs.should_run }}
     steps:
       - name: 📥 Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # For PRs: checkout PR branch; For push: checkout the pushed ref
           ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
