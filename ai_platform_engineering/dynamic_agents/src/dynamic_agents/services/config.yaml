@@ -31,34 +31,55 @@
 # An empty model_id ("") means use the platform default configuration.
 
 models:
-  # AWS Bedrock Models (LLM_PROVIDER=aws-bedrock, cross-region inference profiles)
-  # Matches AWS_BEDROCK_MODEL_ID in .env
+  # Anthropic Models (direct API)
+  - model_id: "claude-sonnet-4-20250514"
+    name: "Claude Sonnet 4"
+    provider: "anthropic-claude"
+    description: "Latest Claude Sonnet model - balanced performance and speed"
+
+  - model_id: "claude-3-5-sonnet-20241022"
+    name: "Claude 3.5 Sonnet"
+    provider: "anthropic-claude"
+    description: "High capability model with excellent reasoning"
+
+  - model_id: "claude-3-5-haiku-20241022"
+    name: "Claude 3.5 Haiku"
+    provider: "anthropic-claude"
+    description: "Fast and efficient for simpler tasks"
+
   - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
-    name: "Claude Haiku 4.5 (Bedrock)"
+    name: "Claude 4.5 Haiku (AWS Bedrock)"
     provider: "aws-bedrock"
-    description: "Fast and cost-efficient Claude Haiku 4.5 via AWS Bedrock cross-region inference"
+    description: "Smaller, faster Claude 4.5 model"
 
-  - model_id: "global.anthropic.claude-sonnet-4-5-20251101-v1:0"
-    name: "Claude Sonnet 4.5 (Bedrock)"
-    provider: "aws-bedrock"
-    description: "Balanced performance Claude Sonnet 4.5 via AWS Bedrock cross-region inference"
+  # OpenAI Models (direct API)
+  - model_id: "gpt-4o"
+    name: "GPT-4o"
+    provider: "openai"
+    description: "OpenAI's most capable model"
 
-  - model_id: "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
-    name: "Claude 3.5 Sonnet (Bedrock US)"
-    provider: "aws-bedrock"
-    description: "Claude 3.5 Sonnet via AWS Bedrock US cross-region inference"
+  - model_id: "gpt-4o-mini"
+    name: "GPT-4o Mini"
+    provider: "openai"
+    description: "Smaller, faster GPT-4o variant"
 
-  # Azure OpenAI Models (AZURE_OPENAI_ENDPOINT=https://platform-interns-eus2.openai.azure.com/)
-  # model_id must match the deployment name in your Azure OpenAI resource
+  # AWS Bedrock Models
+  # - model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  #   name: "Claude 3.5 Sonnet (Bedrock)"
+  #   provider: "aws-bedrock"
+  #   description: "Claude 3.5 Sonnet via AWS Bedrock"
+
+  # Google Gemini Models
+  # - model_id: "gemini-1.5-pro"
+  #   name: "Gemini 1.5 Pro"
+  #   provider: "google-gemini"
+  #   description: "Google's Gemini 1.5 Pro model"
+
+  # Azure OpenAI Models
   - model_id: "gpt-4o"
     name: "GPT-4o (Azure)"
     provider: "azure-openai"
-    description: "GPT-4o via Azure OpenAI (platform-interns-eus2)"
-
-  - model_id: "gpt-4.1"
-    name: "GPT-4.1 (Azure)"
-    provider: "azure-openai"
-    description: "GPT-4.1 via Azure OpenAI (platform-interns-eus2)"
+    description: "GPT-4o via Azure OpenAI"
 
 # =============================================================================
 # Seed MCP Servers
