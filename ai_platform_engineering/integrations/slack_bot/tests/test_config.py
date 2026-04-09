@@ -49,6 +49,7 @@ C456:
     enabled: "true"
   ai_alerts:
     enabled: "false"
+  default: {}
 """
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
