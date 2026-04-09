@@ -407,9 +407,12 @@ def stream_a2a_response(
             # Answer was already streamed token-by-token via STREAMING_RESULT chunks.
             # Skip re-streaming to avoid duplicate output in Slack.
             logger.info(f"[{thread_ts}] Skipping FINAL_RESULT re-stream — already streamed via STREAMING_RESULT")
+          elif plan_steps:
+            # Plan flow: text chunks appended after block chunks aren't rendered by Slack.
+            # Leave final_result_text set so finalization puts it in stopStream.chunks.
+            logger.info(f"[{thread_ts}] Plan flow — deferring FINAL_RESULT to stopStream.chunks")
           else:
-            # Stream the final answer live so users see it progressively
-            # rather than all at once in stopStream.
+            # No-plan flow: stream the final answer live via appendStream.
             _start_stream_if_needed()
             if stream_buf:
               if needs_separator and stream_buf.has_flushed:
@@ -692,10 +695,10 @@ def stream_a2a_response(
       # For no-plan flows: streamed_any_text means the answer was streamed.
       stop_chunks = []
       streamed_any_text = stream_buf.has_flushed if stream_buf else False
-      # When ToolStrategy is used, the final answer arrives as FINAL_RESULT
-      # (from_response_format_tool=True) rather than as streaming tokens.
-      # In that case, intermediate pre-tool text sets streamed_any_text but is
-      # NOT the answer — we still need to send the final answer block.
+      # streaming_final_answer=True  → answer already streamed token-by-token (STREAMING_RESULT)
+      #                                 or via appendStream (no-plan FINAL_RESULT path)
+      # For plan flows, FINAL_RESULT text is deferred to stopStream.chunks (block+text mixing issue)
+      # so streaming_final_answer stays False and needs_final=True sends it in stop_chunks.
       already_streamed = streaming_final_answer or (not plan_steps and streamed_any_text and not final_result_text)
       needs_final = not already_streamed
       if needs_final and final_text:
