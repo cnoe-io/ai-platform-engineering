@@ -224,7 +224,7 @@ app.add_middleware(
 ################################################################################
 # Add Prometheus metrics middleware
 ################################################################################
-METRICS_ENABLED = os.getenv('METRICS_ENABLED', 'false').lower() == 'true'
+METRICS_ENABLED = os.getenv('METRICS_ENABLED', 'true').lower() == 'true'
 
 if METRICS_ENABLED:
     logger.info("Enabling Prometheus metrics at /metrics endpoint")

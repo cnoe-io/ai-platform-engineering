@@ -23,7 +23,7 @@ from a2a.types import AgentSkill
 
 load_dotenv()
 
-METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
 AGENT_NAME = 'gitlab'
 AGENT_DESCRIPTION = "An AI agent that interacts with GitLab to manage projects, merge requests, issues, and CI/CD pipelines."
