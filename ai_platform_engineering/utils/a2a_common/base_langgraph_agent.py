@@ -29,6 +29,8 @@ from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager, trace_agent_stream
 from pydantic import BaseModel
 from datetime import datetime
+
+from botocore.config import Config as BotocoreConfig
 from zoneinfo import ZoneInfo
 import tiktoken
 
@@ -102,7 +104,10 @@ class BaseLangGraphAgent(ABC):
 
     def __init__(self):
         """Initialize the agent with LLM, tracing, and graph setup."""
-        self.model = LLMFactory().get_llm()
+        llm_kwargs = {}
+        if "bedrock" in os.getenv("LLM_PROVIDER", "").lower():
+            llm_kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
+        self.model = LLMFactory().get_llm(**llm_kwargs)
         self.tracing = TracingManager()
         self.graph = None
         # Store tool metadata for debugging and reference

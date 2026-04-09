@@ -17,6 +17,8 @@ from cnoe_agent_utils import LLMFactory
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from typing import Optional, Dict, Any, List
 
+from botocore.config import Config as BotocoreConfig
+
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import agent_prompts, generate_system_prompt
@@ -235,7 +237,10 @@ class AIPlatformEngineerMAS:
     """
     logger.debug(f"Building deep agent (generation {self._graph_generation + 1})...")
 
-    base_model = LLMFactory().get_llm()
+    llm_kwargs = {}
+    if "bedrock" in os.getenv("LLM_PROVIDER", "").lower():
+        llm_kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
+    base_model = LLMFactory().get_llm(**llm_kwargs)
 
     # Dynamically generate system prompt and subagents from current registry
     current_agents = platform_registry.agents

@@ -20,6 +20,9 @@ from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
 )
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
+    _bedrock_timeout_kwargs,
+)
 from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
@@ -305,7 +308,7 @@ class AIPlatformEngineerA2ABinding:
               config=config,
               query=query,
               system_prompt=self.SYSTEM_INSTRUCTION,
-              model=LLMFactory().get_llm(),
+              model=LLMFactory().get_llm(**_bedrock_timeout_kwargs()),
               agent_name="supervisor",
               max_context_tokens=max_context_tokens,
               min_messages_to_keep=min_messages_to_keep,
@@ -932,7 +935,7 @@ class AIPlatformEngineerA2ABinding:
                   state = await self.graph.aget_state(config)
                   messages = state.values.get("messages", []) if state and state.values else []
                   if messages:
-                      model = LLMFactory().get_llm()
+                      model = LLMFactory().get_llm(**_bedrock_timeout_kwargs())
                       result = await summarize_messages(
                           messages=messages,
                           model=model,
@@ -958,7 +961,7 @@ class AIPlatformEngineerA2ABinding:
                       await preflight_context_check(
                           graph=self.graph,
                           config=config,
-                          model=LLMFactory().get_llm(),
+                          model=LLMFactory().get_llm(**_bedrock_timeout_kwargs()),
                           agent_name="supervisor",
                           max_context_tokens=max_ctx,
                           min_messages_to_keep=4,

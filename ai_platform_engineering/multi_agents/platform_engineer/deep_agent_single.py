@@ -35,6 +35,7 @@ from pydantic import BaseModel, Field
 from langchain.tools.tool_node import InjectedState
 
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
+from botocore.config import Config as BotocoreConfig
 
 # Upstream deepagents package (pip-installed)
 from deepagents import create_deep_agent
@@ -115,6 +116,22 @@ MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
 
 
+def _bedrock_timeout_kwargs(provider: Optional[str] = None) -> dict:
+    """Return extra kwargs for LLMFactory().get_llm() that set extended
+    read/connect timeouts when the provider is AWS Bedrock.
+
+    Bedrock's Converse streaming API can produce long pauses between chunks
+    during large-context or long-output generations.  The default botocore
+    read_timeout (60 s) is insufficient and causes spurious
+    ``ReadTimeoutError`` on the supervisor and subagent paths.
+    """
+    if provider is None:
+        provider = os.getenv("LLM_PROVIDER", "")
+    if "bedrock" in provider.lower():
+        return {"config": BotocoreConfig(read_timeout=300, connect_timeout=60)}
+    return {}
+
+
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
     """Create an LLM via LLMFactory using prefixed environment variables.
 
@@ -150,7 +167,7 @@ def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]
         for key, value in overrides.items():
             saved[key] = os.environ.get(key)
             os.environ[key] = value
-        return LLMFactory(provider).get_llm()
+        return LLMFactory(provider).get_llm(**_bedrock_timeout_kwargs(provider))
     finally:
         for key, old_value in saved.items():
             if old_value is not None:
@@ -1166,7 +1183,7 @@ class PlatformEngineerDeepAgent:
             base_model = os.getenv("SUPERVISOR_MODEL")
             logger.info(f"Supervisor model override: SUPERVISOR_MODEL={base_model}")
         else:
-            base_model = LLMFactory().get_llm()
+            base_model = LLMFactory().get_llm(**_bedrock_timeout_kwargs())
 
         # Load task configuration
         task_config = load_task_config()
