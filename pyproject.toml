@@ -80,6 +80,8 @@ major_version_zero = true
 
 [dependency-groups]
 dev = [
+    # Slack bot utils (e.g. tests importing ai.py) expect loguru at import time
+    "loguru==0.7.3",
     "asyncpg==0.31.0",
     "psycopg[binary]==3.3.3",
     "pytest>=9.0.2",

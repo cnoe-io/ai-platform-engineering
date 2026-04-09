@@ -25,13 +25,13 @@ def _reset_module_state():
     """Clear all module-level RAG state between tests.
 
     Each test that exercises the module-level dictionaries (_rag_cap_hit_counts,
-    _rag_hard_stop_set, FetchDocumentCapWrapper._global_counts, …) must call
+    _rag_capped_tools, FetchDocumentCapWrapper._global_counts, …) must call
     this helper via a fixture to prevent state leakage.
     """
     from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
     with m._rag_hard_stop_lock:
         m._rag_cap_hit_counts.clear()
-        m._rag_hard_stop_set.clear()
+        m._rag_capped_tools.clear()
     with m.FetchDocumentCapWrapper._global_lock:
         m.FetchDocumentCapWrapper._global_counts.clear()
         m.FetchDocumentCapWrapper._global_timestamps.clear()
@@ -91,15 +91,15 @@ class TestHardStopTracking:
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             _record_rag_cap_hit, is_rag_hard_stopped,
         )
-        _record_rag_cap_hit("thread-abc")
+        _record_rag_cap_hit("thread-abc", "search")
         assert is_rag_hard_stopped("thread-abc")
 
     def test_record_cap_hit_increments_count(self):
         """Each call to _record_rag_cap_hit increments the internal hit counter."""
         from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
-        m._record_rag_cap_hit("thread-count")
-        m._record_rag_cap_hit("thread-count")
-        m._record_rag_cap_hit("thread-count")
+        m._record_rag_cap_hit("thread-count", "search")
+        m._record_rag_cap_hit("thread-count", "fetch_document")
+        m._record_rag_cap_hit("thread-count", "search")
         with m._rag_hard_stop_lock:
             assert m._rag_cap_hit_counts["thread-count"] == 3
 
@@ -108,7 +108,7 @@ class TestHardStopTracking:
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             _record_rag_cap_hit, is_rag_hard_stopped,
         )
-        _record_rag_cap_hit("thread-X")
+        _record_rag_cap_hit("thread-X", "search")
         assert is_rag_hard_stopped("thread-X")
         assert not is_rag_hard_stopped("thread-Y")  # Y not touched
 
@@ -118,9 +118,18 @@ class TestHardStopTracking:
             _record_rag_cap_hit, is_rag_hard_stopped,
         )
         for tid in ("t1", "t2", "t3"):
-            _record_rag_cap_hit(tid)
+            _record_rag_cap_hit(tid, "search")
         for tid in ("t1", "t2", "t3"):
             assert is_rag_hard_stopped(tid)
+
+    def test_is_rag_tool_capped_tracks_individual_tools(self):
+        """is_rag_tool_capped returns True only for the specific tool that was capped."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            _record_rag_cap_hit, is_rag_tool_capped,
+        )
+        _record_rag_cap_hit("thread-ind", "search")
+        assert is_rag_tool_capped("thread-ind", "search")
+        assert not is_rag_tool_capped("thread-ind", "fetch_document")
 
 
 # ===========================================================================
@@ -134,7 +143,7 @@ class TestClearRagState:
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             _record_rag_cap_hit, is_rag_hard_stopped, clear_rag_state,
         )
-        _record_rag_cap_hit("thread-clear")
+        _record_rag_cap_hit("thread-clear", "search")
         assert is_rag_hard_stopped("thread-clear")
         clear_rag_state("thread-clear")
         assert not is_rag_hard_stopped("thread-clear")
@@ -142,8 +151,8 @@ class TestClearRagState:
     def test_clear_rag_state_resets_cap_hit_count(self):
         """After clear_rag_state, the cap hit count is removed."""
         from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
-        m._record_rag_cap_hit("thread-count-clear")
-        m._record_rag_cap_hit("thread-count-clear")
+        m._record_rag_cap_hit("thread-count-clear", "search")
+        m._record_rag_cap_hit("thread-count-clear", "fetch_document")
         m.clear_rag_state("thread-count-clear")
         with m._rag_hard_stop_lock:
             assert "thread-count-clear" not in m._rag_cap_hit_counts
@@ -188,8 +197,8 @@ class TestClearRagState:
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             _record_rag_cap_hit, is_rag_hard_stopped, clear_rag_state,
         )
-        _record_rag_cap_hit("thread-A")
-        _record_rag_cap_hit("thread-B")
+        _record_rag_cap_hit("thread-A", "search")
+        _record_rag_cap_hit("thread-B", "search")
         clear_rag_state("thread-A")
         assert not is_rag_hard_stopped("thread-A")
         assert is_rag_hard_stopped("thread-B")  # B untouched

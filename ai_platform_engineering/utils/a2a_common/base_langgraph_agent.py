@@ -1972,7 +1972,7 @@ Use this as the reference point for all date calculations. When users say "today
             configurable=configurable,
             # Set recursion limit at TOP LEVEL of RunnableConfig (not in configurable)
             # Default LangGraph limit is 25; configurable via LANGGRAPH_RECURSION_LIMIT
-            recursion_limit=int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "200")),
+            recursion_limit=int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "500")),
         )
 
         # Ensure graph is initialized

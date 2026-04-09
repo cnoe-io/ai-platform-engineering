@@ -62,6 +62,7 @@ class StreamState:
     seen_artifact_ids: set = field(default_factory=set)
     first_artifact_sent: bool = False
 
+
     # Completion tracking
     # Track count of completed sub-agents for multi-agent scenarios
     sub_agents_completed: int = 0
@@ -505,6 +506,71 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             last_chunk=result.get('lastChunk', False)
         )
 
+    async def _stream_final_content_as_chunks(
+        self,
+        final_content: str,
+        state: StreamState,
+        task: A2ATask,
+        event_queue: EventQueue,
+        target_chunk_size: int = 200,
+    ) -> None:
+        """Split final answer into word-boundary chunks and emit each as a streaming_result.
+
+        This gives clients (Slack, UI) a word-by-word stream of the final answer
+        without relying on the model emitting any special marker token.  The
+        subsequent `final_result` artifact acts as the authoritative complete text;
+        clients that already received the streamed version can safely skip it.
+        """
+        words = final_content.split(' ')
+        chunk_parts: list[str] = []
+        chunk_len = 0
+        chunks: list[str] = []
+
+        for word in words:
+            word_len = len(word) + 1  # +1 for space
+            if chunk_len + word_len > target_chunk_size and chunk_parts:
+                chunks.append(' '.join(chunk_parts))
+                chunk_parts = [word]
+                chunk_len = word_len
+            else:
+                chunk_parts.append(word)
+                chunk_len += word_len
+
+        if chunk_parts:
+            chunks.append(' '.join(chunk_parts))
+
+        logger.info(
+            f"Task {task.id}: streaming final answer as {len(chunks)} chunks "
+            f"({len(final_content)} chars total)"
+        )
+
+        # Use a single artifact ID for all chunks so the A2A protocol knows
+        # they belong to the same artifact (first chunk creates, rest append).
+        artifact_id = str(uuid.uuid4())
+
+        for i, chunk_text in enumerate(chunks):
+            # Preserve natural spacing: add a trailing space between chunks
+            # unless this is the last chunk (avoid trailing space on final text).
+            if i < len(chunks) - 1:
+                chunk_text = chunk_text + ' '
+
+            chunk_artifact = new_text_artifact(
+                name='streaming_result',
+                description='Streaming final answer chunk',
+                text=chunk_text,
+            )
+            chunk_artifact.artifact_id = artifact_id
+            chunk_artifact.metadata = chunk_artifact.metadata or {}
+            chunk_artifact.metadata['is_final_answer'] = True
+            if state.trace_id:
+                chunk_artifact.metadata['trace_id'] = state.trace_id
+
+            await self._send_artifact(
+                event_queue, task, chunk_artifact,
+                append=(i > 0),
+                last_chunk=False,
+            )
+
     async def _handle_task_complete(self, event: dict, state: StreamState,
                                     content: str, task: A2ATask, event_queue: EventQueue):
         """Handle task completion event."""
@@ -519,6 +585,29 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Fall back to event content if nothing accumulated
         if not final_content and not is_datapart:
             final_content = content
+
+        # Before emitting final_result, stream the final answer in chunks so the
+        # Slack bot (and any streaming client) receives token-by-token updates.
+        # This is deterministic — no dependency on the model emitting a marker.
+        #
+        # Guard: only emit when the supervisor's synthesis was NOT already streamed
+        # live.  agent.py sets streaming_chunks_yielded = yielded_chunk_count —
+        # the number of post-marker (or no-marker) tokens it actually sent to the
+        # executor as live chunks.  When > 0 the answer reached the client already
+        # and re-emitting would duplicate.  When 0 the pre-marker buffer (or
+        # self-service suppression) held everything back — this is where deterministic
+        # chunking adds value.
+        streaming_chunks_yielded = event.get('streaming_chunks_yielded', 0)
+        if (
+            state.final_model_content
+            and streaming_chunks_yielded == 0
+            and not is_datapart
+            and isinstance(final_content, str)
+            and final_content
+        ):
+            await self._stream_final_content_as_chunks(
+                final_content, state, task, event_queue
+            )
 
         # Create appropriate artifact
         if is_datapart:
@@ -558,6 +647,59 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             )
         )
         logger.info(f"Task {task.id} requires user input.")
+
+    async def _try_emit_execution_plan_from_supervisor_content(
+        self, state: StreamState, task: A2ATask, event_queue: EventQueue
+    ) -> None:
+        """When write_todos runs, mirror plan text in supervisor_content to structured plan artifacts."""
+        text = ''.join(state.supervisor_content).strip()
+        if not text:
+            return
+        parsed = self._parse_execution_plan_text(text)
+        if not parsed:
+            return
+
+        artifact_name = (
+            'execution_plan_update'
+            if not self._execution_plan_emitted
+            else 'execution_plan_status_update'
+        )
+
+        if self._latest_execution_plan and artifact_name == 'execution_plan_status_update':
+            update_map = {s['step_id']: s for s in parsed}
+            for i, existing_step in enumerate(self._latest_execution_plan):
+                if existing_step['step_id'] in update_map:
+                    updated = update_map[existing_step['step_id']]
+                    if existing_step.get('status') in ('completed', 'failed'):
+                        updated['status'] = existing_step['status']
+                    self._latest_execution_plan[i] = updated
+        else:
+            self._latest_execution_plan = parsed
+
+        for step in self._latest_execution_plan:
+            if step.get('status') == 'in_progress':
+                self._current_plan_step_id = step['step_id']
+                break
+
+        if parsed and artifact_name == 'execution_plan_update':
+            if not any(s.get('status') == 'in_progress' for s in parsed):
+                parsed[0]['status'] = 'in_progress'
+                self._current_plan_step_id = parsed[0]['step_id']
+
+        plan_data = self._build_plan_data(self._latest_execution_plan)
+
+        artifact = Artifact(
+            artifact_id=self._execution_plan_artifact_id or str(uuid.uuid4()),
+            name=artifact_name,
+            description='Structured execution plan',
+            parts=[Part(root=DataPart(data=plan_data))],
+        )
+        if artifact_name == 'execution_plan_update':
+            self._execution_plan_artifact_id = artifact.artifact_id
+
+        self._execution_plan_emitted = True
+
+        await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=False)
 
     async def _handle_streaming_chunk(self, event: dict, state: StreamState,
                                       content: str, task: A2ATask, event_queue: EventQueue):
@@ -636,8 +778,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # waiting for the final_result artifact.
         if not is_tool_notification and self._is_last_plan_step_active(state):
             artifact.metadata['is_final_answer'] = True
-            if self._current_plan_step_id:
-                artifact.metadata['plan_step_id'] = self._current_plan_step_id
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
 

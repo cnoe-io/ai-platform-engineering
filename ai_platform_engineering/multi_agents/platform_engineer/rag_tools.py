@@ -149,7 +149,7 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
       logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
-      _record_rag_cap_hit(thread_id)
+      _record_rag_cap_hit(thread_id, "fetch_document")
       # Return a normal-looking result so the model doesn't retry with different
       # document_ids. Raising ToolInvocationError creates is_error=True ToolMessages
       # which the model treats as "this doc failed, try the next" — causing a loop.
@@ -211,7 +211,7 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
       logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
-      _record_rag_cap_hit(thread_id)
+      _record_rag_cap_hit(thread_id, "search")
       return (
         f"[Search complete] You have performed {self.max_calls} searches which is the maximum allowed. "
         "All relevant results have been collected. Do NOT call search or fetch_document again. "
@@ -239,24 +239,32 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
 # DeterministicTaskMiddleware.after_model can terminate the graph cleanly
 # instead of running 500 recursion steps.
 _rag_cap_hit_counts: dict[str, int] = {}
-_rag_hard_stop_set: set[str] = set()
+_rag_capped_tools: dict[str, set[str]] = {}
 _rag_hard_stop_lock = threading.Lock()
 
 
-def _record_rag_cap_hit(thread_id: str) -> None:
-    """Record a post-cap tool call; mark thread as hard-stopped after first hit."""
+def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> None:
+    """Record a cap hit for a specific tool on this thread."""
     with _rag_hard_stop_lock:
         count = _rag_cap_hit_counts.get(thread_id, 0) + 1
         _rag_cap_hit_counts[thread_id] = count
-        if count >= 1:
-            _rag_hard_stop_set.add(thread_id)
-            logger.info(f"RAG hard-stop set for thread_id={thread_id} (cap_hit_count={count})")
+        if tool_name:
+            if thread_id not in _rag_capped_tools:
+                _rag_capped_tools[thread_id] = set()
+            _rag_capped_tools[thread_id].add(tool_name)
+        logger.info(f"RAG cap hit for thread_id={thread_id}, tool={tool_name} (cap_hit_count={count})")
+
+
+def is_rag_tool_capped(thread_id: str, tool_name: str) -> bool:
+    """Return True if this specific tool has been capped for this thread."""
+    with _rag_hard_stop_lock:
+        return tool_name in _rag_capped_tools.get(thread_id, set())
 
 
 def is_rag_hard_stopped(thread_id: str) -> bool:
-    """Return True if this thread hit the RAG cap and should terminate the graph loop."""
+    """Return True if ANY RAG tool has been capped for this thread."""
     with _rag_hard_stop_lock:
-        return thread_id in _rag_hard_stop_set
+        return bool(_rag_capped_tools.get(thread_id))
 
 
 def clear_rag_state(thread_id: str) -> None:
@@ -266,7 +274,7 @@ def clear_rag_state(thread_id: str) -> None:
     not carried over from a previous query on the same conversation thread.
     """
     with _rag_hard_stop_lock:
-        _rag_hard_stop_set.discard(thread_id)
+        _rag_capped_tools.pop(thread_id, None)
         _rag_cap_hit_counts.pop(thread_id, None)
     with FetchDocumentCapWrapper._global_lock:
         FetchDocumentCapWrapper._global_counts.pop(thread_id, None)

@@ -1628,32 +1628,24 @@ class TestStreamingArtifactIdStability:
     async def test_plan_step_id_only_on_final_answer_chunks(
         self, executor, mock_context, mock_event_queue
     ):
-        """Regression test for #1120 — plan_step_id must only appear on final-answer chunks.
+        """Regression test for #1120 — plan_step_id only appears on tool notification chunks.
 
         Uses the same raw dict paths as test_streaming_artifact_id_stable_across_plan_arrival.
 
-        Before the fix, plan_step_id was stamped on every post-plan streaming chunk
-        (_execution_plan_emitted guard).  Non-UI consumers (Slack bot, basic A2A clients)
-        that filter on plan_step_id presence received unexpected intermediate content.
-
-        After the fix, plan_step_id is only set when _is_last_plan_step_active() is True.
+        Regular streaming_result chunks (narrative text) do NOT carry plan_step_id;
+        only tool notification artifacts get plan_step_id for UI nesting. Final-answer
+        chunks carry is_final_answer=True metadata instead.
         """
         mock_context.get_user_input.return_value = "summarize our incident response"
 
         async def mock_agent_stream():
-            # Pre-plan chunk — must NOT get plan_step_id
             yield {"is_task_complete": False, "require_user_input": False, "content": "Thinking..."}
-            # Plan arrives with a single in_progress step.
-            # executor auto-marks the first step as in_progress on initial plan arrival
-            # (agent_executor.py:998-1001), so _is_last_plan_step_active() returns True
-            # for the next streaming chunk after this.
             yield {
                 "artifact": {
                     "name": "execution_plan_update",
                     "text": "🔄 [Supervisor] Synthesize the final answer",
                 }
             }
-            # Post-plan final-answer chunk — MUST get plan_step_id (last step active)
             yield {"is_task_complete": False, "require_user_input": False, "content": "Final answer here."}
             yield {"is_task_complete": True, "require_user_input": False, "content": ""}
 
@@ -1671,7 +1663,7 @@ class TestStreamingArtifactIdStability:
 
             assert len(streaming_events) >= 2, "Expected pre-plan and post-plan streaming events"
 
-            # First event is pre-plan — must NOT have plan_step_id
+            # Pre-plan event — must NOT have plan_step_id
             pre_plan_event = streaming_events[0]
             pre_plan_meta = pre_plan_event.artifact.metadata or {}
             assert "plan_step_id" not in pre_plan_meta, (
@@ -1679,17 +1671,14 @@ class TestStreamingArtifactIdStability:
                 f"got metadata={pre_plan_meta}"
             )
 
-            # Last event is post-plan final answer — MUST have plan_step_id and is_final_answer
-            final_event = streaming_events[-1]
-            final_meta = final_event.artifact.metadata or {}
-            assert "plan_step_id" in final_meta, (
-                "Final-answer streaming chunk must carry plan_step_id; "
-                f"got metadata={final_meta}"
-            )
-            assert final_meta.get("is_final_answer") is True, (
-                "Final-answer streaming chunk must have is_final_answer=True; "
-                f"got metadata={final_meta}"
-            )
+            # Post-plan streaming chunks also should NOT have plan_step_id
+            # (plan_step_id goes on tool_notification artifacts, not streaming_result)
+            for evt in streaming_events[1:]:
+                meta = evt.artifact.metadata or {}
+                assert "plan_step_id" not in meta, (
+                    "streaming_result chunks should not carry plan_step_id; "
+                    f"got metadata={meta}"
+                )
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ Tests verify that:
 - search is replaced by SearchCapWrapper after _build_graph()
 - Other RAG tools (list_datasources) are NOT wrapped
 - FETCH_DOCUMENT_MAX_CALLS / SEARCH_MAX_CALLS env vars propagate
-- Caps raise _RagToolCapExhausted (ToolInvocationError) producing is_error=True ToolMessages
+- Caps return soft-stop instruction strings (not exceptions)
 - When RAG is disabled (rag_tools=[]), no wrappers are created
 - ClassVar counters survive graph rebuilds
 - Different thread_ids have independent budgets
@@ -104,9 +104,7 @@ def _get_tools_passed_to_create_deep_agent(mock_create_graph):
 class TestRagToolCapsInBuildGraph:
 
     def test_fetch_document_wrapped_in_build_graph(self):
-        """After _build_graph(), fetch_document is a FetchDocumentCapWrapper."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
-
+        """After _build_graph(), fetch_document has max_calls attribute (is wrapped)."""
         rag_tools = [
             _make_mock_rag_tool("search"),
             _make_mock_rag_tool("fetch_document"),
@@ -118,12 +116,10 @@ class TestRagToolCapsInBuildGraph:
         tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
         fetch_doc_tools = [t for t in tools if t.name == "fetch_document"]
         assert len(fetch_doc_tools) == 1
-        assert isinstance(fetch_doc_tools[0], FetchDocumentCapWrapper)
+        assert hasattr(fetch_doc_tools[0], "max_calls"), "fetch_document should be a cap wrapper"
 
     def test_search_wrapped_in_build_graph(self):
-        """After _build_graph(), search is a SearchCapWrapper."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import SearchCapWrapper
-
+        """After _build_graph(), search has max_calls attribute (is wrapped)."""
         rag_tools = [
             _make_mock_rag_tool("search"),
             _make_mock_rag_tool("fetch_document"),
@@ -135,12 +131,10 @@ class TestRagToolCapsInBuildGraph:
         tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
         search_tools = [t for t in tools if t.name == "search"]
         assert len(search_tools) == 1
-        assert isinstance(search_tools[0], SearchCapWrapper)
+        assert hasattr(search_tools[0], "max_calls"), "search should be a cap wrapper"
 
     def test_list_datasources_not_wrapped(self):
         """list_datasources remains as original MagicMock StructuredTool."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper, SearchCapWrapper
-
         list_tool = _make_mock_rag_tool("list_datasources")
         with _make_mas_with_rag_tools([_make_mock_rag_tool("search"), _make_mock_rag_tool("fetch_document"), list_tool]) as (mas, mock_create_graph):
             mas._build_graph()
@@ -148,17 +142,14 @@ class TestRagToolCapsInBuildGraph:
         tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
         tool_map = {t.name: t for t in tools}
         assert tool_map["list_datasources"] is list_tool
-        assert not isinstance(tool_map["list_datasources"], (FetchDocumentCapWrapper, SearchCapWrapper))
 
     def test_rag_disabled_no_wrappers(self):
         """When rag_tools=[], no wrappers are added."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper, SearchCapWrapper
-
         with _make_mas_with_rag_tools([]) as (mas, mock_create_graph):
             mas._build_graph()
 
         tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
-        wrappers = [t for t in tools if isinstance(t, (FetchDocumentCapWrapper, SearchCapWrapper))]
+        wrappers = [t for t in tools if hasattr(t, "max_calls")]
         assert wrappers == []
 
     def test_rag_tools_count_preserved_after_wrapping(self):
@@ -178,7 +169,6 @@ class TestRagToolCapsInBuildGraph:
 
     def test_env_var_controls_fetch_document_max_calls(self):
         """FETCH_DOCUMENT_MAX_CALLS env var sets wrapper.max_calls."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper
         import ai_platform_engineering.multi_agents.platform_engineer.deep_agent as deep_module
 
         rag_tools = [_make_mock_rag_tool("fetch_document")]
@@ -188,12 +178,12 @@ class TestRagToolCapsInBuildGraph:
 
         tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
         wrapper = next(t for t in tools if t.name == "fetch_document")
-        assert isinstance(wrapper, FetchDocumentCapWrapper)
+        assert hasattr(wrapper, "max_calls"), "fetch_document should be a cap wrapper"
         assert wrapper.max_calls == 3
 
 
 # ---------------------------------------------------------------------------
-# Runtime cap tests — verify caps raise ToolInvocationError
+# Runtime cap tests — verify caps return soft-stop strings
 # ---------------------------------------------------------------------------
 
 def _make_fetch_wrapper(max_calls: int = 3):
@@ -217,21 +207,17 @@ def _patch_thread(thread_id: str):
 
 class TestFetchDocumentCapRuntime:
 
-    def test_cap_raises_tool_invocation_error(self):
-        """Cap raises _RagToolCapExhausted (ToolInvocationError) for is_error=True ToolMessage."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
-
+    def test_cap_returns_soft_stop_string(self):
+        """Cap returns a soft-stop instruction string (not an exception)."""
         async def _run():
             wrapper, original = _make_fetch_wrapper(max_calls=2)
             with _patch_thread("raise-test"):
                 await wrapper._arun(document_id="doc-1")
                 await wrapper._arun(document_id="doc-2")
+                result = await wrapper._arun(document_id="doc-3")
 
-                with pytest.raises(_RagToolCapExhausted) as exc_info:
-                    await wrapper._arun(document_id="doc-3")
-
-            assert "HARD LIMIT" in exc_info.value.message
-            assert "fetch_document" in exc_info.value.message
+            assert isinstance(result, str)
+            assert "[Document already retrieved]" in result
             assert original.arun.call_count == 2
 
         asyncio.run(_run())
@@ -250,15 +236,13 @@ class TestFetchDocumentCapRuntime:
 
     def test_independent_thread_budgets(self):
         """Different thread_ids have independent budgets."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
-
         async def _run():
             wrapper, _ = _make_fetch_wrapper(max_calls=1)
 
             with _patch_thread("user-A-rt"):
                 await wrapper._arun(document_id="doc-1")
-                with pytest.raises(_RagToolCapExhausted):
-                    await wrapper._arun(document_id="doc-2")
+                result_a = await wrapper._arun(document_id="doc-2")
+            assert "[Document already retrieved]" in result_a
 
             with _patch_thread("user-B-rt"):
                 result = await wrapper._arun(document_id="doc-1")
@@ -268,17 +252,15 @@ class TestFetchDocumentCapRuntime:
 
     def test_counter_not_incremented_after_cap(self):
         """Blocked calls do not increment the counter."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
-
         async def _run():
             wrapper, _ = _make_fetch_wrapper(max_calls=2)
             with _patch_thread("no-inc-test-rt"):
                 await wrapper._arun(document_id="doc-1")
                 await wrapper._arun(document_id="doc-2")
-                with pytest.raises(_RagToolCapExhausted):
-                    await wrapper._arun(document_id="doc-3")
-                with pytest.raises(_RagToolCapExhausted):
-                    await wrapper._arun(document_id="doc-4")
+                result3 = await wrapper._arun(document_id="doc-3")
+                result4 = await wrapper._arun(document_id="doc-4")
+                assert "[Document already retrieved]" in result3
+                assert "[Document already retrieved]" in result4
                 assert wrapper.get_call_count("no-inc-test-rt") == 2
 
         asyncio.run(_run())
@@ -286,39 +268,34 @@ class TestFetchDocumentCapRuntime:
 
 class TestSearchCapRuntime:
 
-    def test_search_cap_raises_on_exhaustion(self):
-        """Search cap raises _RagToolCapExhausted after max_calls."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
-
+    def test_search_cap_returns_soft_stop(self):
+        """Search cap returns soft-stop string after max_calls."""
         async def _run():
             wrapper, original = _make_search_wrapper(max_calls=2)
             with _patch_thread("search-cap-rt"):
                 await wrapper._arun(query="test1")
                 await wrapper._arun(query="test2")
+                result = await wrapper._arun(query="test3")
 
-                with pytest.raises(_RagToolCapExhausted) as exc_info:
-                    await wrapper._arun(query="test3")
-
-            assert "search" in exc_info.value.message
+            assert isinstance(result, str)
+            assert "[Search complete]" in result
             assert original.arun.call_count == 2
 
         asyncio.run(_run())
 
     def test_search_independent_from_fetch_document(self):
         """Search and fetch_document have completely independent counters."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
-
         async def _run():
             fetch_wrapper, _ = _make_fetch_wrapper(max_calls=1)
             search_wrapper, _ = _make_search_wrapper(max_calls=1)
 
             with _patch_thread("independent-rt"):
                 await fetch_wrapper._arun(document_id="doc-1")
-                with pytest.raises(_RagToolCapExhausted):
-                    await fetch_wrapper._arun(document_id="doc-2")
+                result_fetch = await fetch_wrapper._arun(document_id="doc-2")
+                assert "[Document already retrieved]" in result_fetch
 
-                result = await search_wrapper._arun(query="test1")
-                assert result == "result from search"
+                result_search = await search_wrapper._arun(query="test1")
+                assert result_search == "result from search"
 
         asyncio.run(_run())
 
@@ -334,8 +311,6 @@ class TestCounterPersistenceAcrossGraphRebuilds:
         Creating a new FetchDocumentCapWrapper (as _build_graph does on rebuild)
         does NOT reset the per-thread_id counter.
         """
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
-
         async def _run():
             wrapper1, _ = _make_fetch_wrapper(max_calls=3)
 
@@ -346,15 +321,13 @@ class TestCounterPersistenceAcrossGraphRebuilds:
                 wrapper2, _ = _make_fetch_wrapper(max_calls=3)
                 await wrapper2._arun(document_id="doc-3")
 
-                with pytest.raises(_RagToolCapExhausted):
-                    await wrapper2._arun(document_id="doc-4")
+                result = await wrapper2._arun(document_id="doc-4")
+                assert "[Document already retrieved]" in result
 
         asyncio.run(_run())
 
     def test_concurrent_users_independent_under_asyncio_gather(self):
         """Concurrent asyncio tasks with different thread_ids have independent budgets."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
-
         async def _run():
             wrapper, _ = _make_fetch_wrapper(max_calls=2)
             results: dict = {}
@@ -364,11 +337,11 @@ class TestCounterPersistenceAcrossGraphRebuilds:
                 caps = 0
                 with _patch_thread(f"concurrent-rt-{user_id}"):
                     for i in range(3):
-                        try:
-                            await wrapper._arun(document_id=f"doc-{i}")
-                            successes += 1
-                        except _RagToolCapExhausted:
+                        result = await wrapper._arun(document_id=f"doc-{i}")
+                        if "[Document already retrieved]" in result:
                             caps += 1
+                        else:
+                            successes += 1
                 results[user_id] = (successes, caps)
 
             await asyncio.gather(
