@@ -32,7 +32,7 @@ jobs:
           name: coverage-reports-main
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: ./main-coverage/
+          path: ${{ runner.temp }}/coverage/main-coverage/
         continue-on-error: true
 
       # RAG tests disabled - uncomment when re-enabled
@@ -51,7 +51,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           # Check for main coverage
-          if [ -f "./main-coverage/coverage.xml" ]; then
+          if [ -f "${{ runner.temp }}/coverage/main-coverage/coverage.xml" ]; then
             echo "### Main Tests Coverage" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "Main test suite coverage data available" >> $GITHUB_STEP_SUMMARY
@@ -60,7 +60,7 @@ jobs:
           fi
 
           # Check for RAG coverage
-          if [ -f "./rag-coverage/coverage.xml" ]; then
+          if [ -f "${{ runner.temp }}/coverage/rag-coverage/coverage.xml" ]; then
             echo "### RAG Tests Coverage" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "RAG test suite coverage data available" >> $GITHUB_STEP_SUMMARY
@@ -68,13 +68,9 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
 
-          if [ ! -f "./main-coverage/coverage.xml" ] && [ ! -f "./rag-coverage/coverage.xml" ]; then
+          if [ ! -f "${{ runner.temp }}/coverage/main-coverage/coverage.xml" ] && [ ! -f "${{ runner.temp }}/coverage/rag-coverage/coverage.xml" ]; then
             echo "❌ No coverage data available" >> $GITHUB_STEP_SUMMARY
           fi
-
-      - name: Install coverage parsing dependencies
-        run: |
-          npm install --ignore-scripts xml2js
 
       - name: Comment PR with coverage
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
