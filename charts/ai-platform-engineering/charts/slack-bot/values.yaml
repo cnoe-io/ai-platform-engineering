@@ -88,7 +88,7 @@ prompts:
   humbleFollowup: ""      # SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP
   aiAlerts: ""            # SLACK_INTEGRATION_PROMPT_AI_ALERTS
 
-# Channel configuration — serialized as YAML into CAIPE_BOT_CONFIG env var via ConfigMap.
+# Channel configuration — written into a ConfigMap and mounted as /etc/caipe/caipe-bot-config.yaml.
 # Structure: channel_id -> channel config (same format as the bot's config_models.py expects).
 # Example:
 #   C012345678:
@@ -121,6 +121,10 @@ resources:
     memory: 512Mi
 
 podAnnotations: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
 
 nodeSelector: {}
 tolerations: []

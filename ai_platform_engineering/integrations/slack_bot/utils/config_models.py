@@ -254,13 +254,17 @@ class Config(BaseModel):
 
     @classmethod
     def from_env(cls) -> "Config":
-        """Load config from CAIPE_BOT_CONFIG environment variable (YAML format)"""
+        """Load config from CAIPE_BOT_CONFIG environment variable (YAML format or file path)"""
         import yaml
 
         config_str = os.environ.get("SLACK_INTEGRATION_BOT_CONFIG", os.environ.get("CAIPE_BOT_CONFIG"))
         if not config_str:
             raise ValueError("SLACK_INTEGRATION_BOT_CONFIG (or CAIPE_BOT_CONFIG) environment variable not set")
-        raw_config = yaml.safe_load(config_str)
+        if os.path.isfile(config_str):
+            with open(config_str) as f:
+                raw_config = yaml.safe_load(f)
+        else:
+            raw_config = yaml.safe_load(config_str)
 
         # Parse channels
         channels = {}
