@@ -905,40 +905,43 @@ class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
 
     def test_last_plan_step_active_returns_true(self):
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'completed'},
             {'step_id': 's2', 'status': 'completed'},
             {'step_id': 's3', 'status': 'in_progress'},
         ]
-        executor._current_plan_step_id = 's3'
-        self.assertTrue(executor._is_last_plan_step_active())
+        state.current_plan_step_id = 's3'
+        self.assertTrue(executor._is_last_plan_step_active(state))
 
     def test_intermediate_step_active_returns_false(self):
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'completed'},
             {'step_id': 's2', 'status': 'in_progress'},
             {'step_id': 's3', 'status': 'pending'},
         ]
-        executor._current_plan_step_id = 's2'
-        self.assertFalse(executor._is_last_plan_step_active())
+        state.current_plan_step_id = 's2'
+        self.assertFalse(executor._is_last_plan_step_active(state))
 
     def test_no_plan_returns_false(self):
         executor = _make_executor()
-        self.assertFalse(executor._is_last_plan_step_active())
+        state = StreamState()
+        self.assertFalse(executor._is_last_plan_step_active(state))
 
     async def test_streaming_chunk_tagged_as_final_answer_when_last_step_active(self):
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'completed'},
             {'step_id': 's2', 'status': 'in_progress'},
         ]
-        executor._current_plan_step_id = 's2'
-
-        state = StreamState()
+        state.current_plan_step_id = 's2'
         task = _make_task()
         eq = _make_event_queue()
 
@@ -950,14 +953,14 @@ class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
 
     async def test_streaming_chunk_not_tagged_when_intermediate_step(self):
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'in_progress'},
             {'step_id': 's2', 'status': 'pending'},
         ]
-        executor._current_plan_step_id = 's1'
-
-        state = StreamState()
+        state.current_plan_step_id = 's1'
         task = _make_task()
         eq = _make_event_queue()
 
