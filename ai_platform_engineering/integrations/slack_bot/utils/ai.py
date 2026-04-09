@@ -341,7 +341,13 @@ def stream_a2a_response(
             last_step = sorted_steps[-1]
             is_last = last_step.get("step_id") == current_step_id
             if is_last:
-              streaming_final_answer = True
+              # Only latch streaming_final_answer when the step is already completed
+              # (supervisor is summarizing after sub-agents finished). While the step is
+              # in_progress, this text is sub-agent narration ("I'll search...") — not
+              # the supervisor's final answer. Latching here would cause FINAL_RESULT to
+              # be skipped, leaving the user with only the narration and no real answer.
+              if last_step.get("status") == "completed":
+                streaming_final_answer = True
             else:
               # Accumulate for step-detail cards (shown on step completion)
               if parsed.should_append is False:
@@ -463,12 +469,15 @@ def stream_a2a_response(
             logger.info(f"[{thread_ts}] Tool completed: {display_name}")
           current_tool = None
           completed_tool_names.add(display_name)
-          # Only suppress post-tool streaming for sub-agent tools (which echo
-          # full responses). RAG/MCP tools (search, fetch_document, etc.) produce
-          # the actual synthesized answer as post-tool STREAMING_RESULT.
-          _RAG_TOOL_NAMES = {"search", "fetch_document", "list_datasources", "fetch_url"}
-          if display_name not in _RAG_TOOL_NAMES:
-            any_subagent_completed = True
+          # When plan steps are present, use plan step completion (in EXECUTION_PLAN
+          # handler below) as the authoritative "sub-agent done" signal. This avoids
+          # false positives from sub-agent-internal tool completions (search, fetch,
+          # compile, etc.) that are case-mismatched or missing from the filter list.
+          # For no-plan flows (rare), fall back to tool completion as a proxy.
+          if not plan_steps:
+            _RAG_TOOL_NAMES = {"search", "fetch_document", "list_datasources", "fetch_url"}
+            if display_name.lower() not in _RAG_TOOL_NAMES:
+              any_subagent_completed = True
           needs_separator = True
           if not stream_ts:
             _set_typing_status("is working...")
@@ -481,9 +490,15 @@ def stream_a2a_response(
         if stream_buf:
           stream_buf.flush()
         if parsed.plan_data and parsed.plan_data.get("steps"):
-          # Update plan state from structured DataPart
+          # Update plan state from structured DataPart; detect step completions.
+          # A step transitioning to "completed" is the authoritative signal that
+          # the sub-agent for that step is done and the supervisor is responding.
           for step in parsed.plan_data["steps"]:
+            prev_status = plan_steps.get(step["step_id"], {}).get("status")
             plan_steps[step["step_id"]] = step
+            if step.get("status") == "completed" and prev_status != "completed":
+              any_subagent_completed = True
+              logger.debug(f"[{thread_ts}] Sub-agent done (step {step['step_id'][:16]} completed)")
 
           # Track current in_progress step
           for step in parsed.plan_data["steps"]:
