@@ -66,11 +66,11 @@ A developer updates the Helm chart values on `release/0.3.0` (e.g., adjusting a 
 
 **Why this priority**: Without chart RCs for release branches, there is no automated way to validate chart-only fixes before shipping.
 
-**Independent Test**: Push a chart change to `release/0.3.0`. Confirm that a pre-release Helm chart with version `0.3.0-rc.helm.N` is published and installable via `helm upgrade --install ... oci://ghcr.io/.../pre-release-helm-charts/ai-platform-engineering --version 0.3.0-rc.helm.N`.
+**Independent Test**: Push a chart change to `release/0.3.0`. Confirm that a pre-release Helm chart with version `0.3.0-rc.N` is published and installable via `helm upgrade --install ... oci://ghcr.io/.../pre-release-helm-charts/ai-platform-engineering --version 0.3.0-rc.N`.
 
 **Acceptance Scenarios**:
 
-1. **Given** a chart change is pushed to `release/0.3.0`, **When** the pipeline runs, **Then** the chart is packaged with version `0.3.0-rc.helm.N` and published to the pre-release Helm registry.
+1. **Given** a chart change is pushed to `release/0.3.0`, **When** the pipeline runs, **Then** the chart is packaged with version `0.3.0-rc.N` and published to the pre-release Helm registry.
 2. **Given** only non-chart files change on a release branch, **When** the pipeline runs, **Then** no Helm chart is published (chart publication is triggered only by chart file changes).
 3. **Given** both `rag-stack` and `ai-platform-engineering` charts change, **When** the pipeline runs, **Then** both are packaged and published with matching RC versions, and the parent chart's dependency reference points to the same RC version.
 4. **Given** the chart RC is published, **When** a QA engineer runs `helm upgrade`, **Then** the install succeeds and all expected sub-chart dependencies (rag-stack, neo4j, milvus) are present.
@@ -131,7 +131,7 @@ A developer opens a pull request targeting `release/0.3.0` with a chart change. 
 ### Helm RC Publishing
 
 - **FR-006**: On every push to a branch matching `release/**` that modifies `charts/**` (excluding `Chart.lock`-only changes), the pipeline MUST package and publish Helm chart RCs to the pre-release GHCR registry.
-- **FR-007**: Helm RC versions MUST follow the pattern `X.Y.Z-rc.helm.N` for regular releases and `X.Y.Z-hotfix.N` for hotfix releases, where N increments from the highest existing matching tag. For hotfix releases the Helm chart version intentionally matches the image tag — there is no separate `-rc.helm.` infix.
+- **FR-007**: Helm RC versions MUST use the same format as image RC tags — `X.Y.Z-rc.N` for regular releases and `X.Y.Z-hotfix.N` for hotfix releases. There is no separate `.helm.` infix. Both image and Helm artifact versions share the same counter namespace so that any RC number refers to the same release state across all artifact types.
 - **FR-008**: Chart versions MUST be set in-memory during packaging. The pipeline MUST NOT commit any version changes back to the release branch.
 - **FR-009**: When both `rag-stack` and `ai-platform-engineering` charts change in the same push, both MUST be packaged, and the parent chart's dependency reference to `rag-stack` MUST be updated to the same RC version before packaging.
 - **FR-010**: The pipeline MUST verify that required sub-chart dependencies (neo4j, milvus) are present in the packaged archive before publishing. A missing dependency MUST fail the pipeline.

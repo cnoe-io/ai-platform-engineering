@@ -8,10 +8,12 @@ description: "Publish Helm RC charts when charts change on a release/* branch"
 #  - No auto-bump commit — charts are packaged in-memory with the RC version
 #  - Works for both regular (release/0.3.0) and hotfix (release/0.2.41-hotfix) branches
 #
-# Helm RC version scheme:
-#   release/0.3.0         → 0.3.0-rc.helm.1,  0.3.0-rc.helm.2, …
+# Helm RC version scheme (matches image tag format exactly — no separate .helm. counter):
+#   release/0.3.0         → 0.3.0-rc.1,       0.3.0-rc.2, …
 #   release/0.2.41-hotfix → 0.2.41-hotfix.1,  0.2.41-hotfix.2, …
-#                           (hotfix Helm version matches the image tag exactly — no -rc.helm. infix)
+#
+# Both image tags and Helm chart versions share the same counter namespace, so
+# "0.3.0-rc.2" always refers to the same release state regardless of artifact type.
 
 on:
   push:
@@ -107,9 +109,11 @@ jobs:
             const releaseVersion = process.env.RELEASE_VERSION;
             const isHotfix = process.env.IS_HOTFIX === 'true';
 
-            // Hotfix:  Helm version == image tag: "0.2.41-hotfix.N"  → prefix "0.2.41-hotfix."
-            // Regular: separate Helm RC series:   "0.3.0-rc.helm.N"  → prefix "0.3.0-rc.helm."
-            const prefix = isHotfix ? `${releaseVersion}.` : `${releaseVersion}-rc.helm.`;
+            // Helm version shares the same counter as the image RC tags so that
+            // "0.3.0-rc.2" means the same release state for both artifact types.
+            // Regular: "0.3.0-rc.N"       → prefix "0.3.0-rc."
+            // Hotfix:  "0.2.41-hotfix.N"  → prefix "0.2.41-hotfix."
+            const prefix = isHotfix ? `${releaseVersion}.` : `${releaseVersion}-rc.`;
             const escapedPrefix = prefix.replace(/\./g, '\\.').replace(/-/g, '\\-');
             const tagPattern = new RegExp(`^${escapedPrefix}([0-9]+)$`);
 
@@ -153,12 +157,13 @@ jobs:
           IS_HOTFIX="${{ steps.version.outputs.is_hotfix }}"
           RC_NUM="${{ steps.helm-rc.outputs.number }}"
 
-          # Hotfix: version == image tag (0.2.41-hotfix.N)
-          # Regular: separate helm rc series (0.3.0-rc.helm.N)
+          # Helm version == image tag format (shared counter)
+          # Hotfix:  0.2.41-hotfix.N
+          # Regular: 0.3.0-rc.N
           if [[ "$IS_HOTFIX" == "true" ]]; then
             HELM_RC_VERSION="${RELEASE_VERSION}.${RC_NUM}"
           else
-            HELM_RC_VERSION="${RELEASE_VERSION}-rc.helm.${RC_NUM}"
+            HELM_RC_VERSION="${RELEASE_VERSION}-rc.${RC_NUM}"
           fi
 
           echo "helm_rc_version=$HELM_RC_VERSION" >> $GITHUB_OUTPUT
