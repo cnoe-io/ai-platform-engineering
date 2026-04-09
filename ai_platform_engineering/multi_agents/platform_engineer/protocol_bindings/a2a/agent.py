@@ -1810,20 +1810,17 @@ class AIPlatformEngineerA2ABinding:
         marker = '[FINAL ANSWER]'
         alt_marker = '[FINAL_ANSWER]'
         if marker in content or alt_marker in content:
-          used = marker if marker in content else alt_marker
-          post_content = content.split(used, 1)[1].strip()
-          logging.info("Content contains [FINAL ANSWER] marker; extracting post-marker answer.")
+          logging.info("Content contains [FINAL ANSWER] marker; marking as complete.")
           return {
             'is_task_complete': True,
             'require_user_input': False,
-            'content': post_content,
+            'content': content,
           }
         else:
-          # Plain text with no [FINAL ANSWER] marker and no JSON — model didn't follow
-          # the format instruction but clearly answered. Treat as complete.
-          logging.info("Content is plain text with no marker; treating as complete response.")
+          # Plain text with no [FINAL ANSWER] marker — model is still working.
+          logging.info("Content is plain text with no marker; treating as incomplete.")
           return {
-            'is_task_complete': True,
+            'is_task_complete': False,
             'require_user_input': False,
             'content': content,
           }
@@ -1834,24 +1831,17 @@ class AIPlatformEngineerA2ABinding:
         logging.info("Successfully parsed JSON response (fallback)")
         return response_dict
       else:
-        logging.warning("Parsed JSON is not a dictionary; treating as complete plain-text response.")
+        logging.warning("Parsed JSON is not a dictionary; treating as incomplete plain-text response.")
         return {
-          'is_task_complete': True,
+          'is_task_complete': False,
           'require_user_input': False,
           'content': content,
         }
     except json.JSONDecodeError as e:
-      logging.warning(f"Failed to decode content as JSON, treating as complete plain-text response: {e}")
+      logging.warning(f"Failed to decode content as JSON, treating as incomplete response: {e}")
       logging.warning(f"Content that failed to parse: {repr(content)}")
-      # Extract post-marker content if marker present
-      marker = '[FINAL ANSWER]'
-      alt_marker = '[FINAL_ANSWER]'
-      if marker in content or alt_marker in content:
-          used = marker if marker in content else alt_marker
-          post_content = content.split(used, 1)[1].strip()
-          return {'is_task_complete': True, 'require_user_input': False, 'content': post_content}
       return {
-        'is_task_complete': True,
+        'is_task_complete': False,
         'require_user_input': False,
         'content': content,
       }

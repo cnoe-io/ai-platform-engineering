@@ -102,7 +102,7 @@ async def send_streaming_query(query: str, description: str):
                         result = data.get("result", {})
                         events.append(result)
                     except json.JSONDecodeError:
-                        pass
+                        pass  # skip malformed SSE lines
 
     return events
 

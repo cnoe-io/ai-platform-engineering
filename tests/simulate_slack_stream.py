@@ -502,8 +502,6 @@ def simulate(question: str, base_url: str, timeout: int,
 
     # ── Summary ───────────────────────────────────────────────────────────
     if not answer_only:
-        stats = slack.summary_stats()
-
         # Tool summary line
         if tool_counts:
             tool_summary = "  ".join(

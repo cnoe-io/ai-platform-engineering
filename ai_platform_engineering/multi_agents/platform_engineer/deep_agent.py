@@ -1503,7 +1503,7 @@ This format is required so the UI can display agent stickers next to each task.
         if self._skills_sources:
             skills_middleware_list.append(
                 SkillsMiddleware(
-                    backend=lambda rt: StateBackend(rt),
+                    backend=StateBackend,
                     sources=self._skills_sources,
                 )
             )

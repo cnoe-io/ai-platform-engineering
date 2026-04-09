@@ -65,8 +65,8 @@ def get_version():
             with open(pyproject_path, "rb") as f:
                 pyproject_data = tomllib.load(f)
             return pyproject_data["project"]["version"]
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug(f"Could not read version from pyproject.toml: {e}")
 
     return "0.0.0"
 

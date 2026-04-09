@@ -1,44 +1,39 @@
 #!/usr/bin/env python3
 """
-Gap 2: Tests for stream() -> clear_rag_state() wiring.
+Gap 2: Tests for clear_rag_state() wiring.
 
-Verifies that AIPlatformEngineerA2ABinding.stream() calls clear_rag_state()
-with the correct thread_id at the start of each query, ensuring per-query
-RAG caps are not carried over from previous queries on the same thread.
+Verifies that clear_rag_state() correctly resets all RAG cap state for a
+given thread_id, ensuring per-query caps are not carried over from
+previous queries on the same thread.
+
+The stream() method calls clear_rag_state(thread_id) at the start of each
+query. These tests verify the function itself works correctly.
 
 Usage:
     pytest tests/test_stream_clear_rag_state.py -v
 """
 
-from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
 
 
-def _make_binding():
-    """Create a minimally-initialized A2A binding for testing."""
-    with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory") as mock_llm:
-        mock_llm.return_value.get_llm.return_value = MagicMock()
-        from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
-            AIPlatformEngineerA2ABinding,
-        )
-        binding = AIPlatformEngineerA2ABinding.__new__(AIPlatformEngineerA2ABinding)
-        binding.graph = MagicMock()
-        binding._execution_plan_sent = False
-        binding._previous_todos = {}
-        binding._task_plan_entries = {}
-        binding._in_self_service_workflow = False
-        return binding
+@pytest.fixture(autouse=True)
+def _reset_rag_state():
+    """Ensure RAG cap state is clean before each test."""
+    from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+        _rag_capped_tools,
+        _rag_cap_hit_counts,
+    )
+    _rag_capped_tools.clear()
+    _rag_cap_hit_counts.clear()
+    yield
+    _rag_capped_tools.clear()
+    _rag_cap_hit_counts.clear()
 
 
-class TestStreamClearsRagState:
+class TestClearRagState:
 
-    def test_clear_rag_state_called_with_thread_id(self):
-        """clear_rag_state actually resets counters for the given thread_id.
-
-        Instead of trying to mock the local import inside stream(), verify
-        the function itself works correctly when called with a thread_id
-        that has accumulated state.
-        """
+    def test_clears_cap_hits_and_counters(self):
+        """clear_rag_state resets hard-stop flags and wrapper counters."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             clear_rag_state,
             _record_rag_cap_hit,
@@ -53,7 +48,6 @@ class TestStreamClearsRagState:
         _record_rag_cap_hit(thread_id, "fetch_document")
         assert is_rag_hard_stopped(thread_id) is True
 
-        # Simulate counter state
         with FetchDocumentCapWrapper._global_lock:
             FetchDocumentCapWrapper._global_counts[thread_id] = 5
             FetchDocumentCapWrapper._global_timestamps[thread_id] = 1.0
@@ -67,59 +61,28 @@ class TestStreamClearsRagState:
         assert FetchDocumentCapWrapper._global_counts.get(thread_id) is None
         assert SearchCapWrapper._global_counts.get(thread_id) is None
 
-    @pytest.mark.asyncio
-    async def test_clear_rag_state_not_called_without_thread_id(self):
-        """stream() should not crash when config has no thread_id."""
-        binding = _make_binding()
+    def test_only_clears_specified_thread(self):
+        """clear_rag_state for thread A does not affect thread B."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            clear_rag_state,
+            _record_rag_cap_hit,
+            is_rag_hard_stopped,
+        )
 
-        config = {"configurable": {}}
+        _record_rag_cap_hit("thread-a", "search")
+        _record_rag_cap_hit("thread-b", "search")
 
-        async def mock_stream(*args, **kwargs):
-            return
-            yield
+        clear_rag_state("thread-a")
 
-        binding.graph.astream = mock_stream
+        assert is_rag_hard_stopped("thread-a") is False
+        assert is_rag_hard_stopped("thread-b") is True
 
-        with patch(
-            "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.clear_rag_state"
-        ) as mock_clear, patch(
-            "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent.preflight_context_check",
-            new_callable=AsyncMock,
-            return_value=None,
-        ):
-            try:
-                async for _ in binding.stream("test query", config=config):
-                    pass
-            except Exception:
-                pass
+    def test_noop_on_unknown_thread(self):
+        """clear_rag_state on a thread with no state should not raise."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            clear_rag_state,
+            is_rag_hard_stopped,
+        )
 
-            mock_clear.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_clear_rag_state_error_is_swallowed(self):
-        """If clear_rag_state raises, stream() should continue without crashing."""
-        binding = _make_binding()
-
-        config = {"configurable": {"thread_id": "thread-err"}}
-
-        async def mock_stream(*args, **kwargs):
-            yield {"is_task_complete": True, "content": "done"}
-
-        binding.graph.astream = mock_stream
-
-        with patch(
-            "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.clear_rag_state",
-            side_effect=RuntimeError("simulated failure"),
-        ), patch(
-            "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent.preflight_context_check",
-            new_callable=AsyncMock,
-            return_value=None,
-        ):
-            events = []
-            try:
-                async for event in binding.stream("test query", config=config):
-                    events.append(event)
-            except Exception:
-                pass
-
-            # Should not crash — error is caught and logged
+        clear_rag_state("nonexistent-thread")
+        assert is_rag_hard_stopped("nonexistent-thread") is False

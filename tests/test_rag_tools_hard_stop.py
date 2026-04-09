@@ -371,7 +371,7 @@ class TestEnvVarConfigurableLimits:
         """RAG_MAX_FETCH_DOCUMENT_CALLS env var is respected when set before import."""
         # Use monkeypatch + importlib.reload to test env-var path.
         import importlib
-        import ai_platform_engineering.multi_agents.platform_engineer.rag_tools as m
+        from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
         monkeypatch.setenv("RAG_MAX_FETCH_DOCUMENT_CALLS", "7")
         importlib.reload(m)
         assert m._DEFAULT_MAX_FETCH_DOCUMENT_CALLS == 7
@@ -382,7 +382,7 @@ class TestEnvVarConfigurableLimits:
     def test_env_var_search_override_is_read_at_import(self, monkeypatch):
         """RAG_MAX_SEARCH_CALLS env var is respected when set before import."""
         import importlib
-        import ai_platform_engineering.multi_agents.platform_engineer.rag_tools as m
+        from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
         monkeypatch.setenv("RAG_MAX_SEARCH_CALLS", "10")
         importlib.reload(m)
         assert m._DEFAULT_MAX_SEARCH_CALLS == 10
@@ -392,7 +392,7 @@ class TestEnvVarConfigurableLimits:
     def test_env_var_search_results_override_is_read_at_import(self, monkeypatch):
         """RAG_MAX_SEARCH_RESULTS env var is respected when set before import."""
         import importlib
-        import ai_platform_engineering.multi_agents.platform_engineer.rag_tools as m
+        from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
         monkeypatch.setenv("RAG_MAX_SEARCH_RESULTS", "5")
         importlib.reload(m)
         assert m._DEFAULT_MAX_SEARCH_RESULTS == 5

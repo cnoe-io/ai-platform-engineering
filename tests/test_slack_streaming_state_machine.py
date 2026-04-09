@@ -171,10 +171,9 @@ class TestStreamBufferSeparatorLogic:
     def test_no_separator_on_first_content(self):
         """First content should not get a separator."""
         needs_separator = False
-        has_flushed = False
         text = "First content"
 
-        if needs_separator and has_flushed:
+        if needs_separator:
             text = "\n\n" + text
             needs_separator = False
 
