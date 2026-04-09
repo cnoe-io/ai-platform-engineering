@@ -31,7 +31,7 @@ def is_atlassian_cloud_url(url: str) -> bool:
         return False
 
     # The standard check for Jira cloud domains
-    cloud_domains = ("atlassian.net", "jira.com", "jira-dev.com")
+    cloud_domains = ("atlassian.net")
     return any(
         hostname == domain or hostname.endswith(f".{domain}")
         for domain in cloud_domains
