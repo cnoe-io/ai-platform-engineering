@@ -2309,6 +2309,33 @@ post_deploy_patches() {
       RBAC_DEFAULT_ROLE=admin \
       RBAC_DEFAULT_AUTHENTICATED_ROLE=admin &>/dev/null \
       && log "rag-server: RBAC_DEFAULT_ROLE + RBAC_DEFAULT_AUTHENTICATED_ROLE set to admin"
+
+    # Propagate OIDC config from caipe-ui-secret so RAG can validate tokens and
+    # check group membership for group-based RBAC (RBAC_ADMIN_GROUPS, etc.).
+    # Without this, RAG shows "No OIDC providers configured" and defaults to anonymous.
+    _rag_oidc_issuer=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
+    _rag_oidc_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
+    _rag_ingestor_issuer=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.INGESTOR_OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
+    _rag_ingestor_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.INGESTOR_OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
+    _rag_admin_groups=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.RBAC_ADMIN_GROUPS}' 2>/dev/null | base64 -d || true)
+    if [[ -n "$_rag_oidc_issuer" && -n "$_rag_oidc_client_id" ]]; then
+      local _rag_env_args=(
+        "OIDC_ISSUER=$_rag_oidc_issuer"
+        "OIDC_CLIENT_ID=$_rag_oidc_client_id"
+      )
+      [[ -n "$_rag_ingestor_issuer" ]]    && _rag_env_args+=("INGESTOR_OIDC_ISSUER=$_rag_ingestor_issuer")
+      [[ -n "$_rag_ingestor_client_id" ]] && _rag_env_args+=("INGESTOR_OIDC_CLIENT_ID=$_rag_ingestor_client_id")
+      [[ -n "$_rag_admin_groups" ]]       && _rag_env_args+=("RBAC_ADMIN_GROUPS=$_rag_admin_groups")
+      kubectl set env deployment/rag-server -n caipe "${_rag_env_args[@]}" &>/dev/null \
+        && log "rag-server: OIDC providers configured (issuer=${_rag_oidc_issuer}, admin_groups=${_rag_admin_groups:-<unset>})"
+    else
+      log "rag-server: No OIDC config found in caipe-ui-secret — skipping OIDC patch (no-SSO deployment)"
+    fi
   fi
 
   # ── 6. caipe-ui: raise Node.js HTTP header size limit ──
