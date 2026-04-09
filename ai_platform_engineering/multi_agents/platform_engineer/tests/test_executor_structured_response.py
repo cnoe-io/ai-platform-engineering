@@ -325,17 +325,19 @@ class TestHandleUserInputRequired:
         assert status_events[0].status.state == TaskState.input_required
 
     @pytest.mark.asyncio
-    async def test_no_artifact_sent_for_input_required(
+    async def test_artifact_sent_with_content_for_input_required(
         self, executor, task, event_queue
     ):
-        """No artifact events are sent for input_required (status only)."""
+        """A final_result artifact is sent alongside the input_required status."""
         await executor._handle_user_input_required(
             "Need more info", task, event_queue
         )
 
         calls = event_queue.enqueue_event.call_args_list
         artifact_events = [c[0][0] for c in calls if isinstance(c[0][0], TaskArtifactUpdateEvent)]
-        assert len(artifact_events) == 0
+        assert len(artifact_events) == 1
+        assert artifact_events[0].artifact.name == "final_result"
+        assert "Need more info" in artifact_events[0].artifact.parts[0].root.text
 
         status_events = [
             c[0][0] for c in calls if isinstance(c[0][0], TaskStatusUpdateEvent)
