@@ -3,6 +3,11 @@ description: "Automatically bump chart versions for changed charts and their par
 
 on:
   pull_request:
+    # Exclude PRs targeting release/* branches — those use release-helm-rc.yml
+    # instead, which derives its version from the branch name rather than the
+    # latest stable release and never commits an auto-bump.
+    branches-ignore:
+      - 'release/**'
     paths:
       - 'charts/**'
     types: [opened, synchronize]

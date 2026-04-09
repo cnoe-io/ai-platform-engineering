@@ -1,0 +1,167 @@
+name: "[Release] Create RC Tags for Release Branches"
+description: "Create RC tags on push to release/* branches and trigger image builds"
+
+# Mirrors rc-tag.yml but targets release/* branches.
+# Version is derived from the branch name, not pyproject.toml, so this
+# workflow can produce RCs that are independent of whatever is on main.
+#
+# Regular release branches (release/0.3.0):
+#   → image/helm tags: 0.3.0-rc.1, 0.3.0-rc.2, …
+#
+# Hotfix branches (release/0.2.41-hotfix):
+#   → image/helm tags: 0.2.41-hotfix.1, 0.2.41-hotfix.2, …
+#   (no -rc. infix — the hotfix number IS the release candidate number)
+
+on:
+  push:
+    branches:
+      - 'release/**'
+    paths:
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+permissions:
+  contents: write
+  packages: write
+  actions: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  create-release-rc-tag:
+    name: Create release RC tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Parse version and branch type
+        id: version
+        run: |
+          # Branch: refs/heads/release/0.3.0  → VERSION=0.3.0,  IS_HOTFIX=false
+          # Branch: refs/heads/release/0.2.41-hotfix → VERSION=0.2.41-hotfix, IS_HOTFIX=true
+          BRANCH_NAME="${GITHUB_REF#refs/heads/release/}"
+          echo "branch_suffix=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+          if [[ "$BRANCH_NAME" == *"-hotfix"* ]]; then
+            echo "is_hotfix=true" >> $GITHUB_OUTPUT
+            echo "version=$BRANCH_NAME" >> $GITHUB_OUTPUT
+            echo "📦 Hotfix release: $BRANCH_NAME"
+          else
+            echo "is_hotfix=false" >> $GITHUB_OUTPUT
+            echo "version=$BRANCH_NAME" >> $GITHUB_OUTPUT
+            echo "📦 Regular release: $BRANCH_NAME"
+          fi
+
+          # Read agent lists from config file
+          A2A_AGENTS=$(jq -r '.a2a_agents | join(" ")' .github/agents.json)
+          MCP_AGENTS=$(jq -r '.mcp_agents | join(" ")' .github/agents.json)
+          RAG_COMPONENTS=$(jq -r '.rag_components | join(" ")' .github/agents.json)
+          echo "a2a_agents=$A2A_AGENTS" >> $GITHUB_OUTPUT
+          echo "mcp_agents=$MCP_AGENTS" >> $GITHUB_OUTPUT
+          echo "rag_components=$RAG_COMPONENTS" >> $GITHUB_OUTPUT
+
+      - name: Determine next RC number
+        id: rc
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IS_HOTFIX: ${{ steps.version.outputs.is_hotfix }}
+        with:
+          script: |
+            const version = process.env.VERSION;
+            const isHotfix = process.env.IS_HOTFIX === 'true';
+
+            // Hotfix:  0.2.41-hotfix.1,  0.2.41-hotfix.2, …  → prefix "0.2.41-hotfix."
+            // Regular: 0.3.0-rc.1, 0.3.0-rc.2, …             → prefix "0.3.0-rc."
+            const prefix = isHotfix ? `${version}.` : `${version}-rc.`;
+            const tagPattern = isHotfix
+              ? new RegExp(`^${version.replace(/\./g, '\\.').replace(/-/g, '\\-')}\\.([0-9]+)$`)
+              : new RegExp(`^${version.replace(/\./g, '\\.')}-rc\\.([0-9]+)$`);
+
+            // List all matching tags
+            const { data: refs } = await github.rest.git.listMatchingRefs({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${prefix}`
+            });
+
+            let maxN = 0;
+            for (const ref of refs) {
+              const tagName = ref.ref.replace('refs/tags/', '');
+              const match = tagName.match(tagPattern);
+              if (match) {
+                const n = parseInt(match[1], 10);
+                if (n > maxN) maxN = n;
+              }
+            }
+
+            const nextN = maxN + 1;
+            const rcTag = `${prefix}${nextN}`;
+
+            console.log(`📊 Found ${refs.length} existing tags for ${version}`);
+            console.log(`🏷️  Next tag: ${rcTag}`);
+
+            core.setOutput('number', nextN);
+            core.setOutput('tag', rcTag);
+
+      - name: Create Git tag
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$RC_TAG" -m "Release candidate $RC_TAG"
+          git push origin "$RC_TAG"
+
+          echo "✅ Created and pushed tag: $RC_TAG"
+
+      - name: Create summary
+        env:
+          RC_TAG: ${{ steps.rc.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          IS_HOTFIX: ${{ steps.version.outputs.is_hotfix }}
+        run: |
+          TYPE=$( [[ "$IS_HOTFIX" == "true" ]] && echo "Hotfix" || echo "Release" )
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🏷️ $TYPE RC Tag Created
+
+          | Property | Value |
+          |----------|-------|
+          | **RC Tag** | \`${RC_TAG}\` |
+          | **Release Version** | \`${VERSION}\` |
+          | **Branch** | \`${GITHUB_REF#refs/heads/}\` |
+          | **Commit** | \`${{ github.sha }}\` |
+
+          ## What happened
+
+          1. 🏷️ Created git tag \`${RC_TAG}\`
+          2. 🔄 CI image-build workflows triggered by the tag (they respond to \`tags: '**'\`)
+
+          ## Usage
+
+          All images will be available with the \`${RC_TAG}\` tag once CI completes:
+
+          \`\`\`bash
+          docker pull ghcr.io/${{ github.repository_owner }}/ai-platform-engineering:${RC_TAG}
+          \`\`\`
+
+          ## Helm Chart
+
+          \`\`\`yaml
+          global:
+            image:
+              tag: "${RC_TAG}"
+          \`\`\`
+          EOF

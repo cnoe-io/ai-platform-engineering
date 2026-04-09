@@ -1,0 +1,234 @@
+name: "[Release] Helm RC for Release Branches"
+description: "Publish Helm RC charts when charts change on a release/* branch"
+
+# Mirrors helm-rc-version-bump.yml + helm-pre-release.yml but for release/* branches.
+#
+# Key differences from the prebuild pipeline:
+#  - Version is pinned to the release branch name (NOT bumped from latest stable release)
+#  - No auto-bump commit — charts are packaged in-memory with the RC version
+#  - Works for both regular (release/0.3.0) and hotfix (release/0.2.41-hotfix) branches
+#
+# Helm RC version scheme:
+#   release/0.3.0        → 0.3.0-rc.helm.1,         0.3.0-rc.helm.2, …
+#   release/0.2.41-hotfix → 0.2.41-hotfix-rc.helm.1, 0.2.41-hotfix-rc.helm.2, …
+
+on:
+  push:
+    branches:
+      - 'release/**'
+    paths:
+      - 'charts/**'
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  publish-release-helm-rc:
+    name: Publish Release Helm RC
+    runs-on: ubuntu-latest
+    # Skip commits made by the bot (safety guard — this workflow never commits,
+    # but guard against accidental re-entrancy if that ever changes)
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: 🏷️ Parse release version from branch
+        id: version
+        run: |
+          # release/0.3.0         → RELEASE_VERSION=0.3.0,         IS_HOTFIX=false
+          # release/0.2.41-hotfix → RELEASE_VERSION=0.2.41-hotfix,  IS_HOTFIX=true
+          BRANCH="${GITHUB_REF#refs/heads/release/}"
+          echo "release_version=$BRANCH" >> $GITHUB_OUTPUT
+
+          if [[ "$BRANCH" == *"-hotfix"* ]]; then
+            echo "is_hotfix=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_hotfix=false" >> $GITHUB_OUTPUT
+          fi
+          echo "📦 Release version: $BRANCH"
+
+      - name: 🔍 Detect changed charts
+        id: detect
+        run: |
+          git fetch origin
+
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.ref_name }}^..HEAD | grep "^charts/" || true)
+
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "ℹ️  No chart files changed in this push"
+            echo "rag-stack-changed=false" >> $GITHUB_OUTPUT
+            echo "ai-platform-changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          RAG_STACK_CHANGED=false
+          AI_PLATFORM_CHANGED=false
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/rag-stack/"; then
+            if echo "$CHANGED_FILES" | grep "^charts/rag-stack/" | grep -qv "Chart.lock$"; then
+              RAG_STACK_CHANGED=true
+              echo "✅ rag-stack chart has substantive changes"
+            fi
+          fi
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/ai-platform-engineering/"; then
+            if echo "$CHANGED_FILES" | grep "^charts/ai-platform-engineering/" | grep -qv "Chart.lock$"; then
+              AI_PLATFORM_CHANGED=true
+              echo "✅ ai-platform-engineering chart has substantive changes"
+            fi
+          fi
+
+          echo "rag-stack-changed=$RAG_STACK_CHANGED" >> $GITHUB_OUTPUT
+          echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> $GITHUB_OUTPUT
+
+      - name: 🏷️ Determine next Helm RC number
+        id: helm-rc
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
+        with:
+          script: |
+            const releaseVersion = process.env.RELEASE_VERSION;
+            // Helm RC prefix: "0.3.0-rc.helm." or "0.2.41-hotfix-rc.helm."
+            const prefix = `${releaseVersion}-rc.helm.`;
+            const escapedPrefix = prefix.replace(/\./g, '\\.').replace(/-/g, '\\-');
+            const tagPattern = new RegExp(`^${escapedPrefix}([0-9]+)$`);
+
+            const { data: refs } = await github.rest.git.listMatchingRefs({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${prefix}`
+            });
+
+            let maxN = 0;
+            for (const ref of refs) {
+              const tagName = ref.ref.replace('refs/tags/', '');
+              const match = tagName.match(tagPattern);
+              if (match) {
+                const n = parseInt(match[1], 10);
+                if (n > maxN) maxN = n;
+              }
+            }
+
+            const nextN = maxN + 1;
+            console.log(`📊 Found ${refs.length} existing Helm RC tags for ${releaseVersion}`);
+            console.log(`🏷️  Next Helm RC number: ${nextN}`);
+            core.setOutput('number', nextN);
+
+      - name: ⚙️ Set up Helm
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.14.0
+
+      - name: 🔐 Login to GHCR
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: 🏷️ Generate Helm RC versions
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        id: chart-version
+        run: |
+          RELEASE_VERSION="${{ steps.version.outputs.release_version }}"
+          RC_NUM="${{ steps.helm-rc.outputs.number }}"
+          HELM_RC_VERSION="${RELEASE_VERSION}-rc.helm.${RC_NUM}"
+
+          echo "helm_rc_version=$HELM_RC_VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Helm RC version: $HELM_RC_VERSION"
+
+      - name: 📦 Package rag-stack Chart
+        if: steps.detect.outputs.rag-stack-changed == 'true'
+        run: |
+          HELM_RC_VERSION="${{ steps.chart-version.outputs.helm_rc_version }}"
+          echo "📦 Packaging rag-stack at $HELM_RC_VERSION..."
+          mkdir -p ./packaged-charts
+          sed -i "s/^version:.*/version: $HELM_RC_VERSION/" charts/rag-stack/Chart.yaml
+          helm dependency update charts/rag-stack/
+          helm package charts/rag-stack/ --destination ./packaged-charts/
+          echo "✅ rag-stack packaged"
+
+      - name: 📦 Package ai-platform-engineering Chart
+        if: steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          HELM_RC_VERSION="${{ steps.chart-version.outputs.helm_rc_version }}"
+          echo "📦 Packaging ai-platform-engineering at $HELM_RC_VERSION..."
+          mkdir -p ./packaged-charts
+          sed -i "s/^version:.*/version: $HELM_RC_VERSION/" charts/ai-platform-engineering/Chart.yaml
+
+          # If rag-stack was also changed, align its dependency version
+          if [[ "${{ steps.detect.outputs.rag-stack-changed }}" == "true" ]]; then
+            sed -i "/name: rag-stack/,/repository:/ s/version:.*/version: $HELM_RC_VERSION/" charts/ai-platform-engineering/Chart.yaml
+          fi
+
+          helm dependency update charts/rag-stack/
+          helm dependency update charts/ai-platform-engineering/
+          helm package charts/ai-platform-engineering/ --destination ./packaged-charts/
+
+          # Verify critical sub-chart deps
+          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/neo4j/Chart.yaml"; then
+            echo "✅ neo4j dependency verified"
+          else
+            echo "❌ neo4j missing from rag-stack package" && exit 1
+          fi
+          if tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/milvus/Chart.yaml"; then
+            echo "✅ milvus dependency verified"
+          else
+            echo "❌ milvus missing from rag-stack package" && exit 1
+          fi
+          echo "✅ ai-platform-engineering packaged"
+
+      - name: 🚀 Push Release Helm RC Charts to GHCR
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts"
+          echo "📦 Pushing release Helm RC charts to $REGISTRY"
+
+          for CHART_FILE in ./packaged-charts/*.tgz; do
+            if [ -f "$CHART_FILE" ]; then
+              CHART_NAME=$(helm show chart "$CHART_FILE" | grep '^name:' | awk '{print $2}')
+              CHART_VERSION=$(helm show chart "$CHART_FILE" | grep '^version:' | awk '{print $2}')
+              echo "📦 Pushing $CHART_NAME:$CHART_VERSION"
+              helm push "$CHART_FILE" "$REGISTRY"
+              echo "✅ $CHART_NAME:$CHART_VERSION published"
+            fi
+          done
+
+      - name: 📊 Summary
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          REGISTRY="ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts"
+          HELM_RC_VERSION="${{ steps.chart-version.outputs.helm_rc_version }}"
+          RELEASE_VERSION="${{ steps.version.outputs.release_version }}"
+
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 📦 Release Helm RC Published
+
+          | Property | Value |
+          |----------|-------|
+          | **Helm RC Version** | \`${HELM_RC_VERSION}\` |
+          | **Release Version** | \`${RELEASE_VERSION}\` |
+          | **Branch** | \`${GITHUB_REF#refs/heads/}\` |
+          | **Registry** | \`${REGISTRY}\` |
+
+          ## Install
+
+          \`\`\`bash
+          helm upgrade --install ai-platform \\
+            oci://${REGISTRY}/ai-platform-engineering \\
+            --version ${HELM_RC_VERSION}
+          \`\`\`
+          EOF
