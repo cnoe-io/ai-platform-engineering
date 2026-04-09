@@ -21,6 +21,13 @@ on:
       - 'build/**'
       - 'pyproject.toml'
       - 'uv.lock'
+  workflow_dispatch:
+    inputs:
+      force_tag:
+        description: 'Force create a new RC tag even without code changes'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -39,6 +46,16 @@ jobs:
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
         with:
           egress-policy: audit
+
+      - name: 🛡️ Validate release branch
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [[ "$BRANCH" != release/* ]]; then
+            echo "❌ This workflow only runs on release/* branches. Current: $BRANCH"
+            echo "   Trigger manually from a release/* branch in the GitHub Actions UI."
+            exit 1
+          fi
+          echo "✅ Branch validated: $BRANCH"
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
