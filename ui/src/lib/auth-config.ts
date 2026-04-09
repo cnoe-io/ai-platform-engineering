@@ -131,15 +131,17 @@ export function isAdminUser(groups: string[]): boolean {
   });
 }
 
-// Helper to check if user can access dynamic agents
-// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, user must be in that group
-// If not set, falls back to requiring admin group membership
+// Helper to check if user can access dynamic agents.
+// Admins always have access. If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set,
+// members of that group also have access. Otherwise only admins.
 export function canAccessDynamicAgents(groups: string[]): boolean {
+  // Admins always get dynamic agents access
+  if (isAdminUser(groups)) return true;
   if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
     const requiredLower = REQUIRED_DYNAMIC_AGENTS_GROUP.toLowerCase();
     return groups.some(g => g.toLowerCase() === requiredLower || g.toLowerCase().includes(`cn=${requiredLower}`));
   }
-  return isAdminUser(groups);
+  return false;
 }
 
 // Helper to check if user can view admin dashboard (read-only)
@@ -439,12 +441,11 @@ export const authOptions: NextAuthOptions = {
       // admin view group is configured (all authenticated users can view).
       session.canViewAdmin = (token.canViewAdmin as boolean)
         ?? (REQUIRED_ADMIN_VIEW_GROUP === '' ? true : false);
-      // For pre-upgrade JWTs that lack canAccessDynamicAgents:
-      // - If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is unset, fall back to admin check
-      //   (same logic as canAccessDynamicAgents() at sign-in time)
-      // - If it IS set, deny access — user must re-login to get the right claim
-      session.canAccessDynamicAgents = (token.canAccessDynamicAgents as boolean)
-        ?? (REQUIRED_DYNAMIC_AGENTS_GROUP === '' ? session.role === 'admin' : false);
+      // Admins always get dynamic agents access, regardless of what the JWT says.
+      // This covers both pre-upgrade tokens (missing field) and tokens computed
+      // before canAccessDynamicAgents() was updated to include the admin check.
+      session.canAccessDynamicAgents = (token.canAccessDynamicAgents === true)
+        || (session.role === 'admin');
 
       // If token refresh failed, mark session as invalid and DON'T include tokens
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
