@@ -274,7 +274,7 @@ class TestTeamVisibilityFiltering:
         with patch(
             "ai_platform_engineering.utils.mongodb_client._get_user_team_ids",
             return_value=[],
-        ) as mock_team_ids:
+        ):
             result = get_task_configs_for_user(user_email="alice@example.com")
         # alice@example.com owns "Team AB Workflow" — seen via owner_id branch
         assert "Team AB Workflow" in result
