@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 export interface InlineEventCardProps {
   type: "tool" | "subagent" | "warning" | "error";
   name: string;
-  status?: "running" | "completed";
+  status?: "running" | "completed" | "failed";
   message?: string;  // Used for warning/error
   args?: Record<string, unknown>;  // Tool args for expansion
   purpose?: string;  // Subagent purpose
@@ -59,6 +59,7 @@ export function InlineEventCard({ type, name, status, message, args, purpose }: 
   const [isExpanded, setIsExpanded] = useState(false);
   
   const isRunning = status === "running";
+  const isFailed = status === "failed";
   const isTool = type === "tool";
   const isSubagent = type === "subagent";
   const isWarning = type === "warning";
@@ -109,6 +110,9 @@ export function InlineEventCard({ type, name, status, message, args, purpose }: 
     if (isWarning || isError) return null;
     if (isRunning) {
       return <Loader2 className="h-3 w-3 animate-spin shrink-0 text-muted-foreground" />;
+    }
+    if (isFailed) {
+      return <XCircle className="h-3 w-3 shrink-0 text-red-500/70" />;
     }
     return <CheckCircle className="h-3 w-3 shrink-0 text-green-500/70" />;
   };

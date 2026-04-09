@@ -8,14 +8,15 @@ from common.models.ontology import (
   PropertyMapping,
   PropertyMappingStructure,
   PropertyMappingRule,
-  ExampleEntityMatch,
+  ExampleStructuredEntityMatch,
   FkeyEvaluation,
   FkeyHeuristic,
   RelationCandidate,
   FkeyEvaluationResult,
   FkeyDirectionality,
 )
-from common.models.graph import Entity, Relation
+from common.models.rag import StructuredEntity
+from common.models.graph import Relation
 from common.graph_db.base import GraphDB
 import redis.asyncio as redis
 from agent_ontology.heuristics import DeepPropertyMatch
@@ -134,8 +135,12 @@ class RelationCandidateManager:
     relations = []
     for relation_id, rel_data in unique_relations.items():
       # Create the relation identifiers (nodes should already exist)
-      entity_a = Entity(entity_type=rel_data["entity_a_type"], primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: rel_data["entity_a_type"], constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
-      entity_b = Entity(entity_type=rel_data["entity_b_type"], primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: rel_data["entity_b_type"], constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
+      entity_a = StructuredEntity(
+        entity_type=rel_data["entity_a_type"], primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: rel_data["entity_a_type"], constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id}
+      )
+      entity_b = StructuredEntity(
+        entity_type=rel_data["entity_b_type"], primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: rel_data["entity_b_type"], constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id}
+      )
 
       relation = Relation(
         from_entity=entity_a.get_identifier(),
@@ -583,7 +588,7 @@ class RelationCandidateManager:
     for ex_raw in examples_raw:
       ex_str = ex_raw.decode() if isinstance(ex_raw, bytes) else ex_raw
       ex_data = json.loads(ex_str)
-      example_matches.append(ExampleEntityMatch(entity_a_pk=ex_data["a"], entity_b_pk=ex_data["b"]))
+      example_matches.append(ExampleStructuredEntityMatch(entity_a_pk=ex_data["a"], entity_b_pk=ex_data["b"]))
 
     return FkeyHeuristic(
       entity_a_type=entity_a_type,
@@ -715,7 +720,7 @@ class RelationCandidateManager:
       for ex_raw in examples_raw:
         ex_str = ex_raw.decode() if isinstance(ex_raw, bytes) else ex_raw
         ex_data = json.loads(ex_str)
-        example_matches.append(ExampleEntityMatch(entity_a_pk=ex_data["a"], entity_b_pk=ex_data["b"]))
+        example_matches.append(ExampleStructuredEntityMatch(entity_a_pk=ex_data["a"], entity_b_pk=ex_data["b"]))
 
       heuristics_dict[relation_id] = FkeyHeuristic(
         entity_a_type=entity_a_type,
@@ -741,7 +746,7 @@ class RelationCandidateManager:
 
   async def _store_evaluation(self, relation_id: str, entity_a_type: str, entity_b_type: str, evaluation: FkeyEvaluation):
     """Store evaluation in Ontology DB as a relation."""
-    # Note: Entity types should already exist in ontology DB from the ontology_cache.flush().
+    # Note: StructuredEntity types should already exist in ontology DB from the ontology_cache.flush().
     # We don't need to ensure entities exist here to avoid single-entity batch updates.
 
     # Remove old relation if exists (to handle directionality changes)
@@ -774,8 +779,8 @@ class RelationCandidateManager:
     }
 
     # Create relation based on directionality
-    entity_a = Entity(entity_type=entity_a_type, primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: entity_a_type, constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
-    entity_b = Entity(entity_type=entity_b_type, primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: entity_b_type, constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
+    entity_a = StructuredEntity(entity_type=entity_a_type, primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: entity_a_type, constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
+    entity_b = StructuredEntity(entity_type=entity_b_type, primary_key_properties=[constants.ENTITY_TYPE_NAME_KEY, constants.ONTOLOGY_VERSION_ID_KEY], all_properties={constants.ENTITY_TYPE_NAME_KEY: entity_b_type, constants.ONTOLOGY_VERSION_ID_KEY: self.ontology_version_id})
 
     if evaluation.directionality == FkeyDirectionality.FROM_A_TO_B:
       from_entity, to_entity = entity_a, entity_b

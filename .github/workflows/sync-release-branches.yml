@@ -133,23 +133,28 @@ jobs:
           if [[ -n "$EXISTING_NUM" ]]; then
             echo "✅ Updated existing sync PR #${EXISTING_NUM}: ${EXISTING_URL}"
           else
+            BODY_FILE=$(mktemp)
+            {
+              echo "## Automated sync: \`main\` → \`${RELEASE_BRANCH}\`"
+              echo ""
+              echo "This PR was automatically generated to forward-merge changes from \`main\` into \`${RELEASE_BRANCH}\`."
+              echo ""
+              echo "| Field | Value |"
+              echo "|---|---|"
+              echo "| **Triggered by** | @${{ github.actor }} |"
+              echo "| **main commit** | [\`${MAIN_SHORT}\`](https://github.com/${{ github.repository }}/commit/${MAIN_SHA}) |"
+              echo "| **Workflow run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
+              echo ""
+              echo "---"
+              echo "> Merge this PR to keep \`${RELEASE_BRANCH}\` up to date with \`main\`."
+              echo "> If you need to skip a specific commit, cherry-pick selectively instead of merging."
+            } > "$BODY_FILE"
             PR_URL=$(gh pr create \
               --title "chore(release): sync main into ${RELEASE_BRANCH}" \
-              --body "## Automated sync: \`main\` → \`${RELEASE_BRANCH}\`
-
-This PR was automatically generated to forward-merge changes from \`main\` into \`${RELEASE_BRANCH}\`.
-
-| Field | Value |
-|---|---|
-| **Triggered by** | @${{ github.actor }} |
-| **main commit** | [\`${MAIN_SHORT}\`](https://github.com/${{ github.repository }}/commit/${MAIN_SHA}) |
-| **Workflow run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
-
----
-> Merge this PR to keep \`${RELEASE_BRANCH}\` up to date with \`main\`.
-> If you need to skip a specific commit, cherry-pick selectively instead of merging." \
+              --body-file "$BODY_FILE" \
               --head "$SYNC_BRANCH" \
               --base "$RELEASE_BRANCH" \
               --label "sync" 2>&1 || true)
+            rm -f "$BODY_FILE"
             echo "✅ Created sync PR: ${PR_URL}"
           fi

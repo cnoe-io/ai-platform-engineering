@@ -499,7 +499,7 @@ class WorkerSpider(Spider):
             "document_ingested_at": now,
             "fresh_until": fresh_until,
             "ingestor_id": self.crawl_request.ingestor_id,
-            "is_graph_entity": False,
+            "is_structured_entity": False,
             "metadata": {
               "source": response.url,
               "language": result.language or "",

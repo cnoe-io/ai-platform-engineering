@@ -1485,7 +1485,7 @@ services:
       - INGESTOR_TYPE=webloader
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://rag-redis:6379/0
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${WEBLOADER_CHECK_INTERVAL:-86400}
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
       - MAX_CONCURRENT_JOBS=${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
@@ -1497,7 +1497,6 @@ services:
       - INGESTOR_OIDC_SCOPE=${INGESTOR_OIDC_SCOPE:-}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
     profiles:
       - web_ingestor
 
@@ -1514,7 +1513,7 @@ services:
       - INGESTOR_TYPE=backstage
       - BACKSTAGE_URL=${BACKSTAGE_URL}
       - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${BACKSTAGE_SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${BACKSTAGE_INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1524,7 +1523,6 @@ services:
       - IGNORE_TYPES=${BACKSTAGE_IGNORE_TYPES:-api,component,domain,group,location,system,template,user}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
     profiles:
       - backstage-ingestor
 
@@ -1537,7 +1535,7 @@ services:
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
-      - ${HOME}/.aws:/home/app/.aws:ro
+      - ${HOME}/.aws/credentials:/home/app/.aws/credentials:ro
     environment:
       - INGESTOR_TYPE=aws
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
@@ -1548,15 +1546,16 @@ services:
       - AWS_PROFILE=${AWS_PROFILE:-}
       - AWS_DEFAULT_PROFILE=${AWS_DEFAULT_PROFILE:-}
       - RESOURCE_TYPES=${AWS_RESOURCE_TYPES:-iam:user,ec2:instance,ec2:volume,ec2:natgateway,ec2:vpc,ec2:subnet,ec2:security-group,eks:cluster,s3:bucket,elasticloadbalancing:loadbalancer,route53:hostedzone,rds:db,lambda:function,dynamodb:table}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
+      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - aws-ingestor
 
@@ -1582,7 +1581,7 @@ services:
       - IN_CLUSTER=${K8S_IN_CLUSTER:-false}
       - RESOURCE_LIST=${K8S_RESOURCE_LIST:-Certificate,ClusterIssuer,CronJob,DaemonSet,Deployment,Ingress,IngressClass,Issuer,Job,Namespace,Node,Service,StatefulSet,StorageClass}
       - IGNORE_FIELD_LIST=${K8S_IGNORE_FIELD_LIST:-metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1590,7 +1589,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - k8s-ingestor
 
@@ -1609,7 +1607,7 @@ services:
       - SLACK_BOT_NAME=${SLACK_BOT_NAME}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-https://slack.com}
       - SLACK_CHANNELS=${SLACK_CHANNELS:-{}}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1617,7 +1615,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - slack-ingestor
 
@@ -1635,7 +1632,7 @@ services:
       - WEBEX_ACCESS_TOKEN=${WEBEX_ACCESS_TOKEN}
       - WEBEX_BOT_NAME=${WEBEX_BOT_NAME}
       - WEBEX_SPACES=${WEBEX_SPACES:-{}}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-60}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1643,7 +1640,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - webex-ingestor
 
@@ -1662,7 +1658,7 @@ services:
       - ARGOCD_AUTH_TOKEN=${ARGOCD_AUTH_TOKEN}
       - ARGOCD_VERIFY_SSL=${ARGOCD_VERIFY_SSL:-true}
       - ARGOCD_FILTER_PROJECTS=${ARGOCD_FILTER_PROJECTS:-}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1670,7 +1666,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - argocd-ingestor
 
@@ -1689,9 +1684,11 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_INSTALLATION_ID for GitHub App auth
       - GITHUB_ORG=${GITHUB_ORG}
+      - GITHUB_ORGS=${GITHUB_ORGS:-}
+      - GITHUB_APP_INSTALLATION_IDS=${GITHUB_APP_INSTALLATION_IDS:-}
       - GITHUB_API_URL=${GITHUB_API_URL:-https://api.github.com/graphql}
       - GITHUB_REST_API_URL=${GITHUB_REST_API_URL:-https://api.github.com}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - FETCH_TEAM_DETAILS=${FETCH_TEAM_DETAILS:-true}
@@ -1701,7 +1698,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - github-ingestor
 
@@ -1734,16 +1730,16 @@ services:
 
   # Dummy Graph Ingestor - for testing graph RAG with sample data
   # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
-  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-graph-ingestor
-  dummy-graph-ingestor:
+  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-structured-ingestor
+  dummy-structured-ingestor:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: dummy-graph-ingestor:local
+    image: dummy-structured-ingestor:local
     container_name: dummy-ingestor
     environment:
-      - RAG_SERVER_URL=http://rag_server:9446
-      - INGESTOR_TYPE=test_dummy_graph
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - INGESTOR_TYPE=dummy_structured_ingestor
       - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:

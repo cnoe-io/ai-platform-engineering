@@ -167,7 +167,7 @@ export interface ChunkInfo {
         fresh_until?: number;
         document_type?: string;
         document_ingested_at?: number;
-        is_graph_entity?: boolean;
+        is_structured_entity?: boolean;
         source?: string;
         [key: string]: unknown;
     };

@@ -1558,6 +1558,7 @@ export default function IngestView() {
                       
                       // Get reload interval (first-class field or default)
                       const dsReloadInterval = ds.reload_interval ?? DEFAULT_RELOAD_INTERVAL
+                      const hasReloadInterval = ds.reload_interval !== undefined && ds.reload_interval !== null
                       const isOverdue = isRefreshOverdue(ds.last_updated, dsReloadInterval)
                       
                       // Find latest completed job for metrics display
@@ -1600,7 +1601,7 @@ export default function IngestView() {
                               </div>
                               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                                 <span>Updated {formatRelativeTime(ds.last_updated)}</span>
-                                {supportsReload && (
+                                {hasReloadInterval && (
                                   <>
                                     <span className="text-border">|</span>
                                     <span className={isOverdue ? "text-amber-500" : ""}>
@@ -2094,8 +2095,8 @@ export default function IngestView() {
                                                                               {chunk.metadata.document_ingested_at && (
                                                                                 <span>Ingested: {formatRelativeTime(chunk.metadata.document_ingested_at)}</span>
                                                                               )}
-                                                                              {chunk.metadata.is_graph_entity && (
-                                                                                <Badge variant="outline" className="text-[8px] h-4 px-1">Graph</Badge>
+                                                                              {chunk.metadata.is_structured_entity && (
+                                                                                <Badge variant="outline" className="text-[8px] h-4 px-1">Structured</Badge>
                                                                               )}
                                                                               {chunk.metadata.source && (
                                                                                 <span className="truncate max-w-[200px]" title={chunk.metadata.source}>

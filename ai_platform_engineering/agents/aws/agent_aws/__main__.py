@@ -23,7 +23,7 @@ from a2a.types import AgentSkill
 
 load_dotenv()
 
-METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
 
 def build_skills() -> tuple[list[AgentSkill], str]:

@@ -16,6 +16,8 @@ import {
   Bot,
   AlertCircle,
   Archive,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { getGradientStyle } from "@/lib/gradient-themes";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
@@ -42,8 +44,8 @@ interface PaginatedResponse {
   items: ConversationItem[];
   total: number;
   page: number;
-  limit: number;
-  total_pages: number;
+  page_size: number;
+  has_more: boolean;
 }
 
 export function ConversationsTab() {
@@ -53,8 +55,10 @@ export function ConversationsTab() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
+  const [searchInput, setSearchInput] = React.useState("");
   const [agentFilter, setAgentFilter] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(10);
   const [totalPages, setTotalPages] = React.useState(1);
   const [total, setTotal] = React.useState(0);
   const [clearingId, setClearingId] = React.useState<string | null>(null);
@@ -88,7 +92,7 @@ export function ConversationsTab() {
     try {
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: "20",
+        page_size: pageSize.toString(),
       });
       if (search.trim()) {
         params.set("search", search.trim());
@@ -103,7 +107,7 @@ export function ConversationsTab() {
       if (data.success && data.data) {
         const paginated = data.data as PaginatedResponse;
         setConversations(paginated.items || []);
-        setTotalPages(paginated.total_pages || 1);
+        setTotalPages(Math.ceil((paginated.total || 0) / (paginated.page_size || pageSize)));
         setTotal(paginated.total || 0);
       } else {
         setError(data.error || "Failed to fetch conversations");
@@ -114,11 +118,22 @@ export function ConversationsTab() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, agentFilter]);
+  }, [page, pageSize, search, agentFilter]);
 
   React.useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  // Debounce search input — update query value after 300ms of no typing
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== search) {
+        setSearch(searchInput);
+        setPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput, search]);
 
   const getAgentName = (agentId: string | null): string => {
     if (!agentId) return "Unknown";
@@ -160,8 +175,8 @@ export function ConversationsTab() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setSearch(searchInput);
     setPage(1);
-    fetchConversations();
   };
 
   const formatDate = (dateStr: string) => {
@@ -199,8 +214,8 @@ export function ConversationsTab() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search by ID, title, or owner..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="pl-10"
               />
             </div>
@@ -363,27 +378,80 @@ export function ConversationsTab() {
             </div>
 
             {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-6">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                >
-                  Previous
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Page {page} of {totalPages}
+            {total > 0 && (
+              <div className="flex items-center justify-between mt-6 gap-4">
+                {/* Showing X-Y of Z */}
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  Showing {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}
                 </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                >
-                  Next
-                </Button>
+
+                {/* Page buttons */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => {
+                      // Show first, last, and pages near current
+                      if (p === 1 || p === totalPages) return true;
+                      if (Math.abs(p - page) <= 1) return true;
+                      return false;
+                    })
+                    .reduce<(number | "ellipsis")[]>((acc, p, idx, arr) => {
+                      if (idx > 0 && p - (arr[idx - 1] as number) > 1) {
+                        acc.push("ellipsis");
+                      }
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((item, idx) =>
+                      item === "ellipsis" ? (
+                        <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-sm">...</span>
+                      ) : (
+                        <Button
+                          key={item}
+                          variant={page === item ? "default" : "outline"}
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => setPage(item)}
+                        >
+                          {item}
+                        </Button>
+                      )
+                    )}
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Page size dropdown */}
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-muted-foreground whitespace-nowrap">Rows</label>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setPage(1);
+                    }}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {[10, 20, 50, 100].map((size) => (
+                      <option key={size} value={size}>{size}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             )}
           </>

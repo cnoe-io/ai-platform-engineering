@@ -582,11 +582,6 @@ class TestAgentEntrypointEnvVars(unittest.TestCase):
             import ai_platform_engineering.agents.argocd.agent_argocd.__main__ as m
             return m
 
-    def test_argocd_metrics_disabled_by_default(self):
-        env = {k: v for k, v in os.environ.items() if k != "METRICS_ENABLED"}
-        m = self._reload_argocd(env)
-        self.assertFalse(m.METRICS_ENABLED)
-
     def test_argocd_metrics_enabled_via_env(self):
         m = self._reload_argocd({"METRICS_ENABLED": "true"})
         self.assertTrue(m.METRICS_ENABLED)

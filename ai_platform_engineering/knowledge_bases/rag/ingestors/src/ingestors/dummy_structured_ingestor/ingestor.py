@@ -5,7 +5,7 @@ from typing import List
 from pydantic import BaseModel
 
 from common.ingestor import IngestorBuilder, Client
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobStatus
 from common.utils import get_fresh_until
@@ -22,8 +22,8 @@ logging.basicConfig(level=LOG_LEVEL)
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL_SECONDS", "300"))
 
 
-class EntityList(BaseModel):
-  entities: List[Entity]
+class StructuredEntityList(BaseModel):
+  entities: List[StructuredEntity]
 
 
 async def sync_entities(client: Client):
@@ -37,7 +37,7 @@ async def sync_entities(client: Client):
 
   # Load entities from JSON file
   with open(file_path, "r") as f:
-    entities = EntityList.model_validate_json(f.read()).entities
+    entities = StructuredEntityList.model_validate_json(f.read()).entities
     logging.info(f"Loaded {len(entities)} entities from {file_path}")
 
   # 1. Create/Update the datasource first
@@ -46,9 +46,9 @@ async def sync_entities(client: Client):
     datasource_id=datasource_id,
     ingestor_id=client.ingestor_id or "",
     description="Dummy entities",
-    source_type="dummy_graph_entites",
+    source_type="dummy_structured_entities",
     last_updated=int(time.time()),
-    default_chunk_size=0,  # Skip chunking for graph entities
+    default_chunk_size=0,  # Skip chunking for structured entities
     default_chunk_overlap=0,
     reload_interval=SYNC_INTERVAL,
     metadata={"file_path": file_path},
@@ -79,18 +79,18 @@ async def sync_entities(client: Client):
     # Mark job as failed
     await client.add_job_error(job_id, [str(e)])
     await client.update_job(job_id=job_id, job_status=JobStatus.FAILED, message=f"Ingestion failed: {e}")
-    logging.error(f"Entity ingestion failed: {e}")
+    logging.error(f"StructuredEntity ingestion failed: {e}")
     raise
 
 
 if __name__ == "__main__":
   try:
-    logging.info("Starting dummy graph ingestor using IngestorBuilder...")
+    logging.info("Starting dummy structured ingestor using IngestorBuilder...")
 
     init_delay = int(os.getenv("INIT_DELAY_SECONDS", "0"))
 
     # Use IngestorBuilder for simplified ingestor creation
-    IngestorBuilder().name("test_dummy_graph").type("test").description("Ingestor for dummy graph entities").metadata({"source_file": os.getenv("DUMMY_ENTITIES_FILE", "entities_dummy.json"), "sync_interval": SYNC_INTERVAL, "init_delay": init_delay}).sync_with_fn(sync_entities).every(
+    IngestorBuilder().name("dummy_structured_ingestor").type("test").description("Ingestor for dummy structured entities").metadata({"source_file": os.getenv("DUMMY_ENTITIES_FILE", "entities_dummy.json"), "sync_interval": SYNC_INTERVAL, "init_delay": init_delay}).sync_with_fn(sync_entities).every(
       SYNC_INTERVAL
     ).with_init_delay(init_delay).run()
 

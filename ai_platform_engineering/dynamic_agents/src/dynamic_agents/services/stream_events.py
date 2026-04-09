@@ -45,6 +45,7 @@ CONTENT = "content"
 TOOL_START = "tool_start"
 TOOL_END = "tool_end"
 INPUT_REQUIRED = "input_required"
+WARNING = "warning"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -229,21 +230,46 @@ def make_tool_start_event(
     }
 
 
-def make_tool_end_event(tool_call_id: str, namespace: tuple[str, ...] = ()) -> dict[str, Any]:
+def make_tool_end_event(
+    tool_call_id: str,
+    namespace: tuple[str, ...] = (),
+    error: str | None = None,
+) -> dict[str, Any]:
     """Tool call completed.
 
     Kept minimal - UI tracks state from tool_start and matches by tool_call_id.
+    When error is set, the UI renders the tool as failed with the error message.
 
     Args:
         tool_call_id: The tool call ID to match against tool_start
         namespace: LangGraph namespace tuple. Empty = parent agent.
+        error: Optional error message if the tool failed.
     """
-    logger.debug(f"[sse:{TOOL_END}] id={tool_call_id[:8]}... ns={namespace}")
+    logger.debug(f"[sse:{TOOL_END}] id={tool_call_id[:8]}... ns={namespace} error={bool(error)}")
+    data: dict[str, Any] = {"tool_call_id": tool_call_id}
+    if error:
+        data["error"] = error
     return {
         "type": TOOL_END,
-        "data": {
-            "tool_call_id": tool_call_id,
-        },
+        "data": data,
+        "namespace": list(namespace),
+    }
+
+
+def make_warning_event(message: str, namespace: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Non-fatal warning to display in the timeline.
+
+    Used for issues like failed MCP server connections that don't stop the
+    agent but should be visible to the user.
+
+    Args:
+        message: Human-readable warning message.
+        namespace: LangGraph namespace tuple. Empty = parent agent.
+    """
+    logger.debug(f"[sse:{WARNING}] {message[:80]}")
+    return {
+        "type": WARNING,
+        "data": {"message": message},
         "namespace": list(namespace),
     }
 
@@ -418,6 +444,12 @@ def _handle_updates_chunk(
             # Handle ToolMessage (tool results)
             tool_call_id = getattr(msg, "tool_call_id", None)
             if tool_call_id:
-                results.append(make_tool_end_event(tool_call_id, namespace))
+                # Detect tool errors: our wrap_tools_with_error_handling() returns
+                # "ERROR: ..." strings instead of raising exceptions.
+                content = getattr(msg, "content", "")
+                error = None
+                if isinstance(content, str) and content.startswith("ERROR: "):
+                    error = content
+                results.append(make_tool_end_event(tool_call_id, namespace, error=error))
 
     return results

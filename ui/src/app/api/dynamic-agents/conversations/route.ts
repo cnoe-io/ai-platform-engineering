@@ -63,31 +63,39 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>("conversations");
 
+    // Pipeline restructured to avoid MongoDB 100MB $lookup limit (Location4568).
+    // 1. Pagination ($skip/$limit) runs BEFORE $lookup so we only join for the current page
+    // 2. $lookup uses a sub-pipeline with $count to avoid materializing full checkpoint documents
     const pipeline: object[] = [
       { $match: matchStage },
-      // Lookup checkpoint count from checkpoints_conversation collection
-      {
-        $lookup: {
-          from: "checkpoints_conversation",
-          localField: "_id",
-          foreignField: "thread_id",
-          as: "_checkpoints",
-        },
-      },
-      {
-        $addFields: {
-          checkpoint_count: { $size: "$_checkpoints" },
-        },
-      },
-      { $project: { _checkpoints: 0 } },
+      { $sort: { updated_at: -1 as const } },
       {
         $facet: {
           items: [
-            { $sort: { updated_at: -1 as const } },
             { $skip: skip },
             { $limit: pageSize },
+            // Lookup checkpoint count using sub-pipeline (avoids 100MB limit)
+            {
+              $lookup: {
+                from: "checkpoints_conversation",
+                let: { threadId: "$_id" },
+                pipeline: [
+                  { $match: { $expr: { $eq: ["$thread_id", "$$threadId"] } } },
+                  { $count: "count" },
+                ],
+                as: "_checkpoints",
+              },
+            },
+            {
+              $addFields: {
+                checkpoint_count: {
+                  $ifNull: [{ $arrayElemAt: ["$_checkpoints.count", 0] }, 0],
+                },
+              },
+            },
             {
               $project: {
+                _id: 0,
                 id: "$_id",
                 title: 1,
                 owner_id: 1,

@@ -42,9 +42,11 @@ export interface ToolStartEventData {
   args?: Record<string, unknown>;
 }
 
-/** Tool end event data - minimal, just the ID to match back */
+/** Tool end event data - minimal, just the ID to match back.
+ *  When error is set, the UI renders the tool as failed with the error message. */
 export interface ToolEndEventData {
   tool_call_id: string;
+  error?: string;
 }
 
 /** Type guard: check if toolData is from a tool_start event */
@@ -279,9 +281,10 @@ export function createSSEAgentEvent(
     }
 
     case "tool_end": {
-      // Tool end has { tool_call_id, namespace }
+      // Tool end has { tool_call_id, error?, namespace }
       const toolData: ToolEndEventData = {
         tool_call_id: data.tool_call_id!,
+        ...(data.error ? { error: data.error as string } : {}),
       };
       return {
         ...base,

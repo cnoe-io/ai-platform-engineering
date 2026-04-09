@@ -16,7 +16,8 @@ import common.utils as utils
 from common.graph_db.base import GraphDB
 from common.constants import ALL_IDS_KEY, ALL_IDS_PROPS_KEY, PRIMARY_ID_KEY, ENTITY_TYPE_KEY, PROP_DELIMITER, FRESH_UNTIL_KEY, RELATION_PK_KEY, DATASOURCE_ID_KEY
 
-from common.models.graph import Entity, EntityIdentifier, Relation
+from common.models.rag import StructuredEntity, StructuredEntityId
+from common.models.graph import Relation
 from common.models.ontology import ValueMatchType
 
 logger = utils.get_logger("neo4j_graph_db")
@@ -184,7 +185,7 @@ class Neo4jDB(GraphDB):
   def get_entity_type_index_name(self) -> str:
     return f"{self.tenant_label}_entitytype_range"
 
-  async def fuzzy_search_batch(self, batch_keywords: List[List[List[Union[str, Tuple[float, str]]]]], exclude_type_filter: List[str] = [], num_record_per_type: int = 0, require_single_match_per_type: bool = False, strict: bool = True, max_results=100) -> List[List[Tuple[Entity, float]]]:
+  async def fuzzy_search_batch(self, batch_keywords: List[List[List[Union[str, Tuple[float, str]]]]], exclude_type_filter: List[str] = [], num_record_per_type: int = 0, require_single_match_per_type: bool = False, strict: bool = True, max_results=100) -> List[List[Tuple[StructuredEntity, float]]]:
     """
     Fuzzy search properties in all entities (batched queries using UNWIND)
     Executes multiple fuzzy search queries in a SINGLE network call using UNWIND for maximum efficiency.
@@ -202,7 +203,7 @@ class Neo4jDB(GraphDB):
         max_results: Maximum number of results to return per query
 
     Returns:
-        List of results for each query, where each result is a List of (Entity, score) tuples
+        List of results for each query, where each result is a List of (StructuredEntity, score) tuples
     """
     if not batch_keywords:
       return []
@@ -273,7 +274,7 @@ class Neo4jDB(GraphDB):
       records: list[Record] = await res.fetch(max_results * len(batch_keywords))
 
       # Group results by query index
-      results_by_idx: dict[int, List[Tuple[Entity, float]]] = {i: [] for i in range(len(batch_keywords))}
+      results_by_idx: dict[int, List[Tuple[StructuredEntity, float]]] = {i: [] for i in range(len(batch_keywords))}
 
       for record in records:
         query_idx: int = record.get("queryIdx")
@@ -285,7 +286,7 @@ class Neo4jDB(GraphDB):
         labels.discard(self.tenant_label)
 
         # Create entity
-        entity = Entity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_labels=labels, all_properties=props)
+        entity = StructuredEntity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_types=labels, all_properties=props)
         results_by_idx[query_idx].append((entity, score))
 
     # Return results in order
@@ -452,8 +453,8 @@ class Neo4jDB(GraphDB):
 
         # Create Relation object
         relation = Relation(
-          from_entity=EntityIdentifier(entity_type=str(from_entity_type), primary_key=str(from_entity_pk)),
-          to_entity=EntityIdentifier(entity_type=str(to_entity_type), primary_key=str(to_entity_pk)),
+          from_entity=StructuredEntityId(entity_type=str(from_entity_type), primary_key=str(from_entity_pk)),
+          to_entity=StructuredEntityId(entity_type=str(to_entity_type), primary_key=str(to_entity_pk)),
           relation_name=rel.type,
           relation_pk=relation_props.get(RELATION_PK_KEY, ""),
           relation_properties=relation_props,
@@ -523,8 +524,8 @@ class Neo4jDB(GraphDB):
 
         # Create Relation object
         relation = Relation(
-          from_entity=EntityIdentifier(entity_type=str(from_entity_type), primary_key=str(from_entity_pk)),
-          to_entity=EntityIdentifier(entity_type=str(to_entity_type), primary_key=str(to_entity_pk)),
+          from_entity=StructuredEntityId(entity_type=str(from_entity_type), primary_key=str(from_entity_pk)),
+          to_entity=StructuredEntityId(entity_type=str(to_entity_type), primary_key=str(to_entity_pk)),
           relation_name=rel.type,
           relation_pk=relation_props.get(RELATION_PK_KEY, ""),
           relation_properties=relation_props,
@@ -535,7 +536,7 @@ class Neo4jDB(GraphDB):
     logger.info(f"Fetched {len(relations)} relations in batch (offset={offset})")
     return relations
 
-  async def fetch_entities_batch(self, offset: int = 0, limit: int = 10000, entity_type: str | None = None) -> List[Entity]:
+  async def fetch_entities_batch(self, offset: int = 0, limit: int = 10000, entity_type: str | None = None) -> List[StructuredEntity]:
     """
     Fetch entities in batches for efficient bulk processing.
 
@@ -581,7 +582,7 @@ class Neo4jDB(GraphDB):
         labels.discard(props[ENTITY_TYPE_KEY])
         labels.discard(self.tenant_label)
 
-        entity = Entity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_labels=labels, all_properties=props)
+        entity = StructuredEntity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_types=labels, all_properties=props)
         entities.append(entity)
 
     logger.info(f"Fetched {len(entities)} entities in batch (offset={offset})")
@@ -593,7 +594,7 @@ class Neo4jDB(GraphDB):
     Returns simple dictionaries with only the requested properties.
 
     Args:
-        labels: List of labels to match (e.g., ["NxsDataEntity"])
+        labels: List of labels to match (e.g., ["NxsDataStructuredEntity"])
         properties: List of property names to return (e.g., ["_entity_pk", "_entity_type"])
         offset: Number of entities to skip (for pagination)
         limit: Maximum number of entities to return
@@ -646,7 +647,7 @@ class Neo4jDB(GraphDB):
     logger.info(f"Fetched {len(results)} raw entities (offset={offset}, limit={limit}, excluded {len(exclude_labels)} labels)")
     return results
 
-  async def find_entity(self, entity_type: str | None, properties: dict | None, max_results=10000) -> List[Entity]:
+  async def find_entity(self, entity_type: str | None, properties: dict | None, max_results=10000) -> List[StructuredEntity]:
     logger.debug(f"Executing find_entity with entity_type={entity_type}, properties={properties}, max_results={max_results}")
     # Always include tenant_label in the query
     if entity_type is None or entity_type == "":
@@ -677,12 +678,12 @@ class Neo4jDB(GraphDB):
         labels.discard(props[ENTITY_TYPE_KEY])
         labels.discard(self.tenant_label)
         # Create a raw entity with labels, properties, and primary label
-        entity = Entity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_labels=labels, all_properties=props)
+        entity = StructuredEntity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_types=labels, all_properties=props)
 
         entities.append(entity)
     return entities
 
-  async def fetch_entity(self, entity_type: str, primary_key_value: str) -> Entity | None:
+  async def fetch_entity(self, entity_type: str, primary_key_value: str) -> StructuredEntity | None:
     logger.debug(f"Executing fetch_entity with entity_type={entity_type}, primary_key_value={primary_key_value}")
     entities = await self.find_entity(entity_type, {PRIMARY_ID_KEY: primary_key_value})
     if len(entities) == 0:
@@ -721,25 +722,25 @@ class Neo4jDB(GraphDB):
           continue
 
         from_entity_type = from_entity_raw.get(ENTITY_TYPE_KEY)
-        from_additional_labels = set(from_entity_raw.labels)
-        from_additional_labels.discard(from_entity_type)
-        from_additional_labels.discard(self.tenant_label)
+        from_additional_types = set(from_entity_raw.labels)
+        from_additional_types.discard(from_entity_type)
+        from_additional_types.discard(self.tenant_label)
 
         to_entity_type = to_entity_raw.get(ENTITY_TYPE_KEY)
-        to_additional_labels = set(to_entity_raw.labels)
-        to_additional_labels.discard(to_entity_type)
-        to_additional_labels.discard(self.tenant_label)
+        to_additional_types = set(to_entity_raw.labels)
+        to_additional_types.discard(to_entity_type)
+        to_additional_types.discard(self.tenant_label)
 
-        from_entity = Entity(
+        from_entity = StructuredEntity(
           entity_type=from_entity_type,
           primary_key_properties=from_entity_raw[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER),
           additional_key_properties=[k.split(PROP_DELIMITER) for k in from_entity_raw[ALL_IDS_PROPS_KEY][1:]],
-          additional_labels=from_additional_labels,
+          additional_types=from_additional_types,
           all_properties=dict(from_entity_raw),
         )
 
-        to_entity = Entity(
-          entity_type=to_entity_type, primary_key_properties=to_entity_raw[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in to_entity_raw[ALL_IDS_PROPS_KEY][1:]], additional_labels=to_additional_labels, all_properties=dict(to_entity_raw)
+        to_entity = StructuredEntity(
+          entity_type=to_entity_type, primary_key_properties=to_entity_raw[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in to_entity_raw[ALL_IDS_PROPS_KEY][1:]], additional_types=to_additional_types, all_properties=dict(to_entity_raw)
         )
 
         relation = Relation(from_entity=from_entity.get_identifier(), to_entity=to_entity.get_identifier(), relation_name=relation_name, relation_pk=relation_props.get(RELATION_PK_KEY, ""), relation_properties=relation_props)
@@ -748,7 +749,7 @@ class Neo4jDB(GraphDB):
 
       return relations
 
-  async def update_entity(self, entity_type: str, entities: List[Entity]):
+  async def update_entity(self, entity_type: str, entities: List[StructuredEntity]):
     """
     Batch update entities of a single type in the graph database (Creates if it does not exist).
     This is a backwards-compatible wrapper around update_entity_batch().
@@ -758,10 +759,10 @@ class Neo4jDB(GraphDB):
     """
     await self.update_entity_batch(entities, batch_size=1000)
 
-  async def update_entity_batch(self, entities: List[Entity], batch_size: int = 1000):
+  async def update_entity_batch(self, entities: List[StructuredEntity], batch_size: int = 1000):
     """
     Create or update a list of entities in the database using batched CALL + UNWIND queries.
-    This method groups entities by (entity_type, additional_labels) and executes all updates
+    This method groups entities by (entity_type, additional_types) and executes all updates
     in a SINGLE network call for maximum performance.
 
     :param entities: The list of entities to create/update (can be mixed types).
@@ -773,14 +774,14 @@ class Neo4jDB(GraphDB):
     if not entities:
       return
 
-    # Group entities by (entity_type, frozenset(additional_labels))
+    # Group entities by (entity_type, frozenset(additional_types))
     from collections import defaultdict
 
     grouped_entities = defaultdict(list)
 
     for entity in entities:
       # Create a hashable key for grouping
-      labels_key = frozenset(entity.additional_labels) if entity.additional_labels else frozenset()
+      labels_key = frozenset(entity.additional_types) if entity.additional_types else frozenset()
       group_key = (entity.entity_type, labels_key)
       grouped_entities[group_key].append(entity)
 
@@ -1010,11 +1011,11 @@ class Neo4jDB(GraphDB):
           logger.error(f"Neo4j batch relation query failed after {max_retries} attempts: {e}", exc_info=True)
           raise
 
-  async def shortest_path(self, entity_a: EntityIdentifier, entity_b: EntityIdentifier, ignore_direction=True, max_depth=20) -> List[Tuple[List[Entity], List[Relation]]]:
+  async def shortest_path(self, entity_a: StructuredEntityId, entity_b: StructuredEntityId, ignore_direction=True, max_depth=20) -> List[Tuple[List[StructuredEntity], List[Relation]]]:
     """
     Finds all shortest paths between two entities in the graph database
-    :param entity_a: EntityIdentifier of the first entity
-    :param entity_b: EntityIdentifier of the second entity
+    :param entity_a: StructuredEntityId of the first entity
+    :param entity_b: StructuredEntityId of the second entity
     :param ignore_direction: If True, treat relationships as undirected
     :param max_depth: Maximum path length to search
     :return: A list of tuples, each containing (entities_path, relations_path)
@@ -1056,7 +1057,7 @@ class Neo4jDB(GraphDB):
           labels.discard(entity_type)
           labels.discard(self.tenant_label)
 
-          entity = Entity(entity_type=entity_type, primary_key_properties=node_props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in node_props[ALL_IDS_PROPS_KEY][1:]], additional_labels=labels, all_properties=node_props)
+          entity = StructuredEntity(entity_type=entity_type, primary_key_properties=node_props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in node_props[ALL_IDS_PROPS_KEY][1:]], additional_types=labels, all_properties=node_props)
           entities.append(entity)
 
         # Extract relations from path relationships
@@ -1068,9 +1069,9 @@ class Neo4jDB(GraphDB):
           start_node = relationship.start_node
           end_node = relationship.end_node
 
-          from_entity_id = EntityIdentifier(entity_type=start_node.get(ENTITY_TYPE_KEY), primary_key=start_node.get(PRIMARY_ID_KEY))
+          from_entity_id = StructuredEntityId(entity_type=start_node.get(ENTITY_TYPE_KEY), primary_key=start_node.get(PRIMARY_ID_KEY))
 
-          to_entity_id = EntityIdentifier(entity_type=end_node.get(ENTITY_TYPE_KEY), primary_key=end_node.get(PRIMARY_ID_KEY))
+          to_entity_id = StructuredEntityId(entity_type=end_node.get(ENTITY_TYPE_KEY), primary_key=end_node.get(PRIMARY_ID_KEY))
 
           relation = Relation(from_entity=from_entity_id, to_entity=to_entity_id, relation_name=relationship.type, relation_pk=relation_props.get(RELATION_PK_KEY, ""), relation_properties=relation_props)
           relations.append(relation)
@@ -1496,7 +1497,7 @@ class Neo4jDB(GraphDB):
         labels.discard(props[ENTITY_TYPE_KEY])
         labels.discard(self.tenant_label)
 
-        entity = Entity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_labels=labels, all_properties=props)
+        entity = StructuredEntity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_types=labels, all_properties=props)
 
         return {"entity": entity, "entities": [entity], "relations": []}
 
@@ -1534,8 +1535,8 @@ class Neo4jDB(GraphDB):
       start_labels.discard(start_props[ENTITY_TYPE_KEY])
       start_labels.discard(self.tenant_label)
 
-      start_entity = Entity(
-        entity_type=start_props[ENTITY_TYPE_KEY], primary_key_properties=start_props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in start_props[ALL_IDS_PROPS_KEY][1:]], additional_labels=start_labels, all_properties=start_props
+      start_entity = StructuredEntity(
+        entity_type=start_props[ENTITY_TYPE_KEY], primary_key_properties=start_props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in start_props[ALL_IDS_PROPS_KEY][1:]], additional_types=start_labels, all_properties=start_props
       )
 
       # Parse neighbor entities
@@ -1550,7 +1551,7 @@ class Neo4jDB(GraphDB):
         labels.discard(props[ENTITY_TYPE_KEY])
         labels.discard(self.tenant_label)
 
-        entity = Entity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_labels=labels, all_properties=props)
+        entity = StructuredEntity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_types=labels, all_properties=props)
         entities.append(entity)
 
       # Parse relations
@@ -1568,9 +1569,9 @@ class Neo4jDB(GraphDB):
         if start_node_rel is None or end_node_rel is None:
           continue
 
-        from_entity_id = EntityIdentifier(entity_type=start_node_rel.get(ENTITY_TYPE_KEY), primary_key=start_node_rel.get(PRIMARY_ID_KEY))
+        from_entity_id = StructuredEntityId(entity_type=start_node_rel.get(ENTITY_TYPE_KEY), primary_key=start_node_rel.get(PRIMARY_ID_KEY))
 
-        to_entity_id = EntityIdentifier(entity_type=end_node_rel.get(ENTITY_TYPE_KEY), primary_key=end_node_rel.get(PRIMARY_ID_KEY))
+        to_entity_id = StructuredEntityId(entity_type=end_node_rel.get(ENTITY_TYPE_KEY), primary_key=end_node_rel.get(PRIMARY_ID_KEY))
 
         relation = Relation(from_entity=from_entity_id, to_entity=to_entity_id, relation_name=rel.type, relation_pk=relation_props.get(RELATION_PK_KEY, ""), relation_properties=relation_props)
         relations.append(relation)
@@ -1614,7 +1615,7 @@ class Neo4jDB(GraphDB):
       logger.info(f"Graph stats: {node_count} nodes, {relation_count} relations")
       return {"node_count": node_count, "relation_count": relation_count}
 
-  async def fetch_random_entities(self, count: int = 10, entity_type: str | None = None) -> List[Entity]:
+  async def fetch_random_entities(self, count: int = 10, entity_type: str | None = None) -> List[StructuredEntity]:
     """
     Fetch random entities from the graph database.
     """
@@ -1651,7 +1652,7 @@ class Neo4jDB(GraphDB):
         labels.discard(props[ENTITY_TYPE_KEY])
         labels.discard(self.tenant_label)
 
-        entity = Entity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_labels=labels, all_properties=props)
+        entity = StructuredEntity(entity_type=props[ENTITY_TYPE_KEY], primary_key_properties=props[ALL_IDS_PROPS_KEY][0].split(PROP_DELIMITER), additional_key_properties=[k.split(PROP_DELIMITER) for k in props[ALL_IDS_PROPS_KEY][1:]], additional_types=labels, all_properties=props)
         entities.append(entity)
 
       logger.info(f"Fetched {len(entities)} random entities")

@@ -35,6 +35,8 @@ Ingests AWS resources as graph entities into the RAG system. Discovers and fetch
 - `SYNC_INTERVAL` - Sync interval in seconds (default: `86400` = 24 hours)
 - `INIT_DELAY_SECONDS` - Delay before first sync in seconds (default: `0`)
 - `LOG_LEVEL` - Logging level (default: `INFO`)
+- `AWS_ACCOUNT_LIST` - Comma-separated list of `name:account_id` pairs for multi-account ingestion (default: empty, single-account mode)
+- `CROSS_ACCOUNT_ROLE_NAME` - IAM role name to assume in each target account (default: `caipe-read-only`)
 
 ## AWS Permissions Required
 
@@ -100,6 +102,66 @@ export AWS_SECRET_ACCESS_KEY=<your-secret-key>
 export RESOURCE_TYPES=ec2:instance,s3:bucket,eks:cluster
 docker compose --profile aws up --build aws_ingestor
 ```
+
+## Multi-Account Configuration
+
+The ingestor supports ingesting resources from multiple AWS accounts in a single process. Each account becomes a separate datasource (`aws-account-{account_id}`).
+
+This uses the same `AWS_ACCOUNT_LIST` and `CROSS_ACCOUNT_ROLE_NAME` env vars as the AWS agent. The ingestor generates `~/.aws/config` profiles at startup and uses `boto3.Session(profile_name=...)` for transparent cross-account STS AssumeRole.
+
+When `AWS_ACCOUNT_LIST` is not set, the ingestor falls back to single-account mode using default credentials (fully backward compatible).
+
+### Setup
+
+1. Set `AWS_ACCOUNT_LIST` with your accounts:
+
+```bash
+export AWS_ACCOUNT_LIST="prod:123456789012,staging:234567890123,dev:345678901234"
+```
+
+2. Optionally override the role name (default: `caipe-read-only`):
+
+```bash
+export CROSS_ACCOUNT_ROLE_NAME="my-ingestor-role"
+```
+
+3. Ensure base credentials (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or IAM role) have permission to `sts:AssumeRole` into each target account.
+
+### IAM Trust Policy
+
+Each target account must have the cross-account role (e.g. `caipe-read-only`) with:
+
+1. A **trust policy** allowing the ingestor's base credentials to assume it:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"AWS": "arn:aws:iam::BASE_ACCOUNT_ID:role/ingestor-base-role"},
+    "Action": "sts:AssumeRole"
+  }]
+}
+```
+
+2. The same **permissions policy** listed in the [AWS Permissions Required](#aws-permissions-required) section above.
+
+### Running multi-account with Docker Compose
+
+```bash
+export RAG_SERVER_URL=http://host.docker.internal:9446
+export AWS_ACCESS_KEY_ID=<base-account-access-key>
+export AWS_SECRET_ACCESS_KEY=<base-account-secret-key>
+export AWS_ACCOUNT_LIST="prod:123456789012,staging:234567890123"
+docker compose --profile aws up --build aws_ingestor
+```
+
+### Behavior
+
+- Accounts are synced **sequentially** within a single process.
+- A single global `SYNC_INTERVAL` applies to all accounts.
+- If one account fails (e.g. bad credentials or missing role), the error is logged and the ingestor continues to the next account.
+- If all accounts fail, the sync raises an error.
 
 ## Resource Discovery
 
