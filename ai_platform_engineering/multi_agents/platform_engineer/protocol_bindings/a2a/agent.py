@@ -420,12 +420,29 @@ class AIPlatformEngineerA2ABinding:
           # the last narration line that precedes it in the stream.
           if content and not content.startswith("\n"):
               content = "\n\n" + content
-          return {
+          resp = {
               'content': content,
               'is_task_complete': getattr(result, 'is_task_complete', True),
               'require_user_input': getattr(result, 'require_user_input', False),
               'from_response_format_tool': True,
           }
+          md = getattr(result, 'metadata', None)
+          if md:
+              resp['metadata'] = {
+                  'user_input': getattr(md, 'user_input', None),
+                  'input_title': getattr(md, 'input_title', None),
+                  'input_description': getattr(md, 'input_description', None),
+                  'input_fields': [
+                      {
+                          'field_name': f.field_name,
+                          'field_description': f.field_description,
+                          'field_values': getattr(f, 'field_values', None),
+                          'required': getattr(f, 'required', True),
+                      }
+                      for f in (md.input_fields or [])
+                  ] if getattr(md, 'input_fields', None) else None,
+              }
+          return resp
       except Exception as e:
           logging.error(f"_direct_structured_response failed: {e}")
           return None

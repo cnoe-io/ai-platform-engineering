@@ -632,8 +632,49 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info(f"Task {task.id} completed.")
 
     async def _handle_user_input_required(self, content: str, task: A2ATask,
-                                          event_queue: EventQueue):
-        """Handle user input required event."""
+                                          event_queue: EventQueue,
+                                          metadata: Optional[Dict] = None):
+        """Handle user input required event.
+
+        Args:
+            content: The text content describing the input request.
+            task: The current A2A task.
+            event_queue: Event queue for sending events.
+            metadata: Optional metadata containing form field definitions.
+                     When present the UI renders a structured form instead of
+                     plain text.  Expected keys: user_input, input_title,
+                     input_description, input_fields, response.
+        """
+        if content:
+            final_artifact = new_text_artifact(
+                name='final_result',
+                description='Complete result from Platform Engineer',
+                text=content,
+            )
+            await self._send_artifact(event_queue, task, final_artifact,
+                                      append=False, last_chunk=True)
+
+        if metadata and metadata.get("input_fields"):
+            logger.info(
+                f"Sending user input form metadata with "
+                f"{len(metadata.get('input_fields', []))} fields"
+            )
+            form_artifact = new_data_artifact(
+                name="UserInputMetaData",
+                description="Structured user input form definition",
+                data=metadata,
+            )
+            await self._safe_enqueue_event(
+                event_queue,
+                TaskArtifactUpdateEvent(
+                    artifact=form_artifact,
+                    append=False,
+                    last_chunk=False,
+                    context_id=task.context_id,
+                    task_id=task.id,
+                ),
+            )
+
         await self._safe_enqueue_event(
             event_queue,
             TaskStatusUpdateEvent(
@@ -1291,14 +1332,36 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         state.user_input_required = True
                         logger.info("ResponseFormat tool requires user input")
 
-                        artifact = new_text_artifact(
-                            name='final_result',
-                            description='Complete result from Platform Engineer',
-                            text=content,
+                        await self._handle_user_input_required(
+                            content, task, event_queue,
+                            metadata if isinstance(metadata, dict) else None,
                         )
-                        await self._ensure_execution_plan_completed(event_queue, task, state)
-                        await self._handle_task_complete(event, state, content, task, event_queue)
-                        return
+                        state.stream_finished = True
+                        continue
+
+                    logger.info(
+                        f"📤 ResponseFormat content preview ({len(content)} chars): "
+                        f"{content[:300]}{'...' if len(content) > 300 else ''}"
+                    )
+
+                    artifact = new_text_artifact(
+                        name='final_result',
+                        description='Complete result from Platform Engineer',
+                        text=content,
+                    )
+                    reused_id = False
+                    if state.streaming_artifact_id:
+                        artifact.artifact_id = state.streaming_artifact_id
+                        reused_id = True
+                    logger.info(
+                        f"📤 final_result artifact: id={artifact.artifact_id}, "
+                        f"reused_streaming_id={reused_id}, parts={len(artifact.parts)}"
+                    )
+                    await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
+                    await self._send_completion(event_queue, task, trace_id=state.trace_id)
+                    logger.info(f"Task {task.id} completed (ResponseFormat tool, {len(content)} chars).")
+                    state.stream_finished = True
+                    continue
 
                 # 3. Task complete
                 if event.get('is_task_complete'):
@@ -1311,7 +1374,8 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 # 4. User input required
                 if event.get('require_user_input'):
                     state.user_input_required = True
-                    await self._handle_user_input_required(content, task, event_queue)
+                    metadata = event.get('metadata')
+                    await self._handle_user_input_required(content, task, event_queue, metadata)
                     state.stream_finished = True
                     continue
 
