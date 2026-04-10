@@ -15,9 +15,9 @@ dependencies = [
     "fastapi==0.115.14",
     "uvicorn==0.34.3",
     "config==0.5.1",
-    "langchain-core==1.2.26",
-    "langgraph==1.0.4",
-    "langgraph==1.0.4",
+    "langchain-core==1.2.28",
+    "langgraph==1.0.9",
+    "langgraph==1.0.9",
     "langfuse==3.14.5",
 
     # Transport dependencies for agent connections
