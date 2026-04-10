@@ -273,13 +273,17 @@ def extract_groups_from_claims(claims: dict[str, Any], settings: Settings) -> li
 def check_admin_role(groups: list[str], settings: Settings) -> bool:
     """Check if user is in admin group.
 
-    Uses OIDC_REQUIRED_ADMIN_GROUP if set, otherwise falls back to
-    pattern matching for common admin group names.
+    Uses OIDC_REQUIRED_ADMIN_GROUP if set (supports comma-separated for multiple groups),
+    otherwise falls back to pattern matching for common admin group names.
     """
     if settings.oidc_required_admin_group:
-        # Match against configured admin group (case-insensitive)
-        admin_group_lower = settings.oidc_required_admin_group.lower()
-        return any(group.lower() == admin_group_lower or f"cn={admin_group_lower}" in group.lower() for group in groups)
+        # Support comma-separated list of admin groups
+        admin_groups = [g.strip().lower() for g in settings.oidc_required_admin_group.split(",") if g.strip()]
+        return any(
+            any(user_group.lower() == admin_group or f"cn={admin_group}" in user_group.lower()
+                for admin_group in admin_groups)
+            for user_group in groups
+        )
 
     # Fallback: pattern matching for common admin group names
     admin_patterns = ["admin", "platform-admin", "administrators"]

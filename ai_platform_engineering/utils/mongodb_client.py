@@ -100,6 +100,7 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
                     "is_system": 1,
                     "visibility": 1,
                     "metadata": 1,
+                    "shared_with_teams": 1,
                 },
             )
         )
@@ -124,6 +125,7 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
                     "owner_id": doc.get("owner_id", "system"),
                     "is_system": doc.get("is_system", True),
                     "visibility": doc.get("visibility", "global"),
+                    "shared_with_teams": doc.get("shared_with_teams", []),
                 }
                 allowed_tools = metadata.get("allowed_tools")
                 if allowed_tools:
@@ -142,12 +144,43 @@ def get_task_configs_from_mongodb() -> Optional[dict]:
         return None
 
 
+def _get_user_team_ids(user_email: str) -> list:
+    """Return the list of team IDs that *user_email* belongs to.
+
+    Mirrors the TypeScript ``getUserTeamIds`` in ``ui/src/lib/api-middleware.ts``:
+    queries the ``teams`` collection for documents where
+    ``members.user_id == user_email`` and returns their ``_id`` values as strings.
+
+    Returns an empty list if MongoDB is unavailable or the user is in no teams.
+    """
+    client = get_mongodb_client()
+    if client is None:
+        return []
+    database = os.getenv("MONGODB_DATABASE", "caipe")
+    try:
+        db = client[database]
+        teams = db["teams"]
+        user_teams = list(
+            teams.find(
+                {"members.user_id": user_email},
+                {"_id": 1},
+            )
+        )
+        return [str(t["_id"]) for t in user_teams]
+    except PyMongoError as e:
+        logger.warning(f"Failed to resolve team IDs for {user_email}: {e}")
+        return []
+
+
 def get_task_configs_for_user(user_email: Optional[str] = None) -> Optional[dict]:
     """Return task configs visible to *user_email*.
 
-    Fetches the full (cached) config set, then filters:
-      - ``is_system=True`` or ``visibility="global"`` configs are always included.
-      - When *user_email* is provided, configs owned by that user are included.
+    Fetches the full (cached) config set, then filters to match the same
+    visibility rules as the Next.js UI route (``task-configs/route.ts``):
+      - ``is_system=True`` or ``visibility="global"`` — always included.
+      - ``owner_id == user_email`` — user's own private/team configs.
+      - ``visibility="team"`` and ``shared_with_teams`` intersects with the
+        user's team memberships (resolved via the ``teams`` collection).
       - When *user_email* is ``None``, only system/global configs are returned.
 
     The returned dict has the same shape as :func:`get_task_configs_from_mongodb`
@@ -156,6 +189,8 @@ def get_task_configs_for_user(user_email: Optional[str] = None) -> Optional[dict
     all_configs = get_task_configs_from_mongodb()
     if not all_configs:
         return None
+
+    user_team_ids: Optional[set] = None  # lazy-loaded on first team-config hit
 
     filtered: dict = {}
     for name, entry in all_configs.items():
@@ -167,6 +202,13 @@ def get_task_configs_for_user(user_email: Optional[str] = None) -> Optional[dict
             filtered[name] = entry
         elif user_email and owner_id == user_email:
             filtered[name] = entry
+        elif user_email and visibility == "team":
+            shared_with = entry.get("shared_with_teams") or []
+            if shared_with:
+                if user_team_ids is None:
+                    user_team_ids = set(_get_user_team_ids(user_email))
+                if user_team_ids.intersection(shared_with):
+                    filtered[name] = entry
 
     return filtered if filtered else None
 

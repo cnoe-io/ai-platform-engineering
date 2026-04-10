@@ -48,7 +48,7 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
     Hooks used:
       * ``before_model`` — captures ``user_email`` from graph state.
       * ``wrap_model_call`` / ``awrap_model_call`` — appends the workflow
-        list to ``request.system_prompt`` before the LLM is invoked.
+        list to ``request.system_message`` before the LLM is invoked.
     """
 
     def __init__(self) -> None:
@@ -97,7 +97,14 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
 
     def _inject_workflows(self, request: ModelRequest) -> None:
         section = self._build_workflow_prompt_section(user_email=self._user_email)
-        if section and hasattr(request, "system_prompt") and request.system_prompt:
+        if not section:
+            return
+        # ModelRequest uses `system_message` (SystemMessage object), not `system_prompt`
+        if hasattr(request, "system_message") and request.system_message is not None:
+            from deepagents.middleware._utils import append_to_system_message
+            request.system_message = append_to_system_message(request.system_message, section)
+        elif hasattr(request, "system_prompt") and request.system_prompt:
+            # Fallback for any future API that uses a plain string
             request.system_prompt = request.system_prompt + section
 
     def wrap_model_call(
