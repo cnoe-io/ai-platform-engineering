@@ -31,8 +31,10 @@ export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "f
 // If not set, will auto-detect from common claim names
 export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
-// Required group for authorization
-export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP || "backstage-access";
+// Required group for authorization.
+// Use ?? (nullish coalescing) so that setting OIDC_REQUIRED_GROUP="" disables
+// the group check. || would treat "" as falsy and fall back to "backstage-access".
+export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "backstage-access";
 
 // Required admin group for admin access
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
@@ -129,14 +131,16 @@ export function isAdminUser(groups: string[]): boolean {
   });
 }
 
-// Helper to check if user can access dynamic agents
-// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, user must be in that group
-// If not set, falls back to requiring admin group membership
+// Helper to check if user can access dynamic agents.
+// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access
+// (admin group membership does NOT automatically grant access in this case).
+// If unset, falls back to admin-only access.
 export function canAccessDynamicAgents(groups: string[]): boolean {
   if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
     const requiredLower = REQUIRED_DYNAMIC_AGENTS_GROUP.toLowerCase();
     return groups.some(g => g.toLowerCase() === requiredLower || g.toLowerCase().includes(`cn=${requiredLower}`));
   }
+  // No explicit group configured → admins only
   return isAdminUser(groups);
 }
 
@@ -437,8 +441,11 @@ export const authOptions: NextAuthOptions = {
       // admin view group is configured (all authenticated users can view).
       session.canViewAdmin = (token.canViewAdmin as boolean)
         ?? (REQUIRED_ADMIN_VIEW_GROUP === '' ? true : false);
-      session.canAccessDynamicAgents = (token.canAccessDynamicAgents as boolean)
-        ?? (REQUIRED_DYNAMIC_AGENTS_GROUP === '' ? false : false);
+      // Admins always get dynamic agents access, regardless of what the JWT says.
+      // This covers both pre-upgrade tokens (missing field) and tokens computed
+      // before canAccessDynamicAgents() was updated to include the admin check.
+      session.canAccessDynamicAgents = (token.canAccessDynamicAgents === true)
+        || (session.role === 'admin');
 
       // If token refresh failed, mark session as invalid and DON'T include tokens
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
