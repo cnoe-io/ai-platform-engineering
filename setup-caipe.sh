@@ -2302,17 +2302,18 @@ post_deploy_patches() {
   # is healthy we disable the skip and restart RAG to run its full init checks.
   if $ENABLE_RAG; then
     _finalize_rag_startup
-    # Set RBAC roles so all users (authenticated or anonymous) get admin access.
-    # RBAC_DEFAULT_ROLE=admin: anonymous/unauthenticated users (no SSO configured)
-    # RBAC_DEFAULT_AUTHENTICATED_ROLE=admin: OIDC-authenticated users not in any group
+    # Set RBAC_DEFAULT_ROLE=admin for anonymous/unauthenticated requests (no-SSO
+    # deployments). RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly matches prod — group
+    # membership (RBAC_ADMIN_GROUPS) controls who gets admin.
     kubectl set env deployment/rag-server -n caipe \
       RBAC_DEFAULT_ROLE=admin \
-      RBAC_DEFAULT_AUTHENTICATED_ROLE=admin &>/dev/null \
-      && log "rag-server: RBAC_DEFAULT_ROLE + RBAC_DEFAULT_AUTHENTICATED_ROLE set to admin"
+      RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly &>/dev/null \
+      && log "rag-server: RBAC_DEFAULT_ROLE=admin, RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly"
 
     # Propagate OIDC config from caipe-ui-secret so RAG can validate tokens and
     # check group membership for group-based RBAC (RBAC_ADMIN_GROUPS, etc.).
     # Without this, RAG shows "No OIDC providers configured" and defaults to anonymous.
+    # Also set OIDC_GROUP_CLAIM=members,groups to match prod group claim names.
     _rag_oidc_issuer=$(kubectl get secret caipe-ui-secret -n caipe \
       -o jsonpath='{.data.OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
     _rag_oidc_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
@@ -2327,6 +2328,7 @@ post_deploy_patches() {
       local _rag_env_args=(
         "OIDC_ISSUER=$_rag_oidc_issuer"
         "OIDC_CLIENT_ID=$_rag_oidc_client_id"
+        "OIDC_GROUP_CLAIM=members,groups"
       )
       [[ -n "$_rag_ingestor_issuer" ]]    && _rag_env_args+=("INGESTOR_OIDC_ISSUER=$_rag_ingestor_issuer")
       [[ -n "$_rag_ingestor_client_id" ]] && _rag_env_args+=("INGESTOR_OIDC_CLIENT_ID=$_rag_ingestor_client_id")
