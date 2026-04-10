@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { createStreamAdapter, type StreamAdapter, type StreamCallbacks } from "@/lib/streaming";
+import { createStreamAdapter, type StreamCallbacks } from "@/lib/streaming";
 import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
@@ -805,7 +805,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // Create protocol-agnostic adapter
     const adapter = createStreamAdapter({
       protocol: agentProtocol as "custom" | "agui",
-      baseUrl: "/api/dynamic-agents/chat",
       accessToken,
     });
 
@@ -1069,7 +1068,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // Create protocol-agnostic adapter for resume
     const adapter = createStreamAdapter({
       protocol: agentProtocol as "custom" | "agui",
-      baseUrl: "/api/dynamic-agents/chat",
       accessToken,
     });
 
@@ -1445,7 +1443,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                     if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
                       const dismissAdapter = createStreamAdapter({
                         protocol: agentProtocol as "custom" | "agui",
-                        baseUrl: "/api/dynamic-agents/chat",
                         accessToken,
                       });
                       // Fire-and-forget: resume with rejection message

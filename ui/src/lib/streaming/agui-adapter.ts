@@ -9,12 +9,22 @@
  * - currentNamespace: set by CUSTOM(NAMESPACE_CONTEXT), applied to subsequent events
  * - toolCallIdToName: maps TOOL_CALL_START ids to names for TOOL_CALL_END lookup
  * - runId: captured from RUN_STARTED for interrupt correlation
+ *
+ * Routes (conversationId in URL path):
+ *   POST /api/chat/conversations/:id/stream/start
+ *   POST /api/chat/conversations/:id/stream/resume
+ *   POST /api/chat/conversations/:id/stream/cancel
  */
 
 import type { StreamAdapter } from "./adapter";
 import type { StreamCallbacks, StreamParams, RawStreamEvent } from "./callbacks";
 import type { InputFieldDefinition } from "@/components/dynamic-agents/sse-types";
 import { parseSSEStream, type RawSSEEvent } from "./parse-sse";
+
+/** Build the unified stream route base for a conversation. */
+function streamRouteBase(conversationId: string): string {
+  return `/api/chat/conversations/${encodeURIComponent(conversationId)}/stream`;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // AG-UI event type constants
@@ -45,7 +55,6 @@ const CUSTOM_INPUT_REQUIRED = "INPUT_REQUIRED";
 // ═══════════════════════════════════════════════════════════════
 
 export class AGUIStreamAdapter implements StreamAdapter {
-  private baseUrl: string;
   private accessToken?: string;
   private abortController: AbortController | null = null;
 
@@ -54,8 +63,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
   private toolCallIdToName = new Map<string, string>();
   private runId = "";
 
-  constructor(baseUrl: string, accessToken?: string) {
-    this.baseUrl = baseUrl;
+  constructor(accessToken?: string) {
     this.accessToken = accessToken;
   }
 
@@ -69,7 +77,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
   async cancelStream(conversationId: string, agentId: string): Promise<boolean> {
     this.abort();
 
-    const cancelUrl = `${this.baseUrl}/cancel`;
+    const cancelUrl = `${streamRouteBase(conversationId)}/cancel`;
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (this.accessToken) {
@@ -79,7 +87,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       const response = await fetch(cancelUrl, {
         method: "POST",
         headers,
-        body: JSON.stringify({ agent_id: agentId, session_id: conversationId }),
+        body: JSON.stringify({ agent_id: agentId }),
       });
 
       if (!response.ok) {
@@ -96,10 +104,9 @@ export class AGUIStreamAdapter implements StreamAdapter {
   }
 
   async streamMessage(params: StreamParams, callbacks: StreamCallbacks): Promise<void> {
-    const url = `${this.baseUrl}/start-stream`;
+    const url = `${streamRouteBase(params.conversationId)}/start`;
     const body = JSON.stringify({
       message: params.message,
-      conversation_id: params.conversationId,
       agent_id: params.agentId,
     });
 
@@ -107,9 +114,8 @@ export class AGUIStreamAdapter implements StreamAdapter {
   }
 
   async resumeStream(params: StreamParams, callbacks: StreamCallbacks): Promise<void> {
-    const url = `${this.baseUrl}/resume-stream`;
+    const url = `${streamRouteBase(params.conversationId)}/resume`;
     const body = JSON.stringify({
-      conversation_id: params.conversationId,
       agent_id: params.agentId,
       form_data: params.formData,
     });

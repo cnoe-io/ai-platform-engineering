@@ -32,11 +32,22 @@ export interface UserPublicInfo {
 // Conversation Collection
 // ============================================================================
 
+/**
+ * A conversation participant — either an agent or a user.
+ *
+ * For now each conversation has one owner (user) and optionally one agent.
+ * In the future this can grow to multiple agents or collaborating users.
+ */
+export interface Participant {
+  type: 'agent' | 'user';
+  id: string; // agent config ID (for agents) or user email (for users)
+}
+
 export interface Conversation {
   _id: string; // UUID for shareable links
   title: string;
   owner_id: string; // User email
-  agent_id?: string; // Dynamic agent ID; undefined = Platform Engineer (default)
+  participants: Participant[]; // Agents and users involved in this conversation
   created_at: Date;
   updated_at: Date;
   metadata: {
@@ -239,7 +250,7 @@ export interface CreateConversationRequest {
   id?: string; // Client-generated UUID — ensures client and server share the same ID
   title: string;
   tags?: string[];
-  agent_id?: string; // Dynamic agent ID; undefined = Platform Engineer (default)
+  participants?: Participant[]; // Agents and users; empty/undefined = Platform Engineer (default)
 }
 
 export interface UpdateConversationRequest {

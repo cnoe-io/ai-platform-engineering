@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Conversation, ChatMessage, MessageFeedback, TurnStatus } from "@/types/a2a";
+import { Conversation, ChatMessage, MessageFeedback, TurnStatus, getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
 import { StreamEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
 import type { StreamAdapter } from "@/lib/streaming";
@@ -232,7 +232,7 @@ const storeImplementation = (set: any, get: any) => ({
           updatedAt: new Date(),
           messages: [],
           streamEvents: [], // Initialize with empty stream events for Dynamic Agents
-          agent_id: agentId, // Dynamic agent ID; undefined = Platform Engineer
+          participants: buildParticipants(agentId),
         };
 
         const storageMode = getStorageMode();
@@ -244,7 +244,7 @@ const storeImplementation = (set: any, get: any) => ({
           apiClient.createConversation({
             id,
             title: newConversation.title,
-            agent_id: agentId, // Pass agent_id to MongoDB
+            participants: buildParticipants(agentId),
           }).then(() => {
             console.log('[ChatStore] Created conversation in MongoDB:', id);
           }).catch((error) => {
@@ -419,10 +419,11 @@ const storeImplementation = (set: any, get: any) => ({
           
           // For Dynamic Agents, send backend cancel request before aborting client
           if (streamingState.streamAdapter) {
-            if (conv?.agent_id) {
-              console.log(`[ChatStore] Cancelling Dynamic Agent stream: conv=${conversationId.substring(0, 8)}, agent=${conv.agent_id}`);
+            const agentId = conv ? getAgentId(conv) : undefined;
+            if (agentId) {
+              console.log(`[ChatStore] Cancelling Dynamic Agent stream: conv=${conversationId.substring(0, 8)}, agent=${agentId}`);
               // Fire-and-forget backend cancel - the abort below will close the client connection
-              streamingState.streamAdapter.cancelStream(conversationId, conv.agent_id)
+              streamingState.streamAdapter.cancelStream(conversationId, agentId)
                 .then((cancelled) => {
                   console.log(`[ChatStore] Backend cancel result: cancelled=${cancelled}`);
                 })
@@ -430,7 +431,7 @@ const storeImplementation = (set: any, get: any) => ({
                   console.error('[ChatStore] Backend cancel failed:', error);
                 });
             } else {
-              console.warn(`[ChatStore] Cannot cancel backend stream: agent_id not found for conv=${conversationId.substring(0, 8)}`);
+              console.warn(`[ChatStore] Cannot cancel backend stream: no agent participant found for conv=${conversationId.substring(0, 8)}`);
             }
           }
 
@@ -761,7 +762,7 @@ const storeImplementation = (set: any, get: any) => ({
               streamEvents: (isStreaming || hasLoadedMessages || isActive) && localConv
                 ? (localConv.streamEvents || [])
                 : [],
-              agent_id: conv.agent_id, // Dynamic agent ID; undefined = Platform Engineer
+              participants: conv.participants || [],
               owner_id: conv.owner_id,
               sharing: conv.sharing,
             };
@@ -1098,11 +1099,13 @@ const storeImplementation = (set: any, get: any) => ({
         if (lastAssistantMsg && convStreamEvents.length > 0) {
           const turnId = lastAssistantMsg.turnId || `turn-${Date.now()}`;
           const collapsed = collapseStreamEvents(convStreamEvents);
+          const turnAgentId = getAgentId(conv);
           if (collapsed.length > 0) {
             turnPayloads.set(turnId, {
               stream_events: collapsed.map(serializeStreamEvent),
               assistant_msg_id: lastAssistantMsg.id,
               turn_status: lastAssistantMsg.turnStatus || 'done',
+              ...(turnAgentId && { agent_id: turnAgentId }),
             });
           }
         }
@@ -1115,11 +1118,13 @@ const storeImplementation = (set: any, get: any) => ({
           if (!turnId || turnPayloads.has(turnId)) continue; // skip if already handled above
 
           const collapsed = collapseStreamEvents(msg.streamEvents);
+          const turnAgentId = getAgentId(conv);
           if (collapsed.length > 0) {
             turnPayloads.set(turnId, {
               stream_events: collapsed.map(serializeStreamEvent),
               assistant_msg_id: msg.id,
               turn_status: msg.turnStatus || 'done',
+              ...(turnAgentId && { agent_id: turnAgentId }),
             });
           }
         }
@@ -1240,8 +1245,8 @@ const storeImplementation = (set: any, get: any) => ({
         const timeline = new TimelineManager();
 
         const conv = get().conversations.find((c: Conversation) => c.id === convId);
-        const isDynamicAgent = !!conv?.agent_id;
-        if (isDynamicAgent) {
+        const isDA = conv ? isDynamicAgentConversation(conv) : false;
+        if (isDA) {
           console.warn("[ChatStore] sendMessage called for a Dynamic Agent conversation — use the Dynamic Agent client instead");
         }
 

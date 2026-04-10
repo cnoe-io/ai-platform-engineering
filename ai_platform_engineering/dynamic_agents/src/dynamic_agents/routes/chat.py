@@ -24,7 +24,7 @@ class RestartRuntimeRequest(BaseModel):
     """Request body for restarting agent runtime."""
 
     agent_id: str
-    session_id: str
+    conversation_id: str
 
 
 class ResumeStreamRequest(BaseModel):
@@ -79,7 +79,7 @@ async def _generate_sse_events(
             yield frame
 
 
-@router.post("/start-stream")
+@router.post("/stream/start")
 async def chat_start_stream(
     request: ChatRequest,
     protocol: str = Query(default="custom", pattern="^(custom|agui)$"),
@@ -103,7 +103,7 @@ async def chat_start_stream(
     - done: Streaming complete
 
     If the agent calls request_user_input, streaming will end with an
-    input_required event. Use /resume-stream to continue after user input.
+    input_required event. Use /stream/resume to continue after user input.
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
@@ -194,7 +194,7 @@ async def _generate_resume_sse_events(
             yield frame
 
 
-@router.post("/resume-stream")
+@router.post("/stream/resume")
 async def chat_resume_stream(
     request: ResumeStreamRequest,
     protocol: str = Query(default="custom", pattern="^(custom|agui)$"),
@@ -210,7 +210,7 @@ async def chat_resume_stream(
     Query params:
         protocol: "custom" (default, old SSE format) or "agui" (AG-UI protocol)
 
-    Events depend on the selected protocol. See /start-stream for details.
+    Events depend on the selected protocol. See /stream/start for details.
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
@@ -336,7 +336,7 @@ async def restart_runtime(
     Useful when MCP servers come back online after being unavailable.
     """
     # Set conversation context for logging
-    conversation_id_var.set(request.session_id)
+    conversation_id_var.set(request.conversation_id)
 
     # Get agent config to verify access
     agent = mongo.get_agent(request.agent_id)
@@ -349,7 +349,7 @@ async def restart_runtime(
 
     # Invalidate the runtime cache
     cache = get_runtime_cache()
-    invalidated = await cache.invalidate(request.agent_id, request.session_id)
+    invalidated = await cache.invalidate(request.agent_id, request.conversation_id)
 
     logger.info(f"Runtime restart requested: agent={agent.name}, user={user.email}, invalidated={invalidated}")
 
@@ -357,7 +357,7 @@ async def restart_runtime(
         "success": True,
         "invalidated": invalidated,
         "agent_id": request.agent_id,
-        "session_id": request.session_id,
+        "conversation_id": request.conversation_id,
     }
 
 
@@ -365,10 +365,10 @@ class CancelStreamRequest(BaseModel):
     """Request body for cancelling an active stream."""
 
     agent_id: str
-    session_id: str
+    conversation_id: str
 
 
-@router.post("/cancel")
+@router.post("/stream/cancel")
 async def cancel_stream(
     request: CancelStreamRequest,
     user: UserContext = Depends(get_current_user),
@@ -381,10 +381,10 @@ async def cancel_stream(
     further events.
     """
     # Set conversation context for logging
-    conversation_id_var.set(request.session_id)
+    conversation_id_var.set(request.conversation_id)
 
     logger.info(
-        f"[cancel] Cancel request received: agent={request.agent_id}, session={request.session_id}, user={user.email}"
+        f"[cancel] Cancel request received: agent={request.agent_id}, conv={request.conversation_id}, user={user.email}"
     )
 
     # Get agent config to verify access
@@ -398,7 +398,7 @@ async def cancel_stream(
 
     # Cancel the stream via the runtime cache
     cache = get_runtime_cache()
-    cancelled = cache.cancel_stream(request.agent_id, request.session_id)
+    cancelled = cache.cancel_stream(request.agent_id, request.conversation_id)
 
     logger.info(f"[cancel] Cancel result: agent={agent.name}, user={user.email}, cancelled={cancelled}")
 
@@ -406,5 +406,5 @@ async def cancel_stream(
         "success": True,
         "cancelled": cancelled,
         "agent_id": request.agent_id,
-        "session_id": request.session_id,
+        "conversation_id": request.conversation_id,
     }

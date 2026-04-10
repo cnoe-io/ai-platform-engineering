@@ -132,7 +132,7 @@ export function DynamicAgentContext({
         },
         body: JSON.stringify({
           agent_id: agentId,
-          session_id: conversationId,
+          conversation_id: conversationId,
         }),
       });
       

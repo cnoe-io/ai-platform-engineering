@@ -1,4 +1,5 @@
 import type { StreamEvent } from "@/components/dynamic-agents/sse-types";
+import type { Participant } from "@/types/mongodb";
 
 // Widget types for A2UI support
 export interface Widget {
@@ -27,8 +28,8 @@ export interface Conversation {
   messages: ChatMessage[];
   /** Stream events for Dynamic Agents */
   streamEvents: StreamEvent[];
-  /** Dynamic agent ID; undefined = Platform Engineer (default) */
-  agent_id?: string;
+  /** Agents and users involved in this conversation */
+  participants: Participant[];
   /** Owner email (only for MongoDB conversations) */
   owner_id?: string;
   /** Sharing information (optional, only for MongoDB conversations) */
@@ -38,7 +39,28 @@ export interface Conversation {
     shared_with_teams?: string[];
     share_link_enabled?: boolean;
   };
+}
 
+// ═══════════════════════════════════════════════════════════════
+// Participant helpers
+// ═══════════════════════════════════════════════════════════════
+
+/** Get the first agent participant's ID, or undefined if no agent. */
+export function getAgentId(conv: { participants?: Participant[] }): string | undefined {
+  return conv.participants?.find(p => p.type === 'agent')?.id;
+}
+
+/** True if the conversation has at least one agent participant. */
+export function isDynamicAgentConversation(conv: { participants?: Participant[] }): boolean {
+  return conv.participants?.some(p => p.type === 'agent') ?? false;
+}
+
+/** Build a participants array from an agent ID and optional owner email. */
+export function buildParticipants(agentId?: string, ownerEmail?: string): Participant[] {
+  const participants: Participant[] = [];
+  if (ownerEmail) participants.push({ type: 'user', id: ownerEmail });
+  if (agentId) participants.push({ type: 'agent', id: agentId });
+  return participants;
 }
 
 // Feedback types - matching agent-forge

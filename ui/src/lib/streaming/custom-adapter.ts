@@ -5,7 +5,10 @@
  * tool_end, input_required, warning, error, done) and translates them into
  * protocol-agnostic StreamCallbacks.
  *
- * Refactored from DynamicAgentClient.sendMessageStream + mapToStreamEvent.
+ * Routes (conversationId in URL path):
+ *   POST /api/chat/conversations/:id/stream/start
+ *   POST /api/chat/conversations/:id/stream/resume
+ *   POST /api/chat/conversations/:id/stream/cancel
  */
 
 import type { StreamAdapter } from "./adapter";
@@ -13,17 +16,20 @@ import type { StreamCallbacks, StreamParams, RawStreamEvent } from "./callbacks"
 import type { InputFieldDefinition } from "@/components/dynamic-agents/sse-types";
 import { parseSSEStream, type RawSSEEvent } from "./parse-sse";
 
+/** Build the unified stream route base for a conversation. */
+function streamRouteBase(conversationId: string): string {
+  return `/api/chat/conversations/${encodeURIComponent(conversationId)}/stream`;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // CustomStreamAdapter
 // ═══════════════════════════════════════════════════════════════
 
 export class CustomStreamAdapter implements StreamAdapter {
-  private baseUrl: string;
   private accessToken?: string;
   private abortController: AbortController | null = null;
 
-  constructor(baseUrl: string, accessToken?: string) {
-    this.baseUrl = baseUrl;
+  constructor(accessToken?: string) {
     this.accessToken = accessToken;
   }
 
@@ -37,7 +43,7 @@ export class CustomStreamAdapter implements StreamAdapter {
   async cancelStream(conversationId: string, agentId: string): Promise<boolean> {
     this.abort();
 
-    const cancelUrl = `${this.baseUrl}/cancel`;
+    const cancelUrl = `${streamRouteBase(conversationId)}/cancel`;
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (this.accessToken) {
@@ -47,7 +53,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       const response = await fetch(cancelUrl, {
         method: "POST",
         headers,
-        body: JSON.stringify({ agent_id: agentId, session_id: conversationId }),
+        body: JSON.stringify({ agent_id: agentId }),
       });
 
       if (!response.ok) {
@@ -64,10 +70,9 @@ export class CustomStreamAdapter implements StreamAdapter {
   }
 
   async streamMessage(params: StreamParams, callbacks: StreamCallbacks): Promise<void> {
-    const url = `${this.baseUrl}/start-stream`;
+    const url = `${streamRouteBase(params.conversationId)}/start`;
     const body = JSON.stringify({
       message: params.message,
-      conversation_id: params.conversationId,
       agent_id: params.agentId,
     });
 
@@ -75,9 +80,8 @@ export class CustomStreamAdapter implements StreamAdapter {
   }
 
   async resumeStream(params: StreamParams, callbacks: StreamCallbacks): Promise<void> {
-    const url = `${this.baseUrl}/resume-stream`;
+    const url = `${streamRouteBase(params.conversationId)}/resume`;
     const body = JSON.stringify({
-      conversation_id: params.conversationId,
       agent_id: params.agentId,
       form_data: params.formData,
     });

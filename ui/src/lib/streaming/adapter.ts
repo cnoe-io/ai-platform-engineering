@@ -5,6 +5,11 @@
  * and receive semantic callbacks — they never see wire events.
  *
  * The factory creates the appropriate adapter based on the protocol config.
+ *
+ * Routes:
+ *   POST /api/chat/conversations/:id/stream/start   → streamMessage
+ *   POST /api/chat/conversations/:id/stream/resume   → resumeStream
+ *   POST /api/chat/conversations/:id/stream/cancel   → cancelStream
  */
 
 import type { StreamCallbacks, StreamParams } from "./callbacks";
@@ -36,8 +41,6 @@ export interface StreamAdapter {
 export interface StreamAdapterConfig {
   /** Wire protocol: "custom" for legacy SSE, "agui" for AG-UI */
   protocol: "custom" | "agui";
-  /** Proxy route URL base (e.g. "/api/dynamic-agents/chat") */
-  baseUrl: string;
   /** JWT access token for Bearer authentication */
   accessToken?: string;
 }
@@ -47,13 +50,18 @@ export interface StreamAdapterConfig {
  *
  * The adapter owns the HTTP lifecycle (fetch, abort, error handling).
  * Callers just provide StreamCallbacks.
+ *
+ * Routes are derived from the conversationId in StreamParams:
+ *   /api/chat/conversations/{conversationId}/stream/start
+ *   /api/chat/conversations/{conversationId}/stream/resume
+ *   /api/chat/conversations/{conversationId}/stream/cancel
  */
 export function createStreamAdapter(config: StreamAdapterConfig): StreamAdapter {
   switch (config.protocol) {
     case "agui":
-      return new AGUIStreamAdapter(config.baseUrl, config.accessToken);
+      return new AGUIStreamAdapter(config.accessToken);
     case "custom":
     default:
-      return new CustomStreamAdapter(config.baseUrl, config.accessToken);
+      return new CustomStreamAdapter(config.accessToken);
   }
 }

@@ -1,0 +1,70 @@
+/**
+ * Unified gateway route for resuming a Dynamic Agent stream after HITL.
+ *
+ * POST /api/chat/conversations/:id/stream/resume
+ * Body: { agent_id, form_data }
+ * Response: SSE stream (text/event-stream)
+ *
+ * The conversationId comes from the URL path — it is NOT in the body.
+ * Call this after the user submits (or dismisses) a HITL form that was
+ * requested via an `input_required` event from /stream/start.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import {
+  authenticateRequest,
+  getDynamicAgentsConfig,
+  proxySSEStream,
+} from "../_helpers";
+
+export const runtime = "nodejs";
+export const maxDuration = 300; // 5 minutes
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const { id: conversationId } = await params;
+
+  // Authenticate
+  const authResult = await authenticateRequest(request);
+  if (authResult instanceof NextResponse) return authResult;
+
+  // Check dynamic agents config
+  const daConfig = getDynamicAgentsConfig();
+  if (daConfig instanceof NextResponse) return daConfig;
+
+  // Parse body
+  let body: { agent_id: string; form_data: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Invalid request body" },
+      { status: 400 },
+    );
+  }
+
+  if (!body.agent_id || body.form_data === undefined) {
+    return NextResponse.json(
+      { success: false, error: "Missing required fields: agent_id, form_data" },
+      { status: 400 },
+    );
+  }
+
+  // Build backend request body — inject conversationId from URL path
+  const backendBody = JSON.stringify({
+    conversation_id: conversationId,
+    agent_id: body.agent_id,
+    form_data: body.form_data,
+  });
+
+  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/resume?protocol=${daConfig.agentProtocol}`;
+
+  return proxySSEStream(
+    backendUrl,
+    backendBody,
+    authResult.accessToken,
+    "[stream/resume]",
+  );
+}

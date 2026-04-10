@@ -37,6 +37,7 @@ import { useToast } from "@/components/ui/toast";
 import { useSession } from "next-auth/react";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
 import type { Conversation } from "@/types/a2a";
+import { getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge" | "admin";
@@ -153,7 +154,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       // follow-up messages from other devices and refresh A2A events
       if (activeConversationId) {
         const activeConv = useChatStore.getState().conversations.find(c => c.id === activeConversationId);
-        if (activeConv?.agent_id) {
+        if (activeConv && isDynamicAgentConversation(activeConv)) {
           // Dynamic Agent — use old messages path
           await loadMessagesFromServer(activeConversationId, { force: true });
         } else {
@@ -175,7 +176,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         const { apiClient } = await import('@/lib/api-client');
         const conversation = await apiClient.createConversation({
           title: "New Conversation",
-          agent_id: agentId, // Pass agent_id to server
+          participants: buildParticipants(agentId),
         });
 
         // Add to local store immediately
@@ -186,7 +187,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           updatedAt: new Date(conversation.updated_at),
           messages: [],
           streamEvents: [], // Stream events for Dynamic Agents
-          agent_id: conversation.agent_id, // Include agent_id in local store
+          participants: conversation.participants || [],
         };
 
         // Update store and wait for it to propagate
@@ -481,11 +482,15 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                           )}>
                             {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
                             {/* Dynamic Agent indicator */}
-                            {conv.agent_id && (
-                              <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400" title={agentNameMap[conv.agent_id] || 'Unknown Agent'}>
-                                • {truncateText(agentNameMap[conv.agent_id] || 'Unknown', 20)}
-                              </span>
-                            )}
+                            {(() => {
+                              const agId = getAgentId(conv);
+                              if (!agId) return null;
+                              return (
+                                <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400" title={agentNameMap[agId] || 'Unknown Agent'}>
+                                  • {truncateText(agentNameMap[agId] || 'Unknown', 20)}
+                                </span>
+                              );
+                            })()}
                           </p>
                         </div>
 

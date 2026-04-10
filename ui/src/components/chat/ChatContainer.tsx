@@ -12,6 +12,7 @@ import { getStorageMode } from "@/lib/storage-config";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import type { Conversation } from "@/types/mongodb";
 import type { Conversation as LocalConversation } from "@/types/a2a";
+import { getAgentId, isDynamicAgentConversation } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 /**
@@ -36,9 +37,13 @@ export function ChatContainer() {
   // Only subscribe to stable functions — NOT to `conversations`.
   const { setActiveConversation, loadMessagesFromServer, loadTurnsFromServer } = useChatStore();
 
-  // Subscribe reactively to agent_id for this conversation.
+  // Subscribe reactively to agent participant for this conversation.
   const selectedAgentId = useChatStore(
-    (s) => uuid ? s.conversations.find((c) => c.id === uuid)?.agent_id : undefined
+    (s) => {
+      if (!uuid) return undefined;
+      const conv = s.conversations.find((c) => c.id === uuid);
+      return conv ? getAgentId(conv) : undefined;
+    }
   );
 
   const caipeUrl = getConfig('caipeUrl');
@@ -137,7 +142,7 @@ export function ChatContainer() {
         }
 
         const hasMessages = localConv.messages && localConv.messages.length > 0;
-        const isDynamicAgent = !!localConv.agent_id;
+        const isDA = isDynamicAgentConversation(localConv);
 
         if (hasMessages) {
           console.log("[ChatContainer] Found conversation in store with messages, loading instantly");
@@ -146,7 +151,7 @@ export function ChatContainer() {
 
           if (storageMode === 'mongodb') {
             // Dynamic Agents use the old messages path; Platform Engineer uses turns
-            if (isDynamicAgent) {
+            if (isDA) {
               loadMessagesFromServer(uuid).catch((err) => {
                 console.warn('[ChatContainer] Failed to sync messages from server:', err);
               });
@@ -159,7 +164,7 @@ export function ChatContainer() {
         } else if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Found conversation in store but no messages, loading from MongoDB...");
           try {
-            if (isDynamicAgent) {
+            if (isDA) {
               await loadMessagesFromServer(uuid, { force: true });
             } else {
               await loadTurnsFromServer(uuid);
@@ -195,7 +200,7 @@ export function ChatContainer() {
               messages: [],
 
               streamEvents: [],
-              agent_id: conv.agent_id,
+              participants: conv.participants || [],
             };
 
             useChatStore.setState((state) => ({
@@ -206,7 +211,7 @@ export function ChatContainer() {
 
             try {
               // Dynamic Agents use the old messages path; Platform Engineer uses turns
-              if (conv.agent_id) {
+              if (isDynamicAgentConversation(conv)) {
                 await loadMessagesFromServer(uuid);
               } else {
                 await loadTurnsFromServer(uuid);
@@ -233,8 +238,8 @@ export function ChatContainer() {
               createdAt: new Date(),
               updatedAt: new Date(),
               messages: [],
-
               streamEvents: [],
+              participants: [],
             };
 
             useChatStore.setState((state) => ({
@@ -252,6 +257,7 @@ export function ChatContainer() {
             updatedAt: new Date(),
             messages: [],
             streamEvents: [],
+            participants: [],
           };
 
           useChatStore.setState((state) => ({
@@ -269,6 +275,7 @@ export function ChatContainer() {
           updatedAt: new Date(),
           messages: [],
           streamEvents: [],
+          participants: [],
         };
 
         useChatStore.setState((state) => ({
@@ -297,7 +304,7 @@ export function ChatContainer() {
 
     if (!selectedAgentId) {
       const conversationInStore = useChatStore.getState().conversations.find((c) => c.id === uuid);
-      if (conversationInStore && !conversationInStore.agent_id) {
+      if (conversationInStore && !isDynamicAgentConversation(conversationInStore)) {
         setAgentInfo(null);
         setAgentNotFound(false);
       }
