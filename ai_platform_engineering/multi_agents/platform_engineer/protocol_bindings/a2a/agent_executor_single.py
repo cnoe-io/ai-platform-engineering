@@ -24,9 +24,11 @@ from a2a.types import (
     TextPart,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import ENABLE_USER_INFO_TOOL
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_single import (
     AIPlatformEngineerA2ABinding
 )
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
@@ -854,20 +856,35 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     query = None  # Don't use query when resuming
                     logger.info(f"📦 Constructed resume Command from form text for task {task.id}")
 
-        # Extract user email from "by user: email\n\n..." prefix injected by UI
+        # Extract user info — prefer server-side JWT claims when available
         user_email = None
-        raw_query = context.get_user_input() or ""
-        if raw_query.startswith("by user: "):
-            first_line = raw_query.split("\n", 1)[0]
-            user_email = first_line.replace("by user: ", "").strip()
-            if user_email:
-                logger.info(f"📧 Extracted user email from message: {user_email}")
+        user_name = None
+        user_groups = None
+
+        if ENABLE_USER_INFO_TOOL:
+            jwt_ctx = get_jwt_user_context()
+            if jwt_ctx and jwt_ctx.email != "unknown":
+                user_email = jwt_ctx.email
+                user_name = jwt_ctx.name
+                user_groups = jwt_ctx.groups
+                logger.info(
+                    f"📧 User context from JWT: email={user_email}, "
+                    f"name={user_name}, groups_count={len(user_groups or [])}"
+                )
+
+        if not user_email:
+            raw_query = context.get_user_input() or ""
+            if raw_query.startswith("by user: "):
+                first_line = raw_query.split("\n", 1)[0]
+                user_email = first_line.replace("by user: ", "").strip()
+                if user_email:
+                    logger.info(f"📧 Extracted user email from message prefix: {user_email}")
 
         # Initialize state
         state = StreamState()
 
         try:
-            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email):
+            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email, user_name=user_name, user_groups=user_groups):
                 # Drain remaining events after the executor has finished
                 # processing to let the LangGraph generator close naturally.
                 if state.stream_finished:

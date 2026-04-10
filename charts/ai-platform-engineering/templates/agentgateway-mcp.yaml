@@ -1,0 +1,118 @@
+{{- /*
+Creates agentgateway resources (Gateway, AgentgatewayBackend, HTTPRoute, AgentgatewayPolicy)
+for each enabled subagent whose mcp.agentgateway.enabled is true.
+
+When enabled, the single-node-agent-env ConfigMap redirects the agent's MCP traffic
+through the agentgateway proxy instead of connecting directly to the MCP sidecar.
+
+Prerequisites:
+  - global.agentgateway.enabled must be true (installs the agentgateway controller)
+  - Gateway API CRDs must be installed in the cluster
+*/ -}}
+{{- if .Values.global.agentgateway.enabled }}
+{{- $gatewayName := printf "%s-agentgateway-proxy" .Release.Name }}
+{{- $gatewayPort := .Values.global.agentgateway.proxyPort | default 8080 }}
+{{- $hasAgentgatewayAgent := false }}
+
+{{- /* Scan for any agent that has mcp.agentgateway.enabled */ -}}
+{{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
+{{- if $enabled }}
+{{- $agentValues := index $.Values (printf "agent-%s" $name) | default dict }}
+{{- $mcp := $agentValues.mcp | default dict }}
+{{- $agw := $mcp.agentgateway | default dict }}
+{{- if $agw.enabled }}
+{{- $hasAgentgatewayAgent = true }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if $hasAgentgatewayAgent }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $gatewayName }}
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+    - name: http
+      port: {{ $gatewayPort }}
+      protocol: HTTP
+
+{{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
+{{- if $enabled }}
+{{- $agentKey := printf "agent-%s" $name }}
+{{- $agentValues := index $.Values $agentKey | default dict }}
+{{- $mcp := $agentValues.mcp | default dict }}
+{{- $agw := $mcp.agentgateway | default dict }}
+{{- if $agw.enabled }}
+{{- $mcpPort := $mcp.port | default 8000 }}
+{{- $mcpServiceName := printf "%s-%s-mcp" $.Release.Name $agentKey }}
+{{- $mcpHost := printf "%s.%s.svc.cluster.local" $mcpServiceName $.Release.Namespace }}
+{{- $protocol := $agw.protocol | default "StreamableHTTP" }}
+{{- $pathPrefix := printf "/mcp/%s" $name }}
+{{- $routeName := printf "%s-mcp-route" $name }}
+{{- $backendName := printf "%s-mcp-backend" $name }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: {{ $backendName }}
+spec:
+  mcp:
+    targets:
+      - name: {{ printf "%s-mcp" $name }}
+        static:
+          host: {{ $mcpHost }}
+          port: {{ $mcpPort }}
+          protocol: {{ $protocol }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $routeName }}
+spec:
+  parentRefs:
+    - name: {{ $gatewayName }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ $pathPrefix }}
+      backendRefs:
+        - name: {{ $backendName }}
+          group: agentgateway.dev
+          kind: AgentgatewayBackend
+{{- /*
+  AgentgatewayPolicy: created when policy.mcpAuthorization rules are defined.
+  Attaches to the HTTPRoute to enforce JWT-based access control and tool filtering.
+*/ -}}
+{{- $policy := $agw.policy | default dict }}
+{{- $mcpAuthz := $policy.mcpAuthorization | default dict }}
+{{- $rules := $mcpAuthz.rules | default list }}
+{{- if $rules }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ printf "%s-mcp-policy" $name }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ $routeName }}
+  backend:
+    mcp:
+      authorization:
+        action: {{ $mcpAuthz.action | default "Allow" }}
+        policy:
+          matchExpressions:
+            {{- range $rules }}
+            - {{ . | quote }}
+            {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
