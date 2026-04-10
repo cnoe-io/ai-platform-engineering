@@ -108,6 +108,35 @@ export interface MessageFeedback {
 }
 
 // ============================================================================
+// Turns Collection
+// ============================================================================
+
+/**
+ * A turn represents one user-message / assistant-response exchange in a
+ * conversation. The payload is opaque to the server — each client type
+ * (UI, Slack, Webex) stores its own structure.
+ *
+ * For the web UI the payload contains collapsed stream_events (timeline data)
+ * plus message IDs for cross-referencing with the messages collection.
+ */
+export interface Turn {
+  _id?: ObjectId;
+  conversation_id: string;      // = LangGraph thread_id
+  turn_id: string;              // Client-generated turn identifier
+  client_type: string;          // "ui" | "slack" | "webex" | ...
+  payload: Record<string, unknown>; // Opaque, client-specific
+  created_at: Date;
+  updated_at: Date;
+}
+
+/** Request body for POST /api/chat/conversations/:id/turns */
+export interface UpsertTurnRequest {
+  turn_id: string;
+  client_type: string;
+  payload: Record<string, unknown>;
+}
+
+// ============================================================================
 // User Settings Collection
 // ============================================================================
 
