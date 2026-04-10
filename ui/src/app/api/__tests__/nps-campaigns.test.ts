@@ -386,7 +386,7 @@ describe('GET /api/admin/nps/campaigns', () => {
     mockGetServerSession.mockResolvedValue(adminSession);
     const now = new Date('2026-03-15');
     jest.useFakeTimers();
-    jest.setSystemTime(now);
+    jest.setSystemTime(now.getTime());
 
     const pastCampaign = {
       _id: new ObjectId(),
