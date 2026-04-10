@@ -75,7 +75,7 @@ function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
     createdAt: new Date(),
     updatedAt: new Date(),
     messages: [],
-    sseEvents: [],
+    streamEvents: [],
     ...overrides,
   };
 }
@@ -982,7 +982,7 @@ describe('chat-store', () => {
   // --------------------------------------------------------------------------
 
   describe('setConversationStreaming — unviewed tracking', () => {
-    it('does not trigger saveMessagesToServer when streaming stops (server handles persistence)', async () => {
+    it('setConversationStreaming(null) does not implicitly save — callers save explicitly', async () => {
       const conv = makeConversation({ id: 'auto-save-conv' });
       const msg = makeMessage({ id: 'auto-save-msg', content: 'Auto saved' });
       conv.messages = [msg];

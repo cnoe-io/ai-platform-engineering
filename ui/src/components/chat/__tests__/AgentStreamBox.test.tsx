@@ -55,7 +55,7 @@ jest.mock('@/components/shared/AgentLogos', () => ({
 // ============================================================================
 
 import { AgentStreamBox } from '../AgentStreamBox'
-import type { SSEAgentEvent } from '@/components/dynamic-agents/sse-types'
+import type { StreamEvent } from '@/components/dynamic-agents/sse-types'
 
 // ============================================================================
 // Helpers
@@ -64,7 +64,7 @@ import type { SSEAgentEvent } from '@/components/dynamic-agents/sse-types'
 /**
  * Create a content event with displayContent (the field AgentStreamBox reads).
  */
-function createStreamEvent(content: string, _agentName = 'argocd'): SSEAgentEvent {
+function createStreamEvent(content: string, _agentName = 'argocd'): StreamEvent {
   return {
     id: `sse-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     type: 'content',
@@ -73,13 +73,13 @@ function createStreamEvent(content: string, _agentName = 'argocd'): SSEAgentEven
     raw: {},
     displayContent: content,
     content: content,
-  } as SSEAgentEvent
+  } as StreamEvent
 }
 
 /**
  * Create a tool_start event (should be filtered out by streamContent aggregation).
  */
-function createToolEvent(name: string): SSEAgentEvent {
+function createToolEvent(name: string): StreamEvent {
   return {
     id: `sse-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     type: 'tool_start',
@@ -87,13 +87,13 @@ function createToolEvent(name: string): SSEAgentEvent {
     namespace: [],
     raw: {},
     toolData: { tool_name: name, tool_call_id: `call-${Date.now()}` },
-  } as SSEAgentEvent
+  } as StreamEvent
 }
 
 /**
  * Create a final content event with isFinal=true (triggers "completed" status).
  */
-function createFinalEvent(content: string): SSEAgentEvent {
+function createFinalEvent(content: string): StreamEvent {
   return {
     id: `sse-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     type: 'content',
@@ -103,7 +103,7 @@ function createFinalEvent(content: string): SSEAgentEvent {
     isFinal: true,
     displayContent: content,
     content: content,
-  } as SSEAgentEvent
+  } as StreamEvent
 }
 
 // ============================================================================
@@ -173,7 +173,7 @@ describe('AgentStreamBox', () => {
     })
 
     it('should exclude non-content events (warning, error, tool) from streamContent', () => {
-      const warningEvent: SSEAgentEvent = {
+      const warningEvent: StreamEvent = {
         id: `sse-${Date.now()}-warn`,
         type: 'warning',
         timestamp: new Date(),
@@ -181,7 +181,7 @@ describe('AgentStreamBox', () => {
         raw: {},
         displayContent: '⏳ [ArgoCD] List apps',
         warningData: { message: '⏳ [ArgoCD] List apps' },
-      } as SSEAgentEvent
+      } as StreamEvent
 
       const events = [
         createStreamEvent('Before plan '),

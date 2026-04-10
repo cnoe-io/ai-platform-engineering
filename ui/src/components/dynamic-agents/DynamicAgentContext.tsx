@@ -62,9 +62,9 @@ export function DynamicAgentContext({
   onCollapse,
 }: DynamicAgentContextProps) {
   const { data: session } = useSession();
-  const { clearSSEEvents, conversations } = useChatStore(
+  const { clearStreamEvents, conversations } = useChatStore(
     useShallow((s) => ({
-      clearSSEEvents: s.clearSSEEvents,
+      clearStreamEvents: s.clearStreamEvents,
       conversations: s.conversations,
     }))
   );
@@ -96,11 +96,11 @@ export function DynamicAgentContext({
         role: m.role,
         content: m.content,
         timestamp: m.timestamp,
-        sseEvents: m.sseEvents,
+        streamEvents: m.streamEvents,
         feedback: m.feedback,
         timelineSegments: m.timelineSegments,
       })),
-      sseEvents: conversation.sseEvents,
+      streamEvents: conversation.streamEvents,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     };
@@ -138,7 +138,7 @@ export function DynamicAgentContext({
       
       if (response.ok) {
         // Clear SSE events on restart
-        if (conversationId) clearSSEEvents(conversationId);
+        if (conversationId) clearStreamEvents(conversationId);
         // Show restart notification
         setRuntimeRestarted(true);
         // Clear notification after a few seconds
@@ -151,7 +151,7 @@ export function DynamicAgentContext({
     } finally {
       setIsRestarting(false);
     }
-  }, [agentId, conversationId, session?.accessToken, isRestarting, clearSSEEvents]);
+  }, [agentId, conversationId, session?.accessToken, isRestarting, clearStreamEvents]);
 
   return (
     <motion.div

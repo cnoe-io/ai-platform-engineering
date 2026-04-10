@@ -381,7 +381,7 @@ describe('HomePage', () => {
           updatedAt: new Date(),
           messages: [{ id: '1' }, { id: '2' }],
           a2aEvents: [],
-          sseEvents: [],
+          streamEvents: [],
         },
       )
       setupMockAPIs()

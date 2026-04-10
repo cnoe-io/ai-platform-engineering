@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, MessageFeedback, TurnStatus } from "@/types/a2a";
-import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+import { StreamEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
 import { DynamicAgentClient } from "@/components/dynamic-agents/da-streaming-client";
 import { apiClient } from "@/lib/api-client";
@@ -52,10 +52,10 @@ interface ChatState {
   setConversationStreaming: (conversationId: string, state: StreamingState | null) => void;
   isConversationStreaming: (conversationId: string) => boolean;
   cancelConversationRequest: (conversationId: string) => void;
-  // SSE Agent events (for Dynamic Agents)
-  addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => void;
-  clearSSEEvents: (conversationId?: string) => void;
-  getConversationSSEEvents: (conversationId: string) => SSEAgentEvent[];
+  // Stream events (for Dynamic Agents)
+  addStreamEvent: (event: StreamEvent, conversationId?: string) => void;
+  clearStreamEvents: (conversationId?: string) => void;
+  getConversationStreamEvents: (conversationId: string) => StreamEvent[];
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
@@ -67,6 +67,7 @@ interface ChatState {
   loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
+  saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB via upsert (idempotent)
   loadTurnsFromServer: (conversationId: string) => Promise<void>; // Load turns + events from Supervisor A2A and map to ChatMessages
   evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
 
@@ -113,6 +114,103 @@ let isLoadingConversations = false;
 const messageLoadState = new Map<string, { inFlight: boolean; lastLoadedAt: number }>();
 const MESSAGE_LOAD_COOLDOWN_MS = 5000; // 5 second cooldown between automatic syncs
 
+/**
+ * Collapse per-token content events into one content event per tool boundary.
+ *
+ * During streaming, hundreds of tiny `content` events are emitted (one per LLM
+ * token). For persistence we merge consecutive content events (same namespace)
+ * into a single event, flushing whenever a non-content event appears or the
+ * namespace changes. This preserves the interleaved content↔tool ordering that
+ * `DATimelineManager` needs while reducing storage by ~95%.
+ *
+ * Non-content events (tool_start, tool_end, warning, error, input_required)
+ * pass through unchanged.
+ */
+function collapseStreamEvents(events: StreamEvent[]): StreamEvent[] {
+  const result: StreamEvent[] = [];
+  let contentBuffer = "";
+  let bufferNamespace: string[] = [];
+  let bufferTimestamp: Date | null = null;
+  let bufferId: string | null = null;
+
+  const flushContent = () => {
+    if (contentBuffer && bufferId) {
+      result.push({
+        id: bufferId,
+        timestamp: bufferTimestamp!,
+        type: "content",
+        raw: undefined,
+        namespace: bufferNamespace,
+        content: contentBuffer,
+      });
+      contentBuffer = "";
+      bufferNamespace = [];
+      bufferTimestamp = null;
+      bufferId = null;
+    }
+  };
+
+  for (const event of events) {
+    if (event.type === "content") {
+      const ns = event.namespace || [];
+      const nsKey = ns.join("/");
+      const bufNsKey = bufferNamespace.join("/");
+
+      // Flush if namespace changed
+      if (contentBuffer && nsKey !== bufNsKey) {
+        flushContent();
+      }
+
+      // Start or extend buffer
+      if (!bufferId) {
+        bufferId = event.id;
+        bufferTimestamp = event.timestamp;
+        bufferNamespace = ns;
+      }
+      contentBuffer += event.content || "";
+    } else {
+      // Non-content event: flush any pending content, then pass through
+      flushContent();
+      result.push(event);
+    }
+  }
+
+  // Flush remaining content
+  flushContent();
+
+  return result;
+}
+
+/** Serialize a StreamEvent for MongoDB storage.
+ *  Strips `raw` to avoid circular refs / large payloads. */
+function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
+  return {
+    id: event.id,
+    timestamp: event.timestamp,
+    type: event.type,
+    taskId: event.taskId,
+    isFinal: event.isFinal,
+    namespace: event.namespace,
+    // Structured event data
+    toolData: event.toolData,
+    warningData: event.warningData,
+    inputRequiredData: event.inputRequiredData,
+    // Content (collapsed content events carry the merged text)
+    content: event.content,
+    // Display content (for error events)
+    displayContent: event.displayContent,
+    // HITL support
+    contextId: event.contextId,
+    metadata: event.metadata,
+    // Note: `raw` is intentionally omitted
+  };
+}
+
+// Track in-flight saves to prevent loadMessagesFromServer from overwriting
+// the correct in-memory state with stale MongoDB data while a save is pending.
+const pendingSaveTimestamps = new Map<string, number>();
+const PENDING_SAVE_GRACE_MS = 5000; // 5 second grace period
+
 
 // Create store with conditional persistence
 const storeImplementation = (set: any, get: any) => ({
@@ -133,7 +231,7 @@ const storeImplementation = (set: any, get: any) => ({
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          sseEvents: [], // Initialize with empty SSE events for Dynamic Agents
+          streamEvents: [], // Initialize with empty stream events for Dynamic Agents
           agent_id: agentId, // Dynamic agent ID; undefined = Platform Engineer
         };
 
@@ -348,26 +446,31 @@ const storeImplementation = (set: any, get: any) => ({
           // Mark the message as cancelled with interrupted status
           const msg = conv?.messages.find((m: ChatMessage) => m.id === streamingState.messageId);
           if (msg && !msg.isFinal) {
-            // CRITICAL: Copy conversation-level sseEvents to the message for persistence.
-            // During streaming, events are collected at conversation.sseEvents. When we cancel,
+            // CRITICAL: Copy conversation-level streamEvents to the message for persistence.
+            // During streaming, events are collected at conversation.streamEvents. When we cancel,
             // we must attach them to the message so historical messages render timelines correctly.
-            const turnSSEEvents = conv?.sseEvents || [];
+            const turnStreamEvents = conv?.streamEvents || [];
             state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");
             state.updateMessage(conversationId, streamingState.messageId, { 
               isFinal: true,
               turnStatus: "interrupted",
-              sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
+              streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
             });
           }
+
+          // Save cancelled state to MongoDB
+          get().saveMessagesToServer(conversationId).catch((err) => {
+            console.error('[ChatStore] Failed to save cancelled messages:', err);
+          });
 
         }
       },
 
       // ═══════════════════════════════════════════════════════════════
-      // SSE Agent Events (for Dynamic Agents)
+      // Stream Events (for Dynamic Agents)
       // ═══════════════════════════════════════════════════════════════
 
-      addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => {
+      addStreamEvent: (event: StreamEvent, conversationId?: string) => {
         const convId = conversationId || get().activeConversationId;
         if (!convId) return;
 
@@ -377,7 +480,7 @@ const storeImplementation = (set: any, get: any) => ({
               c.id === convId
                 ? {
                     ...c,
-                    sseEvents: [...(c.sseEvents || []), event],
+                    streamEvents: [...(c.streamEvents || []), event],
                   }
                 : c
             ),
@@ -385,14 +488,14 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      clearSSEEvents: (conversationId?: string) => {
+      clearStreamEvents: (conversationId?: string) => {
         if (conversationId) {
           set((prev: ChatState) => ({
             conversations: prev.conversations.map((conv: Conversation) =>
               conv.id === conversationId
                 ? {
                     ...conv,
-                    sseEvents: [],
+                    streamEvents: [],
                   }
                 : conv
             ),
@@ -400,9 +503,9 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      getConversationSSEEvents: (conversationId: string) => {
+      getConversationStreamEvents: (conversationId: string) => {
         const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
-        return conv?.sseEvents || [];
+        return conv?.streamEvents || [];
       },
 
       deleteConversation: async (id: string) => {
@@ -655,7 +758,9 @@ const storeImplementation = (set: any, get: any) => ({
               // Preserve messages/events when streaming, already loaded, or actively
               // being viewed (prevents race with concurrent loadMessagesFromServer)
               messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
-              sseEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.sseEvents || []) : [],
+              streamEvents: (isStreaming || hasLoadedMessages || isActive) && localConv
+                ? (localConv.streamEvents || [])
+                : [],
               agent_id: conv.agent_id, // Dynamic agent ID; undefined = Platform Engineer
               owner_id: conv.owner_id,
               sharing: conv.sharing,
@@ -752,6 +857,24 @@ const storeImplementation = (set: any, get: any) => ({
           return;
         }
 
+        // CRITICAL: Skip if a post-streaming save is pending.
+        // When streaming ends, the correct final content is in the Zustand store
+        // but not yet saved to MongoDB. If we fetch from MongoDB now, we'd
+        // overwrite the correct in-memory state with stale intermediate content.
+        // Only force=true (manual reload) can bypass this guard.
+        if (!force) {
+          const savePendingSince = pendingSaveTimestamps.get(conversationId);
+          if (savePendingSince) {
+            const elapsed = Date.now() - savePendingSince;
+            if (elapsed < PENDING_SAVE_GRACE_MS) {
+              console.log(`[ChatStore] Skipping load — save pending for ${conversationId.substring(0, 8)} (${elapsed}ms ago, grace ${PENDING_SAVE_GRACE_MS}ms)`);
+              return;
+            }
+            // Grace period expired but flag wasn't cleared (save may have failed silently)
+            pendingSaveTimestamps.delete(conversationId);
+          }
+        }
+
         // Skip if recently loaded (within cooldown) unless force=true (manual reload)
         if (!force && loadState?.lastLoadedAt) {
           const elapsed = Date.now() - loadState.lastLoadedAt;
@@ -780,8 +903,8 @@ const storeImplementation = (set: any, get: any) => ({
 
           // Convert MongoDB messages to ChatMessage format
           const messages: ChatMessage[] = rawItems.map((msg: any, idx: number) => {
-            // Deserialize SSE events (for Dynamic Agents)
-            const sseEvents: SSEAgentEvent[] = (msg.sse_events || []).map((e: any) => ({
+            // Deserialize stream events (for Dynamic Agents)
+            const streamEvents: StreamEvent[] = (msg.stream_events || []).map((e: any) => ({
               ...e,
               timestamp: new Date(e.timestamp),
             }));
@@ -812,7 +935,7 @@ const storeImplementation = (set: any, get: any) => ({
               role: msg.role as "user" | "assistant",
               content: msg.content,
               timestamp: new Date(msg.created_at),
-              sseEvents: sseEvents.length > 0 ? sseEvents : undefined, // Only set if present
+              streamEvents: streamEvents.length > 0 ? streamEvents : undefined, // Only set if present
               isFinal,
               turnId: msg.metadata?.turn_id,
               // Restore turnStatus from MongoDB (defaults to undefined for legacy messages)
@@ -838,10 +961,10 @@ const storeImplementation = (set: any, get: any) => ({
             return chatMsg;
           });
 
-          // Preserve SSE events for Dynamic Agents from the last turn.
+          // Preserve agent events for Dynamic Agents from the last turn.
           const isCurrentlyStreaming = get().streamingConversations.has(conversationId);
           const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
-          const lastTurnSSEEvents: SSEAgentEvent[] = lastAssistantMsg?.sseEvents || [];
+          const lastTurnStreamEvents: StreamEvent[] = lastAssistantMsg?.streamEvents || [];
 
           console.log(`[ChatStore] loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, isStreaming=${isCurrentlyStreaming}`);
 
@@ -873,7 +996,7 @@ const storeImplementation = (set: any, get: any) => ({
                     ? {
                         ...c,
                         messages: mergedMessages,
-                        sseEvents: lastTurnSSEEvents,
+                        streamEvents: lastTurnStreamEvents,
                       }
                     : c
                 ),
@@ -894,6 +1017,87 @@ const storeImplementation = (set: any, get: any) => ({
         } finally {
           messageLoadState.set(conversationId, { inFlight: false, lastLoadedAt: Date.now() });
         }
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // Save messages to MongoDB via upsert (idempotent).
+      // Collapses per-token content events into one per tool boundary
+      // (~95% reduction) while preserving the interleaved content↔tool
+      // ordering needed for timeline rendering. Uses stream_events as
+      // the MongoDB field name.
+      // ═══════════════════════════════════════════════════════════════
+      saveMessagesToServer: async (conversationId: string) => {
+        const storageMode = getStorageMode();
+        if (storageMode !== 'mongodb') return;
+
+        // Mark save as pending so loadMessagesFromServer doesn't race with us
+        pendingSaveTimestamps.set(conversationId, Date.now());
+
+        const state = get();
+        const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
+        if (!conv || conv.messages.length === 0) {
+          pendingSaveTimestamps.delete(conversationId);
+          return;
+        }
+
+        // Conversation-level streamEvents are attached to the last assistant message.
+        // During streaming, events accumulate at conversation.streamEvents. On save,
+        // we collapse and attach them to the last assistant message for historical replay.
+        const convStreamEvents = conv.streamEvents || [];
+        const lastAssistantIdx = (() => {
+          for (let i = conv.messages.length - 1; i >= 0; i--) {
+            if (conv.messages[i].role === 'assistant') return i;
+          }
+          return -1;
+        })();
+
+        const collapsedConvEvents = collapseStreamEvents(convStreamEvents);
+
+        console.log(`[ChatStore] saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, streamEvents=${convStreamEvents.length} → ${collapsedConvEvents.length} collapsed, lastAssistantIdx=${lastAssistantIdx}`);
+
+        let savedCount = 0;
+        for (let i = 0; i < conv.messages.length; i++) {
+          const msg = conv.messages[i];
+
+          try {
+            // Determine stream_events for this message:
+            // If this is the last assistant message and conversation has events, attach them.
+            let serializedStreamEvents: Record<string, unknown>[] | undefined;
+            if (i === lastAssistantIdx && collapsedConvEvents.length > 0) {
+              serializedStreamEvents = collapsedConvEvents.map(serializeStreamEvent);
+              console.log(`[ChatStore] Attaching ${collapsedConvEvents.length} collapsed stream events to assistant message ${msg.id.substring(0, 8)}`);
+            } else if (msg.streamEvents && msg.streamEvents.length > 0) {
+              // Message already has per-message events (e.g., from previous saves)
+              const collapsed = collapseStreamEvents(msg.streamEvents);
+              if (collapsed.length > 0) {
+                serializedStreamEvents = collapsed.map(serializeStreamEvent);
+              }
+            }
+
+            await apiClient.addMessage(conversationId, {
+              message_id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              ...(msg.senderEmail && { sender_email: msg.senderEmail }),
+              ...(msg.senderName && { sender_name: msg.senderName }),
+              ...(msg.senderImage && { sender_image: msg.senderImage }),
+              metadata: {
+                turn_id: msg.turnId || `turn-${Date.now()}`,
+                is_final: msg.isFinal ?? false,
+                ...(msg.turnStatus && { turn_status: msg.turnStatus }),
+                ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
+              },
+              stream_events: serializedStreamEvents,
+            });
+
+            savedCount++;
+          } catch (error: any) {
+            console.error(`[ChatStore] Failed to save message ${msg.id.substring(0, 8)}:`, error?.message);
+          }
+        }
+
+        pendingSaveTimestamps.delete(conversationId);
+        console.log(`[ChatStore] Upserted ${savedCount}/${conv.messages.length} messages to MongoDB`);
       },
 
       // ═══════════════════════════════════════════════════════════════
@@ -1107,7 +1311,7 @@ const storeImplementation = (set: any, get: any) => ({
                 ? {
                     ...c,
                     messages,
-                    sseEvents: [],
+                    streamEvents: [],
                   }
                 : c
             ),
@@ -1611,7 +1815,7 @@ export const useChatStore = shouldUseLocalStorage()
         partialize: (state) => ({
           conversations: state.conversations.map((conv) => ({
             ...conv,
-            sseEvents: [], // Don't persist SSE events (too large)
+            streamEvents: [], // Don't persist stream events (too large)
             messages: conv.messages.map((msg) => ({
               ...msg,
             })),
@@ -1625,7 +1829,7 @@ export const useChatStore = shouldUseLocalStorage()
               ...conv,
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
-              sseEvents: [],
+              streamEvents: [],
               messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
                 // After a page crash/reload, streamingConversations is empty (not persisted),
@@ -1645,6 +1849,7 @@ export const useChatStore = shouldUseLocalStorage()
                   isInterrupted: healed
                     ? false
                     : (msg.role === 'assistant' && !msg.isFinal ? true : msg.isInterrupted),
+                  streamEvents: msg.streamEvents,
                   // Rehydrate Date objects in timeline segments
                   timelineSegments: msg.timelineSegments?.map((seg: any) => ({
                     ...seg,

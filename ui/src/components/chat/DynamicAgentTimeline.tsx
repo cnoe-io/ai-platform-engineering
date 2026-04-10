@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  StreamingMarkdown,
+  MarkdownRenderer,
   CollapsibleSection,
   TaskList,
 } from "@/components/shared/timeline";
@@ -224,7 +224,7 @@ export function DynamicAgentTimeline({
   if (showStreamingContent) {
     return (
       <div className="animate-reveal-ltr bg-muted/30 border border-border/30 rounded-lg px-4 py-3">
-        <StreamingMarkdown
+        <MarkdownRenderer
           content={finalAnswer}
           isStreaming={true}
         />
@@ -274,7 +274,7 @@ export function DynamicAgentTimeline({
                 {showFinalAnswerInTimeline && (
                   <div className="relative pb-3">
                     <TimelineDot color="primary" />
-                    <StreamingMarkdown
+                    <MarkdownRenderer
                       content={finalAnswer}
                     />
                   </div>
@@ -308,7 +308,7 @@ export function DynamicAgentTimeline({
         {/* Final answer - only shown after streaming completes */}
         {showFinalAnswerOutside && (
           <div className="animate-reveal-ltr bg-muted/30 border border-border/30 rounded-lg px-4 py-3">
-            <StreamingMarkdown
+            <MarkdownRenderer
               content={finalAnswer}
             />
           </div>
@@ -444,7 +444,7 @@ function DAContentSegmentView({
   }
 
   return (
-    <StreamingMarkdown
+    <MarkdownRenderer
       content={segment.text}
     />
   );

@@ -1,11 +1,11 @@
 /**
- * SSE Agent Event Types
+ * Stream Event Types
  *
- * These types are used exclusively by the Dynamic Agents SSE streaming client.
+ * These types are used by the Dynamic Agents streaming client.
  * They are intentionally separate from A2A types to maintain clean separation
  * between the two agent architectures.
  *
- * Event types match backend stream_events.py:
+ * Event types match the backend stream encoder output:
  * - content: LLM token streaming
  * - tool_start/tool_end: Tool invocations (including task tool for subagents)
  * - warning/error: Warnings and errors (rendered inline in chat)
@@ -125,7 +125,7 @@ export interface HITLMetadata {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Store Event (for conversation.sseEvents)
+// Store Event (for conversation.streamEvents)
 // ═══════════════════════════════════════════════════════════════
 
 /**
@@ -138,7 +138,7 @@ export interface HITLMetadata {
  * - namespace=[] → parent agent
  * - namespace=["my-helper-agent"] → subagent with that agent_id
  */
-export type SSEEventType =
+export type StreamEventType =
   | "content" // LLM token streaming
   | "tool_start" // Tool invocation started (task tool = subagent invocation)
   | "tool_end" // Tool invocation completed
@@ -147,15 +147,15 @@ export type SSEEventType =
   | "error"; // Error event - rendered inline
 
 /**
- * SSE Agent event stored in the conversation.
- * This is the format used in conversation.sseEvents[].
+ * Agent event stored in the conversation.
+ * This is the format used in conversation.streamEvents[].
  *
  * Now uses structured data fields instead of requiring text parsing.
  */
-export interface SSEAgentEvent {
+export interface StreamEvent {
   id: string;
   timestamp: Date;
-  type: SSEEventType;
+  type: StreamEventType;
 
   /** Raw event data (for debugging) */
   raw: unknown;
@@ -210,12 +210,12 @@ function generateEventId(): string {
 }
 
 /**
- * Raw backend SSE data structure.
+ * Raw backend event data structure.
  * All event data now includes namespace for agent hierarchy.
  * - Content events: { text: string, namespace: string[] }
  * - Other events: { ...eventData, namespace: string[] }
  */
-export interface SSEBackendData {
+export interface StreamBackendData {
   namespace: string[];
   // Content events
   text?: string;
@@ -235,25 +235,25 @@ export interface SSEBackendData {
 }
 
 /**
- * Create an SSEAgentEvent from a backend event.
+ * Create an StreamEvent from a backend event.
  * This replaces the old toSSEAgentStoreEvent + ParsedSSEEvent conversion.
  *
- * @param eventType - The SSE event type (content, tool_start, etc.)
- * @param data - The parsed JSON data from the SSE event
+ * @param eventType - The event type (content, tool_start, etc.)
+ * @param data - The parsed JSON data from the event
  * @param taskId - Optional task ID for crash recovery
  */
-export function createSSEAgentEvent(
+export function createStreamEvent(
   eventType: string,
-  data: SSEBackendData,
+  data: StreamBackendData,
   taskId?: string
-): SSEAgentEvent {
+): StreamEvent {
   // Extract namespace from data (all events now include it)
   const namespace = data.namespace ?? [];
 
-  const base: SSEAgentEvent = {
+  const base: StreamEvent = {
     id: generateEventId(),
     timestamp: new Date(),
-    type: eventType as SSEEventType,
+    type: eventType as StreamEventType,
     raw: { type: eventType, data },
     taskId,
     namespace,
@@ -324,7 +324,7 @@ export function createSSEAgentEvent(
 }
 
 // Stable empty array to avoid re-renders
-export const EMPTY_SSE_EVENTS: SSEAgentEvent[] = [];
+export const EMPTY_STREAM_EVENTS: StreamEvent[] = [];
 
 // ═══════════════════════════════════════════════════════════════
 // Tool Name Constants

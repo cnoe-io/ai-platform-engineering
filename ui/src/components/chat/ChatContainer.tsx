@@ -194,7 +194,7 @@ export function ChatContainer() {
               updatedAt: new Date(conv.updated_at),
               messages: [],
 
-              sseEvents: [],
+              streamEvents: [],
               agent_id: conv.agent_id,
             };
 
@@ -234,7 +234,7 @@ export function ChatContainer() {
               updatedAt: new Date(),
               messages: [],
 
-              sseEvents: [],
+              streamEvents: [],
             };
 
             useChatStore.setState((state) => ({
@@ -251,7 +251,7 @@ export function ChatContainer() {
             createdAt: new Date(),
             updatedAt: new Date(),
             messages: [],
-            sseEvents: [],
+            streamEvents: [],
           };
 
           useChatStore.setState((state) => ({
@@ -268,7 +268,7 @@ export function ChatContainer() {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          sseEvents: [],
+          streamEvents: [],
         };
 
         useChatStore.setState((state) => ({

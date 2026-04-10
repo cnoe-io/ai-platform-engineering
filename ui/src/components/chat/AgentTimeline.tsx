@@ -17,7 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { TimelineSegment, PlanStep, ToolCallInfo } from "@/types/a2a";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
-import { StreamingMarkdown } from "@/components/shared/timeline";
+import { MarkdownRenderer } from "@/components/shared/timeline";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -311,7 +311,7 @@ function TimelineSummary({
 
 function ThinkingSegment({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   return (
-    <StreamingMarkdown
+    <MarkdownRenderer
       content={content}
       isStreaming={isStreaming}
       variant="thinking"
@@ -596,7 +596,7 @@ function FinalAnswerSegment({
   isStreaming?: boolean;
 }) {
   return (
-    <StreamingMarkdown
+    <MarkdownRenderer
       content={content}
       isStreaming={isStreaming}
       variant="final"

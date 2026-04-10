@@ -1,4 +1,4 @@
-import type { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+import type { StreamEvent } from "@/components/dynamic-agents/sse-types";
 
 // Widget types for A2UI support
 export interface Widget {
@@ -25,8 +25,8 @@ export interface Conversation {
   createdAt: Date;
   updatedAt: Date;
   messages: ChatMessage[];
-  /** SSE events for Dynamic Agents */
-  sseEvents: SSEAgentEvent[];
+  /** Stream events for Dynamic Agents */
+  streamEvents: StreamEvent[];
   /** Dynamic agent ID; undefined = Platform Engineer (default) */
   agent_id?: string;
   /** Owner email (only for MongoDB conversations) */
@@ -85,8 +85,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
-  /** SSE events for Dynamic Agents (stored per-message) */
-  sseEvents?: SSEAgentEvent[];
+  /** Stream events for Dynamic Agents (stored per-message) */
+  streamEvents?: StreamEvent[];
   widgets?: Widget[];
   isFinal?: boolean;
   feedback?: MessageFeedback;

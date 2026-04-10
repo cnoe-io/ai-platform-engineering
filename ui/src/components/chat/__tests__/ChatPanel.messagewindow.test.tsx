@@ -59,8 +59,8 @@ jest.mock('@/store/chat-store', () => ({
     updateMessage: jest.fn(),
     appendToMessage: jest.fn(),
 
-    addSSEEvent: jest.fn(),
-    clearSSEEvents: jest.fn(),
+    addStreamEvent: jest.fn(),
+    clearStreamEvents: jest.fn(),
     setConversationStreaming: jest.fn(),
     isConversationStreaming: mockIsConversationStreaming,
     cancelConversationRequest: jest.fn(),
@@ -241,8 +241,8 @@ describe('ChatPanel — Message Windowing', () => {
       updateMessage: jest.fn(),
       appendToMessage: jest.fn(),
   
-      addSSEEvent: jest.fn(),
-      clearSSEEvents: jest.fn(),
+      addStreamEvent: jest.fn(),
+      clearStreamEvents: jest.fn(),
       setConversationStreaming: jest.fn(),
       isConversationStreaming: mockIsConversationStreaming,
       cancelConversationRequest: jest.fn(),
@@ -458,8 +458,8 @@ describe('ChatPanel — Message Windowing', () => {
         updateMessage: jest.fn(),
         appendToMessage: jest.fn(),
     
-        addSSEEvent: jest.fn(),
-        clearSSEEvents: jest.fn(),
+        addStreamEvent: jest.fn(),
+        clearStreamEvents: jest.fn(),
         setConversationStreaming: jest.fn(),
         isConversationStreaming: mockIsConversationStreaming,
         cancelConversationRequest: jest.fn(),

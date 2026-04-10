@@ -128,10 +128,10 @@ jest.mock("@/lib/sse-streaming-client", () => ({
  * Set up mockSendMessage to fire SSE events then resolve.
  * Events use the new SSEClient format: { type: "content", text: "..." } or { type: "done" }.
  */
-function mockSSEEvents(sseEvents: Array<{ type: string; text?: string; message?: string }>) {
+function mockSSEEvents(streamEvents: Array<{ type: string; text?: string; message?: string }>) {
   mockSendMessage.mockImplementation(async () => {
     if (mockOnEvent) {
-      for (const ev of sseEvents) {
+      for (const ev of streamEvents) {
         mockOnEvent(ev);
       }
     }
@@ -142,14 +142,14 @@ function mockSSEEvents(sseEvents: Array<{ type: string; text?: string; message?:
  * Set up mockSendMessage to block until the returned resolve function is called.
  * After resolving, fires the provided SSE events.
  */
-function mockSSEBlocking(sseEvents: Array<{ type: string; text?: string }> = []): { resolve: () => void } {
+function mockSSEBlocking(streamEvents: Array<{ type: string; text?: string }> = []): { resolve: () => void } {
   let resolveStream!: () => void;
   const blockingPromise = new Promise<void>((r) => { resolveStream = r; });
 
   mockSendMessage.mockImplementation(async () => {
     await blockingPromise;
     if (mockOnEvent) {
-      for (const ev of sseEvents) {
+      for (const ev of streamEvents) {
         mockOnEvent(ev);
       }
     }

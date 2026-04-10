@@ -185,7 +185,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           createdAt: new Date(conversation.created_at),
           updatedAt: new Date(conversation.updated_at),
           messages: [],
-          sseEvents: [], // SSE events for Dynamic Agents
+          streamEvents: [], // Stream events for Dynamic Agents
           agent_id: conversation.agent_id, // Include agent_id in local store
         };
 

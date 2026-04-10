@@ -3,7 +3,7 @@
  *
  * Lightweight SSE streaming client for Dynamic Agents.
  * POSTs to the UI proxy route and parses SSE events, yielding
- * SSEAgentEvent objects for DynamicAgentChatPanel to process.
+ * StreamEvent objects for DynamicAgentChatPanel to process.
  *
  * This client is intentionally separate from the AG-UI path to maintain
  * clean architectural separation between the Platform Engineer (AG-UI)
@@ -21,8 +21,8 @@
  */
 
 import {
-  type SSEAgentEvent,
-  createSSEAgentEvent,
+  type StreamEvent,
+  createStreamEvent,
 } from "@/components/dynamic-agents/sse-types";
 
 export interface DynamicAgentClientConfig {
@@ -56,7 +56,7 @@ interface RawSSEEvent {
 
 /**
  * Dynamic Agent Client — streams responses from the Dynamic Agents backend
- * via a UI proxy route, yielding SSEAgentEvent objects directly.
+ * via a UI proxy route, yielding StreamEvent objects directly.
  */
 export class DynamicAgentClient {
   private proxyUrl: string;
@@ -138,7 +138,7 @@ export class DynamicAgentClient {
   }
 
   /**
-   * Send a message and stream the response as SSEAgentEvent objects.
+   * Send a message and stream the response as StreamEvent objects.
    *
    * @param message User message text
    * @param conversationId Conversation/session ID
@@ -148,7 +148,7 @@ export class DynamicAgentClient {
     message: string,
     conversationId: string,
     agentId: string,
-  ): AsyncGenerator<SSEAgentEvent, void, undefined> {
+  ): AsyncGenerator<StreamEvent, void, undefined> {
     // Abort any previous request
     if (this.abortController) {
       this.abortController.abort();
@@ -210,10 +210,10 @@ export class DynamicAgentClient {
           // Continue to yield the event so UI can render form
         }
 
-        const agentEvent = this.mapToAgentEvent(rawEvent);
-        if (!agentEvent) continue;
+        const streamEvent = this.mapToStreamEvent(rawEvent);
+        if (!streamEvent) continue;
 
-        yield agentEvent;
+        yield streamEvent;
 
         // Check for terminal events
         // input_required is also terminal - stream pauses for user input
@@ -251,7 +251,7 @@ export class DynamicAgentClient {
     conversationId: string,
     agentId: string,
     formData: string,
-  ): AsyncGenerator<SSEAgentEvent, void, undefined> {
+  ): AsyncGenerator<StreamEvent, void, undefined> {
     // Abort any previous request
     if (this.abortController) {
       this.abortController.abort();
@@ -307,10 +307,10 @@ export class DynamicAgentClient {
           console.log(`[DynamicAgent] Additional input required:`, rawEvent.data);
         }
 
-        const agentEvent = this.mapToAgentEvent(rawEvent);
-        if (!agentEvent) continue;
+        const streamEvent = this.mapToStreamEvent(rawEvent);
+        if (!streamEvent) continue;
 
-        yield agentEvent;
+        yield streamEvent;
 
         // Check for terminal events
         if (
@@ -389,10 +389,10 @@ export class DynamicAgentClient {
   }
 
   /**
-   * Map a backend SSE event into an SSEAgentEvent.
+   * Map a backend SSE event into a StreamEvent.
    * Uses the new structured event format from stream_events.py.
    */
-  private mapToAgentEvent(raw: RawSSEEvent): SSEAgentEvent | null {
+  private mapToStreamEvent(raw: RawSSEEvent): StreamEvent | null {
     const { event, data } = raw;
 
     // ─── Structured events: content, tool_*, todo_update, input_required, warning ───
@@ -410,13 +410,13 @@ export class DynamicAgentClient {
         // All events are now JSON (content is wrapped as {text, namespace})
         const parsedData = JSON.parse(data);
 
-        const agentEvent = createSSEAgentEvent(
+        const streamEvent = createStreamEvent(
           event,
           parsedData,
           undefined, // taskId could be added later for crash recovery
         );
 
-        return agentEvent;
+        return streamEvent;
       } catch (e) {
         console.error(`[DynamicAgent] Failed to parse ${event} data:`, e, data);
         return null;

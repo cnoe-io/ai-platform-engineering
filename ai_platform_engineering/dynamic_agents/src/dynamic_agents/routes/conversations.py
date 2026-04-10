@@ -738,7 +738,6 @@ async def ensure_conversation_metadata(
                 "_id": conversation_id,
                 "title": f"Chat with {agent.name}",
                 "owner_id": user.email,
-                "agent_id": agent_id,
                 "created_at": now,
                 "metadata": {
                     "agent_name": agent.name,
@@ -754,7 +753,10 @@ async def ensure_conversation_metadata(
                 "is_archived": False,
                 "is_pinned": False,
             },
-            "$set": {"updated_at": now},
+            "$set": {
+                "updated_at": now,
+                "agent_id": agent_id,
+            },
         },
         upsert=True,
     )

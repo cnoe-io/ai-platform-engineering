@@ -91,7 +91,7 @@ export interface Message {
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug) serialized for persistence
-  sse_events?: any[]; // SSE events for Dynamic Agents (tool_start, tool_end, content, etc.)
+  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
   feedback?: MessageFeedback;
 }
 
@@ -253,7 +253,7 @@ export interface AddMessageRequest {
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug)
-  sse_events?: any[]; // SSE events for Dynamic Agents (tool_start, tool_end, content, etc.)
+  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
 }
 
 export interface UpdateMessageRequest {

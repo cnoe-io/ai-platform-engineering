@@ -82,7 +82,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     backendHeaders["Authorization"] = `Bearer ${accessToken}`;
   }
 
-  const backendUrl = `${dynamicAgentsUrl}/api/v1/chat/start-stream`;
+  const backendUrl = `${dynamicAgentsUrl}/api/v1/chat/start-stream?protocol=${config.agentProtocol}`;
 
   try {
     const backendResponse = await fetch(backendUrl, {

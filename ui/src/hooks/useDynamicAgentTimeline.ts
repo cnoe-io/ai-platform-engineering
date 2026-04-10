@@ -13,7 +13,7 @@ import { useMemo, useRef } from "react";
 import { DATimelineManager, createDATimelineManager } from "@/lib/da-timeline-manager";
 import type { DATimelineData, DAStatusType } from "@/types/dynamic-agent-timeline";
 import type {
-  SSEAgentEvent,
+  StreamEvent,
   ToolStartEventData,
   ToolEndEventData,
 } from "@/components/dynamic-agents/sse-types";
@@ -52,14 +52,14 @@ const EMPTY_DATA: DATimelineData = {
  * @returns Interleaved timeline data for DynamicAgentTimeline
  */
 export function useDynamicAgentTimeline(
-  events: SSEAgentEvent[],
+  events: StreamEvent[],
   isStreaming: boolean,
   turnStatus?: DAStatusType
 ): UseDynamicAgentTimelineResult {
   // Keep a stable manager reference across renders
   // We'll recreate when events array identity changes (new message)
   const managerRef = useRef<DATimelineManager | null>(null);
-  const prevEventsRef = useRef<SSEAgentEvent[]>([]);
+  const prevEventsRef = useRef<StreamEvent[]>([]);
 
   // Process events and generate interleaved data
   const data = useMemo(() => {
