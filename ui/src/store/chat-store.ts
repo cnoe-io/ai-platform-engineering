@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, MessageFeedback, TurnStatus } from "@/types/a2a";
 import { StreamEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
-import { DynamicAgentClient } from "@/components/dynamic-agents/da-streaming-client";
+import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
 import { TimelineManager } from "@/lib/timeline-manager";
@@ -22,8 +22,8 @@ interface StreamingState {
   messageId: string;
   /** Streaming client — only abort() is required */
   client: AbortableClient;
-  // For Dynamic Agents: client reference for backend cancellation
-  dynamicAgentClient?: DynamicAgentClient;
+  // For Dynamic Agents: adapter reference for backend cancellation
+  streamAdapter?: StreamAdapter;
 }
 
 interface ChatState {
@@ -418,11 +418,11 @@ const storeImplementation = (set: any, get: any) => ({
           const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
           
           // For Dynamic Agents, send backend cancel request before aborting client
-          if (streamingState.dynamicAgentClient) {
+          if (streamingState.streamAdapter) {
             if (conv?.agent_id) {
               console.log(`[ChatStore] Cancelling Dynamic Agent stream: conv=${conversationId.substring(0, 8)}, agent=${conv.agent_id}`);
               // Fire-and-forget backend cancel - the abort below will close the client connection
-              streamingState.dynamicAgentClient.cancelStream(conversationId, conv.agent_id)
+              streamingState.streamAdapter.cancelStream(conversationId, conv.agent_id)
                 .then((cancelled) => {
                   console.log(`[ChatStore] Backend cancel result: cancelled=${cancelled}`);
                 })

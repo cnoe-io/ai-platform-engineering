@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { DynamicAgentClient } from "@/components/dynamic-agents/da-streaming-client";
-import { type StreamEvent, type ToolStartEventData, isToolStartData, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import { createStreamAdapter, type StreamAdapter, type StreamCallbacks } from "@/lib/streaming";
+import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
@@ -605,9 +605,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   };
 
   // ═══════════════════════════════════════════════════════════════
-  // Shared stream event processor — used by both submitMessage and
-  // HITL resume loops to avoid duplicating tool tracking, input
-  // required handling, content accumulation, and error detection.
+  // Streaming state & helpers
   // ═══════════════════════════════════════════════════════════════
   interface StreamLoopState {
     accumulatedText: string;
@@ -616,33 +614,75 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     hasError: boolean;
   }
 
-  const processStreamEvent = useCallback((
-    streamEvent: StreamEvent,
-    conversationId: string,
-    assistantMsgId: string,
-    toolCallIdToName: Map<string, string>,
-    state: StreamLoopState,
-  ): { action: "continue" | "break" } => {
-    // Track tool_call_id → tool_name on tool_start
-    if (streamEvent.type === "tool_start" && isToolStartData(streamEvent.toolData)) {
-      toolCallIdToName.set(streamEvent.toolData.tool_call_id, streamEvent.toolData.tool_name);
-    }
+  // Get the protocol-agnostic adapter config
+  const agentProtocol = getConfig('agentProtocol');
 
-    // Trigger file/todo fetches when the relevant tool completes
-    if (streamEvent.type === "tool_end" && streamEvent.toolData && "tool_call_id" in streamEvent.toolData) {
-      const toolName = toolCallIdToName.get(streamEvent.toolData.tool_call_id);
-      if (toolName) {
-        if (FILE_TOOL_NAMES.includes(toolName as typeof FILE_TOOL_NAMES[number])) {
+  /**
+   * Build StreamCallbacks that wire adapter events into the Zustand store,
+   * HITL form, and file/todo fetches. Used by both submitMessage and HITL resume.
+   */
+  const buildStreamCallbacks = useCallback((
+    convId: string,
+    assistantMsgId: string,
+    loopState: StreamLoopState,
+    toolCallIdToName: Map<string, string>,
+  ): StreamCallbacks => ({
+    onContent(text, namespace) {
+      loopState.accumulatedText += text;
+      loopState.rawStreamContent += text;
+
+      // Build a StreamEvent for the store (timeline rendering)
+      const streamEvent = createStreamEvent("content", { text, namespace });
+      addStreamEvent(streamEvent, convId);
+
+      // Update message content immediately for progressive rendering
+      updateMessage(convId, assistantMsgId, {
+        content: loopState.accumulatedText,
+        rawStreamContent: loopState.rawStreamContent,
+      });
+    },
+
+    onToolStart(toolCallId, toolName, args, namespace) {
+      toolCallIdToName.set(toolCallId, toolName);
+      const streamEvent = createStreamEvent("tool_start", {
+        tool_name: toolName,
+        tool_call_id: toolCallId,
+        args,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+    },
+
+    onToolEnd(toolCallId, toolName, error, namespace) {
+      const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
+      const streamEvent = createStreamEvent("tool_end", {
+        tool_call_id: toolCallId,
+        error,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+
+      // Trigger file/todo fetches when the relevant tool completes
+      if (resolvedName) {
+        if (FILE_TOOL_NAMES.includes(resolvedName as typeof FILE_TOOL_NAMES[number])) {
           setFilesFetchKey((k) => k + 1);
-        } else if (toolName === TODO_TOOL_NAME) {
+        } else if (resolvedName === TODO_TOOL_NAME) {
           setTodosFetchKey((k) => k + 1);
         }
       }
-    }
+    },
 
-    // Handle input_required — build HITL form and signal break
-    if (streamEvent.type === "input_required" && streamEvent.inputRequiredData) {
-      const { prompt, fields } = streamEvent.inputRequiredData;
+    onInputRequired(interruptId, prompt, fields, agent) {
+      loopState.hitlFormRequested = true;
+
+      const streamEvent = createStreamEvent("input_required", {
+        interrupt_id: interruptId,
+        prompt,
+        fields,
+        agent,
+        namespace: [],
+      });
+      addStreamEvent(streamEvent, convId);
 
       const inputFields: InputField[] = fields.map(f => ({
         field_name: f.field_name,
@@ -655,7 +695,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         placeholder: f.placeholder,
       }));
 
-      state.hitlFormRequested = true;
       setPendingUserInput({
         messageId: assistantMsgId,
         metadata: {
@@ -664,41 +703,39 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           input_description: prompt,
           input_fields: inputFields,
         },
-        contextId: conversationId,
+        contextId: convId,
         isSSE: true,
         agentId,
       });
 
       if (prompt) {
-        state.accumulatedText = prompt;
-        updateMessage(conversationId, assistantMsgId, { content: state.accumulatedText });
+        loopState.accumulatedText = prompt;
+        updateMessage(convId, assistantMsgId, { content: loopState.accumulatedText });
       }
-      return { action: "break" };
-    }
+    },
 
-    // Handle content tokens
-    if (streamEvent.type === "content" && (streamEvent.content || streamEvent.displayContent)) {
-      const text = streamEvent.displayContent || streamEvent.content || "";
-      state.accumulatedText += text;
-      state.rawStreamContent += text;
-    }
+    onWarning(message, namespace) {
+      const streamEvent = createStreamEvent("warning", {
+        message,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+    },
 
-    // Handle errors
-    if (streamEvent.type === "error") {
-      console.error("[DynamicAgent] Stream error event:", streamEvent.displayContent);
-      state.hasError = true;
-      return { action: "break" };
-    }
+    onDone() {
+      // Finalization handled after adapter.streamMessage resolves
+    },
 
-    return { action: "continue" };
-  }, [agentId, updateMessage, setPendingUserInput, setFilesFetchKey, setTodosFetchKey]);
+    onError(message) {
+      console.error("[DynamicAgent] Stream error event:", message);
+      loopState.hasError = true;
+    },
+  }), [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTodosFetchKey]);
 
-  // ═══════════════════════════════════════════════════════════════
-  // Shared finalize logic — called after the stream loop ends in
-  // both submitMessage and HITL resume. Handles cancelled-by-user
-  // detection, copies conversation-level streamEvents to the
-  // message for persistence, and saves to MongoDB.
-  // ═══════════════════════════════════════════════════════════════
+  /**
+   * Finalize a stream loop — copies conversation-level streamEvents to the
+   * message for persistence, determines turn status, and saves to MongoDB.
+   */
   const finalizeStreamLoop = useCallback((
     conversationId: string,
     assistantMsgId: string,
@@ -710,12 +747,9 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     const wasAlreadyCancelled = currentMsg?.isFinal && currentMsg?.turnStatus === "interrupted";
 
     // Copy conversation-level streamEvents to the message for persistence.
-    // During streaming, events live at conversation.streamEvents. On finalize,
-    // we attach them to the message so historical messages render timelines.
     const turnStreamEvents = currentConv?.streamEvents || [];
 
     if (wasAlreadyCancelled) {
-      // cancelConversationRequest already cleared streaming state
       saveMessagesToServer(conversationId).catch((err) => {
         console.error('[DynamicAgent] Failed to save cancelled messages:', err);
       });
@@ -768,13 +802,12 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // Add assistant message placeholder with same turnId
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
-    // Dynamic agent: use lightweight SSE client via proxy route
-    const dynClient = new DynamicAgentClient({
-      proxyUrl: "/api/dynamic-agents/chat",
+    // Create protocol-agnostic adapter
+    const adapter = createStreamAdapter({
+      protocol: agentProtocol as "custom" | "agui",
+      baseUrl: "/api/dynamic-agents/chat",
       accessToken,
     });
-    const abortFn = () => dynClient.abort();
-    const eventStream = dynClient.sendMessageStream(messageToSend, convId, agentId);
 
     const loopState: StreamLoopState = {
       accumulatedText: "",
@@ -782,57 +815,37 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
       hitlFormRequested: false,
       hasError: false,
     };
+    const toolCallIdToName = new Map<string, string>();
 
     // Mark this conversation as streaming
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: abortFn } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
-      // For Dynamic Agents: enable backend cancellation
-      dynamicAgentClient: dynClient,
+      client: { abort: () => adapter.abort() },
+      streamAdapter: adapter,
     });
 
     try {
-      // ═══════════════════════════════════════════════════════════════
-      // SSE STREAM LOOP
-      // ═══════════════════════════════════════════════════════════════
-      const toolCallIdToName = new Map<string, string>();
+      const callbacks = buildStreamCallbacks(convId, assistantMsgId, loopState, toolCallIdToName);
 
-      for await (const event of eventStream) {
-        const streamEvent = event as StreamEvent;
-
-        // Push event to store immediately
-        addStreamEvent(streamEvent, convId!);
-
-        // Shared event processing (tool tracking, HITL, content, errors)
-        const { action } = processStreamEvent(
-          streamEvent, convId!, assistantMsgId, toolCallIdToName, loopState,
-        );
-
-        // Update message content immediately on content events
-        if (streamEvent.type === "content") {
-          updateMessage(convId!, assistantMsgId, {
-            content: loopState.accumulatedText,
-            rawStreamContent: loopState.rawStreamContent,
-          });
-        }
-
-        if (action === "break") break;
-      }
+      await adapter.streamMessage(
+        { message: messageToSend, conversationId: convId, agentId },
+        callbacks,
+      );
 
       // Finalize the stream
-      finalizeStreamLoop(convId!, assistantMsgId, loopState);
+      finalizeStreamLoop(convId, assistantMsgId, loopState);
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
-      updateMessage(convId!, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
+      updateMessage(convId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
       setConversationStreaming(convId, null);
-      saveMessagesToServer(convId!).catch((err) => {
+      saveMessagesToServer(convId).catch((err) => {
         console.error('[DynamicAgent] Failed to save error messages:', err);
       });
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, addStreamEvent, setConversationStreaming, saveMessagesToServer, processStreamEvent, finalizeStreamLoop, session?.user]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1047,15 +1060,16 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
-    const agentId = pendingUserInput.agentId;
+    const resumeAgentId = pendingUserInput.agentId;
     setPendingUserInput(null);
 
     // Clear previous turn's events before starting resume stream
     clearStreamEvents(activeConversationId);
 
-    // Create Dynamic Agent client for resume
-    const dynClient = new DynamicAgentClient({
-      proxyUrl: "/api/dynamic-agents/chat",
+    // Create protocol-agnostic adapter for resume
+    const adapter = createStreamAdapter({
+      protocol: agentProtocol as "custom" | "agui",
+      baseUrl: "/api/dynamic-agents/chat",
       accessToken,
     });
 
@@ -1065,9 +1079,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
       messageId: assistantMsgId,
-      client: { abort: () => dynClient.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
-      // For Dynamic Agents: enable backend cancellation
-      dynamicAgentClient: dynClient,
+      client: { abort: () => adapter.abort() },
+      streamAdapter: adapter,
     });
 
     const loopState: StreamLoopState = {
@@ -1079,27 +1092,12 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     const toolCallIdToName = new Map<string, string>();
 
     try {
-      for await (const event of dynClient.resumeStream(activeConversationId, agentId, formDataJson)) {
-        const streamEvent = event as StreamEvent;
+      const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
-        // Push event to store immediately
-        addStreamEvent(streamEvent, activeConversationId);
-
-        // Shared event processing (tool tracking, HITL, content, errors)
-        const { action } = processStreamEvent(
-          streamEvent, activeConversationId, assistantMsgId, toolCallIdToName, loopState,
-        );
-
-        // Update message content immediately on content events
-        if (streamEvent.type === "content") {
-          updateMessage(activeConversationId, assistantMsgId, {
-            content: loopState.accumulatedText,
-            rawStreamContent: loopState.rawStreamContent,
-          });
-        }
-
-        if (action === "break") break;
-      }
+      await adapter.resumeStream(
+        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson },
+        callbacks,
+      );
 
       // Finalize the stream
       finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
@@ -1114,9 +1112,9 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         console.error('[DynamicAgent] Failed to save HITL resume error messages:', err);
       });
     }
-  }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
-      appendToMessage, addStreamEvent, setConversationStreaming, saveMessagesToServer,
-      clearStreamEvents, processStreamEvent, finalizeStreamLoop]);
+  }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+      appendToMessage, setConversationStreaming, saveMessagesToServer,
+      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1445,25 +1443,23 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
                     // For SSE, send dismissal message to resume the agent
                     if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
-                      const dynClient = new DynamicAgentClient({
-                        proxyUrl: "/api/dynamic-agents/chat",
+                      const dismissAdapter = createStreamAdapter({
+                        protocol: agentProtocol as "custom" | "agui",
+                        baseUrl: "/api/dynamic-agents/chat",
                         accessToken,
                       });
                       // Fire-and-forget: resume with rejection message
-                      (async () => {
-                        try {
-                          const dismissalMessage = "User dismissed the input form without providing values.";
-                          for await (const _event of dynClient.resumeStream(
-                            activeConversationId,
-                            pendingUserInput.agentId!,
-                            dismissalMessage
-                          )) {
-                            // Consume events but don't display
-                          }
-                        } catch (err) {
-                          console.error("[ChatPanel] Error sending SSE form dismissal:", err);
-                        }
-                      })();
+                      const dismissalMessage = "User dismissed the input form without providing values.";
+                      dismissAdapter.resumeStream(
+                        {
+                          conversationId: activeConversationId,
+                          agentId: pendingUserInput.agentId,
+                          formData: dismissalMessage,
+                        },
+                        {}, // No callbacks — we don't render the response
+                      ).catch((err) => {
+                        console.error("[ChatPanel] Error sending SSE form dismissal:", err);
+                      });
                     }
                   }
                   setPendingUserInput(null);
