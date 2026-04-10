@@ -132,16 +132,16 @@ export function isAdminUser(groups: string[]): boolean {
 }
 
 // Helper to check if user can access dynamic agents.
-// Admins always have access. If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set,
-// members of that group also have access. Otherwise only admins.
+// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access
+// (admin group membership does NOT automatically grant access in this case).
+// If unset, falls back to admin-only access.
 export function canAccessDynamicAgents(groups: string[]): boolean {
-  // Admins always get dynamic agents access
-  if (isAdminUser(groups)) return true;
   if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
     const requiredLower = REQUIRED_DYNAMIC_AGENTS_GROUP.toLowerCase();
     return groups.some(g => g.toLowerCase() === requiredLower || g.toLowerCase().includes(`cn=${requiredLower}`));
   }
-  return false;
+  // No explicit group configured → admins only
+  return isAdminUser(groups);
 }
 
 // Helper to check if user can view admin dashboard (read-only)
