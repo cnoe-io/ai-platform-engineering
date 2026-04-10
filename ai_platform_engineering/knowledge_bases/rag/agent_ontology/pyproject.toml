@@ -11,7 +11,7 @@ dependencies = [
     # Core dependencies (includes langchain-openai via common)
     "common",
     "langchain==1.1.3",
-    "langgraph==1.0.4",
+    "langgraph==1.0.10",
     "pytest==9.0.2",
     "pytest-asyncio==1.3.0",
     "python-dotenv==1.2.1",
