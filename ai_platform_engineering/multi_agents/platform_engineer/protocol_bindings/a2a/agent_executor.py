@@ -69,6 +69,12 @@ class StreamState:
     # Trace ID for feedback/scoring (exposed to clients)
     trace_id: Optional[str] = None
 
+    # Execution plan state (per-request to avoid cross-user leakage)
+    execution_plan_emitted: bool = False
+    execution_plan_artifact_id: Optional[str] = None
+    latest_execution_plan: List[Dict] = field(default_factory=list)
+    current_plan_step_id: Optional[str] = None
+
 
 class AIPlatformEngineerA2AExecutor(AgentExecutor):
     """AI Platform Engineer A2A Executor."""
@@ -76,15 +82,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     def __init__(self):
         self.agent = AIPlatformEngineerA2ABinding()
 
-        # Execution plan state (TODO-based tracking)
-        self._execution_plan_emitted = False
-        self._execution_plan_artifact_id = None
-        self._latest_execution_plan: list[dict] = []
-        # The step_id the LLM is currently working on (set when write_todos
-        # marks a step as in_progress). All tool notifications inherit this.
-        self._current_plan_step_id: str | None = None
-
-    def _is_last_plan_step_active(self) -> bool:
+    def _is_last_plan_step_active(self, state: StreamState) -> bool:
         """Check if the last plan step is currently in_progress.
 
         TODO: This is a heuristic — it assumes the supervisor's streaming tokens
@@ -94,20 +92,20 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         supervisor's synthesis phase, but that isn't available today. Bring this
         up with the deepagents/langgraph maintainers for a deterministic signal.
         """
-        if not self._execution_plan_emitted or not self._latest_execution_plan:
+        if not state.execution_plan_emitted or not state.latest_execution_plan:
             return False
-        last_step = self._latest_execution_plan[-1]
+        last_step = state.latest_execution_plan[-1]
         return (
             last_step.get('status') == 'in_progress'
-            and last_step.get('step_id') == self._current_plan_step_id
+            and last_step.get('step_id') == state.current_plan_step_id
         )
 
-    def _find_plan_step_for_agent(self, agent_name: str) -> str | None:
+    def _find_plan_step_for_agent(self, state: StreamState, agent_name: str) -> str | None:
         """Find the plan step_id for a given agent name."""
-        if not self._latest_execution_plan or not agent_name:
+        if not state.latest_execution_plan or not agent_name:
             return None
         agent_lower = agent_name.lower()
-        for step in self._latest_execution_plan:
+        for step in state.latest_execution_plan:
             if step.get('agent', '').lower() == agent_lower:
                 if step.get('status') in ('in_progress', 'pending'):
                     return step['step_id']
@@ -207,29 +205,29 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         return items
 
-    async def _ensure_execution_plan_completed(self, event_queue: EventQueue, task: A2ATask) -> None:
+    async def _ensure_execution_plan_completed(self, event_queue: EventQueue, task: A2ATask, state: StreamState) -> None:
         """Ensure execution plan shows all steps completed before final result."""
-        if not self._execution_plan_emitted or not self._latest_execution_plan:
+        if not state.execution_plan_emitted or not state.latest_execution_plan:
             return
 
         # Check if any steps are still pending or in_progress
         has_unfinished = any(
             item.get('status') in ('pending', 'in_progress')
-            for item in self._latest_execution_plan
+            for item in state.latest_execution_plan
         )
         if not has_unfinished:
             return
 
         # Mark all unfinished steps as completed
-        for item in self._latest_execution_plan:
+        for item in state.latest_execution_plan:
             if item.get('status') in ('pending', 'in_progress'):
                 item['status'] = 'completed'
 
         # Send full plan update with all steps completed (structured DataPart)
-        plan_data = self._build_plan_data(self._latest_execution_plan)
+        plan_data = self._build_plan_data(state.latest_execution_plan)
 
         artifact = Artifact(
-            artifact_id=self._execution_plan_artifact_id or str(uuid.uuid4()),
+            artifact_id=state.execution_plan_artifact_id or str(uuid.uuid4()),
             name='execution_plan_status_update',
             description='All execution steps completed',
             parts=[Part(root=DataPart(data=plan_data))],
@@ -496,9 +494,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         }
         # Propagate plan_step_id so the UI nests sub-agent tools under the plan step.
         # Try agent-specific step first, fall back to current.
-        if 'plan_step_id' not in meta and self._current_plan_step_id:
-            matched = self._find_plan_step_for_agent(source_agent) if source_agent else None
-            meta['plan_step_id'] = matched or self._current_plan_step_id
+        if 'plan_step_id' not in meta and state.current_plan_step_id:
+            matched = self._find_plan_step_for_agent(state, source_agent) if source_agent else None
+            meta['plan_step_id'] = matched or state.current_plan_step_id
 
         artifact = Artifact(
             artifactId=artifact_data.get('artifactId'),
@@ -712,9 +710,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             # Try to match the tool's sourceAgent to its dedicated plan step
             # first; fall back to _current_plan_step_id (set when write_todos
             # marks a step as in_progress).
-            plan_step_id = self._current_plan_step_id
+            plan_step_id = state.current_plan_step_id
             if source_agent and source_agent != 'supervisor':
-                matched_step = self._find_plan_step_for_agent(source_agent)
+                matched_step = self._find_plan_step_for_agent(state, source_agent)
                 if matched_step:
                     plan_step_id = matched_step
 
@@ -753,13 +751,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # When a plan exists, tag streaming chunks with the active plan_step_id
         # so the UI nests them under the current step as "thinking" instead of
         # rendering them below the plan as orphaned content.
-        if not is_tool_notification and self._current_plan_step_id and self._execution_plan_emitted:
-            artifact.metadata['plan_step_id'] = self._current_plan_step_id
+        if not is_tool_notification and state.current_plan_step_id and state.execution_plan_emitted:
+            artifact.metadata['plan_step_id'] = state.current_plan_step_id
 
         # Tag streaming chunks as final answer when the last plan step is active.
         # This lets the UI stream the answer live below the plan instead of
         # waiting for the final_result artifact.
-        if not is_tool_notification and self._is_last_plan_step_active():
+        if not is_tool_notification and self._is_last_plan_step_active(state):
             artifact.metadata['is_final_answer'] = True
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
@@ -801,12 +799,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
     @override
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Execute the agent."""
-        # Reset execution plan state for new task
-        self._execution_plan_emitted = False
-        self._execution_plan_artifact_id = None
-        self._latest_execution_plan = []
-        self._current_plan_step_id = None
-
         query = context.get_user_input()
         task = context.current_task
         context_id = context.message.context_id if context.message else None
@@ -876,12 +868,12 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         # the UI can nest them under the correct plan step.
                         # Try agent-specific step first, fall back to current.
                         artifact = event.artifact
-                        if artifact and self._current_plan_step_id:
+                        if artifact and state.current_plan_step_id:
                             meta = dict(artifact.metadata or {})
                             if 'plan_step_id' not in meta:
                                 agent_name = meta.get('sourceAgent', '')
-                                matched = self._find_plan_step_for_agent(agent_name) if agent_name else None
-                                meta['plan_step_id'] = matched or self._current_plan_step_id
+                                matched = self._find_plan_step_for_agent(state, agent_name) if agent_name else None
+                                meta['plan_step_id'] = matched or state.current_plan_step_id
                                 artifact = Artifact(
                                     artifactId=artifact.artifactId,
                                     name=artifact.name,
@@ -967,52 +959,52 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
                     # Track execution plan and emit structured DataPart
                     if artifact_name in ('execution_plan_update', 'execution_plan_status_update'):
-                        self._execution_plan_emitted = True
+                        state.execution_plan_emitted = True
                         parsed = self._parse_execution_plan_text(artifact_text)
                         if parsed:
-                            if self._latest_execution_plan and artifact_name == 'execution_plan_status_update':
+                            if state.latest_execution_plan and artifact_name == 'execution_plan_status_update':
                                 # Status updates only contain changed steps — merge
                                 # into the existing full plan instead of replacing it.
                                 # This prevents the plan from shrinking to just the
                                 # updated steps, which broke _is_last_plan_step_active().
                                 update_map = {s['step_id']: s for s in parsed}
-                                for i, existing_step in enumerate(self._latest_execution_plan):
+                                for i, existing_step in enumerate(state.latest_execution_plan):
                                     if existing_step['step_id'] in update_map:
                                         updated = update_map[existing_step['step_id']]
                                         # Preserve completed/failed status from existing plan
                                         if existing_step.get('status') in ('completed', 'failed'):
                                             updated['status'] = existing_step['status']
-                                        self._latest_execution_plan[i] = updated
+                                        state.latest_execution_plan[i] = updated
                             else:
                                 # Initial plan (execution_plan_update) or no existing
                                 # plan — set the full plan array.
-                                self._latest_execution_plan = parsed
+                                state.latest_execution_plan = parsed
 
                         # Track which step the LLM is currently working on.
                         # When write_todos marks a step as in_progress, that's
                         # the LLM declaring "I'm working on this step now" —
                         # all subsequent tool notifications inherit this step_id.
-                        for step in self._latest_execution_plan:
+                        for step in state.latest_execution_plan:
                             if step.get('status') == 'in_progress':
-                                self._current_plan_step_id = step['step_id']
+                                state.current_plan_step_id = step['step_id']
                                 break
 
                         # Mark first step as in_progress on initial plan if none set
                         if parsed and artifact_name == 'execution_plan_update':
                             if not any(s.get('status') == 'in_progress' for s in parsed):
                                 parsed[0]['status'] = 'in_progress'
-                                self._current_plan_step_id = parsed[0]['step_id']
+                                state.current_plan_step_id = parsed[0]['step_id']
 
-                        plan_data = self._build_plan_data(self._latest_execution_plan)
+                        plan_data = self._build_plan_data(state.latest_execution_plan)
 
                         artifact = Artifact(
-                            artifact_id=self._execution_plan_artifact_id or str(uuid.uuid4()),
+                            artifact_id=state.execution_plan_artifact_id or str(uuid.uuid4()),
                             name=artifact_name,
                             description=artifact_payload.get('description', 'Structured execution plan'),
                             parts=[Part(root=DataPart(data=plan_data))],
                         )
                         if artifact_name == 'execution_plan_update':
-                            self._execution_plan_artifact_id = artifact.artifact_id
+                            state.execution_plan_artifact_id = artifact.artifact_id
                             # Reset streaming artifact so post-plan chunks start
                             # a fresh artifact with plan_step_id attached.  The
                             # pre-plan streaming artifact was created before any
@@ -1063,14 +1055,14 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                             f"(is_task_complete={event.get('is_task_complete')}, "
                             f"content_len={len(content)})"
                         )
-                        await self._ensure_execution_plan_completed(event_queue, task)
+                        await self._ensure_execution_plan_completed(event_queue, task, state)
                         await self._handle_task_complete(event, state, content, task, event_queue)
                         return
 
                 # 3. Task complete
                 if event.get('is_task_complete'):
                     state.task_complete = True
-                    await self._ensure_execution_plan_completed(event_queue, task)
+                    await self._ensure_execution_plan_completed(event_queue, task, state)
                     await self._handle_task_complete(event, state, content, task, event_queue)
                     return
 

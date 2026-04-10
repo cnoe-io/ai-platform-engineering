@@ -17,9 +17,6 @@ from ai_platform_engineering.utils.logging_config import configure_logging
 from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware, agent_metrics
 
 from starlette.middleware.cors import CORSMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.routing import Route
 
 # Import single-node specific executor (uses original class name for compatibility)
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent_executor_single import (
@@ -150,7 +147,16 @@ a2a_server = A2AStarletteApplication(
     http_handler=request_handler
 )
 
-app = a2a_server.build()
+_a2a_app = a2a_server.build()
+
+# Wrap in FastAPI to expose skills catalog API (GET /skills, etc.) alongside A2A server.
+# The A2A Starlette app is mounted at "/" so all A2A paths (/.well-known/*, /message/stream,
+# etc.) are forwarded to it after FastAPI's own routes are checked first.
+from fastapi import FastAPI as _FastAPI  # noqa: E402
+from ai_platform_engineering.skills_middleware.router import router as skills_router  # noqa: E402
+
+app = _FastAPI()
+app.include_router(skills_router)
 
 ################################################################################
 # Eager initialisation — load MCP tools at startup, not on first request
@@ -171,21 +177,27 @@ app.add_event_handler("startup", _startup_initialize)
 
 ################################################################################
 # /tools endpoint – returns tool names per subagent from the running MAS
+# Must be registered BEFORE app.mount("/", _a2a_app) so it is matched first.
 ################################################################################
 
 
-async def _tools_endpoint(request: Request) -> JSONResponse:
+@app.get("/tools")
+async def _tools_endpoint():
     """Return dynamically discovered tool names grouped by subagent."""
     try:
         if not _binding._initialized:
             await _binding.ensure_initialized()
-        return JSONResponse({"tools": _binding._mas_instance.get_subagent_tools()})
+        return {"tools": _binding._mas_instance.get_subagent_tools()}
     except Exception as e:
         logger.warning(f"/tools endpoint error: {e}")
-        return JSONResponse({"tools": {}, "error": str(e)}, status_code=500)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-app.routes.append(Route("/tools", _tools_endpoint, methods=["GET"]))
+# Mount A2A Starlette app AFTER all FastAPI routes so FastAPI routes take
+# precedence. The "/" mount is a catch-all and would swallow /tools if it
+# were registered before @app.get("/tools") above.
+app.mount("/", _a2a_app)
 
 ################################################################################
 # Add authentication middleware if enabled

@@ -1053,6 +1053,10 @@ class PlatformEngineerDeepAgent:
         self._graph_generation = 0
         self._initialized = False
         self._subagent_tools: Dict[str, List[str]] = {}
+        # Skills status tracking (mirrors deep_agent.py for FR-016 compatibility)
+        self._skills_loaded_count: Optional[int] = None
+        self._skills_merged_at: Optional[str] = None
+        self._last_built_catalog_generation: Optional[int] = None
 
         # RAG-related instance variables
         self.rag_enabled = ENABLE_RAG
@@ -1124,6 +1128,28 @@ class PlatformEngineerDeepAgent:
         """Return tool names per subagent, captured at graph build time."""
         with self._graph_lock:
             return dict(self._subagent_tools)
+
+    def get_skills_status(self) -> dict:
+        """Snapshot of skills load metadata for operators (FR-016)."""
+        from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
+
+        with self._graph_lock:
+            cache_gen = get_catalog_cache_generation()
+            last_built = self._last_built_catalog_generation
+            if last_built is None:
+                sync_status = "unknown"
+            elif last_built == cache_gen:
+                sync_status = "in_sync"
+            else:
+                sync_status = "supervisor_stale"
+            return {
+                "graph_generation": self._graph_generation,
+                "skills_loaded_count": self._skills_loaded_count,
+                "skills_merged_at": self._skills_merged_at,
+                "catalog_cache_generation": cache_gen,
+                "last_built_catalog_generation": last_built,
+                "sync_status": sync_status,
+            }
 
     async def _load_rag_tools(self) -> List[Any]:
         """Load RAG MCP tools from the server."""
@@ -1386,8 +1412,13 @@ This format is required so the UI can display agent stickers next to each task.
 
         # Load skills catalog and build StateBackend files for SkillsMiddleware (FR-015)
         try:
+            from datetime import datetime, timezone
+            from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
             skills = get_merged_skills(include_content=True)
             self._skills_files, self._skills_sources = build_skills_files(skills)
+            self._skills_loaded_count = len(skills)
+            self._skills_merged_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            self._last_built_catalog_generation = get_catalog_cache_generation()
             logger.info(f"📚 Loaded {len(skills)} skills for supervisor ({len(self._skills_sources)} sources)")
         except Exception as e:
             logger.warning(f"Failed to load skills catalog: {e}")

@@ -19,6 +19,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single im
     AIPlatformEngineerMAS,
     USE_STRUCTURED_RESPONSE,
 )
+from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
 )
@@ -73,6 +74,7 @@ class AIPlatformEngineerA2ABinding:
 
       await self._mas_instance.ensure_initialized()
       self.graph = self._mas_instance.get_graph()
+      set_mas_instance(self._mas_instance)
       self._initialized = True
       logging.info("✅ AIPlatformEngineerA2ABinding initialized with MCP tools")
 
@@ -1415,6 +1417,10 @@ class AIPlatformEngineerA2ABinding:
           }
           accumulated_ai_content.clear()
           final_ai_message = None
+          # Preserve a ResponseFormat result that was already captured before the
+          # recursion limit was hit — the task completed successfully, the graph
+          # just kept running past the ResponseFormat tool call.
+          _saved_response_format = response_format_result if is_recursion_limit else None
           response_format_result = None
 
           try:
@@ -1470,6 +1476,15 @@ class AIPlatformEngineerA2ABinding:
                       )
               except Exception as ctx_err:
                   logging.warning(f"State repair (context compression) failed: {ctx_err}")
+
+          # If a ResponseFormat result was captured before the recursion limit was
+          # hit, restore it now — the task actually completed successfully.
+          if _saved_response_format and not response_format_result:
+              response_format_result = _saved_response_format
+              logging.info(
+                  "✅ Restored pre-recursion ResponseFormat result — task completed "
+                  f"before limit (content_len={len(response_format_result.get('content', ''))})"
+              )
 
           # ==============================================================
           # Decision: retry once, or go straight to wrap-up?
@@ -1609,10 +1624,14 @@ class AIPlatformEngineerA2ABinding:
                       f"I encountered an error and need to wrap up: {error_str[:500]}\n\n"
                       "I will now summarize what was accomplished so far and provide my final response."
                   )
+                  # The deepagents graph uses "model" as its main node, not "agent".
+                  # Detect the correct node name at runtime to avoid KeyError.
+                  _graph_nodes = set(getattr(self.graph, 'nodes', {}).keys())
+                  _agent_node = "model" if "model" in _graph_nodes else "agent"
                   await self.graph.aupdate_state(
                       config,
                       {"messages": [AIMessage(content=error_summary)]},
-                      as_node="agent",
+                      as_node=_agent_node,
                   )
 
                   async for item_type, item in self.graph.astream(
