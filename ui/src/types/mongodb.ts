@@ -51,10 +51,16 @@ export interface Conversation {
   created_at: Date;
   updated_at: Date;
   metadata: {
-    agent_version: string;
-    model_used: string;
+    /** Which client created this conversation: 'ui', 'slack', 'api', etc. */
+    client_type: string;
+    /** UI version (from package.json) when client_type is 'ui' */
+    ui_version?: string;
     total_messages: number;
     total_tokens?: number;
+    /** @deprecated Kept for backward compat with old conversations */
+    agent_version?: string;
+    /** @deprecated Kept for backward compat with old conversations */
+    model_used?: string;
   };
   sharing: {
     is_public: boolean;

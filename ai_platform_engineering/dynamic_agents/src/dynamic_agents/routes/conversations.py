@@ -740,8 +740,9 @@ async def ensure_conversation_metadata(
                 "owner_id": user.email,
                 "created_at": now,
                 "metadata": {
+                    "client_type": "api",
                     "agent_name": agent.name,
-                    "agent_version": "1.0",
+                    "total_messages": 0,
                 },
                 "sharing": {
                     "is_public": False,

@@ -134,7 +134,7 @@ function makeConversationItems(count: number) {
     owner_id: 'test@test.com',
     created_at: new Date(),
     updated_at: new Date(Date.now() - i * 3600000),
-    metadata: { agent_version: '1.0', model_used: 'gpt-4', total_messages: (i + 1) * 2 },
+    metadata: { client_type: 'ui', ui_version: '0.2.0', total_messages: (i + 1) * 2 },
     sharing: { is_public: false, shared_with: [], shared_with_teams: [], share_link_enabled: false },
     tags: [],
     is_archived: false,
