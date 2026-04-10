@@ -702,43 +702,43 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         artifact_name = (
             'execution_plan_update'
-            if not self._execution_plan_emitted
+            if not state.execution_plan_emitted
             else 'execution_plan_status_update'
         )
 
-        if self._latest_execution_plan and artifact_name == 'execution_plan_status_update':
+        if state.latest_execution_plan and artifact_name == 'execution_plan_status_update':
             update_map = {s['step_id']: s for s in parsed}
-            for i, existing_step in enumerate(self._latest_execution_plan):
+            for i, existing_step in enumerate(state.latest_execution_plan):
                 if existing_step['step_id'] in update_map:
                     updated = update_map[existing_step['step_id']]
                     if existing_step.get('status') in ('completed', 'failed'):
                         updated['status'] = existing_step['status']
-                    self._latest_execution_plan[i] = updated
+                    state.latest_execution_plan[i] = updated
         else:
-            self._latest_execution_plan = parsed
+            state.latest_execution_plan = parsed
 
-        for step in self._latest_execution_plan:
+        for step in state.latest_execution_plan:
             if step.get('status') == 'in_progress':
-                self._current_plan_step_id = step['step_id']
+                state.current_plan_step_id = step['step_id']
                 break
 
         if parsed and artifact_name == 'execution_plan_update':
             if not any(s.get('status') == 'in_progress' for s in parsed):
                 parsed[0]['status'] = 'in_progress'
-                self._current_plan_step_id = parsed[0]['step_id']
+                state.current_plan_step_id = parsed[0]['step_id']
 
-        plan_data = self._build_plan_data(self._latest_execution_plan)
+        plan_data = self._build_plan_data(state.latest_execution_plan)
 
         artifact = Artifact(
-            artifact_id=self._execution_plan_artifact_id or str(uuid.uuid4()),
+            artifact_id=state.execution_plan_artifact_id or str(uuid.uuid4()),
             name=artifact_name,
             description='Structured execution plan',
             parts=[Part(root=DataPart(data=plan_data))],
         )
         if artifact_name == 'execution_plan_update':
-            self._execution_plan_artifact_id = artifact.artifact_id
+            state.execution_plan_artifact_id = artifact.artifact_id
 
-        self._execution_plan_emitted = True
+        state.execution_plan_emitted = True
 
         await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=False)
 
@@ -759,6 +759,9 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
         is_tool_notification = self._is_tool_notification(content, event)
 
+        # Also detect agent from event metadata if provided
+        source_agent = event.get('source_agent') or getattr(state, 'current_agent', None) or 'supervisor'
+
         # Accumulate non-notification content (unless DataPart already received)
         if not is_tool_notification and not state.sub_agent_datapart:
             state.supervisor_content.append(content)
@@ -767,6 +770,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if is_tool_notification:
             artifact_name, description = self._get_artifact_name_for_notification(content, event)
             artifact = new_text_artifact(name=artifact_name, description=description, text=content)
+
+            # For tool events, prefer the tool name as source_agent so clients
+            # see github/argocd/write_todos rather than a generic "supervisor".
+            if event.get('source_agent'):
+                source_agent = event['source_agent']
+            elif 'tool_call' in event:
+                source_agent = event['tool_call'].get('name') or source_agent
+            elif 'tool_result' in event:
+                source_agent = event['tool_result'].get('name') or source_agent
 
             # Tag tool notification with the correct plan step.
             # Try to match the tool's sourceAgent to its dedicated plan step
@@ -787,7 +799,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
 
             use_append = False
             state.seen_artifact_ids.add(artifact.artifact_id)
-        elif state.streaming_artifact_id is None:
+
+            await self._send_artifact(event_queue, task, artifact, append=use_append)
+            if event.get('tool_call', {}).get('name') == 'write_todos':
+                await self._try_emit_execution_plan_from_supervisor_content(state, task, event_queue)
+            return
+
+        if state.streaming_artifact_id is None:
             # First streaming chunk
             artifact = new_text_artifact(
                 name='streaming_result',
@@ -811,13 +829,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # When a plan exists, tag streaming chunks with the active plan_step_id
         # so the UI nests them under the current step as "thinking" instead of
         # rendering them below the plan as orphaned content.
-        if not is_tool_notification and state.current_plan_step_id and state.execution_plan_emitted:
+        if state.current_plan_step_id and state.execution_plan_emitted:
+            artifact.metadata = artifact.metadata or {}
             artifact.metadata['plan_step_id'] = state.current_plan_step_id
 
-        # Tag streaming chunks as final answer when the last plan step is active.
-        # This lets the UI stream the answer live below the plan instead of
-        # waiting for the final_result artifact.
-        if not is_tool_notification and self._is_last_plan_step_active(state):
+        # Tag streaming chunks as final answer when agent.py sets the signal.
+        # Using event.get('is_final_answer') (set by agent.py's [FINAL ANSWER]
+        # marker detection) rather than inferring from plan step state, so
+        # non-final narration chunks are never mistakenly tagged.
+        if event.get('is_final_answer'):
+            artifact.metadata = artifact.metadata or {}
             artifact.metadata['is_final_answer'] = True
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
@@ -1321,7 +1342,7 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                 #    ID so the UI replaces the intermediate narration.
                 if event.get('from_response_format_tool') and content:
                     state.task_complete = True
-                    await self._ensure_execution_plan_completed(event_queue, task)
+                    await self._ensure_execution_plan_completed(event_queue, task, state)
 
                     metadata = event.get('metadata') or {}
                     needs_user_input = (
