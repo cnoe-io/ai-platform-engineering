@@ -1024,13 +1024,8 @@ class TestDeepAgentCheckpointerWiring:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("LANGGRAPH_DEV", None)
 
-            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.platform_registry") as mock_reg, \
-                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.async_create_deep_agent") as mock_create, \
+            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.create_deep_agent") as mock_create, \
                  patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory"):
-                mock_reg.agents = {}
-                mock_reg.enable_dynamic_monitoring = MagicMock()
-                mock_reg.get_all_agents.return_value = {}
-
                 mock_graph = MagicMock()
                 mock_create.return_value = mock_graph
 
@@ -1043,13 +1038,8 @@ class TestDeepAgentCheckpointerWiring:
 
     def test_checkpointer_disabled_with_langgraph_dev(self):
         with patch.dict(os.environ, {"LANGGRAPH_DEV": "1"}):
-            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.platform_registry") as mock_reg, \
-                 patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.async_create_deep_agent") as mock_create, \
+            with patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.create_deep_agent") as mock_create, \
                  patch("ai_platform_engineering.multi_agents.platform_engineer.deep_agent.LLMFactory"):
-                mock_reg.agents = {}
-                mock_reg.enable_dynamic_monitoring = MagicMock()
-                mock_reg.get_all_agents.return_value = {}
-
                 mock_graph = MagicMock(spec=["checkpointer"])
                 mock_graph.checkpointer = None
                 mock_create.return_value = mock_graph

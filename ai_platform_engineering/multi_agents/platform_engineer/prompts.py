@@ -165,11 +165,15 @@ def generate_system_prompt(agents: Dict[str, Any], rag_config: Optional[Dict[str
 
   # Conditionally include [FINAL ANSWER] marker section based on structured response mode
   # When structured response is enabled, we use the ResponseFormat tool instead of markers
-  final_answer_instructions = "" if use_structured_response else FINAL_ANSWER_MARKER_SECTION
-
   if use_structured_response:
-    logger.info("Structured response mode enabled - excluding [FINAL ANSWER] marker section from prompt")
+    final_answer_instructions = (
+      "**Before invoking any tool, write one brief sentence describing what you are about to do.** "
+      "For example: \"I'll search the knowledge base for information about X.\" or "
+      "\"Let me fetch the full document for more details.\""
+    )
+    logger.info("Structured response mode enabled - adding narration instruction, excluding [FINAL ANSWER] marker")
   else:
+    final_answer_instructions = FINAL_ANSWER_MARKER_SECTION
     logger.info("Unstructured response mode - including [FINAL ANSWER] marker section in prompt")
 
   if yaml_template:
@@ -191,8 +195,8 @@ LLM Instructions:
 {tool_instructions_str}
 """
 
-# Generate the system prompt
-system_prompt = generate_system_prompt(agents)
+# Generate the system prompt — always use [FINAL ANSWER] marker mode (plain-text streaming)
+system_prompt = generate_system_prompt(agents, use_structured_response=False)
 
 logger.debug("="*50)
 logger.debug(f"System Prompt Generated:\n{system_prompt}")

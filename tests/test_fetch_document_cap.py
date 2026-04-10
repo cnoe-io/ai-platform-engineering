@@ -76,7 +76,7 @@ class TestFetchDocumentCapWrapper:
             for _ in range(3):
                 await wrapper._arun(document_id="doc-1")
             result = await wrapper._arun(document_id="doc-2")
-        assert "HARD LIMIT" in result
+        assert "[Document already retrieved]" in result
         assert "3" in result
         assert original.arun.call_count == 3  # 4th call did NOT reach original
 
@@ -89,7 +89,7 @@ class TestFetchDocumentCapWrapper:
             await wrapper._arun(document_id="doc-2")
             result = await wrapper._arun(document_id="doc-3")
         assert "2" in result
-        assert "Synthesize" in result
+        assert "synthesize" in result
 
     @pytest.mark.asyncio
     async def test_independent_counters_per_thread_id(self):
@@ -101,7 +101,7 @@ class TestFetchDocumentCapWrapper:
             await wrapper._arun(document_id="doc-1")
             await wrapper._arun(document_id="doc-2")
             result_a = await wrapper._arun(document_id="doc-3")
-        assert "HARD LIMIT" in result_a
+        assert "[Document already retrieved]" in result_a
 
         # thread-B should still have full budget
         with _patch_config("thread-B"):
@@ -109,12 +109,12 @@ class TestFetchDocumentCapWrapper:
                 result_b = await wrapper._arun(document_id=f"doc-{i}")
                 assert result_b == "full document content"
             result_b_cap = await wrapper._arun(document_id="doc-3")
-        assert "HARD LIMIT" in result_b_cap
+        assert "[Document already retrieved]" in result_b_cap
 
         # thread-A is still capped
         with _patch_config("thread-A"):
             result_a2 = await wrapper._arun(document_id="doc-4")
-        assert "HARD LIMIT" in result_a2
+        assert "[Document already retrieved]" in result_a2
 
     @pytest.mark.asyncio
     async def test_counter_resets_after_stale_ttl(self):
@@ -126,7 +126,7 @@ class TestFetchDocumentCapWrapper:
             await wrapper._arun(document_id="doc-1")
             # Should be capped now — returns hard-stop string
             result = await wrapper._arun(document_id="doc-2")
-        assert "HARD LIMIT" in result
+        assert "[Document already retrieved]" in result
 
         # Manually backdate timestamp to simulate TTL expiry
         with wrapper._global_lock:
@@ -145,7 +145,7 @@ class TestFetchDocumentCapWrapper:
             r1 = await wrapper._arun(document_id="doc-1")
             r2 = await wrapper._arun(document_id="doc-2")
         assert r1 == "full document content"
-        assert "HARD LIMIT" in r2
+        assert "[Document already retrieved]" in r2
         assert original.arun.call_count == 1
 
     @pytest.mark.asyncio
@@ -154,8 +154,8 @@ class TestFetchDocumentCapWrapper:
         wrapper, original = _make_wrapper(max_calls=0)
         with _patch_config("thread-zero"):
             result = await wrapper._arun(document_id="doc-1")
-        assert "HARD LIMIT" in result
-        assert "0 calls used" in result
+        assert "[Document already retrieved]" in result
+        assert "0 documents" in result
         original.arun.assert_not_called()
 
     @pytest.mark.asyncio
@@ -167,7 +167,7 @@ class TestFetchDocumentCapWrapper:
         async def call():
             with _patch_config("thread-concurrent"):
                 r = await wrapper._arun(document_id="doc-x")
-                if "HARD LIMIT" in r:
+                if "[Document already retrieved]" in r:
                     results.append(("cap", r))
                 else:
                     results.append(("ok", r))
@@ -223,7 +223,7 @@ class TestFetchDocumentCapWrapper:
             await wrapper._arun(document_id="doc-1")
             await wrapper._arun(document_id="doc-2")
             result = await wrapper._arun(document_id="doc-3")
-        assert "HARD LIMIT" in result
+        assert "[Document already retrieved]" in result
         assert original.arun.call_count == 2
 
     def test_get_call_count_returns_current_count(self):
@@ -267,5 +267,5 @@ class TestFetchDocumentCapWrapper:
             await wrapper._arun(document_id="doc-1")  # exhaust cap
             result = await wrapper._arun(document_id="doc-2")
         assert isinstance(result, str)
-        assert "HARD LIMIT" in result
-        assert "MUST NOT" in result
+        assert "[Document already retrieved]" in result
+        assert "Do NOT" in result
