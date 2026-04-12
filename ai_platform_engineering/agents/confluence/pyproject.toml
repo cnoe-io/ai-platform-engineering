@@ -28,7 +28,7 @@ dependencies = [
     "httpx==0.28.1",
     "python-dotenv==1.2.1",
     "cnoe-agent-utils==0.3.14",
-    "fastmcp==3.2.0",
+    "fastmcp==3.2.3",
     "mcp==1.26.0",
     "mcp-confluence",
     "prometheus_client==0.23.1",
@@ -71,7 +71,7 @@ select = [
 ignore = ["F403"]
 
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
+constraint-dependencies = ["fastmcp==3.2.3", "nltk==3.9.4", "pypdf==6.10.0", "starlette==0.50.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

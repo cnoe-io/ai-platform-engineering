@@ -30,7 +30,7 @@ dependencies = [
     "rich==14.1.0",
     "sseclient==0.0.27",
     "cnoe-agent-utils==0.3.14",
-    "fastmcp==3.2.0",
+    "fastmcp==3.2.3",
 ]
 
 [tool.hatch.build.targets.wheel]

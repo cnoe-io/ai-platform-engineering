@@ -24,7 +24,7 @@ dependencies = [
     "keyring==25.6.0",
     "httpx==0.28.1",
     "uvicorn==0.35.0",
-    "starlette==0.49.1",
+    "starlette==0.50.0",
     "typing-extensions==4.14.1",
     "requests==2.33.0",
     "mcp==1.26.0",

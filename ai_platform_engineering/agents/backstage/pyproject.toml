@@ -26,7 +26,7 @@ dependencies = [
     "tabulate==0.9.0",
     "rich==14.1.0",
     "sseclient==0.0.27",
-    "fastapi==0.115.11",
+    "fastapi==0.135.3",
     "uvicorn==0.35.0",
     "httpx==0.28.1",
     "httpx-sse==0.4.3",
@@ -34,7 +34,7 @@ dependencies = [
     "cnoe-agent-utils==0.3.14",
     "langchain==1.1.0",
     "pydantic==2.12.5",
-    "fastmcp==3.2.0",
+    "fastmcp==3.2.3",
     "mcp==1.26.0",
     "mcp-backstage",
     "prometheus_client==0.23.1",
@@ -82,7 +82,7 @@ markers = [
 ]
 
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
+constraint-dependencies = ["fastmcp==3.2.3", "nltk==3.9.4", "pypdf==6.10.0", "starlette==0.50.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }
