@@ -20,7 +20,7 @@ packages = ["mcp_komodor"]
       python-dotenv = "==1.2.1"
       pydantic = "==2.12.5"
       mcp = "==1.26.0"
-      fastmcp = "==3.2.0"
+      fastmcp = "==3.2.3"
       typing-extensions = "==4.15.0"
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

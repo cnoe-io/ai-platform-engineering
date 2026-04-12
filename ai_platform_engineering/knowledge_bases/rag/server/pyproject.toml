@@ -24,7 +24,7 @@ dependencies = [
     # Web framework
     "fastapi[standard]==0.118.0",
     "uvicorn==0.37.0",
-    "fastmcp==3.2.0",
+    "fastmcp==3.2.3",
     # HTTP clients
     "aiohttp==3.13.4",
     "aiohttp-retry==2.9.1",
