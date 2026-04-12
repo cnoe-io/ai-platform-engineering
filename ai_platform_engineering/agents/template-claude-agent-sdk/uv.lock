@@ -9,7 +9,7 @@ resolution-markers = [
 [manifest]
 constraints = [
     { name = "nltk", specifier = "==3.9.4" },
-    { name = "pypdf", specifier = ">=6.10.0" },
+    { name = "pypdf", specifier = "==6.10.0" },
 ]
 
 [[package]]
@@ -75,7 +75,7 @@ requires-dist = [
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
     { name = "sseclient", specifier = ">=0.0.27,<0.0.28" },
     { name = "tabulate", specifier = ">=0.9.0" },
-    { name = "uv", specifier = ">=0.11.6" },
+    { name = "uv", specifier = "==0.11.6" },
     { name = "uvicorn", specifier = ">=0.34.2" },
 ]
 

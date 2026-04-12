@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [manifest]
-constraints = [{ name = "pypdf", specifier = ">=6.10.0" }]
+constraints = [{ name = "pypdf", specifier = "==6.10.0" }]
 
 [[package]]
 name = "a2a-sdk"

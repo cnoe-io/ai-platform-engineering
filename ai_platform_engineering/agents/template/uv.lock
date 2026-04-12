@@ -15,7 +15,7 @@ members = [
 ]
 constraints = [
     { name = "nltk", specifier = "==3.9.4" },
-    { name = "pypdf", specifier = ">=6.10.0" },
+    { name = "pypdf", specifier = "==6.10.0" },
 ]
 
 [[package]]
