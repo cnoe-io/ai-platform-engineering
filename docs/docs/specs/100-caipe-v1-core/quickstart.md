@@ -9,7 +9,7 @@
 ## Prerequisites
 
 - npm / npx (Node.js ≥ 18)
-- A grid identity (`grid.outshift.io` account)
+- A CAIPE server URL and an account on that server
 - macOS or Linux (WSL2 supported)
 
 No other dependencies — the binary is self-contained.
@@ -32,13 +32,31 @@ npm install -g caipe
 
 ---
 
+## Step 0 — Configure your CAIPE server
+
+On first run, CAIPE automatically asks for your server URL. You can also set it manually:
+
+```bash
+caipe config set server.url https://caipe.example.com
+```
+
+To verify:
+
+```bash
+caipe config get server.url
+```
+
+All API and OAuth endpoints are derived from this single URL — you only need to set it once.
+
+---
+
 ## Step 1 — Authenticate
 
 ```bash
 caipe auth login
 ```
 
-- Opens your browser to the grid OAuth flow
+- Opens your browser to the CAIPE server OAuth flow (derived from your configured `server.url`)
 - Tokens are saved to the OS keychain — no re-login until the credential expires
 - On headless/SSH machines: `caipe auth login --manual` prints the URL for copy-paste
 
@@ -60,7 +78,7 @@ caipe chat
 
 CAIPE automatically gathers your repo's file tree and recent git history as context. The session streams responses token-by-token using the AG-UI protocol.
 
-### Chat with a specific grid agent
+### Chat with a specific CAIPE server agent
 
 ```bash
 caipe chat --agent argocd    # GitOps / ArgoCD specialist
@@ -84,6 +102,42 @@ See all available agents:
 ```bash
 caipe agents list
 ```
+
+---
+
+## Step 2b — Run in Headless / CI Mode
+
+For automation scripts, CI pipelines, and non-interactive environments:
+
+### API Key (simplest for CI)
+
+```bash
+export CAIPE_API_KEY=<your-api-key>
+echo "list all ArgoCD applications" | caipe chat --output json
+```
+
+### JWT pass-through (federated CI systems)
+
+```bash
+caipe chat --token "$CI_TOKEN" --prompt "summarize recent failures" --output ndjson
+```
+
+### Client Credentials (service-to-service)
+
+```bash
+export CAIPE_CLIENT_ID=<client-id>
+export CAIPE_CLIENT_SECRET=<client-secret>
+caipe chat --prompt "check cluster health" --output text
+```
+
+### Multi-turn headless session
+
+```bash
+printf "list pods\nwhich are failing?\n\\exit\n" | \
+  caipe chat --interactive-stdin --output ndjson
+```
+
+Headless mode auto-detects when no TTY is present. Force it explicitly with `--headless`.
 
 ---
 
@@ -188,6 +242,7 @@ Removes stored tokens from the OS keychain.
 
 | Path | Contents |
 |------|----------|
+| `~/.config/caipe/settings.json` | Server URL (`server.url`) and optional API key (`auth.apiKey`) |
 | `~/.config/caipe/config.json` | User preferences, last-used agent |
 | `~/.config/caipe/CLAUDE.md` | Global memory |
 | `~/.config/caipe/skills/` | Globally installed skills |

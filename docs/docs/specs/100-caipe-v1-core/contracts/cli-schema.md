@@ -22,7 +22,8 @@ Running `caipe` with no arguments opens the interactive chat REPL using the defa
 |------|------|---------|-------------|
 | `--version`, `-v` | boolean | — | Print version and exit |
 | `--help`, `-h` | boolean | — | Print help and exit |
-| `--agent <name>` | string | `default` | Grid agent to use for this session |
+| `--agent <name>` | string | `default` | CAIPE server agent to use for this session |
+| `--url <url>` | string | — | Override `server.url` from settings.json for this invocation only |
 | `--no-color` | boolean | false | Disable ANSI color output |
 | `--json` | boolean | false | Machine-readable JSON output (non-interactive commands only) |
 
@@ -32,29 +33,51 @@ Running `caipe` with no arguments opens the interactive chat REPL using the defa
 
 ### `caipe chat`
 
-Open an interactive streaming chat session.
+Open an interactive streaming chat session (or headless session when no TTY / `--headless`).
 
 ```
 caipe chat [options]
 ```
 
+**Interactive mode flags**:
+
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--agent <name>` | string | last-used or `default` | Pin session to this grid agent |
+| `--agent <name>` | string | last-used or `default` | Pin session to this CAIPE server agent |
 | `--protocol <a2a\|agui>` | string | `a2a` | Streaming protocol to use for this session |
 | `--no-context` | boolean | false | Skip git/repo context gathering |
 | `--resume <sessionId>` | string | — | Resume a previous session by ID |
 
-**Behavior**:
+**Headless / non-interactive flags**:
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--headless` | boolean | false | Force headless mode even when TTY is present |
+| `--token <jwt>` | string | — | JWT to use directly; highest auth priority |
+| `--prompt <text>` | string | — | Inline prompt text; headless only |
+| `--prompt-file <path>` | path | — | Read prompt from file; headless only |
+| `--output <format>` | `text\|json\|ndjson` | `text` | Headless response format |
+| `--interactive-stdin` | boolean | false | Multi-turn headless mode; reads newline-delimited turns from stdin until EOF or `\exit` |
+
+**Behavior (interactive)**:
 - Loads memory files (global → project → managed) before first message
+- If no `server.url` configured: launches setup wizard (URL prompt → auth) before proceeding
 - Validates `--protocol` against agent's supported protocols (from `GET /api/v1/agents`); if unsupported, prompts user to switch before connecting
-- Connects to grid via selected protocol: A2A (`POST /tasks/send` SSE, default) or AG-UI (`POST /api/agui/stream` SSE, `--protocol agui`)
+- Connects to CAIPE server via selected protocol: A2A (`POST /tasks/send` SSE, default) or AG-UI (`POST /api/agui/stream` SSE, `--protocol agui`)
 - Active protocol shown in session status header alongside agent name
 - Renders markdown in terminal with ANSI formatting
 - `/skills`, `/agents`, `/memory` slash commands available within session
 - `Ctrl+C` or `/exit` ends session; history saved to `~/.config/caipe/sessions/<id>.json`
 
-**Exit codes**: `0` = clean exit, `1` = auth failure, `2` = agent unavailable, `3` = protocol unsupported and user declined switch
+**Behavior (headless — no TTY or `--headless`)**:
+- Activated automatically when `process.stdout.isTTY` is false, or explicitly via `--headless`
+- All interactive prompts suppressed; missing config causes non-zero exit + stderr JSON error
+- Credential resolution order: `--token <jwt>` / `CAIPE_TOKEN` → `CAIPE_API_KEY` / `settings.json auth.apiKey` → `CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` (Client Credentials exchange)
+- Prompt resolution order: `--prompt <text>` → `--prompt-file <path>` → stdin pipe
+- Writes response to stdout in `--output` format; exits when response is complete
+- `--interactive-stdin` keeps session open for multi-turn: reads next prompt from stdin after each response
+
+**Exit codes**: `0` = clean exit, `1` = auth failure, `2` = agent unavailable, `3` = protocol unsupported and user declined switch, `4` = internal error
 
 ---
 
@@ -73,10 +96,11 @@ caipe auth login [--manual]
 | `--manual` | boolean | false | Show auth URL only; wait for user to paste code |
 
 **Behavior**:
-- Default: open browser to grid OAuth flow; start local HTTP server on random port to capture redirect
+- Default: open browser to CAIPE server OAuth flow (derived from `server.url`); start local HTTP server on random port to capture redirect
 - `--manual`: print the auth URL and a prompt for the authorization code
 - Stores tokens in OS keychain on success
 - Idempotent: if already authenticated, reports current identity and exits 0
+- If `server.url` is not configured, runs setup wizard first (prompts for URL, saves it, then proceeds to auth)
 
 #### `caipe auth logout`
 
@@ -176,7 +200,7 @@ List and inspect grid agents.
 caipe agents list [--json]
 ```
 
-Fetches agents from grid API; renders table with name, domain, availability status.
+Fetches agents from CAIPE server API (`GET /api/v1/agents`); renders table with name, domain, availability status.
 
 With `--json`:
 ```json
@@ -190,6 +214,48 @@ caipe agents info <name>
 ```
 
 Shows full capability description and endpoint for a specific agent.
+
+---
+
+### `caipe config`
+
+Manage CLI configuration stored in `~/.config/caipe/settings.json`.
+
+#### `caipe config set <key> <value>`
+
+```
+caipe config set <key> <value>
+```
+
+Supported keys:
+
+| Key | Description |
+|-----|-------------|
+| `server.url` | CAIPE server base URL (HTTPS required) |
+| `auth.apiKey` | API key for headless mode (stored in settings.json) |
+
+**Behavior**: Validates value format before writing; HTTPS required for `server.url`; prints confirmation.
+
+#### `caipe config get <key>`
+
+```
+caipe config get <key> [--json]
+```
+
+Print the current value of a config key. With `--json`:
+```json
+{ "key": "server.url", "value": "https://caipe.example.com", "source": "settings.json" }
+```
+
+`source` may be `settings.json`, `--url flag`, or `CAIPE_SERVER_URL env var` to indicate override precedence.
+
+#### `caipe config unset <key>`
+
+```
+caipe config unset <key>
+```
+
+Remove a config key from `settings.json`. Prompts for confirmation.
 
 ---
 
@@ -229,7 +295,11 @@ Available within an active `caipe chat` session:
 - **Interactive mode** (TTY detected): TUI rendered via Ink to stdout
 - **Non-interactive mode** (`--json` or no TTY): structured JSON to stdout; human messages to stderr
 - **Errors**: always to stderr; format `[ERROR] <message>` in plain mode, `{"error":"<message>"}` in JSON mode
-- **Streaming chat**: token stream to stdout; ANSI escape codes for formatting; suppressed with `--no-color`
+- **Streaming chat (interactive)**: token stream to stdout; ANSI escape codes for formatting; suppressed with `--no-color`
+- **Headless `--output text`**: raw response text streamed to stdout; no ANSI codes
+- **Headless `--output json`**: full response accumulated, then single JSON blob emitted on completion: `{"response":"...","agent":"...","protocol":"..."}`
+- **Headless `--output ndjson`**: one JSON object per token/event as it arrives: `{"type":"token","text":"..."}` / `{"type":"done"}`
+- **Headless errors**: always to stderr as `{"error":"<message>"}` regardless of `--output` format
 
 ---
 
