@@ -163,7 +163,7 @@ start_rag_prompt: |
   **Knowledge Base Access:**
   Text docs (wikis, Confluence, PDFs, Slack/Webex) + Graph entities (structured data: AWS, ArgoCD, infrastructure)
 
-  **Start:** Call `fetch_datasources_and_entity_types` to discover available datasources and entity types
+  **Start:** Call `list_datasources_and_entity_types` to discover available datasources and entity types
 
   **BE PERSISTENT - MINIMUM 3 APPROACHES:**
   ❌ NEVER give up after 1 search! ✅ Try 3+ different strategies:
