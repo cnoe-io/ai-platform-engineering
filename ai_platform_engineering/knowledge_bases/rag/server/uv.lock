@@ -4152,7 +4152,7 @@ requires-dist = [
     { name = "langchain-milvus", specifier = "==0.3.0" },
     { name = "lxml", specifier = "==6.0.2" },
     { name = "openai", specifier = "==2.19.0" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = "==2.12.1" },
     { name = "pymilvus", specifier = "==2.6.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==8.3.5" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==0.25.3" },

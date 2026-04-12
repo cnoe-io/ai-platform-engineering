@@ -36,7 +36,7 @@ dependencies = [
     # Auth & utils
     "openai==2.19.0",
     "python-dotenv==1.1.1",
-    "PyJWT[crypto]>=2.8.0",
+    "PyJWT[crypto]==2.12.1",
     "click==8.3.0",
     "aiofile==3.9.0",
     "common",
