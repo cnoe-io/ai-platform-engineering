@@ -1,0 +1,190 @@
+name: caipe-cli Release
+
+on:
+  push:
+    tags:
+      - "caipe/v*.*.*"  # e.g. caipe/v0.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: bun-darwin-arm64
+            os: macos-14          # arm64 runner
+            artifact: caipe-darwin-arm64
+            npm_pkg: caipe-darwin-arm64
+          - target: bun-darwin-x64
+            os: macos-13          # x64 runner
+            artifact: caipe-darwin-x64
+            npm_pkg: caipe-darwin-x64
+          - target: bun-linux-arm64
+            os: ubuntu-24.04-arm  # arm64 runner
+            artifact: caipe-linux-arm64
+            npm_pkg: caipe-linux-arm64
+          - target: bun-linux-x64
+            os: ubuntu-24.04
+            artifact: caipe-linux-x64
+            npm_pkg: caipe-linux-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: cli
+        run: bun install --frozen-lockfile
+
+      - name: Compile single-file binary
+        working-directory: cli
+        run: |
+          bun build src/index.ts \
+            --compile \
+            --target=${{ matrix.target }} \
+            --outfile=dist/${{ matrix.artifact }}
+
+      - name: Compute SHA-256 checksum
+        working-directory: cli/dist
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            shasum -a 256 ${{ matrix.artifact }} >> caipe-checksums.txt
+          else
+            sha256sum ${{ matrix.artifact }} >> caipe-checksums.txt
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            cli/dist/${{ matrix.artifact }}
+            cli/dist/caipe-checksums.txt
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Merge checksums
+        run: |
+          cat dist/*/caipe-checksums.txt > caipe-checksums.txt
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#caipe/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "caipe CLI ${{ steps.version.outputs.VERSION }}"
+          body: |
+            ## caipe CLI ${{ steps.version.outputs.VERSION }}
+
+            ### Install
+
+            **Quick install (recommended):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/cli/install.sh | sh
+            ```
+
+            **npm (automatic platform detection):**
+            ```bash
+            npm install -g caipe@${{ steps.version.outputs.VERSION }}
+            ```
+
+            ### Platform binaries
+
+            | Platform | Binary |
+            |----------|--------|
+            | macOS arm64 | `caipe-darwin-arm64` |
+            | macOS x64 | `caipe-darwin-x64` |
+            | Linux arm64 | `caipe-linux-arm64` |
+            | Linux x64 | `caipe-linux-x64` |
+
+            Verify checksums: `sha256sum -c caipe-checksums.txt`
+          files: |
+            dist/caipe-darwin-arm64/caipe-darwin-arm64
+            dist/caipe-darwin-x64/caipe-darwin-x64
+            dist/caipe-linux-arm64/caipe-linux-arm64
+            dist/caipe-linux-x64/caipe-linux-x64
+            caipe-checksums.txt
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
+
+  publish-npm:
+    name: Publish to npm
+    needs: release
+    runs-on: ubuntu-24.04
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#caipe/}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries/
+
+      - name: Prepare platform packages
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          for PKG in caipe-darwin-arm64 caipe-darwin-x64 caipe-linux-arm64 caipe-linux-x64; do
+            # Copy binary into platform package bin/
+            mkdir -p cli/npm/${PKG}/bin
+            cp binaries/${PKG}/${PKG} cli/npm/${PKG}/bin/caipe
+            chmod +x cli/npm/${PKG}/bin/caipe
+            # Update version in package.json
+            cd cli/npm/${PKG}
+            bun x npm version ${VERSION} --no-git-tag-version
+            cd ../../..
+          done
+
+      - name: Update root package version
+        working-directory: cli
+        run: bun x npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
+
+      - name: Publish platform packages
+        working-directory: cli/npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          for PKG in caipe-darwin-arm64 caipe-darwin-x64 caipe-linux-arm64 caipe-linux-x64; do
+            cd ${PKG}
+            npm publish --access public
+            cd ..
+          done
+
+      - name: Publish main caipe package
+        working-directory: cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          npm publish --access public
