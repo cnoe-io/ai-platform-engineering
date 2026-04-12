@@ -156,6 +156,8 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 |----|----------|-----------|
 | FR-013 | Agent routing: session-pinned vs per-message | **Session-pinned** (v1); per-message deferred to v2 |
 | FR-014 | Catalog distribution model | **GitHub Releases static manifest** on `outshift/skills` repo |
+| FR-015–016 | Server URL config and first-run | **`server.url` in settings.json**; `--url` override; first-run setup wizard |
+| FR-017–021 | Headless mode, auth, I/O, multi-turn | **TTY-less + `--headless` flag**; JWT > API Key > Client Credentials; `--prompt`/`--prompt-file`/stdin; `--output text\|json\|ndjson`; `--interactive-stdin` multi-turn |
 
 ---
 
@@ -209,6 +211,86 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 
 ---
 
+## Decision 9 — Server URL Configuration: Single `server.url` in settings.json
+
+**Decision**: The CAIPE server base URL is stored in `~/.config/caipe/settings.json` under the key `server.url`. A `--url <url>` CLI flag overrides it for a single invocation. All API endpoints (agents registry, task submission, OAuth/auth) are derived from this single base URL — no separate auth URL configuration is required.
+
+**Resolves FR-015 and FR-016**.
+
+**Rationale**:
+- Single source of truth eliminates URL drift between auth and API endpoints (e.g., mismatched proxy configs)
+- Config file pattern is idiomatic for CLI tools — consistent with `~/.config/gh/config.yml`, `~/.kube/config`, etc.
+- `--url` per-invocation override covers multi-server scenarios (dev vs prod) without persisting the change
+- On first run with no `server.url`, a setup wizard prompts once, saves the URL, and immediately proceeds to auth — zero extra commands
+- Derives all endpoints as `<server.url>/path` (e.g., `<server.url>/oauth`, `<server.url>/api/v1/agents`, `<server.url>/tasks/send`) — avoids endpoint proliferation in config
+
+**Settings file layout**:
+```json
+{
+  "server": {
+    "url": "https://caipe.example.com"
+  },
+  "auth": {
+    "apiKey": "<optional, for headless>"
+  }
+}
+```
+
+**Endpoint derivation table**:
+
+| Endpoint purpose | Derived path |
+|-----------------|-------------|
+| OAuth / OIDC discovery | `<server.url>/oauth` |
+| Agents registry | `<server.url>/api/v1/agents` |
+| A2A task submission | `<server.url>/tasks/send` |
+| AG-UI stream | `<server.url>/api/agui/stream` |
+| AgentCard discovery | `<server.url>/.well-known/agent.json` |
+
+**Alternatives considered**:
+- **Separate `--auth-url` flag**: rejected — two URLs to configure increases cognitive load and error surface
+- **Hardcoded default URL**: rejected — there is no sensible default; every deployment has a different URL
+- **Environment variable only (`CAIPE_SERVER_URL`)**: rejected — env vars don't persist across shell sessions; config file is the durable mechanism; env var still accepted as a last-resort override
+
+---
+
+## Decision 10 — Headless Mode Auth: Three Methods, Presence-Based Priority
+
+**Decision**: In headless/non-interactive mode, the CLI supports three credential types detected automatically by which is present. Priority order (first match wins): **(1) JWT pass-through** (`CAIPE_TOKEN` env var or `--token <jwt>` flag) → **(2) API Key** (`CAIPE_API_KEY` env var or `auth.apiKey` in `settings.json`) → **(3) OAuth2 Client Credentials** (`CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` env vars, exchanged for a short-lived access token before the session).
+
+**Resolves FR-017, FR-018, FR-019, FR-020, FR-021**.
+
+**Rationale**:
+- JWT pass-through is the highest priority because it is the most explicit — the caller already has a validated token, no additional exchange needed; lowest latency
+- API Key is simplest to configure for automated pipelines and covers the majority of CI use cases; stored in `settings.json` so it persists across invocations without env var management
+- Client Credentials is the most powerful (auto-rotates, scope-limited) but adds one extra network round-trip for the token exchange; used when neither JWT nor API Key is provided
+
+**Headless activation**:
+- Automatic: no TTY detected (`!process.stdout.isTTY`)
+- Explicit: `--headless` flag (for scripts that redirect stdout but still have a PTY)
+
+**Input priority**:
+1. `--prompt <text>` — inline text, suitable for short one-liners
+2. `--prompt-file <path>` — file path, suitable for long/structured prompts
+3. stdin pipe — fallback when neither flag is present
+
+**Output formats**:
+- `text` (default): raw response text streamed to stdout
+- `json`: full response accumulated, then a single object emitted on completion: `{"response":"...","agent":"...","protocol":"..."}`
+- `ndjson`: one JSON object per token/event as it arrives: `{"type":"token","text":"..."}` / `{"type":"done"}`
+
+**Session types**:
+- Default: single-shot (one prompt → full response → exit 0)
+- `--interactive-stdin`: multi-turn mode; newline-delimited prompts read from stdin until EOF or `\exit` line; `--output` format applied per turn
+
+**Missing credential behavior**: non-zero exit + `{"error":"no credentials configured"}` to stderr; no interactive prompt.
+
+**Alternatives considered**:
+- **Single method (API Key only)**: rejected — JWT pass-through is needed for federated CI systems that already issue tokens; Client Credentials is needed for service-to-service automation where distributing static API keys is undesirable
+- **Browser redirect in headless**: rejected — no TTY, no browser; would silently hang in CI
+- **Prompt for credentials in headless**: rejected — breaks unattended pipelines; FR-020 explicitly requires silent failure
+
+---
+
 ## Technology Stack (v1)
 
 | Concern | Choice | Rationale |
@@ -224,4 +306,6 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 | Diff | `diff` npm package | Unified diff for skill updates |
 | Git context | `execa` → `git rev-parse` + `git log` | Lightweight, no git binding needed |
 | Interface protocol | A2A (default) + AG-UI (`@ag-ui/client`, opt-in) | A2A covers all current agents; AG-UI future-proofs for migrating agents; common StreamAdapter interface |
+| Server URL config | `settings.json` `server.url` + `--url` override | Single URL drives all endpoints; first-run wizard; no hardcoded default |
+| Headless auth | JWT > API Key > Client Credentials (presence-based) | Covers federated CI (JWT), simple pipelines (API Key), service-to-service (Client Credentials) |
 | Testing | Bun test (built-in) | Zero config; compatible with Jest API |

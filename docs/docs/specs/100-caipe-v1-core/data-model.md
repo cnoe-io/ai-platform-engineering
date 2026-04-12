@@ -14,7 +14,7 @@ Represents the authenticated operator of the CLI.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `gridIdentity` | string | Subject claim from OIDC token (e.g., user@example.com) |
+| `identity` | string | Subject claim from OIDC token (e.g., user@example.com) |
 | `displayName` | string | From OIDC profile; shown in session header |
 | `accessToken` | string | Short-lived OAuth access token; stored in OS keychain |
 | `refreshToken` | string | Long-lived; stored in OS keychain |
@@ -27,6 +27,35 @@ Represents the authenticated operator of the CLI.
 ```
 unauthenticated → (browser PKCE flow) → authenticated → (token expiry) → refreshing → authenticated
                                                                         → (refresh fails) → unauthenticated
+unauthenticated → (headless: JWT/API Key/Client Credentials) → authenticated (no browser)
+```
+
+---
+
+### ServerConfig
+
+The user-configured CAIPE server connection settings. Stored in `~/.config/caipe/settings.json`.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `serverUrl` | HTTPS URL | Yes | Base URL for all CAIPE server endpoints; no hardcoded default |
+| `authApiKey` | string \| null | No | Static API key for headless mode; stored in `auth.apiKey` in settings.json |
+| `clientId` | string \| null | No | OAuth2 client ID for Client Credentials flow; typically from `CAIPE_CLIENT_ID` env var |
+| `clientSecret` | string \| null | No | OAuth2 client secret; NEVER stored in settings.json; only read from `CAIPE_CLIENT_SECRET` env var |
+
+**Storage**: `~/.config/caipe/settings.json` — note `clientSecret` is env-only; `authApiKey` may be stored here but user should treat it as sensitive
+
+**Derived endpoints** (all relative to `serverUrl`):
+- OAuth: `<serverUrl>/oauth`
+- Agents registry: `<serverUrl>/api/v1/agents`
+- A2A task submission: `<serverUrl>/tasks/send`
+- AG-UI stream: `<serverUrl>/api/agui/stream`
+- AgentCard: `<serverUrl>/.well-known/agent.json`
+
+**State transitions**:
+```
+unconfigured → (setup wizard: user enters URL) → configured
+configured → (--url <url> flag) → session-override (persisted config unchanged)
 ```
 
 ---
@@ -97,9 +126,11 @@ A conversation thread between the user and a grid agent.
 | Field | Type | Notes |
 |-------|------|-------|
 | `sessionId` | UUID | Unique per session; used for local history key |
-| `agentName` | string | Grid agent backing this session (e.g., `argocd`, `default`) |
-| `agentEndpoint` | URL | Grid endpoint for the selected agent |
+| `agentName` | string | CAIPE server agent backing this session (e.g., `argocd`, `default`) |
+| `agentEndpoint` | URL | CAIPE server endpoint for the selected agent |
 | `protocol` | `"a2a"` \| `"agui"` | Active streaming protocol; `"a2a"` is default |
+| `headless` | boolean | `true` when no TTY detected or `--headless` flag passed; suppresses all interactive prompts |
+| `outputFormat` | `"text"` \| `"json"` \| `"ndjson"` | Headless output format; `"text"` default; ignored in interactive mode |
 | `workingDir` | absolute path | `cwd` at session start; used for context gathering |
 | `repoRoot` | absolute path \| null | Nearest `.git` parent; null if outside a repo |
 | `startedAt` | ISO 8601 datetime | Session creation time |
@@ -126,19 +157,19 @@ A single turn in a ChatSession.
 
 ### Agent
 
-A grid agent available for chat routing.
+A CAIPE server agent available for chat routing.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `name` | string | Kebab-case identifier (e.g., `argocd`, `github`, `default`) |
 | `displayName` | string | Human-readable (e.g., "ArgoCD Agent") |
 | `description` | string | Capability summary shown in `caipe agents list` |
-| `endpoint` | URL | Grid agent base URL |
+| `endpoint` | URL | CAIPE server agent base URL |
 | `protocols` | `("a2a" \| "agui")[]` | Protocols this agent supports; returned by registry; used for pre-connect validation |
 | `available` | boolean | Health check result; cached for session lifetime |
 | `domain` | string | Capability domain (e.g., `gitops`, `security`, `general`) |
 
-**Source**: Grid API — `GET /api/v1/agents` (requires auth)
+**Source**: CAIPE server API — `GET /api/v1/agents` (requires auth)
 
 **Storage**: In-memory + cached to `~/.config/caipe/agents-cache.json` with 5-minute TTL
 
@@ -166,10 +197,11 @@ A Markdown file contributing context to chat sessions.
 
 ```
 ~/.config/caipe/
+├── settings.json          # ServerConfig: server.url, auth.apiKey
 ├── config.json            # User preferences (selected agent, theme, etc.)
 ├── CLAUDE.md              # Global memory file (user-edited)
 ├── catalog-cache.json     # Cached skills catalog manifest
-├── agents-cache.json      # Cached grid agents list
+├── agents-cache.json      # Cached CAIPE server agents list
 ├── skills/                # Globally installed skills
 │   └── <name>.md
 └── sessions/              # Chat session history
@@ -195,3 +227,6 @@ A Markdown file contributing context to chat sessions.
 - `ChatSession.messages` are capped at a rolling 100k token window; oldest messages are summarized (compacted) when the budget is exceeded
 - `MemoryFile` total size across all scopes is capped at 50k tokens; files exceeding the cap are truncated with a warning
 - `User.accessToken` is never written to disk in plaintext; only stored via `keytar`
+- `ServerConfig.serverUrl` must be a valid HTTPS URL; HTTP URLs are rejected at parse time
+- `ServerConfig.clientSecret` is never stored in `settings.json`; it is read exclusively from `CAIPE_CLIENT_SECRET` env var
+- In headless mode, `ChatSession.headless` is `true` and all interactive Ink prompts are suppressed; missing credential causes exit code 1 before session is created

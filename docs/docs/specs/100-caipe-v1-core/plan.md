@@ -7,7 +7,7 @@
 
 ## Summary
 
-CAIPE CLI is a terminal AI assistant purpose-built for platform engineers. It covers three primary workflows: **coding assistance** (AI chat with repo context, DCO-compliant commits), **skills and automation** (discover, install, and self-update Markdown-based automation routines), and **platform workflows** (route queries to specialised grid agents — ArgoCD, GitHub, AWS, and others). It ships as a single binary distributed via npm (`npx caipe`).
+CAIPE CLI is a terminal AI assistant purpose-built for platform engineers. It covers three primary workflows: **coding assistance** (AI chat with repo context, DCO-compliant commits), **skills and automation** (discover, install, and self-update Markdown-based automation routines), and **platform workflows** (route queries to specialised CAIPE server agents — ArgoCD, GitHub, AWS, and others). It ships as a single binary distributed via npm (`npx caipe`).
 
 The v1 implementation is a TypeScript + Bun project using React + Ink for the TUI, OAuth 2.0 PKCE for authentication, and a GitHub Releases static manifest for the skills catalog.
 
@@ -15,13 +15,13 @@ The v1 implementation is a TypeScript + Bun project using React + Ink for the TU
 
 **Language/Version**: TypeScript 5.x, Bun 1.x  
 **Primary Dependencies**: React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), native `fetch` + `EventSource` (A2A SSE — no separate SDK needed), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)  
-**Storage**: Local filesystem only — `~/.config/caipe/` (global) + `.claude/` or `skills/` (per-project)  
-**Testing**: Bun test (Jest-compatible API) — unit + contract tests; integration tests require a mock grid endpoint  
+**Storage**: Local filesystem only — `~/.config/caipe/` (global) + `.claude/` or `skills/` (per-project); `settings.json` holds `server.url` and optional `auth.apiKey`  
+**Testing**: Bun test (Jest-compatible API) — unit + contract tests; integration tests require a mock CAIPE server endpoint  
 **Target Platform**: macOS (primary), Linux (primary), WSL2 (secondary)  
 **Project Type**: CLI — single binary, npx-installable  
 **Performance Goals**: First response stream begins within 3s; `npx caipe` cold-start under 60s; skill update check under 10s for 50 skills  
-**Constraints**: No prerequisites beyond npm/npx; no plaintext credential storage; offline skill browsing via cache  
-**Scale/Scope**: Single user per install; hundreds of installed skills; sessions up to 100k tokens
+**Constraints**: No prerequisites beyond npm/npx; no plaintext credential storage; offline skill browsing via cache; no hardcoded server URL  
+**Scale/Scope**: Single user per install; hundreds of installed skills; sessions up to 100k tokens; headless mode for CI pipelines
 
 ## Constitution Check
 
@@ -93,8 +93,14 @@ cli/
 │   ├── commit/           # Feature: DCO commit assistance
 │   │   └── dco.ts        # Append Assisted-by; prompt for Signed-off-by
 │   │
+│   ├── headless/         # Feature: non-interactive / CI mode
+│   │   ├── runner.ts     # Headless session orchestration: auth → stream → output → exit
+│   │   ├── auth.ts       # Credential resolution: JWT > API Key > Client Credentials
+│   │   └── output.ts     # Format response as text | json | ndjson to stdout
+│   │
 │   └── platform/         # Cross-feature infrastructure (not a catch-all utils)
-│       ├── config.ts     # XDG paths: ~/.config/caipe/; per-project .claude/
+│       ├── config.ts     # XDG paths: ~/.config/caipe/; settings.json r/w; server.url resolution
+│       ├── setup.ts      # First-run setup wizard: URL prompt → save → proceed to auth
 │       ├── git.ts        # execa wrappers: repo root, log, file tree sampling
 │       ├── markdown.ts   # marked-terminal: GFM → ANSI
 │       └── diff.ts       # Unified diff: old/new strings → colored terminal output
@@ -117,15 +123,18 @@ cli/
 
 Deliverables:
 1. `cli/` package scaffold: `package.json`, `tsconfig.json`, `bunfig.toml`
-2. `src/index.ts` — Commander root with `--version`, `--help`
-3. `src/auth/oauth.ts` — PKCE code verifier/challenge, local HTTP callback server, browser open, token exchange
-4. `src/auth/keychain.ts` — keytar adapter; no plaintext fallback in v1
-5. `src/auth/tokens.ts` — token read/refresh/expiry; wires into every authenticated command
-6. `src/platform/config.ts` — XDG config path helpers
-7. Unit tests: `auth.test.ts` — PKCE math, token expiry logic, keychain mock
+2. `src/index.ts` — Commander root with `--version`, `--help`, global `--url <url>` flag
+3. `src/platform/config.ts` — XDG config path helpers; `settings.json` read/write; `getServerUrl()` resolver (flag → env var → settings.json → setup wizard)
+4. `src/platform/setup.ts` — First-run setup wizard: Ink prompt for server URL, save to `settings.json`, proceed to auth
+5. `src/auth/oauth.ts` — PKCE code verifier/challenge, local HTTP callback server, browser open, token exchange; derives auth endpoint from `server.url`
+6. `src/auth/keychain.ts` — keytar adapter; no plaintext fallback in v1
+7. `src/auth/tokens.ts` — token read/refresh/expiry; wires into every authenticated command
+8. Unit tests: `auth.test.ts` — PKCE math, token expiry logic, keychain mock
+9. Unit tests: `config.test.ts` — `getServerUrl()` priority order, setup wizard flow, settings.json r/w
 
 **Acceptance criteria (from spec)**:
-- Given unauthenticated user runs `caipe auth login`, browser opens grid OAuth flow, token saved, status reports identity
+- Given a user has not yet configured a server URL, when they run `caipe` or `caipe chat`, they are walked through the setup wizard (URL prompt → auth flow) without separate commands
+- Given unauthenticated user runs `caipe auth login`, browser opens CAIPE server OAuth flow, token saved, status reports identity
 - Given authenticated user runs `caipe auth logout`, credential removed, next login required
 - Given token expiry, silent refresh succeeds without user interaction
 
@@ -133,7 +142,7 @@ Deliverables:
 
 ### Phase 2 — Chat REPL (P1)
 
-**Goal**: `caipe chat` opens a streaming chat session with the default grid agent.
+**Goal**: `caipe chat` opens a streaming chat session with the default CAIPE server agent.
 
 Deliverables:
 1. `src/chat/stream.ts` — AG-UI client (`@ag-ui/client`): connect to `POST /api/agui/stream`; handle `TEXT_MESSAGE_CONTENT` token stream; surface `RUN_ERROR`; reconnect on drop
@@ -149,7 +158,7 @@ Deliverables:
 8. `src/platform/markdown.ts` — marked-terminal wrapper with GFM support
 9. Unit tests: `context.test.ts` — git sampling, memory loading, token budget truncation
 10. Unit tests: `stream.test.ts` — A2aAdapter mock SSE, AguiAdapter mock SSE, protocol mismatch prompt flow
-11. Integration test: mock grid endpoint for both protocols → verify streaming render pipeline
+11. Integration test: mock CAIPE server endpoint for both protocols → verify streaming render pipeline
 
 **Acceptance criteria (from spec)**:
 - Repo context (file structure, recent git log) is sent as system context at session start
@@ -200,7 +209,7 @@ Deliverables:
 
 ### Phase 5 — Grid Agents (P4)
 
-**Goal**: `caipe agents list`, `caipe chat --agent <name>` route to specific grid agents.
+**Goal**: `caipe agents list`, `caipe chat --agent <name>` route to specific CAIPE server agents.
 
 Deliverables:
 1. `src/agents/registry.ts` — `GET /api/v1/agents`; 5-minute TTL cache; availability health check
@@ -211,7 +220,7 @@ Deliverables:
 6. Unit tests: registry cache TTL, availability check, unknown agent error path
 
 **Acceptance criteria (from spec)**:
-- `caipe agents list` shows all grid agents with names and capability descriptions
+- `caipe agents list` shows all CAIPE server agents with names and capability descriptions
 - `caipe chat --agent argocd` pins session to ArgoCD agent
 - Default generalist agent used when no `--agent` specified; agent name shown in session header
 - Specified agent unavailable → error with list of available agents
@@ -245,6 +254,28 @@ Deliverables:
 2. `/memory` slash command handler in `src/chat/Repl.tsx` — suspend input, open editor, reload memory context on return
 3. Memory hot-reload: `src/memory/loader.ts` re-runs after editor exits; session continues with updated context
 4. Unit tests: file creation, `$EDITOR`/`$VISUAL` env detection, path scope selection (global vs project)
+
+---
+
+### Phase 8 — Headless / Non-Interactive Mode (P-CI)
+
+**Goal**: `caipe chat` (and `caipe chat --agent <name>`) work end-to-end in CI pipelines and automation scripts — no TTY, no browser, no interactive prompts.
+
+Deliverables:
+1. `src/headless/auth.ts` — credential resolver: JWT pass-through (`CAIPE_TOKEN` / `--token`) → API Key (`CAIPE_API_KEY` / `settings.json auth.apiKey`) → Client Credentials (`CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` → token exchange via `POST <server.url>/oauth/token`)
+2. `src/headless/output.ts` — format writer: `text` (raw stream to stdout), `json` (accumulate → single blob on completion), `ndjson` (one JSON object per `StreamEvent`)
+3. `src/headless/runner.ts` — orchestrator: detect headless (no TTY or `--headless` flag), resolve credentials, read prompt (`--prompt` → `--prompt-file` → stdin), invoke `StreamAdapter`, write output, exit with appropriate code; `--interactive-stdin` loop for multi-turn
+4. Integration with `src/index.ts` — `caipe chat` and `caipe chat --agent <name>` route through `headless/runner.ts` when no TTY detected; Ink REPL bypassed entirely
+5. `src/platform/config.ts` update — expose `getHeadlessCredentials()` reading all three credential types from env + settings
+6. Unit tests: `headless.test.ts` — credential priority order, missing credential exit code, `text`/`json`/`ndjson` output format, `--interactive-stdin` loop with EOF and `\exit` termination, prompt resolution priority
+7. Contract tests: headless flags in `cli.contract.test.ts` — `--headless`, `--prompt`, `--prompt-file`, `--output`, `--interactive-stdin`, `--token`
+
+**Acceptance criteria (from spec)**:
+- Given a CI script sets `CAIPE_API_KEY` and runs `caipe chat --prompt "list pods"`, the response is written to stdout and the process exits 0
+- Given `CAIPE_TOKEN` and `CAIPE_API_KEY` are both set, JWT is used (priority order)
+- Given no credential is present in headless mode, exit 1 with `{"error":"no credentials configured"}` to stderr; no interactive prompt
+- Given `--output ndjson`, one JSON object per token/event is written to stdout as it streams
+- Given `--interactive-stdin`, the session reads newline-delimited turns until EOF; each response precedes the next read
 
 ---
 
@@ -330,3 +361,5 @@ No constitution violations. All complexity is justified by the spec:
 
 - Bun platform binaries add packaging complexity but are required for SC-001 (`npx caipe` in under 3 minutes including auth) and SC-006 (install under 60s)
 - OAuth PKCE with local HTTP server adds implementation complexity but is required for FR-001 and the security gate (no plaintext tokens)
+- Three-method headless auth (JWT > API Key > Client Credentials) adds branching but is required by FR-018 to cover federated CI, simple pipeline, and service-to-service scenarios without forcing callers to obtain a browser token
+- First-run setup wizard adds a UX state machine to Phase 1 but is required by FR-016 — there is no sensible default server URL to hardcode, so the wizard is the only safe path
