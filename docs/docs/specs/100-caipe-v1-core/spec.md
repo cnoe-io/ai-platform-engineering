@@ -1,15 +1,15 @@
-# Feature Specification: caipe — AI Platform Engineer CLI (v1 Core)
+# Feature Specification: caipe-cli — v1 Core
 
 **Feature Branch**: `100-caipe-v1-core`  
 **Created**: 2026-04-12  
 **Status**: Draft  
-**Input**: User description: "caipe - Cisco-ETI AI Platform Engineer CLI with interactive chat, skills hub, self-improving agent, grid agent access, and DCO policy enforcement"
+**Input**: User description: "caipe-cli — AI Platform Engineer CLI with interactive chat, skills hub, self-improving agent, grid agent access, and DCO policy enforcement"
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Authenticated Interactive Chat (Priority: P1)
 
-A platform engineer opens their terminal, authenticates once with their Cisco-ETI grid identity, and immediately starts a context-aware chat session scoped to the repository they are working in. They ask questions, request code assistance, and interact with AI — entirely from the terminal.
+A platform engineer opens their terminal, authenticates once with their grid identity, and immediately starts a context-aware chat session scoped to the repository they are working in. They ask questions, request code assistance, and interact with AI — entirely from the terminal.
 
 **Why this priority**: Authenticated chat is the primary value driver. All other features (skills, self-improvement, agent routing) depend on a working, authenticated session. Delivering this alone gives users immediate productivity.
 
@@ -17,7 +17,7 @@ A platform engineer opens their terminal, authenticates once with their Cisco-ET
 
 **Acceptance Scenarios**:
 
-1. **Given** a user has not yet authenticated, **When** they run `caipe` or `caipe chat`, **Then** they are directed to a browser-based Cisco-ETI grid login flow and a session credential is saved locally after success
+1. **Given** a user has not yet authenticated, **When** they run `caipe` or `caipe chat`, **Then** they are directed to a browser-based grid login flow and a session credential is saved locally after success
 2. **Given** an authenticated user is in a git repository, **When** they start a chat session, **Then** the assistant receives the repository's file structure and recent git state as context
 3. **Given** an authenticated user sends a message, **When** the assistant responds, **Then** the response streams to the terminal in real-time with markdown rendered for readability
 4. **Given** a user's session credential expires mid-session, **When** they send a message, **Then** they are prompted to re-authenticate without losing the current conversation context
@@ -108,7 +108,7 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 
 ### Functional Requirements
 
-- **FR-001**: Users MUST be able to authenticate using their Cisco-ETI grid identity via a browser-initiated flow launched from the terminal
+- **FR-001**: Users MUST be able to authenticate using their grid identity via a browser-initiated flow launched from the terminal
 - **FR-002**: Authenticated sessions MUST persist across terminal restarts without requiring re-login until the credential expires or the user explicitly signs out
 - **FR-003**: The chat interface MUST stream responses to the terminal in real-time with markdown rendered for readability
 - **FR-004**: Chat sessions MUST automatically include context from the current working directory and git repository state at session start
@@ -121,11 +121,11 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - **FR-011**: The CLI MUST prompt users for a `Signed-off-by` trailer on every AI-assisted commit and MUST NOT generate this trailer on the user's behalf
 - **FR-012**: The CLI MUST be installable via `npx caipe` with no prerequisites beyond Node.js
 - **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; [NEEDS CLARIFICATION: agent routing scope — does selecting an agent pin the entire session to that agent (A), or can users switch agents per message mid-conversation (B)?]
-- **FR-014**: The skill catalog MUST be browsable using the same Cisco-ETI grid credential used for chat, with no additional login required; [NEEDS CLARIFICATION: catalog distribution model — is the catalog served via grid.outshift.io API (A), a GitHub releases/manifest feed (B), or an npm-published package registry (C)? This determines offline behavior and versioning granularity]
+- **FR-014**: The skill catalog MUST be browsable using the same grid credential used for chat, with no additional login required; [NEEDS CLARIFICATION: catalog distribution model — is the catalog served via grid.outshift.io API (A), a GitHub releases/manifest feed (B), or an npm-published package registry (C)? This determines offline behavior and versioning granularity]
 
 ### Key Entities
 
-- **User**: A Cisco-ETI platform engineer with a grid identity; owns a local credential, per-project chat memory, and a set of installed skills
+- **User**: A platform engineer with a grid identity; owns a local credential, per-project chat memory, and a set of installed skills
 - **Skill**: A Markdown document with YAML frontmatter describing an AI automation routine; has name, version, description, author, and body
 - **Catalog**: A versioned, searchable collection of published skills with metadata for discovery and installation
 - **Chat Session**: A conversation thread scoped to a working directory; has an active agent, persistent memory, and streams responses
@@ -147,8 +147,8 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 
 ## Assumptions
 
-- The grid.outshift.io authentication service supports a browser-initiated device authorization flow compatible with headless/CLI environments
-- The skills catalog is accessible to any authenticated grid user without a separate credential
+- The grid authentication service supports a browser-initiated device authorization flow compatible with headless/CLI environments
+- The skills catalog is accessible to any authenticated user without a separate credential
 - Skills follow the SKILL.md format convention established in outshift/skills (YAML frontmatter + Markdown body)
 - Memory persistence is stored locally in a per-project directory (e.g., `.claude/memory/`) and is not synced to the cloud
 - The CLI targets macOS and Linux as primary platforms; Windows (WSL2) is a supported secondary target
