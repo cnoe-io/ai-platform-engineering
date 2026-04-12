@@ -25,13 +25,26 @@ Developer terminal (CAIPE CLI)          Grid platform (remote)
 • OS keychain credential storage        • Multi-agent routing
 • Local tool execution (v3+)            • Server-side session state
          │
-         │  POST /api/agui/stream  (AG-UI SSE)
+         │  A2A (default)  — POST /tasks/send  (SSE streaming)
+         │  AG-UI (--protocol agui) — POST /api/agui/stream
          │  Bearer token + context payload
          ▼
        Grid endpoint
 ```
 
+**Dual-protocol design**: A2A is the v1 default — it is widely supported across today's grid agents and gives direct access to the A2A task lifecycle (submit → stream → complete). AG-UI is available via `--protocol agui` for agents and workflows that have migrated to the newer interface. Both protocols deliver token-by-token streaming to the terminal; the session UX is identical regardless of protocol chosen. The active protocol is shown in the session status header.
+
 **Relationship to Claude Code**: CAIPE CLI intentionally mirrors Claude Code's terminal UX patterns — React + Ink TUI, CLAUDE.md memory hierarchy, skills installed to `.claude/`, session history, git context at session start. The key difference is the backend: Claude Code calls the Anthropic API directly with one model; CAIPE routes through the grid's supervisor which dynamically delegates to specialised domain agents. In its full agentic form (v3), the execution model is identical to Claude Code — the CLI is the tool executor, the grid supervisor is the decision-maker.
+
+---
+
+## Clarifications
+
+### Session 2026-04-12
+
+- Q: In v1, what should A2A handle beyond agent card discovery, and how is the protocol selected? → A: Both A2A and AG-UI handle full chat sessions; A2A is the default; user may override per session via `--protocol agui|a2a`; active protocol shown in session header
+- Q: How does the CLI know which protocol a specific agent supports? → A: Grid registry (`GET /api/v1/agents`) returns a per-agent protocol list; CLI validates the chosen protocol against the registry before opening a session
+- Q: When `--protocol agui` is requested but the agent only supports A2A — what should the CLI do? → A: Prompt the user ("Agent `<name>` does not support agui (supports: a2a) — switch protocol and continue? [y/N]"); if confirmed, open session with supported protocol; if declined, exit cleanly
 
 ---
 
@@ -133,6 +146,8 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - How does the CLI handle two concurrent sessions from the same authenticated identity?
 - What happens if a skill file in the repository has been manually edited after installation?
 - What happens when `npx caipe` is run on a network with a corporate proxy intercepting HTTPS?
+- What happens when `--protocol agui` is specified but the target agent only supports A2A? (→ user is prompted to switch; session opens with supported protocol on confirmation)
+- What happens when the grid registry is reachable but does not return a `protocols` field for an agent? (→ CLI assumes A2A as default; proceeds without protocol validation warning)
 
 ## Requirements *(mandatory)*
 
@@ -140,7 +155,7 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 
 - **FR-001**: Users MUST be able to authenticate using their grid identity via a browser-initiated flow launched from the terminal
 - **FR-002**: Authenticated sessions MUST persist across terminal restarts without requiring re-login until the credential expires or the user explicitly signs out
-- **FR-003**: The chat interface MUST stream responses to the terminal in real-time using the AG-UI protocol, with markdown rendered for readability
+- **FR-003**: The chat interface MUST stream responses to the terminal in real-time with markdown rendered for readability; the CLI MUST support both A2A and AG-UI protocols — A2A is the default in v1; users MAY select AG-UI explicitly via `--protocol agui` (or `--protocol a2a` to be explicit); the active protocol is shown in the session header
 - **FR-004**: Chat sessions MUST automatically include context from the current working directory and git repository state at session start
 - **FR-005**: The chat session MUST maintain persistent memory (conversation history, user preferences) stored locally, accessible across sessions within the same project
 - **FR-006**: Users MUST be able to list, preview, and install skills from the catalog using a `skills` subcommand
@@ -150,7 +165,7 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - **FR-010**: When committing AI-assisted code via the CLI, the system MUST auto-append an `Assisted-by` attribution trailer to the commit message
 - **FR-011**: The CLI MUST prompt users for a `Signed-off-by` trailer on every AI-assisted commit and MUST NOT generate this trailer on the user's behalf
 - **FR-012**: The CLI MUST be installable via `npx caipe` with no prerequisites beyond Node.js
-- **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; selecting an agent pins the entire session to that agent — switching agents requires starting a new session (per-message routing is deferred to v2)
+- **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; selecting an agent pins the entire session to that agent — switching agents requires starting a new session (per-message routing is deferred to v2); the grid registry MUST return a `protocols` field per agent (`["a2a"]`, `["agui"]`, or `["a2a","agui"]`); the CLI MUST validate the requested `--protocol` against this list before opening a session; if the protocol is unsupported, the CLI MUST prompt the user to switch to the agent's supported protocol and proceed only on confirmation
 - **FR-014**: The skill catalog MUST be browsable via a versioned static JSON manifest published as a GitHub Release asset; catalog browsing requires no authentication; installation of individual skills uses the same grid credential as chat
 
 ### Key Entities
@@ -159,7 +174,7 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - **Skill**: A Markdown document with YAML frontmatter describing an AI automation routine; has name, version, description, author, and body
 - **Catalog**: A versioned, searchable collection of published skills with metadata for discovery and installation
 - **Chat Session**: A conversation thread scoped to a working directory; has an active agent, persistent memory, and streams responses
-- **Agent**: A specialised AI backend on the grid platform targeting a specific domain (e.g., GitOps, security, observability)
+- **Agent**: A specialised AI backend on the grid platform targeting a specific domain (e.g., GitOps, security, observability); each agent declares the protocols it supports (`a2a`, `agui`, or both) via the grid registry
 - **Commit**: A git commit that may carry AI-generated content; subject to DCO policy requiring `Assisted-by` and human-supplied `Signed-off-by`
 
 ## Success Criteria *(mandatory)*
