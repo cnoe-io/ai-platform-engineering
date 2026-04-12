@@ -14,7 +14,7 @@ The v1 implementation is a TypeScript + Bun project using React + Ink for the TU
 ## Technical Context
 
 **Language/Version**: TypeScript 5.x, Bun 1.x  
-**Primary Dependencies**: React 19, Ink 5 (TUI), Commander.js (CLI parsing), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)  
+**Primary Dependencies**: React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)  
 **Storage**: Local filesystem only — `~/.config/caipe/` (global) + `.claude/` or `skills/` (per-project)  
 **Testing**: Bun test (Jest-compatible API) — unit + contract tests; integration tests require a mock grid endpoint  
 **Target Platform**: macOS (primary), Linux (primary), WSL2 (secondary)  
@@ -136,7 +136,7 @@ Deliverables:
 **Goal**: `caipe chat` opens a streaming chat session with the default grid agent.
 
 Deliverables:
-1. `src/chat/stream.ts` — A2A SSE streaming client; token-by-token delivery; reconnect on drop
+1. `src/chat/stream.ts` — AG-UI client (`@ag-ui/client`): connect to `POST /api/agui/stream`; handle `TEXT_MESSAGE_CONTENT` token stream; surface `RUN_ERROR`; reconnect on drop
 2. `src/platform/git.ts` — repo root detection via execa; file tree sampling; `git log` excerpt
 3. `src/memory/loader.ts` — load global + project CLAUDE.md; 50k token budget cap with truncation warning
 4. `src/chat/context.ts` — assemble git tree + memory files into system context string
@@ -263,21 +263,33 @@ The root `caipe` npm package declares `optionalDependencies` for each platform p
 
 **CI/CD**: `prebuild/feat/caipe-*` branches trigger the standard pipeline. A dedicated GitHub Actions workflow (`caipe-release.yml`) builds platform binaries via `bun build --compile --target=bun-<platform>` and publishes npm packages on tag.
 
-## A2A Protocol Notes
+## Protocol Notes
 
-caipe-cli communicates with grid agents using the A2A protocol, as implemented in `cnoe-io/agent-chat-cli` (the first-party reference CLI).
+### AG-UI (interface-to-agent) — primary protocol for caipe-cli
 
-Key protocol details that shape `src/chat/stream.ts` and `src/agents/registry.ts`:
+Per the `release/0.4.0` architecture (`098-server-persistence-agui-streaming`), **AG-UI is the unified protocol for all interface clients** (UI, Slack, CLI). A2A is reserved for server-side agent-to-agent communication only.
 
-| Concern | Detail |
-|---------|--------|
-| Agent discovery | `GET /.well-known/agent.json` → `AgentCard` (name, description, capabilities, endpoint) |
-| Extended card | `GET /agent/authenticatedExtendedCard` with Bearer token for private agent metadata |
-| Authentication | OAuth2 Bearer token passed as `Authorization: Bearer <token>` on all agent requests |
-| Session identity | UUID `contextId` created at session start; sent on every message to preserve conversation state |
-| Streaming events | SSE stream delivers: `TaskArtifactUpdateEvent` (content delta), `TaskStatusUpdateEvent` (state: working → completed/failed) |
-| Fallback | If SSE unavailable, fall back to non-streaming single-response mode |
-| Protocol baseline | Same A2A/SLIM dual-protocol pattern as `agent-chat-cli`; caipe-cli v1 implements A2A only |
+`src/chat/stream.ts` uses `@ag-ui/client` to connect to `POST /api/agui/stream`:
+
+| AG-UI Event | CLI Response |
+|-------------|-------------|
+| `RUN_STARTED` | Show agent name in status header; start spinner |
+| `TEXT_MESSAGE_START` | Open streaming render pane |
+| `TEXT_MESSAGE_CONTENT` | Append token to live display |
+| `TEXT_MESSAGE_END` | Finalize message; stop spinner |
+| `TOOL_CALL_START` / `TOOL_CALL_END` | Show tool indicator in status bar |
+| `STATE_SNAPSHOT` / `STATE_DELTA` | Update local session state (e.g., HITL prompt surfacing) |
+| `RUN_ERROR` | Display error with retry prompt |
+| `RUN_FINISHED` | Mark turn complete; prompt for next input |
+
+### A2A (agent discovery only)
+
+`src/agents/registry.ts` still uses A2A agent card discovery:
+- `GET /.well-known/agent.json` → `AgentCard` (name, description, capabilities, endpoint)
+- `GET /agent/authenticatedExtendedCard` with Bearer token for private metadata
+- Session context ID (UUID) passed per request to preserve conversation state across turns
+
+The first-party Python reference for A2A patterns is `cnoe-io/agent-chat-cli`.
 
 ## Complexity Tracking
 
