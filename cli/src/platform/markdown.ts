@@ -14,7 +14,7 @@ let _initialized = false;
 function ensureInit(): void {
   if (_initialized) return;
   marked.setOptions({
-    // @ts-expect-error: marked-terminal extends options
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     renderer: new TerminalRenderer({
       // Disable color if NO_COLOR env is set
       enabled: !process.env["NO_COLOR"],

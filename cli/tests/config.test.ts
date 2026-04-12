@@ -77,7 +77,8 @@ describe("settings read/write", () => {
   });
 
   it("handles corrupted settings file gracefully", () => {
-    const { writeFileSync } = require("fs") as typeof import("fs");
+    const { writeFileSync, mkdirSync } = require("fs") as typeof import("fs");
+    mkdirSync(require("path").dirname(settingsJsonPath()), { recursive: true });
     writeFileSync(settingsJsonPath(), "not json");
     const s = readSettings();
     expect(s).toEqual({});

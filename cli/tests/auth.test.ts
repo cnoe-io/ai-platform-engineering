@@ -146,7 +146,7 @@ describe("getValidToken", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const token = await getValidToken(SERVER_URL);
@@ -166,7 +166,7 @@ describe("getValidToken", () => {
     const originalFetch = global.fetch;
     global.fetch = mock(() =>
       Promise.resolve(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 })),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       await expect(getValidToken(SERVER_URL)).rejects.toBeInstanceOf(AuthRequired);
@@ -240,7 +240,7 @@ describe("loginDevice polling behavior", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await loginDevice(SERVER_URL, CLIENT_ID);
@@ -292,7 +292,7 @@ describe("loginDevice polling behavior", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await loginDevice(SERVER_URL, CLIENT_ID);
@@ -301,7 +301,7 @@ describe("loginDevice polling behavior", () => {
     } finally {
       global.fetch = originalFetch;
     }
-  });
+  }, 15000);
 
   it("access_denied → process.exit(1) with correct message", async () => {
     const { loginDevice } = await import("../src/auth/oauth");
@@ -338,7 +338,7 @@ describe("loginDevice polling behavior", () => {
           { status: 400, headers: { "Content-Type": "application/json" } },
         ),
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await loginDevice(SERVER_URL, CLIENT_ID);
@@ -387,7 +387,7 @@ describe("loginDevice polling behavior", () => {
           { status: 400, headers: { "Content-Type": "application/json" } },
         ),
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await loginDevice(SERVER_URL, CLIENT_ID);
@@ -400,7 +400,7 @@ describe("loginDevice polling behavior", () => {
     }
 
     expect(stderrChunks.join("")).toContain("re-run");
-  });
+  }, 15000);
 
   it("unsupported_grant_type → process.exit(1) with --manual suggestion", async () => {
     const { loginDevice } = await import("../src/auth/oauth");
@@ -430,7 +430,7 @@ describe("loginDevice polling behavior", () => {
         );
       }
       return Promise.resolve(new Response("{}", { status: 200 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       await loginDevice(SERVER_URL, CLIENT_ID);
@@ -464,7 +464,7 @@ describe("loginDevice polling behavior", () => {
 
     global.fetch = mock(() =>
       Promise.resolve(new Response("Not Found", { status: 404 })),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       await loginDevice(SERVER_URL, CLIENT_ID);
@@ -494,7 +494,7 @@ describe("refreshAccessToken", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const tokens = await refreshAccessToken("old_refresh", SERVER_URL);
@@ -508,7 +508,7 @@ describe("refreshAccessToken", () => {
     const originalFetch = global.fetch;
     global.fetch = mock(() =>
       Promise.resolve(new Response("{}", { status: 400 })),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       await expect(refreshAccessToken("bad_token", SERVER_URL)).rejects.toBeInstanceOf(

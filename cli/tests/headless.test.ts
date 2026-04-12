@@ -90,7 +90,7 @@ describe("resolveHeadlessCredentials", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const { resolveHeadlessCredentials } = await import("../src/headless/auth");
