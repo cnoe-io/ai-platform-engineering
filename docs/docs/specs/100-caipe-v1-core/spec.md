@@ -1,9 +1,11 @@
-# Feature Specification: caipe-cli — v1 Core
+# Feature Specification: CAIPE CLI — v1 Core
+
+> **CAIPE CLI** — AI-assisted coding, workflows, and platform engineering from the terminal.
 
 **Feature Branch**: `100-caipe-v1-core`  
 **Created**: 2026-04-12  
 **Status**: Draft  
-**Input**: User description: "caipe-cli — AI Platform Engineer CLI with interactive chat, skills hub, self-improving agent, grid agent access, and DCO policy enforcement"
+**Input**: User description: "CAIPE CLI — AI Platform Engineer CLI for coding, workflows, and automation with interactive chat, skills hub, self-improving agent, grid agent access, and DCO policy enforcement"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -120,8 +122,8 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - **FR-010**: When committing AI-assisted code via the CLI, the system MUST auto-append an `Assisted-by` attribution trailer to the commit message
 - **FR-011**: The CLI MUST prompt users for a `Signed-off-by` trailer on every AI-assisted commit and MUST NOT generate this trailer on the user's behalf
 - **FR-012**: The CLI MUST be installable via `npx caipe` with no prerequisites beyond Node.js
-- **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; [NEEDS CLARIFICATION: agent routing scope — does selecting an agent pin the entire session to that agent (A), or can users switch agents per message mid-conversation (B)?]
-- **FR-014**: The skill catalog MUST be browsable using the same grid credential used for chat, with no additional login required; [NEEDS CLARIFICATION: catalog distribution model — is the catalog served via grid.outshift.io API (A), a GitHub releases/manifest feed (B), or an npm-published package registry (C)? This determines offline behavior and versioning granularity]
+- **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; selecting an agent pins the entire session to that agent — switching agents requires starting a new session (per-message routing is deferred to v2)
+- **FR-014**: The skill catalog MUST be browsable via a versioned static JSON manifest published as a GitHub Release asset; catalog browsing requires no authentication; installation of individual skills uses the same grid credential as chat
 
 ### Key Entities
 
