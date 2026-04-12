@@ -16,7 +16,7 @@ dependencies = [
   "cnoe-agent-utils==0.3.14",
   "langchain-core==1.2.28",
   "langchain-mcp-adapters==0.2.1",
-  "langgraph==1.0.9",
+  "langgraph==1.0.10",
   "mcp-netutils",
   "prometheus-client==0.23.1",
   "python-dotenv==1.2.1",
@@ -55,6 +55,9 @@ markers = [
     "unit: marks tests as unit tests",
     "integration: marks tests as integration tests",
 ]
+
+[tool.uv]
+constraint-dependencies = ["pypdf>=6.10.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }
