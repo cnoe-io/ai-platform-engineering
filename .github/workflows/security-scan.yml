@@ -48,6 +48,7 @@ jobs:
           # Block on critical vulns for PRs/main; informational on tags and manual dispatch
           fail-build: "${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
           severity-cutoff: critical
+          only-fixed: true
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
@@ -137,6 +138,7 @@ jobs:
           image: "ghcr.io/cnoe-io/${{ matrix.image }}:${{ steps.tag.outputs.tag }}"
           fail-build: false
           severity-cutoff: high
+          only-fixed: true
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
