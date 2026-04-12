@@ -7,6 +7,34 @@
 **Status**: Draft  
 **Input**: User description: "CAIPE CLI — AI Platform Engineer CLI for coding, workflows, and automation with interactive chat, skills hub, self-improving agent, grid agent access, and DCO policy enforcement"
 
+## Architecture Overview
+
+CAIPE CLI is a **thin terminal client** — it does not run any LLM locally. All AI inference, agent orchestration, and tool-call decision-making happens server-side on the grid platform. The CLI's role is to:
+
+1. **Assemble local context** — git file tree, recent commit history, memory files — and include it in the request payload
+2. **Stream the response** — receive AG-UI events token-by-token and render them in the terminal
+3. **Execute local tools** (future, v3) — when the grid supervisor requests a file read, bash command, or edit, the CLI executes it locally and returns the result
+
+```
+Developer terminal (CAIPE CLI)          Grid platform (remote)
+──────────────────────────────          ──────────────────────
+• Gather git context                    • LLM inference
+• Load CLAUDE.md memory                 • Supervisor agent
+• Render streaming tokens               • Specialised sub-agents
+• Manage skills files                     (ArgoCD, k8s, security…)
+• OS keychain credential storage        • Multi-agent routing
+• Local tool execution (v3+)            • Server-side session state
+         │
+         │  POST /api/agui/stream  (AG-UI SSE)
+         │  Bearer token + context payload
+         ▼
+       Grid endpoint
+```
+
+**Relationship to Claude Code**: CAIPE CLI intentionally mirrors Claude Code's terminal UX patterns — React + Ink TUI, CLAUDE.md memory hierarchy, skills installed to `.claude/`, session history, git context at session start. The key difference is the backend: Claude Code calls the Anthropic API directly with one model; CAIPE routes through the grid's supervisor which dynamically delegates to specialised domain agents. In its full agentic form (v3), the execution model is identical to Claude Code — the CLI is the tool executor, the grid supervisor is the decision-maker.
+
+---
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Authenticated Interactive Chat (Priority: P1)
@@ -157,3 +185,49 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - Skill versioning uses semantic versioning; the catalog exposes at least a `version` field per skill entry
 - The self-improving agent never auto-applies updates; human confirmation is always required before any skill file is modified
 - Multiple concurrent CLI sessions from the same user are permitted and share the same local credential store
+- **No local LLM**: CAIPE CLI performs no model inference locally; all AI computation runs on the grid; the CLI is network-dependent for all chat and agent interactions
+- **Offline capability is limited to**: skills catalog browsing (1-hour cache) and memory file editing; chat requires the grid to be reachable
+- The grid's supervisor agent handles dynamic sub-agent routing transparently; the CLI does not need to know which sub-agent handled a given turn
+
+---
+
+## Future Roadmap
+
+This section captures planned evolution beyond v1. These are **not** in scope for this feature branch.
+
+### v2 — Per-Message Dynamic Agent Routing
+
+In v1, selecting an agent pins the entire session. In v2, the CLI delegates routing to the grid supervisor per message — the user talks to one session and the supervisor dynamically invokes the appropriate sub-agent (ArgoCD, k8s, security, GitHub, etc.) per turn.
+
+**What changes**: Remove session-pinned restriction; pass all messages to the supervisor endpoint; display the active sub-agent name per response turn in the session header.
+
+**Dependency**: Grid supervisor must support multi-agent context threading — preserving conversation state across sub-agent handoffs.
+
+### v3 — Full Agentic Coding Assistant (Tool Execution)
+
+In v3, CAIPE CLI becomes a general-purpose agentic coding assistant backed by the grid supervisor. The execution model mirrors Claude Code — the CLI is the **local tool executor**, the grid supervisor is the **decision-maker**.
+
+**New capability**: The CLI handles `TOOL_CALL_START/END` AG-UI events and executes tools locally:
+
+| Tool | CLI action |
+|------|-----------|
+| `read_file` | Read from local filesystem; return content to grid |
+| `write_file` | Write to local filesystem after HITL approval |
+| `list_dir` | Walk local directory; return tree to grid |
+| `run_command` | Execute bash command locally after HITL approval |
+| `edit_file` | Apply diff to local file after HITL approval |
+
+**HITL approval**: `STATE_SNAPSHOT/DELTA` events surface tool calls requiring user confirmation before execution. The Ink REPL renders an approve/deny prompt.
+
+**What this unlocks**: The grid supervisor can autonomously read repo files, propose edits, run tests, and iterate — entirely from the terminal — without any local model. Platform-engineering workflows like "fix this failing ArgoCD sync", "update this Helm chart", or "triage this CVE and open a PR" become single-prompt operations.
+
+### Comparison to Claude Code at v3
+
+| | Claude Code | CAIPE CLI (v3) |
+|--|-------------|----------------|
+| LLM decision-maker | Anthropic Claude (API) | Grid supervisor |
+| Tool executor | CLI (local) | CLI (local) — identical |
+| Agent specialisation | One model | Domain sub-agents |
+| HITL approval | Built-in | Via `STATE_SNAPSHOT/DELTA` |
+| Skills | Slash commands | Installable, versioned Markdown |
+| Target user | General developers | Platform engineers |
