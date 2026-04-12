@@ -100,7 +100,7 @@ COMMIT_SOURCE="$2"
 
 # Only run on normal commits (not merges, squashes, etc.)
 if [ -z "$COMMIT_SOURCE" ]; then
-  MODEL="${CAIPE_MODEL_VERSION:-claude-sonnet-4-6}"
+  MODEL="\${CAIPE_MODEL_VERSION:-claude-sonnet-4-6}"
   TRAILER="Assisted-by: Claude:$MODEL"
   if ! grep -qF "$TRAILER" "$COMMIT_MSG_FILE"; then
     printf "\\n%s\\n" "$TRAILER" >> "$COMMIT_MSG_FILE"

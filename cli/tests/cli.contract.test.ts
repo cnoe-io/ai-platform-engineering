@@ -18,7 +18,7 @@ describe("ServerNotConfigured", () => {
     const err = new ServerNotConfigured();
     expect(err).toBeInstanceOf(Error);
     expect(err.name).toBe("ServerNotConfigured");
-    expect(err.message).toContain("HTTPS");
+    expect(err.message).toContain("https://");
   });
 });
 
@@ -125,7 +125,7 @@ describe("StreamAdapter contract", () => {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },
         }),
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     try {
       const adapter = createAdapter("a2a", DEFAULT_AGENT, "https://caipe.test", async () => "tok");

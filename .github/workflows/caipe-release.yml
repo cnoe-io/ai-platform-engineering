@@ -51,7 +51,8 @@ jobs:
           bun build src/index.ts \
             --compile \
             --target=${{ matrix.target }} \
-            --outfile=dist/${{ matrix.artifact }}
+            --outfile=dist/${{ matrix.artifact }} \
+            --external react-devtools-core
 
       - name: Compute SHA-256 checksum
         working-directory: cli/dist

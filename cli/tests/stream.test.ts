@@ -60,7 +60,7 @@ describe("A2aAdapter", () => {
           headers: { "Content-Type": "text/event-stream" },
         }),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const adapter = new A2aAdapter(DEFAULT_AGENT, SERVER_URL, getToken);
@@ -85,7 +85,7 @@ describe("A2aAdapter", () => {
     const originalFetch = global.fetch;
     global.fetch = mock(() =>
       Promise.resolve(new Response("Server Error", { status: 500 })),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const adapter = new A2aAdapter(DEFAULT_AGENT, SERVER_URL, getToken);
@@ -123,7 +123,7 @@ describe("A2aAdapter", () => {
           headers: { "Content-Type": "text/event-stream" },
         }),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const adapter = new A2aAdapter(DEFAULT_AGENT, SERVER_URL, getToken);
@@ -157,7 +157,7 @@ describe("A2aAdapter", () => {
       Promise.resolve(
         new Response(mockBody, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const adapter = new A2aAdapter(DEFAULT_AGENT, SERVER_URL, getToken);
@@ -217,7 +217,7 @@ describe("token accumulation", () => {
       Promise.resolve(
         new Response(mockBody, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const adapter = new A2aAdapter(DEFAULT_AGENT, SERVER_URL, getToken);

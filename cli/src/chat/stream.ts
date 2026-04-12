@@ -239,11 +239,11 @@ export class AguiAdapter implements StreamAdapter {
 
   async *connect(payload: SendPayload): AsyncIterable<StreamEvent> {
     // Dynamically import @ag-ui/client to avoid startup cost when not needed
-    const aguiMod = await import("@ag-ui/client");
+    const { HttpAgent } = await import("@ag-ui/client");
     const ep = endpoints(this.serverUrl);
     const token = await this.getAccessToken();
 
-    const client = new aguiMod.Client({
+    const agent = new HttpAgent({
       url: ep.aguiStream,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -253,24 +253,59 @@ export class AguiAdapter implements StreamAdapter {
     yield { type: "started" };
     let fullText = "";
 
-    const events = client.run({
+    // Convert rxjs Observable to AsyncIterable via a queued subscription
+    const observable = agent.run({
+      threadId: payload.sessionId,
+      runId: payload.sessionId,
       messages: [
         {
           role: "user",
           content: payload.prompt,
+          id: payload.sessionId,
         },
       ],
-      context: payload.systemContext,
-      agentName: payload.agentName,
-      runId: payload.sessionId,
+      tools: [],
+      context: [],
+    } as Parameters<typeof agent.run>[0]);
+
+    const queue: Array<StreamEvent | null> = [];
+    let resolve: (() => void) | null = null;
+    let done = false;
+
+    const subscription = observable.subscribe({
+      next: (ev) => {
+        const mapped = this.mapAguiEvent(ev as Record<string, unknown>);
+        if (mapped) queue.push(mapped);
+        resolve?.();
+        resolve = null;
+      },
+      error: (err: unknown) => {
+        queue.push({ type: "error", message: String(err) });
+        done = true;
+        resolve?.();
+        resolve = null;
+      },
+      complete: () => {
+        done = true;
+        queue.push(null); // sentinel
+        resolve?.();
+        resolve = null;
+      },
     });
 
-    for await (const ev of events) {
-      const mapped = this.mapAguiEvent(ev as Record<string, unknown>);
-      if (mapped) {
-        if (mapped.type === "token") fullText += (mapped as TokenEvent).text;
-        yield mapped;
+    try {
+      while (true) {
+        if (queue.length === 0 && !done) {
+          await new Promise<void>((r) => { resolve = r; });
+        }
+        if (queue.length === 0) break;
+        const item = queue.shift()!;
+        if (item === null) break;
+        if (item.type === "token") fullText += (item as TokenEvent).text;
+        yield item;
       }
+    } finally {
+      subscription.unsubscribe();
     }
 
     yield { type: "done", response: fullText };
@@ -286,7 +321,7 @@ export class AguiAdapter implements StreamAdapter {
         }
         break;
       case "RUN_STARTED":
-        return { type: "started", taskId: ev["runId"] as string | undefined };
+        return { type: "started", taskId: (ev["runId"] as string | undefined) ?? undefined };
       case "RUN_FINISHED":
         return { type: "done" };
       case "RUN_ERROR":

@@ -6,11 +6,11 @@
     "lib": ["ESNext"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "skipLibCheck": true,
     "noEmit": true,
+    "types": ["bun-types"],
     "baseUrl": ".",
     "paths": {
       "@platform/*": ["src/platform/*"],

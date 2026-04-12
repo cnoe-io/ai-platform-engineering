@@ -51,7 +51,7 @@ describe("fetchCatalog", () => {
           headers: { "Content-Type": "application/json" },
         }),
       ),
-    ) as typeof fetch;
+    ) as unknown as typeof fetch;
 
     try {
       const { fetchCatalog } = await import("../src/skills/catalog");
@@ -71,7 +71,7 @@ describe("fetchCatalog", () => {
     writeFileSync(join(configDir, "catalog-cache.json"), JSON.stringify(cacheObj));
 
     const originalFetch = global.fetch;
-    global.fetch = mock(() => Promise.reject(new Error("Network error"))) as typeof fetch;
+    global.fetch = mock(() => Promise.reject(new Error("Network error"))) as unknown as unknown as typeof fetch;
 
     const stderrChunks: string[] = [];
     const origWrite = process.stderr.write.bind(process.stderr);
@@ -100,7 +100,7 @@ describe("fetchCatalog", () => {
     global.fetch = mock(() => {
       fetchCalled = true;
       return Promise.resolve(new Response("{}", { status: 200 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       const { fetchCatalog } = await import("../src/skills/catalog");

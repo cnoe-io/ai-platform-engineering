@@ -117,7 +117,7 @@ describe("installSkill", () => {
         return Promise.resolve(new Response(content, { status: 200 }));
       }
       return Promise.resolve(new Response("not found", { status: 404 }));
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     process.chdir(projectDir);
     try {
@@ -167,7 +167,7 @@ describe("installSkill", () => {
           }),
           { status: 200 },
         ),
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const originalExit = process.exit;
     let exitCode: number | undefined;
@@ -194,7 +194,7 @@ describe("installSkill", () => {
           JSON.stringify({ version: "1", generated: new Date().toISOString(), skills: [] }),
           { status: 200 },
         ),
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const originalExit = process.exit;
     let exitCode: number | undefined;
@@ -235,7 +235,7 @@ describe("runSkillsUpdateCore", () => {
           }),
           { status: 200 },
         ),
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     process.chdir(projectDir);
     try {
@@ -268,7 +268,7 @@ describe("runSkillsUpdateCore", () => {
           }),
           { status: 200 },
         ),
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     process.chdir(projectDir);
     try {

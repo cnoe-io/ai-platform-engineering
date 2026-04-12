@@ -135,26 +135,17 @@ describe("buildSystemContext", () => {
   });
 
   it("includes repository section for a git repo", async () => {
-    // We mock findRepoRoot rather than creating a real git repo
-    const gitModule = await import("../src/platform/git");
-    const originalFind = gitModule.findRepoRoot;
-    const originalTree = gitModule.sampleFileTree;
-    const originalLog = gitModule.recentLog;
+    // ESM exports are sealed — use mock.module() to stub the git helpers.
+    mock.module("../src/platform/git", () => ({
+      findRepoRoot: async () => "/fake/root",
+      sampleFileTree: async () => "src/index.ts\npackage.json",
+      recentLog: async () => "abc1234 Initial commit",
+    }));
 
-    (gitModule as Record<string, unknown>)["findRepoRoot"] = async () => "/fake/root";
-    (gitModule as Record<string, unknown>)["sampleFileTree"] = async () => "src/index.ts\npackage.json";
-    (gitModule as Record<string, unknown>)["recentLog"] = async () => "abc1234 Initial commit";
-
-    try {
-      const { buildSystemContext } = await import("../src/chat/context");
-      const ctx = await buildSystemContext(testDir, false);
-      expect(ctx).toContain("<repository>");
-      expect(ctx).toContain("src/index.ts");
-      expect(ctx).toContain("Initial commit");
-    } finally {
-      (gitModule as Record<string, unknown>)["findRepoRoot"] = originalFind;
-      (gitModule as Record<string, unknown>)["sampleFileTree"] = originalTree;
-      (gitModule as Record<string, unknown>)["recentLog"] = originalLog;
-    }
+    const { buildSystemContext } = await import("../src/chat/context");
+    const ctx = await buildSystemContext(testDir, false);
+    expect(ctx).toContain("<repository>");
+    expect(ctx).toContain("src/index.ts");
+    expect(ctx).toContain("Initial commit");
   });
 });
