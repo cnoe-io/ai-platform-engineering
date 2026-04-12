@@ -98,7 +98,8 @@ A conversation thread between the user and a grid agent.
 |-------|------|-------|
 | `sessionId` | UUID | Unique per session; used for local history key |
 | `agentName` | string | Grid agent backing this session (e.g., `argocd`, `default`) |
-| `agentEndpoint` | URL | A2A endpoint for the selected agent |
+| `agentEndpoint` | URL | Grid endpoint for the selected agent |
+| `protocol` | `"a2a"` \| `"agui"` | Active streaming protocol; `"a2a"` is default |
 | `workingDir` | absolute path | `cwd` at session start; used for context gathering |
 | `repoRoot` | absolute path \| null | Nearest `.git` parent; null if outside a repo |
 | `startedAt` | ISO 8601 datetime | Session creation time |
@@ -132,7 +133,8 @@ A grid agent available for chat routing.
 | `name` | string | Kebab-case identifier (e.g., `argocd`, `github`, `default`) |
 | `displayName` | string | Human-readable (e.g., "ArgoCD Agent") |
 | `description` | string | Capability summary shown in `caipe agents list` |
-| `endpoint` | URL | A2A base URL |
+| `endpoint` | URL | Grid agent base URL |
+| `protocols` | `("a2a" \| "agui")[]` | Protocols this agent supports; returned by registry; used for pre-connect validation |
 | `available` | boolean | Health check result; cached for session lifetime |
 | `domain` | string | Capability domain (e.g., `gitops`, `security`, `general`) |
 

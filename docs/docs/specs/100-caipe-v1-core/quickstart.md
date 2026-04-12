@@ -68,6 +68,17 @@ caipe chat --agent github    # GitHub workflows specialist
 caipe chat --agent security  # Security / CVE triage specialist
 ```
 
+### Choose streaming protocol
+
+A2A is the default. Switch to AG-UI for agents that support it:
+
+```bash
+caipe chat --protocol agui              # Use AG-UI streaming
+caipe chat --agent argocd --protocol agui
+```
+
+If the agent doesn't support the requested protocol, you'll be prompted to switch. The active protocol is shown in the session status header.
+
 See all available agents:
 
 ```bash

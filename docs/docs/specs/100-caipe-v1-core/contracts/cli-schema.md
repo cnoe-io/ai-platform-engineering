@@ -41,17 +41,20 @@ caipe chat [options]
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--agent <name>` | string | last-used or `default` | Pin session to this grid agent |
+| `--protocol <a2a\|agui>` | string | `a2a` | Streaming protocol to use for this session |
 | `--no-context` | boolean | false | Skip git/repo context gathering |
 | `--resume <sessionId>` | string | — | Resume a previous session by ID |
 
 **Behavior**:
 - Loads memory files (global → project → managed) before first message
-- Connects to grid via AG-UI protocol (`POST /api/agui/stream`); streams `TEXT_MESSAGE_CONTENT` events token-by-token to terminal
+- Validates `--protocol` against agent's supported protocols (from `GET /api/v1/agents`); if unsupported, prompts user to switch before connecting
+- Connects to grid via selected protocol: A2A (`POST /tasks/send` SSE, default) or AG-UI (`POST /api/agui/stream` SSE, `--protocol agui`)
+- Active protocol shown in session status header alongside agent name
 - Renders markdown in terminal with ANSI formatting
 - `/skills`, `/agents`, `/memory` slash commands available within session
 - `Ctrl+C` or `/exit` ends session; history saved to `~/.config/caipe/sessions/<id>.json`
 
-**Exit codes**: `0` = clean exit, `1` = auth failure, `2` = agent unavailable
+**Exit codes**: `0` = clean exit, `1` = auth failure, `2` = agent unavailable, `3` = protocol unsupported and user declined switch
 
 ---
 

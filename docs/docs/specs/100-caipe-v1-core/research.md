@@ -161,22 +161,36 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 
 ---
 
-## Decision 8 — Interface Protocol: AG-UI (not A2A)
+## Decision 8 — Dual Interface Protocol: A2A (default) + AG-UI (opt-in)
 
-**Decision**: caipe-cli communicates with the grid using the **AG-UI protocol** (`@ag-ui/client` TypeScript SDK). A2A is reserved for server-side agent-to-agent communication only.
+**Decision**: caipe-cli supports **both A2A and AG-UI** as full chat protocols. **A2A is the v1 default** — it covers today's grid agents broadly. AG-UI is available via `--protocol agui` for agents that have migrated to the newer interface. Both are exposed through a common `StreamAdapter` interface in `src/chat/stream.ts` so the REPL is protocol-agnostic.
+
+**Protocol selection**:
+1. User specifies `--protocol agui|a2a` (or omits → defaults to `a2a`)
+2. CLI fetches per-agent protocol list from `GET /api/v1/agents` registry before connecting
+3. If requested protocol not in agent's `protocols` list → prompt user to switch; proceed only on confirmation
 
 **Rationale**:
-- `release/0.4.0` introduces AG-UI as the unified interface protocol for all clients (UI, Slack, CLI) per spec `098-server-persistence-agui-streaming`
-- AG-UI event types map directly to the streaming chat UX: `TEXT_MESSAGE_START` → begin render, `TEXT_MESSAGE_CONTENT` → token stream, `TEXT_MESSAGE_END` → finalize, `RUN_ERROR` → error state
-- `@ag-ui/client` handles the SSE stream, reconnection, and event parsing — caipe-cli does not need to implement raw SSE parsing
-- Using the same client library as the UI ensures protocol parity and reduces maintenance burden
+- A2A is the default because all current grid agents support it; AG-UI adoption is in progress
+- AG-UI support future-proofs the CLI for agents migrating to the newer interface
+- Common `StreamAdapter` interface means zero REPL changes when switching protocols — only the adapter changes
+- `cnoe-io/agent-chat-cli` is the first-party A2A reference for patterns
 
-**AG-UI endpoint**: `POST /api/agui/stream` (SSE response)
+**A2A protocol (default)**:
 
-**Relevant event types for CLI**:
+| A2A event / pattern | CLI action |
+|---------------------|-----------|
+| `POST /tasks/send` (SSE) | Open session; stream task updates |
+| `tasks/updates` delta | Append token to live display |
+| `task.status = completed` | Finalize message; stop spinner |
+| `task.status = failed` | Surface error; offer retry |
+| `GET /api/v1/agents` | Registry fetch; protocol + availability check |
+| `GET /.well-known/agent.json` | AgentCard discovery for endpoint URL |
 
-| Event | CLI action |
-|-------|-----------|
+**AG-UI protocol (opt-in via `--protocol agui`)**:
+
+| AG-UI event | CLI action |
+|-------------|-----------|
 | `RUN_STARTED` | Show agent name in status bar; start spinner |
 | `TEXT_MESSAGE_START` | Begin streaming render pane |
 | `TEXT_MESSAGE_CONTENT` | Append token to stream display |
@@ -186,8 +200,11 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 | `RUN_ERROR` | Surface error message; offer retry |
 | `RUN_FINISHED` | Mark session turn complete |
 
+**AG-UI endpoint**: `POST /api/agui/stream` (SSE response) via `@ag-ui/client`
+
 **Alternatives considered**:
-- **Raw A2A SSE** from `agent-chat-cli`: used for agent-to-agent; the platform is migrating away from A2A for interface clients in 0.4.0
+- **AG-UI only**: rejected — not all grid agents support AG-UI yet; would block users with A2A-only agents
+- **A2A only**: rejected — locks out AG-UI-capable agents and doesn't future-proof for the migration
 - **Custom REST polling**: rejected — no streaming, poor UX for token-by-token display
 
 ---
@@ -206,5 +223,5 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 | Markdown render | `marked-terminal` | Terminal ANSI output from GitHub-flavored MD |
 | Diff | `diff` npm package | Unified diff for skill updates |
 | Git context | `execa` → `git rev-parse` + `git log` | Lightweight, no git binding needed |
-| Interface protocol | AG-UI (`@ag-ui/client`) | Unified interface protocol from 0.4.0; handles SSE stream, reconnect, event parsing |
+| Interface protocol | A2A (default) + AG-UI (`@ag-ui/client`, opt-in) | A2A covers all current agents; AG-UI future-proofs for migrating agents; common StreamAdapter interface |
 | Testing | Bun test (built-in) | Zero config; compatible with Jest API |
