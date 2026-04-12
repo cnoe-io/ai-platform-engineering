@@ -9,15 +9,15 @@
 
 ## Architecture Overview
 
-CAIPE CLI is a **thin terminal client** — it does not run any LLM locally. All AI inference, agent orchestration, and tool-call decision-making happens server-side on the grid platform. The CLI's role is to:
+CAIPE CLI is a **thin terminal client** — it does not run any LLM locally. All AI inference, agent orchestration, and tool-call decision-making happens server-side on the CAIPE server. The CLI's role is to:
 
 1. **Assemble local context** — git file tree, recent commit history, memory files — and include it in the request payload
-2. **Stream the response** — receive AG-UI events token-by-token and render them in the terminal
-3. **Execute local tools** (future, v3) — when the grid supervisor requests a file read, bash command, or edit, the CLI executes it locally and returns the result
+2. **Stream the response** — receive AG-UI or A2A events token-by-token and render them in the terminal
+3. **Execute local tools** (future, v3) — when the server supervisor requests a file read, bash command, or edit, the CLI executes it locally and returns the result
 
 ```
-Developer terminal (CAIPE CLI)          Grid platform (remote)
-──────────────────────────────          ──────────────────────
+Developer terminal (CAIPE CLI)          CAIPE server (remote, user-configured)
+──────────────────────────────          ──────────────────────────────────────
 • Gather git context                    • LLM inference
 • Load CLAUDE.md memory                 • Supervisor agent
 • Render streaming tokens               • Specialised sub-agents
@@ -29,12 +29,14 @@ Developer terminal (CAIPE CLI)          Grid platform (remote)
          │  AG-UI (--protocol agui) — POST /api/agui/stream
          │  Bearer token + context payload
          ▼
-       Grid endpoint
+  <server.url from settings.json or --url flag>
 ```
 
-**Dual-protocol design**: A2A is the v1 default — it is widely supported across today's grid agents and gives direct access to the A2A task lifecycle (submit → stream → complete). AG-UI is available via `--protocol agui` for agents and workflows that have migrated to the newer interface. Both protocols deliver token-by-token streaming to the terminal; the session UX is identical regardless of protocol chosen. The active protocol is shown in the session status header.
+**Server URL configuration**: The CAIPE server URL is stored in `~/.config/caipe/settings.json` under `server.url`. A `--url <url>` flag overrides it for a single invocation. On first run with no URL configured, a setup wizard prompts for the URL, saves it, then flows directly into the auth flow.
 
-**Relationship to Claude Code**: CAIPE CLI intentionally mirrors Claude Code's terminal UX patterns — React + Ink TUI, CLAUDE.md memory hierarchy, skills installed to `.claude/`, session history, git context at session start. The key difference is the backend: Claude Code calls the Anthropic API directly with one model; CAIPE routes through the grid's supervisor which dynamically delegates to specialised domain agents. In its full agentic form (v3), the execution model is identical to Claude Code — the CLI is the tool executor, the grid supervisor is the decision-maker.
+**Dual-protocol design**: A2A is the v1 default — it is widely supported across today's CAIPE agents and gives direct access to the A2A task lifecycle (submit → stream → complete). AG-UI is available via `--protocol agui` for agents that have migrated to the newer interface. Both protocols deliver token-by-token streaming to the terminal; the session UX is identical regardless of protocol chosen. The active protocol is shown in the session status header.
+
+**Relationship to Claude Code**: CAIPE CLI intentionally mirrors Claude Code's terminal UX patterns — React + Ink TUI, CLAUDE.md memory hierarchy, skills installed to `.claude/`, session history, git context at session start. The key difference is the backend: Claude Code calls the Anthropic API directly with one model; CAIPE routes through the CAIPE server's supervisor which dynamically delegates to specialised domain agents. In its full agentic form (v3), the execution model is identical to Claude Code — the CLI is the tool executor, the server supervisor is the decision-maker.
 
 ---
 
@@ -43,8 +45,14 @@ Developer terminal (CAIPE CLI)          Grid platform (remote)
 ### Session 2026-04-12
 
 - Q: In v1, what should A2A handle beyond agent card discovery, and how is the protocol selected? → A: Both A2A and AG-UI handle full chat sessions; A2A is the default; user may override per session via `--protocol agui|a2a`; active protocol shown in session header
-- Q: How does the CLI know which protocol a specific agent supports? → A: Grid registry (`GET /api/v1/agents`) returns a per-agent protocol list; CLI validates the chosen protocol against the registry before opening a session
+- Q: How does the CLI know which protocol a specific agent supports? → A: Server registry (`GET /api/v1/agents`) returns a per-agent protocol list; CLI validates the chosen protocol against the registry before opening a session
 - Q: When `--protocol agui` is requested but the agent only supports A2A — what should the CLI do? → A: Prompt the user ("Agent `<name>` does not support agui (supports: a2a) — switch protocol and continue? [y/N]"); if confirmed, open session with supported protocol; if declined, exit cleanly
+- Q: How is the CAIPE server URL provided — CLI flag, config file, or both? And what happens on first run with no URL set? → A: URL readable from `~/.config/caipe/settings.json` (`server.url`) or overridden per-invocation via `--url <url>` flag; on first run with no URL configured, a setup wizard prompts for the URL, saves it, then flows directly into auth
+- Q: Does `server.url` drive both the API endpoint and the OAuth auth endpoint? → A: Yes — single `server.url` drives all endpoints; the auth/OAuth endpoint is derived from it automatically (e.g., `<server.url>/oauth`); no separate auth URL configuration required
+- Q: What headless/non-interactive mode should CAIPE CLI support, and what non-browser auth method? → A: CLI supports a headless mode for CI/automation; three credential types auto-detected by presence: API Key (`CAIPE_API_KEY`), OAuth2 Client Credentials (`CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET`), or JWT pass-through (`CAIPE_TOKEN` / `--token <jwt>`)
+- Q: How is the prompt provided in headless mode? → A: Priority order: `--prompt <text>` > `--prompt-file <path>` > stdin (when piped)
+- Q: What is the headless output format? → A: `--output text|json|ndjson`; default `text`; `json` emits single object on completion; `ndjson` streams one object per token/event
+- Q: Should headless mode support multi-turn sessions? → A: Single-shot by default (one prompt → one response → exit); `--interactive-stdin` enables multi-turn mode (newline-delimited turns from stdin; session stays open until EOF or `\exit`)
 
 ---
 
@@ -52,7 +60,7 @@ Developer terminal (CAIPE CLI)          Grid platform (remote)
 
 ### User Story 1 - Authenticated Interactive Chat (Priority: P1)
 
-A platform engineer opens their terminal, authenticates once with their grid identity, and immediately starts a context-aware chat session scoped to the repository they are working in. They ask questions, request code assistance, and interact with AI — entirely from the terminal.
+A platform engineer opens their terminal, authenticates once with their CAIPE server identity, and immediately starts a context-aware chat session scoped to the repository they are working in. They ask questions, request code assistance, and interact with AI — entirely from the terminal.
 
 **Why this priority**: Authenticated chat is the primary value driver. All other features (skills, self-improvement, agent routing) depend on a working, authenticated session. Delivering this alone gives users immediate productivity.
 
@@ -60,7 +68,7 @@ A platform engineer opens their terminal, authenticates once with their grid ide
 
 **Acceptance Scenarios**:
 
-1. **Given** a user has not yet authenticated, **When** they run `caipe` or `caipe chat`, **Then** they are directed to a browser-based grid login flow and a session credential is saved locally after success
+1. **Given** a user has not yet configured a server URL or authenticated, **When** they run `caipe` or `caipe chat`, **Then** they are walked through a setup wizard (URL prompt → browser-based auth flow) and a session credential is saved locally after success
 2. **Given** an authenticated user is in a git repository, **When** they start a chat session, **Then** the assistant receives the repository's file structure and recent git state as context
 3. **Given** an authenticated user sends a message, **When** the assistant responds, **Then** the response streams to the terminal in real-time with markdown rendered for readability
 4. **Given** a user's session credential expires mid-session, **When** they send a message, **Then** they are prompted to re-authenticate without losing the current conversation context
@@ -104,7 +112,7 @@ The CLI detects that one or more installed skills have newer versions in the cat
 
 ### User Story 4 - Grid Agent Routing (Priority: P4)
 
-A platform engineer directs their chat query to a specific AI agent on the grid platform — for example, an ArgoCD agent, a Kubernetes agent, or a security agent. They list available agents and select one as the backend for their session.
+A platform engineer directs their chat query to a specific AI agent on the CAIPE server — for example, an ArgoCD agent, a Kubernetes agent, or a security agent. They list available agents and select one as the backend for their session.
 
 **Why this priority**: Specialised agents give more accurate domain answers than a generalist. Depends on core chat (P1) being fully functional.
 
@@ -147,14 +155,27 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - What happens if a skill file in the repository has been manually edited after installation?
 - What happens when `npx caipe` is run on a network with a corporate proxy intercepting HTTPS?
 - What happens when `--protocol agui` is specified but the target agent only supports A2A? (→ user is prompted to switch; session opens with supported protocol on confirmation)
-- What happens when the grid registry is reachable but does not return a `protocols` field for an agent? (→ CLI assumes A2A as default; proceeds without protocol validation warning)
+- What happens when the server registry is reachable but does not return a `protocols` field for an agent? (→ CLI assumes A2A as default; proceeds without protocol validation warning)
+- What happens in headless mode when no credential is present? (→ non-zero exit with `{"error":"no credentials configured"}` to stderr; no interactive prompt)
+- What happens when multiple headless credentials are present simultaneously? (→ priority order: JWT > API Key > Client Credentials; first matched wins)
+- What happens when a Client Credentials token exchange fails in headless mode? (→ non-zero exit with error; no retry; stderr JSON error)
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: Users MUST be able to authenticate using their grid identity via a browser-initiated flow launched from the terminal
+- **FR-001**: Users MUST be able to authenticate using their CAIPE server identity via a browser-initiated OAuth flow launched from the terminal
 - **FR-002**: Authenticated sessions MUST persist across terminal restarts without requiring re-login until the credential expires or the user explicitly signs out
+- **FR-015**: The CLI MUST read the CAIPE server base URL from `~/.config/caipe/settings.json` (`server.url` key); a `--url <url>` global flag MUST override the config value for that invocation only; all API and OAuth endpoints are derived from this single base URL (e.g., `<server.url>/oauth`, `<server.url>/api/v1/agents`, `<server.url>/tasks/send`)
+- **FR-016**: On first run (no `server.url` configured), the CLI MUST launch a setup wizard that (1) prompts the user for the CAIPE server URL, (2) saves it to `settings.json`, then (3) immediately proceeds to the auth flow (FR-001) without requiring a separate command
+- **FR-017**: The CLI MUST support a headless/non-interactive mode for use in CI pipelines and automation scripts; headless mode is activated when no TTY is detected or when `--headless` is explicitly passed
+- **FR-018**: In headless mode, the CLI MUST support three non-browser credential types, auto-detected by which is present (in priority order): (1) JWT pass-through — `CAIPE_TOKEN` env var or `--token <jwt>` flag; (2) API Key — `CAIPE_API_KEY` env var or `settings.json` `auth.apiKey`; (3) OAuth2 Client Credentials — `CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` env vars exchanged for a short-lived access token before each session
+- **FR-019**: In headless mode, the CLI MUST accept the prompt via (in priority order): `--prompt <text>` flag, `--prompt-file <path>` (reads multi-line prompt from a file), or stdin when neither flag is present and stdin is a pipe; execute a single session turn, write the response to stdout in the format specified by `--output <text|json|ndjson>` (default: `text`), and exit with an appropriate exit code
+  - `text`: raw response streamed to stdout
+  - `json`: full response accumulated then emitted as a single JSON object `{"response":"...","agent":"...","protocol":"..."}`
+  - `ndjson`: one JSON object per token/event emitted as it arrives `{"type":"token","text":"..."}` / `{"type":"done"}`
+- **FR-020**: In headless mode, all interactive prompts (setup wizard, auth browser flow, protocol-switch confirmation) MUST be suppressed; missing required config MUST cause a non-zero exit with a machine-readable error to stderr
+- **FR-021**: Headless mode MUST be single-shot by default (one prompt → full response → exit); passing `--interactive-stdin` enables multi-turn mode where newline-delimited prompts are read from stdin continuously until EOF or a line containing only `\exit`; each turn's response is written to stdout before the next turn is read; `--output` format applies to every turn
 - **FR-003**: The chat interface MUST stream responses to the terminal in real-time with markdown rendered for readability; the CLI MUST support both A2A and AG-UI protocols — A2A is the default in v1; users MAY select AG-UI explicitly via `--protocol agui` (or `--protocol a2a` to be explicit); the active protocol is shown in the session header
 - **FR-004**: Chat sessions MUST automatically include context from the current working directory and git repository state at session start
 - **FR-005**: The chat session MUST maintain persistent memory (conversation history, user preferences) stored locally, accessible across sessions within the same project
@@ -165,16 +186,16 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - **FR-010**: When committing AI-assisted code via the CLI, the system MUST auto-append an `Assisted-by` attribution trailer to the commit message
 - **FR-011**: The CLI MUST prompt users for a `Signed-off-by` trailer on every AI-assisted commit and MUST NOT generate this trailer on the user's behalf
 - **FR-012**: The CLI MUST be installable via `npx caipe` with no prerequisites beyond Node.js
-- **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; selecting an agent pins the entire session to that agent — switching agents requires starting a new session (per-message routing is deferred to v2); the grid registry MUST return a `protocols` field per agent (`["a2a"]`, `["agui"]`, or `["a2a","agui"]`); the CLI MUST validate the requested `--protocol` against this list before opening a session; if the protocol is unsupported, the CLI MUST prompt the user to switch to the agent's supported protocol and proceed only on confirmation
+- **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; selecting an agent pins the entire session to that agent — switching agents requires starting a new session (per-message routing is deferred to v2); the server registry MUST return a `protocols` field per agent (`["a2a"]`, `["agui"]`, or `["a2a","agui"]`); the CLI MUST validate the requested `--protocol` against this list before opening a session; if the protocol is unsupported, the CLI MUST prompt the user to switch to the agent's supported protocol and proceed only on confirmation
 - **FR-014**: The skill catalog MUST be browsable via a versioned static JSON manifest published as a GitHub Release asset; catalog browsing requires no authentication; installation of individual skills uses the same grid credential as chat
 
 ### Key Entities
 
-- **User**: A platform engineer with a grid identity; owns a local credential, per-project chat memory, and a set of installed skills
+- **User**: A platform engineer with a CAIPE server identity; owns a local credential, configured server URL, per-project chat memory, and a set of installed skills
 - **Skill**: A Markdown document with YAML frontmatter describing an AI automation routine; has name, version, description, author, and body
 - **Catalog**: A versioned, searchable collection of published skills with metadata for discovery and installation
 - **Chat Session**: A conversation thread scoped to a working directory; has an active agent, persistent memory, and streams responses
-- **Agent**: A specialised AI backend on the grid platform targeting a specific domain (e.g., GitOps, security, observability); each agent declares the protocols it supports (`a2a`, `agui`, or both) via the grid registry
+- **Agent**: A specialised AI backend on the CAIPE server targeting a specific domain (e.g., GitOps, security, observability); each agent declares the protocols it supports (`a2a`, `agui`, or both) via the server registry
 - **Commit**: A git commit that may carry AI-generated content; subject to DCO policy requiring `Assisted-by` and human-supplied `Signed-off-by`
 
 ## Success Criteria *(mandatory)*
@@ -192,7 +213,8 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 
 ## Assumptions
 
-- The grid authentication service supports a browser-initiated device authorization flow compatible with headless/CLI environments
+- The CAIPE server's authentication service supports a browser-initiated OAuth flow compatible with headless/CLI environments
+- The CAIPE server URL is always user-configured; there is no built-in default URL
 - The skills catalog is accessible to any authenticated user without a separate credential
 - Skills follow the SKILL.md format convention established in outshift/skills (YAML frontmatter + Markdown body)
 - Memory persistence is stored locally in a per-project directory (e.g., `.claude/memory/`) and is not synced to the cloud
@@ -202,7 +224,7 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - Multiple concurrent CLI sessions from the same user are permitted and share the same local credential store
 - **No local LLM**: CAIPE CLI performs no model inference locally; all AI computation runs on the grid; the CLI is network-dependent for all chat and agent interactions
 - **Offline capability is limited to**: skills catalog browsing (1-hour cache) and memory file editing; chat requires the grid to be reachable
-- The grid's supervisor agent handles dynamic sub-agent routing transparently; the CLI does not need to know which sub-agent handled a given turn
+- The CAIPE server's supervisor agent handles dynamic sub-agent routing transparently; the CLI does not need to know which sub-agent handled a given turn
 
 ---
 
