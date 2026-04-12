@@ -268,7 +268,12 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'security/a2a-auth',
           label: 'A2A Authentication',
-        }
+        },
+        {
+          type: 'doc',
+          id: 'security/supply-chain',
+          label: 'Supply Chain Security',
+        },
       ],
     },
     {
