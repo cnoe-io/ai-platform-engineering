@@ -57,14 +57,20 @@ Runs on every pull request to `main` and every push to `main`. Scans the full re
 
 | Setting | Value | Why |
 |---------|-------|-----|
-| `severity-cutoff` | `critical` | Blocks merge on critical-severity findings |
-| `fail-build` | `true` | Hard block — PRs cannot merge with open criticals |
-| `only-fixed` | `true` | Only report CVEs that have a known patched version available |
-| `output-format` | `sarif` | Results uploaded to GitHub Code Scanning for tracking |
+| `severity-cutoff` | `critical` | Only critical-severity findings are surfaced |
+| `fail-build` | `false` | Grype itself never hard-fails — the gate is GitHub Code Scanning PR diff mode |
+| `output-format` | `sarif` | Results uploaded to GitHub Code Scanning for PR diff analysis |
 
-The `only-fixed: true` flag is the key policy decision. It eliminates two noise categories that would otherwise inflate the alert count:
-- **False positives** — Grype's database occasionally maps a CVE to a broader version range than the actual affected range (e.g., a CVE whose NVD entry lists `≤0.9.5` but whose `patched:` field is `null` because the NVD entry predates the fix being published). `only-fixed: true` skips these entirely.
-- **No-upstream-fix CVEs** — Some packages have open CVEs with no available patch (e.g., a CVE in a transitive dep where the upstream maintainer has not yet released a fix). There is no actionable remediation, so blocking on these provides no security benefit.
+**Why `fail-build: false`?**
+
+`fail-build: true` blocks a PR the moment Grype finds any critical CVE — including CVEs in upstream libraries that the PR author did not introduce and cannot fix. That forces contributors to take responsibility for vulnerabilities they have no control over, which creates noise without improving security.
+
+Instead, CAIPE uses **GitHub Code Scanning's PR diff mode** as the blocking gate. When SARIF is uploaded for a PR, GitHub compares the results against the base branch scan. Only alerts that are *new in the PR* surface as a blocking check:
+
+- A PR that introduces a new vulnerable dependency → **new alert → PR blocked**, with a direct link to the CVE and the package name so the author knows exactly what to fix
+- An upstream CVE already present on `main` → **not new → PR not blocked**; the alert remains visible in the [Security tab](https://github.com/cnoe-io/ai-platform-engineering/security/code-scanning) for maintainers to track and upgrade when a patch ships
+
+The required check is **`Code scanning results / Grype`** under Settings → Branches → Branch protection rules for `main`.
 
 ### Container image scan (tags and manual dispatch)
 
@@ -73,8 +79,8 @@ Runs on every version tag push (e.g., `0.2.3`) and via `workflow_dispatch`. Scan
 | Setting | Value | Why |
 |---------|-------|-----|
 | `severity-cutoff` | `high` | Wider net for published images (high + critical) |
-| `fail-build` | `false` | Informational — does not block tag publication |
-| `only-fixed` | `true` | Same policy as filesystem scan |
+| `fail-build` | `false` | Informational — results visible in Security tab, do not block tagging |
+| `output-format` | `sarif` | Uploaded to Code Scanning per image for independent tracking |
 
 Container images scanned include all A2A sub-agents, MCP servers, the supervisor, UI, RAG components, and bots. Each image gets its own SARIF category (e.g., `grype-agent-github`, `grype-caipe-ui`) for independent tracking in GitHub Code Scanning.
 
@@ -82,8 +88,8 @@ Container images scanned include all A2A sub-agents, MCP servers, the supervisor
 
 | Event | Filesystem scan | Container scan |
 |-------|----------------|----------------|
-| Pull request → `main` | ✅ blocking | ✗ |
-| Push to `main` | ✅ blocking | ✗ |
+| Pull request → `main` | ✅ (new alerts block via Code Scanning) | ✗ |
+| Push to `main` | ✅ informational | ✗ |
 | Push tag (e.g. `0.2.3`) | ✅ informational | ✅ informational |
 | `workflow_dispatch` | ✅ informational | ✅ informational |
 
@@ -200,9 +206,9 @@ GitHub Dependabot is configured for the repository and generates alerts when a d
 
 GitHub Code Scanning alerts are lifecycle-managed as follows:
 
-1. **Auto-close on fix** — When a scan runs on `main` (or a PR branch) and a previously-reported finding is no longer present (e.g., because a dependency was upgraded), the alert is automatically closed by GitHub.
+1. **Auto-close on fix** — When a scan runs on `main` and a previously-reported finding is no longer present (e.g., because a dependency was upgraded), GitHub automatically closes the alert.
 
-2. **`only-fixed: true` prevents noise accumulation** — Findings for CVEs with no available patch are never reported in the first place, so the alert list reflects only actionable items.
+2. **PR diff mode keeps the alert list clean** — Because `fail-build: false` is paired with GitHub Code Scanning PR diff mode, upstream CVEs that have no fix yet don't accumulate as blocking noise. They remain in the Security tab as tracked items until a patch is available and the dependency is upgraded.
 
 3. **Ghost alert dismissal** — Alerts created by scans of PR merge-refs (`refs/pull/N/merge`) or deleted branches can persist in the alert list even after the CVE is remediated, because GitHub has no new scan of that ref to close them against. These can be dismissed via the GitHub API with reason `"false positive"` or `"won't fix"` as appropriate.
 
