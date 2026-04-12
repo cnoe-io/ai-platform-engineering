@@ -15,6 +15,7 @@ from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
+from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.types import Command
@@ -33,9 +34,11 @@ from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
     get_tools_with_resilience,
+    wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.stream_events import (
     make_input_required_event,
+    make_warning_event,
     transform_stream_chunk,
 )
 
@@ -153,10 +156,15 @@ class AgentRuntime:
         if builtin_tools:
             tools = tools + builtin_tools
 
-        # 5. System prompt from agent config
+        # 5. Wrap ALL tools with error handling so exceptions become
+        #    LLM-visible "ERROR: ..." strings instead of crashing the agent loop.
+        if tools:
+            tools = wrap_tools_with_error_handling(tools, agent_name=self.config.name)
+
+        # 6. System prompt from agent config
         system_prompt = self.config.system_prompt
 
-        # 6. Create the LLM
+        # 7. Create the LLM
         # model_id and model_provider are required fields - no fallback to env vars
         logger.info(
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
@@ -171,14 +179,14 @@ class AgentRuntime:
         )
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
-        # 7. Resolve subagents (other dynamic agents that this agent can delegate to)
+        # 8. Resolve subagents (other dynamic agents that this agent can delegate to)
         subagents = await self._resolve_subagents(self.config.subagents)
         if subagents:
             logger.info(
                 f"Agent '{self.config.name}': resolved {len(subagents)} subagents: {[s['name'] for s in subagents]}"
             )
 
-        # 8. Create the agent graph
+        # 9. Create the agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
@@ -192,6 +200,9 @@ class AgentRuntime:
             name=safe_name,
             subagents=subagents if subagents else None,
             interrupt_on={"request_user_input": True},
+            middleware=[
+                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+            ],
         )
 
         self._initialized = True
@@ -326,6 +337,9 @@ class AgentRuntime:
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
+                "middleware": [
+                    ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+                ],
             }
 
             # Note: Nested subagents (subagent of subagent) are not supported in this MVP.
@@ -353,8 +367,11 @@ class AgentRuntime:
         if server_ids:
             connections = build_mcp_connections(self.mcp_servers, server_ids)
             if connections:
-                mcp_client = MultiServerMCPClient(connections, tool_name_prefix=True)
-                all_tools = await mcp_client.get_tools()
+                # Use resilient connection so one failing server doesn't break the subagent
+                all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
+                if failed:
+                    error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed]
+                    logger.warning(f"Subagent '{subagent_config.name}': failed MCP servers: {'; '.join(error_parts)}")
                 mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
                 tools.extend(mcp_tools)
 
@@ -362,6 +379,10 @@ class AgentRuntime:
         builtin_tools = self._build_builtin_tools(self._user, subagent_config)
         if builtin_tools:
             tools.extend(builtin_tools)
+
+        # 3. Wrap all subagent tools with error handling
+        if tools:
+            tools = wrap_tools_with_error_handling(tools, agent_name=subagent_config.name)
 
         return tools
 
@@ -451,6 +472,12 @@ class AgentRuntime:
         namespace_mapping: dict[str, str] = {}
 
         logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
+
+        # Emit warnings for MCP servers that failed during initialization
+        for server_name in self._failed_servers:
+            yield make_warning_event(
+                f"MCP server '{server_name}' is unavailable. Tools from this server will not work.",
+            )
 
         # Stream with subgraphs=True and both messages and updates modes
         async for chunk in self._graph.astream(

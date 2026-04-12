@@ -1,0 +1,33 @@
+{
+  "results": [
+    {
+      "document_id": "doc-001",
+      "score": 0.95,
+      "snippet": "AGNTCY is an open-source framework for building interoperable AI agent systems. It provides standardized protocols for agent-to-agent communication, enabling multi-agent orchestration across different platforms and providers.",
+      "metadata": {
+        "source": "agntcy-overview.md",
+        "title": "AGNTCY Overview"
+      }
+    },
+    {
+      "document_id": "doc-002",
+      "score": 0.87,
+      "snippet": "SLIM (Standardized Lightweight Interoperable Model) is a core component of the AGNTCY ecosystem. It defines a minimal, portable agent interface that any framework can implement to participate in multi-agent workflows.",
+      "metadata": {
+        "source": "slim-specification.md",
+        "title": "SLIM Specification"
+      }
+    },
+    {
+      "document_id": "doc-003",
+      "score": 0.82,
+      "snippet": "Getting started with AGNTCY requires installing the SDK and registering your agent with a hub. The onboarding process includes agent card creation, capability declaration, and connectivity testing.",
+      "metadata": {
+        "source": "getting-started.md",
+        "title": "Getting Started with AGNTCY"
+      }
+    }
+  ],
+  "total_results": 3,
+  "query": "what is agntcy slim"
+}

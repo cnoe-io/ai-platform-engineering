@@ -104,6 +104,7 @@ export const POST = withErrorHandler(async (
         $set: {
           content: body.content,
           metadata: {
+            source: 'web',
             turn_id: body.metadata?.turn_id || `turn-${Date.now()}`,
             model: body.metadata?.model,
             tokens_used: body.metadata?.tokens_used,

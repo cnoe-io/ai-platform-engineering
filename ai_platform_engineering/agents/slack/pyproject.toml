@@ -18,10 +18,10 @@ dependencies = [
     "ai-platform-engineering-utils",
     "click==8.3.1",
     "langchain-anthropic==1.0.0",
-    "langchain-core==1.1.2",
+    "langchain-core==1.2.28",
     "langchain-mcp-adapters==0.2.1",
     "langchain-openai==1.1.0",
-    "langgraph==1.0.4",
+    "langgraph==1.0.9",
     "pytest==8.3.5",
     "tabulate==0.9.0",
     "rich==14.1.0",
@@ -30,7 +30,7 @@ dependencies = [
     "python-dotenv==1.2.1",
     "cnoe-agent-utils==0.3.14",
     "pydantic==2.12.5",
-    "mcp==1.21.0",
+    "mcp==1.26.0",
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
 ]
@@ -72,6 +72,9 @@ ignore = ["F403"]
 
 [[tool.uv.index]]
 url = "https://pypi.org/simple/"
+
+[tool.uv]
+constraint-dependencies = ["nltk==3.9.4"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

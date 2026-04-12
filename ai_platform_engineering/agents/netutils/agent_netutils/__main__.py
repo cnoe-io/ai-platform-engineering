@@ -1,4 +1,4 @@
-# Copyright 2025 Cisco
+# Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
 # =====================================================
@@ -13,31 +13,57 @@ disable_a2a_tracing()
 # =====================================================
 
 import click
-import httpx
-import uvicorn
 import asyncio
 import os
 from dotenv import load_dotenv
-from agntcy_app_sdk.factory import AgntcyFactory
 
 from agent_netutils.protocol_bindings.a2a_server.agent_executor import NetUtilsAgentExecutor  # type: ignore[import-untyped]
-from agent_netutils.agentcard import create_agent_card
-from a2a.server.apps import A2AStarletteApplication
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import (
-    BasePushNotificationSender,
-    InMemoryPushNotificationConfigStore,
-    InMemoryTaskStore,
-)
-
-from starlette.middleware.cors import CORSMiddleware
-from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
+from ai_platform_engineering.utils.a2a_common.a2a_server import A2AServer
+from a2a.types import AgentSkill
 
 load_dotenv()
 
-A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
-METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
+
+AGENT_NAME = "netutils"
+AGENT_DESCRIPTION = (
+    "An AI agent that provides network diagnostics, DNS resolution, "
+    "DHCP lease management, and dnsmasq configuration utilities."
+)
+
+agent_skill = AgentSkill(
+    id="netutils_agent_skill",
+    name="NetUtils Agent Skill",
+    description=(
+        "Provides capabilities for DNS lookups, network diagnostics (ping, traceroute, port checks), "
+        "DHCP lease management, and dnsmasq configuration management."
+    ),
+    tags=[
+        "network",
+        "dns",
+        "dhcp",
+        "dnsmasq",
+        "ping",
+        "traceroute",
+        "diagnostics",
+    ],
+    examples=[
+        "Look up the DNS A record for example.com",
+        "Perform a reverse DNS lookup for 8.8.8.8",
+        "Ping google.com with 5 packets",
+        "Traceroute to 10.0.0.1",
+        "Check if port 443 is open on example.com",
+        "Show all DHCP leases",
+        "Find the DHCP lease for MAC address 00:11:22:33:44:55",
+        "Show the dnsmasq configuration",
+        "Validate the dnsmasq configuration",
+        "Show dnsmasq logs",
+        "What are my network interfaces?",
+        "WHOIS lookup for example.com",
+        "Look up all DNS record types for example.com",
+        "Curl https://httpbin.org/get",
+    ],
+)
 
 
 @click.command()
@@ -48,63 +74,17 @@ def main(host: str, port: int):
 
 
 async def async_main(host: str, port: int):
-    client = httpx.AsyncClient()
-    push_config_store = InMemoryPushNotificationConfigStore()
-    push_sender = BasePushNotificationSender(
-        httpx_client=client, config_store=push_config_store
-    )
-    request_handler = DefaultRequestHandler(
+    server = A2AServer(
+        agent_name=AGENT_NAME,
+        agent_description=AGENT_DESCRIPTION,
+        agent_skills=[agent_skill],
+        host=host,
+        port=port,
         agent_executor=NetUtilsAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-        push_config_store=push_config_store,
-        push_sender=push_sender,
+        metrics_enabled=METRICS_ENABLED,
     )
 
-    if A2A_TRANSPORT == "slim":
-        agent_url = SLIM_ENDPOINT
-    else:
-        agent_url = f"http://{host}:{port}"
-
-    server = A2AStarletteApplication(
-        agent_card=create_agent_card(agent_url), http_handler=request_handler
-    )
-
-    if A2A_TRANSPORT == "slim":
-        print("Running A2A server in SLIM mode.")
-        factory = AgntcyFactory()
-        transport = factory.create_transport("SLIM", endpoint=agent_url)
-        print("Transport created successfully.")
-
-        bridge = factory.create_bridge(server, transport=transport)
-        print("Bridge created successfully. Starting the bridge.")
-        await bridge.start(blocking=True)
-    else:
-        print("Running A2A server in p2p mode.")
-        app = server.build()
-
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-
-        if METRICS_ENABLED:
-            app.add_middleware(
-                PrometheusMetricsMiddleware,
-                excluded_paths=[
-                    "/.well-known/agent.json",
-                    "/.well-known/agent-card.json",
-                    "/health",
-                    "/ready",
-                ],
-                metrics_path="/metrics",
-                agent_name="netutils",
-            )
-
-        config = uvicorn.Config(app, host=host, port=port, access_log=False)
-        server = uvicorn.Server(config=config)
-        await server.serve()
+    await server.serve()
 
 
 if __name__ == "__main__":

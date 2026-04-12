@@ -5,7 +5,20 @@
 # For setup instructions and agent orchestration details, refer to:
 #   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
 #
-# This docker-compose file supports P2P and SLIM transport via profiles.
+# Unified supervisor service controlled by DISTRIBUTED_AGENTS env var:
+#
+#   All-in-one (all-in-one) — MCP tools in-process, all agents in one container:
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb up --build
+#     Set: DISTRIBUTED_AGENTS= (empty, default)
+#
+#   Fully distributed — separate A2A agent containers:
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
+#     Set: DISTRIBUTED_AGENTS=all
+#
+#   Hybrid — mix of in-process and distributed agents:
+#     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
+#     Set: DISTRIBUTED_AGENTS=argocd,github  (only listed agents are remote)
+#
 # Agent selection and configuration are controlled through environment variables
 # in the .env file—see documentation for full list and descriptions.
 # ============================================================================
@@ -13,38 +26,61 @@
 services:
 
   ####################################################################################################
-  #                                 CAIPE Supervisor Deep Agent                                      #
+  #                              CAIPE Supervisor Deep Agent (Unified)                              #
   ####################################################################################################
+  # Unified supervisor: mode is controlled by DISTRIBUTED_AGENTS env var, not separate services.
+  #
+  #   All-in-one:     DISTRIBUTED_AGENTS= (empty)            — all agents run in-process via MCP
+  #   Fully distributed:  DISTRIBUTED_AGENTS=all             — all agents run as remote A2A containers
+  #   Hybrid:         DISTRIBUTED_AGENTS=argocd,jira         — only listed agents are remote
+  #
+  # Start with: docker compose --profile caipe-supervisor [--profile <agent-profiles>] up --build
   caipe-supervisor:
     build:
       context: .
       dockerfile: build/Dockerfile
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-localtag}
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_RAG_PATH:-./charts/ai-platform-engineering/data/prompt_config.rag.yaml}:/app/prompt_config.rag.yaml
+      - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
+      # Prompt configuration file path
+      - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
+      # Task config file path (self-service workflows)
+      - TASK_CONFIG_PATH=/app/task_config.yaml
+
+      # MongoDB - primary source for task configs (UI writes here, backend reads)
+      - MONGODB_URI=mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # Disable cache so UI edits are reflected immediately in the agent
+      - TASK_CONFIG_CACHE_TTL=${TASK_CONFIG_CACHE_TTL:-0}
+
       # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      # Prompt configuration file path
-      - PROMPT_CONFIG_PATH=${PROMPT_CONFIG_PATH:-./prompt_config.yaml}
 
       # Slim dataplane endpoint configuration
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
 
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
-      - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
       - ENABLE_ARTIFACT_STREAMING=true
-      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
 
-      # Agent hostname mappings for agent connectivity.
-      # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
-      # If you add new agents/services, include a corresponding *_AGENT_HOST assignment below.
+      # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
+      # Leave empty for all-in-one mode (all agents in-process via MCP).
+      # Examples: DISTRIBUTED_AGENTS=argocd,aws  or  DISTRIBUTED_AGENTS=all
+      - DISTRIBUTED_AGENTS=${DISTRIBUTED_AGENTS:-}
+
+      # Remote A2A agent hostname mappings (used when agents are distributed)
       - ARGOCD_AGENT_HOST=agent-argocd
       - AWS_AGENT_HOST=agent-aws
       - BACKSTAGE_AGENT_HOST=agent-backstage
@@ -58,11 +94,62 @@ services:
       - SLACK_AGENT_HOST=agent-slack
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
+      - WEATHER_AGENT_PORT=8000
       - VICTOROPS_AGENT_HOST=agent-victorops
       - WEBEX_AGENT_HOST=agent-webex
       - NETUTILS_AGENT_HOST=agent-netutils
       - JARVIS_AGENT_HOST=agent-jarvis
       - JARVIS_AGENT_PORT=58000
+
+      # MCP server hostname mappings for in-process (all-in-one) mode.
+      # When agents run in-process, they connect to MCP servers by container name.
+      - ARGOCD_MCP_HOST=mcp-argocd
+      - BACKSTAGE_MCP_HOST=mcp-backstage
+      - CONFLUENCE_MCP_HOST=mcp-confluence
+      - JIRA_MCP_HOST=mcp-jira
+      - KOMODOR_MCP_HOST=mcp-komodor
+      - PAGERDUTY_MCP_HOST=mcp-pagerduty
+      - SLACK_MCP_HOST=mcp-slack
+      - SLACK_MCP_PORT=3001
+      - SPLUNK_MCP_HOST=mcp-splunk
+      - WEBEX_MCP_HOST=mcp-webex
+
+      # AWS multi-account support
+      - DEFAULT_AWS_ACCOUNT_ID=${DEFAULT_AWS_ACCOUNT_ID:-}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
+      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-}
+
+      # The following ENABLE_* environment variables control which agents are active.
+      # In .env file, set each variable to 'true' to enable the corresponding agent.
+      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
+      - ENABLE_AWS=${ENABLE_AWS:-false}
+      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
+      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
+      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
+      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
+      - ENABLE_JIRA=${ENABLE_JIRA:-false}
+      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
+      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
+      - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
+      - ENABLE_RAG=${ENABLE_RAG:-false}
+      - ENABLE_SLACK=${ENABLE_SLACK:-false}
+      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
+      - ENABLE_VICTOROPS=${ENABLE_VICTOROPS:-false}
+      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
+      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
+      - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
+      - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
+
+      # RAG Service Configuration
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
+      - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-3}
+      - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
+      - RAG_MAX_SEARCH_RESULTS=${RAG_MAX_SEARCH_RESULTS:-3}
+      - LANGGRAPH_RECURSION_LIMIT=${LANGGRAPH_RECURSION_LIMIT:-500}
+
+      # GitHub Token for git operations
+      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
 
       # Cross-Thread Store Configuration
       - LANGGRAPH_STORE_TYPE=${LANGGRAPH_STORE_TYPE:-memory}
@@ -90,37 +177,32 @@ services:
       # REDIS_URL is required by redisvl (used internally by langgraph-checkpoint-redis)
       - REDIS_URL=${LANGGRAPH_CHECKPOINT_REDIS_URL:-}
 
-      # RAG Service Configuration
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - ENABLE_RAG=${ENABLE_RAG:-false}
+      # Self-service task configuration
+      - DEFAULT_GITHUB_ORG=${DEFAULT_GITHUB_ORG:-}
+      - GITHUB_ORGS=${GITHUB_ORGS:-}
+      - GROUPS_AUTOMATION_REPO=${GROUPS_AUTOMATION_REPO:-}
+      - GROUPS_TEAMS_PATH=${GROUPS_TEAMS_PATH:-}
+      - ORG_MEMBERSHIP_FILE_PATTERN=${ORG_MEMBERSHIP_FILE_PATTERN:-}
+      - EMAIL_DOMAIN=${EMAIL_DOMAIN:-}
+      - JARVIS_WORKFLOWS_REPO=${JARVIS_WORKFLOWS_REPO:-}
+      - ADMIN_REPO=${ADMIN_REPO:-}
+      - TERRAFORM_INFRA_REPO=${TERRAFORM_INFRA_REPO:-}
+      - JIRA_ASSIGNEE=${JIRA_ASSIGNEE:-}
+      - WEBEX_ROOM_ID=${WEBEX_ROOM_ID:-}
+      - DEFAULT_CLUSTER_NAME=${DEFAULT_CLUSTER_NAME:-}
+      - DEFAULT_CLUSTER_ADDRESS=${DEFAULT_CLUSTER_ADDRESS:-}
 
-      # GitHub Token for git operations
-      - GITHUB_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+      # Per-subagent LLM model overrides (provider:model-name format)
+      - OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}
 
-      # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
-      # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
-      # Example: ENABLE_ARGOCD=true enables the ArgoCD agent, allowing the platform engineer to route tasks related to Kubernetes application management.
-      # These flags allow you to fine-tune which domain-specific agents are available as tools to the main platform engineer agent at runtime.
-      # Update these variables as needed based on your deployment requirements, security posture, or available agent containers.
-
-      - ENABLE_ARGOCD=${ENABLE_ARGOCD:-false}
-      - ENABLE_AWS=${ENABLE_AWS:-false}
-      - ENABLE_BACKSTAGE=${ENABLE_BACKSTAGE:-false}
-      - ENABLE_CONFLUENCE=${ENABLE_CONFLUENCE:-false}
-      - ENABLE_GITHUB=${ENABLE_GITHUB:-false}
-      - ENABLE_GITLAB=${ENABLE_GITLAB:-false}
-      - ENABLE_JIRA=${ENABLE_JIRA:-false}
-      - ENABLE_KOMODOR=${ENABLE_KOMODOR:-false}
-      - ENABLE_PAGERDUTY=${ENABLE_PAGERDUTY:-false}
-      - ENABLE_PETSTORE=${ENABLE_PETSTORE:-false}
-      - ENABLE_RAG=${ENABLE_RAG:-false}
-      - ENABLE_SLACK=${ENABLE_SLACK:-false}
-      - ENABLE_SPLUNK=${ENABLE_SPLUNK:-false}
-      - ENABLE_VICTOROPS=${ENABLE_VICTOROPS:-false}
-      - ENABLE_WEBEX=${ENABLE_WEBEX:-false}
-      - ENABLE_WEATHER=${ENABLE_WEATHER:-false}
-      - ENABLE_NETUTILS=${ENABLE_NETUTILS:-false}
-      - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
+      # Vault configuration for secure LLM key storage
+      - VAULT_ADDR=${VAULT_ADDR:-}
+      - VAULT_NAMESPACE=${VAULT_NAMESPACE:-}
+      - VAULT_ROLE_ID=${VAULT_ROLE_ID:-}
+      - VAULT_SECRET_ID=${VAULT_SECRET_ID:-}
+      - VAULT_MOUNT_POINT=${VAULT_MOUNT_POINT:-secret}
+      - VAULT_APPROLE_PATH=${VAULT_APPROLE_PATH:-approle}
+      - VAULT_PATH_PREFIX=${VAULT_PATH_PREFIX:-}
 
       # Tracing configuration (will be read from .env if ENABLE_TRACING=true)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
@@ -130,6 +212,9 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
     command: platform-engineer
     profiles:
       - caipe-supervisor
@@ -161,6 +246,7 @@ services:
       start_period: 40s
     profiles:
       - caipe-mongodb
+      - caipe-supervisor
       - deps
 
   # MongoDB Admin UI
@@ -214,6 +300,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=aws
+    image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-localtag}
     container_name: agent-aws
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.aws_agent.yaml:/app/prompt_config.aws_agent.yaml
@@ -258,6 +345,7 @@ services:
       args:
         - AGENT_NAME=template
         - AGENT_PACKAGE=petstore
+    image: ghcr.io/cnoe-io/agent-template:${IMAGE_TAG:-localtag}
     container_name: agent-petstore
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.petstore_agent.yaml:/app/prompt_config.petstore_agent.yaml
@@ -283,12 +371,27 @@ services:
       - all-agents
 
   # GitHub
+  # Official GitHub MCP server (HTTP mode) — provides full GitHub tool coverage
+  # via the github-mcp-server Go binary served over streamable-http.
+  # agent-github connects to this via GITHUB_MCP_HOST/PORT instead of localhost.
+  github-mcp-server:
+    image: ghcr.io/github/github-mcp-server:latest
+    container_name: github-mcp-server
+    command: ["http", "--port", "8082", "--toolsets", "all"]
+    environment:
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+    ports: ["8082:8082"]
+    profiles:
+      - github
+      - all-agents
+
   agent-github:
     build:
       context: .
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=github
+    image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-localtag}
     container_name: agent-github
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.github_agent.yaml:/app/prompt_config.github_agent.yaml
@@ -299,6 +402,8 @@ services:
     environment:
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
+      - GITHUB_MCP_HOST=github-mcp-server
+      - GITHUB_MCP_PORT=8082
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -311,10 +416,8 @@ services:
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
       - GITHUB_APP_PRIVATE_KEY_PATH=${GITHUB_APP_PRIVATE_KEY_PATH:-}
       - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
-    # Docker socket mount is only needed when MCP_MODE=stdio
-    # For local Github Offical MCP server execution.
-    # Uncomment this when MCP_MODE=stdio is supported
-    # volumes: ["/var/run/docker.sock:/var/run/docker.sock"]
+    depends_on:
+      - github-mcp-server
     profiles:
       - github
       - all-agents
@@ -326,6 +429,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=gitlab # key for tracing
+    image: ghcr.io/cnoe-io/agent-gitlab:${IMAGE_TAG:-localtag}
     container_name: agent-gitlab
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.gitlab_agent.yaml:/app/prompt_config.gitlab_agent.yaml
@@ -404,6 +508,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=weather
+    image: ghcr.io/cnoe-io/agent-weather:${IMAGE_TAG:-localtag}
     container_name: agent-weather
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.weather_agent.yaml:/app/prompt_config.weather_agent.yaml
@@ -428,6 +533,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=backstage
+    image: ghcr.io/cnoe-io/agent-backstage:${IMAGE_TAG:-localtag}
     container_name: agent-backstage
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.backstage_agent.yaml:/app/prompt_config.backstage_agent.yaml
@@ -454,6 +560,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=backstage
+    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-localtag}
     container_name: mcp-backstage
     env_file: [.env]
     ports: ["18001:8000"]
@@ -480,6 +587,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=argocd
+    image: ghcr.io/cnoe-io/agent-argocd:${IMAGE_TAG:-localtag}
     container_name: agent-argocd
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.argocd_agent.yaml:/app/prompt_config.argocd_agent.yaml
@@ -506,6 +614,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=argocd
+    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-localtag}
     container_name: mcp-argocd
     env_file: [.env]
     ports: ["18002:8000"]
@@ -532,6 +641,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=confluence
+    image: ghcr.io/cnoe-io/agent-confluence:${IMAGE_TAG:-localtag}
     container_name: agent-confluence
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.confluence_agent.yaml:/app/prompt_config.confluence_agent.yaml
@@ -572,6 +682,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=jira
+    image: ghcr.io/cnoe-io/agent-jira:${IMAGE_TAG:-localtag}
     container_name: agent-jira
     env_file: [.env]
     volumes:
@@ -598,6 +709,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=jira
+    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-localtag}
     container_name: mcp-jira
     env_file: [.env]
     ports: ["18004:8000"]
@@ -624,6 +736,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=komodor
+    image: ghcr.io/cnoe-io/agent-komodor:${IMAGE_TAG:-localtag}
     container_name: agent-komodor
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.komodor_agent.yaml:/app/prompt_config.komodor_agent.yaml
@@ -648,6 +761,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=komodor
+    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-localtag}
     container_name: mcp-komodor
     env_file: [.env]
     ports: ["18005:8000"]
@@ -673,6 +787,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=pagerduty
+    image: ghcr.io/cnoe-io/agent-pagerduty:${IMAGE_TAG:-localtag}
     container_name: agent-pagerduty
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.pagerduty_agent.yaml:/app/prompt_config.pagerduty_agent.yaml
@@ -699,6 +814,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=pagerduty
+    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-localtag}
     container_name: mcp-pagerduty
     env_file: [.env]
     ports: ["18006:8000"]
@@ -725,6 +841,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=slack
+    image: ghcr.io/cnoe-io/agent-slack:${IMAGE_TAG:-localtag}
     container_name: agent-slack
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.slack_agent.yaml:/app/prompt_config.slack_agent.yaml
@@ -778,6 +895,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=splunk
+    image: ghcr.io/cnoe-io/agent-splunk:${IMAGE_TAG:-localtag}
     container_name: agent-splunk
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.splunk_agent.yaml:/app/prompt_config.splunk_agent.yaml
@@ -804,6 +922,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=splunk
+    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-localtag}
     container_name: mcp-splunk
     env_file: [.env]
     ports: ["18008:8000"]
@@ -830,6 +949,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=webex
+    image: ghcr.io/cnoe-io/agent-webex:${IMAGE_TAG:-localtag}
     container_name: agent-webex
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.webex_agent.yaml:/app/prompt_config.webex_agent.yaml
@@ -856,6 +976,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=webex
+    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-localtag}
     container_name: mcp-webex
     env_file: [.env]
     ports: ["18009:8000"]
@@ -882,6 +1003,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=victorops
+    image: ghcr.io/cnoe-io/agent-victorops:${IMAGE_TAG:-localtag}
     container_name: agent-victorops
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.victorops_agent.yaml:/app/prompt_config.victorops_agent.yaml
@@ -908,6 +1030,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=victorops
+    image: ghcr.io/cnoe-io/mcp-victorops:${IMAGE_TAG:-localtag}
     container_name: mcp-victorops
     env_file: [.env]
     ports: ["18012:8000"]
@@ -938,6 +1061,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=netutils
+    image: ghcr.io/cnoe-io/agent-netutils:${IMAGE_TAG:-localtag}
     container_name: agent-netutils
     volumes:
       - ./charts/ai-platform-engineering/data/prompt_config.netutils_agent.yaml:/app/prompt_config.netutils_agent.yaml
@@ -963,6 +1087,7 @@ services:
       dockerfile: ai_platform_engineering/agents/netutils/build/Dockerfile.mcp
       args:
         - AGENT_NAME=netutils
+    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
     container_name: mcp-netutils
     env_file: [.env]
     ports: ["18011:8000"]
@@ -1034,9 +1159,10 @@ services:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
       args:
-        - IMAGE_TAG=${IMAGE_TAG:-dev}
+        - IMAGE_TAG=${IMAGE_TAG:-localtag}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
         - BUILD_DATE=${BUILD_DATE:-}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -1045,7 +1171,7 @@ services:
       - NODE_ENV=production
       # CAIPE supervisor A2A endpoint URL
       # Override with A2A_BASE_URL environment variable
-      - A2A_BASE_URL=${A2A_BASE_URL:-http://localhost:8000}
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
@@ -1078,12 +1204,19 @@ services:
       - PREVIEW_MODE=${PREVIEW_MODE:-}
       # Workflow runner - set WORKFLOW_RUNNER_ENABLED=true to show Run Workflow button and Multi-Step Workflows
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
+      # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
+      - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
+      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+    volumes:
+      - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
-      - caipe-supervisor
+      caipe-supervisor:
+        condition: service_started
+        required: false
     profiles:
       - caipe-ui
 
@@ -1104,13 +1237,20 @@ services:
     build:
       context: ./ai_platform_engineering/dynamic_agents
       dockerfile: build/Dockerfile
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
     container_name: dynamic-agents
     ports: ["8100:8001"]
     volumes:
       # Mount source for hot reload in development
       - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
+      - ${HOME}/.aws:/home/app/.aws:ro
     env_file: [.env]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
+      - AWS_BEDROCK_STREAMING=${AWS_BEDROCK_STREAMING:-false}
+      - AWS_BEDROCK_USE_CONVERSE_API=${AWS_BEDROCK_USE_CONVERSE_API:-true}
+      - AWS_BEDROCK_BASE_MODEL_ID=${AWS_BEDROCK_BASE_MODEL_ID:-}
       # MongoDB (same as CAIPE UI)
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
@@ -1128,9 +1268,13 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      # CORS_ORIGINS: Set DYNAMIC_AGENTS_CORS_ORIGINS in .env as JSON array
-      # e.g., DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]'
-      # Omitted here to use Pydantic default ["*"]
+      # CORS_ORIGINS: must be a JSON array (bare "*" from prod default is not valid JSON for list[str])
+      # To restrict origins, set DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]' in .env
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
+      # Seed config: use the volume-mounted source config so changes take effect
+      # without rebuilding the image (Python imports config.yaml from site-packages by
+      # default, which is frozen at image-build time)
+      - SEED_CONFIG_PATH=/app/dynamic_agents/src/dynamic_agents/services/config.yaml
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
@@ -1147,17 +1291,21 @@ services:
   ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
+
   rag_server:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-localtag}
     container_name: rag_server
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
+      - ${HOME}/.aws:/home/app/.aws:ro
     ports: ["9446:9446"]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
       - ALLOW_UNAUTHENTICATED=true
       # Trusted Network Configuration
@@ -1178,6 +1326,7 @@ services:
       # Embeddings configuration
       - EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER:-azure-openai}
       - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL:-text-embedding-3-large}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       # OIDC JWT validation for UI tokens
       - OIDC_ISSUER=${OIDC_ISSUER}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
@@ -1202,7 +1351,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.agent-ontology
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-localtag}
     container_name: agent_ontology
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/agent_ontology/src/agent_ontology:/app/agent_ontology/src/agent_ontology
@@ -1235,7 +1384,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-stable}
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: web-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1244,7 +1393,7 @@ services:
       - INGESTOR_TYPE=webloader
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://rag-redis:6379/0
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${WEBLOADER_CHECK_INTERVAL:-86400}
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
       - MAX_CONCURRENT_JOBS=${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
@@ -1256,7 +1405,6 @@ services:
       - INGESTOR_OIDC_SCOPE=${INGESTOR_OIDC_SCOPE:-}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
     profiles:
       - web_ingestor
 
@@ -1264,6 +1412,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: backstage-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1272,7 +1421,7 @@ services:
       - INGESTOR_TYPE=backstage
       - BACKSTAGE_URL=${BACKSTAGE_URL}
       - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${BACKSTAGE_SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${BACKSTAGE_INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1282,7 +1431,6 @@ services:
       - IGNORE_TYPES=${BACKSTAGE_IGNORE_TYPES:-api,component,domain,group,location,system,template,user}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
     profiles:
       - backstage-ingestor
 
@@ -1290,11 +1438,12 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: aws-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
-      - ${HOME}/.aws:/home/app/.aws:ro
+      - ${HOME}/.aws/credentials:/home/app/.aws/credentials:ro
     environment:
       - INGESTOR_TYPE=aws
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
@@ -1305,15 +1454,16 @@ services:
       - AWS_PROFILE=${AWS_PROFILE:-}
       - AWS_DEFAULT_PROFILE=${AWS_DEFAULT_PROFILE:-}
       - RESOURCE_TYPES=${AWS_RESOURCE_TYPES:-iam:user,ec2:instance,ec2:volume,ec2:natgateway,ec2:vpc,ec2:subnet,ec2:security-group,eks:cluster,s3:bucket,elasticloadbalancing:loadbalancer,route53:hostedzone,rds:db,lambda:function,dynamodb:table}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
+      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - aws-ingestor
 
@@ -1321,6 +1471,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: k8s-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1338,7 +1489,7 @@ services:
       - IN_CLUSTER=${K8S_IN_CLUSTER:-false}
       - RESOURCE_LIST=${K8S_RESOURCE_LIST:-Certificate,ClusterIssuer,CronJob,DaemonSet,Deployment,Ingress,IngressClass,Issuer,Job,Namespace,Node,Service,StatefulSet,StorageClass}
       - IGNORE_FIELD_LIST=${K8S_IGNORE_FIELD_LIST:-metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1346,7 +1497,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - k8s-ingestor
 
@@ -1354,6 +1504,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: slack-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1364,7 +1515,7 @@ services:
       - SLACK_BOT_NAME=${SLACK_BOT_NAME}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-https://slack.com}
       - SLACK_CHANNELS=${SLACK_CHANNELS:-{}}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1372,7 +1523,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - slack-ingestor
 
@@ -1380,6 +1530,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: webex-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1389,7 +1540,7 @@ services:
       - WEBEX_ACCESS_TOKEN=${WEBEX_ACCESS_TOKEN}
       - WEBEX_BOT_NAME=${WEBEX_BOT_NAME}
       - WEBEX_SPACES=${WEBEX_SPACES:-{}}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-60}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1397,7 +1548,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - webex-ingestor
 
@@ -1405,6 +1555,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: argocd-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1415,7 +1566,7 @@ services:
       - ARGOCD_AUTH_TOKEN=${ARGOCD_AUTH_TOKEN}
       - ARGOCD_VERIFY_SSL=${ARGOCD_VERIFY_SSL:-true}
       - ARGOCD_FILTER_PROJECTS=${ARGOCD_FILTER_PROJECTS:-}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1423,7 +1574,6 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - argocd-ingestor
 
@@ -1431,6 +1581,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: github-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1441,9 +1592,11 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_APP_INSTALLATION_ID for GitHub App auth
       - GITHUB_ORG=${GITHUB_ORG}
+      - GITHUB_ORGS=${GITHUB_ORGS:-}
+      - GITHUB_APP_INSTALLATION_IDS=${GITHUB_APP_INSTALLATION_IDS:-}
       - GITHUB_API_URL=${GITHUB_API_URL:-https://api.github.com/graphql}
       - GITHUB_REST_API_URL=${GITHUB_REST_API_URL:-https://api.github.com}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - FETCH_TEAM_DETAILS=${FETCH_TEAM_DETAILS:-true}
@@ -1453,22 +1606,21 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
     profiles:
       - github-ingestor
 
-  # Dummy Graph Ingestor - for testing graph RAG with sample data
+  # Dummy Structured Ingestor - for testing RAG with sample structured entities
   # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
-  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-graph-ingestor
-  dummy-graph-ingestor:
+  # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-structured-ingestor
+  dummy-structured-ingestor:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: dummy-graph-ingestor:local
+    image: dummy-structured-ingestor:local
     container_name: dummy-ingestor
     environment:
-      - RAG_SERVER_URL=http://rag_server:9446
-      - INGESTOR_TYPE=test_dummy_graph
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - INGESTOR_TYPE=dummy_structured_ingestor
       - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
@@ -1526,7 +1678,6 @@ services:
     image: milvusdb/milvus:v2.6.0
     container_name: milvus-standalone
     command: ["milvus", "run", "standalone"]
-    security_opt: [seccomp:unconfined]
     environment:
       - MINIO_REGION=us-east-1
       - ETCD_ENDPOINTS=etcd:2379
@@ -1643,7 +1794,7 @@ services:
         condition: service_healthy
       langfuse-clickhouse:
         condition: service_healthy
-    ports: ["3000:3000"]
+    ports: ["3001:3000"]
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/postgres
       - SALT=mysalt
@@ -1670,7 +1821,7 @@ services:
       - LANGFUSE_S3_MEDIA_UPLOAD_PREFIX=media/
       - REDIS_HOST=langfuse-redis
       - REDIS_AUTH=myredissecret
-      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_URL=http://localhost:3001
       - NEXTAUTH_SECRET=mysecret
     profiles:
       - tracing
@@ -1706,7 +1857,7 @@ services:
     environment:
       - MINIO_ROOT_USER=minio
       - MINIO_ROOT_PASSWORD=miniosecret
-    ports: ["9090:9000", "127.0.0.1:9091:9001"]
+    ports: ["9090:9000", "127.0.0.1:9092:9001"]
     volumes:
       - langfuse_minio_data:/data
     healthcheck:
@@ -1791,6 +1942,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.slack-bot
+    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-localtag}
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
@@ -1813,15 +1965,14 @@ services:
       - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
       - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
       - MONGODB_DATABASE=caipe
-      - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
-      - LANGFUSE_SCORING_ENABLED=${LANGFUSE_SCORING_ENABLED:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - CAIPE_UI_URL=${CAIPE_UI_URL:-http://caipe-ui:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
-      - caipe-supervisor
-      - caipe-mongodb
+      caipe-supervisor:
+        condition: service_started
+        required: false
+      caipe-mongodb:
+        condition: service_started
     profiles:
       - slack-bot
       - all-integrations

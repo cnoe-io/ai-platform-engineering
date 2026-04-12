@@ -51,6 +51,11 @@ CHECKPOINT_TYPE_MONGODB = "mongodb"
 _DEFAULT_CHECKPOINT_COLLECTION = "checkpoints"
 _DEFAULT_WRITES_COLLECTION = "checkpoint_writes"
 
+# Truncate ToolMessage content above this threshold before MongoDB checkpoint.
+# GitHub/Jira agents can return 100s of KB of raw text (PR lists, issue lists)
+# which pushes the checkpoint document over MongoDB's 16 MB BSON limit.
+_MAX_TOOL_MESSAGE_CHARS = 50_000  # 50 KB per tool message
+
 
 def _detect_collection_prefix() -> str:
     """Auto-detect a collection name prefix from the running module.
@@ -470,6 +475,93 @@ def _create_mongodb_checkpointer(
         return _create_memory_checkpointer()
 
 
+def _truncate_large_messages(checkpoint: Checkpoint) -> Checkpoint:
+    """Return a copy of checkpoint with oversized ToolMessage content truncated.
+
+    Large tool responses (GitHub PR lists, Jira issue dumps, etc.) can exceed
+    MongoDB's 16 MB BSON document limit.  We truncate in the checkpoint copy
+    only — the in-memory graph state is unchanged, so the LLM's context window
+    already has the full content for the current turn.
+    """
+    try:
+        from langchain_core.messages import ToolMessage
+    except ImportError:
+        return checkpoint
+
+    channel_values = checkpoint.get("channel_values", {})
+    messages = channel_values.get("messages", [])
+    if not messages:
+        return checkpoint
+
+    new_messages = []
+    any_truncated = False
+    for msg in messages:
+        if (
+            isinstance(msg, ToolMessage)
+            and isinstance(msg.content, str)
+            and len(msg.content) > _MAX_TOOL_MESSAGE_CHARS
+        ):
+            original_len = len(msg.content)
+            truncated_content = (
+                msg.content[:_MAX_TOOL_MESSAGE_CHARS]
+                + f"\n[... {original_len - _MAX_TOOL_MESSAGE_CHARS} chars truncated for checkpoint ...]"
+            )
+            msg = msg.model_copy(update={"content": truncated_content})
+            any_truncated = True
+            logger.warning(
+                f"MongoDB checkpoint: truncated ToolMessage "
+                f"(tool={msg.name or 'unknown'}) from {original_len} → "
+                f"{_MAX_TOOL_MESSAGE_CHARS} chars"
+            )
+        new_messages.append(msg)
+
+    if not any_truncated:
+        return checkpoint
+
+    new_checkpoint = dict(checkpoint)
+    new_checkpoint["channel_values"] = dict(channel_values)
+    new_checkpoint["channel_values"]["messages"] = new_messages
+    return new_checkpoint  # type: ignore[return-value]
+
+
+def _truncate_large_writes(
+    writes: "Sequence[Tuple[str, Any]]",
+) -> "Sequence[Tuple[str, Any]]":
+    """Return a copy of writes with oversized ToolMessage content truncated.
+
+    aput_writes stores individual node outputs; large ToolMessages here can
+    also blow past the MongoDB BSON limit for the writes collection.
+    """
+    try:
+        from langchain_core.messages import ToolMessage
+    except ImportError:
+        return writes
+
+    new_writes = []
+    any_truncated = False
+    for channel, value in writes:
+        if (
+            isinstance(value, ToolMessage)
+            and isinstance(value.content, str)
+            and len(value.content) > _MAX_TOOL_MESSAGE_CHARS
+        ):
+            original_len = len(value.content)
+            truncated_content = (
+                value.content[:_MAX_TOOL_MESSAGE_CHARS]
+                + f"\n[... {original_len - _MAX_TOOL_MESSAGE_CHARS} chars truncated for checkpoint ...]"
+            )
+            value = value.model_copy(update={"content": truncated_content})
+            any_truncated = True
+            logger.warning(
+                f"MongoDB checkpoint: truncated ToolMessage write "
+                f"(tool={value.name or 'unknown'}) from {original_len} → "
+                f"{_MAX_TOOL_MESSAGE_CHARS} chars"
+            )
+        new_writes.append((channel, value))
+
+    return new_writes if any_truncated else writes
+
+
 class _LazyAsyncMongoDBSaver(BaseCheckpointSaver):
     """Lazy wrapper for MongoDBSaver that initializes on first async use."""
 
@@ -522,12 +614,14 @@ class _LazyAsyncMongoDBSaver(BaseCheckpointSaver):
         new_versions: ChannelVersions,
     ) -> dict:
         await self._ensure_initialized()
+        checkpoint = _truncate_large_messages(checkpoint)
         return await self._saver.aput(config, checkpoint, metadata, new_versions)
 
     async def aput_writes(
         self, config: dict, writes: Sequence[Tuple[str, Any]], task_id: str
     ) -> None:
         await self._ensure_initialized()
+        writes = _truncate_large_writes(writes)
         return await self._saver.aput_writes(config, writes, task_id)
 
     async def alist(

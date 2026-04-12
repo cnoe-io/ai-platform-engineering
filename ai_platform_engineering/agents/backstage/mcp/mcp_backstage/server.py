@@ -44,10 +44,7 @@ def main():
   logging.info(f"MCP Server name: {SERVER_NAME}")
 
   # Create server instance
-  if MCP_MODE.lower() in ["sse", "http"]:
-    mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
-  else:
-    mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+  mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
   mcp.tool()(entities_by_query.get_entities_by_query)
 
@@ -61,7 +58,10 @@ def main():
   mcp.tool()(techdocs_index.list_entities_with_techdocs)
 
   # Run the MCP server
-  mcp.run(transport=MCP_MODE.lower())
+  if MCP_MODE.lower() in ["sse", "http"]:
+    mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+  else:
+    mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":

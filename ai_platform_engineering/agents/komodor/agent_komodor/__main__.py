@@ -9,35 +9,45 @@ from cnoe_agent_utils.tracing import disable_a2a_tracing
 # Disable A2A framework tracing to prevent interference with custom tracing
 disable_a2a_tracing()
 
-import asyncio
-import click
-import httpx
-import os
-import uvicorn
-import logging
-from dotenv import load_dotenv
-from agntcy_app_sdk.factory import AgntcyFactory
-from starlette.middleware.cors import CORSMiddleware
-from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
-
 # =====================================================
 # Now safe to import a2a modules
 # =====================================================
-from a2a.server.apps import A2AStarletteApplication  # noqa: E402
-from a2a.server.request_handlers import DefaultRequestHandler  # noqa: E402
-from a2a.server.tasks import (  # noqa: E402
-    BasePushNotificationSender,
-    InMemoryPushNotificationConfigStore,
-    InMemoryTaskStore,
+
+import click
+import asyncio
+import os
+from dotenv import load_dotenv
+
+from agent_komodor.protocol_bindings.a2a_server.agent_executor import KomodorAgentExecutor # type: ignore[import-untyped]
+from ai_platform_engineering.utils.a2a_common.a2a_server import A2AServer
+from a2a.types import (
+  AgentSkill
 )
-from agent_komodor.agentcard import create_agent_card  # noqa: E402
-from agent_komodor.protocol_bindings.a2a_server.agent_executor import KomodorAgentExecutor  # type: ignore[import-untyped]  # noqa: E402
 
 load_dotenv()
 
-A2A_TRANSPORT = os.getenv("A2A_TRANSPORT", "p2p").lower()
-SLIM_ENDPOINT = os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
-METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
+
+AGENT_NAME = 'komodor'
+AGENT_DESCRIPTION = (
+    'An AI agent that provides capabilities to list, manage, '
+    'and retrieve details of clusters, services and workloads in Komodor.'
+)
+
+agent_skill = AgentSkill(
+  id="komodor_agent_skill",
+  name="Komodor Agent Skill",
+  description="Provides capabilities to list and manage applications in Komodor.",
+  tags=[
+    "komodor",
+    "list clusters",
+    "incident management"],
+  examples=[
+      "Get my clusters",
+      "Get my health risks on cluster jarvis-sandbox",
+      "Trigger a RCA for service httpbin in namespace sandbox-adrozdov on cluster jarvis-sandbox",
+      "Get the RCA result for the session ID",
+  ])
 
 # We can't use click decorators for async functions so we wrap the main function in a sync function
 @click.command()
@@ -47,66 +57,17 @@ def main(host: str, port: int):
     asyncio.run(async_main(host, port))
 
 async def async_main(host: str, port: int):
-    client = httpx.AsyncClient()
-    push_config_store = InMemoryPushNotificationConfigStore()
-    push_sender = BasePushNotificationSender(httpx_client=client,
-                    config_store=push_config_store)
-    request_handler = DefaultRequestHandler(
+    server = A2AServer(
+        agent_name=AGENT_NAME,
+        agent_description=AGENT_DESCRIPTION,
+        agent_skills=[agent_skill],
+        host=host,
+        port=port,
         agent_executor=KomodorAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-      push_config_store=push_config_store,
-      push_sender= push_sender
+        metrics_enabled=METRICS_ENABLED
     )
-
-    if A2A_TRANSPORT == "slim":
-        agent_url = SLIM_ENDPOINT
-    else:
-        agent_url = f'http://{host}:{port}'
-
-    server = A2AStarletteApplication(
-        agent_card=create_agent_card(agent_url), http_handler=request_handler
-    )
-
-    if A2A_TRANSPORT == 'slim':
-        # Run A2A server over SLIM transport
-        # https://docs.agntcy.org/messaging/slim-core/
-        print("Running A2A server in SLIM mode.")
-        factory = AgntcyFactory()
-        transport = factory.create_transport("SLIM", endpoint=agent_url)
-        print("Transport created successfully.")
-
-        bridge = factory.create_bridge(server, transport=transport)
-        print("Bridge created successfully. Starting the bridge.")
-        await bridge.start(blocking=True)
-    else:
-        # Run a p2p A2A server
-        print("Running A2A server in p2p mode.")
-        app = server.build()
-
-        # Add CORSMiddleware to allow requests from any origin (disables CORS restrictions)
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],  # Allow all origins
-            allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-            allow_headers=["*"],  # Allow all headers
-        )
-
-        # Add Prometheus metrics middleware if enabled
-        if METRICS_ENABLED:
-            app.add_middleware(
-                PrometheusMetricsMiddleware,
-                excluded_paths=["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"],
-                metrics_path="/metrics",
-                agent_name="komodor",
-            )
-
-        # Configure uvicorn access log to DEBUG level for health checks
-        access_logger = logging.getLogger("uvicorn.access")
-        access_logger.setLevel(logging.DEBUG)
-
-        config = uvicorn.Config(app, host=host, port=port, access_log=True)
-        server = uvicorn.Server(config=config)
-        await server.serve()
+    
+    await server.serve()
 
 if __name__ == '__main__':
     main()

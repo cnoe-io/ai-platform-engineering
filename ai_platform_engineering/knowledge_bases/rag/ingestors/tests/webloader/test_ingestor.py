@@ -70,8 +70,8 @@ from ingestors.webloader.ingestor import (  # noqa: E402
   process_url_ingestion,
   reload_datasource,
   periodic_reload,
-  DEFAULT_RELOAD_INTERVAL,
 )
+from common.constants import DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Domain model imports (from common — these are installed packages)
@@ -83,7 +83,6 @@ from common.models.server import (
 )
 from common.models.rag import DataSourceInfo
 from common.job_manager import JobInfo, JobStatus
-from common.constants import MIN_RELOAD_INTERVAL
 
 # Alias so helpers can call time.time() for setup
 _time = time_module.time
@@ -123,6 +122,7 @@ def make_datasource(
   last_updated: int | None = None,
   metadata: dict | None = None,
   source_type: str = "url",
+  reload_interval: int | None = None,
 ) -> DataSourceInfo:
   return DataSourceInfo(
     datasource_id=datasource_id,
@@ -130,6 +130,7 @@ def make_datasource(
     source_type=source_type,
     last_updated=last_updated,
     metadata=metadata,
+    **({"reload_interval": reload_interval} if reload_interval is not None else {}),
   )
 
 
@@ -830,9 +831,7 @@ class TestPeriodicReload:
     """Returns a datasource that was updated `seconds_ago` seconds ago."""
     last_updated = int(_time()) - seconds_ago
     meta: dict = {"url_ingest_request": UrlIngestRequest(url="https://ex.com").model_dump()}
-    if reload_interval is not None:
-      meta["reload_interval"] = reload_interval
-    return make_datasource(datasource_id, last_updated=last_updated, metadata=meta)
+    return make_datasource(datasource_id, last_updated=last_updated, metadata=meta, reload_interval=reload_interval)
 
   async def test_empty_datasource_list_does_nothing(self):
     client = make_client("ing-1", [])

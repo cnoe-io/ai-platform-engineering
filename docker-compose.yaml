@@ -19,11 +19,15 @@ services:
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_RAG_PATH:-./charts/ai-platform-engineering/data/prompt_config.rag.yaml}:/app/prompt_config.rag.yaml
+      - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
     ports:
       - "8000:8000"
     environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       # Prompt configuration file path
@@ -35,9 +39,12 @@ services:
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
       - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
-      # TODO: remove this after 11/20
       - ENABLE_ARTIFACT_STREAMING=true
-      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
+
+      # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
+      # Leave empty for all-in-one mode (all agents in-process via MCP).
+      # Examples: DISTRIBUTED_AGENTS=argocd,aws  or  DISTRIBUTED_AGENTS=all
+      - DISTRIBUTED_AGENTS=${DISTRIBUTED_AGENTS:-}
 
       # Agent hostname mappings for agent connectivity.
       # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
@@ -52,11 +59,28 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PETSTORE_AGENT_HOST=agent-petstore
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
+      - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-3}
+      - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
+      - RAG_MAX_SEARCH_RESULTS=${RAG_MAX_SEARCH_RESULTS:-3}
+      - LANGGRAPH_RECURSION_LIMIT=${LANGGRAPH_RECURSION_LIMIT:-500}
       - SLACK_AGENT_HOST=agent-slack
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
       - NETUTILS_AGENT_HOST=agent-netutils
+
+      # MCP server hostname mappings for in-process (all-in-one) mode.
+      # When agents run in-process, they connect to MCP servers by container name.
+      - ARGOCD_MCP_HOST=mcp-argocd
+      - BACKSTAGE_MCP_HOST=mcp-backstage
+      - CONFLUENCE_MCP_HOST=mcp-confluence
+      - JIRA_MCP_HOST=mcp-jira
+      - KOMODOR_MCP_HOST=mcp-komodor
+      - PAGERDUTY_MCP_HOST=mcp-pagerduty
+      - SLACK_MCP_HOST=mcp-slack
+      - SPLUNK_MCP_HOST=mcp-splunk
+      - WEBEX_MCP_HOST=mcp-webex
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
@@ -708,6 +732,9 @@ services:
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
       # Workflow runner - set WORKFLOW_RUNNER_ENABLED=true to show Run Workflow button and Multi-Step Workflows
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
+      # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
+      - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
+      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
@@ -723,8 +750,12 @@ services:
   rag_server:
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-0.2.36}
     container_name: rag_server
+    volumes:
+      - ${HOME}/.aws:/home/app/.aws:ro
     ports: ["9446:9446"]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=DEBUG
       - ALLOW_UNAUTHENTICATED=true
       # Trusted Network Configuration
@@ -762,11 +793,18 @@ services:
   # Ports:
   #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
   dynamic-agents:
-    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.21}
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.43}
     container_name: dynamic-agents
     ports: ["8100:8001"]
+    volumes:
+      - ${HOME}/.aws:/home/app/.aws:ro
     env_file: [.env]
     environment:
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
+      - AWS_BEDROCK_STREAMING=${AWS_BEDROCK_STREAMING:-false}
+      - AWS_BEDROCK_USE_CONVERSE_API=${AWS_BEDROCK_USE_CONVERSE_API:-true}
+      - AWS_BEDROCK_BASE_MODEL_ID=${AWS_BEDROCK_BASE_MODEL_ID:-}
       # MongoDB (same as CAIPE UI)
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
@@ -784,7 +822,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s

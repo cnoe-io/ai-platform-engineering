@@ -31,11 +31,17 @@ export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "f
 // If not set, will auto-detect from common claim names
 export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
-// Required group for authorization
-export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP || "backstage-access";
+// Required group for authorization.
+// Use ?? (nullish coalescing) so that setting OIDC_REQUIRED_GROUP="" disables
+// the group check. || would treat "" as falsy and fall back to "backstage-access".
+export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "backstage-access";
 
 // Required admin group for admin access
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
+
+// Required group for dynamic agents (custom agents) access
+// If not set, falls back to requiring admin group membership
+export const REQUIRED_DYNAMIC_AGENTS_GROUP = process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP || "";
 
 // Required group for read-only admin dashboard access
 // Users in this group can view admin data but cannot make changes
@@ -123,6 +129,19 @@ export function isAdminUser(groups: string[]): boolean {
     const adminGroupLower = REQUIRED_ADMIN_GROUP.toLowerCase();
     return groupLower === adminGroupLower || groupLower.includes(`cn=${adminGroupLower}`);
   });
+}
+
+// Helper to check if user can access dynamic agents.
+// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access
+// (admin group membership does NOT automatically grant access in this case).
+// If unset, falls back to admin-only access.
+export function canAccessDynamicAgents(groups: string[]): boolean {
+  if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
+    const requiredLower = REQUIRED_DYNAMIC_AGENTS_GROUP.toLowerCase();
+    return groups.some(g => g.toLowerCase() === requiredLower || g.toLowerCase().includes(`cn=${requiredLower}`));
+  }
+  // No explicit group configured → admins only
+  return isAdminUser(groups);
 }
 
 // Helper to check if user can view admin dashboard (read-only)
@@ -335,6 +354,7 @@ export const authOptions: NextAuthOptions = {
         token.isAuthorized = hasRequiredGroup(groups);
         token.role = isAdminUser(groups) ? 'admin' : 'user';
         token.canViewAdmin = token.role === 'admin' || canViewAdminDashboard(groups);
+        token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
 
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
@@ -421,6 +441,11 @@ export const authOptions: NextAuthOptions = {
       // admin view group is configured (all authenticated users can view).
       session.canViewAdmin = (token.canViewAdmin as boolean)
         ?? (REQUIRED_ADMIN_VIEW_GROUP === '' ? true : false);
+      // Admins always get dynamic agents access, regardless of what the JWT says.
+      // This covers both pre-upgrade tokens (missing field) and tokens computed
+      // before canAccessDynamicAgents() was updated to include the admin check.
+      session.canAccessDynamicAgents = (token.canAccessDynamicAgents === true)
+        || (session.role === 'admin');
 
       // If token refresh failed, mark session as invalid and DON'T include tokens
       if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
@@ -494,6 +519,7 @@ declare module "next-auth" {
     refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
     role?: 'admin' | 'user';
     canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
+    canAccessDynamicAgents?: boolean; // Whether user can access custom agents
   }
 }
 
@@ -510,5 +536,6 @@ declare module "next-auth/jwt" {
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean;
+    canAccessDynamicAgents?: boolean;
   }
 }

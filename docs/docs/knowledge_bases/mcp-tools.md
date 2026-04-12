@@ -168,9 +168,26 @@ Search and exploration tools support metadata filters:
 |------------|-------------|---------|
 | `datasource_id` | Filter by data source | `"aws-production"` |
 | `ingestor_id` | Filter by ingestor | `"k8s-ingestor"` |
-| `is_graph_entity` | Only graph entities | `true` |
-| `graph_entity_type` | Filter by entity type | `"Pod"` |
-| `document_type` | Filter by document type | `"runbook"` |
+| `is_structured_entity` | Only structured entities | `true` |
+| `document_type` | Filter by document type | `"runbook"`, `"structured:Pod"` |
+| `metadata.<key>` | Filter by nested metadata | `metadata.structured_entity_type` |
+
+For structured entities, `document_type` is prefixed with `structured:` followed by the entity type (e.g., `"structured:Pod"`, `"structured:Deployment"`). To filter for a specific entity type, use `document_type` with this prefix.
+
+### Nested Metadata Filters
+
+You can also filter by custom metadata fields stored in the `metadata` dict using dot notation:
+
+```json
+{
+  "filters": {
+    "metadata.structured_entity_type": "Pod",
+    "metadata.custom_field": "value"
+  }
+}
+```
+
+This is useful for filtering by ingestor-specific metadata that isn't a top-level field.
 
 Filters are combined with AND logic.
 
@@ -192,7 +209,7 @@ Here's how an AI agent might use these tools to answer "What pods are running on
 
 3. **Find the node:**
    ```
-   search(query="worker-1", filters={"graph_entity_type": "Node"})
+   search(query="worker-1", filters={"document_type": "structured:Node"})
    → Gets Node entity ID
    ```
 

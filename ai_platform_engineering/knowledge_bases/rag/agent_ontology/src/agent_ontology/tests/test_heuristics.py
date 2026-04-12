@@ -6,7 +6,7 @@ import pytest
 from unittest.mock import Mock
 from agent_ontology.heuristics import HeuristicsProcessor, MatchResult, SearchTask
 from common.models.ontology import ValueMatchType
-from common.models.graph import Entity
+from common.models.rag import StructuredEntity
 
 
 class TestMatchResult:
@@ -32,7 +32,7 @@ class TestSearchTask:
 
   def test_search_task_creation(self):
     """Test creating a SearchTask"""
-    entity = Mock(spec=Entity)
+    entity = Mock(spec=StructuredEntity)
     task = SearchTask(entity=entity, property_name="user_id", property_value="user-123", query_tokens=["user", "123"], entity_property_id_key=["user_id"])
     assert task.entity == entity
     assert task.property_name == "user_id"
@@ -150,7 +150,7 @@ class TestHeuristicsProcessorHelpers:
 
   def test_get_id_key_for_property_primary_key(self, processor):
     """Test getting id_key for primary key property"""
-    entity = Mock(spec=Entity)
+    entity = Mock(spec=StructuredEntity)
     entity.primary_key_properties = ["user_id", "region"]
     entity.additional_key_properties = []
 
@@ -159,7 +159,7 @@ class TestHeuristicsProcessorHelpers:
 
   def test_get_id_key_for_property_additional_key(self, processor):
     """Test getting id_key for additional key property"""
-    entity = Mock(spec=Entity)
+    entity = Mock(spec=StructuredEntity)
     entity.primary_key_properties = ["user_id"]
     entity.additional_key_properties = [["email"], ["phone"]]
 
@@ -168,7 +168,7 @@ class TestHeuristicsProcessorHelpers:
 
   def test_get_id_key_for_property_not_found(self, processor):
     """Test getting id_key for non-key property"""
-    entity = Mock(spec=Entity)
+    entity = Mock(spec=StructuredEntity)
     entity.primary_key_properties = ["user_id"]
     entity.additional_key_properties = []
 
@@ -177,7 +177,7 @@ class TestHeuristicsProcessorHelpers:
 
   def test_get_id_key_for_property_none_additional_keys(self, processor):
     """Test getting id_key when additional_key_properties is None"""
-    entity = Mock(spec=Entity)
+    entity = Mock(spec=StructuredEntity)
     entity.primary_key_properties = ["user_id"]
     entity.additional_key_properties = None
 
@@ -186,7 +186,7 @@ class TestHeuristicsProcessorHelpers:
 
   def test_get_identity_keys(self, processor):
     """Test getting identity keys from entity"""
-    entity = Mock(spec=Entity)
+    entity = Mock(spec=StructuredEntity)
     entity.primary_key_properties = ["user_id"]
     entity.additional_key_properties = [["email"]]
     entity.all_properties = {"user_id": "user-123", "email": "test@example.com", "name": "Test User"}
@@ -197,7 +197,7 @@ class TestHeuristicsProcessorHelpers:
 
   def test_get_identity_keys_all(self, processor):
     """Test getting all identity keys when no filter value"""
-    entity = Mock(spec=Entity)
+    entity = Mock(spec=StructuredEntity)
     entity.primary_key_properties = ["user_id"]
     entity.additional_key_properties = [["email"]]
     entity.all_properties = {"user_id": "user-123", "email": "test@example.com"}

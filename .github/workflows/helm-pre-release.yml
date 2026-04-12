@@ -38,7 +38,7 @@ jobs:
 
       - name: 🔍 Get PR details
         id: pr-info
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const prNumber = '${{ steps.bump-status.outputs.pr_number }}';
@@ -64,7 +64,7 @@ jobs:
             console.log(`Labels: ${pr.labels.map(l => l.name).join(', ')}`);
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ steps.pr-info.outputs.head_sha }}
           fetch-depth: 0
@@ -125,7 +125,7 @@ jobs:
 
       - name: ⚙️ Set up Helm
         if: steps.version-check.outputs.skip != 'true'
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
         with:
           version: v3.14.0
 
@@ -233,8 +233,9 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version
+          # Update Chart.yaml with pre-release version and matching appVersion
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
 
           # Update dependencies and package
           helm dependency update charts/rag-stack/
@@ -249,8 +250,9 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version
+          # Update Chart.yaml with pre-release version and matching appVersion
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
 
           # If rag-stack was also changed, update its dependency version
           if [[ "${{ steps.detect.outputs.rag-stack-changed }}" == "true" ]]; then
@@ -307,7 +309,7 @@ jobs:
 
       - name: 💬 Comment on PR
         if: steps.version-check.outputs.skip != 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;

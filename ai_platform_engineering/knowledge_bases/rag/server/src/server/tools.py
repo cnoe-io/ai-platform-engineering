@@ -10,10 +10,9 @@ import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
 from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOGY_VERSION_ID_KEY, PRIMARY_ID_KEY
-from common.models.graph import Entity, EntityIdentifier
+from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch, StructuredEntity, StructuredEntityId
 import traceback
 from server.query_service import VectorDBQueryService
-from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch
 from fastmcp import FastMCP
 from common.utils import json_encode
 from server.snippet_utils import format_search_result
@@ -91,7 +90,7 @@ class AgentTools:
         if enabled:
           mcp.tool(tool)
 
-    logger.info(f"Registered MCP tools: {list((await mcp.get_tools()).keys())}")
+    logger.info(f"Registered MCP tools: {[t.name for t in await mcp.list_tools()]}")
 
   async def reload_tools(
     self,
@@ -101,22 +100,23 @@ class AgentTools:
     tool_configs: List[MCPToolConfig],
   ) -> None:
     """Hot-reload all MCP tools from updated configuration."""
-    for tool_name in list((await mcp.get_tools()).keys()):
+    for tool_name in [t.name for t in await mcp.list_tools()]:
       mcp.remove_tool(tool_name)
     await self.register_tools(mcp, graph_rag_enabled, builtin_config, tool_configs)
 
   def _build_search_description(self, config: MCPToolConfig, graph_rag_enabled: bool) -> str:
     """Build the human/LLM-facing description for a search tool."""
     valid_filter_keys = valid_metadata_keys()
-    has_graph_search = any(ps.is_graph_entity is True for ps in config.parallel_searches)
-    if not (graph_rag_enabled and has_graph_search):
-      valid_filter_keys = [k for k in valid_filter_keys if "graph_entity" not in k]
+    has_structured_entity_search = any(ps.extra_filters.get("is_structured_entity") in (True, "true", "True") for ps in config.parallel_searches)
+    if not (graph_rag_enabled and has_structured_entity_search):
+      valid_filter_keys = [k for k in valid_filter_keys if "structured_entity" not in k]
 
-    filters_line = f"    filters (dict): Optional metadata filters. Valid keys: {valid_filter_keys}.\n" if config.allow_runtime_filters else ""
+    # Add note about nested metadata filters
+    filters_line = f"    filters (dict): Optional metadata filters. Valid keys: {valid_filter_keys}. Also supports nested metadata filters like metadata.custom_field.\n" if config.allow_runtime_filters else ""
 
     labels = [ps.label for ps in config.parallel_searches]
     keys_str = ", ".join(f'"{lbl}"' for lbl in labels)
-    return_section = f"Returns:\n    dict with keys: {keys_str}\n    Each key maps to a list of results with text_content (truncated to 500 chars), metadata, and score.\n    Use fetch_document with document_id to get full content."
+    return_section = f"Returns:\n    dict with keys: {keys_str}\n    Each key maps to a list of results with text_content (highlighted snippet), metadata, and score."
 
     base = config.description or "Search for relevant documents in the knowledge base."
     return (
@@ -147,8 +147,6 @@ class AgentTools:
         if runtime_filters:
           q_filters.update(runtime_filters)
         q_filters.update(ps.extra_filters)
-        if ps.is_graph_entity is not None:
-          q_filters["is_graph_entity"] = ps.is_graph_entity
         if ps.datasource_ids:
           q_filters["datasource_id"] = list(ps.datasource_ids)
         results = await self.vector_db_query_service.query(
@@ -166,6 +164,10 @@ class AgentTools:
             query=query,
             max_total_length=search_result_truncate_length,
           )
+          if len(result.document.page_content) > search_result_truncate_length:
+            doc_id = result.document.metadata.get("document_id", "")
+            if doc_id:
+              text += f"\n\n[Content truncated. Use fetch_document with document_id='{doc_id}' to get full content if needed.]"
           output.append(
             {
               "text_content": text,
@@ -325,13 +327,13 @@ class AgentTools:
       # First check if the entity type exists in ontology
       all_entity_types = await self.ontology_graphdb.get_all_entity_types()
       if entity_type not in all_entity_types:
-        return f"Error: Entity type '{entity_type}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+        return f"Error: StructuredEntity type '{entity_type}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
 
       # Explore the entity neighborhood with specified depth
       result = await self._explore_entity_with_depth(graphdb=self.ontology_graphdb, entity_type=entity_type, entity_pk=primary_key_id, max_depth=depth)
 
       if result["root_entity"] is None:
-        return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the ontology graph database. The entity may not exist or may have been deleted."
+        return f"Error: StructuredEntity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the ontology graph database. The entity may not exist or may have been deleted."
 
       # Check the size of the results, if too large return an error message instead
       result_str = json_encode(result)
@@ -339,12 +341,12 @@ class AgentTools:
       if tokens > max_graph_raw_query_tokens:
         logger.warning(f"Ontology entity exploration result is too large ({tokens} tokens), returning error message instead.")
         return (
-          f"Entity exploration result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
+          f"StructuredEntity exploration result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
           "Please reduce the amount of data returned:\n"
           "- Use a smaller depth value (current: {depth})\n"
           "- Use graph_fetch_data_entity_details for a single entity without neighbors\n"
           "- Consider using graph_raw_query_ontology with LIMIT and specific property selection\n\n"
-          f"Entity explored: {entity_type}"
+          f"StructuredEntity explored: {entity_type}"
         )
 
       return result
@@ -383,13 +385,13 @@ class AgentTools:
       # First check if the entity type exists
       all_entity_types = await self.data_graphdb.get_all_entity_types()
       if entity_type not in all_entity_types:
-        return f"Error: Entity type '{entity_type}' does not exist in the data graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+        return f"Error: StructuredEntity type '{entity_type}' does not exist in the data graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
 
       # Explore the entity neighborhood with specified depth
       result = await self._explore_entity_with_depth(graphdb=self.data_graphdb, entity_type=entity_type, entity_pk=primary_key_id, max_depth=depth)
 
       if result["root_entity"] is None:
-        return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
+        return f"Error: StructuredEntity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
 
       # Check the size of the results, if too large return an error message instead
       result_str = json_encode(result)
@@ -397,12 +399,12 @@ class AgentTools:
       if tokens > max_graph_raw_query_tokens:
         logger.warning(f"Data entity exploration result is too large ({tokens} tokens), returning error message instead.")
         return (
-          f"Entity exploration result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
+          f"StructuredEntity exploration result is too large ({tokens} tokens, max: {max_graph_raw_query_tokens}). "
           "Please reduce the amount of data returned:\n"
           "- Use a smaller depth value (current: {depth})\n"
           "- Use graph_fetch_data_entity_details for a single entity without neighbors\n"
           "- Consider using graph_raw_query_data with LIMIT and specific property selection\n\n"
-          f"Entity explored: {entity_type} with primary_key_id: {primary_key_id}"
+          f"StructuredEntity explored: {entity_type} with primary_key_id: {primary_key_id}"
         )
 
       return result
@@ -437,7 +439,7 @@ class AgentTools:
     root_entity = neighborhood["entity"]
 
     # Extract full entity data for root
-    def extract_full_entity_data(entity: Entity) -> dict:
+    def extract_full_entity_data(entity: StructuredEntity) -> dict:
       """Extract complete entity data with all properties"""
       primary_key_values = {}
       for prop in entity.primary_key_properties:
@@ -465,7 +467,7 @@ class AgentTools:
       return {"entity_type": entity.entity_type, "primary_key_values": primary_key_values, "additional_key_values": additional_key_values, "properties": properties}
 
     # Extract essential entity data for connected entities
-    def extract_essential_entity_data(entity: Entity) -> dict:
+    def extract_essential_entity_data(entity: StructuredEntity) -> dict:
       """Extract only essential entity data (primary keys and entity type)"""
       primary_key_values = {}
       for prop in entity.primary_key_properties:
@@ -526,11 +528,11 @@ class AgentTools:
       # First check if the entity type exists
       all_entity_types = await self.data_graphdb.get_all_entity_types()
       if entity_type not in all_entity_types:
-        return f"Error: Entity type '{entity_type}' does not exist in the data graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+        return f"Error: StructuredEntity type '{entity_type}' does not exist in the data graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
 
       entity = await self.data_graphdb.fetch_entity(entity_type, primary_key_id)
       if entity is None:
-        return f"Error: Entity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
+        return f"Error: StructuredEntity of type '{entity_type}' with primary key '{primary_key_id}' was not found in the data graph database. Please verify the entity type and primary key are correct."
 
       # Remove internal properties (those starting with _)
       clean_properties = {}
@@ -606,12 +608,12 @@ class AgentTools:
       # Check if both entity types exist in ontology
       all_entity_types = await self.ontology_graphdb.get_all_entity_types()
       if entity_type_1 not in all_entity_types:
-        return f"Error: Entity type '{entity_type_1}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+        return f"Error: StructuredEntity type '{entity_type_1}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
       if entity_type_2 not in all_entity_types:
-        return f"Error: Entity type '{entity_type_2}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
+        return f"Error: StructuredEntity type '{entity_type_2}' does not exist in the ontology graph database.\nAvailable entity types: {', '.join(sorted(all_entity_types))}"
 
-      entity_a_id = EntityIdentifier(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
-      entity_b_id = EntityIdentifier(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
+      entity_a_id = StructuredEntityId(entity_type=entity_type_1, primary_key=PROP_DELIMITER.join([entity_type_1, ontology_version_id]))
+      entity_b_id = StructuredEntityId(entity_type=entity_type_2, primary_key=PROP_DELIMITER.join([entity_type_2, ontology_version_id]))
 
       paths = await self.ontology_graphdb.shortest_path(
         entity_a=entity_a_id,

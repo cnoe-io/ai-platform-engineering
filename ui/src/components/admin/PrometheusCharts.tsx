@@ -312,7 +312,7 @@ export function TimeseriesChart({
                   borderRadius: "8px",
                   fontSize: "12px",
                 }}
-                formatter={(val: number) => [formatValue(val), ""]}
+                formatter={(val) => [formatValue(Number(val)), ""]}
               />
               <Legend />
               {series.map((name, i) =>
@@ -444,7 +444,7 @@ export function BarMetricChart({
                   borderRadius: "8px",
                   fontSize: "12px",
                 }}
-                formatter={(val: number) => [formatValue(val), ""]}
+                formatter={(val) => [formatValue(Number(val)), ""]}
               />
               <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]}>
                 {chartData.map((_, i) => (

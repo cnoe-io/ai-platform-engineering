@@ -1,10 +1,9 @@
 import time
 import traceback
+from typing import List, Optional, Tuple
 from common import utils
 from langchain_core.documents import Document
-from common.models.rag import DocumentChunkMetadata, DocumentMetadata
-from typing import List, Optional, Tuple
-from common.models.graph import Entity
+from common.models.rag import DocumentChunkMetadata, DocumentMetadata, StructuredEntity
 from langchain_milvus import Milvus
 from common.graph_db.base import GraphDB
 from common.job_manager import JobManager
@@ -24,7 +23,7 @@ class DocumentProcessor:
         job_manager: JobManager instance
         graph_rag_enabled: Whether graph RAG is enabled
         data_graph_db: GraphDB instance
-        max_property_length: Maximum length for property values for graph entities
+        max_property_length: Maximum length for property values for structured entities
         batch_size: Batch size for ingestion into vector database
     """
     self.vstore = vstore
@@ -36,14 +35,14 @@ class DocumentProcessor:
     self.logger = utils.get_logger("DocumentProcessor")
 
   @staticmethod
-  def sanitize_entity_properties(entity: Entity, max_length: int = 250) -> None:
+  def sanitize_entity_properties(entity: StructuredEntity, max_length: int = 250) -> None:
     """
     Sanitize entity properties by removing or filtering values that exceed max_length.
     - For string properties: remove the entire property if length > max_length
     - For list properties: remove individual elements that have length > max_length
 
     Args:
-        entity: Entity to sanitize (modified in-place)
+        entity: StructuredEntity to sanitize (modified in-place)
         max_length: Maximum allowed length for property values (default: 250)
     """
     properties_to_remove = []
@@ -84,7 +83,7 @@ class DocumentProcessor:
       entity.all_properties[key] = value
 
   @staticmethod
-  def format_entity_for_embedding(entity: Entity) -> str:
+  def format_entity_for_embedding(entity: StructuredEntity) -> str:
     """
     Format entity properties for embedding with emphasis on entity type and primary keys.
     Properties section is formatted as JSON for clean, readable output.
@@ -182,7 +181,7 @@ class DocumentProcessor:
           ingestor_id=document_metadata.ingestor_id,
           title=document_metadata.title,
           description=document_metadata.description,
-          is_graph_entity=document_metadata.is_graph_entity,
+          is_structured_entity=document_metadata.is_structured_entity,
           document_type=document_metadata.document_type,
           document_ingested_at=document_metadata.document_ingested_at,
           fresh_until=document_metadata.fresh_until,
@@ -205,7 +204,7 @@ class DocumentProcessor:
         ingestor_id=document_metadata.ingestor_id,
         title=document_metadata.title,
         description=document_metadata.description,
-        is_graph_entity=document_metadata.is_graph_entity,
+        is_structured_entity=document_metadata.is_structured_entity,
         document_type=document_metadata.document_type,
         document_ingested_at=document_metadata.document_ingested_at,
         fresh_until=document_metadata.fresh_until,
@@ -221,20 +220,20 @@ class DocumentProcessor:
 
     return chunks, chunk_ids
 
-  def _process_graph_entity_document(
+  def _process_structured_entity_document(
     self,
     doc: Document,
     document_metadata: DocumentMetadata,
     ingestor_id: str,
     datasource_id: str,
     fresh_until: int,
-  ) -> Optional[Tuple[List[Entity], List[Document], List[str], List[str]]]:
+  ) -> Optional[Tuple[List[StructuredEntity], List[Document], List[str], List[str]]]:
     """
-    Process a graph entity document by splitting nested entities for the graph database,
+    Process a structured entity document by splitting nested entities for the graph database,
     but keeping the full entity text as a single document for vector search.
 
     Args:
-        doc: The document containing the graph entity
+        doc: The document containing the structured entity
         document_metadata: Metadata for the document
         ingestor_id: ID of the ingestor
         datasource_id: ID of the datasource
@@ -249,15 +248,15 @@ class DocumentProcessor:
     all_chunk_ids = []
     validation_errors = []
 
-    # Parse the graph entity from document
-    entity = self._parse_graph_entity(doc)
+    # Parse the structured entity from document
+    entity = self._parse_structured_entity(doc)
     if entity is None:
       # Validation failed, skip this entity
       return None
 
     entity_type = entity.entity_type
 
-    self.logger.debug(f"Parsed graph entity of type {entity_type}")
+    self.logger.debug(f"Parsed structured entity of type {entity_type}")
 
     # Flatten properties BUT preserve arrays of dicts (they'll be split later)
     # This ensures primary_key_properties with dot notation work correctly
@@ -269,7 +268,7 @@ class DocumentProcessor:
 
     # Split the entity into multiple entities for the graph database
     # Properties are already flattened except arrays of dicts
-    entities = self.split_nested_graph_entity(entity)
+    entities = self.split_nested_structured_entity(entity)
     self.logger.debug(f"Split entity into {len(entities)} entities for graph DB (including parent)")
 
     # Log primary key after splitting
@@ -285,7 +284,7 @@ class DocumentProcessor:
       # Validate primary_key_properties - critical, must exist
       missing_primary_keys = [key for key in split_entity.primary_key_properties if key not in all_props]
       if missing_primary_keys:
-        error_msg = f"Entity type '{split_entity.entity_type}': missing primary key properties: {missing_primary_keys}. Available properties: {list(all_props.keys())}"
+        error_msg = f"StructuredEntity type '{split_entity.entity_type}': missing primary key properties: {missing_primary_keys}. Available properties: {list(all_props.keys())}"
         self.logger.warning(f"Skipping entity - {error_msg}")
         validation_errors.append(error_msg)
         continue
@@ -299,7 +298,7 @@ class DocumentProcessor:
             # All keys exist, keep this additional key set
             valid_additional_keys.append(id_keys)
           else:
-            warning_msg = f"Entity type '{split_entity.entity_type}' with primary key '{split_entity.generate_primary_key()}': additional_key_properties {id_keys} has missing properties: {missing_additional_keys}. These additional keys will be ignored."
+            warning_msg = f"StructuredEntity type '{split_entity.entity_type}' with primary key '{split_entity.generate_primary_key()}': additional_key_properties {id_keys} has missing properties: {missing_additional_keys}. These additional keys will be ignored."
             self.logger.warning(warning_msg)
             validation_errors.append(warning_msg)
 
@@ -317,22 +316,22 @@ class DocumentProcessor:
 
     # Create ONE document with the full entity text for vector search
     # Use the original (parent) entity information for the document ID
-    # Set graph entity metadata in the document metadata
-    document_id = self.graph_document_id(entity.entity_type, entity.generate_primary_key())
+    # Set structured entity metadata in the document metadata
+    document_id = self.structured_document_id(entity.entity_type, entity.generate_primary_key())
     entity_primary_key = entity.generate_primary_key()
     if document_metadata.metadata is None:
       document_metadata.metadata = {}
-    document_metadata.metadata.update({"graph_entity_type": entity.entity_type, "graph_entity_pk": entity_primary_key})
+    document_metadata.metadata.update({"structured_entity_type": entity.entity_type, "structured_entity_pk": entity_primary_key})
 
-    # Prepare metadata for chunking - set graph entity metadata explicitly for root entity
+    # Prepare metadata for chunking - set structured entity metadata explicitly for root entity
     entity_doc_metadata = DocumentMetadata(
       document_id=document_id,
       datasource_id=document_metadata.datasource_id,
       ingestor_id=document_metadata.ingestor_id,
       title=document_metadata.title,
       description=document_metadata.description,
-      is_graph_entity=True,
-      document_type=self.graph_document_type(entity.entity_type),
+      is_structured_entity=True,
+      document_type=self.structured_document_type(entity.entity_type),
       document_ingested_at=document_metadata.document_ingested_at,
       fresh_until=document_metadata.fresh_until,
       metadata=document_metadata.metadata,
@@ -350,9 +349,9 @@ class DocumentProcessor:
 
     return all_entities, all_chunks, all_chunk_ids, validation_errors
 
-  def split_nested_graph_entity(self, entity: Entity) -> List[Entity]:
+  def split_nested_structured_entity(self, entity: StructuredEntity) -> List[StructuredEntity]:
     """
-    Split a nested graph entity into a list of entities.
+    Split a nested structured entity into a list of entities.
 
     This function recursively processes an entity's properties:
     - Homogeneous lists of primitives (str, bool, int, float) are kept as-is
@@ -369,7 +368,7 @@ class DocumentProcessor:
     - Recursively processes nested structures
 
     Returns:
-        List[Entity]: List containing the modified parent entity and all extracted nested entities
+        List[StructuredEntity]: List containing the modified parent entity and all extracted nested entities
     """
     result_entities = []
 
@@ -388,19 +387,19 @@ class DocumentProcessor:
     # Merge back internal properties (they should always be preserved)
     processed_properties.update(internal_properties)
 
-    # Create the updated parent entity, preserving additional_labels and additional_key_properties
-    updated_parent = Entity(
+    # Create the updated parent entity, preserving additional_types and additional_key_properties
+    updated_parent = StructuredEntity(
       entity_type=parent_entity_type,
       all_properties=processed_properties,
       primary_key_properties=entity.primary_key_properties,
-      additional_labels=entity.additional_labels,
+      additional_types=entity.additional_types,
       additional_key_properties=entity.additional_key_properties,
     )
 
     # Parent entity comes first in the result
     return [updated_parent] + result_entities
 
-  def _process_entity_properties(self, properties: dict, parent_entity_type: str, parent_primary_key: str, result_entities: List[Entity], prefix: str = "") -> dict:
+  def _process_entity_properties(self, properties: dict, parent_entity_type: str, parent_primary_key: str, result_entities: List[StructuredEntity], prefix: str = "") -> dict:
     """
     Process entity properties by splitting lists of dicts.
     Properties should already be flattened (except arrays of dicts) before calling this.
@@ -457,7 +456,7 @@ class DocumentProcessor:
     primitive_types = (str, bool, int, float, type(None))
     return all(isinstance(item, primitive_types) for item in lst)
 
-  def _split_list_of_dicts(self, prop_key: str, prop_value: list, parent_entity_type: str, parent_primary_key: str, result_entities: List[Entity]) -> None:
+  def _split_list_of_dicts(self, prop_key: str, prop_value: list, parent_entity_type: str, parent_primary_key: str, result_entities: List[StructuredEntity]) -> None:
     """
     Split a list of dictionaries into separate entities.
 
@@ -497,21 +496,21 @@ class DocumentProcessor:
 
       # Create the new entity with SUB_ENTITY_LABEL to mark it as a sub-entity
       # Include ENTITY_TYPE_KEY in primary key to avoid clashes between different sub-entity types
-      sub_entity = Entity(
+      sub_entity = StructuredEntity(
         entity_type=new_entity_type,
         all_properties=sub_entity_properties,
         primary_key_properties=[PARENT_ENTITY_PK_KEY, ENTITY_TYPE_KEY, SUB_ENTITY_INDEX_KEY],
-        additional_labels={SUB_ENTITY_LABEL},
+        additional_types={SUB_ENTITY_LABEL},
       )
 
-      self.logger.debug(f"Created sub-entity '{new_entity_type}' with additional_labels: {sub_entity.additional_labels}")
+      self.logger.debug(f"Created sub-entity '{new_entity_type}' with additional_types: {sub_entity.additional_types}")
 
       # Recursively process the sub-entity for nested structures
-      sub_entities = self.split_nested_graph_entity(sub_entity)
+      sub_entities = self.split_nested_structured_entity(sub_entity)
 
       # Verify labels are preserved after recursive processing
       for se in sub_entities:
-        self.logger.debug(f"After recursive processing: entity_type='{se.entity_type}', additional_labels={se.additional_labels}")
+        self.logger.debug(f"After recursive processing: entity_type='{se.entity_type}', additional_types={se.additional_types}")
 
       result_entities.extend(sub_entities)
 
@@ -566,21 +565,21 @@ class DocumentProcessor:
     return "".join(result_words)
 
   @staticmethod
-  def graph_document_type(entity_type: str) -> str:
-    return f"graph:{entity_type}"
+  def structured_document_type(entity_type: str) -> str:
+    return f"structured:{entity_type}"
 
   @staticmethod
-  def graph_document_id(entity_type: str, entity_pk: str) -> str:
-    return f"graph:{entity_type}:{entity_pk}"
+  def structured_document_id(entity_type: str, entity_pk: str) -> str:
+    return f"structured:{entity_type}:{entity_pk}"
 
   @staticmethod
-  def parse_graph_entity_from_document_id(document_id: str) -> Tuple[str, str]:
+  def parse_structured_entity_from_document_id(document_id: str) -> Tuple[str, str]:
     """
-    Parse entity_type and entity_pk from a graph document ID of the form "graph:entity_type:entity_pk"
+    Parse entity_type and entity_pk from a structured document ID of the form "structured:entity_type:entity_pk"
     """
     parts = document_id.split(":")
-    if len(parts) < 3 or parts[0] != "graph":
-      raise ValueError(f"Invalid graph document ID format: {document_id}")
+    if len(parts) < 3 or parts[0] != "structured":
+      raise ValueError(f"Invalid structured document ID format: {document_id}")
     entity_type = parts[1]
     entity_pk = ":".join(parts[2:])  # In case entity_pk contains ':'
     return entity_type, entity_pk
@@ -595,20 +594,20 @@ class DocumentProcessor:
       self.logger.error(f"Failed to parse document metadata: {e}")
       raise ValueError(f"Invalid document metadata: {e}")
 
-  def _parse_graph_entity(self, doc: Document) -> Optional[Entity]:
+  def _parse_structured_entity(self, doc: Document) -> Optional[StructuredEntity]:
     """
-    Parse document page_content into a graph Entity if it's a graph entity document.
+    Parse document page_content into a StructuredEntity if it's a structured entity document.
     Returns None if parsing fails (entity will be skipped).
     Validation happens after splitting and flattening on server side.
     Optimized for high-throughput ingestion.
     """
     try:
-      # Use Pydantic's model_validate_json to parse JSON string directly into Entity
-      entity = Entity.model_validate_json(doc.page_content)
+      # Use Pydantic's model_validate_json to parse JSON string directly into StructuredEntity
+      entity = StructuredEntity.model_validate_json(doc.page_content)
       return entity
     except Exception as e:
-      self.logger.error(f"Failed to parse graph entity from document: {e}")
-      raise ValueError(f"Invalid graph entity document: {e}")
+      self.logger.error(f"Failed to parse structured entity from document: {e}")
+      raise ValueError(f"Invalid structured entity document: {e}")
 
   def _chunk_document(self, doc: Document, document_metadata: DocumentMetadata, chunk_size: int, chunk_overlap: int) -> List[Document]:
     """
@@ -646,7 +645,7 @@ class DocumentProcessor:
           ingestor_id=document_metadata.ingestor_id,
           title=document_metadata.title,
           description=document_metadata.description,
-          is_graph_entity=document_metadata.is_graph_entity,
+          is_structured_entity=document_metadata.is_structured_entity,
           document_type=document_metadata.document_type,
           document_ingested_at=document_metadata.document_ingested_at,
           fresh_until=document_metadata.fresh_until,
@@ -672,7 +671,7 @@ class DocumentProcessor:
         ingestor_id=document_metadata.ingestor_id,
         title=document_metadata.title,
         description=document_metadata.description,
-        is_graph_entity=document_metadata.is_graph_entity,
+        is_structured_entity=document_metadata.is_structured_entity,
         document_type=document_metadata.document_type,
         document_ingested_at=document_metadata.document_ingested_at,
         fresh_until=document_metadata.fresh_until,
@@ -688,7 +687,7 @@ class DocumentProcessor:
 
   async def ingest_documents(self, ingestor_id: str, datasource_id: str, job_id: str, documents: List[Document], fresh_until: int, chunk_size: int, chunk_overlap: int):
     """
-    Process documents, splitting into chunks if necessary, and handle both regular documents and graph entities.
+    Process documents, splitting into chunks if necessary, and handle both regular documents and structured entities.
 
     Args:
         ingestor_id: ID of the ingestor ingesting the documents
@@ -705,7 +704,7 @@ class DocumentProcessor:
 
     self.logger.info(f"Starting ingestion of {len(documents)} documents")
 
-    # Step 1: Process each document and collect chunks and graph entities
+    # Step 1: Process each document and collect chunks and structured entities
     all_chunks = []
     all_chunk_ids = []
     all_entities = []  # Simple list of entities
@@ -721,10 +720,10 @@ class DocumentProcessor:
         document_metadata.fresh_until = fresh_until
         document_metadata.document_ingested_at = int(time.time())
 
-        # Step 1b: Check if it's a graph entity and parse if needed
-        if self.graph_rag_enabled and document_metadata.is_graph_entity:
+        # Step 1b: Check if it's a structured entity and parse if needed
+        if self.graph_rag_enabled and document_metadata.is_structured_entity:
           try:
-            result = self._process_graph_entity_document(
+            result = self._process_structured_entity_document(
               doc=doc,
               document_metadata=document_metadata,
               ingestor_id=ingestor_id,
@@ -734,7 +733,7 @@ class DocumentProcessor:
 
             # Skip if entity parsing failed
             if result is None:
-              self.logger.warning("Skipping graph entity document due to parsing failure")
+              self.logger.warning("Skipping structured entity document due to parsing failure")
               continue
 
             entities, chunks, chunk_ids, validation_errors = result
@@ -750,16 +749,16 @@ class DocumentProcessor:
             all_chunk_ids.extend(chunk_ids)
 
           except Exception as e:
-            error_msg = f"Failed to parse graph entity: {e}"
+            error_msg = f"Failed to parse structured entity: {e}"
             self.logger.error(f"{error_msg}, skipping")
             self.logger.error(traceback.format_exc())
             await self.job_manager.add_error_msg(job_id, error_msg)
             continue
 
         else:
-          # adding this debug log to clarify processing of regular documents when graph RAG is disabled but document is a graph entity
-          if not self.graph_rag_enabled and document_metadata.is_graph_entity:
-            self.logger.debug(f"Document marked as graph entity but graph RAG is disabled, treating as regular document: {document_metadata.document_id}")
+          # adding this debug log to clarify processing of regular documents when graph RAG is disabled but document is a structured entity
+          if not self.graph_rag_enabled and document_metadata.is_structured_entity:
+            self.logger.debug(f"Document marked as structured entity but graph RAG is disabled, treating as regular document: {document_metadata.document_id}")
 
           # Step 2: Chunk regular documents
           chunks = self._chunk_document(doc, document_metadata, chunk_size, chunk_overlap)
@@ -815,21 +814,21 @@ class DocumentProcessor:
         await self.job_manager.add_error_msg(job_id, error_msg)
         raise
 
-    # Step 4: Add graph entities to graph database in one batch
+    # Step 4: Add structured entities to graph database in one batch
     if all_entities and self.data_graph_db:
       total_entities = len(all_entities)
-      self.logger.info(f"Adding {total_entities} graph entities to graph database in one batch")
+      self.logger.info(f"Adding {total_entities} structured entities to graph database in one batch")
 
       # Update job message
-      await self.job_manager.upsert_job(job_id=job_id, message=f"[Server] Adding {total_entities} graph entities in one batch")
+      await self.job_manager.upsert_job(job_id=job_id, message=f"[Server] Adding {total_entities} structured entities in one batch")
 
       try:
         # Add all entities to graph database in ONE  call
         await self.data_graph_db.update_entity_batch(entities=all_entities, batch_size=1000)
         self.logger.info(f"Successfully added {total_entities} entities to graph database in ONE batch")
 
-        # Final success message for graph entities
-        await self.job_manager.upsert_job(job_id=job_id, message=f"[Server] Successfully added {total_entities} graph entities to graph database in one batch")
+        # Final success message for structured entities
+        await self.job_manager.upsert_job(job_id=job_id, message=f"[Server] Successfully added {total_entities} structured entities to graph database in one batch")
       except Exception as e:
         error_msg = f"Failed to add entities to graph database: {e}"
         self.logger.error(error_msg)
@@ -839,6 +838,6 @@ class DocumentProcessor:
 
     # Final completion message
     total_entities = len(all_entities)
-    completion_msg = f"[Server] Ingestion complete: {len(deduped_chunks) if all_chunks else 0} document chunks, {total_entities} graph entities"
+    completion_msg = f"[Server] Ingestion complete: {len(deduped_chunks) if all_chunks else 0} document chunks, {total_entities} structured entities"
     self.logger.info(completion_msg)
     await self.job_manager.upsert_job(job_id=job_id, message=completion_msg)

@@ -19,6 +19,7 @@ import {
   getConfig,
   getLogoFilterClass,
   getClientConfigScript,
+  getInternalA2AUrl,
   config,
 } from '../config';
 import type { Config } from '../config';
@@ -146,6 +147,7 @@ describe('getServerConfig', () => {
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
+        'oidcRequiredGroup',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -169,8 +171,8 @@ describe('getServerConfig', () => {
       expect(getServerConfig().ssoEnabled).toBe(false);
     });
 
-    it('should read A2A_BASE_URL', () => {
-      process.env.A2A_BASE_URL = 'https://my-supervisor:8000';
+    it('should read NEXT_PUBLIC_A2A_BASE_URL', () => {
+      process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://my-supervisor:8000';
       expect(getServerConfig().caipeUrl).toBe('https://my-supervisor:8000');
     });
 
@@ -668,10 +670,10 @@ describe('getServerConfig', () => {
   // ---------- Production defaults ----------
 
   describe('production defaults (when no A2A/RAG URL set)', () => {
-    it('should use k8s service URLs for caipeUrl in production', () => {
+    it('should use default caipeUrl when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
       process.env.NODE_ENV = 'production';
       clearEnv('A2A_BASE_URL');
-      expect(getServerConfig().caipeUrl).toBe('http://caipe-supervisor:8000');
+      expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
     });
 
     it('should use k8s service URLs for ragUrl in production', () => {
@@ -720,6 +722,94 @@ describe('getServerConfig', () => {
       process.env.NEXT_PUBLIC_GRADIENT_FROM = '#aabbcc';
       expect(getServerConfig().gradientFrom).toBe('#aabbcc');
     });
+  });
+
+  // ---------- oidcRequiredGroup ----------
+
+  describe('oidcRequiredGroup', () => {
+    beforeEach(() => {
+      delete process.env.OIDC_REQUIRED_GROUP;
+    });
+
+    it('defaults to "backstage-access" when OIDC_REQUIRED_GROUP is not set', () => {
+      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+    });
+
+    it('reads a custom value from OIDC_REQUIRED_GROUP', () => {
+      process.env.OIDC_REQUIRED_GROUP = 'my-org-platform-users';
+      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-platform-users');
+    });
+
+    it('falls back to the default when OIDC_REQUIRED_GROUP is an empty string', () => {
+      // config.ts uses || so an empty string is treated as absent
+      process.env.OIDC_REQUIRED_GROUP = '';
+      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+    });
+  });
+});
+
+// ==========================================================================
+// getInternalA2AUrl — server-side internal supervisor URL
+// ==========================================================================
+
+describe('getInternalA2AUrl', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...originalEnv };
+    clearEnv('A2A_BASE_URL');
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns the default internal URL when A2A_BASE_URL is not set', () => {
+    expect(getInternalA2AUrl()).toBe('http://caipe-supervisor:8000');
+  });
+
+  it('returns the A2A_BASE_URL value when set', () => {
+    process.env.A2A_BASE_URL = 'http://docker-internal:9090';
+    expect(getInternalA2AUrl()).toBe('http://docker-internal:9090');
+  });
+
+  it('strips a trailing slash from the URL', () => {
+    process.env.A2A_BASE_URL = 'http://svc:8000/';
+    expect(getInternalA2AUrl()).toBe('http://svc:8000');
+  });
+
+  it('accepts NEXT_PUBLIC_A2A_BASE_URL as a fallback when A2A_BASE_URL is absent', () => {
+    process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://public-fallback:8000';
+    expect(getInternalA2AUrl()).toBe('https://public-fallback:8000');
+  });
+
+  it('A2A_BASE_URL takes precedence over NEXT_PUBLIC_A2A_BASE_URL', () => {
+    process.env.A2A_BASE_URL = 'http://internal:8000';
+    process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://external:8000';
+    expect(getInternalA2AUrl()).toBe('http://internal:8000');
+  });
+
+  // ── Critical separation test ──────────────────────────────────────────────
+  // When A2A_BASE_URL (internal) and NEXT_PUBLIC_A2A_BASE_URL (external) are
+  // both set, they must remain independent — the route.ts uses getInternalA2AUrl()
+  // while the browser receives NEXT_PUBLIC_A2A_BASE_URL via window.__APP_CONFIG__.
+
+  it('getInternalA2AUrl and getServerConfig().caipeUrl are independent when both env vars are set', () => {
+    process.env.A2A_BASE_URL = 'http://caipe-supervisor.caipe.svc.cluster.local:8000';
+    process.env.NEXT_PUBLIC_A2A_BASE_URL = 'https://caipe-devnet.cisco.com';
+
+    expect(getInternalA2AUrl()).toBe(
+      'http://caipe-supervisor.caipe.svc.cluster.local:8000',
+    );
+    expect(getServerConfig().caipeUrl).toBe('https://caipe-devnet.cisco.com');
+  });
+
+  it('getServerConfig().caipeUrl does NOT use A2A_BASE_URL', () => {
+    process.env.A2A_BASE_URL = 'http://docker-internal:8000';
+    delete process.env.NEXT_PUBLIC_A2A_BASE_URL;
+    // caipeUrl should fall back to its own default, not pick up A2A_BASE_URL
+    expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
   });
 });
 
@@ -828,6 +918,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
+      'oidcRequiredGroup',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });
@@ -1263,7 +1354,7 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('mongodb');
     expect(getConfig('spinnerColor')).toBe('#4ecdc4');
     expect(getConfig('supportEmail')).toBe('support@grid.cisco.com');
-    expect(getConfig('caipeUrl')).toBe('http://caipe-supervisor:8000');
+    expect(getConfig('caipeUrl')).toBe('http://localhost:8000');
 
     // Secrets must NOT be in the script
     expect(script).not.toContain('admin:secret');

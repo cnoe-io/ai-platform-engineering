@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
+from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from dynamic_agents.models import MCPServerConfig, TransportType
@@ -234,3 +235,82 @@ async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
         }
         for tool in tools
     ]
+
+
+def _format_tool_error(tool_name: str, exc: Exception) -> str:
+    """Build a descriptive error message for the LLM.
+
+    Includes the tool name, exception type, and message so the LLM can
+    decide whether to retry with different arguments or try another approach.
+    Uses _extract_error_message to unwrap ExceptionGroup/TaskGroup wrappers
+    and surface the actual root cause.
+    """
+    error_text = _extract_error_message(exc) or type(exc).__name__
+    return (
+        f"ERROR: Tool '{tool_name}' failed: {error_text}\n"
+        f"You can retry with different arguments or try a different approach."
+    )
+
+
+def wrap_tools_with_error_handling(
+    tools: list[BaseTool],
+    agent_name: str = "agent",
+) -> list[BaseTool]:
+    """Wrap tools so that exceptions become LLM-visible error messages.
+
+    Without this, MCP tool failures raise ToolException which propagates
+    through LangGraph's ToolNode (default handler only catches
+    ToolInvocationError) and terminates the entire agent loop.
+
+    This follows the same pattern as built-in tools (fetch_url, sleep, etc.)
+    which catch exceptions internally and return "ERROR: ..." strings.
+
+    Args:
+        tools: LangChain tools to wrap (MCP and/or built-in).
+        agent_name: Label for log messages.
+
+    Returns:
+        New list of tools with error-handling wrappers.
+    """
+    wrapped: list[BaseTool] = []
+
+    for tool in tools:
+        tool_name = tool.name
+        resp_fmt = getattr(tool, "response_format", "content")
+        original_coro = getattr(tool, "coroutine", None)
+
+        if original_coro is None:
+            # Tool has no async coroutine (unusual) — keep as-is
+            wrapped.append(tool)
+            continue
+
+        async def _safe_coro(
+            *args: Any,
+            _orig: Any = original_coro,
+            _name: str = tool_name,
+            _resp_fmt: str = resp_fmt,
+            **kwargs: Any,
+        ) -> Any:
+            try:
+                return await _orig(*args, **kwargs)
+            except Exception as exc:
+                msg = _format_tool_error(_name, exc)
+                logger.error(f"[{agent_name}] Tool '{_name}' failed", exc_info=exc)
+                # Return error in the format the tool's response_format expects.
+                # MCP tools use content_and_artifact which requires a (content, artifact) tuple.
+                if _resp_fmt == "content_and_artifact":
+                    return (msg, [])
+                return msg
+
+        new_tool = StructuredTool(
+            name=tool.name,
+            description=tool.description or "",
+            args_schema=tool.args_schema,
+            coroutine=_safe_coro,
+            response_format=resp_fmt,
+            metadata=tool.metadata,
+        )
+        wrapped.append(new_tool)
+
+    logger.info(f"[{agent_name}] Wrapped {len(wrapped)} tools with error handling")
+    return wrapped

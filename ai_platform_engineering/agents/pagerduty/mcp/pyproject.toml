@@ -12,18 +12,18 @@ dependencies = [
   "httpx==0.28.1",
   "python-dotenv==1.2.1",
   "pydantic==2.12.5",
-  "mcp==1.21.0",
-  "fastmcp==2.13.3",
+  "mcp==1.26.0",
+  "fastmcp==3.2.0",
   "typing-extensions==4.15.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "black",
-  "isort",
-  "mypy",
-  "pytest",
-  "ruff",
+  "black==26.3.1",
+  "isort==6.0.1",
+  "mypy==1.17.1",
+  "pytest==8.4.1",
+  "ruff==0.12.7",
 ]
 
 [tool.isort]

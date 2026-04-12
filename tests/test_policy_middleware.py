@@ -11,6 +11,7 @@ import os
 import sys
 from pathlib import Path
 
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
@@ -18,6 +19,8 @@ from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
     PolicyMiddleware,
     CLORM_AVAILABLE,
 )
+
+TEST_POLICY_PATH = str(Path(__file__).parent / "fixtures" / "test_policy.lp")
 
 
 def test_clorm_available():
@@ -30,16 +33,14 @@ def test_clorm_available():
 
 
 def test_policy_file_exists():
-    """Test that the policy file exists."""
-    middleware = PolicyMiddleware(agent_name="test", agent_type="subagent")
-    print(f"Policy path: {middleware.policy_path}")
-    assert os.path.exists(middleware.policy_path), f"Policy file not found: {middleware.policy_path}"
-    print(f"Policy file exists: {middleware.policy_path}")
+    """Test that the test policy file exists."""
+    assert os.path.exists(TEST_POLICY_PATH), f"Test policy file not found: {TEST_POLICY_PATH}"
+    print(f"Test policy file exists: {TEST_POLICY_PATH}")
 
 
 def test_readonly_tools_allowed_for_github():
     """Test that read-only GitHub tools are allowed for github subagent."""
-    middleware = PolicyMiddleware(agent_name="github", agent_type="subagent")
+    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
     
     readonly_tools = [
         "get_me",
@@ -77,7 +78,7 @@ def test_readonly_tools_allowed_for_github():
 
 def test_write_tools_denied_for_github():
     """Test that write GitHub tools are denied for github subagent (without self-service mode)."""
-    middleware = PolicyMiddleware(agent_name="github", agent_type="subagent")
+    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
     
     # These tools are always denied (not available even in self-service mode)
     write_tools = [
@@ -104,7 +105,7 @@ def test_write_tools_denied_for_github():
 
 def test_self_service_tools_denied_without_self_service_mode():
     """Test that self-service tools are denied without self-service mode."""
-    middleware = PolicyMiddleware(agent_name="github", agent_type="subagent")
+    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
     
     self_service_tools = [
         "create_repository",
@@ -127,7 +128,7 @@ def test_self_service_tools_allowed_with_self_service_mode():
     """Test that self-service tools are allowed with self-service mode."""
     from ai_platform_engineering.agents.github.agent_github.tools import self_service_mode_ctx
     
-    middleware = PolicyMiddleware(agent_name="github", agent_type="subagent")
+    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
     
     self_service_tools = [
         "create_repository",
@@ -170,7 +171,7 @@ def test_non_github_agents_allow_all():
     ]
     
     for agent in non_github_agents:
-        middleware = PolicyMiddleware(agent_name=agent, agent_type="subagent")
+        middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name=agent, agent_type="subagent")
         # Test a write tool that would be blocked for github
         allowed = middleware._is_allowed("create_pull_request")
         print(f"  {agent} agent - create_pull_request: {'✅ allowed' if allowed else '❌ denied'}")
@@ -181,7 +182,7 @@ def test_non_github_agents_allow_all():
 
 def test_deep_agent_allows_all():
     """Test that deep_agent (supervisor) allows all tools."""
-    middleware = PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent")
+    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="platform_engineer", agent_type="deep_agent")
     
     # Test tools that would be blocked for github subagent
     tools = ["create_pull_request", "delete_file", "merge_pull_request"]
@@ -196,7 +197,7 @@ def test_deep_agent_allows_all():
 
 def test_builtin_tools_allowed():
     """Test that built-in deep agent tools are allowed."""
-    middleware = PolicyMiddleware(agent_name="github", agent_type="subagent")
+    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
     
     builtin_tools = [
         "write_todos",

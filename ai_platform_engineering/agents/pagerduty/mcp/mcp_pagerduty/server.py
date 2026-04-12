@@ -46,10 +46,7 @@ def main():
     logging.info('*'*40)
 
     # Create server instance
-    if MCP_MODE.lower() in ["sse", "http"]:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
-    else:
-        mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+    mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
 
     # Register incident tools
@@ -75,7 +72,10 @@ def main():
 
     # Run the MCP server
     logging.info("="*40)
-    mcp.run(transport=MCP_MODE.lower())
+    if MCP_MODE.lower() in ["sse", "http"]:
+        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+    else:
+        mcp.run(transport=MCP_MODE.lower())
     logging.info("="*40)
 
 # Start server when run directly

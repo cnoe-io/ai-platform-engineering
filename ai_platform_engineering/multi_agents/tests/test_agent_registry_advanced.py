@@ -102,25 +102,44 @@ class TestConnectivityChecks(unittest.TestCase):
     """Test connectivity checking functionality."""
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    def test_connectivity_disabled_by_default(self, mock_load):
-        """Test that connectivity checks are disabled by default."""
+    def test_connectivity_disabled_when_no_distributed_agents(self, mock_load):
+        """Test that connectivity checks are disabled when DISTRIBUTED_AGENTS is empty."""
         mock_load.return_value = None
 
-        # Default should have checks disabled
-        with patch.dict(os.environ, {'SKIP_AGENT_CONNECTIVITY_CHECK': 'true'}, clear=True):
+        with patch.dict(os.environ, {}, clear=True):
             registry = AgentRegistry()
             self.assertFalse(registry._check_connectivity)
-        print("✓ Connectivity checks disabled by default")
+        print("✓ Connectivity checks disabled when no distributed agents")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    def test_connectivity_can_be_enabled(self, mock_load):
-        """Test that connectivity checks can be enabled."""
+    def test_connectivity_enabled_when_distributed_agents_set(self, mock_load):
+        """Test that connectivity checks are auto-enabled when DISTRIBUTED_AGENTS is set."""
+        mock_load.return_value = None
+
+        with patch.dict(os.environ, {'DISTRIBUTED_AGENTS': 'all'}, clear=True):
+            registry = AgentRegistry()
+            self.assertTrue(registry._check_connectivity)
+        print("✓ Connectivity checks auto-enabled with DISTRIBUTED_AGENTS")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_connectivity_explicit_skip_overrides_distributed(self, mock_load):
+        """Test that SKIP_AGENT_CONNECTIVITY_CHECK overrides DISTRIBUTED_AGENTS."""
+        mock_load.return_value = None
+
+        with patch.dict(os.environ, {'DISTRIBUTED_AGENTS': 'all', 'SKIP_AGENT_CONNECTIVITY_CHECK': 'true'}, clear=True):
+            registry = AgentRegistry()
+            self.assertFalse(registry._check_connectivity)
+        print("✓ Explicit SKIP_AGENT_CONNECTIVITY_CHECK overrides DISTRIBUTED_AGENTS")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    def test_connectivity_explicit_enable_without_distributed(self, mock_load):
+        """Test that SKIP_AGENT_CONNECTIVITY_CHECK=false forces checks even without DISTRIBUTED_AGENTS."""
         mock_load.return_value = None
 
         with patch.dict(os.environ, {'SKIP_AGENT_CONNECTIVITY_CHECK': 'false'}, clear=True):
             registry = AgentRegistry()
             self.assertTrue(registry._check_connectivity)
-        print("✓ Connectivity checks can be enabled")
+        print("✓ Explicit SKIP_AGENT_CONNECTIVITY_CHECK=false forces checks")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
     def test_connectivity_timeout_config(self, mock_load):
@@ -372,11 +391,9 @@ class TestSubagentGeneration(unittest.TestCase):
     """Test subagent generation functionality."""
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    @patch('langgraph.prebuilt.create_react_agent')
-    def test_generate_subagents_basic(self, mock_create_react, mock_load):
+    def test_generate_subagents_basic(self, mock_load):
         """Test basic subagent generation."""
         mock_load.return_value = None
-        mock_create_react.return_value = "mock_graph"
 
         with patch.dict(os.environ, {}, clear=True):
             registry = AgentRegistry()
@@ -402,15 +419,13 @@ class TestSubagentGeneration(unittest.TestCase):
         self.assertEqual(len(subagents), 2)
         self.assertTrue(all('name' in sa for sa in subagents))
         self.assertTrue(all('description' in sa for sa in subagents))
-        self.assertTrue(all('graph' in sa for sa in subagents))
+        self.assertTrue(all('tools' in sa for sa in subagents))
         print("✓ Subagent generation works")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    @patch('langgraph.prebuilt.create_react_agent')
-    def test_generate_subagents_with_override(self, mock_create_react, mock_load):
+    def test_generate_subagents_with_override(self, mock_load):
         """Test subagent generation with prompt override."""
         mock_load.return_value = None
-        mock_create_react.return_value = "mock_graph"
 
         with patch.dict(os.environ, {}, clear=True):
             registry = AgentRegistry()
@@ -430,13 +445,129 @@ class TestSubagentGeneration(unittest.TestCase):
             'GITHUB': {'system_prompt': 'Custom prompt'}
         }
         mock_model = MagicMock()
-        _ = registry.generate_subagents(agent_prompts, mock_model)
+        subagents = registry.generate_subagents(agent_prompts, mock_model)
 
-        # Verify the custom prompt was passed to create_react_agent
-        mock_create_react.assert_called()
-        call_args = mock_create_react.call_args
-        self.assertEqual(call_args[1]['prompt'], 'Custom prompt')
+        # Verify the custom prompt is reflected in the returned subagent dict
+        self.assertEqual(len(subagents), 1)
+        self.assertEqual(subagents[0]['system_prompt'], 'Custom prompt')
         print("✓ Subagent prompt override works")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    @patch('langgraph.prebuilt.create_react_agent')
+    def test_generate_subagents_includes_system_prompt(self, mock_create_react, mock_load):
+        """
+        Each subagent dict must contain 'system_prompt'.
+
+        Regression test: deepagents>=0.3 reads agent_["system_prompt"] in
+        SubAgentMiddleware._get_subagents(). Without this key the supervisor
+        crashes at startup with KeyError: 'system_prompt'.
+
+        When no agent_prompts override is provided, system_prompt defaults
+        to the agent's description (same value used to build the react agent).
+        """
+        mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
+
+        with patch.dict(os.environ, {}, clear=True):
+            registry = AgentRegistry()
+
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "Jira_Agent"
+
+        registry._agents = {
+            'JIRA': {'name': 'JIRA Agent', 'description': 'JIRA integration'}
+        }
+        registry._tools = {'JIRA': mock_tool}
+
+        subagents = registry.generate_subagents({}, MagicMock())
+
+        self.assertEqual(len(subagents), 1)
+        sa = subagents[0]
+        self.assertIn('system_prompt', sa, (
+            "subagent dict must contain 'system_prompt' — deepagents reads "
+            "agent_['system_prompt'] in SubAgentMiddleware and crashes without it"
+        ))
+        # Without an override, system_prompt == description (the fallback)
+        self.assertEqual(sa['system_prompt'], 'JIRA integration')
+        print("✓ system_prompt included in subagent dict (defaults to description)")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    @patch('langgraph.prebuilt.create_react_agent')
+    def test_generate_subagents_system_prompt_uses_override_when_provided(self, mock_create_react, mock_load):
+        """
+        When agent_prompts provides a system_prompt override, it is used as
+        system_prompt in the subagent dict (not the description fallback).
+        """
+        mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
+
+        with patch.dict(os.environ, {}, clear=True):
+            registry = AgentRegistry()
+
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "Jira_Agent"
+
+        registry._agents = {
+            'JIRA': {'name': 'JIRA Agent', 'description': 'JIRA integration'}
+        }
+        registry._tools = {'JIRA': mock_tool}
+
+        subagents = registry.generate_subagents(
+            {'JIRA': {'system_prompt': 'Custom JIRA system prompt'}},
+            MagicMock()
+        )
+
+        sa = subagents[0]
+        self.assertEqual(sa['system_prompt'], 'Custom JIRA system prompt')
+        print("✓ system_prompt override used when agent_prompts provides it")
+
+    @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
+    @patch('langgraph.prebuilt.create_react_agent')
+    def test_generate_subagents_system_prompt_key_access_does_not_raise(self, mock_create_react, mock_load):
+        """
+        Simulate what deepagents does: access agent_['system_prompt'] for every
+        subagent. Must not raise KeyError.
+
+        This is the exact crash that occurred in production:
+            File deepagents/middleware/subagents.py, line 322
+                system_prompt=agent_["system_prompt"]
+            KeyError: 'system_prompt'
+        """
+        mock_load.return_value = None
+        mock_create_react.return_value = "mock_graph"
+
+        with patch.dict(os.environ, {}, clear=True):
+            registry = AgentRegistry()
+
+        from unittest.mock import MagicMock
+        mock_tool = MagicMock()
+        mock_tool.name = "Argocd_Agent"
+
+        registry._agents = {
+            'ARGOCD': {'name': 'ArgoCD Agent', 'description': 'ArgoCD integration'},
+            'JIRA': {'name': 'JIRA Agent', 'description': 'JIRA integration'},
+        }
+        registry._tools = {
+            'ARGOCD': mock_tool,
+            'JIRA': mock_tool,
+        }
+
+        subagents = registry.generate_subagents({}, MagicMock())
+
+        # This is what deepagents/middleware/subagents.py does at line 322.
+        # It must not raise KeyError.
+        try:
+            for agent in subagents:
+                _ = agent["system_prompt"]
+        except KeyError as e:
+            self.fail(
+                f"KeyError accessing agent['system_prompt']: {e}\n"
+                "This crashes the supervisor at startup — "
+                "system_prompt must be present in every subagent dict"
+            )
+        print("✓ deepagents-style system_prompt access does not raise KeyError")
 
 
 class TestSanitization(unittest.TestCase):

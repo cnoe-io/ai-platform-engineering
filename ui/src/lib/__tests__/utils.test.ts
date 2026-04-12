@@ -366,3 +366,96 @@ describe("parseSSELine", () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// formatRelativeTimeCompact
+// ─────────────────────────────────────────────────────────────────────────────
+import { formatRelativeTimeCompact } from "../utils";
+
+describe("formatRelativeTimeCompact", () => {
+  it("buckets seconds-old timestamps as 'Just now'", () => {
+    const thirtySecondsAgo = new Date(Date.now() - 30_000);
+    expect(formatRelativeTimeCompact(thirtySecondsAgo)).toBe("Just now");
+  });
+
+  it("buckets minute-scale timestamps as Nm ago and hour-scale as Nh ago", () => {
+    const ninetyMinutesAgo = new Date(Date.now() - 90 * 60_000);
+    // 90 min = 1h (floor)
+    expect(formatRelativeTimeCompact(ninetyMinutesAgo)).toBe("1h ago");
+
+    const fortyMinutesAgo = new Date(Date.now() - 40 * 60_000);
+    expect(formatRelativeTimeCompact(fortyMinutesAgo)).toBe("40m ago");
+  });
+
+  it("treats numeric input as Unix seconds and converts correctly", () => {
+    // 2 days ago expressed as Unix seconds
+    const twoDaysAgoSec = Math.floor(Date.now() / 1000) - 2 * 86400;
+    expect(formatRelativeTimeCompact(twoDaysAgoSec)).toBe("2d ago");
+  });
+
+  it("falls back to toLocaleDateString for dates older than 7 days", () => {
+    const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000);
+    const result = formatRelativeTimeCompact(tenDaysAgo);
+    // Should NOT end with "ago" — it's a locale date string
+    expect(result).not.toContain("ago");
+    expect(result).not.toBe("Just now");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// formatFreshUntil / formatNextReload / isRefreshOverdue
+// ─────────────────────────────────────────────────────────────────────────────
+import { formatFreshUntil, formatNextReload, isRefreshOverdue } from "../utils";
+
+describe("formatFreshUntil", () => {
+  it("returns 'Fresh for ...' when timestamp is in the future", () => {
+    const oneHourFromNow = Math.floor(Date.now() / 1000) + 3600;
+    const result = formatFreshUntil(oneHourFromNow);
+    expect(result).toMatch(/^Fresh for /);
+  });
+
+  it("returns 'Stale ... ago' when timestamp is in the past", () => {
+    const twoHoursAgo = Math.floor(Date.now() / 1000) - 7200;
+    const result = formatFreshUntil(twoHoursAgo);
+    expect(result).toMatch(/^Stale .+ ago$/);
+  });
+});
+
+describe("formatNextReload", () => {
+  it("returns 'Never updated' when lastUpdated is null", () => {
+    expect(formatNextReload(null, 86400)).toBe("Never updated");
+    expect(formatNextReload(undefined, 86400)).toBe("Never updated");
+  });
+
+  it("returns 'Reloads in ...' when next reload is in the future", () => {
+    const justNow = Math.floor(Date.now() / 1000);
+    // reload interval = 1 hour → next reload is 1h from now
+    const result = formatNextReload(justNow, 3600);
+    expect(result).toMatch(/^Reloads in /);
+  });
+
+  it("returns 'Refresh overdue by ...' when past the reload window", () => {
+    const longAgo = Math.floor(Date.now() / 1000) - 200_000;
+    // reload interval = 3600 → overdue by ~54h
+    const result = formatNextReload(longAgo, 3600);
+    expect(result).toMatch(/^Refresh overdue by /);
+  });
+});
+
+describe("isRefreshOverdue", () => {
+  it("returns false for null/undefined (never updated datasource)", () => {
+    expect(isRefreshOverdue(null, 86400)).toBe(false);
+    expect(isRefreshOverdue(undefined, 86400)).toBe(false);
+  });
+
+  it("returns false when within the reload window", () => {
+    const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;
+    expect(isRefreshOverdue(fiveMinutesAgo, 86400)).toBe(false);
+  });
+
+  it("returns true when past the reload window", () => {
+    const twoDaysAgo = Math.floor(Date.now() / 1000) - 2 * 86400;
+    // reload interval = 1 day → overdue by 1 day
+    expect(isRefreshOverdue(twoDaysAgo, 86400)).toBe(true);
+  });
+});

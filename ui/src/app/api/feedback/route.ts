@@ -1,10 +1,10 @@
 /**
- * Server-side API route for submitting user feedback to Langfuse
- * 
- * This endpoint handles feedback submission securely on the server,
- * keeping the Langfuse secret key private and allowing for additional
- * validation and logging.
- * 
+ * Server-side API route for submitting user feedback.
+ *
+ * Single entry-point for ALL feedback (web UI + Slack). Every submission:
+ *   1. Writes to the unified `feedback` MongoDB collection (always)
+ *   2. Sends scores to Langfuse (when configured)
+ *
  * @see https://langfuse.com/docs/observability/features/user-feedback
  */
 
@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { Langfuse } from "langfuse";
+import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 
 // Langfuse configuration from environment variables (server-side only)
 const LANGFUSE_SECRET_KEY = process.env.LANGFUSE_SECRET_KEY;
@@ -42,14 +43,32 @@ const getLangfuseClient = (): Langfuse | null => {
   return langfuseClient;
 };
 
+// Valid feedback values (superset of web + Slack)
+const VALID_FEEDBACK_VALUES = [
+  "thumbs_up", "thumbs_down",
+  "wrong_answer", "needs_detail", "too_verbose", "retry", "other",
+];
+
 // Request body interface
 interface FeedbackRequest {
-  traceId: string;
-  messageId: string;
+  traceId?: string;
+  messageId?: string;
   feedbackType: "like" | "dislike";
+  /** Granular feedback value. Defaults to thumbs_up/thumbs_down from feedbackType. */
+  value?: string;
   reason?: string;
   additionalFeedback?: string;
   conversationId?: string;
+  /** Source client: "web" (default) or "slack" */
+  source?: "web" | "slack";
+  // Slack-specific context (optional)
+  channelId?: string;
+  channelName?: string;
+  threadTs?: string;
+  slackPermalink?: string;
+  userId?: string;
+  /** Caller-provided email (e.g. resolved from Slack user profile) */
+  userEmail?: string;
 }
 
 // Response interface
@@ -61,16 +80,16 @@ interface FeedbackResponse {
 
 /**
  * POST /api/feedback
- * Submit user feedback for a message
+ * Submit user feedback for a message — writes to MongoDB + Langfuse
  */
 export async function POST(request: NextRequest): Promise<NextResponse<FeedbackResponse>> {
   try {
     // Get user session for logging/attribution
     const session = await getServerSession(authOptions);
-    const userId = session?.user?.email || "anonymous";
-
-    // Parse request body
+    // Parse body first so we can use body.userEmail as fallback (Slack callers
+    // resolve the email from the Slack user profile and pass it explicitly).
     const body: FeedbackRequest = await request.json();
+    const userEmail = session?.user?.email || body.userEmail || "anonymous";
 
     // Validate required fields
     if (!body.conversationId && !body.traceId && !body.messageId) {
@@ -87,94 +106,163 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
       );
     }
 
+    const source = body.source || "web";
+    const rating = body.feedbackType === "like" ? "positive" : "negative";
+    // Granular value: use explicit value if valid, else derive from feedbackType
+    const scoreValue =
+      body.value && VALID_FEEDBACK_VALUES.includes(body.value)
+        ? body.value
+        : body.feedbackType === "like" ? "thumbs_up" : "thumbs_down";
+
+    // Combine reason + additional feedback into a single comment
+    const commentParts: string[] = [];
+    if (body.reason) commentParts.push(body.reason);
+    if (body.additionalFeedback) commentParts.push(body.additionalFeedback);
+    const comment = commentParts.length > 0 ? commentParts.join(": ") : null;
+
     // Priority for Langfuse traceId: conversationId > traceId > messageId
-    // Using conversationId groups all feedback for a conversation under one trace
     const langfuseTraceId = body.conversationId || body.traceId || body.messageId;
 
-    // Log feedback for debugging/analytics
     console.log("[Feedback API] Received feedback:", {
       langfuseTraceId,
       messageId: body.messageId,
       feedbackType: body.feedbackType,
+      value: scoreValue,
+      source,
       reason: body.reason,
-      userId,
+      userEmail,
       conversationId: body.conversationId,
       timestamp: new Date().toISOString(),
     });
 
-    // Send to Langfuse if configured
+    // ── 1. Write to MongoDB feedback collection ─────────────────────
+    if (isMongoDBConfigured) {
+      try {
+        const feedbackColl = await getCollection("feedback");
+        const now = new Date();
+
+        // For Slack: upsert on (threadTs, userId, source) so refinement
+        // actions update the initial thumbs_down rather than duplicating.
+        // For web: insert per message_id submission.
+        if (source === "slack" && body.threadTs && body.userId) {
+          await feedbackColl.updateOne(
+            { thread_ts: body.threadTs, user_id: body.userId, source: "slack" },
+            {
+              $set: {
+                trace_id: body.traceId || null,
+                rating,
+                value: scoreValue,
+                comment,
+                user_email: userEmail !== "anonymous" ? userEmail : null,
+                conversation_id: body.conversationId || `slack-${body.threadTs}`,
+                channel_id: body.channelId || null,
+                channel_name: body.channelName || null,
+                slack_permalink: body.slackPermalink || null,
+                updated_at: now,
+              },
+              $setOnInsert: {
+                message_id: body.messageId || null,
+                created_at: now,
+              },
+            },
+            { upsert: true },
+          );
+        } else {
+          await feedbackColl.insertOne({
+            trace_id: body.traceId || null,
+            source,
+            rating,
+            value: scoreValue,
+            comment,
+            user_email: userEmail,
+            user_id: body.userId || null,
+            message_id: body.messageId || null,
+            conversation_id: body.conversationId || null,
+            channel_id: null,
+            channel_name: null,
+            thread_ts: null,
+            slack_permalink: null,
+            created_at: now,
+          });
+        }
+      } catch (err) {
+        console.warn("[Feedback API] Failed to write to MongoDB feedback collection:", err);
+      }
+    }
+
+    // ── 2. Send to Langfuse ─────────────────────────────────────────
     const langfuse = getLangfuseClient();
+    let langfuseEnabled = false;
 
-    if (langfuse) {
-      // Map feedback to categorical values matching the Slack bot's scoring format.
-      // Always use thumbs_up/thumbs_down as the value; reason goes in comment.
-      const scoreValue = body.feedbackType === "like" ? "thumbs_up" : "thumbs_down";
-
-      // Build structured metadata (same shape as Slack bot's langfuse_client.py)
+    if (langfuse && langfuseTraceId) {
       const metadata: Record<string, string> = {
-        user_email: userId,
-        source: "caipe-ui",
+        user_email: userEmail,
+        source,
       };
       if (body.messageId) metadata.message_id = body.messageId;
       if (body.conversationId) metadata.session_id = body.conversationId;
 
-      // Combine reason + additional feedback into the comment field
-      const commentParts: string[] = [];
-      if (body.reason) commentParts.push(body.reason);
-      if (body.additionalFeedback) commentParts.push(body.additionalFeedback);
-      const comment = commentParts.length > 0 ? commentParts.join(": ") : undefined;
-
-      // Score 1: Web UI-specific score (parallel to Slack bot's per-channel scores)
+      // Score 1: Source-specific score ("all web" or channel-specific for Slack)
+      const sourceScopeName = source === "slack"
+        ? (body.channelName || "all slack channels")
+        : "all web";
       langfuse.score({
         traceId: langfuseTraceId,
-        name: "all web",
+        name: sourceScopeName,
         value: scoreValue,
         dataType: "CATEGORICAL",
-        comment,
+        comment: comment || undefined,
         metadata,
       });
 
-      // Score 2: Aggregated score across all clients (Slack + Web)
+      // Score 2 (Slack only): Aggregated score for all Slack channels
+      if (source === "slack" && sourceScopeName !== "all slack channels") {
+        langfuse.score({
+          traceId: langfuseTraceId,
+          name: "all slack channels",
+          value: scoreValue,
+          dataType: "CATEGORICAL",
+          comment: comment || undefined,
+          metadata,
+        });
+      }
+
+      // Score 3: Aggregated score across all clients (Slack + Web)
       langfuse.score({
         traceId: langfuseTraceId,
         name: "all",
         value: scoreValue,
         dataType: "CATEGORICAL",
-        comment,
+        comment: comment || undefined,
         metadata,
       });
 
-      // Flush to ensure scores are sent
-      await langfuse.flushAsync();
-
-      console.log("[Feedback API] Feedback sent to Langfuse:", {
-        traceId: langfuseTraceId,
-        scoreValue,
-        comment,
-      });
-
-      return NextResponse.json({
-        success: true,
-        message: "Feedback submitted successfully",
-        langfuseEnabled: true,
-      });
-    } else {
-      // Langfuse not configured - still log locally
-      console.log("[Feedback API] Langfuse not configured, feedback logged locally only");
-      
-      return NextResponse.json({
-        success: true,
-        message: "Feedback recorded (Langfuse not configured)",
-        langfuseEnabled: false,
-      });
+      try {
+        await langfuse.flushAsync();
+        langfuseEnabled = true;
+        console.log("[Feedback API] Feedback sent to Langfuse:", {
+          traceId: langfuseTraceId,
+          scoreValue,
+          comment,
+        });
+      } catch (flushErr) {
+        console.error("[Feedback API] Langfuse flush failed:", flushErr);
+        // langfuseEnabled stays false — caller sees the failure
+      }
     }
+
+    return NextResponse.json({
+      success: true,
+      message: "Feedback submitted successfully",
+      langfuseEnabled,
+    });
   } catch (error) {
     console.error("[Feedback API] Error processing feedback:", error);
-    
+
     return NextResponse.json(
-      { 
-        success: false, 
-        message: error instanceof Error ? error.message : "Failed to submit feedback" 
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to submit feedback",
       },
       { status: 500 }
     );
@@ -182,7 +270,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
 }
 
 /**
- * GET /api/feedback/status
+ * GET /api/feedback
  * Check if Langfuse feedback is enabled
  */
 export async function GET(): Promise<NextResponse> {

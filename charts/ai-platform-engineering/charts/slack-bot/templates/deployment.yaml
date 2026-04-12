@@ -13,7 +13,7 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 1
+      maxUnavailable: 0
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -80,10 +80,7 @@ spec:
               value: {{ .Values.prompts.aiAlerts | quote }}
             {{- end }}
             - name: CAIPE_BOT_CONFIG
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "slack-bot.fullname" . }}-config
-                  key: caipe-bot-config.yaml
+              value: /etc/caipe/caipe-bot-config.yaml
             {{- if .Values.mongodb.uri }}
             - name: MONGODB_URI
               value: {{ .Values.mongodb.uri | quote }}
@@ -92,6 +89,8 @@ spec:
               value: {{ .Values.mongodb.database | quote }}
             - name: CAIPE_URL
               value: {{ .Values.caipeUrl | quote }}
+            - name: CAIPE_UI_URL
+              value: {{ .Values.caipeUiUrl | quote }}
             {{- range $key, $value := .Values.env }}
             {{- if ne $key "CAIPE_URL" }}
             - name: {{ $key }}
@@ -113,14 +112,20 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
           volumeMounts:
+            - name: {{ include "slack-bot.fullname" . }}-config
+              mountPath: /etc/caipe
+              readOnly: true
+            {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
+            {{- end }}
       volumes:
+        - name: {{ include "slack-bot.fullname" . }}-config
+          configMap:
+            name: {{ include "slack-bot.fullname" . }}-config
+        {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -1,0 +1,160 @@
+name: "[Release] Sync main → release branches"
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Daily at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  discover-release-branches:
+    name: Discover release branches
+    runs-on: ubuntu-latest
+    outputs:
+      branches: ${{ steps.discover.outputs.branches }}
+    steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 🔍 Load active release branches
+        id: discover
+        run: |
+          CONFIG_FILE=".github/active-release-branches"
+
+          if [[ ! -f "$CONFIG_FILE" ]]; then
+            echo "❌ $CONFIG_FILE not found — no release branches to sync"
+            echo "branches=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Read non-empty, non-comment lines; verify each branch exists on remote
+          BRANCHES=$(grep -v '^\s*#' "$CONFIG_FILE" | grep -v '^\s*$' | while read -r branch; do
+            if git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null 2>&1; then
+              echo "$branch"
+            else
+              echo "::warning title=Missing branch::Branch '$branch' listed in active-release-branches but not found on remote — skipping" >&2
+            fi
+          done | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          echo "Active release branches to sync: $BRANCHES"
+          echo "branches=$BRANCHES" >> $GITHUB_OUTPUT
+
+  sync-to-release:
+    name: "Sync main → ${{ matrix.branch }}"
+    runs-on: ubuntu-latest
+    needs: discover-release-branches
+    if: needs.discover-release-branches.outputs.branches != '[]' && needs.discover-release-branches.outputs.branches != 'null'
+    strategy:
+      matrix:
+        branch: ${{ fromJson(needs.discover-release-branches.outputs.branches) }}
+      fail-fast: false
+    steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: ⚙️ Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 🔄 Create or update sync PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          RELEASE_BRANCH="${{ matrix.branch }}"
+          SAFE_NAME="${RELEASE_BRANCH//\//-}"
+          SYNC_BRANCH="sync/main-to-${SAFE_NAME}"
+          MAIN_SHA=$(git rev-parse origin/main)
+          MAIN_SHORT="${MAIN_SHA:0:7}"
+
+          echo "📦 Syncing main ($MAIN_SHORT) → $RELEASE_BRANCH via $SYNC_BRANCH"
+
+          # Create sync branch from current release branch tip
+          git checkout -B "$SYNC_BRANCH" "origin/$RELEASE_BRANCH"
+
+          # Attempt a clean merge of main
+          if git merge origin/main --no-edit -m "chore(release): sync main into $RELEASE_BRANCH"; then
+            MERGE_STATUS="clean"
+            echo "✅ Merge succeeded with no conflicts"
+          else
+            git merge --abort
+            MERGE_STATUS="conflicts"
+            echo "⚠️  Merge conflicts detected — skipping sync PR for $RELEASE_BRANCH"
+            echo "::warning title=Merge conflicts::Cannot auto-sync main into $RELEASE_BRANCH — manual resolution required"
+          fi
+
+          if [[ "$MERGE_STATUS" != "clean" ]]; then
+            exit 0
+          fi
+
+          # Check if sync branch already matches release branch (nothing new to sync)
+          if git diff --quiet "origin/$RELEASE_BRANCH" "$SYNC_BRANCH"; then
+            echo "ℹ️  $RELEASE_BRANCH is already up to date with main — nothing to sync"
+            exit 0
+          fi
+
+          # Push sync branch
+          git push origin "$SYNC_BRANCH" --force
+
+          # Check for an existing open PR
+          EXISTING_PR=$(gh pr list \
+            --head "$SYNC_BRANCH" \
+            --base "$RELEASE_BRANCH" \
+            --state open \
+            --json number,url \
+            --jq '.[0]')
+
+          EXISTING_NUM=$(echo "$EXISTING_PR" | jq -r '.number // ""')
+          EXISTING_URL=$(echo "$EXISTING_PR" | jq -r '.url // ""')
+
+          if [[ -n "$EXISTING_NUM" ]]; then
+            echo "✅ Updated existing sync PR #${EXISTING_NUM}: ${EXISTING_URL}"
+          else
+            BODY_FILE=$(mktemp)
+            {
+              echo "## Automated sync: \`main\` → \`${RELEASE_BRANCH}\`"
+              echo ""
+              echo "This PR was automatically generated to forward-merge changes from \`main\` into \`${RELEASE_BRANCH}\`."
+              echo ""
+              echo "| Field | Value |"
+              echo "|---|---|"
+              echo "| **Triggered by** | @${{ github.actor }} |"
+              echo "| **main commit** | [\`${MAIN_SHORT}\`](https://github.com/${{ github.repository }}/commit/${MAIN_SHA}) |"
+              echo "| **Workflow run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
+              echo ""
+              echo "---"
+              echo "> Merge this PR to keep \`${RELEASE_BRANCH}\` up to date with \`main\`."
+              echo "> If you need to skip a specific commit, cherry-pick selectively instead of merging."
+            } > "$BODY_FILE"
+            PR_URL=$(gh pr create \
+              --title "chore(release): sync main into ${RELEASE_BRANCH}" \
+              --body-file "$BODY_FILE" \
+              --head "$SYNC_BRANCH" \
+              --base "$RELEASE_BRANCH" \
+              --label "sync" 2>&1 || true)
+            rm -f "$BODY_FILE"
+            echo "✅ Created sync PR: ${PR_URL}"
+          fi

@@ -1,0 +1,24 @@
+# ---------- Stage 1: Build Go binary ----------
+FROM golang:1.25-alpine AS builder
+
+RUN apk add --no-cache git
+
+WORKDIR /build
+COPY ./ai_platform_engineering/mcp/mcp_github/ .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    -o /github-mcp-server ./cmd/github-mcp-server
+
+# ---------- Stage 2: Minimal runtime ----------
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates wget && \
+    adduser -D -u 10001 nonroot
+
+COPY --from=builder /github-mcp-server /github-mcp-server
+
+USER nonroot
+
+EXPOSE 8000
+
+ENTRYPOINT ["/github-mcp-server", "http", "--port", "8000"]

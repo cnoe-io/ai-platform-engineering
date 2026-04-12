@@ -61,8 +61,14 @@ class AgentRegistry:
             validate_imports: If True, validates that agent names exist in AGENT_IMPORT_MAP.
         """
         self._transport = os.getenv("A2A_TRANSPORT", "p2p").lower()
-        # Disable connectivity checks by default, can be enabled with SKIP_AGENT_CONNECTIVITY_CHECK=false
-        self._check_connectivity = os.getenv("SKIP_AGENT_CONNECTIVITY_CHECK", "true").lower() != "true"
+        # Auto-enable connectivity checks when any agents are distributed.
+        # SKIP_AGENT_CONNECTIVITY_CHECK overrides if explicitly set.
+        skip_env = os.getenv("SKIP_AGENT_CONNECTIVITY_CHECK")
+        if skip_env is not None:
+            self._check_connectivity = skip_env.lower() != "true"
+        else:
+            distributed = os.getenv("DISTRIBUTED_AGENTS", "").strip()
+            self._check_connectivity = bool(distributed)
         # Timeout for connectivity checks in seconds
         self._connectivity_timeout = float(os.getenv("AGENT_CONNECTIVITY_TIMEOUT", "5.0"))
         # Retry configuration for startup race conditions
@@ -174,20 +180,19 @@ class AgentRegistry:
 
     def generate_subagents(self, agent_prompts, model) -> List[Dict[str, Any]]:
         """
-        Generate Deep Agent CustomSubAgents for all enabled A2A agents.
+        Generate SubAgent dicts for all enabled A2A agents.
 
-        Creates react agents where each has ONE A2ARemoteAgentConnectTool.
-        This enables proper task delegation and streaming while maintaining A2A protocol.
+        Returns tool-based SubAgent dicts (not pre-compiled graphs) so that
+        SubAgentMiddleware builds each subagent with shared StateBackend,
+        matching the architecture used by deep_agent.py.
 
         Args:
             agent_prompts: Dict of agent-specific prompt overrides
             model: LLM model to use for subagents
 
         Returns:
-            List of CustomSubAgent dicts with keys: name, description, graph
+            List of SubAgent dicts with keys: name, description, system_prompt, tools
         """
-        from langgraph.prebuilt import create_react_agent
-
         subagents = []
         for agent in self._agents:
             system_prompt_override = agent_prompts.get(agent, {}).get("system_prompt")
@@ -195,34 +200,23 @@ class AgentRegistry:
             description = agent_card['description']
             prompt = system_prompt_override or description
 
-            # Sanitize agent name to match OpenAI's tool name pattern
             agent_name = agent_card['name']
             sanitized_name = self._sanitize_tool_name(agent_name)
 
-            # Log if sanitization changed the name
             if sanitized_name != agent_name:
                 logger.warning(f"Subagent: Sanitized name from '{agent_name}' to '{sanitized_name}' to match OpenAI pattern requirements")
 
-            # Get the A2A tool for this agent
             if agent not in self._tools:
                 logger.warning(f"Tool not found for agent {agent}, skipping subagent creation")
                 continue
 
             a2a_tool = self._tools[agent]
 
-            # Create a react agent with ONLY this A2A tool
-            subagent_graph = create_react_agent(
-                model,
-                prompt=prompt,
-                tools=[a2a_tool],  # Single A2A tool
-                checkpointer=False,
-            )
-
             subagents.append({
                 "name": sanitized_name,
                 "description": description,
                 "system_prompt": prompt,
-                "graph": subagent_graph  # CustomSubAgent with pre-created graph
+                "tools": [a2a_tool],
             })
         return subagents
 
