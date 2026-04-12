@@ -44,6 +44,8 @@ Developer terminal (CAIPE CLI)          CAIPE server (remote, user-configured)
 
 ### Session 2026-04-12
 
+- Q: Should Device Authorization Grant (RFC 8628) be included in v1, and how does it relate to `--manual`? → A: Add `caipe auth login --device` in v1 alongside `--manual`; Device Auth is preferred for SSH/headless one-time setup (short code, no URL copy-paste); `--manual` remains as fallback for servers that do not implement RFC 8628
+- Q: What role should the CLI play in OIDC token federation (zero-credential CI path)? → A: Pure passthrough — CI pipeline obtains its own OIDC JWT from the CI provider and places it in `CAIPE_TOKEN` env var or `--token` flag; the CLI carries it as a Bearer token via the existing JWT pass-through path; the CAIPE server is solely responsible for validating the issuer against its trusted OIDC providers; no new CLI env vars, no provider-specific logic, no issuer config in settings.json
 - Q: In v1, what should A2A handle beyond agent card discovery, and how is the protocol selected? → A: Both A2A and AG-UI handle full chat sessions; A2A is the default; user may override per session via `--protocol agui|a2a`; active protocol shown in session header
 - Q: How does the CLI know which protocol a specific agent supports? → A: Server registry (`GET /api/v1/agents`) returns a per-agent protocol list; CLI validates the chosen protocol against the registry before opening a session
 - Q: When `--protocol agui` is requested but the agent only supports A2A — what should the CLI do? → A: Prompt the user ("Agent `<name>` does not support agui (supports: a2a) — switch protocol and continue? [y/N]"); if confirmed, open session with supported protocol; if declined, exit cleanly
@@ -159,17 +161,21 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - What happens in headless mode when no credential is present? (→ non-zero exit with `{"error":"no credentials configured"}` to stderr; no interactive prompt)
 - What happens when multiple headless credentials are present simultaneously? (→ priority order: JWT > API Key > Client Credentials; first matched wins)
 - What happens when a Client Credentials token exchange fails in headless mode? (→ non-zero exit with error; no retry; stderr JSON error)
+- What happens when `caipe auth login --device` is used but the CAIPE server does not support RFC 8628? (→ CLI receives 404 or `unsupported_grant_type`; prints error directing user to use `--manual` instead; exits non-zero)
+- What happens when the Device Authorization Grant polling window expires before the user approves? (→ non-zero exit with message "Device code expired — re-run `caipe auth login --device` to start a new request")
+- What happens when a CI pipeline passes an OIDC JWT via `CAIPE_TOKEN` but the CAIPE server does not trust the issuer? (→ server returns 401; CLI surfaces as auth failure, exits 1 with `{"error":"authentication failed"}` to stderr; no retry)
+- What happens when a CI pipeline passes an expired OIDC JWT via `CAIPE_TOKEN`? (→ same as untrusted issuer: server returns 401; CLI exits 1; pipeline is responsible for refreshing the token before each invocation)
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: Users MUST be able to authenticate using their CAIPE server identity via a browser-initiated OAuth flow launched from the terminal
+- **FR-001**: Users MUST be able to authenticate using their CAIPE server identity via a browser-initiated OAuth 2.0 PKCE flow launched from the terminal; on SSH or headless machines where no local browser is available, `caipe auth login --manual` prints the auth URL for copy-paste completion, and `caipe auth login --device` initiates Device Authorization Grant (RFC 8628) — the CLI displays a short user code and verification URL, polls the server until the user approves in any browser, then saves the token; `--manual` is the fallback when the server does not support RFC 8628
 - **FR-002**: Authenticated sessions MUST persist across terminal restarts without requiring re-login until the credential expires or the user explicitly signs out
 - **FR-015**: The CLI MUST read the CAIPE server base URL from `~/.config/caipe/settings.json` (`server.url` key); a `--url <url>` global flag MUST override the config value for that invocation only; all API and OAuth endpoints are derived from this single base URL (e.g., `<server.url>/oauth`, `<server.url>/api/v1/agents`, `<server.url>/tasks/send`)
 - **FR-016**: On first run (no `server.url` configured), the CLI MUST launch a setup wizard that (1) prompts the user for the CAIPE server URL, (2) saves it to `settings.json`, then (3) immediately proceeds to the auth flow (FR-001) without requiring a separate command
 - **FR-017**: The CLI MUST support a headless/non-interactive mode for use in CI pipelines and automation scripts; headless mode is activated when no TTY is detected or when `--headless` is explicitly passed
-- **FR-018**: In headless mode, the CLI MUST support three non-browser credential types, auto-detected by which is present (in priority order): (1) JWT pass-through — `CAIPE_TOKEN` env var or `--token <jwt>` flag; (2) API Key — `CAIPE_API_KEY` env var or `settings.json` `auth.apiKey`; (3) OAuth2 Client Credentials — `CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` env vars exchanged for a short-lived access token before each session
+- **FR-018**: In headless mode, the CLI MUST support three non-browser credential types, auto-detected by which is present (in priority order): (1) JWT pass-through — `CAIPE_TOKEN` env var or `--token <jwt>` flag; this path also covers OIDC federation: CI pipelines (GitHub Actions, GitLab CI, etc.) obtain a short-lived OIDC JWT from their provider and place it in `CAIPE_TOKEN`; the CLI carries it as a Bearer token without any provider-specific logic; the CAIPE server validates the issuer against its configured trusted OIDC providers; (2) API Key — `CAIPE_API_KEY` env var or `settings.json` `auth.apiKey`; (3) OAuth2 Client Credentials — `CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` env vars exchanged for a short-lived access token before each session
 - **FR-019**: In headless mode, the CLI MUST accept the prompt via (in priority order): `--prompt <text>` flag, `--prompt-file <path>` (reads multi-line prompt from a file), or stdin when neither flag is present and stdin is a pipe; execute a single session turn, write the response to stdout in the format specified by `--output <text|json|ndjson>` (default: `text`), and exit with an appropriate exit code
   - `text`: raw response streamed to stdout
   - `json`: full response accumulated then emitted as a single JSON object `{"response":"...","agent":"...","protocol":"..."}`
@@ -187,7 +193,8 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 - **FR-011**: The CLI MUST prompt users for a `Signed-off-by` trailer on every AI-assisted commit and MUST NOT generate this trailer on the user's behalf
 - **FR-012**: The CLI MUST be installable via `npx caipe` with no prerequisites beyond Node.js
 - **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; selecting an agent pins the entire session to that agent — switching agents requires starting a new session (per-message routing is deferred to v2); the server registry MUST return a `protocols` field per agent (`["a2a"]`, `["agui"]`, or `["a2a","agui"]`); the CLI MUST validate the requested `--protocol` against this list before opening a session; if the protocol is unsupported, the CLI MUST prompt the user to switch to the agent's supported protocol and proceed only on confirmation
-- **FR-014**: The skill catalog MUST be browsable via a versioned static JSON manifest published as a GitHub Release asset; catalog browsing requires no authentication; installation of individual skills uses the same grid credential as chat
+- **FR-014**: The skill catalog MUST be browsable via a versioned static JSON manifest published as a GitHub Release asset; catalog browsing requires no authentication; installation of individual skills uses the same CAIPE server credential as chat
+- **FR-022**: `caipe auth login --device` MUST implement Device Authorization Grant (RFC 8628): (1) POST to `<server.url>/oauth/device/code` to obtain `device_code`, `user_code`, `verification_uri`, and `interval`; (2) display the `user_code` and `verification_uri` prominently in the terminal; (3) poll `<server.url>/oauth/token` at the server-specified interval until the grant succeeds, is denied, or expires; (4) on success, store tokens identically to the PKCE flow; (5) on `authorization_pending`, continue polling; (6) on `access_denied` or `expired_token`, exit with a clear error and suggest re-running the command; if the server returns a 404 or `unsupported_grant_type` for the device endpoint, the CLI MUST print a message directing the user to `--manual` instead
 
 ### Key Entities
 
@@ -214,6 +221,8 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 ## Assumptions
 
 - The CAIPE server's authentication service supports a browser-initiated OAuth flow compatible with headless/CLI environments
+- The CAIPE server is solely responsible for OIDC issuer validation; the CLI passes OIDC JWTs as opaque Bearer tokens and does not inspect or validate JWT claims
+- CI pipelines using OIDC federation are responsible for obtaining their provider-issued JWT (e.g., via GitHub Actions' `actions/create-token` or `ACTIONS_ID_TOKEN_REQUEST_URL`) before invoking the CLI
 - The CAIPE server URL is always user-configured; there is no built-in default URL
 - The skills catalog is accessible to any authenticated user without a separate credential
 - Skills follow the SKILL.md format convention established in outshift/skills (YAML frontmatter + Markdown body)
