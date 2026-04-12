@@ -74,6 +74,7 @@ ignore = ["F403"]
 url = "https://pypi.org/simple/"
 
 [tool.uv]
+override-dependencies = ["protobuf==5.29.6"]
 constraint-dependencies = ["nltk==3.9.4"]
 
 [tool.uv.sources]

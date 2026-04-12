@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 # Heavy local embedding provider (~900MB due to PyTorch)
 huggingface = [
-    "langchain-huggingface==1.0.1",
+    "langchain-huggingface==1.2.1",
 ]
 
 [build-system]

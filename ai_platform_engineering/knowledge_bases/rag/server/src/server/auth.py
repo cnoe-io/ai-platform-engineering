@@ -9,7 +9,9 @@ import time
 from typing import Dict, Any, Tuple, Optional
 from functools import lru_cache
 import httpx
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWK
+from jwt.exceptions import PyJWTError as JWTError
 from common import utils
 
 logger = utils.get_logger(__name__)
@@ -175,10 +177,11 @@ class OIDCProvider:
 
       # Validate and decode token
       # Supported algorithms: RSA (RS*) and ECDSA (ES*) - covers most OIDC providers
+      jwk = PyJWK.from_dict(key_dict)
       claims = jwt.decode(
         token,
-        key_dict,
-        algorithms=["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
+        jwk.key,
+        algorithms=[jwk.algorithm_name],
         audience=self.audience,
         issuer=self.issuer,
         options={
@@ -290,10 +293,11 @@ class OIDCProvider:
 
       # Validate signature and expiry only (skip audience/issuer)
       # Supported algorithms: RSA (RS*) and ECDSA (ES*) - covers most OIDC providers
+      jwk = PyJWK.from_dict(key_dict)
       claims = jwt.decode(
         token,
-        key_dict,
-        algorithms=["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
+        jwk.key,
+        algorithms=[jwk.algorithm_name],
         options={
           "verify_signature": True,
           "verify_exp": True,

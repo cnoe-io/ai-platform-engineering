@@ -254,7 +254,7 @@ requires-dist = [
     { name = "cymple", specifier = "==0.12.0" },
     { name = "langchain-aws", specifier = "==1.1.0" },
     { name = "langchain-cohere", specifier = "==0.5.0" },
-    { name = "langchain-huggingface", marker = "extra == 'huggingface'", specifier = "==1.0.1" },
+    { name = "langchain-huggingface", marker = "extra == 'huggingface'", specifier = "==1.2.1" },
     { name = "langchain-ollama", specifier = "==1.0.0" },
     { name = "langchain-openai", specifier = "==1.0.3" },
     { name = "neo4j", specifier = "==5.28.2" },
@@ -717,16 +717,16 @@ wheels = [
 
 [[package]]
 name = "langchain-huggingface"
-version = "1.0.1"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
     { name = "langchain-core" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ae/85/8ae6fa9e70a4d2647151df59abf8bc658c159936fcb1e508b86c4f6f23b6/langchain_huggingface-1.0.1.tar.gz", hash = "sha256:9e54b81303b60656f88f45e9a876fb4e3ea0bfb5d40715f802c26811fd8cd72b", size = 248461, upload-time = "2025-11-03T19:53:43.072Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/5b/4910551367de5c6ec246616fcc0ddb0bc6f9e5d353d4a22dcb5ab1f87e60/langchain_huggingface-1.2.1.tar.gz", hash = "sha256:33d52a30a56775380c6b4321b78136a410eb079132a80fe7120ddd4b954b4efa", size = 253106, upload-time = "2026-03-02T18:44:39.163Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/9d/90dc488e426e4dfef63a77b04a06ef816297a1b036075e5fd34a98436875/langchain_huggingface-1.0.1-py3-none-any.whl", hash = "sha256:032325539dd6b2970910356ecfc363283e8b4e51fb1890de40666a52e95e7d53", size = 27920, upload-time = "2025-11-03T19:53:42.173Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/90/a1440bfa467a6dd9025ad80f3c239554de28aec49dacfb369fda92871556/langchain_huggingface-1.2.1-py3-none-any.whl", hash = "sha256:0930c216a457d2c8dc7b39a756c39c567f1d88593bfee2c3441f3ae718435f0f", size = 30924, upload-time = "2026-03-02T18:44:37.745Z" },
 ]
 
 [[package]]
