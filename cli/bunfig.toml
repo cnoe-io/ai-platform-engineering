@@ -1,0 +1,16 @@
+[build]
+entrypoints = ["./src/index.ts"]
+outdir = "./dist"
+target = "bun"
+minify = true
+sourcemap = "external"
+
+[test]
+root = "./tests"
+preload = ["./tests/setup.ts"]
+
+[install]
+exact = true
+
+[run]
+bun-flags = ["--smol"]
