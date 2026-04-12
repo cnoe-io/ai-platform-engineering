@@ -83,9 +83,9 @@ RUN ARCH=$(uname -m) && \
     else \
         KUBECTL_ARCH="amd64"; \
     fi && \
-    KUBECTL_VERSION=$(curl -sfL --retry 5 --retry-delay 3 https://dl.k8s.io/release/stable.txt) && \
+    KUBECTL_VERSION=$(curl -sfL --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 https://dl.k8s.io/release/stable.txt) && \
     if [ -z "$KUBECTL_VERSION" ]; then echo "Failed to fetch kubectl version"; exit 1; fi && \
-    curl -sfLO --retry 5 --retry-delay 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
+    curl -sfLO --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/kubectl
 
