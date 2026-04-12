@@ -46,4 +46,4 @@ select = ["E", "F"]
 ignore = ["F403"]
 
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4", "pypdf>=6.10.0"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]

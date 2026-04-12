@@ -57,7 +57,7 @@ markers = [
 ]
 
 [tool.uv]
-constraint-dependencies = ["pypdf>=6.10.0"]
+constraint-dependencies = ["pypdf==6.10.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

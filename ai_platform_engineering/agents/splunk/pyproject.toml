@@ -114,7 +114,7 @@ addopts = "--cov=agent_splunk --cov-report=term-missing --cov-report=html"
 asyncio_mode = "auto"
 
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4", "pypdf>=6.10.0"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }
