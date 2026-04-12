@@ -54,6 +54,11 @@ jobs:
             --outfile=dist/${{ matrix.artifact }} \
             --external react-devtools-core
 
+      - name: Ad-hoc sign binary (macOS only)
+        if: runner.os == 'macOS'
+        working-directory: cli/dist
+        run: codesign --sign - --force --preserve-metadata=entitlements ${{ matrix.artifact }}
+
       - name: Compute SHA-256 checksum
         working-directory: cli/dist
         run: |
