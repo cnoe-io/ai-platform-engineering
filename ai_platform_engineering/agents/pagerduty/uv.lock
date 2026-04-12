@@ -161,6 +161,7 @@ source = { directory = "../../utils" }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "agntcy-app-sdk" },
+    { name = "beautifulsoup4" },
     { name = "cnoe-agent-utils" },
     { name = "httpx" },
     { name = "langchain-core" },
@@ -182,6 +183,7 @@ dependencies = [
 requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "agntcy-app-sdk", specifier = "==0.4.5" },
+    { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "cnoe-agent-utils", specifier = "==0.3.14" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "langchain-core", specifier = "==1.2.28" },
