@@ -72,7 +72,7 @@ caipe chat [options]
 **Behavior (headless — no TTY or `--headless`)**:
 - Activated automatically when `process.stdout.isTTY` is false, or explicitly via `--headless`
 - All interactive prompts suppressed; missing config causes non-zero exit + stderr JSON error
-- Credential resolution order: `--token <jwt>` / `CAIPE_TOKEN` → `CAIPE_API_KEY` / `settings.json auth.apiKey` → `CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` (Client Credentials exchange)
+- Credential resolution order: `--token <jwt>` / `CAIPE_TOKEN` (also accepts OIDC JWTs from CI providers — server validates issuer) → `CAIPE_API_KEY` / `settings.json auth.apiKey` → `CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` (Client Credentials exchange)
 - Prompt resolution order: `--prompt <text>` → `--prompt-file <path>` → stdin pipe
 - Writes response to stdout in `--output` format; exits when response is complete
 - `--interactive-stdin` keeps session open for multi-turn: reads next prompt from stdin after each response
@@ -88,19 +88,28 @@ Manage authentication.
 #### `caipe auth login`
 
 ```
-caipe auth login [--manual]
+caipe auth login [--manual | --device]
 ```
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--manual` | boolean | false | Show auth URL only; wait for user to paste code |
+| `--manual` | boolean | false | Print auth URL only; wait for user to paste authorization code back |
+| `--device` | boolean | false | Device Authorization Grant (RFC 8628): display short user code + URL, poll until approved — no browser required on this machine |
 
 **Behavior**:
 - Default: open browser to CAIPE server OAuth flow (derived from `server.url`); start local HTTP server on random port to capture redirect
-- `--manual`: print the auth URL and a prompt for the authorization code
-- Stores tokens in OS keychain on success
+- `--manual`: print the auth URL and a prompt for the authorization code; use when `--device` is unsupported or unavailable
+- `--device`: `POST <server.url>/oauth/device/code`; display `user_code` and `verification_uri` prominently; poll `<server.url>/oauth/token` at server-specified interval; handle responses:
+  - `authorization_pending` → continue polling silently
+  - `slow_down` → increase poll interval by 5s, continue
+  - `access_denied` → exit 1 with "Authorization denied by user"
+  - `expired_token` → exit 1 with "Device code expired — re-run to start a new request"
+  - `unsupported_grant_type` or 404 → exit 1 with "Server does not support device auth — use `--manual` instead"
+- Stores tokens in OS keychain on success (all three paths)
 - Idempotent: if already authenticated, reports current identity and exits 0
 - If `server.url` is not configured, runs setup wizard first (prompts for URL, saves it, then proceeds to auth)
+
+**Exit codes**: `0` = authenticated, `1` = auth failure or server doesn't support device flow, `2` = server unreachable
 
 #### `caipe auth logout`
 

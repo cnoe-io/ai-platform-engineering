@@ -158,6 +158,8 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 | FR-014 | Catalog distribution model | **GitHub Releases static manifest** on `outshift/skills` repo |
 | FR-015–016 | Server URL config and first-run | **`server.url` in settings.json**; `--url` override; first-run setup wizard |
 | FR-017–021 | Headless mode, auth, I/O, multi-turn | **TTY-less + `--headless` flag**; JWT > API Key > Client Credentials; `--prompt`/`--prompt-file`/stdin; `--output text\|json\|ndjson`; `--interactive-stdin` multi-turn |
+| FR-001, FR-022 | Device Authorization Grant for SSH/headless one-time auth | **RFC 8628 `--device` flag** alongside `--manual`; polls until approve/deny/expire; `--manual` fallback for servers without RFC 8628 |
+| FR-018 (OIDC) | OIDC token federation for CI zero-credential path | **Passthrough via existing `CAIPE_TOKEN`**; CLI is provider-agnostic; server validates issuer |
 
 ---
 
@@ -208,6 +210,58 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 - **AG-UI only**: rejected — not all grid agents support AG-UI yet; would block users with A2A-only agents
 - **A2A only**: rejected — locks out AG-UI-capable agents and doesn't future-proof for the migration
 - **Custom REST polling**: rejected — no streaming, poor UX for token-by-token display
+
+---
+
+## Decision 11 — Device Authorization Grant (RFC 8628) for Headless One-Time Setup
+
+**Decision**: Implement `caipe auth login --device` using **OAuth 2.0 Device Authorization Grant (RFC 8628)**. The flow runs alongside the existing browser PKCE path and `--manual` fallback — it is not a replacement.
+
+**Resolves FR-022**.
+
+**Rationale**:
+- Device Auth eliminates the primary pain point of `--manual`: no long URL to copy-paste and no authorization code to paste back; the user just types a short 8-character code on any device
+- The flow is fully CLI-driven: `POST <server.url>/oauth/device/code` → display `user_code` + `verification_uri` → poll `<server.url>/oauth/token` at server-specified interval → save tokens on success
+- Tokens are stored identically to the PKCE flow (OS keychain via keytar) — no downstream changes
+- `--manual` is preserved as fallback for CAIPE server deployments that do not implement RFC 8628 (detected via `unsupported_grant_type` or 404 on the device endpoint)
+- RFC 8628 is supported by all major OAuth 2.0 servers (Keycloak, Okta, Auth0, Dex) — adoption risk is low
+
+**Device Auth flow**:
+```
+CLI                          CAIPE server
+ │  POST /oauth/device/code      │
+ │─────────────────────────────► │
+ │  ◄─ device_code, user_code,   │
+ │       verification_uri,       │
+ │       expires_in, interval    │
+ │                               │
+ │  Display to user:             │
+ │  "Go to: https://...          │
+ │   Enter code: ABCD-EFGH"      │
+ │                               │
+ │  [User approves in browser]   │
+ │                               │
+ │  POST /oauth/token            │
+ │  (poll every interval secs)   │
+ │─────────────────────────────► │
+ │  ◄─ access_token (on approve) │
+ │  ◄─ authorization_pending     │
+ │       (continue polling)      │
+ │  ◄─ access_denied / expired   │
+ │       (exit with error)       │
+```
+
+**Error handling**:
+- `authorization_pending`: continue polling (no log output)
+- `slow_down`: increase poll interval by 5s, continue
+- `access_denied`: exit 1 with "Authorization denied by user"
+- `expired_token`: exit 1 with "Device code expired — re-run to start a new request"
+- Server returns 404 or `unsupported_grant_type`: exit 1 with "Server does not support device auth — use `--manual` instead"
+
+**Alternatives considered**:
+- **`--manual` only**: retained as fallback; inferior UX (long URL, code paste-back)
+- **Browser PKCE on SSH**: requires browser on the same machine; not viable
+- **Headless Chrome for PKCE**: fragile, heavyweight, rejected
 
 ---
 
@@ -282,6 +336,8 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 - Default: single-shot (one prompt → full response → exit 0)
 - `--interactive-stdin`: multi-turn mode; newline-delimited prompts read from stdin until EOF or `\exit` line; `--output` format applied per turn
 
+**OIDC token federation (zero-credential CI path)**: CI providers (GitHub Actions, GitLab CI, etc.) issue short-lived OIDC JWTs natively. These are carried via the existing JWT pass-through path (`CAIPE_TOKEN` / `--token`). The CLI passes them as an opaque Bearer token — no issuer-specific logic, no new env vars, no `settings.json` fields. The CAIPE server validates the issuer against its trusted OIDC providers. This is strictly a server-side concern; the CLI is provider-agnostic.
+
 **Missing credential behavior**: non-zero exit + `{"error":"no credentials configured"}` to stderr; no interactive prompt.
 
 **Alternatives considered**:
@@ -307,5 +363,6 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 | Git context | `execa` → `git rev-parse` + `git log` | Lightweight, no git binding needed |
 | Interface protocol | A2A (default) + AG-UI (`@ag-ui/client`, opt-in) | A2A covers all current agents; AG-UI future-proofs for migrating agents; common StreamAdapter interface |
 | Server URL config | `settings.json` `server.url` + `--url` override | Single URL drives all endpoints; first-run wizard; no hardcoded default |
-| Headless auth | JWT > API Key > Client Credentials (presence-based) | Covers federated CI (JWT), simple pipelines (API Key), service-to-service (Client Credentials) |
+| Headless auth | JWT > API Key > Client Credentials (presence-based) | Covers federated CI (JWT/OIDC passthrough), simple pipelines (API Key), service-to-service (Client Credentials) |
+| SSH/headless one-time auth | Device Authorization Grant (RFC 8628) via `--device` | Short code UX; no browser on same machine; `--manual` fallback |
 | Testing | Bun test (built-in) | Zero config; compatible with Jest API |

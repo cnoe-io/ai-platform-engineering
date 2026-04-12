@@ -58,7 +58,18 @@ caipe auth login
 
 - Opens your browser to the CAIPE server OAuth flow (derived from your configured `server.url`)
 - Tokens are saved to the OS keychain — no re-login until the credential expires
-- On headless/SSH machines: `caipe auth login --manual` prints the URL for copy-paste
+
+**On SSH or headless machines** (no browser on the same host):
+
+```bash
+# Option 1 — Device Authorization Grant (recommended)
+# CLI displays a short code; approve it in any browser, anywhere
+caipe auth login --device
+
+# Option 2 — Manual (fallback if server doesn't support --device)
+# CLI prints the full URL; open it in any browser, paste the code back
+caipe auth login --manual
+```
 
 Check your auth status at any time:
 
@@ -129,6 +140,27 @@ export CAIPE_CLIENT_ID=<client-id>
 export CAIPE_CLIENT_SECRET=<client-secret>
 caipe chat --prompt "check cluster health" --output text
 ```
+
+### OIDC federation — zero stored credentials (GitHub Actions)
+
+CI providers issue short-lived OIDC JWTs that the CAIPE server can validate directly. No stored secrets needed.
+
+```yaml
+# .github/workflows/caipe.yml
+- name: Get OIDC token
+  id: token
+  run: |
+    TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+      "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=caipe" | jq -r .value)
+    echo "caipe_token=$TOKEN" >> $GITHUB_OUTPUT
+
+- name: Run caipe
+  env:
+    CAIPE_TOKEN: ${{ steps.token.outputs.caipe_token }}
+  run: caipe chat --prompt "check cluster health" --output json
+```
+
+The CLI passes the token as a Bearer — the CAIPE server validates the GitHub OIDC issuer.
 
 ### Multi-turn headless session
 

@@ -46,7 +46,7 @@ TypeScript (UI), React 19: Follow standard conventions
 ## Recent Changes
 - 100-caipe-v1-core: Added TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), native `fetch` + `EventSource` (A2A SSE — no separate SDK needed), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)
 - 100-caipe-v1-core: Added TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), native `fetch` + `EventSource` (A2A SSE — no separate SDK needed), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)
-- 100-caipe-v1-core: Added TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)
+- 100-caipe-v1-core: Added TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), native `fetch` + `EventSource` (A2A SSE — no separate SDK needed), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)
 
 
 <!-- MANUAL ADDITIONS START -->

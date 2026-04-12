@@ -27,7 +27,10 @@ Represents the authenticated operator of the CLI.
 ```
 unauthenticated → (browser PKCE flow) → authenticated → (token expiry) → refreshing → authenticated
                                                                         → (refresh fails) → unauthenticated
-unauthenticated → (headless: JWT/API Key/Client Credentials) → authenticated (no browser)
+unauthenticated → (--device: RFC 8628 polling) → device_pending → (user approves) → authenticated
+                                                                 → (expired/denied) → unauthenticated
+unauthenticated → (--manual: URL print + code paste) → authenticated (no local browser)
+unauthenticated → (headless: JWT/API Key/Client Credentials/OIDC passthrough) → authenticated (no browser)
 ```
 
 ---
@@ -46,7 +49,9 @@ The user-configured CAIPE server connection settings. Stored in `~/.config/caipe
 **Storage**: `~/.config/caipe/settings.json` — note `clientSecret` is env-only; `authApiKey` may be stored here but user should treat it as sensitive
 
 **Derived endpoints** (all relative to `serverUrl`):
-- OAuth: `<serverUrl>/oauth`
+- OAuth / OIDC discovery: `<serverUrl>/oauth`
+- Device Authorization (RFC 8628): `<serverUrl>/oauth/device/code`
+- Token endpoint (PKCE + Device Auth + Client Credentials): `<serverUrl>/oauth/token`
 - Agents registry: `<serverUrl>/api/v1/agents`
 - A2A task submission: `<serverUrl>/tasks/send`
 - AG-UI stream: `<serverUrl>/api/agui/stream`
