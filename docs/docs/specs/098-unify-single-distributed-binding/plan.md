@@ -161,7 +161,7 @@ In addition to per-agent distribution, this branch now includes RAG tool reliabi
 ### Updated Technical Context
 
 **Testing**: pytest (sync tests; no pytest-asyncio — use `asyncio.run()` wrappers)
-**Performance Goals**: RAG queries complete within 60s; streaming latency <500ms per chunk
+**Performance Goals**: RAG queries complete within 60s; streaming latency &lt;500ms per chunk
 **Constraints**: Context window ~128K tokens; recursion limit configurable (default 500)
 
 ### Phase B: RAG Reliability (US-6) — COMPLETED
