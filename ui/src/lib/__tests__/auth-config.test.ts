@@ -406,7 +406,7 @@ describe('auth-config', () => {
       const now = Math.floor(Date.now() / 1000)
 
       // Should still attempt the refresh using Keycloak fallback path
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      await (authOptions.callbacks!.jwt! as Function)({
         token: {
           accessToken: 'at',
           refreshToken: 'rt',

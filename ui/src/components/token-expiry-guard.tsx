@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { isTokenExpired, getTimeUntilExpiry, formatTimeUntilExpiry, getWarningTimestamp } from "@/lib/auth-utils";
 import { getConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, ExternalLink, LogOut, RefreshCw } from "lucide-react";
+import { AlertCircle, ExternalLink, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
