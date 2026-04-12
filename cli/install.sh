@@ -125,6 +125,13 @@ download_binary() {
   fi
 
   chmod +x "${TMP_DIR}/${BINARY_NAME}"
+
+  # macOS: strip Gatekeeper quarantine flag so the ad-hoc-signed binary runs
+  # without the "cannot be opened because the developer cannot be verified" prompt.
+  if [ "$OS_NAME" = "darwin" ]; then
+    xattr -dr com.apple.quarantine "${TMP_DIR}/${BINARY_NAME}" 2>/dev/null || true
+  fi
+
   DOWNLOADED_BINARY="${TMP_DIR}/${BINARY_NAME}"
 }
 
