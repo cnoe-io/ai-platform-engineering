@@ -96,7 +96,7 @@ RUN ARCH=$(uname -m) && \
     else \
         GH_ARCH="amd64"; \
     fi && \
-    GH_VERSION="2.63.2" && \
+    GH_VERSION="2.89.0" && \
     curl -sfL --retry 5 --retry-delay 3 "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" -o gh.tar.gz && \
     tar -xzf gh.tar.gz && \
     mv gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh /usr/local/bin/gh && \
