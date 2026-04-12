@@ -65,7 +65,7 @@ cli/
 │   ├── index.ts          # Commander root; registers subcommands; --version/--help
 │   │
 │   ├── auth/             # Feature: authentication
-│   │   ├── oauth.ts      # PKCE flow: code verifier, local HTTP callback, browser open
+│   │   ├── oauth.ts      # PKCE flow + --manual (print URL) + --device (RFC 8628 poll)
 │   │   ├── keychain.ts   # OS keychain adapter (keytar); never touches plaintext
 │   │   └── tokens.ts     # Token lifecycle: read, refresh, expiry check
 │   │
@@ -126,15 +126,17 @@ Deliverables:
 2. `src/index.ts` — Commander root with `--version`, `--help`, global `--url <url>` flag
 3. `src/platform/config.ts` — XDG config path helpers; `settings.json` read/write; `getServerUrl()` resolver (flag → env var → settings.json → setup wizard)
 4. `src/platform/setup.ts` — First-run setup wizard: Ink prompt for server URL, save to `settings.json`, proceed to auth
-5. `src/auth/oauth.ts` — PKCE code verifier/challenge, local HTTP callback server, browser open, token exchange; derives auth endpoint from `server.url`
+5. `src/auth/oauth.ts` — PKCE code verifier/challenge, local HTTP callback server, browser open, token exchange; derives auth endpoint from `server.url`; `--manual` path prints URL and prompts for code; `--device` path implements RFC 8628: `POST <server.url>/oauth/device/code` → display `user_code` + `verification_uri` → poll `<server.url>/oauth/token` at server-specified interval → handle `authorization_pending` (continue), `slow_down` (+5s interval), `access_denied` / `expired_token` (exit with error), `unsupported_grant_type` / 404 (exit, suggest `--manual`)
 6. `src/auth/keychain.ts` — keytar adapter; no plaintext fallback in v1
 7. `src/auth/tokens.ts` — token read/refresh/expiry; wires into every authenticated command
-8. Unit tests: `auth.test.ts` — PKCE math, token expiry logic, keychain mock
+8. Unit tests: `auth.test.ts` — PKCE math, token expiry logic, keychain mock; Device Auth polling loop (mock: `authorization_pending` → `access_token`), `slow_down` interval increase, `expired_token` exit path, `unsupported_grant_type` → "use --manual" message
 9. Unit tests: `config.test.ts` — `getServerUrl()` priority order, setup wizard flow, settings.json r/w
 
 **Acceptance criteria (from spec)**:
 - Given a user has not yet configured a server URL, when they run `caipe` or `caipe chat`, they are walked through the setup wizard (URL prompt → auth flow) without separate commands
 - Given unauthenticated user runs `caipe auth login`, browser opens CAIPE server OAuth flow, token saved, status reports identity
+- Given user on SSH machine runs `caipe auth login --device`, CLI displays short user code + URL, polls until approved, saves token — no browser required on that machine
+- Given server does not support RFC 8628, `caipe auth login --device` exits with message directing user to `--manual`
 - Given authenticated user runs `caipe auth logout`, credential removed, next login required
 - Given token expiry, silent refresh succeeds without user interaction
 
@@ -361,5 +363,7 @@ No constitution violations. All complexity is justified by the spec:
 
 - Bun platform binaries add packaging complexity but are required for SC-001 (`npx caipe` in under 3 minutes including auth) and SC-006 (install under 60s)
 - OAuth PKCE with local HTTP server adds implementation complexity but is required for FR-001 and the security gate (no plaintext tokens)
-- Three-method headless auth (JWT > API Key > Client Credentials) adds branching but is required by FR-018 to cover federated CI, simple pipeline, and service-to-service scenarios without forcing callers to obtain a browser token
+- Three-method headless auth (JWT > API Key > Client Credentials) adds branching but is required by FR-018 to cover federated CI (JWT/OIDC passthrough), simple pipeline (API Key), and service-to-service (Client Credentials) scenarios without forcing callers to obtain a browser token
 - First-run setup wizard adds a UX state machine to Phase 1 but is required by FR-016 — there is no sensible default server URL to hardcode, so the wizard is the only safe path
+- Device Authorization Grant (`--device`) adds a polling loop to `oauth.ts` but is required by FR-022 — it is the only ergonomic headless one-time auth path for SSH environments where `--manual` requires awkward URL copy-paste; no new files required, contained within `oauth.ts`
+- OIDC token federation adds zero CLI complexity — it reuses the existing JWT pass-through path; the CAIPE server owns issuer validation entirely
