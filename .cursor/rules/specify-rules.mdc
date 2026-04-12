@@ -6,7 +6,7 @@ alwaysApply: true
 
 # ai-platform-engineering-fix-thinking-collapse Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-08
+Auto-generated from all feature plans. Last updated: 2026-04-12
 
 ## Active Technologies
 - N/A (UI state only) (095-fix-thinking-panel-expand)
@@ -21,6 +21,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-08
 - MongoDB/Redis (checkpointer/store — unchanged by this feature) (098-unify-single-distributed-binding)
 - Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8) (098-unify-single-distributed-binding)
 - MongoDB (checkpoints, store), Redis (alternative checkpointer), InMemorySaver (fallback) (098-unify-single-distributed-binding)
+- TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess) (100-caipe-v1-core)
+- Local filesystem only — `~/.config/caipe/` (global) + `.claude/` or `skills/` (per-project) (100-caipe-v1-core)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -40,9 +42,9 @@ npm test && npm run lint
 TypeScript (UI), React 19: Follow standard conventions
 
 ## Recent Changes
+- 100-caipe-v1-core: Added TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
-- 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI
 
 
 <!-- MANUAL ADDITIONS START -->
