@@ -60,6 +60,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
+override-dependencies = ["protobuf==5.29.6"]
 dev-dependencies = [
     "ruff==0.12.9",
     "pytest-asyncio==1.1.0",

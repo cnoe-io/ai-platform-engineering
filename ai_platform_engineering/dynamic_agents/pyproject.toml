@@ -50,3 +50,6 @@ testpaths = ["tests"]
 dev = [
     "ruff==0.15.5",
 ]
+
+[tool.uv]
+constraint-dependencies = ["starlette>=0.50.0"]

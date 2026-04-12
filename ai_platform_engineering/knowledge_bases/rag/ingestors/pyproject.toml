@@ -14,7 +14,7 @@ dependencies = [
     "boto3==1.42.45",
     "common",
     "fastapi[standard]==0.121.2",
-    "kubernetes==34.1.0",
+    "kubernetes==35.0.0",
     "langchain==1.0.7",
     "langchain-text-splitters==1.0.0",
     "lxml==6.0.2",
@@ -64,5 +64,7 @@ ignore = ["F403"]
 "src/ingestors/webloader/loader/worker_pool.py" = ["E402"]
 "tests/webloader/test_ingestor.py" = ["E402"]
 
+[tool.uv]
+constraint-dependencies = ["urllib3>=2.6.3"]
 [tool.uv.sources]
 common = { path = "../common" }

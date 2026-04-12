@@ -21,7 +21,7 @@ import ipaddress
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from fastapi import Depends, HTTPException, Request
-from jose import JWTError
+from jwt.exceptions import PyJWTError as JWTError
 import redis.asyncio as redis
 from common.models.rbac import Role, UserContext
 from common.constants import REDIS_USERINFO_CACHE_PREFIX
