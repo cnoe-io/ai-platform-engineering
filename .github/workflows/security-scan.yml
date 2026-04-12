@@ -56,6 +56,13 @@ jobs:
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           category: "grype-filesystem"
+          # On pull_request events the default checkout produces a merge commit
+          # (refs/pull/N/merge), but GitHub Code Scanning PR checks require the
+          # analysis to be associated with refs/pull/N/head + the head commit SHA.
+          # Without this, the check shows "1 configuration not found" because the
+          # merge-ref analysis is not matched against the PR head check run.
+          ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
+          sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
   scan-containers:
     name: Container scan (${{ matrix.image }})

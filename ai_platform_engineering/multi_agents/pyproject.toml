@@ -16,8 +16,8 @@ dependencies = [
     "uvicorn==0.34.3",
     "config==0.5.1",
     "langchain-core==1.2.28",
-    "langgraph==1.0.9",
-    "langgraph==1.0.9",
+    "langgraph==1.0.10",
+    "langgraph==1.0.10",
     "langfuse==3.14.5",
 
     # Transport dependencies for agent connections
@@ -46,4 +46,4 @@ select = ["E", "F"]
 ignore = ["F403"]
 
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
