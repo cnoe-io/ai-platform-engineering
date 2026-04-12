@@ -1,0 +1,85 @@
+# Grype vulnerability scan configuration
+# Suppress specific false-positive and accepted-risk findings.
+# Each entry documents WHY it is ignored so reviewers can verify.
+
+ignore:
+  # ── FALSE POSITIVES (already on clean/unaffected version) ──────────────────
+
+  # uv 0.11.6 is installed; CVE affects <= 0.9.4. Grype's DB has incorrect range.
+  - vulnerability: GHSA-w476-p2h3-79g9
+    package:
+      name: uv
+      type: python
+
+  # uv 0.11.6 is installed; CVE affects <= 0.9.5. Same Grype DB issue.
+  - vulnerability: GHSA-pqhf-p39g-3x64
+    package:
+      name: uv
+      type: python
+
+  # dompurify 3.3.3 is installed; CVE affects < 3.3.2. Already patched.
+  - vulnerability: GHSA-h8r8-wccr-v5f2
+    package:
+      name: dompurify
+      type: npm
+
+  # serialize-javascript 7.0.5 is installed; CVE affects <= 7.0.2. Already patched.
+  - vulnerability: GHSA-5c6j-r48x-rmvq
+    package:
+      name: serialize-javascript
+      type: npm
+
+  # next 16.2.3 is installed; CVE affected range ends at 16.0.11 / canary ranges.
+  # 16.2.3 is not in any affected range; Grype is matching on major version only.
+  - vulnerability: GHSA-h25m-26qc-wcjf
+    package:
+      name: next
+      type: npm
+
+  # hono: no longer present in any lockfile; ghost alert from pre-April-12 scan.
+  - vulnerability: GHSA-gq3j-xvxp-8hrf
+    package:
+      name: hono
+      type: npm
+
+  - vulnerability: GHSA-v8w9-8mx6-g223
+    package:
+      name: hono
+      type: npm
+
+  # ── NO UPSTREAM FIX AVAILABLE (latest version still flagged) ───────────────
+
+  # fastmcp 3.2.3 is the latest Python release on PyPI; no patched version exists.
+  # Tracked: https://github.com/jlowin/fastmcp/security/advisories
+  - vulnerability: GHSA-rcfx-77hg-w2wv
+    package:
+      name: fastmcp
+      type: python
+
+  - vulnerability: GHSA-rww4-4w9c-7733
+    package:
+      name: fastmcp
+      type: python
+
+  - vulnerability: GHSA-m8x7-r2rg-vh5g
+    package:
+      name: fastmcp
+      type: python
+
+  # nltk 3.9.4 is the latest release; no patched version exists.
+  - vulnerability: GHSA-rf74-v2fm-23pw
+    package:
+      name: nltk
+      type: python
+
+  # scrapy 2.15.0 is the latest release; no patched version exists.
+  - vulnerability: GHSA-cwxj-rr6w-m6w7
+    package:
+      name: scrapy
+      type: python
+
+  # github.com/modelcontextprotocol/go-sdk v1.4.1; no patched version exists.
+  - vulnerability: GHSA-q382-vc8q-7jhj
+    package:
+      name: github.com/modelcontextprotocol/go-sdk
+      type: go-module
