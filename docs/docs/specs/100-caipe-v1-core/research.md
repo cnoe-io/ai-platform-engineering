@@ -159,6 +159,39 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 
 ---
 
+---
+
+## Decision 8 — Interface Protocol: AG-UI (not A2A)
+
+**Decision**: caipe-cli communicates with the grid using the **AG-UI protocol** (`@ag-ui/client` TypeScript SDK). A2A is reserved for server-side agent-to-agent communication only.
+
+**Rationale**:
+- `release/0.4.0` introduces AG-UI as the unified interface protocol for all clients (UI, Slack, CLI) per spec `098-server-persistence-agui-streaming`
+- AG-UI event types map directly to the streaming chat UX: `TEXT_MESSAGE_START` → begin render, `TEXT_MESSAGE_CONTENT` → token stream, `TEXT_MESSAGE_END` → finalize, `RUN_ERROR` → error state
+- `@ag-ui/client` handles the SSE stream, reconnection, and event parsing — caipe-cli does not need to implement raw SSE parsing
+- Using the same client library as the UI ensures protocol parity and reduces maintenance burden
+
+**AG-UI endpoint**: `POST /api/agui/stream` (SSE response)
+
+**Relevant event types for CLI**:
+
+| Event | CLI action |
+|-------|-----------|
+| `RUN_STARTED` | Show agent name in status bar; start spinner |
+| `TEXT_MESSAGE_START` | Begin streaming render pane |
+| `TEXT_MESSAGE_CONTENT` | Append token to stream display |
+| `TEXT_MESSAGE_END` | Finalize message; stop spinner |
+| `TOOL_CALL_START/END` | Show tool use indicator in status bar |
+| `STATE_SNAPSHOT/DELTA` | Update session state (e.g., HITL prompts) |
+| `RUN_ERROR` | Surface error message; offer retry |
+| `RUN_FINISHED` | Mark session turn complete |
+
+**Alternatives considered**:
+- **Raw A2A SSE** from `agent-chat-cli`: used for agent-to-agent; the platform is migrating away from A2A for interface clients in 0.4.0
+- **Custom REST polling**: rejected — no streaming, poor UX for token-by-token display
+
+---
+
 ## Technology Stack (v1)
 
 | Concern | Choice | Rationale |
@@ -173,4 +206,5 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 | Markdown render | `marked-terminal` | Terminal ANSI output from GitHub-flavored MD |
 | Diff | `diff` npm package | Unified diff for skill updates |
 | Git context | `execa` → `git rev-parse` + `git log` | Lightweight, no git binding needed |
+| Interface protocol | AG-UI (`@ag-ui/client`) | Unified interface protocol from 0.4.0; handles SSE stream, reconnect, event parsing |
 | Testing | Bun test (built-in) | Zero config; compatible with Jest API |

@@ -46,7 +46,7 @@ caipe chat [options]
 
 **Behavior**:
 - Loads memory files (global → project → managed) before first message
-- Streams assistant responses token-by-token to stdout
+- Connects to grid via AG-UI protocol (`POST /api/agui/stream`); streams `TEXT_MESSAGE_CONTENT` events token-by-token to terminal
 - Renders markdown in terminal with ANSI formatting
 - `/skills`, `/agents`, `/memory` slash commands available within session
 - `Ctrl+C` or `/exit` ends session; history saved to `~/.config/caipe/sessions/<id>.json`

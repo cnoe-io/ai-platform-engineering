@@ -112,7 +112,7 @@ When a platform engineer generates code via caipe and commits it, the CLI ensure
 
 - **FR-001**: Users MUST be able to authenticate using their grid identity via a browser-initiated flow launched from the terminal
 - **FR-002**: Authenticated sessions MUST persist across terminal restarts without requiring re-login until the credential expires or the user explicitly signs out
-- **FR-003**: The chat interface MUST stream responses to the terminal in real-time with markdown rendered for readability
+- **FR-003**: The chat interface MUST stream responses to the terminal in real-time using the AG-UI protocol, with markdown rendered for readability
 - **FR-004**: Chat sessions MUST automatically include context from the current working directory and git repository state at session start
 - **FR-005**: The chat session MUST maintain persistent memory (conversation history, user preferences) stored locally, accessible across sessions within the same project
 - **FR-006**: Users MUST be able to list, preview, and install skills from the catalog using a `skills` subcommand
