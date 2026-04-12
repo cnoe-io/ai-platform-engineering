@@ -1,6 +1,6 @@
 # Slack Streaming Conformance Benchmark
 
-> **Spec**: [099-slack-streaming-conformance](../../.specify/specs/099-slack-streaming-conformance/spec.md)  
+> **Spec**: [099-slack-streaming-conformance](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.specify/specs/099-slack-streaming-conformance/spec.md)  
 > **Benchmark Definition**: [`tests/STREAMING_CONFORMANCE.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/tests/STREAMING_CONFORMANCE.md)  
 > **Runner**: `tests/simulate_slack_stream.py --suite --report`
 
