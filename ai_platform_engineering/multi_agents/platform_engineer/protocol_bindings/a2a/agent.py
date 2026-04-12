@@ -118,9 +118,19 @@ class AIPlatformEngineerA2ABinding:
       """
       CRITICAL: Repair orphaned tool calls in message history.
 
-      Bedrock/Anthropic requires ToolMessages to appear IMMEDIATELY after
-      the AIMessage with tool_use. If we can't properly repair the ordering,
-      we remove the problematic AIMessages entirely.
+      Bedrock/Anthropic requires a ToolMessage (tool_result) to appear immediately
+      after the AIMessage that contains the matching tool_use block. When a session
+      is interrupted mid-tool-call, the checkpoint holds an AIMessage with unresolved
+      tool_call_ids and no corresponding ToolMessages.
+
+      Strategy: inject a synthetic ToolMessage for each orphaned tool_call_id via
+      aupdate_state(..., as_node="tools"). This keeps the AIMessage intact (Bedrock
+      adjacency requirement satisfied) and routes the graph tools→model, so the new
+      user query is processed correctly.
+
+      Do NOT remove the AIMessage and replace with a placeholder (old approach):
+      that caused the graph to set checkpoint.next=END, leaking the placeholder text
+      directly to users instead of processing the new query.
 
       This is essential for recovery when:
       - A sub-agent call fails mid-stream (e.g., context overflow)
@@ -131,8 +141,6 @@ class AIPlatformEngineerA2ABinding:
           config: Runnable configuration with thread_id
       """
       try:
-          from langchain_core.messages import RemoveMessage
-
           state = await self.graph.aget_state(config)
           if not state or not state.values:
               return
@@ -196,60 +204,51 @@ class AIPlatformEngineerA2ABinding:
               f"IDs: {list(orphaned.keys())}, Names: {orphaned_names}"
           )
 
-          # STRATEGY: Remove ONLY the AIMessages that have orphaned tool calls.
-          # This preserves earlier conversation history while eliminating the problematic
-          # messages that would cause Bedrock validation errors.
+          # STRATEGY: Inject synthetic ToolMessages for each orphaned tool call.
           #
-          # We cannot simply append ToolMessages at the end because Bedrock requires
-          # tool_result immediately after tool_use. And we cannot remove ALL messages
-          # because that triggers IndexError when LangGraph's should_continue runs.
+          # Keep the AIMessage intact and append a synthetic ToolMessage for each
+          # unresolved tool_call_id. This satisfies Bedrock's requirement that every
+          # tool_use block is immediately followed by a matching tool_result, and it
+          # routes the graph to the `tools` node next (tools→model) so the model
+          # processes the new user query correctly.
+          #
+          # Previous approach (remove AIMessage + inject placeholder with
+          # as_node="model") was broken: a placeholder AIMessage with no tool_calls
+          # caused LangGraph to set checkpoint next-node=END, so the new query was
+          # never processed and the placeholder text leaked to users.
 
-          # Get the IDs of AIMessages that have orphaned tool calls
-          ai_msg_ids_to_remove = set()
+          synthetic_tool_msgs = []
           for tool_call_id, (msg_idx, tool_name, ai_msg_id) in orphaned.items():
-              if ai_msg_id:
-                  ai_msg_ids_to_remove.add(ai_msg_id)
-                  logging.info(
-                      f"🔧 Will remove AIMessage with orphaned tool_call: "
-                      f"msg_id={ai_msg_id[:20] if ai_msg_id else 'None'}..., "
-                      f"tool={tool_name}, tool_call_id={tool_call_id[:20]}..."
+              synthetic_tool_msgs.append(
+                  ToolMessage(
+                      content=f"Tool '{tool_name}' did not complete (session was interrupted).",
+                      tool_call_id=tool_call_id,
+                      name=tool_name,
                   )
-
-          if ai_msg_ids_to_remove:
-              # Remove only the problematic AIMessages
-              remove_messages = [RemoveMessage(id=msg_id) for msg_id in ai_msg_ids_to_remove]
-              await self.graph.aupdate_state(config, {"messages": remove_messages})
+              )
               logging.info(
-                  f"✅ Supervisor: Removed {len(ai_msg_ids_to_remove)} AIMessage(s) with orphaned tool calls. "
-                  f"Earlier conversation history preserved."
+                  f"🔧 Adding synthetic ToolMessage for orphaned tool: "
+                  f"{tool_name} (tool_call_id={tool_call_id[:20]}...)"
+              )
+
+          if synthetic_tool_msgs:
+              await self.graph.aupdate_state(
+                  config,
+                  {"messages": synthetic_tool_msgs},
+                  as_node="tools",
+              )
+              logging.info(
+                  f"✅ Supervisor: Repaired {len(synthetic_tool_msgs)} orphaned tool call(s) "
+                  f"with synthetic ToolMessages. Graph will route to model node next."
               )
           else:
-              # No message IDs found - fall back to just logging
               logging.warning(
-                  f"⚠️ Supervisor: Found orphaned tool calls but no message IDs to remove. "
-                  f"Orphaned tools: {orphaned_names}"
+                  f"⚠️ Supervisor: Found orphaned tool calls but could not build synthetic "
+                  f"ToolMessages. Orphaned tools: {orphaned_names}"
               )
 
       except Exception as e:
           logging.error(f"Supervisor: Error repairing orphaned tool calls: {e}", exc_info=True)
-          # If repair fails, try a fallback: clear the thread state entirely
-          # This loses history but allows future queries to work
-          try:
-              logging.warning("⚠️ Attempting fallback: clearing corrupted thread state")
-              # Get the thread_id from config
-              thread_id = config.get("configurable", {}).get("thread_id")
-              if thread_id and hasattr(self.graph, 'checkpointer') and self.graph.checkpointer:
-                  # Try to clear the checkpoint for this thread
-                  logging.info(f"Clearing checkpoint for thread_id: {thread_id}")
-                  # We can't easily delete checkpoints, so we'll just add a fresh HumanMessage
-                  # to reset the conversation flow
-                  from langchain_core.messages import HumanMessage
-                  reset_msg = HumanMessage(content="[System: Previous conversation was interrupted. Starting fresh.]")
-                  await self.graph.aupdate_state(config, {"messages": [reset_msg]})
-                  logging.info("✅ Added reset message to recover from corrupted state")
-          except Exception as fallback_err:
-              logging.error(f"Fallback recovery also failed: {fallback_err}")
-              # At this point, the conversation is corrupted - user will need to start a new thread
 
   def _deserialize_a2a_event(self, data: Any):
       """Try to deserialize a dict payload into known A2A models."""

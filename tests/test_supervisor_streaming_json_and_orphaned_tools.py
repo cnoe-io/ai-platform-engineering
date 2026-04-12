@@ -110,7 +110,7 @@ class TestExtractToolCallIds:
 # ---------------------------------------------------------------------------
 
 class TestRepairOrphanedToolCalls:
-    """Test that _repair_orphaned_tool_calls finds orphans in all Bedrock formats."""
+    """Test that _repair_orphaned_tool_calls injects synthetic ToolMessages for orphans."""
 
     def _make_binding(self):
         """Create a minimal AIPlatformEngineerA2ABinding with mocked graph."""
@@ -127,7 +127,7 @@ class TestRepairOrphanedToolCalls:
 
     @pytest.mark.asyncio
     async def test_no_orphans_when_tool_message_present(self):
-        """No removal when every tool_call has a matching ToolMessage."""
+        """No repair when every tool_call has a matching ToolMessage."""
         binding = self._make_binding()
         tid = "tooluse_abc"
         messages = [
@@ -144,12 +144,11 @@ class TestRepairOrphanedToolCalls:
         binding.graph.aupdate_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_removes_orphan_in_tool_calls(self):
-        """Removes AIMessage when tool_call has no ToolMessage (standard format)."""
+    async def test_injects_synthetic_tool_msg_for_standard_format(self):
+        """Injects synthetic ToolMessage (as_node='tools') for orphan in standard tool_calls."""
         binding = self._make_binding()
         tid = "tooluse_orphan_standard"
-        msg_id = "msg-orphan-std"
-        ai_msg = _make_ai_message_with_tool_calls(tid, msg_id=msg_id)
+        ai_msg = _make_ai_message_with_tool_calls(tid)
         messages = [HumanMessage(content="hi"), ai_msg]
 
         state = MagicMock()
@@ -160,13 +159,16 @@ class TestRepairOrphanedToolCalls:
         await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
 
         binding.graph.aupdate_state.assert_called_once()
-        removed = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        assert len(removed) == 1
-        assert removed[0].id == msg_id
+        call_kwargs = binding.graph.aupdate_state.call_args
+        injected = call_kwargs[0][1]["messages"]
+        assert len(injected) == 1
+        assert isinstance(injected[0], ToolMessage)
+        assert injected[0].tool_call_id == tid
+        assert call_kwargs[1].get("as_node") == "tools"
 
     @pytest.mark.asyncio
-    async def test_removes_orphan_in_additional_kwargs(self):
-        """Removes AIMessage with orphaned tool_use stored in additional_kwargs."""
+    async def test_injects_synthetic_tool_msg_for_additional_kwargs(self):
+        """Injects synthetic ToolMessage for orphan stored in additional_kwargs."""
         binding = self._make_binding()
         tid = "tooluse_orphan_addkwargs"
         ai_msg = _make_ai_message_with_additional_kwargs(tid)
@@ -180,10 +182,14 @@ class TestRepairOrphanedToolCalls:
         await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
 
         binding.graph.aupdate_state.assert_called_once()
+        call_kwargs = binding.graph.aupdate_state.call_args
+        injected = call_kwargs[0][1]["messages"]
+        assert all(isinstance(m, ToolMessage) for m in injected)
+        assert call_kwargs[1].get("as_node") == "tools"
 
     @pytest.mark.asyncio
-    async def test_removes_orphan_in_content_block(self):
-        """Removes AIMessage with orphaned tool_use stored in content block."""
+    async def test_injects_synthetic_tool_msg_for_content_block(self):
+        """Injects synthetic ToolMessage for orphan stored in content block."""
         binding = self._make_binding()
         tid = "tooluse_orphan_contentblock"
         ai_msg = _make_ai_message_with_content_block(tid)
@@ -197,6 +203,10 @@ class TestRepairOrphanedToolCalls:
         await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
 
         binding.graph.aupdate_state.assert_called_once()
+        call_kwargs = binding.graph.aupdate_state.call_args
+        injected = call_kwargs[0][1]["messages"]
+        assert all(isinstance(m, ToolMessage) for m in injected)
+        assert call_kwargs[1].get("as_node") == "tools"
 
 
 # ---------------------------------------------------------------------------
@@ -550,8 +560,8 @@ class TestRepairOrphanedToolCallsEdgeCases:
         binding.graph.aupdate_state.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_multiple_orphans_all_removed(self):
-        """Multiple orphaned AIMessages should all be removed."""
+    async def test_multiple_orphans_all_repaired(self):
+        """Multiple orphaned tool calls each get their own synthetic ToolMessage."""
         binding = self._make_binding()
         msg1 = _make_ai_message_with_tool_calls("tooluse_a", msg_id="msg-a")
         msg2 = _make_ai_message_with_additional_kwargs("tooluse_b", msg_id="msg-b")
@@ -565,14 +575,17 @@ class TestRepairOrphanedToolCallsEdgeCases:
         await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
 
         binding.graph.aupdate_state.assert_called_once()
-        removed = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        removed_ids = {r.id for r in removed}
-        assert "msg-a" in removed_ids
-        assert "msg-b" in removed_ids
+        call_kwargs = binding.graph.aupdate_state.call_args
+        injected = call_kwargs[0][1]["messages"]
+        injected_ids = {m.tool_call_id for m in injected}
+        assert "tooluse_a" in injected_ids
+        assert "tooluse_b" in injected_ids
+        assert all(isinstance(m, ToolMessage) for m in injected)
+        assert call_kwargs[1].get("as_node") == "tools"
 
     @pytest.mark.asyncio
-    async def test_partial_orphan_only_orphaned_removed(self):
-        """AIMessage with 2 tool calls, one resolved and one orphaned — only orphaned AIMessage removed."""
+    async def test_partial_orphan_only_orphaned_repaired(self):
+        """AIMessage with 2 tool calls, one resolved and one orphaned — only one synthetic ToolMessage injected."""
         binding = self._make_binding()
         ai_msg = AIMessage(
             id="msg-partial",
@@ -596,17 +609,19 @@ class TestRepairOrphanedToolCallsEdgeCases:
         await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
 
         binding.graph.aupdate_state.assert_called_once()
-        removed = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        assert len(removed) == 1
-        assert removed[0].id == "msg-partial"
+        call_kwargs = binding.graph.aupdate_state.call_args
+        injected = call_kwargs[0][1]["messages"]
+        assert len(injected) == 1
+        assert isinstance(injected[0], ToolMessage)
+        assert injected[0].tool_call_id == "tooluse_orphaned"
+        assert call_kwargs[1].get("as_node") == "tools"
 
     @pytest.mark.asyncio
     async def test_aget_state_raises_exception(self):
-        """aget_state raising should trigger fallback path without propagating."""
+        """aget_state raising should be caught and not propagate."""
         binding = self._make_binding()
         binding.graph.aget_state = AsyncMock(side_effect=RuntimeError("checkpoint error"))
         binding.graph.aupdate_state = AsyncMock()
-        binding.graph.checkpointer = None
 
         await binding._repair_orphaned_tool_calls({"configurable": {"thread_id": "t1"}})
         # Should not raise; the except block handles it
