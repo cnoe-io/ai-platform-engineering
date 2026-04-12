@@ -14,7 +14,7 @@ The v1 implementation is a TypeScript + Bun project using React + Ink for the TU
 ## Technical Context
 
 **Language/Version**: TypeScript 5.x, Bun 1.x  
-**Primary Dependencies**: React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)  
+**Primary Dependencies**: React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), native `fetch` + `EventSource` (A2A SSE — no separate SDK needed), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess)  
 **Storage**: Local filesystem only — `~/.config/caipe/` (global) + `.claude/` or `skills/` (per-project)  
 **Testing**: Bun test (Jest-compatible API) — unit + contract tests; integration tests require a mock grid endpoint  
 **Target Platform**: macOS (primary), Linux (primary), WSL2 (secondary)  
@@ -137,14 +137,19 @@ Deliverables:
 
 Deliverables:
 1. `src/chat/stream.ts` — AG-UI client (`@ag-ui/client`): connect to `POST /api/agui/stream`; handle `TEXT_MESSAGE_CONTENT` token stream; surface `RUN_ERROR`; reconnect on drop
-2. `src/platform/git.ts` — repo root detection via execa; file tree sampling; `git log` excerpt
-3. `src/memory/loader.ts` — load global + project CLAUDE.md; 50k token budget cap with truncation warning
-4. `src/chat/context.ts` — assemble git tree + memory files into system context string
-5. `src/chat/Repl.tsx` — Ink REPL: input bar, streaming message list, agent/token status header
-6. `src/chat/history.ts` — serialize session to `~/.config/caipe/sessions/<id>.json` on exit
-7. `src/platform/markdown.ts` — marked-terminal wrapper with GFM support
-8. Unit tests: `context.test.ts` — git sampling, memory loading, token budget truncation
-9. Integration test: mock A2A SSE endpoint → verify streaming render pipeline
+2. `src/chat/stream.ts` — **dual-protocol stream client**: common `StreamAdapter` interface with two implementations:
+   - `A2aAdapter` (default): native `fetch` + `EventSource` to `POST /tasks/send`; maps A2A task lifecycle events → `StreamEvent` union type
+   - `AguiAdapter` (opt-in): `@ag-ui/client` to `POST /api/agui/stream`; maps AG-UI events → same `StreamEvent` union type
+   - `createAdapter(protocol: "a2a" | "agui", agent: Agent): StreamAdapter` factory; `Repl.tsx` only depends on `StreamAdapter`
+3. `src/platform/git.ts` — repo root detection via execa; file tree sampling; `git log` excerpt
+4. `src/memory/loader.ts` — load global + project CLAUDE.md; 50k token budget cap with truncation warning
+5. `src/chat/context.ts` — assemble git tree + memory files into system context string
+6. `src/chat/Repl.tsx` — Ink REPL: input bar, streaming message list, agent/token/protocol status header; protocol-agnostic (consumes `StreamAdapter` only)
+7. `src/chat/history.ts` — serialize session to `~/.config/caipe/sessions/<id>.json` on exit; includes `protocol` field
+8. `src/platform/markdown.ts` — marked-terminal wrapper with GFM support
+9. Unit tests: `context.test.ts` — git sampling, memory loading, token budget truncation
+10. Unit tests: `stream.test.ts` — A2aAdapter mock SSE, AguiAdapter mock SSE, protocol mismatch prompt flow
+11. Integration test: mock grid endpoint for both protocols → verify streaming render pipeline
 
 **Acceptance criteria (from spec)**:
 - Repo context (file structure, recent git log) is sent as system context at session start
@@ -265,31 +270,59 @@ The root `caipe` npm package declares `optionalDependencies` for each platform p
 
 ## Protocol Notes
 
-### AG-UI (interface-to-agent) — primary protocol for caipe-cli
+### Dual-Protocol Architecture
 
-Per the `release/0.4.0` architecture (`098-server-persistence-agui-streaming`), **AG-UI is the unified protocol for all interface clients** (UI, Slack, CLI). A2A is reserved for server-side agent-to-agent communication only.
+caipe-cli supports **A2A (default) and AG-UI (opt-in)** as full chat protocols. Both are delivered through a common `StreamAdapter` interface — the Ink REPL is protocol-agnostic.
 
-`src/chat/stream.ts` uses `@ag-ui/client` to connect to `POST /api/agui/stream`:
+```
+caipe chat [--protocol a2a|agui]
+    │
+    ▼
+createAdapter(protocol, agent)
+    ├── A2aAdapter  (default) ──► POST /tasks/send  (SSE)
+    └── AguiAdapter (--protocol agui) ──► POST /api/agui/stream  (SSE)
+    │
+    ▼
+StreamEvent union type  ──► Repl.tsx (protocol-agnostic render)
+```
 
-| AG-UI Event | CLI Response |
-|-------------|-------------|
-| `RUN_STARTED` | Show agent name in status header; start spinner |
-| `TEXT_MESSAGE_START` | Open streaming render pane |
-| `TEXT_MESSAGE_CONTENT` | Append token to live display |
-| `TEXT_MESSAGE_END` | Finalize message; stop spinner |
-| `TOOL_CALL_START` / `TOOL_CALL_END` | Show tool indicator in status bar |
-| `STATE_SNAPSHOT` / `STATE_DELTA` | Update local session state (e.g., HITL prompt surfacing) |
-| `RUN_ERROR` | Display error with retry prompt |
-| `RUN_FINISHED` | Mark turn complete; prompt for next input |
+### A2A (default protocol)
 
-### A2A (agent discovery only)
+`src/chat/stream.ts` `A2aAdapter` uses native `fetch` + `EventSource`:
+- **Session**: `POST /tasks/send` with Bearer token + context payload; SSE response streams task lifecycle events
+- **Agent discovery**: `GET /.well-known/agent.json` → `AgentCard` (name, description, capabilities, endpoint)
+- **Extended card**: `GET /agent/authenticatedExtendedCard` with Bearer token for private metadata
+- **Protocol registry**: `GET /api/v1/agents` returns `protocols: string[]` per agent; used for pre-connect validation
+- Session context UUID passed per request to preserve conversation state across turns
+- First-party reference: `cnoe-io/agent-chat-cli`
 
-`src/agents/registry.ts` still uses A2A agent card discovery:
-- `GET /.well-known/agent.json` → `AgentCard` (name, description, capabilities, endpoint)
-- `GET /agent/authenticatedExtendedCard` with Bearer token for private metadata
-- Session context ID (UUID) passed per request to preserve conversation state across turns
+| A2A event / pattern | StreamEvent emitted |
+|---------------------|-------------------|
+| SSE task delta (text chunk) | `{ type: "token", text }` |
+| `task.status = completed` | `{ type: "done" }` |
+| `task.status = failed` | `{ type: "error", message }` |
+| Tool call artifact | `{ type: "tool", name, status }` |
 
-The first-party Python reference for A2A patterns is `cnoe-io/agent-chat-cli`.
+### AG-UI (opt-in via `--protocol agui`)
+
+`src/chat/stream.ts` `AguiAdapter` uses `@ag-ui/client` to connect to `POST /api/agui/stream`:
+
+| AG-UI Event | StreamEvent emitted |
+|-------------|-------------------|
+| `TEXT_MESSAGE_CONTENT` | `{ type: "token", text }` |
+| `RUN_STARTED` | `{ type: "started", agentName }` |
+| `TEXT_MESSAGE_END` / `RUN_FINISHED` | `{ type: "done" }` |
+| `TOOL_CALL_START/END` | `{ type: "tool", name, status }` |
+| `STATE_SNAPSHOT/DELTA` | `{ type: "state", snapshot }` |
+| `RUN_ERROR` | `{ type: "error", message }` |
+
+### Protocol validation flow
+
+Before opening any session:
+1. `src/agents/registry.ts` fetches `GET /api/v1/agents` (5-min cache)
+2. If agent has `protocols` field, validate chosen protocol is listed
+3. If mismatch: prompt user — "Agent `<name>` does not support `<protocol>` (supports: `<list>`) — switch and continue? [y/N]"
+4. On confirm: switch protocol; on decline: exit cleanly
 
 ## Complexity Tracking
 
