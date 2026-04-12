@@ -110,7 +110,7 @@ RUN ARCH=$(uname -m) && \
         GLAB_ARCH="amd64"; \
     fi && \
     GLAB_VERSION="1.80.4" && \
-    curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GLAB_ARCH}.tar.gz" -o glab.tar.gz && \
+    curl -sfL --retry 5 --retry-delay 3 --connect-timeout 30 "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GLAB_ARCH}.tar.gz" -o glab.tar.gz && \
     tar -xzf glab.tar.gz && \
     mv bin/glab /usr/local/bin/glab && \
     rm -rf glab.tar.gz gh_${GLAB_VERSION}_linux_${GLAB_ARCH}
