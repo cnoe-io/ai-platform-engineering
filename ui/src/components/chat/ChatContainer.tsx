@@ -55,9 +55,10 @@ export function ChatContainer() {
     if (selectedAgentId && dynamicAgentsEnabled) {
       return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
     }
-    // Platform Engineer: AG-UI client talks directly to the backend
-    // The backend has CORS enabled so browser can connect directly
-    return `${caipeUrl}/chat/stream`;
+    // Platform Engineer (Supervisor): A2A JSON-RPC endpoint at root path.
+    // The A2A SDK sends "message/stream" as the JSON-RPC method in the body,
+    // not as a URL path segment.
+    return caipeUrl;
   }, [selectedAgentId, dynamicAgentsEnabled, dynamicAgentsUrl, caipeUrl]);
 
   const storageMode = getStorageMode();
