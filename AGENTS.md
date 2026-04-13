@@ -25,6 +25,22 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 - **Configuration & code details** - Document in component READMEs
 - **Agent instructions** - Keep this file (`AGENTS.md`) up-to-date
 
+## DCO and AI Attribution Policy
+
+**Skill**: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)  
+**Authority**: Linux kernel [AI Coding Assistants policy](https://github.com/torvalds/linux/blob/master/Documentation/process/coding-assistants.rst)
+
+AI agents operating in this repository **must** follow these rules on every commit:
+
+1. **Never generate `Signed-off-by`** — this is a human-only DCO certification. Do not add, suggest, or insert this trailer on behalf of the AI.
+2. **Always suggest `Assisted-by`** when code was materially AI-assisted:
+   ```
+   Assisted-by: Claude:claude-sonnet-4-6
+   ```
+3. **Always remind the human** to add their own `Signed-off-by` before the commit is finalized.
+
+Full pre-commit checklist and examples: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
+
 ## Git Guidelines
 
 - **Sign off commits** - Use `git commit --signoff` (DCO requirement)

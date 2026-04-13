@@ -41,7 +41,7 @@ class MetricsCallbackHandler(BaseCallbackHandler):
         self.agent_name = agent_name
         self._tool_start_times: Dict[UUID, float] = {}
         self._tool_names: Dict[UUID, str] = {}
-        self._enabled = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+        self._enabled = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
     def on_tool_start(
         self,

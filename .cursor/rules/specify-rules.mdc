@@ -6,7 +6,7 @@ alwaysApply: true
 
 # ai-platform-engineering-fix-thinking-collapse Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-23
+Auto-generated from all feature plans. Last updated: 2026-04-08
 
 ## Active Technologies
 - N/A (UI state only) (095-fix-thinking-panel-expand)
@@ -17,6 +17,10 @@ Auto-generated from all feature plans. Last updated: 2026-03-23
 - Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind (097-skills-middleware-integration)
 - MongoDB (`agent_skills`, optional `skills`, `skill_hubs`, `catalog_api_keys`, `skill_scan_findings`); filesystem `SKILLS_DIR` for packaged defaults; in-process catalog cache with explicit generation counters (097-skills-middleware-integration)
 - Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional **`cisco-ai-skill-scanner`** CLI/package for hub/CI scans per [skill-scanner](https://github.com/cisco-ai-defense/skill-scanner) (097-skills-middleware-integration)
+- Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI (098-unify-single-distributed-binding)
+- MongoDB/Redis (checkpointer/store — unchanged by this feature) (098-unify-single-distributed-binding)
+- Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8) (098-unify-single-distributed-binding)
+- MongoDB (checkpoints, store), Redis (alternative checkpointer), InMemorySaver (fallback) (098-unify-single-distributed-binding)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -36,9 +40,9 @@ npm test && npm run lint
 TypeScript (UI), React 19: Follow standard conventions
 
 ## Recent Changes
-- 097-skills-middleware-integration: Added Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional **`cisco-ai-skill-scanner`** CLI/package for hub/CI scans per [skill-scanner](https://github.com/cisco-ai-defense/skill-scanner)
-- 097-skills-middleware-integration: Added Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind
-- 097-skills-middleware-integration: Added Python 3.11+ (backend), TypeScript / Next.js App Router (UI) + LangGraph, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI (supervisor bindings), Motor/pymongo (MongoDB), Next.js API routes + existing JWT/JWKS helpers
+- 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
+- 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
+- 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI
 
 
 <!-- MANUAL ADDITIONS START -->

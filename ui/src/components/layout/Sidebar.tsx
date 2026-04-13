@@ -187,6 +187,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           updatedAt: new Date(conversation.updated_at),
           messages: [],
           streamEvents: [], // Stream events for Dynamic Agents
+          a2aEvents: [], // A2A events for supervisor
           participants: conversation.participants || [],
         };
 

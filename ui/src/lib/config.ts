@@ -148,6 +148,8 @@ export interface Config {
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
   ticketProvider: 'jira' | 'github' | null;
+  /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
+  oidcRequiredGroup: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +219,7 @@ const DEFAULT_CONFIG: Config = {
   githubTicketLabel: 'caipe-reported',
   ticketEnabled: false,
   ticketProvider: null,
+  oidcRequiredGroup: 'backstage-access',
 };
 
 // ---------------------------------------------------------------------------
@@ -373,6 +376,7 @@ export function getServerConfig(): Config {
     githubTicketLabel,
     ticketEnabled,
     ticketProvider,
+    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
   };
 }
 

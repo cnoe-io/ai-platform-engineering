@@ -50,7 +50,6 @@ export function PlatformEngineerChatView({
           readOnly={readOnly}
           readOnlyReason={readOnlyReason}
           adminOrigin={adminOrigin}
-          isDisconnected={isDisconnected}
         />
       </motion.div>
     </div>

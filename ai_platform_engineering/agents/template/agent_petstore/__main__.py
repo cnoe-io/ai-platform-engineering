@@ -26,7 +26,7 @@ from a2a.types import (
 
 load_dotenv()
 
-METRICS_ENABLED = os.getenv("METRICS_ENABLED", "false").lower() == "true"
+METRICS_ENABLED = os.getenv("METRICS_ENABLED", "true").lower() == "true"
 
 AGENT_NAME = 'petstore'
 AGENT_DESCRIPTION = (

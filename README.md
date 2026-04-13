@@ -113,28 +113,37 @@ CAIPE supports two deployment modes:
 
 #### Single-Node Mode
 
-Single-node mode runs everything in a single container, making it ideal for development and simpler deployments:
+All-in-one (single-node) mode runs everything in a single container, making it ideal for development and simpler deployments:
 
 ```bash
-# Run single-node mode
+# Run all-in-one mode
 docker compose -f docker-compose.single-node.yaml --profile caipe-ui up
 
-# Development mode with single-node (build from source)
-docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one --profile caipe-mongodb --profile caipe-ui up --build
+# Development mode — all-in-one (build from source)
+docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile caipe-ui up --build
+
+# Development mode — fully distributed (all agents as separate A2A containers)
+DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile caipe-ui up --build
+
+# Development mode — hybrid (only specific agents distributed)
+DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile caipe-ui up --build
 ```
 
-Single-node mode uses the `deepagents` library for task-based execution with workflows defined in `task_config.yaml`.
+The supervisor mode is controlled by the `DISTRIBUTED_AGENTS` environment variable:
+- Empty (default): all agents run in-process via MCP (all-in-one)
+- `all`: all agents run as remote A2A containers (fully distributed)
+- Comma-separated list (e.g., `argocd,github`): only listed agents are remote (hybrid)
 
-##### Single-Node with RAG (Knowledge Base)
+##### All-in-One with RAG (Knowledge Base)
 
 Enable RAG services to give the agent access to ingested knowledge bases:
 
 ```bash
-# Single-node with RAG (no graph database)
-docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one --profile caipe-mongodb --profile rag --profile caipe-ui up --build
+# All-in-one with RAG (no graph database)
+docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile rag --profile caipe-ui up --build
 
-# Single-node with full Graph RAG (includes Neo4j)
-docker compose -f docker-compose.dev.yaml --profile caipe-supervisor-all-in-one --profile caipe-mongodb --profile graph_rag --profile caipe-ui up --build
+# All-in-one with full Graph RAG (includes Neo4j)
+docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile graph_rag --profile caipe-ui up --build
 ```
 
 **RAG Profiles:**

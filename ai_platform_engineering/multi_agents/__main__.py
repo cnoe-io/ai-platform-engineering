@@ -49,18 +49,18 @@ def platform_engineer(ctx):
 @main.command('platform-engineer-single')
 @click.pass_context
 def platform_engineer_single(ctx):
-  """Start the AI Platform Engineer system in single-node mode.
+  """Start the AI Platform Engineer system in single-node (all-in-one) mode.
   
-  This mode runs the deep agent with MCP tools loaded in-process via stdio transport.
-  Uses the upstream deepagents library for task-based execution.
+  Alias for 'platform-engineer' — both modes are now handled by
+  the unified main:app via the DISTRIBUTED_MODE environment variable.
   """
   host = ctx.obj.get('host', AGENT_HOST)
   port = ctx.obj.get('port', None)
-  click.echo("Starting AI Platform Engineer system (single-node mode)...")
-  logging.info(f"Starting A2A single-node server on {host}:{port or AGENT_PORT}")
+  click.echo("Starting AI Platform Engineer system (single-node / all-in-one mode)...")
+  logging.info(f"Starting A2A server on {host}:{port or AGENT_PORT}")
   
   uvicorn.run(
-    "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main_single:app",
+    "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app",
     host=host,
     port=port or AGENT_PORT)
 

@@ -37,10 +37,7 @@ jobs:
       - name: Install dependencies and run tests
         run: |
           echo "Installing dependencies with uv sync..."
-          /home/runner/.local/bin/uv sync
-
-          echo "Adding test dependencies..."
-          /home/runner/.local/bin/uv add pytest-asyncio pytest-cov --group unittest
+          /home/runner/.local/bin/uv sync --group dev --group unittest --frozen
 
           echo "Running tests with coverage..."
           /home/runner/.local/bin/uv run pytest \

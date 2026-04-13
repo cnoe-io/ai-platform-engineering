@@ -514,12 +514,14 @@ If the SHA is not provided, the tool will attempt to acquire it by fetching the 
 }
 
 // CreateRepository creates a tool to create a new GitHub repository.
+// When template_owner and template_repo are provided, the repository is
+// created from that template via the GitHub "generate" API.
 func CreateRepository(t translations.TranslationHelperFunc) inventory.ServerTool {
 	return NewTool(
 		ToolsetMetadataRepos,
 		mcp.Tool{
 			Name:        "create_repository",
-			Description: t("TOOL_CREATE_REPOSITORY_DESCRIPTION", "Create a new GitHub repository in your account or specified organization"),
+			Description: t("TOOL_CREATE_REPOSITORY_DESCRIPTION", "Create a new GitHub repository in your account or specified organization. Optionally create from a template repository by providing template_owner and template_repo."),
 			Annotations: &mcp.ToolAnnotations{
 				Title:        t("TOOL_CREATE_REPOSITORY_USER_TITLE", "Create repository"),
 				ReadOnlyHint: false,
@@ -545,7 +547,15 @@ func CreateRepository(t translations.TranslationHelperFunc) inventory.ServerTool
 					},
 					"autoInit": {
 						Type:        "boolean",
-						Description: "Initialize with README",
+						Description: "Initialize with README (ignored when using a template)",
+					},
+					"template_owner": {
+						Type:        "string",
+						Description: "Owner of the template repository to create from (requires template_repo)",
+					},
+					"template_repo": {
+						Type:        "string",
+						Description: "Name of the template repository to create from (requires template_owner)",
 					},
 				},
 				Required: []string{"name"},
@@ -569,23 +579,59 @@ func CreateRepository(t translations.TranslationHelperFunc) inventory.ServerTool
 			if err != nil {
 				return utils.NewToolResultError(err.Error()), nil, nil
 			}
-			autoInit, err := OptionalParam[bool](args, "autoInit")
+			templateOwner, err := OptionalParam[string](args, "template_owner")
 			if err != nil {
 				return utils.NewToolResultError(err.Error()), nil, nil
 			}
-
-			repo := &github.Repository{
-				Name:        github.Ptr(name),
-				Description: github.Ptr(description),
-				Private:     github.Ptr(private),
-				AutoInit:    github.Ptr(autoInit),
+			templateRepo, err := OptionalParam[string](args, "template_repo")
+			if err != nil {
+				return utils.NewToolResultError(err.Error()), nil, nil
 			}
 
 			client, err := deps.GetClient(ctx)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to get GitHub client: %w", err)
 			}
-			createdRepo, resp, err := client.Repositories.Create(ctx, organization, repo)
+
+			var createdRepo *github.Repository
+			var resp *github.Response
+
+			if templateOwner != "" && templateRepo != "" {
+				// Create from template
+				owner := organization
+				if owner == "" {
+					// When no org specified, the authenticated user owns the new repo.
+					// The API requires an owner field; fetch the current user.
+					user, _, userErr := client.Users.Get(ctx, "")
+					if userErr != nil {
+						return utils.NewToolResultError(fmt.Sprintf("failed to determine authenticated user: %v", userErr)), nil, nil
+					}
+					owner = user.GetLogin()
+				}
+				templateReq := &github.TemplateRepoRequest{
+					Name:        github.Ptr(name),
+					Owner:       github.Ptr(owner),
+					Description: github.Ptr(description),
+					Private:     github.Ptr(private),
+				}
+				createdRepo, resp, err = client.Repositories.CreateFromTemplate(ctx, templateOwner, templateRepo, templateReq)
+			} else if templateOwner != "" || templateRepo != "" {
+				return utils.NewToolResultError("both template_owner and template_repo must be provided together"), nil, nil
+			} else {
+				// Standard creation
+				autoInit, autoInitErr := OptionalParam[bool](args, "autoInit")
+				if autoInitErr != nil {
+					return utils.NewToolResultError(autoInitErr.Error()), nil, nil
+				}
+				repo := &github.Repository{
+					Name:        github.Ptr(name),
+					Description: github.Ptr(description),
+					Private:     github.Ptr(private),
+					AutoInit:    github.Ptr(autoInit),
+				}
+				createdRepo, resp, err = client.Repositories.Create(ctx, organization, repo)
+			}
+
 			if err != nil {
 				return ghErrors.NewGitHubAPIErrorResponse(ctx,
 					"failed to create repository",

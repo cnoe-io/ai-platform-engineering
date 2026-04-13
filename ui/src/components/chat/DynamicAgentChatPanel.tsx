@@ -820,7 +820,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() },
+      client: { abort: () => adapter.abort() } as any,
       streamAdapter: adapter,
     });
 
@@ -1077,7 +1077,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
       messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() },
+      client: { abort: () => adapter.abort() } as any,
       streamAdapter: adapter,
     });
 

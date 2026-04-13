@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { isTokenExpired, getTimeUntilExpiry, formatTimeUntilExpiry, getWarningTimestamp } from "@/lib/auth-utils";
 import { getConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, LogOut, RefreshCw } from "lucide-react";
+import { AlertCircle, ExternalLink, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -41,6 +41,19 @@ export function TokenExpiryGuard() {
       sessionStorage.removeItem('token-expiry-handling');
     }
     await signOut({ callbackUrl: "/login" });
+  }, []);
+
+  // Handle relogin in a new tab — user stays on the current page and their
+  // live chat is not interrupted. The new tab completes Duo login, redirects
+  // to /auth/reauth-complete which broadcasts SESSION_REFRESHED and closes.
+  // This tab listens for that broadcast and silently updates the session.
+  const handleReloginNewTab = useCallback(() => {
+    const callbackUrl = encodeURIComponent("/auth/reauth-complete");
+    window.open(
+      `/api/auth/signin/oidc?callbackUrl=${callbackUrl}`,
+      "_blank",
+      "noopener"
+    );
   }, []);
 
   // Handle relogin — must sign out first to clear the session cookie,
@@ -184,6 +197,12 @@ export function TokenExpiryGuard() {
     // Within warning window (5 min before expiry)
     const now = Math.floor(Date.now() / 1000);
     if (warningTime && now >= warningTime && !showExpired) {
+      // Claim ownership of expiry handling so AuthGuard doesn't race us with its
+      // own 60s-buffer redirect while we are attempting a silent refresh.
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('token-expiry-handling', 'true');
+      }
+
       // First: attempt silent refresh automatically (the user shouldn't have to do anything)
       if (!isRefreshingRef.current) {
         attemptSilentRefresh().then((refreshed) => {
@@ -202,11 +221,46 @@ export function TokenExpiryGuard() {
         setShowWarning(true);
       }
     } else if (showWarning && !isExpired) {
-      // Token was refreshed (we're outside warning window now), hide warning
+      // Token was refreshed (we're outside warning window now), hide warning and
+      // release the coordination flag so AuthGuard resumes normal checks.
       setShowWarning(false);
       dismissedForExpiryRef.current = null;
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('token-expiry-handling');
+      }
     }
   }, [status, session, showWarning, showExpired, handleLogout, attemptSilentRefresh]);
+
+  // Listen for SESSION_REFRESHED broadcast from the reauth-complete tab.
+  // When received, silently update the session so the warning disappears
+  // without any disruption to the current page.
+  useEffect(() => {
+    if (!getConfig('ssoEnabled')) return;
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("caipe-auth");
+      channel.onmessage = (event) => {
+        if (event.data?.type === "SESSION_REFRESHED") {
+          console.log("[TokenExpiryGuard] Session refreshed in new tab, updating...");
+          updateSession().then(() => {
+            setShowWarning(false);
+            setShowExpired(false);
+            dismissedForExpiryRef.current = null;
+            if (typeof window !== "undefined") {
+              sessionStorage.removeItem("token-expiry-handling");
+            }
+          });
+        }
+      };
+    } catch {
+      // BroadcastChannel not supported — refetchOnWindowFocus handles it
+    }
+
+    return () => {
+      channel?.close();
+    };
+  }, [updateSession]);
 
   // Set up periodic token expiry checking
   useEffect(() => {
@@ -262,17 +316,17 @@ export function TokenExpiryGuard() {
                     Your session will expire in <strong className="text-foreground">{timeRemaining}</strong>.
                     {session?.hasRefreshToken
                       ? " Attempting to refresh automatically..."
-                      : " Please save your work and re-login to continue."}
+                      : " Please re-login to continue."}
                   </p>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={handleRelogin}
+                      onClick={handleReloginNewTab}
                       className="gap-2"
                     >
-                      <RefreshCw className="h-4 w-4" />
-                      Re-login Now
+                      <ExternalLink className="h-4 w-4" />
+                      Refresh in New Tab
                     </Button>
                     <Button
                       size="sm"

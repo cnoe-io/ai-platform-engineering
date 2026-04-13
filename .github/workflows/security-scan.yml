@@ -1,11 +1,27 @@
 ---
 name: "Grype Scan"
-description: "Anchore Grype vulnerability scan — filesystem on PRs/main (blocking on critical), filesystem + all containers on tags (informational)"
+description: "Anchore Grype vulnerability scan — filesystem on all events, containers on tags. Blocking gate is GitHub Code Scanning PR diff mode, not fail-build."
 
 # Trigger matrix:
-#   pull_request / push to main  → filesystem scan only, fail-build: true on critical+ (blocks merge)
+#   pull_request / push to main  → filesystem scan only; fail-build: false — GitHub Code Scanning
+#                                  PR diff mode is the gate (only NEW alerts block the PR)
 #   push tag                     → filesystem scan + all container images, fail-build: false (informational)
 #   workflow_dispatch            → both jobs, fail-build: false
+#
+# Why fail-build: false everywhere?
+#   Grype's fail-build hard-fails on any CVE at or above severity-cutoff, including CVEs in
+#   upstream libraries that have no available fix yet. That forces contributors to take the
+#   blame for vulnerabilities they didn't introduce and can't resolve.
+#
+#   GitHub Code Scanning's PR diff mode only surfaces alerts that are *new* in the PR — CVEs
+#   already present on the base branch (e.g., in a transitive dep that predates the PR) are
+#   silently excluded from the PR check. This means:
+#     - A PR that introduces a new vulnerable dependency → new alert → PR blocked
+#     - An upstream CVE already present on main → not new → PR not blocked, alert visible in
+#       the Security tab so maintainers can track and upgrade when a fix is released
+#
+#   To activate this: require the "Code scanning results / Grype" check under
+#   Settings → Branches → Branch protection rules for main.
 
 on:
   pull_request:
@@ -45,8 +61,7 @@ jobs:
         id: scan
         with:
           path: "."
-          # Block on critical vulns for PRs/main; informational on tags and manual dispatch
-          fail-build: "${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
+          fail-build: false  # Gate is GitHub Code Scanning PR diff — see top-level comment
           severity-cutoff: critical
           output-format: sarif
 
@@ -56,6 +71,13 @@ jobs:
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           category: "grype-filesystem"
+          # On pull_request events the default checkout produces a merge commit
+          # (refs/pull/N/merge), but GitHub Code Scanning PR checks require the
+          # analysis to be associated with refs/pull/N/head + the head commit SHA.
+          # Without this, the check shows "1 configuration not found" because the
+          # merge-ref analysis is not matched against the PR head check run.
+          ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
+          sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
   scan-containers:
     name: Container scan (${{ matrix.image }})

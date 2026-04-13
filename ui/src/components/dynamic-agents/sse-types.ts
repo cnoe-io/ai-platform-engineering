@@ -365,3 +365,14 @@ export function isTodoToolName(name: string): boolean {
  * When tool_name === "task", the tool call is a subagent invocation.
  */
 export const SUBAGENT_TOOL_NAME = "task" as const;
+
+// ═══════════════════════════════════════════════════════════════
+// Backwards-compatible aliases for code that still uses old names.
+// These will be removed once all consumers are migrated.
+// ═══════════════════════════════════════════════════════════════
+
+/** @deprecated Use StreamEvent instead */
+export type SSEAgentEvent = StreamEvent;
+
+/** @deprecated Use createStreamEvent instead */
+export const createSSEAgentEvent = createStreamEvent;

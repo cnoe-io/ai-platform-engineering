@@ -200,6 +200,7 @@ export function ChatContainer() {
               messages: [],
 
               streamEvents: [],
+              a2aEvents: [],
               participants: conv.participants || [],
             };
 
@@ -239,6 +240,7 @@ export function ChatContainer() {
               updatedAt: new Date(),
               messages: [],
               streamEvents: [],
+              a2aEvents: [],
               participants: [],
             };
 
@@ -257,6 +259,7 @@ export function ChatContainer() {
             updatedAt: new Date(),
             messages: [],
             streamEvents: [],
+            a2aEvents: [],
             participants: [],
           };
 
@@ -275,6 +278,7 @@ export function ChatContainer() {
           updatedAt: new Date(),
           messages: [],
           streamEvents: [],
+          a2aEvents: [],
           participants: [],
         };
 
