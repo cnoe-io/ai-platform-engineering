@@ -3,6 +3,7 @@
  */
 
 import { readSettings, writeSettings } from "./config.js";
+import { clearAgentConfigCache } from "./discovery.js";
 
 type SupportedKey = "server.url" | "auth.apiKey";
 
@@ -26,13 +27,16 @@ export async function runConfigSet(key: string, value: string): Promise<void> {
 
   if (key === "server.url") {
     const v = value.trim().replace(/\/+$/, "");
-    if (!v.startsWith("https://")) {
-      process.stderr.write("[ERROR] server.url must be a valid HTTPS URL.\n");
+    const isLocalhost = v.startsWith("http://localhost") || v.startsWith("http://127.0.0.1");
+    if (!v.startsWith("https://") && !isLocalhost) {
+      process.stderr.write("[ERROR] server.url must be https:// (or http://localhost for local dev).\n");
       process.exit(3);
     }
     const settings = readSettings();
     settings.server = { ...settings.server, url: v };
     writeSettings(settings);
+    // Invalidate cached discovery doc — new server may have different endpoints
+    clearAgentConfigCache();
     process.stdout.write(`Set server.url = ${v}\n`);
     return;
   }

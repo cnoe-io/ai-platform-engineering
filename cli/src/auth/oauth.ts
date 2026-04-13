@@ -13,7 +13,17 @@
 import { createHash, randomBytes } from "crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { endpoints } from "../platform/config.js";
+import { discoverAgentConfig, resolveOAuthEndpoints } from "../platform/discovery.js";
 import { storeTokens, type TokenSet } from "./keychain.js";
+
+// ---------------------------------------------------------------------------
+// Resolved endpoint cache per process (discovery runs once per invocation)
+// ---------------------------------------------------------------------------
+
+async function getOAuthEndpoints(serverUrl: string, clientId: string) {
+  const config = await discoverAgentConfig(serverUrl);
+  return resolveOAuthEndpoints(serverUrl, config, clientId);
+}
 
 // ---------------------------------------------------------------------------
 // PKCE helpers
@@ -112,16 +122,16 @@ export async function exchangeCode(
   serverUrl: string,
   clientId: string,
 ): Promise<TokenSet> {
-  const ep = endpoints(serverUrl);
+  const ep = await getOAuthEndpoints(serverUrl, clientId);
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
     code_verifier: verifier,
-    client_id: clientId,
+    client_id: ep.clientId,
   });
 
-  const res = await fetch(ep.token, {
+  const res = await fetch(ep.tokenEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -144,11 +154,11 @@ export async function loginBrowser(serverUrl: string, clientId: string): Promise
   const redirectUri = "http://127.0.0.1:7842/callback";
   const state = randomBytes(16).toString("hex");
 
-  const ep = endpoints(serverUrl);
+  const ep = await getOAuthEndpoints(serverUrl, clientId);
   const authUrl =
-    `${ep.oauthBase}/authorize` +
+    `${ep.authorizationEndpoint}` +
     `?response_type=code` +
-    `&client_id=${encodeURIComponent(clientId)}` +
+    `&client_id=${encodeURIComponent(ep.clientId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&code_challenge=${challenge}` +
     `&code_challenge_method=S256` +
@@ -175,11 +185,11 @@ export async function loginManual(serverUrl: string, clientId: string): Promise<
   const redirectUri = "urn:ietf:wg:oauth:2.0:oob";
   const state = randomBytes(16).toString("hex");
 
-  const ep = endpoints(serverUrl);
+  const ep = await getOAuthEndpoints(serverUrl, clientId);
   const authUrl =
-    `${ep.oauthBase}/authorize` +
+    `${ep.authorizationEndpoint}` +
     `?response_type=code` +
-    `&client_id=${encodeURIComponent(clientId)}` +
+    `&client_id=${encodeURIComponent(ep.clientId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&code_challenge=${challenge}` +
     `&code_challenge_method=S256` +
@@ -233,15 +243,15 @@ interface TokenErrorResponse {
  *    - unsupported_grant_type / 404 → exit 1, suggest --manual
  */
 export async function loginDevice(serverUrl: string, clientId: string): Promise<TokenSet> {
-  const ep = endpoints(serverUrl);
+  const ep = await getOAuthEndpoints(serverUrl, clientId);
 
   // Step 1: request device code
   let dcRes: Response;
   try {
-    dcRes = await fetch(ep.deviceCode, {
+    dcRes = await fetch(ep.deviceAuthorizationEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: clientId }).toString(),
+      body: new URLSearchParams({ client_id: ep.clientId }).toString(),
     });
   } catch (err) {
     throw new Error(`Device auth request failed: ${String(err)}`);
@@ -293,13 +303,13 @@ export async function loginDevice(serverUrl: string, clientId: string): Promise<
 
     let tokenRes: Response;
     try {
-      tokenRes = await fetch(ep.token, {
+      tokenRes = await fetch(ep.tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
           device_code: dc.device_code,
-          client_id: clientId,
+          client_id: ep.clientId,
         }).toString(),
       });
     } catch {
