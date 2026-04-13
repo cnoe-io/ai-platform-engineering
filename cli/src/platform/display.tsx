@@ -50,7 +50,11 @@ export function printLogo(version: string): void {
 // Ink spinner component
 // ---------------------------------------------------------------------------
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/**
+ * CAIPE's unique spinner frames — rotating beacon quarters.
+ * Evokes a "processing / broadcasting" feel for platform engineering.
+ */
+const CAIPE_SPINNER_FRAMES = ["◐", "◓", "◑", "◒"];
 const SPINNER_PLAIN = ["-", "\\", "|", "/"];
 
 export interface SpinnerProps {
@@ -61,18 +65,18 @@ export interface SpinnerProps {
 }
 
 /**
- * Animated Ink spinner component.  Shows a unicode braille animation in color
- * terminals and a plain ASCII fallback when NO_COLOR is set.
+ * Animated Ink spinner component using CAIPE's unique beacon frames.
+ * Falls back to ASCII when NO_COLOR is set.
  */
 export function Spinner({ label, color = "cyan" }: SpinnerProps): React.ReactElement {
   const { useState, useEffect } = React;
-  const frames = NO_COLOR ? SPINNER_PLAIN : SPINNER_FRAMES;
+  const frames = NO_COLOR ? SPINNER_PLAIN : CAIPE_SPINNER_FRAMES;
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => {
       setFrame((f) => (f + 1) % frames.length);
-    }, 80);
+    }, 120);
     return () => clearInterval(id);
   }, [frames.length]);
 
@@ -80,6 +84,57 @@ export function Spinner({ label, color = "cyan" }: SpinnerProps): React.ReactEle
     <Box>
       <Text color={NO_COLOR ? undefined : color}>{frames[frame]} </Text>
       <Text>{label}</Text>
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Streaming status spinner
+// ---------------------------------------------------------------------------
+
+export interface StreamingSpinnerProps {
+  /** Action label, e.g. "Generating", "Thinking" */
+  label?: string;
+  /** Elapsed seconds since streaming began */
+  elapsed: number;
+  /** Tokens received so far in this response */
+  tokenCount: number;
+}
+
+/**
+ * Claude Code-style streaming status line:
+ *   ◐ Generating… (12s · ↓ 541 tokens)
+ *
+ * Uses CAIPE's unique beacon spinner frames.
+ */
+export function StreamingSpinner({
+  label = "Generating",
+  elapsed,
+  tokenCount,
+}: StreamingSpinnerProps): React.ReactElement {
+  const { useState, useEffect } = React;
+  const frames = NO_COLOR ? SPINNER_PLAIN : CAIPE_SPINNER_FRAMES;
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setFrame((f) => (f + 1) % frames.length);
+    }, 120);
+    return () => clearInterval(id);
+  }, [frames.length]);
+
+  const tokenStr =
+    tokenCount >= 1000
+      ? `↓ ${(tokenCount / 1000).toFixed(1)}k tokens`
+      : `↓ ${tokenCount} tokens`;
+
+  return (
+    <Box>
+      <Text color={NO_COLOR ? undefined : "blue"}>{frames[frame]} </Text>
+      <Text color={NO_COLOR ? undefined : "blue"}>{label}… </Text>
+      <Text dimColor>
+        ({elapsed}s · {tokenStr})
+      </Text>
     </Box>
   );
 }
