@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { PlatformEngineerChatView } from "@/components/chat/PlatformEngineerChatView";
-import { DynamicAgentChatView } from "@/components/dynamic-agents/DynamicAgentChatView";
+import { SupervisorChatView } from "@/components/chat/SupervisorChatView";
+import { ChatView } from "@/components/chat/ChatView";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
@@ -12,6 +12,7 @@ import { getStorageMode } from "@/lib/storage-config";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import type { Conversation } from "@/types/mongodb";
 import type { Conversation as LocalConversation } from "@/types/a2a";
+import { getAgentId, isDynamicAgentConversation } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 /**
@@ -36,9 +37,13 @@ export function ChatContainer() {
   // Only subscribe to stable functions — NOT to `conversations`.
   const { setActiveConversation, loadMessagesFromServer, loadTurnsFromServer } = useChatStore();
 
-  // Subscribe reactively to agent_id for this conversation.
+  // Subscribe reactively to agent participant for this conversation.
   const selectedAgentId = useChatStore(
-    (s) => uuid ? s.conversations.find((c) => c.id === uuid)?.agent_id : undefined
+    (s) => {
+      if (!uuid) return undefined;
+      const conv = s.conversations.find((c) => c.id === uuid);
+      return conv ? getAgentId(conv) : undefined;
+    }
   );
 
   const caipeUrl = getConfig('caipeUrl');
@@ -50,9 +55,10 @@ export function ChatContainer() {
     if (selectedAgentId && dynamicAgentsEnabled) {
       return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
     }
-    // Platform Engineer: AG-UI client talks directly to the backend
-    // The backend has CORS enabled so browser can connect directly
-    return `${caipeUrl}/chat/stream`;
+    // Platform Engineer (Supervisor): A2A JSON-RPC endpoint at root path.
+    // The A2A SDK sends "message/stream" as the JSON-RPC method in the body,
+    // not as a URL path segment.
+    return caipeUrl;
   }, [selectedAgentId, dynamicAgentsEnabled, dynamicAgentsUrl, caipeUrl]);
 
   const storageMode = getStorageMode();
@@ -137,7 +143,7 @@ export function ChatContainer() {
         }
 
         const hasMessages = localConv.messages && localConv.messages.length > 0;
-        const isDynamicAgent = !!localConv.agent_id;
+        const isDA = isDynamicAgentConversation(localConv);
 
         if (hasMessages) {
           console.log("[ChatContainer] Found conversation in store with messages, loading instantly");
@@ -146,7 +152,7 @@ export function ChatContainer() {
 
           if (storageMode === 'mongodb') {
             // Dynamic Agents use the old messages path; Platform Engineer uses turns
-            if (isDynamicAgent) {
+            if (isDA) {
               loadMessagesFromServer(uuid).catch((err) => {
                 console.warn('[ChatContainer] Failed to sync messages from server:', err);
               });
@@ -159,7 +165,7 @@ export function ChatContainer() {
         } else if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Found conversation in store but no messages, loading from MongoDB...");
           try {
-            if (isDynamicAgent) {
+            if (isDA) {
               await loadMessagesFromServer(uuid, { force: true });
             } else {
               await loadTurnsFromServer(uuid);
@@ -194,8 +200,9 @@ export function ChatContainer() {
               updatedAt: new Date(conv.updated_at),
               messages: [],
 
-              sseEvents: [],
-              agent_id: conv.agent_id,
+              streamEvents: [],
+              a2aEvents: [],
+              participants: conv.participants || [],
             };
 
             useChatStore.setState((state) => ({
@@ -206,7 +213,7 @@ export function ChatContainer() {
 
             try {
               // Dynamic Agents use the old messages path; Platform Engineer uses turns
-              if (conv.agent_id) {
+              if (isDynamicAgentConversation(conv)) {
                 await loadMessagesFromServer(uuid);
               } else {
                 await loadTurnsFromServer(uuid);
@@ -233,8 +240,9 @@ export function ChatContainer() {
               createdAt: new Date(),
               updatedAt: new Date(),
               messages: [],
-
-              sseEvents: [],
+              streamEvents: [],
+              a2aEvents: [],
+              participants: [],
             };
 
             useChatStore.setState((state) => ({
@@ -251,7 +259,9 @@ export function ChatContainer() {
             createdAt: new Date(),
             updatedAt: new Date(),
             messages: [],
-            sseEvents: [],
+            streamEvents: [],
+            a2aEvents: [],
+            participants: [],
           };
 
           useChatStore.setState((state) => ({
@@ -268,7 +278,9 @@ export function ChatContainer() {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          sseEvents: [],
+          streamEvents: [],
+          a2aEvents: [],
+          participants: [],
         };
 
         useChatStore.setState((state) => ({
@@ -297,7 +309,7 @@ export function ChatContainer() {
 
     if (!selectedAgentId) {
       const conversationInStore = useChatStore.getState().conversations.find((c) => c.id === uuid);
-      if (conversationInStore && !conversationInStore.agent_id) {
+      if (conversationInStore && !isDynamicAgentConversation(conversationInStore)) {
         setAgentInfo(null);
         setAgentNotFound(false);
       }
@@ -389,7 +401,7 @@ export function ChatContainer() {
   const isLoadingMessages = fetchInProgress || (storageMode === 'mongodb' && !storeHasMessages && !fetchDone && conversation?.title !== "New Conversation");
 
   return selectedAgentId && dynamicAgentsEnabled ? (
-    <DynamicAgentChatView
+    <ChatView
       endpoint={chatEndpoint}
       conversationId={uuid}
       conversationTitle={conversationTitle}
@@ -409,7 +421,7 @@ export function ChatContainer() {
       isLoadingMessages={isLoadingMessages}
     />
   ) : (
-    <PlatformEngineerChatView
+    <SupervisorChatView
       endpoint={chatEndpoint}
       conversationId={uuid}
       conversationTitle={conversationTitle}

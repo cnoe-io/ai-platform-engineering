@@ -91,7 +91,7 @@ function makeConversation(overrides: any = {}) {
     owner_id: OWNER_EMAIL,
     created_at: new Date(),
     updated_at: new Date(),
-    metadata: { agent_version: '1.0', model_used: 'test', total_messages: 0 },
+    metadata: { client_type: 'ui', total_messages: 0 },
     sharing: {
       is_public: false,
       shared_with: [],

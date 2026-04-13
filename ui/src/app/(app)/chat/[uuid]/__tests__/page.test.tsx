@@ -149,8 +149,8 @@ jest.mock("@/components/chat/ChatPanel", () => ({
 
 // Mock the new view components that replaced direct Sidebar/ChatPanel/ContextPanel usage
 // Note: Sidebar is now rendered by the layout, not these view components
-jest.mock("@/components/chat/PlatformEngineerChatView", () => ({
-  PlatformEngineerChatView: ({ conversationId }: { conversationId: string }) => (
+jest.mock("@/components/chat/SupervisorChatView", () => ({
+  SupervisorChatView: ({ conversationId }: { conversationId: string }) => (
     <div>
       <div data-testid="chat-panel">Chat: {conversationId}</div>
       <div data-testid="context-panel">Context</div>
@@ -158,8 +158,8 @@ jest.mock("@/components/chat/PlatformEngineerChatView", () => ({
   ),
 }));
 
-jest.mock("@/components/dynamic-agents/DynamicAgentChatView", () => ({
-  DynamicAgentChatView: ({ conversationId }: { conversationId: string }) => (
+jest.mock("@/components/chat/ChatView", () => ({
+  ChatView: ({ conversationId }: { conversationId: string }) => (
     <div>
       <div data-testid="chat-panel">Chat: {conversationId}</div>
       <div data-testid="context-panel">Context</div>
@@ -261,7 +261,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hello" }],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -281,7 +281,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -355,7 +355,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -416,7 +416,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "hi" }],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -433,7 +433,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -476,7 +476,7 @@ describe("ChatContainer", () => {
           { id: "m1", role: "user", content: "hello" },
           { id: "m2", role: "assistant", content: "hi there" },
         ],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -501,7 +501,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -524,7 +524,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -572,7 +572,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -614,7 +614,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "appeared" }],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -661,7 +661,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "test" }],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -689,7 +689,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "x" }],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -711,7 +711,7 @@ describe("ChatContainer", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         messages: [{ id: "m1", role: "user", content: "other" }],
-        sseEvents: [],
+        streamEvents: [],
       },
     ];
 
@@ -782,7 +782,7 @@ describe("ChatContainer", () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages,
-          sseEvents: [],
+          streamEvents: [],
         },
       ];
 
@@ -805,7 +805,7 @@ describe("ChatContainer", () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages,
-          sseEvents: [],
+          streamEvents: [],
         },
       ];
 
@@ -852,7 +852,7 @@ describe("ChatContainer", () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          sseEvents: [],
+          streamEvents: [],
         },
       ];
 
@@ -887,7 +887,7 @@ describe("ChatContainer", () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages,
-          sseEvents: [],
+          streamEvents: [],
         },
       ];
 
@@ -922,7 +922,7 @@ describe("ChatContainer", () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          sseEvents: [],
+          streamEvents: [],
         },
       ];
 
@@ -960,7 +960,7 @@ describe("ChatContainer", () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages,
-          sseEvents: [],
+          streamEvents: [],
         },
       ];
 

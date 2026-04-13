@@ -120,7 +120,7 @@ export const POST = withErrorHandler(async (
             ...(body.metadata?.timeline_segments && { timeline_segments: body.metadata.timeline_segments }),
           },
           ...(body.a2a_events !== undefined && { a2a_events: body.a2a_events }),
-          ...(body.sse_events !== undefined && { sse_events: body.sse_events }),
+          ...(body.stream_events !== undefined && { stream_events: body.stream_events }),
           ...(body.artifacts !== undefined && { artifacts: body.artifacts }),
           updated_at: now,
         },

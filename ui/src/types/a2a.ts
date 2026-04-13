@@ -1,7 +1,8 @@
+import type { StreamEvent } from "@/components/dynamic-agents/sse-types";
+import type { Participant } from "@/types/mongodb";
+
 // A2A Protocol Types - Spec Conformant
 // Based on https://github.com/google/A2A
-
-import type { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 
 export interface A2AMessage {
   jsonrpc: "2.0";
@@ -174,12 +175,12 @@ export interface Conversation {
   createdAt: Date;
   updatedAt: Date;
   messages: ChatMessage[];
-  /** A2A events for this conversation (for debug panel, tasks, output) */
+  /** A2A events for this conversation (for supervisor debug panel, tasks, output) */
   a2aEvents: A2AEvent[];
-  /** SSE events for Dynamic Agents (separate from A2A) */
-  sseEvents: SSEAgentEvent[];
-  /** Dynamic agent ID; undefined = Platform Engineer (default) */
-  agent_id?: string;
+  /** Stream events for Dynamic Agents */
+  streamEvents: StreamEvent[];
+  /** Agents and users involved in this conversation */
+  participants: Participant[];
   /** Owner email (only for MongoDB conversations) */
   owner_id?: string;
   /** Sharing information (optional, only for MongoDB conversations) */
@@ -189,7 +190,28 @@ export interface Conversation {
     shared_with_teams?: string[];
     share_link_enabled?: boolean;
   };
+}
 
+// ═══════════════════════════════════════════════════════════════
+// Participant helpers
+// ═══════════════════════════════════════════════════════════════
+
+/** Get the first agent participant's ID, or undefined if no agent. */
+export function getAgentId(conv: { participants?: Participant[] }): string | undefined {
+  return conv.participants?.find(p => p.type === 'agent')?.id;
+}
+
+/** True if the conversation has at least one agent participant. */
+export function isDynamicAgentConversation(conv: { participants?: Participant[] }): boolean {
+  return conv.participants?.some(p => p.type === 'agent') ?? false;
+}
+
+/** Build a participants array from an agent ID and optional owner email. */
+export function buildParticipants(agentId?: string, ownerEmail?: string): Participant[] {
+  const participants: Participant[] = [];
+  if (ownerEmail) participants.push({ type: 'user', id: ownerEmail });
+  if (agentId) participants.push({ type: 'agent', id: agentId });
+  return participants;
 }
 
 // Feedback types - matching agent-forge
@@ -201,8 +223,8 @@ export interface MessageFeedback {
   showFeedbackOptions?: boolean;
 }
 
-// Timeline types for structured agent execution display
-export type TimelineSegmentType = "thinking" | "execution_plan" | "tool_call" | "final_answer";
+// Timeline types for structured agent execution display (Supervisor)
+export type SupervisorTimelineSegmentType = "thinking" | "execution_plan" | "tool_call" | "final_answer";
 
 export interface ToolCallInfo {
   id: string;
@@ -219,9 +241,9 @@ export interface PlanStep {
   status: "pending" | "in_progress" | "completed" | "failed" | "input_required";
 }
 
-export interface TimelineSegment {
+export interface SupervisorTimelineSegment {
   id: string;
-  type: TimelineSegmentType;
+  type: SupervisorTimelineSegmentType;
   timestamp: Date;
   content?: string;
   toolCall?: ToolCallInfo;
@@ -236,9 +258,10 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  /** A2A events for supervisor messages */
   events: A2AEvent[];
-  /** SSE events for Dynamic Agents (stored per-message, like A2A events) */
-  sseEvents?: SSEAgentEvent[];
+  /** Stream events for Dynamic Agents (stored per-message) */
+  streamEvents?: StreamEvent[];
   widgets?: Widget[];
   isFinal?: boolean;
   feedback?: MessageFeedback;
@@ -259,7 +282,7 @@ export interface ChatMessage {
   senderName?: string;
   senderImage?: string;
   /** Structured timeline segments built during streaming */
-  timelineSegments?: TimelineSegment[];
+  timelineSegments?: SupervisorTimelineSegment[];
   /** Turn status for Dynamic Agents: done, interrupted, or waiting_for_input */
   turnStatus?: TurnStatus;
 }

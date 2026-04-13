@@ -170,7 +170,7 @@ function makeConv(id: string, title: string, overrides: any = {}) {
     createdAt: new Date(),
     updatedAt: new Date(),
     messages: [],
-    sseEvents: [],
+    streamEvents: [],
     ...overrides,
   }
 }

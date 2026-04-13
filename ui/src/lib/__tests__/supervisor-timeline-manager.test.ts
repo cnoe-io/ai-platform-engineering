@@ -1,9 +1,9 @@
 /**
- * Tests for TimelineManager — verifies plan merge logic,
+ * Tests for SupervisorTimelineManager — verifies plan merge logic,
  * thinking routing, and final answer handling.
  */
 
-import { TimelineManager } from "../timeline-manager";
+import { SupervisorTimelineManager } from "../supervisor-timeline-manager";
 import type { PlanStep } from "@/types/a2a";
 import { EventType } from "@ag-ui/core";
 import type { BaseEvent } from "@ag-ui/core";
@@ -21,9 +21,9 @@ function makeStep(
 
 // ─── pushPlan merge scenarios ───────────────────────────────────────────────
 
-describe("TimelineManager.pushPlan", () => {
+describe("SupervisorTimelineManager.pushPlan", () => {
   it("creates a new plan from the initial execution_plan_update", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     const steps = [
       makeStep("s1", "Search SCS docs", "in_progress"),
       makeStep("s2", "Search networking", "pending"),
@@ -40,7 +40,7 @@ describe("TimelineManager.pushPlan", () => {
   });
 
   it("merges a single-step status update into the existing plan", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     // Initial plan: 3 steps
     tm.pushPlan(
       [
@@ -62,7 +62,7 @@ describe("TimelineManager.pushPlan", () => {
   });
 
   it("merges a full-plan status update (all steps present)", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushPlan(
       [
         makeStep("s1", "Step 1", "in_progress"),
@@ -90,7 +90,7 @@ describe("TimelineManager.pushPlan", () => {
   });
 
   it("appends a new step when the LLM adds to the plan", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushPlan(
       [
         makeStep("s1", "Step 1", "completed"),
@@ -116,7 +116,7 @@ describe("TimelineManager.pushPlan", () => {
   });
 
   it("tracks currentPlanStepId from merged plan, not just incoming steps", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushPlan(
       [
         makeStep("s1", "Step 1", "in_progress"),
@@ -151,7 +151,7 @@ describe("TimelineManager.pushPlan", () => {
   });
 
   it("handles multiple sequential status updates correctly", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     // 5-step plan (matching the real A2A stream from the bug report)
     tm.pushPlan(
       [
@@ -187,9 +187,9 @@ describe("TimelineManager.pushPlan", () => {
 
 // ─── Final answer ────────────────────────────────────────────────────────────
 
-describe("TimelineManager final answer", () => {
+describe("SupervisorTimelineManager final answer", () => {
   it("pushFinalAnswer creates the final_answer segment", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushFinalAnswer("The complete answer", 1);
     const segs = tm.getSegments();
     const finalAnswer = segs.find((s) => s.type === "final_answer");
@@ -198,7 +198,7 @@ describe("TimelineManager final answer", () => {
   });
 
   it("pushFinalAnswer replaces existing final_answer content", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushFinalAnswer("Part 1", 1);
     tm.pushFinalAnswer("Part 2 (authoritative)", 2);
     const finalAnswer = tm.getSegments().find((s) => s.type === "final_answer");
@@ -206,7 +206,7 @@ describe("TimelineManager final answer", () => {
   });
 
   it("non-authoritative pushFinalAnswer appends (live streaming)", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushFinalAnswer("chunk1", 1, false);
     tm.pushFinalAnswer(" chunk2", 2, false);
     const finalAnswer = tm.getSegments().find((s) => s.type === "final_answer");
@@ -215,7 +215,7 @@ describe("TimelineManager final answer", () => {
   });
 
   it("authoritative pushFinalAnswer replaces streamed chunks", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     // Simulate streaming chunks
     tm.pushFinalAnswer("chunk1", 1, false);
     tm.pushFinalAnswer(" chunk2", 2, false);
@@ -227,7 +227,7 @@ describe("TimelineManager final answer", () => {
   });
 
   it("thinking during any plan step stays as thinking (no auto-promotion)", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushPlan(
       [
         makeStep("s1", "Research", "completed"),
@@ -245,9 +245,9 @@ describe("TimelineManager final answer", () => {
   });
 });
 
-describe("TimelineManager final answer replaces thinking", () => {
+describe("SupervisorTimelineManager final answer replaces thinking", () => {
   it("first streaming final answer removes active thinking and streams live", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.pushPlan(
       [
         makeStep("s1", "Research", "completed"),
@@ -283,10 +283,10 @@ describe("TimelineManager final answer replaces thinking", () => {
 
 // ─── seedFromPrevious (HITL plan continuity) ─────────────────────────────────
 
-describe("TimelineManager.seedFromPrevious", () => {
+describe("SupervisorTimelineManager.seedFromPrevious", () => {
   it("carries forward a plan from a previous message's segments", () => {
     // Simulate the previous message's timeline
-    const prevTm = new TimelineManager();
+    const prevTm = new SupervisorTimelineManager();
     prevTm.pushPlan(
       [
         makeStep("s1", "Get Jira fields", "completed"),
@@ -302,7 +302,7 @@ describe("TimelineManager.seedFromPrevious", () => {
     if (thinkingSeg) thinkingSeg.planStepId = "s1";
 
     // New timeline for the HITL resume message
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.seedFromPrevious(prevSegments);
 
     const segs = tm.getSegments();
@@ -319,7 +319,7 @@ describe("TimelineManager.seedFromPrevious", () => {
   });
 
   it("merges status updates into a seeded plan", () => {
-    const prevTm = new TimelineManager();
+    const prevTm = new SupervisorTimelineManager();
     prevTm.pushPlan(
       [
         makeStep("s1", "Get fields", "completed"),
@@ -329,7 +329,7 @@ describe("TimelineManager.seedFromPrevious", () => {
       1,
     );
 
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.seedFromPrevious(prevTm.getSegments());
 
     // Resume stream sends status update: s2 completed, s3 in_progress
@@ -349,7 +349,7 @@ describe("TimelineManager.seedFromPrevious", () => {
   });
 
   it("routes thinking to correct plan step after seeding", () => {
-    const prevTm = new TimelineManager();
+    const prevTm = new SupervisorTimelineManager();
     prevTm.pushPlan(
       [
         makeStep("s1", "Step 1", "completed"),
@@ -359,7 +359,7 @@ describe("TimelineManager.seedFromPrevious", () => {
       1,
     );
 
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.seedFromPrevious(prevTm.getSegments());
 
     // Thinking should nest under s2 (the active step, not the last step)
@@ -372,7 +372,7 @@ describe("TimelineManager.seedFromPrevious", () => {
   });
 
   it("is a no-op when previous message has no plan", () => {
-    const tm = new TimelineManager();
+    const tm = new SupervisorTimelineManager();
     tm.seedFromPrevious([
       {
         id: "thinking-1",
@@ -389,14 +389,14 @@ describe("TimelineManager.seedFromPrevious", () => {
 
 // ─── buildFromAGUIEvents — raw AG-UI event format ────────────────────────────
 
-describe("TimelineManager.buildFromAGUIEvents", () => {
+describe("SupervisorTimelineManager.buildFromAGUIEvents", () => {
   it("creates tool_call segments from TOOL_CALL_START and TOOL_CALL_END", () => {
     const events: BaseEvent[] = [
       { type: EventType.TOOL_CALL_START, toolCallId: "tc-1", toolCallName: "search_docs", timestamp: Date.now() } as any,
       { type: EventType.TOOL_CALL_END, toolCallId: "tc-1", timestamp: Date.now() } as any,
     ];
 
-    const segments = TimelineManager.buildFromAGUIEvents(events);
+    const segments = SupervisorTimelineManager.buildFromAGUIEvents(events);
     expect(segments).toHaveLength(1);
     expect(segments[0].type).toBe("tool_call");
     expect(segments[0].toolCall?.tool).toBe("search_docs");
@@ -416,7 +416,7 @@ describe("TimelineManager.buildFromAGUIEvents", () => {
       } as any,
     ];
 
-    const segments = TimelineManager.buildFromAGUIEvents(events);
+    const segments = SupervisorTimelineManager.buildFromAGUIEvents(events);
     expect(segments).toHaveLength(1);
     expect(segments[0].type).toBe("execution_plan");
     expect(segments[0].planSteps).toHaveLength(2);
@@ -428,7 +428,7 @@ describe("TimelineManager.buildFromAGUIEvents", () => {
       { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m1", delta: "Let me think...", timestamp: Date.now() } as any,
     ];
 
-    const segments = TimelineManager.buildFromAGUIEvents(events);
+    const segments = SupervisorTimelineManager.buildFromAGUIEvents(events);
     expect(segments).toHaveLength(1);
     expect(segments[0].type).toBe("thinking");
     expect(segments[0].content).toBe("Let me think...");
@@ -445,7 +445,7 @@ describe("TimelineManager.buildFromAGUIEvents", () => {
       { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m1", delta: "Here is the answer.", timestamp: Date.now() } as any,
     ];
 
-    const segments = TimelineManager.buildFromAGUIEvents(events);
+    const segments = SupervisorTimelineManager.buildFromAGUIEvents(events);
     const answer = segments.find((s) => s.type === "final_answer");
     expect(answer).toBeDefined();
     expect(answer?.content).toBe("Here is the answer.");
@@ -467,7 +467,7 @@ describe("TimelineManager.buildFromAGUIEvents", () => {
       { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m1", delta: "Done.", timestamp: Date.now() } as any,
     ];
 
-    const segments = TimelineManager.buildFromAGUIEvents(events);
+    const segments = SupervisorTimelineManager.buildFromAGUIEvents(events);
     const types = segments.map((s) => s.type);
     expect(types).toContain("thinking");
     expect(types).toContain("execution_plan");
@@ -479,6 +479,6 @@ describe("TimelineManager.buildFromAGUIEvents", () => {
   });
 
   it("returns empty array for empty event list", () => {
-    expect(TimelineManager.buildFromAGUIEvents([])).toHaveLength(0);
+    expect(SupervisorTimelineManager.buildFromAGUIEvents([])).toHaveLength(0);
   });
 });

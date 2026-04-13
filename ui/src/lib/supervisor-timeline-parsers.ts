@@ -1,11 +1,11 @@
 /**
  * Shared parsing helpers for A2A timeline events.
  *
- * Used by ChatPanel (streaming loop) and TimelineManager.
+ * Used by SupervisorChatPanel (streaming loop) and SupervisorTimelineManager.
  * Parses structured DataPart plans emitted by the backend.
  */
 
-import type { PlanStep } from "@/types/a2a";
+import type { PlanStep, Artifact } from "@/types/a2a";
 
 // ─── Plan Step Parsing ───────────────────────────────────────────────────────
 
@@ -68,6 +68,33 @@ export function parsePlanStepsFromTodos(todos: unknown): PlanStep[] {
     description: t.content || t.description || t.title || "",
     status: normalizePlanStatus(t.status || "pending"),
   }));
+}
+
+// ─── Tool Parsing ────────────────────────────────────────────────────────────
+
+/**
+ * Extract tool info from an A2A artifact (tool_notification_start/end).
+ */
+export function parseToolFromArtifact(artifact: Artifact): {
+  agent: string;
+  tool: string;
+  planStepId?: string;
+} | null {
+  if (!artifact) return null;
+
+  const description = artifact.description || "";
+  const metadata = artifact.metadata || {};
+
+  let tool = "Unknown Tool";
+  const descMatch = description.match(/Tool call (?:started|completed):\s*(.+)/i);
+  if (descMatch) {
+    tool = descMatch[1].trim();
+  }
+
+  const agent = (metadata.sourceAgent as string) || "Agent";
+  const planStepId = metadata.plan_step_id as string | undefined;
+
+  return { agent, tool, planStepId };
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────

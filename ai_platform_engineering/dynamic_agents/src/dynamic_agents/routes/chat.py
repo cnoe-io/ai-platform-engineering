@@ -3,8 +3,7 @@
 import logging
 from typing import AsyncGenerator
 
-from ai_platform_engineering.utils.agui import emit_run_error, format_sse_event
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -13,6 +12,7 @@ from dynamic_agents.auth.auth import get_current_user
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, DynamicAgentConfig, UserContext
 from dynamic_agents.services.agent_runtime import get_runtime_cache
+from dynamic_agents.services.encoders import StreamEncoder, get_encoder
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class RestartRuntimeRequest(BaseModel):
     """Request body for restarting agent runtime."""
 
     agent_id: str
-    session_id: str
+    conversation_id: str
 
 
 class ResumeStreamRequest(BaseModel):
@@ -42,10 +42,15 @@ async def _generate_sse_events(
     message: str,
     session_id: str,
     user: UserContext,
+    encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Generate AG-UI SSE events from agent streaming."""
+    """Generate SSE events from agent streaming.
+
+    The encoder handles all protocol-specific formatting. This function
+    only orchestrates the runtime lifecycle and error handling.
+    """
     # Set conversation context for logging
     conversation_id_var.set(session_id)
 
@@ -65,37 +70,40 @@ async def _generate_sse_events(
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for event in runtime.stream(message, session_id, user.email, trace_id):
-            yield format_sse_event(event)
+        async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder):
+            yield frame
 
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        yield format_sse_event(emit_run_error(message=str(e)))
+        for frame in encoder.on_run_error(str(e)):
+            yield frame
 
 
-@router.post("/start-stream")
+@router.post("/stream/start")
 async def chat_start_stream(
     request: ChatRequest,
+    protocol: str = Query(default="custom", pattern="^(custom|agui)$"),
     user: UserContext = Depends(get_current_user),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
     """Start streaming a chat response from a dynamic agent.
 
-    Uses Server-Sent Events (SSE) for real-time streaming with AG-UI events.
+    Uses Server-Sent Events (SSE) for real-time streaming.
 
-    Events (AG-UI standard):
-    - RUN_STARTED: Stream begins
-    - TEXT_MESSAGE_START/CONTENT/END: Streaming text chunks
-    - TOOL_CALL_START: Tool invocation started
-    - CUSTOM(TOOL_ARGS): Tool arguments payload
-    - TOOL_CALL_END: Tool invocation completed
-    - CUSTOM(INPUT_REQUIRED): Agent requests user input via form (HITL)
-    - CUSTOM(NAMESPACE_CONTEXT): Subagent correlation metadata
-    - RUN_FINISHED: Stream ends successfully
-    - RUN_ERROR: Unrecoverable error
+    Query params:
+        protocol: "custom" (default, old SSE format) or "agui" (AG-UI protocol)
 
-    If the agent calls request_user_input, streaming will end with a
-    CUSTOM(INPUT_REQUIRED) event. Use /resume-stream to continue after user input.
+    Events depend on the selected protocol. With protocol=custom:
+    - content: Streaming text chunks
+    - tool_start: Tool invocation started
+    - tool_end: Tool invocation completed
+    - input_required: Agent requests user input via form (HITL)
+    - warning: Non-fatal issue
+    - error: Unrecoverable error
+    - done: Streaming complete
+
+    If the agent calls request_user_input, streaming will end with an
+    input_required event. Use /stream/resume to continue after user input.
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
@@ -118,8 +126,11 @@ async def chat_start_stream(
         f"agent='{agent.name}', user={user.email}, "
         f"provider={agent.model_provider}, model={agent.model_id}, "
         f"mcp_servers={len(mcp_servers)}, "
+        f"protocol={protocol}, "
         f"trace_id={request.trace_id or 'auto'}"
     )
+
+    encoder = get_encoder(protocol)
 
     return StreamingResponse(
         _generate_sse_events(
@@ -128,6 +139,7 @@ async def chat_start_stream(
             message=request.message,
             session_id=request.conversation_id,
             user=user,
+            encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
         ),
@@ -146,10 +158,14 @@ async def _generate_resume_sse_events(
     session_id: str,
     user: UserContext,
     form_data: str,
+    encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
 ) -> AsyncGenerator[str, None]:
-    """Generate AG-UI SSE events from agent resume streaming."""
+    """Generate SSE events from agent resume streaming.
+
+    The encoder handles all protocol-specific formatting.
+    """
     # Set conversation context for logging
     conversation_id_var.set(session_id)
 
@@ -169,33 +185,32 @@ async def _generate_resume_sse_events(
         )
 
         # Resume streaming with form data
-        async for event in runtime.resume(session_id, user.email, form_data, trace_id):
-            yield format_sse_event(event)
+        async for frame in runtime.resume(session_id, user.email, form_data, trace_id, encoder):
+            yield frame
 
     except Exception as e:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
-        yield format_sse_event(emit_run_error(message=str(e)))
+        for frame in encoder.on_run_error(str(e)):
+            yield frame
 
 
-@router.post("/resume-stream")
+@router.post("/stream/resume")
 async def chat_resume_stream(
     request: ResumeStreamRequest,
+    protocol: str = Query(default="custom", pattern="^(custom|agui)$"),
     user: UserContext = Depends(get_current_user),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
     """Resume an interrupted stream after user provides form input.
 
-    Called after the agent emitted a CUSTOM(INPUT_REQUIRED) event. The form_data
+    Called after the agent emitted an input_required event. The form_data
     should be a JSON string of the form values, or a rejection message
     if the user dismissed the form.
 
-    Events (AG-UI standard):
-    - RUN_STARTED: Stream begins
-    - TEXT_MESSAGE_START/CONTENT/END: Streaming text chunks
-    - TOOL_CALL_START / TOOL_CALL_END: Tool invocations
-    - CUSTOM(INPUT_REQUIRED): Agent requests more user input (can repeat)
-    - RUN_FINISHED: Stream ends successfully
-    - RUN_ERROR: Unrecoverable error
+    Query params:
+        protocol: "custom" (default, old SSE format) or "agui" (AG-UI protocol)
+
+    Events depend on the selected protocol. See /stream/start for details.
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
@@ -214,8 +229,11 @@ async def chat_resume_stream(
     mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
 
     logger.info(
-        f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, trace_id={request.trace_id or 'auto'}"
+        f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, "
+        f"protocol={protocol}, trace_id={request.trace_id or 'auto'}"
     )
+
+    encoder = get_encoder(protocol)
 
     return StreamingResponse(
         _generate_resume_sse_events(
@@ -224,6 +242,7 @@ async def chat_resume_stream(
             session_id=request.conversation_id,
             user=user,
             form_data=request.form_data,
+            encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
         ),
@@ -278,22 +297,17 @@ async def chat_invoke(
             user=user,
         )
 
-        content_parts = []
-        tool_calls = []
+        # Use custom encoder for invoke — we just need accumulated content
+        encoder = get_encoder("custom")
 
-        async for event in runtime.stream(request.message, request.conversation_id, user.email, request.trace_id):
-            event_type = event.get("type", "")
-            event_data = event.get("data", "")
-
-            if event_type == "content":
-                content_parts.append(str(event_data))
-            elif event_type == "tool_start":
-                tool_calls.append(event_data)
+        async for _frame in runtime.stream(
+            request.message, request.conversation_id, user.email, request.trace_id, encoder
+        ):
+            pass  # Frames are SSE strings, we don't need them for invoke
 
         return {
             "success": True,
-            "content": "".join(content_parts),
-            "tool_calls": tool_calls,
+            "content": encoder.get_accumulated_content(),
             "agent_id": agent.id,
             "conversation_id": request.conversation_id,
             "trace_id": request.trace_id,
@@ -322,7 +336,7 @@ async def restart_runtime(
     Useful when MCP servers come back online after being unavailable.
     """
     # Set conversation context for logging
-    conversation_id_var.set(request.session_id)
+    conversation_id_var.set(request.conversation_id)
 
     # Get agent config to verify access
     agent = mongo.get_agent(request.agent_id)
@@ -335,7 +349,7 @@ async def restart_runtime(
 
     # Invalidate the runtime cache
     cache = get_runtime_cache()
-    invalidated = await cache.invalidate(request.agent_id, request.session_id)
+    invalidated = await cache.invalidate(request.agent_id, request.conversation_id)
 
     logger.info(f"Runtime restart requested: agent={agent.name}, user={user.email}, invalidated={invalidated}")
 
@@ -343,7 +357,7 @@ async def restart_runtime(
         "success": True,
         "invalidated": invalidated,
         "agent_id": request.agent_id,
-        "session_id": request.session_id,
+        "conversation_id": request.conversation_id,
     }
 
 
@@ -351,10 +365,10 @@ class CancelStreamRequest(BaseModel):
     """Request body for cancelling an active stream."""
 
     agent_id: str
-    session_id: str
+    conversation_id: str
 
 
-@router.post("/cancel")
+@router.post("/stream/cancel")
 async def cancel_stream(
     request: CancelStreamRequest,
     user: UserContext = Depends(get_current_user),
@@ -367,10 +381,10 @@ async def cancel_stream(
     further events.
     """
     # Set conversation context for logging
-    conversation_id_var.set(request.session_id)
+    conversation_id_var.set(request.conversation_id)
 
     logger.info(
-        f"[cancel] Cancel request received: agent={request.agent_id}, session={request.session_id}, user={user.email}"
+        f"[cancel] Cancel request received: agent={request.agent_id}, conv={request.conversation_id}, user={user.email}"
     )
 
     # Get agent config to verify access
@@ -384,7 +398,7 @@ async def cancel_stream(
 
     # Cancel the stream via the runtime cache
     cache = get_runtime_cache()
-    cancelled = cache.cancel_stream(request.agent_id, request.session_id)
+    cancelled = cache.cancel_stream(request.agent_id, request.conversation_id)
 
     logger.info(f"[cancel] Cancel result: agent={agent.name}, user={user.email}, cancelled={cancelled}")
 
@@ -392,5 +406,5 @@ async def cancel_stream(
         "success": True,
         "cancelled": cancelled,
         "agent_id": request.agent_id,
-        "session_id": request.session_id,
+        "conversation_id": request.conversation_id,
     }
