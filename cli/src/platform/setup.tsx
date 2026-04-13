@@ -34,6 +34,10 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
         setError("Server URL must start with https://");
         return;
       }
+      if (url.includes("example.com") || url.includes("your-company")) {
+        setError("Please enter your actual CAIPE server URL, not the example.");
+        return;
+      }
       setError(null);
       const settings = readSettings();
       settings.server = { ...settings.server, url };
@@ -61,7 +65,7 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
         Welcome to CAIPE CLI — First-time Setup
       </Text>
       <Box marginTop={1}>
-        <Text>Enter your CAIPE server URL (e.g. https://caipe.example.com): </Text>
+        <Text>Enter your CAIPE server URL (e.g. https://caipe.your-company.com): </Text>
       </Box>
       <Box>
         <Text color="green">{input}</Text>
