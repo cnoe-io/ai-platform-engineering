@@ -56,7 +56,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
 
       - name: Install helm
         uses: azure/setup-helm@v5
