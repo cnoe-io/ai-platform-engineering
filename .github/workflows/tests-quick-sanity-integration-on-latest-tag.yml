@@ -59,7 +59,7 @@ jobs:
         uses: azure/setup-kubectl@v4
 
       - name: Install helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Install kind
         run: |
