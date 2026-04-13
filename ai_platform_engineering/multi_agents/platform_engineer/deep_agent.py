@@ -102,6 +102,7 @@ RAG_CONNECTIVITY_RETRIES = 5
 MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
 MAX_SEARCH_CALLS = int(os.getenv("SEARCH_MAX_CALLS", "5"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
+RAG_RETRY_COOLDOWN_SECONDS = 60  # minimum seconds between per-query reconnect attempts
 
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
@@ -1111,6 +1112,7 @@ class PlatformEngineerDeepAgent:
         self.rag_config_timestamp: Optional[float] = None
         self.rag_mcp_client: Optional[MultiServerMCPClient] = None
         self.rag_tools: List[Any] = []
+        self.rag_last_attempt: float = 0.0  # unix timestamp of last connection attempt
 
         # In distributed mode, use platform_registry for remote A2A agent discovery
         self._platform_registry = None
@@ -1338,52 +1340,64 @@ class PlatformEngineerDeepAgent:
         # All supervisor tools
         all_tools = utility_tools + [invoke_task_tool, get_workflow_def_tool]
 
-        # RAG connectivity check and tool loading
+        # RAG connectivity check and tool loading.
+        # On the very first call (rag_last_attempt == 0), retry up to RAG_CONNECTIVITY_RETRIES
+        # times with RAG_CONNECTIVITY_WAIT_SECONDS between attempts to give the rag_server time
+        # to start.  On subsequent calls (lazy reconnect after a prior failure), do a single
+        # quick probe and only bother if the cooldown has expired — this avoids adding 50 s of
+        # latency to every user query when the RAG server is temporarily unavailable.
+        # RAG is NEVER permanently disabled; it will be retried on the next query after cooldown.
         if self.rag_enabled and self.rag_config is None:
-            logger.info("Performing RAG connectivity check...")
-            try:
-                logger.info(f"Checking RAG server connectivity at {RAG_SERVER_URL}...")
+            now = time.time()
+            is_first_attempt = self.rag_last_attempt == 0.0
+            cooldown_elapsed = (now - self.rag_last_attempt) >= RAG_RETRY_COOLDOWN_SECONDS
 
-                for attempt in range(1, RAG_CONNECTIVITY_RETRIES + 1):
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            response = await client.get(f"{RAG_SERVER_URL}/healthz", timeout=5.0)
-                            if response.status_code == 200:
-                                logger.info(f"✅ RAG server connected successfully on attempt {attempt}")
+            if is_first_attempt or cooldown_elapsed:
+                self.rag_last_attempt = now
+                retries = RAG_CONNECTIVITY_RETRIES if is_first_attempt else 1
+                logger.info(f"Attempting RAG server connectivity at {RAG_SERVER_URL} ({retries} attempt(s))...")
 
-                                # Fetch initial config
-                                data = response.json()
-                                self.rag_config = data.get("config", {})
-                                self.rag_config_timestamp = time.time()
+                try:
+                    for attempt in range(1, retries + 1):
+                        try:
+                            async with httpx.AsyncClient() as client:
+                                response = await client.get(f"{RAG_SERVER_URL}/healthz", timeout=5.0)
+                                if response.status_code == 200:
+                                    logger.info(f"✅ RAG server connected successfully on attempt {attempt}")
 
-                                logger.info(f"RAG Server returned config: {self.rag_config}")
+                                    # Fetch initial config
+                                    data = response.json()
+                                    self.rag_config = data.get("config", {})
+                                    self.rag_config_timestamp = time.time()
 
-                                # Load RAG MCP tools
-                                self.rag_tools = await self._load_rag_tools()
-                                if self.rag_tools:
-                                    logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools")
-                                    logger.info(f"📋 RAG tool names: {[t.name for t in self.rag_tools]}")
+                                    logger.info(f"RAG Server returned config: {self.rag_config}")
+
+                                    # Load RAG MCP tools
+                                    self.rag_tools = await self._load_rag_tools()
+                                    if self.rag_tools:
+                                        logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools")
+                                        logger.info(f"📋 RAG tool names: {[t.name for t in self.rag_tools]}")
+                                    else:
+                                        logger.warning("No RAG tools loaded (empty list returned)")
+                                    break
                                 else:
-                                    logger.warning("No RAG tools loaded (empty list returned)")
-                                break
-                            else:
-                                logger.warning(f"⚠️  RAG server returned status {response.status_code} on attempt {attempt}")
-                    except Exception as e:
-                        logger.warning(f"❌ RAG server connection attempt {attempt} failed: {e}")
+                                    logger.warning(f"⚠️  RAG server returned status {response.status_code} on attempt {attempt}")
+                        except Exception as e:
+                            logger.warning(f"❌ RAG server connection attempt {attempt} failed: {e}")
 
-                    # Wait before retry if not last attempt
-                    if attempt < RAG_CONNECTIVITY_RETRIES:
-                        logger.info(f"Retrying in {RAG_CONNECTIVITY_WAIT_SECONDS} seconds... ({attempt}/{RAG_CONNECTIVITY_RETRIES})")
-                        await asyncio.sleep(RAG_CONNECTIVITY_WAIT_SECONDS)
+                        # Wait before retry if not last attempt
+                        if attempt < retries:
+                            logger.info(f"Retrying in {RAG_CONNECTIVITY_WAIT_SECONDS} seconds... ({attempt}/{retries})")
+                            await asyncio.sleep(RAG_CONNECTIVITY_WAIT_SECONDS)
 
-                # If still not connected, disable RAG
-                if self.rag_config is None:
-                    logger.error(f"❌ Failed to connect to RAG server after {RAG_CONNECTIVITY_RETRIES} attempts. RAG disabled.")
-                    self.rag_enabled = False
+                    if self.rag_config is None:
+                        logger.warning(f"⚠️  RAG server not reachable after {retries} attempt(s). Will retry in {RAG_RETRY_COOLDOWN_SECONDS}s.")
 
-            except Exception as e:
-                logger.error(f"Error during RAG setup: {e}")
-                self.rag_enabled = False
+                except Exception as e:
+                    logger.error(f"Error during RAG setup: {e}")
+            else:
+                remaining = int(RAG_RETRY_COOLDOWN_SECONDS - (now - self.rag_last_attempt))
+                logger.debug(f"RAG reconnect cooldown active — skipping probe ({remaining}s remaining)")
 
         # Add RAG tools if loaded, wrapping fetch_document and search with per-query call caps.
         # Caps raise ToolInvocationError (is_error=True ToolMessage) to hard-stop the model.
