@@ -47,8 +47,8 @@ C456:
   ai_enabled: "true"
   qanda:
     enabled: "true"
-    ai_alerts:
-      enabled: "false"
+  ai_alerts:
+    enabled: "false"
   default: {}
 """
     monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
