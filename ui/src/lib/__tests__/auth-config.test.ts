@@ -876,13 +876,37 @@ describe('auth-config', () => {
         token: {
           accessToken: 'still-valid-at',
           refreshToken: 'consumed-rt',
-          expiresAt: now + 600, // access token still valid for 10 minutes
+          expiresAt: now + 200, // access token still valid but within 5-min refresh window
         },
       })
 
       // Should NOT be logged out — access token is still valid
       expect(result.error).toBeUndefined()
       expect(result.accessToken).toBe('still-valid-at')
+      // Should suppress further refresh attempts until token expires
+      expect(result.refreshSuppressedUntil).toBe(now + 200)
+    })
+
+    it('Safety net 3: suppressed refresh prevents further refresh attempts', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(makeRefreshFetchMock())
+
+      // Token has refreshSuppressedUntil set (from a prior graceful invalid_grant)
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'still-valid-at',
+          refreshToken: 'consumed-rt',
+          expiresAt: now + 200,
+          refreshSuppressedUntil: now + 200, // suppressed until token expires
+        },
+      })
+
+      // Should return the token as-is without attempting refresh
+      expect(result.accessToken).toBe('still-valid-at')
+      expect(result.error).toBeUndefined()
+      // No fetch calls — refresh was suppressed
+      expect(fetchSpy).not.toHaveBeenCalled()
     })
 
     it('Safety net 2: invalid_grant with expired access token still logs out', async () => {

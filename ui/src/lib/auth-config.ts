@@ -476,11 +476,27 @@ export const authOptions: NextAuthOptions = {
             return token;
           }
 
+          // Don't attempt refresh if suppressed (graceful invalid_grant already handled)
+          // This prevents infinite refresh loops when the refresh token is consumed but
+          // the access token is still valid.
+          const suppressedUntil = token.refreshSuppressedUntil as number | undefined;
+          if (suppressedUntil && now < suppressedUntil) {
+            return token;
+          }
+
           console.log(`[Auth] Token expires in ${timeUntilExpiry}s, attempting refresh...`);
 
           // Only attempt refresh if we have a refresh token
           if (token.refreshToken) {
             const refreshedToken = await refreshAccessToken(token) as typeof token;
+
+            // If refresh returned the same access token (graceful invalid_grant race),
+            // suppress further refresh attempts until the token expires to prevent
+            // an infinite refresh loop.
+            if (!refreshedToken.error && refreshedToken.accessToken === token.accessToken) {
+              console.log(`[Auth] Refresh suppressed — access token still valid for ${timeUntilExpiry}s, will not retry`);
+              return { ...refreshedToken, refreshSuppressedUntil: expiresAt };
+            }
 
             // Re-evaluate group authorization every 4 hours using claims from
             // the fresh id_token. This ensures revoked group membership takes
@@ -647,5 +663,6 @@ declare module "next-auth/jwt" {
     canViewAdmin?: boolean;
     canAccessDynamicAgents?: boolean;
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
+    refreshSuppressedUntil?: number; // Unix timestamp — skip refresh attempts until this time (set after graceful invalid_grant)
   }
 }
