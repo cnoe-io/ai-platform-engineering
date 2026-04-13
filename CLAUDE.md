@@ -19,7 +19,12 @@
 
 ## Commit Style -- Conventional Commits + DCO
 
-Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`):
+Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`).
+
+For AI-assisted commits, follow the [dco-ai-attribution](./skills/dco-ai-attribution/SKILL.md) skill:
+- AI must **never** add `Signed-off-by` — only the human author can certify the DCO
+- Always append `Assisted-by: Claude:<model-version>` when code was materially AI-assisted
+- See `agents.md` for the canonical policy reference used by AI coding agents
 
 ```
 <type>(<scope>): <short description>
@@ -102,6 +107,7 @@ PYTHONPATH=. uv run pytest tests/<test_file>.py::<TestClass> -v
 
 The `skills/` directory contains reusable tools organized by category:
 
+- **dco-ai-attribution**: DCO compliance and AI attribution rules for AI-assisted commits (see [skills/dco-ai-attribution/SKILL.md](./skills/dco-ai-attribution/SKILL.md))
 - **persistence**: Test LangGraph backends (Redis, PostgreSQL, MongoDB) and fact extraction
 - **debugging**: (future) Debugging and troubleshooting tools
 - **monitoring**: (future) Observability and metrics helpers

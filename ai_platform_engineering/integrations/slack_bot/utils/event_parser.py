@@ -227,7 +227,6 @@ def _classify_artifact_type(artifact_name: str) -> EventType:
         return EventType.EXECUTION_PLAN
     elif "caipe_form" in name_lower or "form" in name_lower:
         return EventType.CAIPE_FORM
-
     return EventType.OTHER_ARTIFACT
 
 

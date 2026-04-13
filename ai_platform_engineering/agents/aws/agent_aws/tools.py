@@ -421,17 +421,24 @@ class AWSCLITool(BaseTool):
         else:
             output_fmt = output_format if output_format in ["json", "text", "table", "yaml"] else "json"
 
-        # Build profile flag - always required
-        profile_flag = f"--profile {profile}"
+        # Build profile flag — omit when no AWS_ACCOUNT_LIST is configured so
+        # that env var credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
+        # are used directly.  Adding --profile when no ~/.aws/config exists
+        # causes "The config profile (X) could not be found" errors.
+        configured_profiles = get_configured_profiles()
+        if configured_profiles and profile:
+            profile_prefix = f"--profile {profile} "
+        else:
+            profile_prefix = ""
 
         # Only add --region if not already in command
         if "--region" in command:
-            full_command = f"aws {profile_flag} {command} --output {output_fmt}"
+            full_command = f"aws {profile_prefix}{command} --output {output_fmt}"
         else:
-            full_command = f"aws {profile_flag} {command} --region {aws_region} --output {output_fmt}"
+            full_command = f"aws {profile_prefix}{command} --region {aws_region} --output {output_fmt}"
 
         # Log which account is being queried
-        logger.info(f"Querying account: {profile}")
+        logger.info(f"Querying account: {profile or '(env var credentials)'}")
 
         logger.info(f"Executing AWS CLI command: {full_command}")
         if jq_filter:
@@ -845,13 +852,16 @@ class EKSKubectlTool(BaseTool):
 
             logger.debug(f"Created temporary kubeconfig: {kubeconfig_path}")
 
-            # Build aws eks update-kubeconfig command
+            # Build aws eks update-kubeconfig command.
+            # Omit --profile when no AWS_ACCOUNT_LIST profiles are configured so
+            # env var credentials (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) are used.
             update_cmd_parts = [
                 "aws", "eks", "update-kubeconfig",
                 "--name", cluster_name,
                 "--kubeconfig", kubeconfig_path,
-                "--profile", profile
             ]
+            if get_configured_profiles() and profile:
+                update_cmd_parts.extend(["--profile", profile])
 
             if region:
                 update_cmd_parts.extend(["--region", region])

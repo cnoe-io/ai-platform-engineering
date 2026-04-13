@@ -14,9 +14,9 @@ dependencies = [
   "ai-platform-engineering-utils",
   "click==8.3.1",
   "cnoe-agent-utils==0.3.14",
-  "langchain-core==1.2.26",
+  "langchain-core==1.2.28",
   "langchain-mcp-adapters==0.2.1",
-  "langgraph==1.0.4",
+  "langgraph==1.1.6",
   "mcp-netutils",
   "prometheus-client==0.23.1",
   "python-dotenv==1.2.1",
@@ -55,6 +55,10 @@ markers = [
     "unit: marks tests as unit tests",
     "integration: marks tests as integration tests",
 ]
+
+[tool.uv]
+override-dependencies = ["protobuf==5.29.6"]
+constraint-dependencies = ["fastmcp==3.2.3", "pypdf==6.10.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

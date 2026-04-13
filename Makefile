@@ -17,6 +17,7 @@ APP_NAME ?= ai-platform-engineering
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
+	test-slack-stream test-slack-conformance \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
@@ -137,7 +138,7 @@ run-a2a: install-deps ## Run the AI Platform Engineer single-node deep agent wit
 	export MONGODB_DATABASE=$${MONGODB_DATABASE:-caipe}; \
 	export PYTHONPATH="$${PWD}/ai_platform_engineering/agents/github:$${PWD}/ai_platform_engineering/agents/backstage:$${PWD}/ai_platform_engineering/agents/jira:$${PWD}/ai_platform_engineering/agents/webex:$${PWD}/ai_platform_engineering/agents/argocd:$${PWD}/ai_platform_engineering/agents/aigateway:$${PWD}/ai_platform_engineering/agents/pagerduty:$${PWD}/ai_platform_engineering/agents/slack:$${PWD}/ai_platform_engineering/agents/splunk:$${PWD}/ai_platform_engineering/agents/komodor:$${PWD}/ai_platform_engineering/agents/confluence:$${PWD}/ai_platform_engineering/agents/aws:$${PYTHONPATH}"; \
 	echo "Starting AI Platform Engineer A2A server (single-node) on $$HOST:$$PORT"; \
-	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main_single:app --host $$HOST --port $$PORT --reload
+	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app --host $$HOST --port $$PORT --reload
 
 run-a2a-client: ## Run the agent-chat-cli client to connect to the A2A agent
 	@HOST=$${A2A_HOST:-localhost}; \
@@ -349,6 +350,18 @@ test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
 # test-rag-all: setup-venv ## Run all RAG module tests (unit, scale, memory, coverage)
 # 	@echo "Running comprehensive RAG module test suite..."
 # 	@cd ai_platform_engineering/knowledge_bases/rag/server && make test-all
+
+## ========== Slack Streaming Conformance ==========
+
+test-slack-stream: setup-venv ## Run a single Slack streaming query (requires running supervisor). Usage: make test-slack-stream QUERY="what is agntcy"
+	@echo "Running Slack streaming simulator..."
+	@PYTHONPATH=. uv run python tests/simulate_slack_stream.py "$${QUERY:-what is agntcy}" -v
+
+test-slack-conformance: setup-venv ## Run full Slack streaming conformance suite with report (requires running supervisor)
+	@echo "Running Slack streaming conformance suite..."
+	@mkdir -p tests/reports
+	@PYTHONPATH=. uv run python tests/simulate_slack_stream.py --suite --report tests/reports/conformance-report.md -v
+	@echo "✓ Report saved to tests/reports/conformance-report.md"
 
 ## ========== Integration Tests ==========
 

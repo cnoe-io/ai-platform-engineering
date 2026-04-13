@@ -19,6 +19,7 @@ services:
     container_name: caipe-supervisor
     volumes:
       - ${PROMPT_CONFIG_PATH:-./charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml}:/app/prompt_config.yaml
+      - ${PROMPT_CONFIG_RAG_PATH:-./charts/ai-platform-engineering/data/prompt_config.rag.yaml}:/app/prompt_config.rag.yaml
       - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - .env
@@ -38,9 +39,12 @@ services:
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
       - SKIP_AGENT_CONNECTIVITY_CHECK=${SKIP_AGENT_CONNECTIVITY_CHECK:-false}
-      # TODO: remove this after 11/20
       - ENABLE_ARTIFACT_STREAMING=true
-      - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
+
+      # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
+      # Leave empty for all-in-one mode (all agents in-process via MCP).
+      # Examples: DISTRIBUTED_AGENTS=argocd,aws  or  DISTRIBUTED_AGENTS=all
+      - DISTRIBUTED_AGENTS=${DISTRIBUTED_AGENTS:-}
 
       # Agent hostname mappings for agent connectivity.
       # These environment variables allow the CAIPE agent to connect to sub-agents for multi-agent orchestration.
@@ -55,11 +59,28 @@ services:
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PETSTORE_AGENT_HOST=agent-petstore
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
+      - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-3}
+      - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
+      - RAG_MAX_SEARCH_RESULTS=${RAG_MAX_SEARCH_RESULTS:-3}
+      - LANGGRAPH_RECURSION_LIMIT=${LANGGRAPH_RECURSION_LIMIT:-500}
       - SLACK_AGENT_HOST=agent-slack
       - SPLUNK_AGENT_HOST=agent-splunk
       - WEATHER_AGENT_HOST=agent-weather
       - WEBEX_AGENT_HOST=agent-webex
       - NETUTILS_AGENT_HOST=agent-netutils
+
+      # MCP server hostname mappings for in-process (all-in-one) mode.
+      # When agents run in-process, they connect to MCP servers by container name.
+      - ARGOCD_MCP_HOST=mcp-argocd
+      - BACKSTAGE_MCP_HOST=mcp-backstage
+      - CONFLUENCE_MCP_HOST=mcp-confluence
+      - JIRA_MCP_HOST=mcp-jira
+      - KOMODOR_MCP_HOST=mcp-komodor
+      - PAGERDUTY_MCP_HOST=mcp-pagerduty
+      - SLACK_MCP_HOST=mcp-slack
+      - SPLUNK_MCP_HOST=mcp-splunk
+      - WEBEX_MCP_HOST=mcp-webex
 
       # The following ENABLE_* environment variables control the activation of individual sub-agents for multi-agent orchestration.
       # In .env file, set each variable to 'true' to enable the corresponding agent, or 'false' to disable it.
@@ -772,7 +793,7 @@ services:
   # Ports:
   #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
   dynamic-agents:
-    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.21}
+    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-0.2.43}
     container_name: dynamic-agents
     ports: ["8100:8001"]
     volumes:
@@ -801,7 +822,7 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-*}
+      - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s

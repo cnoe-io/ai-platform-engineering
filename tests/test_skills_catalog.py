@@ -293,7 +293,7 @@ class TestBackendSync:
 
         assert len(files) == 3
         assert "/skills/default/" in sources
-        assert "/skills/agent-config/" in sources
+        assert "/skills/agent-skills/" in sources
         # Hub source path includes sanitized source_id
         hub_sources = [s for s in sources if "hub-" in s]
         assert len(hub_sources) == 1

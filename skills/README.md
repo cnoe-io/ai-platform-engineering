@@ -6,6 +6,7 @@ Reusable tools and utilities organized by category.
 
 ```
 skills/
+├── dco-ai-attribution/   # DCO compliance and AI attribution for commits
 ├── persistence/          # LangGraph persistence testing (Redis, Postgres, MongoDB)
 ├── integration-testing/  # End-to-end multi-agent integration testing
 ├── quality-gates/        # Pre-commit validation (lint, test, UI tests)
@@ -15,6 +16,13 @@ skills/
 ```
 
 ## Available Skills
+
+### 📋 [dco-ai-attribution](./dco-ai-attribution/)
+DCO compliance and AI attribution rules for commits that include AI-assisted code.
+
+**When to apply**: Whenever an AI agent helps write or refactor code that will be committed.
+
+See [dco-ai-attribution/SKILL.md](./dco-ai-attribution/SKILL.md) for the full policy, `Assisted-by` trailer format, and pre-commit checklist.
 
 ### 📊 [persistence](./persistence/)
 Test and manage LangGraph persistence backends and fact extraction.

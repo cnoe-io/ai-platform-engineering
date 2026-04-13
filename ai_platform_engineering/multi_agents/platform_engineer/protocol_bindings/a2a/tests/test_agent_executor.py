@@ -6,11 +6,11 @@ Unit tests for AIPlatformEngineerA2AExecutor — source agent tracking
 and sub-agent message grouping (feat/a2a-source-agent-tracking).
 
 Tests cover:
-  - StreamState dataclass initialisation (new fields)
-  - _handle_streaming_chunk: sourceAgent metadata on artifacts,
-    tool_call / tool_result agent tracking, first vs subsequent chunks
-  - _handle_sub_agent_artifact: sourceAgent metadata extraction from
-    artifact metadata, event, state, and default fallback
+  - StreamState dataclass initialisation (final_model_content, stream_finished, trace_id)
+  - _handle_streaming_chunk: no metadata on regular streaming chunks; tool notifications
+    still carry agentType notification; first vs subsequent chunks
+  - _handle_sub_agent_artifact: sourceAgent metadata from artifact metadata, event,
+    and default fallback; description default From sub-agent
   - _handle_stream_end: content accumulation logging, final artifact
   - Typed artifact accumulation in the execute() loop
   - _handle_task_complete: final content selection
@@ -76,15 +76,6 @@ def _make_executor():
 class TestStreamState(unittest.TestCase):
     """Verify StreamState dataclass defaults, especially new tracking fields."""
 
-    def test_default_current_agent_is_none(self):
-        state = StreamState()
-        self.assertIsNone(state.current_agent)
-
-    def test_default_agent_streaming_artifact_ids_empty(self):
-        state = StreamState()
-        self.assertIsInstance(state.agent_streaming_artifact_ids, dict)
-        self.assertEqual(len(state.agent_streaming_artifact_ids), 0)
-
     def test_all_defaults(self):
         state = StreamState()
         self.assertEqual(state.supervisor_content, [])
@@ -96,23 +87,15 @@ class TestStreamState(unittest.TestCase):
         self.assertEqual(state.sub_agents_completed, 0)
         self.assertFalse(state.task_complete)
         self.assertFalse(state.user_input_required)
-        self.assertIsNone(state.current_agent)
-        self.assertEqual(state.agent_streaming_artifact_ids, {})
-
-    def test_current_agent_mutable(self):
-        state = StreamState()
-        state.current_agent = "GITHUB"
-        self.assertEqual(state.current_agent, "GITHUB")
-
-    def test_agent_streaming_artifact_ids_mutable(self):
-        state = StreamState()
-        state.agent_streaming_artifact_ids["GITHUB"] = "art-1"
-        self.assertEqual(state.agent_streaming_artifact_ids["GITHUB"], "art-1")
+        self.assertIsNone(state.final_model_content)
+        self.assertFalse(state.stream_finished)
+        self.assertIsNone(state.trace_id)
 
     def test_field_names_include_new_tracking_fields(self):
         names = {f.name for f in dc_fields(StreamState)}
-        self.assertIn("current_agent", names)
-        self.assertIn("agent_streaming_artifact_ids", names)
+        self.assertIn("final_model_content", names)
+        self.assertIn("stream_finished", names)
+        self.assertIn("trace_id", names)
 
 
 # ===================================================================
@@ -120,7 +103,7 @@ class TestStreamState(unittest.TestCase):
 # ===================================================================
 
 class TestHandleStreamingChunkSourceAgent(unittest.IsolatedAsyncioTestCase):
-    """_handle_streaming_chunk must set sourceAgent metadata on artifacts."""
+    """_handle_streaming_chunk: regular chunks have no sourceAgent metadata; tool notifications do."""
 
     async def _run_chunk(self, event, content, state=None):
         executor = _make_executor()
@@ -130,25 +113,11 @@ class TestHandleStreamingChunkSourceAgent(unittest.IsolatedAsyncioTestCase):
         await executor._handle_streaming_chunk(event, state, content, task, eq)
         return executor, state, eq
 
-    # --- tool_call sets current_agent ---
+    # --- first streaming chunk: no sourceAgent metadata (unified executor) ---
 
-    async def test_tool_call_sets_current_agent(self):
-        event = {'tool_call': {'name': 'GITHUB', 'status': 'started'}, 'content': '🔧 Calling...'}
-        _, state, _ = await self._run_chunk(event, '🔧 Supervisor: Calling Agent github...\n')
-        self.assertEqual(state.current_agent, 'GITHUB')
-
-    async def test_tool_result_keeps_current_agent(self):
-        state = StreamState(current_agent='JIRA')
-        event = {'tool_result': {'name': 'JIRA', 'status': 'completed'}}
-        _, state, _ = await self._run_chunk(event, '✅ Supervisor: Agent task jira completed\n', state=state)
-        # current_agent should still be JIRA (not cleared)
-        self.assertEqual(state.current_agent, 'JIRA')
-
-    # --- sourceAgent metadata on first streaming artifact ---
-
-    async def test_first_chunk_artifact_has_source_agent_metadata(self):
+    async def test_first_streaming_chunk_artifact_has_no_metadata(self):
         executor = _make_executor()
-        state = StreamState(current_agent='GITHUB')
+        state = StreamState()
         task = _make_task()
         eq = _make_event_queue()
 
@@ -160,9 +129,8 @@ class TestHandleStreamingChunkSourceAgent(unittest.IsolatedAsyncioTestCase):
         event_sent = call_args[0][1]
         self.assertIsInstance(event_sent, TaskArtifactUpdateEvent)
         artifact = event_sent.artifact
-        self.assertIn('sourceAgent', artifact.metadata)
-        self.assertEqual(artifact.metadata['sourceAgent'], 'GITHUB')
-        self.assertEqual(artifact.metadata['agentType'], 'streaming')
+        self.assertEqual(artifact.name, 'streaming_result')
+        self.assertIsNone(artifact.metadata)
 
     async def test_first_chunk_sets_streaming_artifact_id(self):
         _, state, _ = await self._run_chunk({}, 'First chunk')
@@ -196,45 +164,11 @@ class TestHandleStreamingChunkSourceAgent(unittest.IsolatedAsyncioTestCase):
         event_sent = second_call[0][1]
         self.assertTrue(event_sent.append)
 
-    # --- source_agent from event vs state ---
-
-    async def test_source_agent_from_event_takes_priority(self):
-        executor = _make_executor()
-        state = StreamState(current_agent='JIRA')
-        task = _make_task()
-        eq = _make_event_queue()
-
-        await executor._handle_streaming_chunk(
-            {'source_agent': 'GITHUB'}, state, 'Content', task, eq
-        )
-        event_sent = executor._safe_enqueue_event.call_args[0][1]
-        self.assertEqual(event_sent.artifact.metadata['sourceAgent'], 'GITHUB')
-
-    async def test_source_agent_falls_back_to_state_current_agent(self):
-        executor = _make_executor()
-        state = StreamState(current_agent='AWS')
-        task = _make_task()
-        eq = _make_event_queue()
-
-        await executor._handle_streaming_chunk({}, state, 'Content', task, eq)
-        event_sent = executor._safe_enqueue_event.call_args[0][1]
-        self.assertEqual(event_sent.artifact.metadata['sourceAgent'], 'AWS')
-
-    async def test_source_agent_defaults_to_supervisor(self):
-        executor = _make_executor()
-        state = StreamState()  # current_agent is None
-        task = _make_task()
-        eq = _make_event_queue()
-
-        await executor._handle_streaming_chunk({}, state, 'Content', task, eq)
-        event_sent = executor._safe_enqueue_event.call_args[0][1]
-        self.assertEqual(event_sent.artifact.metadata['sourceAgent'], 'supervisor')
-
     # --- tool notification artifact metadata ---
 
     async def test_tool_notification_has_notification_agent_type(self):
         executor = _make_executor()
-        state = StreamState(current_agent='ARGOCD')
+        state = StreamState()
         task = _make_task()
         eq = _make_event_queue()
 
@@ -275,7 +209,7 @@ class TestHandleStreamingChunkSourceAgent(unittest.IsolatedAsyncioTestCase):
 # ===================================================================
 
 class TestHandleSubAgentArtifact(unittest.IsolatedAsyncioTestCase):
-    """_handle_sub_agent_artifact must extract and attach sourceAgent metadata."""
+    """_handle_sub_agent_artifact extracts sourceAgent from artifact metadata or event."""
 
     async def _run_artifact(self, event, state=None):
         executor = _make_executor()
@@ -319,13 +253,6 @@ class TestHandleSubAgentArtifact(unittest.IsolatedAsyncioTestCase):
         sent_event = executor._safe_enqueue_event.call_args[0][1]
         self.assertEqual(sent_event.artifact.metadata['sourceAgent'], 'GITHUB')
 
-    async def test_source_agent_from_state_current_agent(self):
-        state = StreamState(current_agent='AWS')
-        event = self._make_artifact_event()
-        executor, _, _ = await self._run_artifact(event, state=state)
-        sent_event = executor._safe_enqueue_event.call_args[0][1]
-        self.assertEqual(sent_event.artifact.metadata['sourceAgent'], 'AWS')
-
     async def test_source_agent_defaults_to_sub_agent(self):
         event = self._make_artifact_event()
         executor, _, _ = await self._run_artifact(event)
@@ -349,13 +276,13 @@ class TestHandleSubAgentArtifact(unittest.IsolatedAsyncioTestCase):
         sent_event = executor._safe_enqueue_event.call_args[0][1]
         self.assertEqual(sent_event.artifact.metadata['sourceAgent'], 'JIRA')
 
-    # --- description includes source_agent ---
+    # --- description from artifact data or default ---
 
-    async def test_description_includes_source_agent(self):
+    async def test_description_defaults_to_from_sub_agent(self):
         event = self._make_artifact_event(source_agent='ARGOCD')
         executor, _, _ = await self._run_artifact(event)
         sent_event = executor._safe_enqueue_event.call_args[0][1]
-        self.assertIn('ARGOCD', sent_event.artifact.description)
+        self.assertEqual(sent_event.artifact.description, 'From sub-agent')
 
     # --- completion tracking ---
 
@@ -905,40 +832,44 @@ class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
 
     def test_last_plan_step_active_returns_true(self):
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'completed'},
             {'step_id': 's2', 'status': 'completed'},
             {'step_id': 's3', 'status': 'in_progress'},
         ]
-        executor._current_plan_step_id = 's3'
-        self.assertTrue(executor._is_last_plan_step_active())
+        state.current_plan_step_id = 's3'
+        self.assertTrue(executor._is_last_plan_step_active(state))
 
     def test_intermediate_step_active_returns_false(self):
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'completed'},
             {'step_id': 's2', 'status': 'in_progress'},
             {'step_id': 's3', 'status': 'pending'},
         ]
-        executor._current_plan_step_id = 's2'
-        self.assertFalse(executor._is_last_plan_step_active())
+        state.current_plan_step_id = 's2'
+        self.assertFalse(executor._is_last_plan_step_active(state))
 
     def test_no_plan_returns_false(self):
         executor = _make_executor()
-        self.assertFalse(executor._is_last_plan_step_active())
+        state = StreamState()
+        self.assertFalse(executor._is_last_plan_step_active(state))
 
-    async def test_streaming_chunk_tagged_as_final_answer_when_last_step_active(self):
+    async def test_streaming_chunk_not_tagged_as_final_answer_even_when_last_step_active(self):
+        """is_final_answer is only set by the deterministic chunker, not inline streaming."""
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'completed'},
             {'step_id': 's2', 'status': 'in_progress'},
         ]
-        executor._current_plan_step_id = 's2'
-
-        state = StreamState()
+        state.current_plan_step_id = 's2'
         task = _make_task()
         eq = _make_event_queue()
 
@@ -946,18 +877,20 @@ class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
 
         event_sent = executor._safe_enqueue_event.call_args[0][1]
         artifact = event_sent.artifact
-        self.assertTrue(artifact.metadata.get('is_final_answer'))
+        self.assertTrue(
+            artifact.metadata is None or 'is_final_answer' not in artifact.metadata
+        )
 
     async def test_streaming_chunk_not_tagged_when_intermediate_step(self):
         executor = _make_executor()
-        executor._execution_plan_emitted = True
-        executor._latest_execution_plan = [
+
+        state = StreamState()
+        state.execution_plan_emitted = True
+        state.latest_execution_plan = [
             {'step_id': 's1', 'status': 'in_progress'},
             {'step_id': 's2', 'status': 'pending'},
         ]
-        executor._current_plan_step_id = 's1'
-
-        state = StreamState()
+        state.current_plan_step_id = 's1'
         task = _make_task()
         eq = _make_event_queue()
 
@@ -965,7 +898,9 @@ class TestIsFinalAnswerTagging(unittest.IsolatedAsyncioTestCase):
 
         event_sent = executor._safe_enqueue_event.call_args[0][1]
         artifact = event_sent.artifact
-        self.assertNotIn('is_final_answer', artifact.metadata)
+        self.assertTrue(
+            artifact.metadata is None or 'is_final_answer' not in artifact.metadata
+        )
 
 
 if __name__ == '__main__':
