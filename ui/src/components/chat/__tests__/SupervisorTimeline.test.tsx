@@ -56,6 +56,11 @@ jest.mock('@/components/chat/MarkdownComponents', () => ({
   assistantProseClassName: 'prose',
 }))
 
+// Mock MarkdownRenderer to avoid shiki ESM resolution issues in Jest
+jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
+}))
+
 // ============================================================================
 // Imports
 // ============================================================================

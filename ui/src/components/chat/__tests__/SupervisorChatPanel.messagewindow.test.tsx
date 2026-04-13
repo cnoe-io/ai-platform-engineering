@@ -47,7 +47,7 @@ jest.mock('framer-motion', () => ({
 const mockGetActiveConversation = jest.fn()
 const mockIsConversationStreaming = jest.fn(() => false)
 const mockEvictOldMessageContent = jest.fn()
-const mockLoadTurnsFromServer = jest.fn()
+const mockLoadMessagesFromServer = jest.fn()
 let mockActiveConversationId = 'conv-1'
 
 jest.mock('@/store/chat-store', () => ({
@@ -58,9 +58,9 @@ jest.mock('@/store/chat-store', () => ({
     addMessage: jest.fn(),
     updateMessage: jest.fn(),
     appendToMessage: jest.fn(),
-
-    addStreamEvent: jest.fn(),
-    clearStreamEvents: jest.fn(),
+    addEventToMessage: jest.fn(),
+    addA2AEvent: jest.fn(),
+    clearA2AEvents: jest.fn(),
     setConversationStreaming: jest.fn(),
     isConversationStreaming: mockIsConversationStreaming,
     cancelConversationRequest: jest.fn(),
@@ -68,9 +68,7 @@ jest.mock('@/store/chat-store', () => ({
     consumePendingMessage: jest.fn(() => null),
     recoverInterruptedTask: jest.fn(),
     evictOldMessageContent: mockEvictOldMessageContent,
-    loadTurnsFromServer: mockLoadTurnsFromServer,
-    updateConversationTitle: jest.fn(),
-    sendMessage: jest.fn().mockResolvedValue(undefined),
+    loadMessagesFromServer: mockLoadMessagesFromServer,
   })),
 }))
 
@@ -86,6 +84,10 @@ jest.mock('@/lib/config', () => ({
   }),
 }))
 
+jest.mock('@/lib/a2a-sdk-client', () => ({
+  A2ASDKClient: jest.fn(),
+  toStoreEvent: jest.fn(),
+}))
 
 jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
@@ -135,6 +137,11 @@ jest.mock('@/components/shared/AgentLogos', () => ({
 }))
 jest.mock('../MetadataInputForm', () => ({
   MetadataInputForm: () => <div data-testid="metadata-input-form" />,
+}))
+
+// Mock MarkdownRenderer to avoid shiki ESM resolution issues in Jest
+jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
 }))
 
 jest.mock('@/components/ui/scroll-area', () => ({
@@ -196,6 +203,7 @@ function createMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     role: 'user',
     content: `Message ${msgCounter}`,
     timestamp: new Date(2026, 1, 10, 12, msgCounter),
+    events: [],
     isFinal: true,
     ...overrides,
   }
@@ -240,9 +248,9 @@ describe('SupervisorChatPanel — Message Windowing', () => {
       addMessage: jest.fn(),
       updateMessage: jest.fn(),
       appendToMessage: jest.fn(),
-  
-      addStreamEvent: jest.fn(),
-      clearStreamEvents: jest.fn(),
+      addEventToMessage: jest.fn(),
+      addA2AEvent: jest.fn(),
+      clearA2AEvents: jest.fn(),
       setConversationStreaming: jest.fn(),
       isConversationStreaming: mockIsConversationStreaming,
       cancelConversationRequest: jest.fn(),
@@ -250,40 +258,33 @@ describe('SupervisorChatPanel — Message Windowing', () => {
       consumePendingMessage: jest.fn(() => null),
       recoverInterruptedTask: jest.fn(),
       evictOldMessageContent: mockEvictOldMessageContent,
-      loadTurnsFromServer: mockLoadTurnsFromServer,
-      updateConversationTitle: jest.fn(),
-      sendMessage: jest.fn().mockResolvedValue(undefined),
+      loadMessagesFromServer: mockLoadMessagesFromServer,
     }))
   })
 
   describe('Collapse behavior', () => {
-    it('renders all messages when 5 or fewer turns exist (no collapsing)', () => {
-      // 5 turns = exactly at COLLAPSE_THRESHOLD (5), should NOT collapse
+    it('renders all messages when 2 or fewer turns exist (no collapsing)', () => {
+      // 2 turns = exactly at COLLAPSE_THRESHOLD, should NOT collapse
       const messages = [
         ...createTurn('Hello', 'Hi there!'),
         ...createTurn('How are you?', 'I am well.'),
-        ...createTurn('Question 3', 'Answer 3'),
-        ...createTurn('Question 4', 'Answer 4'),
-        ...createTurn('Question 5', 'Answer 5'),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
       render(<SupervisorChatPanel endpoint="/api/test" />)
 
-      // All 10 messages should be visible
+      // All 4 messages should be visible
       expect(screen.getByText('Hello')).toBeInTheDocument()
       expect(screen.getByText('Hi there!')).toBeInTheDocument()
       expect(screen.getByText('How are you?')).toBeInTheDocument()
       expect(screen.getByText('I am well.')).toBeInTheDocument()
-      expect(screen.getByText('Question 5')).toBeInTheDocument()
-      expect(screen.getByText('Answer 5')).toBeInTheDocument()
 
       // No collapse banner
       expect(screen.queryByText(/older/i)).not.toBeInTheDocument()
     })
 
     it('collapses older turns when more than COLLAPSE_THRESHOLD turns exist', () => {
-      // 6 turns > COLLAPSE_THRESHOLD (5): first turn should be collapsed
+      // 3 turns > COLLAPSE_THRESHOLD (2): first turn should be collapsed
       // Use long content so preview (80-char truncation) differs from full content
       const longQuestion = 'First question - ' + 'x'.repeat(100)
       const longAnswer = 'First answer - ' + 'y'.repeat(100)
@@ -291,9 +292,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         ...createTurn(longQuestion, longAnswer),
         ...createTurn('Second question', 'Second answer'),
         ...createTurn('Third question', 'Third answer'),
-        ...createTurn('Fourth question', 'Fourth answer'),
-        ...createTurn('Fifth question', 'Fifth answer'),
-        ...createTurn('Sixth question', 'Sixth answer'),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
@@ -307,31 +305,27 @@ describe('SupervisorChatPanel — Message Windowing', () => {
       // The banner DOES show the preview of the collapsed turn
       expect(screen.getByText('1 older turn')).toBeInTheDocument()
 
-      // Last 5 turns (VISIBLE_TURN_COUNT) should be visible
+      // Last 2 turns (VISIBLE_TURN_COUNT) should be visible
       expect(screen.getByText('Second question')).toBeInTheDocument()
       expect(screen.getByText('Second answer')).toBeInTheDocument()
-      expect(screen.getByText('Sixth question')).toBeInTheDocument()
-      expect(screen.getByText('Sixth answer')).toBeInTheDocument()
+      expect(screen.getByText('Third question')).toBeInTheDocument()
+      expect(screen.getByText('Third answer')).toBeInTheDocument()
     })
 
     it('shows CollapsedTurnsBanner with turn count', () => {
       const messages = [
         ...createTurn('Old Q1', 'Old A1'),
         ...createTurn('Old Q2', 'Old A2'),
-        ...createTurn('Old Q3', 'Old A3'),
         ...createTurn('Recent Q1', 'Recent A1'),
         ...createTurn('Recent Q2', 'Recent A2'),
-        ...createTurn('Recent Q3', 'Recent A3'),
-        ...createTurn('Recent Q4', 'Recent A4'),
-        ...createTurn('Recent Q5', 'Recent A5'),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
       render(<SupervisorChatPanel endpoint="/api/test" />)
 
-      // Should show a banner indicating collapsed turns (3 older turns)
+      // Should show a banner indicating collapsed turns (2 older turns)
       // Text format: "{N} older turns"
-      expect(screen.getByText('3 older turns')).toBeInTheDocument()
+      expect(screen.getByText('2 older turns')).toBeInTheDocument()
     })
   })
 
@@ -344,9 +338,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         ...createTurn(longQuestion, longAnswer),
         ...createTurn('Second question', 'Second answer'),
         ...createTurn('Third question', 'Third answer'),
-        ...createTurn('Fourth question', 'Fourth answer'),
-        ...createTurn('Fifth question', 'Fifth answer'),
-        ...createTurn('Sixth question', 'Sixth answer'),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
@@ -369,9 +360,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         ...createTurn('First question long content ' + 'x'.repeat(100), 'First answer'),
         ...createTurn('Second question', 'Second answer'),
         ...createTurn('Third question', 'Third answer'),
-        ...createTurn('Fourth question', 'Fourth answer'),
-        ...createTurn('Fifth question', 'Fifth answer'),
-        ...createTurn('Sixth question', 'Sixth answer'),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
@@ -390,9 +378,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         ...createTurn('First question long content ' + 'x'.repeat(100), 'First answer'),
         ...createTurn('Second question', 'Second answer'),
         ...createTurn('Third question', 'Third answer'),
-        ...createTurn('Fourth question', 'Fourth answer'),
-        ...createTurn('Fifth question', 'Fifth answer'),
-        ...createTurn('Sixth question', 'Sixth answer'),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
@@ -418,9 +403,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         ...createTurn(longQuestion, 'First answer'),
         ...createTurn('Second question', 'Second answer'),
         ...createTurn('Third question', 'Third answer'),
-        ...createTurn('Fourth question', 'Fourth answer'),
-        ...createTurn('Fifth question', 'Fifth answer'),
-        ...createTurn('Sixth question', 'Sixth answer'),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
@@ -439,9 +421,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         ...createTurn('New Q1', 'New A1'),
         ...createTurn('New Q2', 'New A2'),
         ...createTurn('New Q3', 'New A3'),
-        ...createTurn('New Q4', 'New A4'),
-        ...createTurn('New Q5', 'New A5'),
-        ...createTurn('New Q6', 'New A6'),
       ]
       mockGetActiveConversation.mockReturnValue({
         ...createConversation(newMessages),
@@ -457,9 +436,9 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         addMessage: jest.fn(),
         updateMessage: jest.fn(),
         appendToMessage: jest.fn(),
-    
-        addStreamEvent: jest.fn(),
-        clearStreamEvents: jest.fn(),
+        addEventToMessage: jest.fn(),
+        addA2AEvent: jest.fn(),
+        clearA2AEvents: jest.fn(),
         setConversationStreaming: jest.fn(),
         isConversationStreaming: mockIsConversationStreaming,
         cancelConversationRequest: jest.fn(),
@@ -467,9 +446,7 @@ describe('SupervisorChatPanel — Message Windowing', () => {
         consumePendingMessage: jest.fn(() => null),
         recoverInterruptedTask: jest.fn(),
         evictOldMessageContent: mockEvictOldMessageContent,
-        loadTurnsFromServer: mockLoadTurnsFromServer,
-        updateConversationTitle: jest.fn(),
-        sendMessage: jest.fn().mockResolvedValue(undefined),
+        loadMessagesFromServer: mockLoadMessagesFromServer,
       }))
 
       rerender(<SupervisorChatPanel endpoint="/api/test" />)
@@ -512,22 +489,22 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
       render(<SupervisorChatPanel endpoint="/api/test" />)
 
-      // Should show collapsed banner for 5 turns (10 total - 5 visible)
-      expect(screen.getByText('5 older turns')).toBeInTheDocument()
+      // Should show collapsed banner for 8 turns
+      expect(screen.getByText('8 older turns')).toBeInTheDocument()
 
-      // Only last 5 turns' full content should be rendered as ChatMessages
-      expect(screen.getByText(`Full question 5 content - ${'z'.repeat(100)}`)).toBeInTheDocument()
+      // Only last 2 turns' full content should be rendered as ChatMessages
+      expect(screen.getByText(`Full question 8 content - ${'z'.repeat(100)}`)).toBeInTheDocument()
       expect(screen.getByText(`Full question 9 content - ${'z'.repeat(100)}`)).toBeInTheDocument()
 
       // Collapsed turns' full content should NOT be in the document
       // (only truncated preview appears in the banner)
       expect(screen.queryByText(`Full question 0 content - ${'z'.repeat(100)}`)).not.toBeInTheDocument()
-      expect(screen.queryByText(`Full question 4 content - ${'z'.repeat(100)}`)).not.toBeInTheDocument()
+      expect(screen.queryByText(`Full question 5 content - ${'z'.repeat(100)}`)).not.toBeInTheDocument()
     })
   })
 
   describe('Large conversation fixtures (inspired by seed scripts)', () => {
-    it('collapses 45 of 50 turns and renders last 5 turns only', () => {
+    it('collapses 48 of 50 turns and renders last 2 turns only', () => {
       const messages: ChatMessage[] = []
       for (let i = 0; i < 50; i++) {
         const question = `Turn ${i} question about topic ${i % 20} - ${'q'.repeat(100)}`
@@ -538,10 +515,10 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
       render(<SupervisorChatPanel endpoint="/api/test" />)
 
-      expect(screen.getByText('45 older turns')).toBeInTheDocument()
+      expect(screen.getByText('48 older turns')).toBeInTheDocument()
 
-      // Last 5 turns visible
-      expect(screen.getByText(`Turn 45 question about topic ${45 % 20} - ${'q'.repeat(100)}`)).toBeInTheDocument()
+      // Last 2 turns visible
+      expect(screen.getByText(`Turn 48 question about topic ${48 % 20} - ${'q'.repeat(100)}`)).toBeInTheDocument()
       expect(screen.getByText(`Turn 49 question about topic ${49 % 20} - ${'q'.repeat(100)}`)).toBeInTheDocument()
 
       // First turn hidden
@@ -559,7 +536,7 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
       render(<SupervisorChatPanel endpoint="/api/test" />)
 
-      const banner = screen.getByText('45 older turns')
+      const banner = screen.getByText('48 older turns')
       fireEvent.click(banner.closest('button') || banner)
 
       // Now all 50 turns should be visible
@@ -579,17 +556,14 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
       // Should never show Welcome screen
       expect(screen.queryByText('Welcome to Test App')).not.toBeInTheDocument()
-      // Should show collapsed banner (25 total - 5 visible = 20 older)
-      expect(screen.getByText('20 older turns')).toBeInTheDocument()
+      // Should show collapsed banner
+      expect(screen.getByText('23 older turns')).toBeInTheDocument()
     })
 
     it('handles conversation with markdown tables in messages', () => {
       const tableContent = '| # | Resource | Status |\n|---|---|---|\n| 1 | svc-001 | Running |\n| 2 | svc-002 | Degraded |'
       const messages: ChatMessage[] = [
         ...createTurn('Show resources', tableContent),
-        ...createTurn('Turn 2 Q', 'Turn 2 A'),
-        ...createTurn('Turn 3 Q', 'Turn 3 A'),
-        ...createTurn('Turn 4 Q', 'Turn 4 A'),
         ...createTurn('Show more', 'More data'),
         ...createTurn('Latest', 'Latest answer'),
       ]
@@ -599,7 +573,7 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
       // First turn with table is collapsed
       expect(screen.getByText('1 older turn')).toBeInTheDocument()
-      // Last 5 turns visible
+      // Last 2 turns visible
       expect(screen.getByText('Show more')).toBeInTheDocument()
       expect(screen.getByText('Latest')).toBeInTheDocument()
     })
@@ -608,9 +582,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
       const codeContent = '```yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: example\nspec:\n  replicas: 3\n```'
       const messages: ChatMessage[] = [
         ...createTurn('Show config', codeContent),
-        ...createTurn('Turn 2 Q', 'Turn 2 A'),
-        ...createTurn('Turn 3 Q', 'Turn 3 A'),
-        ...createTurn('Turn 4 Q', 'Turn 4 A'),
         ...createTurn('Explain', 'This is a deployment'),
         ...createTurn('Done', 'All done'),
       ]
@@ -632,17 +603,17 @@ describe('SupervisorChatPanel — Message Windowing', () => {
       render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Expand
-      const banner = screen.getByText('5 older turns')
+      const banner = screen.getByText('8 older turns')
       fireEvent.click(banner.closest('button') || banner)
 
       // Collapse
-      const collapseBtn = screen.getByText('Collapse 5 older turns')
+      const collapseBtn = screen.getByText('Collapse 8 older turns')
       fireEvent.click(collapseBtn.closest('button') || collapseBtn)
 
       expect(mockEvictOldMessageContent).toHaveBeenCalledWith('conv-1', expect.any(Array))
-      // Should contain IDs of the 10 messages from the 5 collapsed turns
+      // Should contain IDs of the 16 messages from the 8 collapsed turns
       const evictedIds = mockEvictOldMessageContent.mock.calls[0][1]
-      expect(evictedIds.length).toBe(10)
+      expect(evictedIds.length).toBe(16)
     })
 
     it('handles transition from empty to loaded conversation without showing Welcome screen', () => {
@@ -655,7 +626,7 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
       // Now messages arrive (simulating loadMessagesFromServer completing)
       const messages: ChatMessage[] = []
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 5; i++) {
         messages.push(...createTurn(`Q${i}`, `A${i}`))
       }
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
@@ -663,7 +634,6 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
       // Welcome screen should be gone, messages should be visible
       expect(screen.queryByText('Welcome to Test App')).not.toBeInTheDocument()
-      // 8 total - 5 visible = 3 older turns
       expect(screen.getByText('3 older turns')).toBeInTheDocument()
     })
   })

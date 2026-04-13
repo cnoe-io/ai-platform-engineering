@@ -35,13 +35,6 @@ jest.mock('@/lib/storage-config', () => ({
   shouldUseLocalStorage: () => (global as any).__mockStorageMode === 'localStorage',
 }));
 
-jest.mock('@/lib/agui/hooks', () => ({
-  streamAGUIEvents: jest.fn().mockReturnValue({
-    abortableClient: { abort: jest.fn() },
-    streamPromise: Promise.resolve(),
-  }),
-}));
-
 jest.mock('@/lib/utils', () => ({
   generateId: () => `test-id-${Math.random().toString(36).slice(2, 9)}`,
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
@@ -982,7 +975,7 @@ describe('chat-store', () => {
   // --------------------------------------------------------------------------
 
   describe('setConversationStreaming — unviewed tracking', () => {
-    it('setConversationStreaming(null) does not implicitly save — callers save explicitly', async () => {
+    it('setConversationStreaming(null) triggers post-stream save', async () => {
       const conv = makeConversation({ id: 'auto-save-conv' });
       const msg = makeMessage({ id: 'auto-save-msg', content: 'Auto saved' });
       conv.messages = [msg];
@@ -1003,11 +996,11 @@ describe('chat-store', () => {
 
       expect(useChatStore.getState().isStreaming).toBe(false);
 
-      // Advance timers — no save should happen
+      // Advance timers — post-stream save should happen
       jest.advanceTimersByTime(1000);
       await jest.runAllTimersAsync();
 
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
+      expect(mockApiClient.addMessage).toHaveBeenCalled();
     });
 
     it('marks conversation unviewed when streaming stops and a different conversation is active', () => {
@@ -1244,11 +1237,11 @@ describe('chat-store', () => {
       expect(useChatStore.getState().isStreaming).toBe(false);
       expect(useChatStore.getState().streamingConversations.size).toBe(0);
 
-      // No save should be triggered at any point — server handles persistence
+      // Save is triggered for the cancelled message (persistence of cancellation state)
       jest.advanceTimersByTime(600);
       await jest.runAllTimersAsync();
 
-      expect(mockApiClient.addMessage).not.toHaveBeenCalled();
+      expect(mockApiClient.addMessage).toHaveBeenCalled();
     });
 
     it('marks the streaming message as cancelled with isFinal=true', () => {

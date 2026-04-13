@@ -134,6 +134,7 @@ describe('getServerConfig', () => {
     it('should have exactly the expected Config keys (no extras)', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
+        'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
         'ragEnabled', 'mongodbEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
@@ -905,6 +906,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const script = getClientConfigScript();
     const parsed = JSON.parse(script);
     const expectedKeys: (keyof Config)[] = [
+      'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
       'ragEnabled', 'mongodbEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
