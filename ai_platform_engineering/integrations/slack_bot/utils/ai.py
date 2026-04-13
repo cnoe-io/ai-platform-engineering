@@ -52,22 +52,39 @@ class StreamBuffer:
     return self._flushed_any
 
   def append(self, text):
-    """Add text to the buffer; auto-flush on newline or after the interval."""
+    """Add text to the buffer; auto-flush on paragraph breaks or after the interval.
+
+    Each ``chat_appendStream`` call creates a separate markdown block in
+    Slack, so flushing too often produces visible line splits.  We only
+    flush on **paragraph boundaries** (double-newline ``\\n\\n``) or when
+    the safety-interval fires with enough accumulated content.
+    """
     self._buffer += text
 
     elapsed = time.monotonic() - self._last_flush
 
-    # Prefer flushing on newline boundaries so markdown isn't split mid-token
-    if "\n" in self._buffer:
-      # Flush up to (and including) the last newline; keep the remainder
-      last_nl = self._buffer.rfind("\n")
-      to_flush = self._buffer[: last_nl + 1]
-      self._buffer = self._buffer[last_nl + 1 :]
+    # Flush on paragraph boundaries (double-newline) — these are natural
+    # visual breaks in markdown.  Single newlines within a paragraph are
+    # kept in the buffer so the paragraph isn't split across Slack blocks.
+    if "\n\n" in self._buffer:
+      # Flush up to (and including) the last paragraph break
+      last_para = self._buffer.rfind("\n\n")
+      to_flush = self._buffer[: last_para + 2]
+      self._buffer = self._buffer[last_para + 2 :]
       if to_flush:
         self._send(to_flush)
-    elif elapsed >= self.flush_interval:
-      # No newline seen for a while — flush everything as a safety net
-      self.flush()
+    elif elapsed >= self.flush_interval and len(self._buffer) >= 40:
+      # No paragraph break for a while and we have enough content —
+      # flush on the nearest single-newline boundary to avoid splitting
+      # mid-word/mid-sentence.
+      last_nl = self._buffer.rfind("\n")
+      if last_nl >= 0:
+        to_flush = self._buffer[: last_nl + 1]
+        self._buffer = self._buffer[last_nl + 1 :]
+        if to_flush:
+          self._send(to_flush)
+      else:
+        self.flush()
 
   def flush(self):
     """Send all buffered text to Slack immediately. No-op if buffer is empty."""

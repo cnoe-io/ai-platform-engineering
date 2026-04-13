@@ -1028,6 +1028,19 @@ class AIPlatformEngineerA2ABinding:
                           if response_format_args is None:
                               response_format_args = {"_partial_json": ""}
                           logging.info("ResponseFormat tool streaming started (tool_call_chunks)")
+                          # Emit a "composing" notification so Slack shows
+                          # typing activity during the gap between the last
+                          # tool notification and the first content token.
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": "✍️ Composing answer...\n",
+                              "tool_call": {
+                                  "name": "composing_answer",
+                                  "status": "started",
+                                  "type": "notification",
+                              },
+                          }
 
                       # Accumulate args string while streaming ResponseFormat
                       if chunk_args and response_format_streaming:
