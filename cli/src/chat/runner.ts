@@ -143,6 +143,7 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
         session,
         adapter,
         systemContext,
+        serverUrl,
         onExit: (finalSession: ChatSession) => {
           saveSession(finalSession);
           unmount();
