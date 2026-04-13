@@ -6,10 +6,10 @@ import { generateId } from "@/lib/utils";
 import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
-import { TimelineManager } from "@/lib/timeline-manager";
-import { parsePlanStepsFromTodos } from "@/lib/timeline-parsers";
-import { streamAGUIEvents } from "@/lib/agui/hooks";
-import type { InputRequiredPayload } from "@/lib/agui/types";
+import { SupervisorTimelineManager } from "@/lib/supervisor-timeline-manager";
+import { parsePlanStepsFromTodos } from "@/lib/supervisor-timeline-parsers";
+import { streamAGUIEvents } from "@/lib/supervisor/hooks";
+import type { InputRequiredPayload } from "@/lib/supervisor/types";
 
 /** Minimal interface required for streaming client references. */
 interface AbortableClient {
@@ -121,7 +121,7 @@ const MESSAGE_LOAD_COOLDOWN_MS = 5000; // 5 second cooldown between automatic sy
  * token). For persistence we merge consecutive content events (same namespace)
  * into a single event, flushing whenever a non-content event appears or the
  * namespace changes. This preserves the interleaved content↔tool ordering that
- * `DATimelineManager` needs while reducing storage by ~95%.
+ * `TimelineManager` needs while reducing storage by ~95%.
  *
  * Non-content events (tool_start, tool_end, warning, error, input_required)
  * pass through unchanged.
@@ -1242,7 +1242,7 @@ const storeImplementation = (set: any, get: any) => ({
         let eventCount = 0;
         let timelineTextOffset: number | undefined; // char offset where first tool/plan appeared
         let sawWriteTodos = false; // track if write_todos was called this turn
-        const timeline = new TimelineManager();
+        const timeline = new SupervisorTimelineManager();
 
         const conv = get().conversations.find((c: Conversation) => c.id === convId);
         const isDA = conv ? isDynamicAgentConversation(conv) : false;

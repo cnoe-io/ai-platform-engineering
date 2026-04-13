@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { PlatformEngineerChatView } from "@/components/chat/PlatformEngineerChatView";
-import { DynamicAgentChatView } from "@/components/dynamic-agents/DynamicAgentChatView";
+import { SupervisorChatView } from "@/components/chat/SupervisorChatView";
+import { ChatView } from "@/components/chat/ChatView";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
@@ -396,7 +396,7 @@ export function ChatContainer() {
   const isLoadingMessages = fetchInProgress || (storageMode === 'mongodb' && !storeHasMessages && !fetchDone && conversation?.title !== "New Conversation");
 
   return selectedAgentId && dynamicAgentsEnabled ? (
-    <DynamicAgentChatView
+    <ChatView
       endpoint={chatEndpoint}
       conversationId={uuid}
       conversationTitle={conversationTitle}
@@ -416,7 +416,7 @@ export function ChatContainer() {
       isLoadingMessages={isLoadingMessages}
     />
   ) : (
-    <PlatformEngineerChatView
+    <SupervisorChatView
       endpoint={chatEndpoint}
       conversationId={uuid}
       conversationTitle={conversationTitle}

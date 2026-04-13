@@ -1,18 +1,18 @@
 /**
- * Dynamic Agent Timeline Types
+ * Timeline Types
  *
- * These types are used by the DynamicAgentTimeline component to render
+ * These types are used by the AgentTimeline component to render
  * an interleaved timeline view where content and tools appear in stream order.
  *
  * Files and Tasks are fixed (fetched via API), but content/tools/subagents
- * appear in temporal order like A2A.
+ * appear in temporal order.
  */
 
 // ═══════════════════════════════════════════════════════════════
 // Tool Types
 // ═══════════════════════════════════════════════════════════════
 
-export interface DAToolInfo {
+export interface ToolInfo {
   /** Tool call ID (unique identifier) */
   id: string;
   /** Tool name (e.g., "read_file", "search_code") */
@@ -33,7 +33,7 @@ export interface DAToolInfo {
 // Subagent Types
 // ═══════════════════════════════════════════════════════════════
 
-export interface DASubagentInfo {
+export interface SubagentInfo {
   /** Tool call ID (namespace correlates to this) */
   id: string;
   /** Agent name (from args.subagent_type) */
@@ -51,67 +51,67 @@ export interface DASubagentInfo {
 // ═══════════════════════════════════════════════════════════════
 
 /** A segment of content text */
-export interface DAContentSegment {
+export interface ContentSegment {
   type: "content";
   id: string;
   text: string;
 }
 
 /** A tool call segment */
-export interface DAToolSegment {
+export interface ToolSegment {
   type: "tool";
   id: string;
-  data: DAToolInfo;
+  data: ToolInfo;
 }
 
 /** A group of consecutive tool calls (for compact rendering) */
-export interface DAToolGroupSegment {
+export interface ToolGroupSegment {
   type: "tool-group";
   id: string;
-  tools: DAToolInfo[];
+  tools: ToolInfo[];
 }
 
 /** A subagent section with its own nested timeline */
-export interface DASubagentSegment {
+export interface SubagentSegment {
   type: "subagent";
   id: string;
-  info: DASubagentInfo;
+  info: SubagentInfo;
   /** Nested timeline segments for this subagent */
-  segments: DATimelineSegment[];
+  segments: TimelineSegment[];
 }
 
 /** A warning message */
-export interface DAWarningSegment {
+export interface WarningSegment {
   type: "warning";
   id: string;
   message: string;
 }
 
 /** An error message */
-export interface DAErrorSegment {
+export interface ErrorSegment {
   type: "error";
   id: string;
   message: string;
 }
 
 /** Status segment types */
-export type DAStatusType = "done" | "interrupted" | "waiting_for_input";
+export type StatusType = "done" | "interrupted" | "waiting_for_input";
 
 /** A status marker (completion, interruption, or waiting for input) */
-export interface DAStatusSegment {
+export interface StatusSegment {
   type: "status";
   id: string;
   /** Status type: done, interrupted, or waiting_for_input */
-  status: DAStatusType;
+  status: StatusType;
   /** Optional label (e.g., subagent name that completed) */
   label?: string;
 }
 
 /**
- * @deprecated Use DAStatusSegment instead
+ * @deprecated Use StatusSegment instead
  * Kept for backward compatibility during migration
  */
-export interface DADoneSegment {
+export interface DoneSegment {
   type: "done";
   id: string;
   /** Optional label (e.g., subagent name that completed) */
@@ -119,15 +119,15 @@ export interface DADoneSegment {
 }
 
 /** Union of all segment types */
-export type DATimelineSegment =
-  | DAContentSegment
-  | DAToolSegment
-  | DAToolGroupSegment
-  | DASubagentSegment
-  | DAWarningSegment
-  | DAErrorSegment
-  | DAStatusSegment
-  | DADoneSegment;
+export type TimelineSegment =
+  | ContentSegment
+  | ToolSegment
+  | ToolGroupSegment
+  | SubagentSegment
+  | WarningSegment
+  | ErrorSegment
+  | StatusSegment
+  | DoneSegment;
 
 // ═══════════════════════════════════════════════════════════════
 // Timeline Data (Interleaved Structure)
@@ -137,9 +137,9 @@ export type DATimelineSegment =
  * Interleaved timeline data for rendering.
  * Segments appear in stream order; finalAnswer is content after last tool.
  */
-export interface DATimelineData {
+export interface TimelineData {
   /** Interleaved segments in temporal order */
-  segments: DATimelineSegment[];
+  segments: TimelineSegment[];
   /** Content after last tool_end (null if none yet) */
   finalAnswer: string | null;
   /** Whether stream is still active */
@@ -152,7 +152,7 @@ export interface DATimelineData {
 // Timeline Stats (for summary bar)
 // ═══════════════════════════════════════════════════════════════
 
-export interface DATimelineStats {
+export interface TimelineStats {
   toolCount: number;
   completedToolCount: number;
   subagentCount: number;
@@ -206,15 +206,15 @@ export function extractToolThought(
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Groups consecutive tool segments into DAToolGroupSegment.
+ * Groups consecutive tool segments into ToolGroupSegment.
  * Other segment types remain unchanged.
  * This creates a consistent view for all tools (single or multiple).
  */
 export function groupConsecutiveTools(
-  segments: DATimelineSegment[]
-): DATimelineSegment[] {
-  const result: DATimelineSegment[] = [];
-  let currentToolGroup: DAToolInfo[] = [];
+  segments: TimelineSegment[]
+): TimelineSegment[] {
+  const result: TimelineSegment[] = [];
+  let currentToolGroup: ToolInfo[] = [];
 
   const flushToolGroup = () => {
     if (currentToolGroup.length === 0) return;

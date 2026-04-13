@@ -35,7 +35,7 @@ jest.mock('@/lib/storage-config', () => ({
   shouldUseLocalStorage: () => (global as any).__mockStorageMode === 'localStorage',
 }));
 
-jest.mock('@/lib/agui/hooks', () => ({
+jest.mock('@/lib/supervisor/hooks', () => ({
   streamAGUIEvents: jest.fn().mockReturnValue({
     abortableClient: { abort: jest.fn() },
     streamPromise: Promise.resolve(),
@@ -47,8 +47,8 @@ jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
 }));
 
-jest.mock('@/lib/timeline-manager', () => ({
-  TimelineManager: {
+jest.mock('@/lib/supervisor-timeline-manager', () => ({
+  SupervisorTimelineManager: {
     buildFromEvents: jest.fn().mockReturnValue([]),
   },
 }));

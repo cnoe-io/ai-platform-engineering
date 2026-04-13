@@ -1,9 +1,9 @@
 /**
- * Tests for AgentTimeline — the structured execution timeline rendered
- * inside assistant messages during A2A streaming.
+ * Tests for SupervisorTimeline — the structured execution timeline rendered
+ * inside assistant messages during supervisor streaming.
  *
- * AgentTimeline receives pre-built TimelineSegment[] from ChatPanel
- * (built by TimelineManager). These tests verify the rendering logic:
+ * SupervisorTimeline receives pre-built SupervisorTimelineSegment[] from SupervisorChatPanel
+ * (built by SupervisorTimelineManager). These tests verify the rendering logic:
  * plan steps with status indicators, tool call grouping, final answer
  * display, and the machinery collapse/expand behavior.
  */
@@ -11,7 +11,7 @@
 import React from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { TimelineSegment, PlanStep, ToolCallInfo } from '@/types/a2a'
+import type { SupervisorTimelineSegment, PlanStep, ToolCallInfo } from '@/types/a2a'
 
 // ============================================================================
 // Mocks
@@ -60,13 +60,13 @@ jest.mock('@/components/chat/MarkdownComponents', () => ({
 // Imports
 // ============================================================================
 
-import { AgentTimeline } from '../AgentTimeline'
+import { SupervisorTimeline } from '../SupervisorTimeline'
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-function makePlanSegment(steps: PlanStep[]): TimelineSegment {
+function makePlanSegment(steps: PlanStep[]): SupervisorTimelineSegment {
   return {
     id: 'plan-1',
     type: 'execution_plan',
@@ -81,7 +81,7 @@ function makeToolSegment(
   tool: string,
   status: ToolCallInfo['status'] = 'running',
   planStepId?: string,
-): TimelineSegment {
+): SupervisorTimelineSegment {
   return {
     id,
     type: 'tool_call',
@@ -90,7 +90,7 @@ function makeToolSegment(
   }
 }
 
-function makeFinalAnswer(content: string, isStreaming = false): TimelineSegment {
+function makeFinalAnswer(content: string, isStreaming = false): SupervisorTimelineSegment {
   return {
     id: 'answer-1',
     type: 'final_answer',
@@ -100,7 +100,7 @@ function makeFinalAnswer(content: string, isStreaming = false): TimelineSegment 
   }
 }
 
-function makeThinking(content: string, id = 'thinking-1', planStepId?: string): TimelineSegment {
+function makeThinking(content: string, id = 'thinking-1', planStepId?: string): SupervisorTimelineSegment {
   return {
     id,
     type: 'thinking',
@@ -115,7 +115,7 @@ function makeThinking(content: string, id = 'thinking-1', planStepId?: string): 
 // Tests
 // ============================================================================
 
-describe('AgentTimeline', () => {
+describe('SupervisorTimeline', () => {
   describe('plan rendering with nested tools', () => {
     it('renders plan steps with correct status and nests tools under their plan step', () => {
       const steps: PlanStep[] = [
@@ -124,7 +124,7 @@ describe('AgentTimeline', () => {
         { id: 's3', agent: 'Supervisor', description: 'Synthesize findings', status: 'pending' },
       ]
 
-      const segments: TimelineSegment[] = [
+      const segments: SupervisorTimelineSegment[] = [
         makePlanSegment(steps),
         // Tool nested under step s1
         makeToolSegment('tool-1', 'ArgoCD', 'list_apps', 'completed', 's1'),
@@ -132,7 +132,7 @@ describe('AgentTimeline', () => {
         makeToolSegment('tool-2', 'AWS', 'describe_instances', 'running', 's2'),
       ]
 
-      render(<AgentTimeline segments={segments} isStreaming={true} />)
+      render(<SupervisorTimeline segments={segments} isStreaming={true} />)
 
       // All plan step descriptions are rendered
       expect(screen.getByText('List all applications')).toBeInTheDocument()
@@ -151,13 +151,13 @@ describe('AgentTimeline', () => {
   describe('standalone tool grouping', () => {
     it('groups adjacent standalone tools into a single dropdown with a count', () => {
       // Tools without planStepId are standalone — adjacent ones get grouped
-      const segments: TimelineSegment[] = [
+      const segments: SupervisorTimelineSegment[] = [
         makeToolSegment('tool-1', 'ArgoCD', 'list_apps', 'completed'),
         makeToolSegment('tool-2', 'AWS', 'describe_ec2', 'completed'),
         makeToolSegment('tool-3', 'Slack', 'send_message', 'running'),
       ]
 
-      render(<AgentTimeline segments={segments} isStreaming={true} />)
+      render(<SupervisorTimeline segments={segments} isStreaming={true} />)
 
       // The group header shows "3 tools"
       expect(screen.getByText('3 tools')).toBeInTheDocument()
@@ -177,7 +177,7 @@ describe('AgentTimeline', () => {
       const segments = [makeFinalAnswer('Here is the analysis...', true)]
 
       const { rerender } = render(
-        <AgentTimeline segments={segments} isStreaming={true} />
+        <SupervisorTimeline segments={segments} isStreaming={true} />
       )
 
       // Content is rendered during streaming
@@ -185,7 +185,7 @@ describe('AgentTimeline', () => {
 
       // After streaming ends, content is still rendered
       const doneSegments = [makeFinalAnswer('Here is the analysis...', false)]
-      rerender(<AgentTimeline segments={doneSegments} isStreaming={false} />)
+      rerender(<SupervisorTimeline segments={doneSegments} isStreaming={false} />)
 
       expect(screen.getByText('Here is the analysis...')).toBeInTheDocument()
     })
@@ -198,7 +198,7 @@ describe('AgentTimeline', () => {
       const steps: PlanStep[] = [
         { id: 's1', agent: 'ArgoCD', description: 'Deploy app', status: 'completed' },
       ]
-      const segments: TimelineSegment[] = [
+      const segments: SupervisorTimelineSegment[] = [
         makePlanSegment(steps),
         makeToolSegment('tool-1', 'ArgoCD', 'deploy', 'completed'),
         makeFinalAnswer('Deployment complete.'),
@@ -206,13 +206,13 @@ describe('AgentTimeline', () => {
 
       // Start streaming — machinery is visible
       const { rerender } = render(
-        <AgentTimeline segments={segments} isStreaming={true} />
+        <SupervisorTimeline segments={segments} isStreaming={true} />
       )
       expect(screen.getByText('Deploy app')).toBeInTheDocument()
       expect(screen.getByText('deploy')).toBeInTheDocument()
 
       // Stop streaming — machinery auto-collapses, summary bar appears
-      rerender(<AgentTimeline segments={segments} isStreaming={false} durationSec={5} />)
+      rerender(<SupervisorTimeline segments={segments} isStreaming={false} durationSec={5} />)
 
       // Summary bar shows stats
       expect(screen.getByText(/1 step/)).toBeInTheDocument()
