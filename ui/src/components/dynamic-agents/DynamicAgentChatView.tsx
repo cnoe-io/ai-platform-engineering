@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChatPanel } from "@/components/chat/ChatPanel";
-import { DynamicAgentContext } from "../dynamic-agents/DynamicAgentContext";
+import { DynamicAgentChatPanel } from "@/components/chat/DynamicAgentChatPanel";
+import { DynamicAgentContext } from "./DynamicAgentContext";
 import type { SubAgentRef } from "@/types/dynamic-agent";
 
-interface ChatViewProps {
+interface DynamicAgentChatViewProps {
   /** The dynamic agent backend endpoint */
   endpoint: string;
   /** MongoDB conversation UUID */
@@ -46,7 +46,7 @@ interface ChatViewProps {
  * Chat view for Dynamic Agents.
  * Combines ChatPanel with DynamicAgentContext (simplified tools/info panel).
  */
-export function ChatView({
+export function DynamicAgentChatView({
   endpoint,
   conversationId,
   conversationTitle,
@@ -64,14 +64,14 @@ export function ChatView({
   readOnlyReason,
   adminOrigin,
   isLoadingMessages,
-}: ChatViewProps) {
+}: DynamicAgentChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
 
   return (
     <div className="flex-1 min-w-0 flex h-full">
       {/* Chat Panel - no fade animation to avoid flash on conversation switch */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <ChatPanel
+        <DynamicAgentChatPanel
           endpoint={endpoint}
           conversationId={conversationId}
           conversationTitle={conversationTitle}

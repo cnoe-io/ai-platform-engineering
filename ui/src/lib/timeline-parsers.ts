@@ -1,9 +1,7 @@
 /**
- * Shared parsing helpers for supervisor timeline events.
+ * Shared parsing helpers for A2A timeline events.
  *
- * @deprecated Supervisor is being removed in 0.5.0. These parsers will be deleted.
- *
- * Used by SupervisorChatPanel (streaming loop) and SupervisorTimelineManager.
+ * Used by ChatPanel (streaming loop) and TimelineManager.
  * Parses structured DataPart plans emitted by the backend.
  */
 

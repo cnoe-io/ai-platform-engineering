@@ -72,9 +72,8 @@ export interface MessageFeedback {
   showFeedbackOptions?: boolean;
 }
 
-// Supervisor timeline types for structured agent execution display
-// @deprecated Supervisor is being removed in 0.5.0
-export type SupervisorTimelineSegmentType = "thinking" | "execution_plan" | "tool_call" | "final_answer";
+// Timeline types for structured agent execution display
+export type TimelineSegmentType = "thinking" | "execution_plan" | "tool_call" | "final_answer";
 
 export interface ToolCallInfo {
   id: string;
@@ -91,9 +90,9 @@ export interface PlanStep {
   status: "pending" | "in_progress" | "completed" | "failed" | "input_required";
 }
 
-export interface SupervisorTimelineSegment {
+export interface TimelineSegment {
   id: string;
-  type: SupervisorTimelineSegmentType;
+  type: TimelineSegmentType;
   timestamp: Date;
   content?: string;
   toolCall?: ToolCallInfo;
@@ -127,8 +126,8 @@ export interface ChatMessage {
   senderEmail?: string;
   senderName?: string;
   senderImage?: string;
-  /** Structured timeline segments built during streaming (supervisor only) */
-  timelineSegments?: SupervisorTimelineSegment[];
+  /** Structured timeline segments built during streaming */
+  timelineSegments?: TimelineSegment[];
   /** Character offset in `content` where the first timeline event (tool/plan) appeared.
    *  Text before this offset is "pre-timeline" (rendered above tools/plan).
    *  Text from this offset onward is "post-timeline" (rendered below tools/plan). */

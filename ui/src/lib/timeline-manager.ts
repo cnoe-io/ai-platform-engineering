@@ -1,538 +1,346 @@
 /**
- * Timeline Manager
+ * TimelineManager — encapsulates all timeline segment mutation logic.
  *
- * Manages the transformation of SSE events into an interleaved timeline.
- * Events are rendered in temporal order, with subagents
- * having their own nested timelines.
- *
- * Key features:
- * - Interleaved content/tools in stream order
- * - Subagent sections with nested timelines
- * - Final answer detection (content after last tool_end)
+ * Used by ChatPanel's streaming loop to build timeline segments.
+ * Replaces the inline mutation of a bare TimelineSegment[] array
+ * with a class that owns the segments + tracking state.
  */
 
-import type {
-  TimelineData,
-  TimelineStats,
-  ToolInfo,
-  SubagentInfo,
-  TimelineSegment,
-  ContentSegment,
-  ToolSegment,
-  SubagentSegment,
-  StatusSegment,
-  StatusType,
-} from "@/types/timeline";
-import type { ToolStartEventData } from "@/components/dynamic-agents/sse-types";
-import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
-
-// ═══════════════════════════════════════════════════════════════
-// Internal Types
-// ═══════════════════════════════════════════════════════════════
-
-interface SubagentState {
-  info: SubagentInfo;
-  segments: TimelineSegment[];
-  toolMap: Map<string, ToolInfo>;
-  lastToolEndIndex: number;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Manager Class
-// ═══════════════════════════════════════════════════════════════
+import type { TimelineSegment, PlanStep } from "@/types/a2a";
+import { parsePlanStepsFromData, parsePlanStepsFromTodos } from "./timeline-parsers";
+import { EventType } from "@ag-ui/core";
+import type { BaseEvent, TextMessageContentEvent, ToolCallStartEvent, ToolCallEndEvent, StateDeltaEvent, StateSnapshotEvent } from "@ag-ui/core";
 
 export class TimelineManager {
-  // ─── Timeline Storage ───────────────────────────────────────
-  private rootSegments: TimelineSegment[] = [];
-  private rootToolMap: Map<string, ToolInfo> = new Map();
-  private subagents: Map<string, SubagentState> = new Map();
+  private segments: TimelineSegment[] = [];
+  private currentThinkingId: string | null = null;
+  private currentPlanStepId: string | null = null;
+  private hasPlan = false;
 
-  // ─── Content Buffering ──────────────────────────────────────
-  // Buffer content and flush as segments to avoid too many tiny segments
-  private rootContentBuffer: string = "";
-  private rootContentId: number = 0;
-  private subagentContentBuffers: Map<string, string> = new Map();
-  private subagentContentIds: Map<string, number> = new Map();
-
-  // ─── Tracking ───────────────────────────────────────────────
-  private eventIndex: number = 0;
-  private lastToolEndIndex: number = -1;
-  private isFinalized: boolean = false;
-  private warningCount: number = 0;
-  private errorCount: number = 0;
-
-  // ═══════════════════════════════════════════════════════════════
-  // Content Buffering Helpers
-  // ═══════════════════════════════════════════════════════════════
-
-  private flushRootContent(): void {
-    if (this.rootContentBuffer.trim()) {
-      const segment: ContentSegment = {
-        type: "content",
-        id: `content-${this.rootContentId++}`,
-        text: this.rootContentBuffer,
-      };
-      this.rootSegments.push(segment);
-      this.rootContentBuffer = "";
+  /**
+   * Seed the timeline with an existing plan (e.g. from a previous message).
+   * Used by HITL resume to carry a plan forward across form submissions.
+   * Also accepts tool/thinking segments that were nested under the plan.
+   */
+  seedFromPrevious(segments: TimelineSegment[]): void {
+    // Import the execution plan
+    const planSeg = segments.find((s) => s.type === "execution_plan");
+    if (planSeg) {
+      this.segments.push({ ...planSeg });
+      this.hasPlan = true;
+      const activeStep = planSeg.planSteps?.find((s) => s.status === "in_progress");
+      this.currentPlanStepId = activeStep ? activeStep.id : null;
     }
-  }
 
-  private flushSubagentContent(subagentId: string): void {
-    const buffer = this.subagentContentBuffers.get(subagentId) || "";
-    if (buffer.trim()) {
-      const subagent = this.subagents.get(subagentId);
-      if (subagent) {
-        const contentId = this.subagentContentIds.get(subagentId) || 0;
-        const segment: ContentSegment = {
-          type: "content",
-          id: `${subagentId}-content-${contentId}`,
-          text: buffer,
-        };
-        subagent.segments.push(segment);
-        this.subagentContentIds.set(subagentId, contentId + 1);
-        this.subagentContentBuffers.set(subagentId, "");
+    // Import tool calls that are nested under plan steps
+    for (const seg of segments) {
+      if (seg.type === "tool_call" && seg.toolCall?.planStepId) {
+        this.segments.push({ ...seg });
+      }
+    }
+
+    // Import thinking segments nested under plan steps
+    for (const seg of segments) {
+      if (seg.type === "thinking" && seg.planStepId) {
+        this.segments.push({ ...seg });
       }
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // Event Handlers
-  // ═══════════════════════════════════════════════════════════════
+  /** End the current thinking segment (set isStreaming=false, clear tracking). */
+  endThinking(): void {
+    if (this.currentThinkingId) {
+      const seg = this.segments.find((s) => s.id === this.currentThinkingId);
+      if (seg) seg.isStreaming = false;
+      this.currentThinkingId = null;
+    }
+  }
 
-  /**
-   * Push content from a content event.
-   */
-  pushContent(text: string, namespace: string[]): void {
-    this.eventIndex++;
-
-    if (namespace.length === 0) {
-      // Root content - buffer it
-      this.rootContentBuffer += text;
+  /** Append to current thinking or create a new one. Tags with planStepId if post-plan. */
+  pushThinking(content: string, eventNum: number): void {
+    if (this.currentThinkingId) {
+      const seg = this.segments.find((s) => s.id === this.currentThinkingId);
+      if (seg) {
+        seg.content = (seg.content || "") + content;
+        seg.isStreaming = true;
+      }
     } else {
-      // Subagent content - buffer it
-      const subagentId = namespace[0];
-      const buffer = this.subagentContentBuffers.get(subagentId) || "";
-      this.subagentContentBuffers.set(subagentId, buffer + text);
-    }
-  }
-
-  /**
-   * Push a tool start event.
-   */
-  pushToolStart(toolData: ToolStartEventData, namespace: string[]): void {
-    const now = new Date();
-    this.eventIndex++;
-
-    // Check if this is a subagent invocation (task tool)
-    if (toolData.tool_name === SUBAGENT_TOOL_NAME) {
-      const subagentId = toolData.tool_call_id;
-
-      // DEDUP GUARD: Skip if we already have this subagent (HITL resume replays events)
-      if (this.subagents.has(subagentId)) {
-        return;
-      }
-
-      // Flush any pending root content before subagent
-      this.flushRootContent();
-
-      // Create subagent entry
-      const args = toolData.args || {};
-
-      const subagentState: SubagentState = {
-        info: {
-          id: subagentId,
-          name: (args.subagent_type as string) || "subagent",
-          agentId: args.subagent_type as string,
-          purpose: args.description as string,
-          status: "running",
-        },
-        segments: [],
-        toolMap: new Map(),
-        lastToolEndIndex: -1,
-      };
-      this.subagents.set(subagentId, subagentState);
-      this.subagentContentBuffers.set(subagentId, "");
-      this.subagentContentIds.set(subagentId, 0);
-
-      // Add subagent segment to root timeline
-      const segment: SubagentSegment = {
-        type: "subagent",
-        id: subagentId,
-        info: subagentState.info,
-        segments: subagentState.segments, // Reference, will be updated
-      };
-      this.rootSegments.push(segment);
-
-      // Also track in rootToolMap for tool_end handling
-      this.rootToolMap.set(subagentId, {
-        id: subagentId,
-        name: SUBAGENT_TOOL_NAME,
-        args,
-        status: "running",
-        startedAt: now,
+      const id = `thinking-${eventNum}`;
+      this.currentThinkingId = id;
+      this.segments.push({
+        id,
+        type: "thinking",
+        timestamp: new Date(),
+        content,
+        isStreaming: true,
+        planStepId: this.hasPlan ? (this.currentPlanStepId || undefined) : undefined,
       });
-    } else if (namespace.length === 0) {
-      // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
-      if (this.rootToolMap.has(toolData.tool_call_id)) {
-        return;
+    }
+  }
+
+  /** Create or merge an execution_plan segment from parsed PlanStep[]. */
+  pushPlan(planSteps: PlanStep[], eventNum: number): void {
+    const existingIdx = this.segments.findIndex((s) => s.type === "execution_plan");
+
+    if (existingIdx >= 0) {
+      // Merge incoming steps INTO the existing plan.
+      // Status updates only contain changed steps, not the full plan,
+      // so we must preserve all existing steps and apply updates by id.
+      const existing = this.segments[existingIdx].planSteps || [];
+      const incomingMap = new Map(planSteps.map((s) => [s.id, s]));
+      const merged = existing.map((s) => {
+        const update = incomingMap.get(s.id);
+        if (update) return update;
+        return s;
+      });
+      // Append any new steps not already in the plan
+      for (const s of planSteps) {
+        if (!merged.some((m) => m.id === s.id)) {
+          merged.push(s);
+        }
       }
+      this.segments[existingIdx] = {
+        ...this.segments[existingIdx],
+        planSteps: merged,
+      };
+    } else {
+      // New plan — end thinking first
+      this.endThinking();
+      this.segments.push({
+        id: `plan-${eventNum}`,
+        type: "execution_plan",
+        timestamp: new Date(),
+        planSteps,
+      });
+    }
 
-      // Root-level tool - flush content first
-      this.flushRootContent();
+    // Track active plan step for nesting.
+    // Use the merged plan (not just incoming steps) to find the active step,
+    // since status updates only contain changed steps.
+    this.hasPlan = true;
+    const currentPlan = this.segments[existingIdx >= 0 ? existingIdx : this.segments.length - 1]?.planSteps || planSteps;
+    const activeStep = currentPlan.find((s) => s.status === "in_progress");
+    this.currentPlanStepId = activeStep ? activeStep.id : null;
+  }
 
-      const tool: ToolInfo = {
-        id: toolData.tool_call_id,
-        name: toolData.tool_name,
-        args: toolData.args,
+  /** Mark the current in_progress plan step as input_required (waiting for user). */
+  markPlanInputRequired(): void {
+    if (!this.hasPlan || !this.currentPlanStepId) return;
+    const planSeg = this.segments.find((s) => s.type === "execution_plan");
+    const step = planSeg?.planSteps?.find((s) => s.id === this.currentPlanStepId);
+    if (step) step.status = "input_required";
+  }
+
+  /** Create a tool_call segment (status=running). Calls endThinking() first. */
+  pushToolStart(
+    info: { agent: string; tool: string; planStepId?: string },
+    eventNum: number,
+  ): void {
+    this.endThinking();
+    this.segments.push({
+      id: `tool-${eventNum}`,
+      type: "tool_call",
+      timestamp: new Date(),
+      toolCall: {
+        id: `tool-${eventNum}`,
+        agent: info.agent,
+        tool: info.tool,
         status: "running",
-        startedAt: now,
-      };
-      this.rootToolMap.set(toolData.tool_call_id, tool);
-
-      const segment: ToolSegment = {
-        type: "tool",
-        id: toolData.tool_call_id,
-        data: tool,
-      };
-      this.rootSegments.push(segment);
-    } else {
-      // Subagent tool
-      const subagentId = namespace[0];
-      const subagent = this.subagents.get(subagentId);
-      if (subagent) {
-        // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
-        if (subagent.toolMap.has(toolData.tool_call_id)) {
-          return;
-        }
-
-        // Flush subagent content first
-        this.flushSubagentContent(subagentId);
-
-        const tool: ToolInfo = {
-          id: toolData.tool_call_id,
-          name: toolData.tool_name,
-          args: toolData.args,
-          status: "running",
-          startedAt: now,
-        };
-        subagent.toolMap.set(toolData.tool_call_id, tool);
-
-        const segment: ToolSegment = {
-          type: "tool",
-          id: toolData.tool_call_id,
-          data: tool,
-        };
-        subagent.segments.push(segment);
-      }
-    }
-  }
-
-  /**
-   * Push a tool end event.
-   */
-  pushToolEnd(toolCallId: string, namespace: string[]): void {
-    const now = new Date();
-    const currentIndex = this.eventIndex++;
-
-    if (namespace.length === 0) {
-      // Root-level tool completion
-      const tool = this.rootToolMap.get(toolCallId);
-      if (tool) {
-        tool.status = "completed";
-        tool.endedAt = now;
-        this.lastToolEndIndex = currentIndex;
-      }
-
-      // Check if this is a subagent completion
-      const subagent = this.subagents.get(toolCallId);
-      if (subagent) {
-        subagent.info.status = "completed";
-        // Flush any remaining subagent content
-        this.flushSubagentContent(toolCallId);
-        
-        // Add a "status" segment to the subagent's nested timeline
-        const statusSegment: StatusSegment = {
-          type: "status",
-          id: `${toolCallId}-status`,
-          status: "done",
-          label: subagent.info.name,
-        };
-        subagent.segments.push(statusSegment);
-      }
-    } else {
-      // Subagent tool completion
-      const subagentId = namespace[0];
-      const subagent = this.subagents.get(subagentId);
-      if (subagent) {
-        const tool = subagent.toolMap.get(toolCallId);
-        if (tool) {
-          tool.status = "completed";
-          tool.endedAt = now;
-          subagent.lastToolEndIndex = currentIndex;
-        }
-      }
-    }
-  }
-
-  /**
-   * Mark a tool as failed.
-   */
-  pushToolFailed(toolCallId: string, namespace: string[], error?: string): void {
-    const now = new Date();
-    const currentIndex = this.eventIndex++;
-
-    if (namespace.length === 0) {
-      const tool = this.rootToolMap.get(toolCallId);
-      if (tool) {
-        tool.status = "failed";
-        tool.error = error;
-        tool.endedAt = now;
-        this.lastToolEndIndex = currentIndex;
-      }
-
-      const subagent = this.subagents.get(toolCallId);
-      if (subagent) {
-        subagent.info.status = "failed";
-        this.flushSubagentContent(toolCallId);
-      }
-    } else {
-      const subagentId = namespace[0];
-      const subagent = this.subagents.get(subagentId);
-      if (subagent) {
-        const tool = subagent.toolMap.get(toolCallId);
-        if (tool) {
-          tool.status = "failed";
-          tool.error = error;
-          tool.endedAt = now;
-        }
-      }
-    }
-  }
-
-  /**
-   * Push a warning message.
-   */
-  pushWarning(message: string): void {
-    this.eventIndex++;
-    this.warningCount++;
-    
-    // Flush content first
-    this.flushRootContent();
-    
-    this.rootSegments.push({
-      type: "warning",
-      id: `warning-${this.warningCount}`,
-      message,
+        planStepId: info.planStepId,
+      },
     });
   }
 
-  /**
-   * Push an error message.
-   */
-  pushError(message: string): void {
-    this.eventIndex++;
-    this.errorCount++;
-    
-    // Flush content first
-    this.flushRootContent();
-    
-    this.rootSegments.push({
-      type: "error",
-      id: `error-${this.errorCount}`,
-      message,
-    });
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  // Finalization
-  // ═══════════════════════════════════════════════════════════════
-
-  /**
-   * Finalize the timeline (called when stream ends).
-   * @param status - The status to show: "done", "interrupted", or "waiting_for_input"
-   */
-  finalize(status: StatusType = "done"): void {
-    this.isFinalized = true;
-
-    // Flush any remaining content
-    this.flushRootContent();
-    for (const subagentId of this.subagents.keys()) {
-      this.flushSubagentContent(subagentId);
-    }
-
-    // Mark all running tools as completed (unless interrupted)
-    const toolStatus = status === "interrupted" ? "failed" : "completed";
-    for (const tool of this.rootToolMap.values()) {
-      if (tool.status === "running") {
-        tool.status = toolStatus;
-        tool.endedAt = new Date();
-      }
-    }
-
-    // Mark all running subagents and their tools as completed
-    for (const subagent of this.subagents.values()) {
-      if (subagent.info.status === "running") {
-        subagent.info.status = toolStatus;
-      }
-      for (const tool of subagent.toolMap.values()) {
-        if (tool.status === "running") {
-          tool.status = toolStatus;
-          tool.endedAt = new Date();
+  /** Mark the most recent matching running tool as completed. */
+  completeToolByName(toolName: string): void {
+    for (let i = this.segments.length - 1; i >= 0; i--) {
+      const seg = this.segments[i];
+      if (seg.type === "tool_call" && seg.toolCall?.status === "running") {
+        if (!toolName || seg.toolCall.tool.toLowerCase() === toolName.toLowerCase()) {
+          seg.toolCall = { ...seg.toolCall, status: "completed" };
+          break;
         }
       }
     }
-
-    // Add a status segment for the parent agent
-    const statusSegment: StatusSegment = {
-      type: "status",
-      id: "root-status",
-      status,
-    };
-    this.rootSegments.push(statusSegment);
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // Output
-  // ═══════════════════════════════════════════════════════════════
-
   /**
-   * Get the interleaved timeline data for rendering.
+   * Create, append to, or replace a final_answer segment.
+   *
+   * @param authoritative When true (default), replaces any existing final_answer
+   *   content — used for the definitive final_result/partial_result artifact.
+   *   When false, appends to the existing segment — used for live-streaming
+   *   chunks tagged with is_final_answer by the backend.
    */
-  getGroupedData(): TimelineData {
-    // Flush any pending content
-    const currentRootBuffer = this.rootContentBuffer;
-    
-    // Determine where to split for final answer
-    // Final answer = content after the last tool_end (or all content if no tools)
-    const hasTools = this.rootToolMap.size > 0;
-    
-    // Build segments for rendering (without final answer content)
-    const segments: TimelineSegment[] = [];
-    let finalAnswerParts: string[] = [];
-    
-    // Find the index of the last tool/subagent segment
-    let lastToolSegmentIndex = -1;
-    for (let i = this.rootSegments.length - 1; i >= 0; i--) {
-      const seg = this.rootSegments[i];
-      if (seg.type === "tool" || seg.type === "subagent") {
-        lastToolSegmentIndex = i;
-        break;
-      }
-    }
-    
-    // Process segments
-    for (let i = 0; i < this.rootSegments.length; i++) {
-      const seg = this.rootSegments[i];
-      
-      if (seg.type === "content" && hasTools && i > lastToolSegmentIndex) {
-        // This content is after the last tool - it's part of final answer
-        finalAnswerParts.push(seg.text);
+  pushFinalAnswer(content: string, eventNum: number, authoritative = true): void {
+    const existing = this.segments.find((s) => s.type === "final_answer");
+
+    if (existing) {
+      if (authoritative) {
+        // Authoritative final_result replaces whatever was streamed so far
+        existing.content = content;
+        existing.isStreaming = false;
       } else {
-        segments.push(seg);
+        // Streaming chunk — append
+        existing.content = (existing.content || "") + content;
+        existing.isStreaming = true;
+      }
+    } else {
+      // First final_answer — remove the current thinking segment to avoid
+      // duplication (the LLM streams answer text before final_result is emitted).
+      const lastThinkingIdx = this.currentThinkingId
+        ? this.segments.findIndex((s) => s.id === this.currentThinkingId)
+        : -1;
+      if (lastThinkingIdx >= 0) {
+        this.segments.splice(lastThinkingIdx, 1);
+        this.currentThinkingId = null;
+      } else {
+        this.endThinking();
+      }
+
+      this.segments.push({
+        id: `answer-${eventNum}`,
+        type: "final_answer",
+        timestamp: new Date(),
+        content,
+        isStreaming: !authoritative,
+      });
+    }
+  }
+
+  /** Called when stream ends: mark all thinking/answers as !isStreaming, running tools as completed. */
+  finalize(): void {
+    for (const seg of this.segments) {
+      if (seg.type === "thinking" || seg.type === "final_answer") seg.isStreaming = false;
+      if (seg.type === "tool_call" && seg.toolCall?.status === "running") {
+        seg.toolCall = { ...seg.toolCall, status: "completed" };
       }
     }
-    
-    // Add current buffer to final answer if we have tools and it's after last tool
-    if (hasTools && currentRootBuffer.trim()) {
-      finalAnswerParts.push(currentRootBuffer);
-    } else if (!hasTools && currentRootBuffer.trim()) {
-      // No tools - all content is final answer
-      // But we still want to show it somewhere, so add as segment for now
-      // Actually, if no tools, current buffer IS the final answer
-      finalAnswerParts.push(currentRootBuffer);
-    }
-    
-    // If no tools at all, all content segments become final answer
-    if (!hasTools) {
-      const contentSegments = segments.filter(s => s.type === "content") as ContentSegment[];
-      finalAnswerParts = contentSegments.map(s => s.text);
-      // Remove content segments from segments (they go to finalAnswer)
-      const nonContentSegments = segments.filter(s => s.type !== "content");
-      segments.length = 0;
-      segments.push(...nonContentSegments);
-    }
-    
-    const finalAnswer = finalAnswerParts.length > 0 ? finalAnswerParts.join("") : null;
+  }
 
+  /** Return a shallow copy of segments for React (new array ref). */
+  getSegments(): TimelineSegment[] {
+    return [...this.segments];
+  }
+
+  /** Get the current in-progress plan step ID (for nesting tool calls). */
+  getCurrentPlanStepId(): string | null {
+    return this.currentPlanStepId;
+  }
+
+  /** Whether a plan has been pushed. */
+  getHasPlan(): boolean {
+    return this.hasPlan;
+  }
+
+  /** Quick stats for the summary bar. */
+  getStats(): { toolCount: number; stepCount: number; completedTools: number } {
+    const tools = this.segments.filter((s) => s.type === "tool_call");
+    const planSeg = this.segments.find((s) => s.type === "execution_plan");
     return {
-      segments,
-      finalAnswer,
-      isStreaming: !this.isFinalized,
-      hasTools,
+      toolCount: tools.length,
+      stepCount: planSeg?.planSteps?.length ?? 0,
+      completedTools: tools.filter((s) => s.toolCall?.status === "completed").length,
     };
   }
 
   /**
-   * Get statistics for the summary bar.
+   * Reconstruct a timeline from raw AG-UI events persisted by the backend.
+   *
+   * AG-UI → timeline segment mapping:
+   *   TOOL_CALL_START  → tool_call segment (status: running)
+   *   TOOL_CALL_END    → tool_call segment (status: completed)
+   *   STATE_DELTA      → execution_plan segment (when patch contains /steps)
+   *   TEXT_MESSAGE_CONTENT → thinking or final_answer segment
    */
-  getStats(): TimelineStats {
-    // Count tools (excluding "task" which shows as subagent)
-    let toolCount = 0;
-    let completedToolCount = 0;
-    
-    for (const tool of this.rootToolMap.values()) {
-      if (tool.name !== SUBAGENT_TOOL_NAME) {
-        toolCount++;
-        if (tool.status === "completed") completedToolCount++;
+  static buildFromAGUIEvents(events: BaseEvent[]): TimelineSegment[] {
+    const manager = new TimelineManager();
+    // Track active tool calls (toolCallId → toolName) for TOOL_CALL_END lookup
+    const activeToolCalls = new Map<string, string>();
+    // Track accumulated state for STATE_DELTA application
+    let agentState: Record<string, unknown> = {};
+
+    events.forEach((event, idx) => {
+      const eventNum = idx + 1;
+
+      switch (event.type) {
+        case EventType.TEXT_MESSAGE_CONTENT: {
+          const e = event as TextMessageContentEvent;
+          if (e.delta) {
+            // During streaming: text before plan = thinking; text after plan = final_answer.
+            // Check whether a plan segment already exists to decide which segment type to use.
+            const hasPlanSegment = manager.getSegments().some((s) => s.type === "execution_plan");
+            if (hasPlanSegment) {
+              manager.pushFinalAnswer(e.delta, eventNum, /* authoritative */ false);
+            } else {
+              manager.pushThinking(e.delta, eventNum);
+            }
+          }
+          break;
+        }
+
+        case EventType.TOOL_CALL_START: {
+          const e = event as ToolCallStartEvent;
+          const toolName = e.toolCallName ?? e.toolCallId ?? "Unknown Tool";
+          activeToolCalls.set(e.toolCallId, toolName);
+          manager.pushToolStart(
+            { agent: toolName, tool: toolName, planStepId: manager.getCurrentPlanStepId() || undefined },
+            eventNum,
+          );
+          break;
+        }
+
+        case EventType.TOOL_CALL_END: {
+          const e = event as ToolCallEndEvent;
+          const toolName = activeToolCalls.get(e.toolCallId) ?? e.toolCallId;
+          activeToolCalls.delete(e.toolCallId);
+          manager.completeToolByName(toolName);
+          break;
+        }
+
+        case EventType.STATE_DELTA: {
+          const e = event as StateDeltaEvent;
+          if (!Array.isArray(e.delta)) break;
+
+          // Apply the patch to maintain a running state snapshot
+          for (const op of e.delta as Array<{ op: string; path: string; value?: unknown }>) {
+            if (op.op === "replace" || op.op === "add") {
+              // Handle top-level /steps or /plan/steps paths
+              if (op.path === "/steps" || op.path === "/plan/steps") {
+                agentState = { ...agentState, steps: op.value };
+              }
+            }
+          }
+
+          // If the state now has steps, push/merge the plan
+          if (Array.isArray(agentState.steps)) {
+            const planSteps = parsePlanStepsFromData({ steps: agentState.steps });
+            if (planSteps.length > 0) {
+              manager.pushPlan(planSteps, eventNum);
+            }
+          }
+          break;
+        }
+
+        case EventType.STATE_SNAPSHOT: {
+          const e = event as StateSnapshotEvent;
+          const snapshot = e.snapshot as Record<string, unknown> | undefined;
+          if (snapshot && Array.isArray(snapshot.todos) && snapshot.todos.length > 0) {
+            const planSteps = parsePlanStepsFromTodos(snapshot.todos);
+            if (planSteps.length > 0) {
+              manager.pushPlan(planSteps, eventNum);
+            }
+          }
+          break;
+        }
+
+        // RUN_FINISHED, RUN_ERROR, TOOL_CALL_ARGS, etc. — no timeline segment needed
+        default:
+          break;
       }
-    }
+    });
 
-    return {
-      toolCount,
-      completedToolCount,
-      subagentCount: this.subagents.size,
-      completedSubagentCount: [...this.subagents.values()].filter(
-        (s) => s.info.status === "completed"
-      ).length,
-      warningCount: this.warningCount,
-      errorCount: this.errorCount,
-    };
+    manager.finalize();
+    return manager.getSegments();
   }
-
-  /**
-   * Check if the timeline has any machinery.
-   */
-  hasMachinery(): boolean {
-    return (
-      this.rootToolMap.size > 0 ||
-      this.subagents.size > 0 ||
-      this.rootSegments.some(s => s.type === "content")
-    );
-  }
-
-  /**
-   * Check if there are any warnings or errors.
-   */
-  hasWarningsOrErrors(): boolean {
-    return this.warningCount > 0 || this.errorCount > 0;
-  }
-
-  /**
-   * Reset the manager for reuse.
-   */
-  reset(): void {
-    this.rootSegments = [];
-    this.rootToolMap.clear();
-    this.subagents.clear();
-    this.rootContentBuffer = "";
-    this.rootContentId = 0;
-    this.subagentContentBuffers.clear();
-    this.subagentContentIds.clear();
-    this.eventIndex = 0;
-    this.lastToolEndIndex = -1;
-    this.isFinalized = false;
-    this.warningCount = 0;
-    this.errorCount = 0;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Factory Function
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Create a new TimelineManager instance.
- */
-export function createTimelineManager(): TimelineManager {
-  return new TimelineManager();
 }

@@ -3,9 +3,6 @@ import { NextRequest } from "next/server";
 /**
  * Proxy route: POST /api/chat/stream
  *
- * SUPERVISOR ONLY — this route proxies to the Supervisor (Platform Engineer) backend.
- * @deprecated Supervisor is being removed in 0.5.0. Use /api/chat/conversations/[id]/stream/* instead.
- *
  * Forwards requests to the backend AG-UI/SSE endpoint and streams the
  * response back to the client. This avoids CORS issues and lets us
  * forward the user's auth token server-side.

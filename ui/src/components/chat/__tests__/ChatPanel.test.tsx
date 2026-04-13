@@ -1,5 +1,5 @@
 /**
- * Unit tests for SupervisorChatPanel component
+ * Unit tests for ChatPanel component
  *
  * Tests:
  * - Scroll behavior: respects user scroll position during streaming
@@ -189,7 +189,7 @@ jest.mock('@/components/ui/button', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { SupervisorChatPanel } from '../SupervisorChatPanel'
+import { ChatPanel } from '../ChatPanel'
 import type { ChatMessage } from '@/types/a2a'
 
 // ============================================================================
@@ -222,7 +222,7 @@ function createConversation(messages: ChatMessage[] = []) {
 // Tests
 // ============================================================================
 
-describe('SupervisorChatPanel', () => {
+describe('ChatPanel', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetActiveConversation.mockReturnValue(null)
@@ -232,7 +232,7 @@ describe('SupervisorChatPanel', () => {
   describe('Welcome screen', () => {
     it('should render welcome message when no messages', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       expect(screen.getByText('Welcome to Test App')).toBeInTheDocument()
     })
@@ -244,7 +244,7 @@ describe('SupervisorChatPanel', () => {
       const msg = createMessage({ role: 'user', content: longUrl })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       const userText = screen.getByText(longUrl)
       expect(userText).toBeInTheDocument()
@@ -258,7 +258,7 @@ describe('SupervisorChatPanel', () => {
       const msg = createMessage({ role: 'user', content: 'Hello' })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // The user message bubble is the rounded-xl div wrapping the text
       const userText = screen.getByText('Hello')
@@ -276,7 +276,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       const proseContainer = document.querySelector('.prose-container')
       expect(proseContainer).not.toBeNull()
@@ -292,7 +292,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Find the app name label, then its parent message content container
       const appNameLabel = screen.getByText('Test App')
@@ -309,7 +309,7 @@ describe('SupervisorChatPanel', () => {
       const msg = createMessage({ role: 'user', content: 'Hello world' })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Session mock has name: 'Test User', so first name "Test" is shown as the role label
       const youLabel = screen.getByText('Test')
@@ -322,7 +322,7 @@ describe('SupervisorChatPanel', () => {
       const msg = createMessage({ role: 'user', content: 'Hello there' })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Session mock has name: 'Test User', first name extracted as "Test"
       expect(screen.getByText('Test')).toBeInTheDocument()
@@ -340,7 +340,7 @@ describe('SupervisorChatPanel', () => {
         update: jest.fn(),
       })
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       expect(screen.getByText('You')).toBeInTheDocument()
     })
@@ -357,7 +357,7 @@ describe('SupervisorChatPanel', () => {
         update: jest.fn(),
       })
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       expect(screen.getByText('You')).toBeInTheDocument()
     })
@@ -372,7 +372,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Should show first name from senderName, not session user's name
       expect(screen.getByText('Alice')).toBeInTheDocument()
@@ -387,7 +387,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Session has 'Test User', first name is 'Test'
       expect(screen.getByText('Test')).toBeInTheDocument()
@@ -402,7 +402,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       const img = screen.getByAltText('Bob Smith')
       expect(img).toBeInTheDocument()
@@ -418,7 +418,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      const { container } = render(<SupervisorChatPanel endpoint="/api/test" />)
+      const { container } = render(<ChatPanel endpoint="/api/test" />)
 
       // Should render the User icon SVG (lucide icon), not an img element
       const avatarDiv = container.querySelector('.bg-primary')
@@ -436,7 +436,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Empty string is falsy, should fall back to session first name "Test"
       expect(screen.getByText('Test')).toBeInTheDocument()
@@ -451,7 +451,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      const { container } = render(<SupervisorChatPanel endpoint="/api/test" />)
+      const { container } = render(<ChatPanel endpoint="/api/test" />)
 
       // Empty string is falsy, should not render img
       const avatarDiv = container.querySelector('.bg-primary')
@@ -481,7 +481,7 @@ describe('SupervisorChatPanel', () => {
         createConversation([aliceMsg, assistantReply, bobMsg])
       )
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Both first names should appear
       expect(screen.getByText('Alice')).toBeInTheDocument()
@@ -505,7 +505,7 @@ describe('SupervisorChatPanel', () => {
         createConversation([msgWithAvatar, msgWithoutAvatar])
       )
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Eve's message should have an avatar img
       const eveImg = screen.getByAltText('Eve')
@@ -527,7 +527,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Session has 'Test User', first name 'Test' — used as alt fallback
       const img = screen.getByAltText('Test')
@@ -545,7 +545,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Should show "Grace", not "Test" (the session user)
       expect(screen.getByText('Grace')).toBeInTheDocument()
@@ -560,7 +560,7 @@ describe('SupervisorChatPanel', () => {
       })
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       expect(screen.getByText('Madonna')).toBeInTheDocument()
     })
@@ -584,7 +584,7 @@ describe('SupervisorChatPanel', () => {
         createConversation([assistantMsg, userMsg, latestAssistant])
       )
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // The old long message should have "Show full answer" button (collapsed)
       expect(screen.getByText('Show full answer')).toBeInTheDocument()
@@ -611,7 +611,7 @@ describe('SupervisorChatPanel', () => {
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
       mockIsConversationStreaming.mockReturnValue(streaming)
 
-      const result = render(<SupervisorChatPanel endpoint="/api/test" />)
+      const result = render(<ChatPanel endpoint="/api/test" />)
       const viewport = screen.getByTestId('scroll-viewport')
 
       // Set scroll dimensions
@@ -740,7 +740,7 @@ describe('SupervisorChatPanel', () => {
       ]))
       mockIsConversationStreaming.mockReturnValue(true)
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // StreamingView should be rendered (our mock renders <div data-testid="agent-stream-box" />)
       // or at minimum, should NOT show the final markdown yet.
@@ -762,7 +762,7 @@ describe('SupervisorChatPanel', () => {
       ]))
       mockIsConversationStreaming.mockReturnValue(false)
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Should show the prose-container for final markdown rendering
       const proseContainer = document.querySelector('.prose-container')
@@ -785,7 +785,7 @@ describe('SupervisorChatPanel', () => {
       ]))
       mockIsConversationStreaming.mockReturnValue(false)
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Latest answer with > 300 chars starts expanded → shows "Collapse"
       expect(screen.getByText('Collapse')).toBeInTheDocument()
@@ -803,7 +803,7 @@ describe('SupervisorChatPanel', () => {
       ]))
       mockIsConversationStreaming.mockReturnValue(false)
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       expect(screen.queryByText('Expand')).not.toBeInTheDocument()
       expect(screen.queryByText('Collapse')).not.toBeInTheDocument()
@@ -822,7 +822,7 @@ describe('SupervisorChatPanel', () => {
       ]))
       mockIsConversationStreaming.mockReturnValue(false)
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // Latest answer starts expanded → "Collapse" visible
       expect(screen.getByText('Collapse')).toBeInTheDocument()
@@ -851,7 +851,7 @@ describe('SupervisorChatPanel', () => {
       ]))
       mockIsConversationStreaming.mockReturnValue(true)
 
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
 
       // During streaming, no Expand/Collapse buttons shown
       expect(screen.queryByText('Expand')).not.toBeInTheDocument()
@@ -873,7 +873,7 @@ describe('SupervisorChatPanel', () => {
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
       mockIsConversationStreaming.mockReturnValue(false)
 
-      const { rerender } = render(<SupervisorChatPanel endpoint="/api/test" />)
+      const { rerender } = render(<ChatPanel endpoint="/api/test" />)
 
       const scrollIntoViewMock = Element.prototype.scrollIntoView as jest.Mock
       scrollIntoViewMock.mockClear()
@@ -884,7 +884,7 @@ describe('SupervisorChatPanel', () => {
         createMessage({ role: 'assistant', content: 'Reply', isFinal: true }),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(newMessages))
-      act(() => { rerender(<SupervisorChatPanel endpoint="/api/test" />) })
+      act(() => { rerender(<ChatPanel endpoint="/api/test" />) })
 
       expect(scrollIntoViewMock).toHaveBeenCalled()
     })
@@ -894,7 +894,7 @@ describe('SupervisorChatPanel', () => {
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
       mockIsConversationStreaming.mockReturnValue(false)
 
-      const { rerender } = render(<SupervisorChatPanel endpoint="/api/test" />)
+      const { rerender } = render(<ChatPanel endpoint="/api/test" />)
 
       // Advance past the isAutoScrollingRef reset
       act(() => { jest.advanceTimersByTime(500) })
@@ -918,7 +918,7 @@ describe('SupervisorChatPanel', () => {
         createMessage({ role: 'assistant', content: 'Reply', isFinal: true }),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(newMessages))
-      act(() => { rerender(<SupervisorChatPanel endpoint="/api/test" />) })
+      act(() => { rerender(<ChatPanel endpoint="/api/test" />) })
 
       expect(scrollIntoViewMock).not.toHaveBeenCalled()
     })
@@ -931,7 +931,7 @@ describe('SupervisorChatPanel', () => {
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
       mockIsConversationStreaming.mockReturnValue(true)
 
-      const { rerender } = render(<SupervisorChatPanel endpoint="/api/test" />)
+      const { rerender } = render(<ChatPanel endpoint="/api/test" />)
 
       const scrollIntoViewMock = Element.prototype.scrollIntoView as jest.Mock
       scrollIntoViewMock.mockClear()
@@ -942,7 +942,7 @@ describe('SupervisorChatPanel', () => {
         createMessage({ ...messages[1], content: 'Chunk 1 Chunk 2' }),
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(updatedMessages))
-      act(() => { rerender(<SupervisorChatPanel endpoint="/api/test" />) })
+      act(() => { rerender(<ChatPanel endpoint="/api/test" />) })
 
       expect(scrollIntoViewMock).toHaveBeenCalled()
     })
@@ -955,7 +955,7 @@ describe('SupervisorChatPanel', () => {
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
       mockIsConversationStreaming.mockReturnValue(true)
 
-      const { rerender } = render(<SupervisorChatPanel endpoint="/api/test" />)
+      const { rerender } = render(<ChatPanel endpoint="/api/test" />)
 
       // Advance past the isAutoScrollingRef reset
       act(() => { jest.advanceTimersByTime(500) })
@@ -979,7 +979,7 @@ describe('SupervisorChatPanel', () => {
         { ...messages[1], content: 'Chunk 1 Chunk 2 Chunk 3' },
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(updatedMessages))
-      act(() => { rerender(<SupervisorChatPanel endpoint="/api/test" />) })
+      act(() => { rerender(<ChatPanel endpoint="/api/test" />) })
 
       expect(scrollIntoViewMock).not.toHaveBeenCalled()
     })
@@ -989,7 +989,7 @@ describe('SupervisorChatPanel', () => {
     it('shows "Read-Only Audit Mode" banner when readOnly and readOnlyReason is admin_audit', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint="/api/test"
           readOnly
           readOnlyReason="admin_audit"
@@ -1001,7 +1001,7 @@ describe('SupervisorChatPanel', () => {
     it('shows "Back to Feedback" link by default when adminOrigin is not set', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint="/api/test"
           readOnly
           readOnlyReason="admin_audit"
@@ -1014,7 +1014,7 @@ describe('SupervisorChatPanel', () => {
     it('shows "Back to Feedback" link when adminOrigin is "feedback"', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint="/api/test"
           readOnly
           readOnlyReason="admin_audit"
@@ -1028,7 +1028,7 @@ describe('SupervisorChatPanel', () => {
     it('shows "Back to Audit Logs" link when adminOrigin is "audit-logs"', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint="/api/test"
           readOnly
           readOnlyReason="admin_audit"
@@ -1042,7 +1042,7 @@ describe('SupervisorChatPanel', () => {
     it('does not show back link when readOnlyReason is shared_readonly', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint="/api/test"
           readOnly
           readOnlyReason="shared_readonly"
@@ -1056,7 +1056,7 @@ describe('SupervisorChatPanel', () => {
     it('shows agent deleted banner when readOnlyReason is agent_deleted', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint="/api/test"
           readOnly
           readOnlyReason="agent_deleted"
@@ -1069,7 +1069,7 @@ describe('SupervisorChatPanel', () => {
     it('shows agent disabled banner when readOnlyReason is agent_disabled', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint="/api/test"
           readOnly
           readOnlyReason="agent_disabled"
@@ -1081,7 +1081,7 @@ describe('SupervisorChatPanel', () => {
 
     it('does not show read-only banner when readOnly is false', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
-      render(<SupervisorChatPanel endpoint="/api/test" />)
+      render(<ChatPanel endpoint="/api/test" />)
       expect(screen.queryByText('Read-Only Audit Mode')).not.toBeInTheDocument()
       expect(screen.queryByText('View Only')).not.toBeInTheDocument()
     })

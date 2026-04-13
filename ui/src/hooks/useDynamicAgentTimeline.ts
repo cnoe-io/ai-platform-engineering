@@ -1,17 +1,17 @@
 /**
- * useAgentTimeline Hook
+ * useDynamicAgentTimeline Hook
  *
- * Transforms SSE events into an interleaved timeline for the AgentTimeline component.
- * This hook processes events through TimelineManager and memoizes the output.
+ * Transforms SSE events into an interleaved timeline for the DynamicAgentTimeline component.
+ * This hook processes events through DATimelineManager and memoizes the output.
  *
  * Usage:
- * const { data } = useAgentTimeline(turnEvents, isStreaming);
- * <AgentTimeline data={data} ... />
+ * const { data } = useDynamicAgentTimeline(turnEvents, isStreaming);
+ * <DynamicAgentTimeline data={data} ... />
  */
 
 import { useMemo, useRef } from "react";
-import { TimelineManager, createTimelineManager } from "@/lib/timeline-manager";
-import type { TimelineData, StatusType } from "@/types/timeline";
+import { DATimelineManager, createDATimelineManager } from "@/lib/da-timeline-manager";
+import type { DATimelineData, DAStatusType } from "@/types/dynamic-agent-timeline";
 import type {
   StreamEvent,
   ToolStartEventData,
@@ -23,16 +23,16 @@ import { isToolStartData } from "@/components/dynamic-agents/sse-types";
 // Types
 // ═══════════════════════════════════════════════════════════════
 
-interface UseAgentTimelineResult {
+interface UseDynamicAgentTimelineResult {
   /** Interleaved timeline data for rendering */
-  data: TimelineData;
+  data: DATimelineData;
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Empty data for initial state
 // ═══════════════════════════════════════════════════════════════
 
-const EMPTY_DATA: TimelineData = {
+const EMPTY_DATA: DATimelineData = {
   segments: [],
   finalAnswer: null,
   isStreaming: false,
@@ -49,16 +49,16 @@ const EMPTY_DATA: TimelineData = {
  * @param events - SSE events for the current message turn
  * @param isStreaming - Whether the stream is still active
  * @param turnStatus - Status to show when finalized: "done", "interrupted", or "waiting_for_input"
- * @returns Interleaved timeline data for AgentTimeline
+ * @returns Interleaved timeline data for DynamicAgentTimeline
  */
-export function useAgentTimeline(
+export function useDynamicAgentTimeline(
   events: StreamEvent[],
   isStreaming: boolean,
-  turnStatus?: StatusType
-): UseAgentTimelineResult {
+  turnStatus?: DAStatusType
+): UseDynamicAgentTimelineResult {
   // Keep a stable manager reference across renders
   // We'll recreate when events array identity changes (new message)
-  const managerRef = useRef<TimelineManager | null>(null);
+  const managerRef = useRef<DATimelineManager | null>(null);
   const prevEventsRef = useRef<StreamEvent[]>([]);
 
   // Process events and generate interleaved data
@@ -75,10 +75,10 @@ export function useAgentTimeline(
     
     if (prevFirst !== currFirst) {
       // New turn - create fresh manager
-      managerRef.current = createTimelineManager();
+      managerRef.current = createDATimelineManager();
     }
 
-    const manager = managerRef.current || createTimelineManager();
+    const manager = managerRef.current || createDATimelineManager();
     managerRef.current = manager;
 
     // Reset and replay all events to get consistent state
@@ -148,4 +148,4 @@ export function useAgentTimeline(
 // Export
 // ═══════════════════════════════════════════════════════════════
 
-export default useAgentTimeline;
+export default useDynamicAgentTimeline;

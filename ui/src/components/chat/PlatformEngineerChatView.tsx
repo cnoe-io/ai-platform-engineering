@@ -2,10 +2,10 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { SupervisorChatPanel } from "@/components/chat/SupervisorChatPanel";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 
-interface SupervisorChatViewProps {
+interface PlatformEngineerChatViewProps {
   /** The Platform Engineer (supervisor) backend endpoint */
   endpoint: string;
   /** MongoDB conversation UUID */
@@ -22,16 +22,15 @@ interface SupervisorChatViewProps {
 
 /**
  * Chat view for Platform Engineer (Supervisor).
- * @deprecated Supervisor is being removed in 0.5.0.
  */
-export function SupervisorChatView({
+export function PlatformEngineerChatView({
   endpoint,
   conversationId,
   conversationTitle,
   readOnly,
   readOnlyReason,
   adminOrigin,
-}: SupervisorChatViewProps) {
+}: PlatformEngineerChatViewProps) {
   const { status } = useCAIPEHealth();
   const isDisconnected = status === "disconnected";
 
@@ -44,7 +43,7 @@ export function SupervisorChatView({
         transition={{ duration: 0.2 }}
         className="flex-1 min-w-0 flex flex-col overflow-hidden"
       >
-        <SupervisorChatPanel
+        <ChatPanel
           endpoint={endpoint}
           conversationId={conversationId}
           conversationTitle={conversationTitle}

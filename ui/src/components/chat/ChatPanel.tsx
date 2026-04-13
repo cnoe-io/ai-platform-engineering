@@ -3,29 +3,28 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { assistantMarkdownComponents, assistantProseClassName } from "./MarkdownComponents";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { createStreamAdapter, type StreamCallbacks } from "@/lib/streaming";
-import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
-import { useFeatureFlagStore } from "@/store/feature-flag-store";
+import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
+import { ChatMessage as ChatMessageType, TimelineSegment } from "@/types/a2a";
+import { TimelineManager } from "@/lib/timeline-manager";
+import { AgentTimeline } from "./AgentTimeline";
 import { getConfig } from "@/lib/config";
+import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
-import { DEFAULT_AGENTS } from "./CustomCallButtons";
+import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
+import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
-import { getGradientStyle } from "@/lib/gradient-themes";
-import { AgentTimeline, type SubagentLookupInfo } from "./AgentTimeline";
-import { useAgentTimeline } from "@/hooks/useAgentTimeline";
-import type { TaskItem } from "@/components/shared/timeline";
-import { MarkdownRenderer } from "@/components/shared/timeline";
-import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
@@ -35,13 +34,13 @@ interface ChatPanelProps {
   conversationTitle?: string;
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
-  agentId: string; // Mandatory for Dynamic Agents
-  agentGradient?: string | null; // Gradient theme for agent avatar
-  agentName?: string; // Agent name for display
-  isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
+  /** Which admin tab the user navigated from (audit-logs or feedback) */
+  adminOrigin?: "audit-logs" | "feedback" | null;
+  /** Whether the backend is disconnected */
+  isDisconnected?: boolean;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, isDisconnected }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -65,13 +64,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // User input form state (HITL - Human-in-the-Loop)
+  // PE path: resume via sendMessage
   const [pendingUserInput, setPendingUserInput] = useState<{
     messageId: string;
     metadata: UserInputMetadata;
     contextId?: string;
-    // SSE/Dynamic Agent specific fields
-    isSSE?: boolean;
-    agentId?: string;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -83,10 +80,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [showScrollButton, setShowScrollButton] = useState(false);
   const isAutoScrollingRef = useRef(false);
 
-  // Message window: progressive loading of older turns
-  const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_VISIBLE_TURNS);
-  // Ref to preserve scroll position when loading more turns
-  const scrollDistanceFromBottomRef = useRef<number | null>(null);
+  // Message window: collapse older turns for render performance
+  const [olderTurnsExpanded, setOlderTurnsExpanded] = useState(false);
 
   const {
     activeConversationId,
@@ -94,29 +89,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     createConversation,
     addMessage,
     updateMessage,
-    // appendToMessage, // Unused in filtered code? Let's check. Used in error handling.
     appendToMessage,
-    addStreamEvent,
-    clearStreamEvents,
     setConversationStreaming,
     isConversationStreaming,
     cancelConversationRequest,
     updateMessageFeedback,
     consumePendingMessage,
-    // recoverInterruptedTask, // A2A recovery logic - keep or remove?
-    // The A2A recovery logic relies on tasks/get which might not exist for Dynamic Agents yet.
-    // The plan says "Phase 2... survives pod restarts".
-    // "Phase 3... Persistent History... history loads from checkpointer".
-    // For Phase 1 (UI), let's keep it simple and maybe comment out A2A recovery if it's specific to A2A endpoints.
-    // Dynamic Agents don't have a /tasks/get endpoint in the same way, or at least the client usage might differ.
-    // Let's remove it for now to avoid errors, as Dynamic Agents rely on SSE resume, not task polling.
     evictOldMessageContent,
-    loadMessagesFromServer,
-    saveMessagesToServer,
+    loadTurnsFromServer,
     updateConversationTitle,
+    sendMessage,
   } = useChatStore();
 
-  // Slash command registry
+  // Slash command registry (built-in + skills + agents)
   const slashCommands = useSlashCommands();
 
   // Get access token from session (if SSO is enabled and user is authenticated)
@@ -124,62 +109,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
-
-  // Ref to track which conversations we've checked for HITL interrupt state
-  const interruptCheckedRef = useRef<Set<string>>(new Set());
-
-  // ─── Files & Tasks for Timeline (fetched via API) ─────────────────
-  const [timelineFiles, setTimelineFiles] = useState<string[]>([]);
-  const [timelineTasks, setTimelineTasks] = useState<TaskItem[]>([]);
-  const [isDownloadingFile, setIsDownloadingFile] = useState(false);
-  const [downloadingFilePath, setDownloadingFilePath] = useState<string | undefined>();
-  const [isDeletingFile, setIsDeletingFile] = useState(false);
-  const [deletingFilePath, setDeletingFilePath] = useState<string | undefined>();
-  const [filesFetchKey, setFilesFetchKey] = useState(0);
-  const [todosFetchKey, setTodosFetchKey] = useState(0);
-  const filesFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
-  const todosFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
-
-  // ─── Subagent Info Cache (for timeline avatar gradients) ──────────
-  const [subagentCache, setSubagentCache] = useState<Map<string, SubagentLookupInfo>>(new Map());
-  const subagentCacheFetchedRef = useRef(false);
-
-  // Fetch all available agents once for subagent lookup
-  useEffect(() => {
-    if (subagentCacheFetchedRef.current) return;
-    subagentCacheFetchedRef.current = true;
-
-    const fetchAgents = async () => {
-      try {
-        const response = await fetch("/api/dynamic-agents?enabled_only=true");
-        const data = await response.json();
-        if (data.success && data.data?.items) {
-          const cache = new Map<string, SubagentLookupInfo>();
-          for (const agent of data.data.items as DynamicAgentConfig[]) {
-            // Index by both id and name for flexible lookup
-            const info: SubagentLookupInfo = {
-              name: agent.name,
-              gradientTheme: agent.ui?.gradient_theme,
-            };
-            cache.set(agent._id, info);
-            // Also index by lowercase name for name-based lookup
-            cache.set(agent.name.toLowerCase(), info);
-          }
-          setSubagentCache(cache);
-        }
-      } catch (err) {
-        console.warn("[DynamicAgentChatPanel] Failed to fetch agents for subagent lookup:", err);
-      }
-    };
-
-    fetchAgents();
-  }, []);
-
-  // Callback to look up subagent info by name
-  const getSubagentInfo = useCallback((subagentName: string): SubagentLookupInfo | undefined => {
-    // Try exact match first, then lowercase
-    return subagentCache.get(subagentName) || subagentCache.get(subagentName.toLowerCase());
-  }, [subagentCache]);
 
   // Check if THIS conversation is streaming (not global)
   const isThisConversationStreaming = activeConversationId
@@ -239,300 +168,54 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
   // Auto-scroll during streaming only if user is near the bottom
-  // Depend on both message content AND streamEvents length since timeline renders from SSE events
   useEffect(() => {
     if (autoScrollEnabled && isThisConversationStreaming && !isUserScrolledUp) {
       scrollToBottom("instant");
     }
-  }, [conversation?.messages?.at(-1)?.content, conversation?.streamEvents?.length, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
+  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
 
-  // ResizeObserver-based auto-scroll: catches DOM changes from morphdom patches
-  // that happen asynchronously after React renders (marked parses async, then
-  // morphdom patches the DOM directly). Without this, scrollToBottom fires before
-  // the DOM height has actually grown.
-  useEffect(() => {
-    const viewport = scrollViewportRef.current;
-    if (!viewport || !autoScrollEnabled) return;
-
-    const observer = new ResizeObserver(() => {
-      if (isThisConversationStreaming && !isUserScrolledUp && messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: "instant", block: "end" });
-      }
-    });
-
-    // Observe the first child of the viewport (the content wrapper)
-    const content = viewport.firstElementChild;
-    if (content) {
-      observer.observe(content);
-    }
-
-    return () => observer.disconnect();
-  }, [isThisConversationStreaming, isUserScrolledUp, autoScrollEnabled]);
-
-  // Reset scroll state and visible turns when conversation changes
+  // Reset scroll state and collapse older turns when conversation changes
   useEffect(() => {
     setIsUserScrolledUp(false);
     setShowScrollButton(false);
-    setVisibleTurnCount(INITIAL_VISIBLE_TURNS);
+    setOlderTurnsExpanded(false);
     // Scroll to bottom when switching conversations. Use rAF to wait for
     // the browser to lay out the newly rendered messages, then scroll.
+    // For very large conversations the DOM paint can take >50ms, so a
+    // fixed timeout is unreliable.
     const raf = requestAnimationFrame(() => {
       scrollToBottom("instant");
     });
     return () => cancelAnimationFrame(raf);
   }, [activeConversationId, scrollToBottom]);
 
-  // RECOVERY LOGIC REMOVED (A2A specific)
-  const recoveringMessageId = null; 
+  // ═══════════════════════════════════════════════════════════════
+  // LEVEL 2 CRASH RECOVERY: On mount / conversation change, check for
+  // interrupted messages and attempt to recover the result via tasks/get.
+  // ═══════════════════════════════════════════════════════════════
+  const [recoveringMessageId, setRecoveringMessageId] = useState<string | null>(null);
 
-  // ═══════════════════════════════════════════════════════════════
-  // CHECK HITL INTERRUPT STATE from checkpointer (messages loaded by ChatContainer)
-  // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
-    // Skip if no conversationId (new conversation) or agentId
-    if (!conversationId || !agentId) return;
-    
-    // Skip if already checked this conversation
-    if (interruptCheckedRef.current.has(conversationId)) return;
-    
-    // Mark as checked BEFORE async to prevent duplicate checks in Strict Mode
-    interruptCheckedRef.current.add(conversationId);
+    if (!activeConversationId || !conversation) return;
+    if (isThisConversationStreaming) return; // Don't recover while streaming
 
-    const checkInterruptState = async () => {
-      try {
-        // Check for pending HITL interrupt state (lightweight call to checkpointer)
-        // Messages are already loaded by ChatContainer - we only check interrupt state here
-        const interruptResponse = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/interrupt-state?agent_id=${encodeURIComponent(agentId)}`
-        );
-        
-        if (interruptResponse.ok) {
-          const interruptData = await interruptResponse.json();
-          
-          // Handle pending interrupt - restore the HITL form if present
-          if (interruptData.has_pending_interrupt && interruptData.interrupt_data) {
-            const { prompt, fields } = interruptData.interrupt_data;
-            
-            // Get the last message from the store (already loaded by ChatContainer)
-            const currentConv = useChatStore.getState().conversations.find(c => c.id === conversationId);
-            const lastMsg = currentConv?.messages?.[currentConv.messages.length - 1];
-            
-            if (lastMsg && lastMsg.role === "assistant") {
-              const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
-                field_name: f.field_name,
-                field_label: f.field_label,
-                field_description: f.field_description,
-                field_type: f.field_type,
-                field_values: f.field_values,
-                required: f.required,
-                default_value: f.default_value,
-                placeholder: f.placeholder,
-              }));
-
-              setPendingUserInput({
-                messageId: lastMsg.id,
-                metadata: {
-                  user_input: true,
-                  input_title: `Input Required`,
-                  input_description: prompt,
-                  input_fields: inputFields,
-                },
-                contextId: conversationId,
-                isSSE: true,
-                agentId: agentId,
-              });
-            }
-          }
-        }
-      } catch (interruptError) {
-        // Non-fatal: HITL state check failed
-        console.warn("[DynamicAgentChatPanel] Failed to check interrupt state:", interruptError);
-      }
-    };
-
-    checkInterruptState();
-  }, [conversationId, agentId]);
-
-  // ═══════════════════════════════════════════════════════════════
-  // FILES & TASKS FETCH (for timeline display in latest message)
-  // ═══════════════════════════════════════════════════════════════
-
-  // Fetch files from API
-  useEffect(() => {
-    if (!conversationId || !agentId) {
-      setTimelineFiles([]);
-      filesFetchedForRef.current = null;
-      return;
-    }
-
-    const currentFetchState = { conversationId, agentId, fetchKey: filesFetchKey };
-    if (
-      filesFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
-      filesFetchedForRef.current?.agentId === currentFetchState.agentId &&
-      filesFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
-    ) {
-      return;
-    }
-    
-    filesFetchedForRef.current = currentFetchState;
-
-    const fetchFiles = async () => {
-      try {
-        const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          setTimelineFiles(data.files || []);
-        }
-      } catch {
-        // Silently ignore fetch errors - files are optional
-      }
-    };
-
-    fetchFiles();
-  }, [conversationId, agentId, filesFetchKey, accessToken]);
-
-  // Fetch todos from API
-  useEffect(() => {
-    if (!conversationId || !agentId) {
-      setTimelineTasks([]);
-      todosFetchedForRef.current = null;
-      return;
-    }
-
-    const currentFetchState = { conversationId, agentId, fetchKey: todosFetchKey };
-    if (
-      todosFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
-      todosFetchedForRef.current?.agentId === currentFetchState.agentId &&
-      todosFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
-    ) {
-      return;
-    }
-    
-    todosFetchedForRef.current = currentFetchState;
-
-    const fetchTodos = async () => {
-      try {
-        const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const fetchedTodos: TaskItem[] = (data.todos || []).map(
-            (todo: { content?: string; status?: string }, idx: number) => ({
-              id: `todo-${idx}`,
-              content: todo.content || "",
-              status: (todo.status as "pending" | "in_progress" | "completed") || "pending",
-            })
-          );
-          setTimelineTasks(fetchedTodos);
-        }
-      } catch {
-        // Silently ignore fetch errors - todos are optional
-      }
-    };
-
-    fetchTodos();
-  }, [conversationId, agentId, todosFetchKey, accessToken]);
-
-  // Handle file download
-  const handleTimelineFileDownload = useCallback(
-    async (path: string) => {
-      if (!conversationId || !agentId || isDownloadingFile) return;
-
-      setIsDownloadingFile(true);
-      setDownloadingFilePath(path);
-
-      try {
-        const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          const content = data.content || "";
-
-          // Create blob and download
-          const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          const filename = path.split("/").pop() || "file.txt";
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }
-      } catch {
-        // Silently ignore download errors
-      } finally {
-        setIsDownloadingFile(false);
-        setDownloadingFilePath(undefined);
-      }
-    },
-    [conversationId, agentId, accessToken, isDownloadingFile]
-  );
-
-  // Handle file delete
-  const handleTimelineFileDelete = useCallback(
-    async (path: string) => {
-      if (!conversationId || !agentId || isDeletingFile) return;
-
-      setIsDeletingFile(true);
-      setDeletingFilePath(path);
-
-      try {
-        const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
-          {
-            method: "DELETE",
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
-        );
-
-        if (response.ok) {
-          setFilesFetchKey((k) => k + 1);
-        }
-      } catch {
-        // Silently ignore delete errors
-      } finally {
-        setIsDeletingFile(false);
-        setDeletingFilePath(undefined);
-      }
-    },
-    [conversationId, agentId, accessToken, isDeletingFile]
-  );
+    // With AG-UI, there's no A2A taskId-based recovery. Interrupted messages
+    // show a retry banner directly — the user re-sends the message.
+    // This effect is kept as a no-op placeholder for future server-side recovery.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, conversation?.messages?.length]);
 
   // ═══════════════════════════════════════════════════════════════
   // RESTORE PENDING USER INPUT FORM after page refresh / navigation.
+  // During live streaming, pendingUserInput is set when a UserInputMetaData
+  // artifact arrives.  That state is ephemeral — lost on refresh.  Here we
+  // reconstruct it from the persisted A2A events so the form re-appears.
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
     // Clear dismissed-form tracking when switching conversations
     dismissedInputForMessageRef.current.clear();
     setPendingUserInput(null);
   }, [activeConversationId]);
-
-  // Track last message SSE events length to re-trigger restoration when events load
-  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.streamEvents?.length ?? 0;
 
   useEffect(() => {
     if (pendingUserInput || isThisConversationStreaming) return;
@@ -544,59 +227,20 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Only restore if the last message is from the assistant (user hasn't replied yet)
     if (lastMsg.role !== "assistant") return;
 
-    // Don't restore if the assistant message completed (isFinal=true)
+    // Don't restore if the assistant message completed (isFinal=true means the
+    // workflow finished; any HITL form in the events is from an earlier turn).
     if (lastMsg.isFinal) {
+      console.log(`[ChatPanel] 📝 HITL restore skipped: last assistant message is final (workflow completed)`);
       return;
     }
 
     // Don't restore if user explicitly dismissed the form for this message
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
 
-    // Check for SSE "input_required" events
-    // Note: Only streamEvents have the input_required type. Message events (A2A) don't.
-    const streamEventsFromConv = conversation.streamEvents || [];
-    
-    // Find the last input_required event
-    // We reverse to find the most recent one
-    const inputEvent = [...streamEventsFromConv].reverse().find((e) => e.type === "input_required");
-
-    if (inputEvent && inputEvent.inputRequiredData) {
-       const { prompt, fields } = inputEvent.inputRequiredData;
-
-       // Check if already answered
-       const assistantIdx = messages.findIndex(m => m.id === lastMsg.id);
-       const hasUserReplyAfter = messages.slice(assistantIdx + 1).some(m => m.role === "user");
-       if (hasUserReplyAfter) {
-         return;
-       }
-
-       const inputFields: InputField[] = fields.map(f => ({
-            field_name: f.field_name,
-            field_label: f.field_label,
-            field_description: f.field_description,
-            field_type: f.field_type,
-            field_values: f.field_values,
-            required: f.required,
-            default_value: f.default_value,
-            placeholder: f.placeholder,
-          }));
-
-       setPendingUserInput({
-          messageId: lastMsg.id,
-          metadata: {
-            user_input: true,
-            input_title: `Input Required`,
-            input_description: prompt,
-            input_fields: inputFields,
-          },
-          contextId: activeConversationId,
-          isSSE: true,
-          agentId: agentId,
-       });
-    }
-
+    // HITL restore is now handled by the inputRequiredConversations set in the store.
+    // The set is populated by the AG-UI onInputRequired callback during streaming.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, conversation?.messages?.length, conversation?.streamEvents?.length, lastMsgEventsLen, isThisConversationStreaming, agentId]);
+  }, [activeConversationId, conversation?.messages?.length, isThisConversationStreaming]);
 
   const handleCopy = async (content: string, id: string) => {
     await navigator.clipboard.writeText(content);
@@ -604,247 +248,21 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // ═══════════════════════════════════════════════════════════════
-  // Streaming state & helpers
-  // ═══════════════════════════════════════════════════════════════
-  interface StreamLoopState {
-    accumulatedText: string;
-    rawStreamContent: string;
-    hitlFormRequested: boolean;
-    hasError: boolean;
-  }
-
-  // Get the protocol-agnostic adapter config
-  const agentProtocol = getConfig('agentProtocol');
-
-  /**
-   * Build StreamCallbacks that wire adapter events into the Zustand store,
-   * HITL form, and file/todo fetches. Used by both submitMessage and HITL resume.
-   */
-  const buildStreamCallbacks = useCallback((
-    convId: string,
-    assistantMsgId: string,
-    loopState: StreamLoopState,
-    toolCallIdToName: Map<string, string>,
-  ): StreamCallbacks => ({
-    onContent(text, namespace) {
-      loopState.accumulatedText += text;
-      loopState.rawStreamContent += text;
-
-      // Build a StreamEvent for the store (timeline rendering)
-      const streamEvent = createStreamEvent("content", { text, namespace });
-      addStreamEvent(streamEvent, convId);
-
-      // Update message content immediately for progressive rendering
-      updateMessage(convId, assistantMsgId, {
-        content: loopState.accumulatedText,
-        rawStreamContent: loopState.rawStreamContent,
-      });
-    },
-
-    onToolStart(toolCallId, toolName, args, namespace) {
-      toolCallIdToName.set(toolCallId, toolName);
-      const streamEvent = createStreamEvent("tool_start", {
-        tool_name: toolName,
-        tool_call_id: toolCallId,
-        args,
-        namespace: namespace ?? [],
-      });
-      addStreamEvent(streamEvent, convId);
-    },
-
-    onToolEnd(toolCallId, toolName, error, namespace) {
-      const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
-      const streamEvent = createStreamEvent("tool_end", {
-        tool_call_id: toolCallId,
-        error,
-        namespace: namespace ?? [],
-      });
-      addStreamEvent(streamEvent, convId);
-
-      // Trigger file/todo fetches when the relevant tool completes
-      if (resolvedName) {
-        if (FILE_TOOL_NAMES.includes(resolvedName as typeof FILE_TOOL_NAMES[number])) {
-          setFilesFetchKey((k) => k + 1);
-        } else if (resolvedName === TODO_TOOL_NAME) {
-          setTodosFetchKey((k) => k + 1);
-        }
-      }
-    },
-
-    onInputRequired(interruptId, prompt, fields, agent) {
-      loopState.hitlFormRequested = true;
-
-      const streamEvent = createStreamEvent("input_required", {
-        interrupt_id: interruptId,
-        prompt,
-        fields,
-        agent,
-        namespace: [],
-      });
-      addStreamEvent(streamEvent, convId);
-
-      const inputFields: InputField[] = fields.map(f => ({
-        field_name: f.field_name,
-        field_label: f.field_label,
-        field_description: f.field_description,
-        field_type: f.field_type,
-        field_values: f.field_values,
-        required: f.required,
-        default_value: f.default_value,
-        placeholder: f.placeholder,
-      }));
-
-      setPendingUserInput({
-        messageId: assistantMsgId,
-        metadata: {
-          user_input: true,
-          input_title: "Input Required",
-          input_description: prompt,
-          input_fields: inputFields,
-        },
-        contextId: convId,
-        isSSE: true,
-        agentId,
-      });
-
-      if (prompt) {
-        loopState.accumulatedText = prompt;
-        updateMessage(convId, assistantMsgId, { content: loopState.accumulatedText });
-      }
-    },
-
-    onWarning(message, namespace) {
-      const streamEvent = createStreamEvent("warning", {
-        message,
-        namespace: namespace ?? [],
-      });
-      addStreamEvent(streamEvent, convId);
-    },
-
-    onDone() {
-      // Finalization handled after adapter.streamMessage resolves
-    },
-
-    onError(message) {
-      console.error("[DynamicAgent] Stream error event:", message);
-      loopState.hasError = true;
-    },
-  }), [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTodosFetchKey]);
-
-  /**
-   * Finalize a stream loop — copies conversation-level streamEvents to the
-   * message for persistence, determines turn status, and saves to MongoDB.
-   */
-  const finalizeStreamLoop = useCallback((
-    conversationId: string,
-    assistantMsgId: string,
-    state: StreamLoopState,
-  ) => {
-    // Check if the message was already finalized (e.g., by cancelConversationRequest)
-    const currentConv = useChatStore.getState().conversations.find((c: Conversation) => c.id === conversationId);
-    const currentMsg = currentConv?.messages.find((m: ChatMessageType) => m.id === assistantMsgId);
-    const wasAlreadyCancelled = currentMsg?.isFinal && currentMsg?.turnStatus === "interrupted";
-
-    // Copy conversation-level streamEvents to the message for persistence.
-    const turnStreamEvents = currentConv?.streamEvents || [];
-
-    if (wasAlreadyCancelled) {
-      saveMessagesToServer(conversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save cancelled messages:', err);
-      });
-      return;
-    }
-
-    const isFinal = !state.hitlFormRequested;
-    const turnStatus: TurnStatus = state.hitlFormRequested
-      ? "waiting_for_input"
-      : state.hasError
-        ? "interrupted"
-        : "done";
-
-    updateMessage(conversationId, assistantMsgId, {
-      content: state.accumulatedText,
-      rawStreamContent: state.rawStreamContent,
-      isFinal,
-      turnStatus,
-      streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
-    });
-    setConversationStreaming(conversationId, null);
-    saveMessagesToServer(conversationId).catch((err) => {
-      console.error('[DynamicAgent] Failed to save messages:', err);
-    });
-  }, [updateMessage, setConversationStreaming, saveMessagesToServer]);
-
   // Core submit function that accepts a message directly
   const submitMessage = useCallback(async (messageToSend: string) => {
     if (!messageToSend.trim() || isThisConversationStreaming) return;
 
-    // Create conversation if needed
-    let convId = activeConversationId;
-    if (!convId) {
-      convId = createConversation(agentId);
-    }
-
-    // Clear previous turn's events
-    clearStreamEvents(convId);
-
-    // Add user message - generate turnId for this request/response pair
-    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    addMessage(convId, {
-      role: "user",
-      content: messageToSend,
-      senderEmail: session?.user?.email ?? undefined,
-      senderName: session?.user?.name ?? undefined,
-      senderImage: session?.user?.image ?? undefined,
-    }, turnId);
-
-    // Add assistant message placeholder with same turnId
-    const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
-
-    // Create protocol-agnostic adapter
-    const adapter = createStreamAdapter({
-      protocol: agentProtocol as "custom" | "agui",
+    // Delegate entirely to the store's sendMessage (AG-UI streaming path)
+    await sendMessage({
+      message: messageToSend,
+      conversationId: activeConversationId ?? undefined,
+      endpoint,
       accessToken,
+      userEmail: session?.user?.email ?? undefined,
+      userName: session?.user?.name ?? undefined,
+      userImage: session?.user?.image ?? undefined,
     });
-
-    const loopState: StreamLoopState = {
-      accumulatedText: "",
-      rawStreamContent: "",
-      hitlFormRequested: false,
-      hasError: false,
-    };
-    const toolCallIdToName = new Map<string, string>();
-
-    // Mark this conversation as streaming
-    setConversationStreaming(convId, {
-      conversationId: convId,
-      messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() },
-      streamAdapter: adapter,
-    });
-
-    try {
-      const callbacks = buildStreamCallbacks(convId, assistantMsgId, loopState, toolCallIdToName);
-
-      await adapter.streamMessage(
-        { message: messageToSend, conversationId: convId, agentId },
-        callbacks,
-      );
-
-      // Finalize the stream
-      finalizeStreamLoop(convId, assistantMsgId, loopState);
-
-    } catch (error) {
-      console.error("[DynamicAgent] Stream error:", error);
-      appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
-      updateMessage(convId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
-      setConversationStreaming(convId, null);
-      saveMessagesToServer(convId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save error messages:', err);
-      });
-    }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
+  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, session, sendMessage]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -869,15 +287,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const handleSkillsCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation(agentId);
+      convId = createConversation();
     }
 
+    // Add user message showing the command
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/skills" }, turnId);
 
     // Set a descriptive title instead of "/skills"
     updateConversationTitle(convId, "Skills Catalog");
 
+    // Add placeholder assistant message
     const msgId = addMessage(convId, { role: "assistant", content: "Loading skills..." }, turnId);
 
     try {
@@ -921,7 +341,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const handleHelpCommand = useCallback(() => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation(agentId);
+      convId = createConversation();
     }
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/help" }, turnId);
@@ -947,8 +367,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
   // Handle /clear command
   const handleClearCommand = useCallback(() => {
-    createConversation(agentId);
-  }, [createConversation, agentId]);
+    // Create a fresh conversation (effectively clearing the current one)
+    createConversation();
+  }, [createConversation]);
 
   // Unified slash command executor
   const executeSlashCommand = useCallback(async (commandId: string) => {
@@ -992,7 +413,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         setQueuedMessages(prev => [...prev, message]);
         setInput("");
       } else {
-        // Queue is full
+        // Queue is full - show feedback or prevent action
         console.log("Queue is full (3/3). Send or cancel messages to queue more.");
       }
       return;
@@ -1007,6 +428,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
+    // Send message as-is (users can use @agent syntax naturally)
     const message = input.trim();
 
     // Dismiss any pending input form when user types text directly
@@ -1034,85 +456,55 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
   }, [activeConversationId, cancelConversationRequest]);
 
-  // Stable callback for feedback changes
+  // Stable callback for feedback changes (avoids creating new function refs on each render)
   const handleFeedbackChange = useCallback((messageId: string, feedback: Feedback) => {
     if (activeConversationId) {
       updateMessageFeedback(activeConversationId, messageId, feedback);
     }
   }, [activeConversationId, updateMessageFeedback]);
 
-  // Feedback submission is handled by FeedbackButton → POST /api/feedback
-  // which writes to both Langfuse and the unified feedback MongoDB collection.
-  const handleFeedbackSubmit = useCallback(async (_messageId: string, _feedback: Feedback) => {
-    // no-op: POST /api/feedback handles both Langfuse + MongoDB
+  // Stable callback for feedback submission — persist to MongoDB alongside Langfuse
+  const handleFeedbackSubmit = useCallback(async (messageId: string, feedback: Feedback) => {
+    if (!feedback.type || getConfig('storageMode') !== 'mongodb') return;
+    try {
+      await apiClient.updateMessage(messageId, {
+        feedback: {
+          rating: feedback.type === 'like' ? 'positive' : 'negative',
+          comment: feedback.reason === 'Other' ? feedback.additionalFeedback : feedback.reason,
+        },
+      });
+    } catch (err) {
+      console.error('[ChatPanel] Failed to persist feedback to MongoDB:', err);
+    }
   }, []);
 
-  // Handle user input form submission via SSE/Dynamic Agents resume
-  const handleUserInputSubmitSSE = useCallback(async (formData: Record<string, string>) => {
-    if (!pendingUserInput || !activeConversationId || !pendingUserInput.agentId) return;
+  // Handle user input form submission via HITL resume (Platform Engineer / SSE path)
+  // Formats form data as a user message and delegates to the store's sendMessage,
+  // which owns the full SSE streaming loop (including HITL continuation).
+  const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
+    if (!pendingUserInput || !activeConversationId) return;
 
-    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    console.log("[ChatPanel] HITL form submitted:", formData);
+
+    const prevMessageId = pendingUserInput.messageId;
+    dismissedInputForMessageRef.current.add(prevMessageId);
+    setPendingUserInput(null);
+
     const selectionSummary = Object.entries(formData)
       .map(([key, value]) => `${key}: ${value}`)
       .join("\n");
-    addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
-    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+    const userMessage = selectionSummary || "Form submitted.";
 
-    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
-    const resumeAgentId = pendingUserInput.agentId;
-    setPendingUserInput(null);
-
-    // Clear previous turn's events before starting resume stream
-    clearStreamEvents(activeConversationId);
-
-    // Create protocol-agnostic adapter for resume
-    const adapter = createStreamAdapter({
-      protocol: agentProtocol as "custom" | "agui",
-      accessToken,
-    });
-
-    // Send form data as JSON string
-    const formDataJson = JSON.stringify(formData);
-
-    setConversationStreaming(activeConversationId, {
+    await sendMessage({
+      message: userMessage,
       conversationId: activeConversationId,
-      messageId: assistantMsgId,
-      client: { abort: () => adapter.abort() },
-      streamAdapter: adapter,
+      endpoint,
+      accessToken,
+      userEmail: session?.user?.email ?? undefined,
+      userName: session?.user?.name ?? undefined,
+      userImage: session?.user?.image ?? undefined,
     });
-
-    const loopState: StreamLoopState = {
-      accumulatedText: "",
-      rawStreamContent: "",
-      hitlFormRequested: false,
-      hasError: false,
-    };
-    const toolCallIdToName = new Map<string, string>();
-
-    try {
-      const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
-
-      await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson },
-        callbacks,
-      );
-
-      // Finalize the stream
-      finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
-
-    } catch (error) {
-      console.error("[DynamicAgent] HITL resume error:", error);
-      appendToMessage(activeConversationId, assistantMsgId,
-        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
-      updateMessage(activeConversationId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
-      setConversationStreaming(activeConversationId, null);
-      saveMessagesToServer(activeConversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save HITL resume error messages:', err);
-      });
-    }
-  }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      appendToMessage, setConversationStreaming, saveMessagesToServer,
-      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
+  }, [pendingUserInput, activeConversationId, endpoint, accessToken, session, sendMessage]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1147,6 +539,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     setShowSlashMenu(false);
 
     if (cmd.action === "execute") {
+      // Execute commands (e.g., /skills, /help, /clear)
       setInput("");
       executeSlashCommand(cmd.id);
       return;
@@ -1233,57 +626,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
             {!conversation?.messages.length && (
               <div className="text-center py-20">
-                {isLoadingMessages ? (
-                  <>
-                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-                      <Loader2 className="h-8 w-8 text-white animate-spin" />
-                    </div>
-                    <h2 className="text-2xl font-bold mb-2">Loading conversation...</h2>
-                    <p className="text-muted-foreground max-w-md mx-auto mb-1">
-                      Retrieving your conversation history
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    {(() => {
-                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
-                      return (
-                        <div 
-                          className={cn(
-                            "w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center",
-                            !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
-                          )}
-                          style={gradientStyle || undefined}
-                        >
-                          <Sparkles className="h-8 w-8 text-white" />
-                        </div>
-                      );
-                    })()}
-                    <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
-                    <p className="text-muted-foreground mb-3">
-                      Start your conversation with
-                    </p>
-                    <div className="flex items-center justify-center gap-3">
-                      {(() => {
-                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
-                        return (
-                          <div 
-                            className={cn(
-                              "w-8 h-8 rounded-lg flex items-center justify-center",
-                              !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
-                            )}
-                            style={gradientStyle || undefined}
-                          >
-                            <Bot className="h-4 w-4 text-white" />
-                          </div>
-                        );
-                      })()}
-                      <span className="text-lg font-semibold">
-                        {agentName || "your agent"}
-                      </span>
-                    </div>
-                  </>
-                )}
+                <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                  <Sparkles className="h-8 w-8 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
+                <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                  {getConfig('tagline')}
+                </p>
+                <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto">
+                  {getConfig('description')}
+                </p>
               </div>
             )}
 
@@ -1291,61 +643,74 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               {(() => {
                 const allMessages = deduplicateByKey(conversation?.messages ?? [], (msg) => msg.id);
                 const turns = groupMessagesIntoTurns(allMessages);
-                
-                // Progressive loading: show only the most recent N turns
-                const totalTurns = turns.length;
-                const effectiveVisibleCount = Math.min(visibleTurnCount, totalTurns);
-                const hiddenTurnCount = Math.max(0, totalTurns - effectiveVisibleCount);
-                const visibleTurns = turns.slice(-effectiveVisibleCount);
-                
-                // Flatten visible turns to messages for rendering
+                const shouldCollapse = turns.length > COLLAPSE_THRESHOLD && !olderTurnsExpanded;
+                const collapsedTurns = shouldCollapse ? turns.slice(0, -VISIBLE_TURN_COUNT) : [];
+                // Flatten visible turns back to messages for rendering
+                const visibleTurns = shouldCollapse ? turns.slice(-VISIBLE_TURN_COUNT) : turns;
                 const visibleMessages = visibleTurns.flatMap(t =>
                   [t.userMsg, t.assistantMsg].filter(Boolean) as ChatMessageType[]
                 );
 
-                // Build a Set of visible message IDs for quick lookup
+                // Build a Set of visible message IDs for quick lookup against allMessages
                 const visibleMsgIds = new Set(visibleMessages.map(m => m.id));
-                const renderMessages = allMessages.filter(m => visibleMsgIds.has(m.id));
+                // When expanded, render all messages
+                const renderMessages = olderTurnsExpanded || turns.length <= COLLAPSE_THRESHOLD
+                  ? allMessages
+                  : allMessages.filter(m => visibleMsgIds.has(m.id));
 
-                // Handle loading more turns
-                const handleLoadMore = async () => {
-                  // Capture scroll position before loading
-                  if (scrollViewportRef.current) {
-                    const viewport = scrollViewportRef.current;
-                    scrollDistanceFromBottomRef.current = viewport.scrollHeight - viewport.scrollTop;
+                // Collect message IDs for older turns (for eviction on collapse)
+                const olderTurnMsgIds = shouldCollapse
+                  ? [] // Not needed when already collapsed
+                  : turns.slice(0, -VISIBLE_TURN_COUNT).flatMap(t =>
+                      [t.userMsg?.id, t.assistantMsg?.id].filter(Boolean) as string[]
+                    );
+
+                const handleCollapse = () => {
+                  // Evict content from old messages before collapsing
+                  if (activeConversationId && olderTurnMsgIds.length > 0) {
+                    evictOldMessageContent(activeConversationId, olderTurnMsgIds);
                   }
-                  
-                  // Increase visible turn count
-                  const newVisibleCount = Math.min(visibleTurnCount + LOAD_MORE_BATCH_SIZE, totalTurns);
-                  setVisibleTurnCount(newVisibleCount);
-                  
-                  // Re-load messages from MongoDB to restore evicted content
+                  setOlderTurnsExpanded(false);
+                };
+
+                const handleExpand = () => {
+                  setOlderTurnsExpanded(true);
+                  // Re-load turns from server to restore evicted content
                   if (activeConversationId) {
-                    await loadMessagesFromServer(activeConversationId, { force: true });
+                    loadTurnsFromServer(activeConversationId);
                   }
-                  
-                  // Restore scroll position after render (use rAF to wait for layout)
-                  requestAnimationFrame(() => {
-                    if (scrollViewportRef.current && scrollDistanceFromBottomRef.current !== null) {
-                      const viewport = scrollViewportRef.current;
-                      viewport.scrollTop = viewport.scrollHeight - scrollDistanceFromBottomRef.current;
-                      scrollDistanceFromBottomRef.current = null;
-                    }
-                  });
                 };
 
                 return (
                   <>
-                    {/* Load earlier turns divider */}
-                    {hiddenTurnCount > 0 && (
-                      <LoadEarlierDivider
-                        key="load-earlier"
-                        count={hiddenTurnCount}
-                        onLoad={handleLoadMore}
+                    {/* Collapsed older turns banner */}
+                    {shouldCollapse && collapsedTurns.length > 0 && (
+                      <CollapsedTurnsBanner
+                        key="collapsed-turns"
+                        turns={collapsedTurns}
+                        onExpand={handleExpand}
                       />
                     )}
 
-                    {/* Rendered messages (visible turns only) */}
+                    {/* Re-collapse button when older turns are expanded */}
+                    {olderTurnsExpanded && turns.length > COLLAPSE_THRESHOLD && (
+                      <motion.button
+                        key="collapse-banner"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        onClick={handleCollapse}
+                        className={cn(
+                          "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg",
+                          "bg-muted/30 hover:bg-muted/50 border border-dashed border-border/40 hover:border-border/60",
+                          "transition-all duration-200 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                        <span>Collapse {turns.length - VISIBLE_TURN_COUNT} older turns</span>
+                      </motion.button>
+                    )}
+
+                    {/* Rendered messages (recent turns, or all if expanded) */}
                     {renderMessages.map((msg, index, arr) => {
                       const isLastMessage = index === arr.length - 1;
                       const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
@@ -1365,31 +730,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                       const isLastAssistantMessage = msg.role === "assistant" &&
                         index === arr.length - 1;
 
-                      // Get SSE events for this message turn:
-                      // - For completed messages: use msg.streamEvents (persisted with the message)
-                      // - For streaming (latest message): use conversation.streamEvents (live buffer)
-                      // - Fall back to timestamp-based filtering if msg.streamEvents is not available
-                      const isStreaming = isLastAssistantMessage && isThisConversationStreaming;
-                      let turnEvents: StreamEvent[];
-                      
-                      if (msg.role !== "assistant") {
-                        turnEvents = [];
-                      } else if (isStreaming) {
-                        // Streaming: use live buffer from conversation
-                        turnEvents = conversation?.streamEvents ?? [];
-                      } else if (msg.streamEvents && msg.streamEvents.length > 0) {
-                        // Completed message with persisted events
-                        turnEvents = msg.streamEvents;
-                      } else {
-                        // Fall back to timestamp-based filtering (legacy/edge cases)
-                        turnEvents = filterEventsForTurn(
-                          conversation?.streamEvents ?? [],
-                          msg,
-                          allMessages,
-                          allMessages.findIndex(m => m.id === msg.id)
-                        );
-                      }
-
                       return (
                         <ChatMessage
                           key={msg.id}
@@ -1407,19 +747,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           conversationId={conversationId}
                           userDisplayName={userDisplayName}
                           showTimestamp={showTimestamps}
-                          agentGradient={agentGradient}
-                          agentName={agentName}
-                          turnEvents={turnEvents}
-                          // Timeline props (only passed to latest message)
-                          timelineFiles={timelineFiles}
-                          timelineTasks={timelineTasks}
-                          onFileDownload={handleTimelineFileDownload}
-                          onFileDelete={handleTimelineFileDelete}
-                          isDownloadingFile={isDownloadingFile}
-                          downloadingFilePath={downloadingFilePath}
-                          isDeletingFile={isDeletingFile}
-                          deletingFilePath={deletingFilePath}
-                          getSubagentInfo={getSubagentInfo}
                         />
                       );
                     })}
@@ -1435,29 +762,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 title={pendingUserInput.metadata.input_title}
                 description={pendingUserInput.metadata.input_description}
                 inputFields={pendingUserInput.metadata.input_fields}
-                onSubmit={handleUserInputSubmitSSE}
+                onSubmit={handleUserInputSubmit}
                 onCancel={() => {
                   if (pendingUserInput) {
                     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
-                    // For SSE, send dismissal message to resume the agent
-                    if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
-                      const dismissAdapter = createStreamAdapter({
-                        protocol: agentProtocol as "custom" | "agui",
-                        accessToken,
-                      });
-                      // Fire-and-forget: resume with rejection message
-                      const dismissalMessage = "User dismissed the input form without providing values.";
-                      dismissAdapter.resumeStream(
-                        {
-                          conversationId: activeConversationId,
-                          agentId: pendingUserInput.agentId,
-                          formData: dismissalMessage,
-                        },
-                        {}, // No callbacks — we don't render the response
-                      ).catch((err) => {
-                        console.error("[ChatPanel] Error sending SSE form dismissal:", err);
-                      });
-                    }
                   }
                   setPendingUserInput(null);
                 }}
@@ -1524,11 +832,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             </div>
             {readOnlyReason === 'admin_audit' && (
             <a
-              href="/admin?tab=feedback"
+              href={adminOrigin === 'audit-logs' ? '/admin?tab=audit-logs' : '/admin?tab=feedback'}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
             >
               <ArrowLeft className="h-3 w-3" />
-              Back to Feedback
+              {adminOrigin === 'audit-logs' ? 'Back to Audit Logs' : 'Back to Feedback'}
             </a>
             )}
           </div>
@@ -1586,20 +894,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               visible={showSlashMenu}
             />
 
-            <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
+            <div
+              className={cn(
+                "relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200",
+                isDisconnected && "opacity-50 cursor-not-allowed"
+              )}
+              title={isDisconnected ? `Disconnected from ${getConfig('appName')}` : undefined}
+            >
               <TextareaAutosize
                 ref={inputRef}
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
+                disabled={isDisconnected}
                 placeholder={
                   isThisConversationStreaming
                     ? queuedMessages.length >= 3
                       ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
                       : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                    : `Ask anything, or type / to see commands, skills, and agents...`
+                    : `Ask ${getConfig('appName')} anything, or type / to see commands, skills, and agents...`
                 }
-                className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                className={cn("flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm", isDisconnected && "cursor-not-allowed")}
                 minRows={1}
                 maxRows={10}
               />
@@ -1618,7 +933,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               <Button
                 size="icon"
                 onClick={() => handleSubmit(false)}
-                disabled={!input.trim()}
+                disabled={isDisconnected || !input.trim()}
                 variant="default"
                 className="shrink-0"
                 title="Send message"
@@ -1640,65 +955,38 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   );
 }
 
-/**
- * Filter SSE events for a specific message turn based on timestamps.
- * Returns events that occurred between this message and the next user message.
- * 
- * NOTE: This is a fallback for legacy messages. Prefer using msg.streamEvents directly
- * for completed messages, as the message timestamp may be after all events finished.
- */
-function filterEventsForTurn(
-  streamEvents: StreamEvent[],
-  message: ChatMessageType,
-  allMessages: ChatMessageType[],
-  messageIndex: number
-): StreamEvent[] {
-  if (message.role !== "assistant") return [];
-  
-  const msgTime = new Date(message.timestamp).getTime();
-  
-  // Find next user message timestamp (or use Infinity for latest)
-  let endTime = Infinity;
-  for (let i = messageIndex + 1; i < allMessages.length; i++) {
-    if (allMessages[i].role === "user") {
-      endTime = new Date(allMessages[i].timestamp).getTime();
-      break;
-    }
-  }
-  
-  // Filter events within this turn's time window
-  // Events without timestamps are assumed to be from this turn if it's the latest
-  return streamEvents.filter(e => {
-    if (!e.timestamp) {
-      // For events without timestamps, include only if this is the latest assistant message
-      return messageIndex === allMessages.length - 1 || 
-             (messageIndex === allMessages.length - 2 && allMessages[allMessages.length - 1].role === "assistant");
-    }
-    const eventTime = new Date(e.timestamp).getTime();
-    return eventTime >= msgTime && eventTime < endTime;
-  });
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Message Window: Progressive loading of older turns
+// ─────────────────────────────────────────────────────────────────────────────
+// Message Window: Auto-collapse old turns for performance
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INITIAL_VISIBLE_TURNS = 3;
-const LOAD_MORE_BATCH_SIZE = 3;
+/** Number of recent turns to keep fully rendered. Older turns are collapsed. */
+const VISIBLE_TURN_COUNT = 5;
+/** Minimum total turns before auto-collapsing kicks in. */
+const COLLAPSE_THRESHOLD = 5;
 
+/** A "turn" is a user message + its assistant response (or a lone message). */
 interface Turn {
   userMsg?: ChatMessageType;
   assistantMsg?: ChatMessageType;
+  /** Short preview text for the collapsed summary row. */
   preview: string;
+  /** Timestamp of the turn (user message timestamp). */
   timestamp: Date;
 }
 
+/**
+ * Group a flat message list into turns (user+assistant pairs).
+ * Messages are paired by order: each user message is followed by an assistant
+ * message to form a turn. Unpaired messages become solo turns.
+ */
 function groupMessagesIntoTurns(messages: ChatMessageType[]): Turn[] {
   const turns: Turn[] = [];
   let i = 0;
   while (i < messages.length) {
     const msg = messages[i];
     if (msg.role === "user" && i + 1 < messages.length && messages[i + 1].role === "assistant") {
+      // Paired turn
       const assistantMsg = messages[i + 1];
       turns.push({
         userMsg: msg,
@@ -1708,6 +996,7 @@ function groupMessagesIntoTurns(messages: ChatMessageType[]): Turn[] {
       });
       i += 2;
     } else {
+      // Solo message (orphan user or assistant)
       turns.push({
         ...(msg.role === "user" ? { userMsg: msg } : { assistantMsg: msg }),
         preview: msg.content.slice(0, 80).trim() + (msg.content.length > 80 ? "..." : ""),
@@ -1720,35 +1009,81 @@ function groupMessagesIntoTurns(messages: ChatMessageType[]): Turn[] {
 }
 
 /**
- * Subtle divider that shows how many earlier turns are available to load.
- * Clicking loads the next batch progressively.
+ * CollapsedTurnsBanner — lightweight summary for older turns that are hidden.
+ * Clicking it expands the old messages. Shows turn count, first query preview,
+ * and time range. Renders ~5 DOM nodes vs hundreds for full messages.
  */
-const LoadEarlierDivider = React.memo(function LoadEarlierDivider({
-  count,
-  onLoad,
+const CollapsedTurnsBanner = React.memo(function CollapsedTurnsBanner({
+  turns,
+  onExpand,
 }: {
-  count: number;
-  onLoad: () => void;
+  turns: Turn[];
+  onExpand: () => void;
 }) {
+  if (turns.length === 0) return null;
+
+  const oldest = turns[0];
+  const newest = turns[turns.length - 1];
+  const msgCount = turns.reduce((n, t) => n + (t.userMsg ? 1 : 0) + (t.assistantMsg ? 1 : 0), 0);
+
+  const formatTime = (d: Date) => {
+    const date = d instanceof Date ? d : new Date(d);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
   return (
     <motion.button
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      onClick={onLoad}
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      onClick={onExpand}
       className={cn(
-        "w-full flex items-center justify-center gap-2 py-3 my-2",
-        "text-xs text-muted-foreground hover:text-foreground transition-colors group cursor-pointer"
+        "w-full flex items-center gap-3 px-4 py-3 rounded-xl",
+        "bg-muted/40 hover:bg-muted/60 border border-border/40 hover:border-border/60",
+        "transition-all duration-200 cursor-pointer group text-left"
       )}
     >
-      <span className="flex-1 h-px bg-border/40 group-hover:bg-border/60 transition-colors" />
-      <span className="flex items-center gap-1.5 px-3">
-        <ChevronUp className="h-3 w-3" />
-        {count} earlier
-      </span>
-      <span className="flex-1 h-px bg-border/40 group-hover:bg-border/60 transition-colors" />
+      {/* Icon */}
+      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+        <MessageSquare className="h-4 w-4 text-primary/70" />
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-foreground/80">
+            {turns.length} older {turns.length === 1 ? "turn" : "turns"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({msgCount} messages)
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
+          {oldest.preview}
+          {turns.length > 1 && ` — ... — ${newest.preview}`}
+        </p>
+      </div>
+
+      {/* Time range */}
+      <div className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground/60">
+        <Clock className="h-3 w-3" />
+        <span>{formatTime(oldest.timestamp)}</span>
+        {turns.length > 1 && (
+          <>
+            <span>—</span>
+            <span>{formatTime(newest.timestamp)}</span>
+          </>
+        )}
+      </div>
+
+      {/* Expand hint */}
+      <ChevronDown className="h-4 w-4 text-muted-foreground/50 group-hover:text-foreground/70 transition-colors shrink-0" />
     </motion.button>
   );
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ChatMessage Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -1765,21 +1100,12 @@ interface ChatMessageProps {
   isRecovering?: boolean;
   userDisplayName?: string;
   showTimestamp?: boolean;
-  agentGradient?: string | null;
-  agentName?: string;
-  turnEvents?: StreamEvent[];
-  // Timeline props (for AgentTimeline)
-  timelineFiles?: string[];
-  timelineTasks?: TaskItem[];
-  onFileDownload?: (path: string) => void;
-  onFileDelete?: (path: string) => void;
-  isDownloadingFile?: boolean;
-  downloadingFilePath?: string;
-  isDeletingFile?: boolean;
-  deletingFilePath?: string;
-  getSubagentInfo?: (agentId: string) => SubagentLookupInfo | undefined;
 }
 
+/**
+ * ChatMessage — wrapped in React.memo to prevent re-renders of older messages
+ * when only the latest streaming message is updating (every 100ms).
+ */
 const ChatMessage = React.memo(function ChatMessage({
   message,
   onCopy,
@@ -1795,32 +1121,38 @@ const ChatMessage = React.memo(function ChatMessage({
   isRecovering = false,
   userDisplayName = "You",
   showTimestamp = false,
-  agentGradient,
-  agentName,
-  turnEvents = [],
-  // Timeline props
-  timelineFiles = [],
-  timelineTasks = [],
-  onFileDownload,
-  onFileDelete,
-  isDownloadingFile,
-  downloadingFilePath,
-  isDeletingFile,
-  deletingFilePath,
-  getSubagentInfo,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
+  const showThinkingDefault = useFeatureFlagStore((s) => s.flags.showThinking ?? true);
+  const [showRawStream, setShowRawStream] = useState(() => {
+    if (message.isFinal) return false;
+    return showThinkingDefault;
+  });
   const [isHovered, setIsHovered] = useState(false);
+  // Collapse final answer for assistant messages - auto-collapse older answers, keep latest expanded
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    // Auto-collapse older answers, but keep latest answer expanded
+    if (isUser) return false;
+    return !isLatestAnswer && message.content && message.content.length > 300;
+  });
 
-  const displayContent = message.content;
-
-  // Transform SSE events into grouped timeline data for assistant messages
-  // Use turnStatus from message (defaults to "done" for backward compatibility)
-  const { data: timelineData } = useAgentTimeline(
-    turnEvents, 
-    isStreaming, 
-    message.turnStatus
+  // Split content into pre-timeline and post-timeline text so that the
+  // visual order is: initial text → tools/plan → final answer text.
+  const offset = message.timelineTextOffset;
+  const hasTimelineContent = !isUser && message.timelineSegments?.some(
+    (s: TimelineSegment) => s.type === "tool_call" || s.type === "execution_plan"
   );
+  const preTimelineText = (hasTimelineContent && offset != null && offset > 0)
+    ? message.content.slice(0, offset).trim()
+    : undefined;
+  const postTimelineText = (hasTimelineContent && offset != null)
+    ? message.content.slice(offset).trim()
+    : undefined;
+  // When there's no timeline split, show everything as a single block
+  const displayContent = (preTimelineText !== undefined) ? postTimelineText : message.content;
+
+  // Get preview for collapsed view (first 300 chars of the post-timeline / full text)
+  const collapsedPreview = (displayContent || "").slice(0, 300).trim();
 
   return (
     <motion.div
@@ -1834,42 +1166,39 @@ const ChatMessage = React.memo(function ChatMessage({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {(() => {
-        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient) : null;
-        return (
-          <div
-            className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
-              isUser
-                ? "bg-primary"
-                : !gradientStyle && "gradient-primary-br",
-              isStreaming && "animate-pulse"
-            )}
-            style={gradientStyle || undefined}
-          >
-            {isUser ? (
-              message.senderImage ? (
-                <img
-                  src={message.senderImage}
-                  alt={message.senderName || userDisplayName}
-                  className="w-9 h-9 rounded-xl object-cover"
-                />
-              ) : (
-                <User className="h-4 w-4 text-white" />
-              )
-            ) : isStreaming ? (
-              <Loader2 className="h-4 w-4 text-white animate-spin" />
-            ) : (
-              <Bot className="h-4 w-4 text-white" />
-            )}
-          </div>
-        );
-      })()}
+      {/* Avatar */}
+      <div
+        className={cn(
+          "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
+          isUser
+            ? "bg-primary"
+            : "gradient-primary-br",
+          isStreaming && "animate-pulse"
+        )}
+      >
+        {isUser ? (
+          message.senderImage ? (
+            <img
+              src={message.senderImage}
+              alt={message.senderName || userDisplayName}
+              className="w-9 h-9 rounded-xl object-cover"
+            />
+          ) : (
+            <User className="h-4 w-4 text-white" />
+          )
+        ) : isStreaming ? (
+          <Loader2 className="h-4 w-4 text-white animate-spin" />
+        ) : (
+          <Bot className="h-4 w-4 text-white" />
+        )}
+      </div>
 
+      {/* Message Content */}
       <div className={cn(
         "flex-1 min-w-0",
         isUser ? "max-w-[85%] text-right ml-auto" : "max-w-full"
       )}>
+        {/* Role label with collapse button and stop button for assistant messages */}
         <div className={cn(
           "flex items-center mb-1.5",
           isUser
@@ -1894,7 +1223,7 @@ const ChatMessage = React.memo(function ChatMessage({
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium">{agentName || getConfig('appName')}</span>
+                <span className="text-xs font-medium">{getConfig('appName')}</span>
                 {showTimestamp && (
                   <span className="text-[10px] text-muted-foreground/60 font-normal">
                     {message.timestamp instanceof Date
@@ -1904,47 +1233,223 @@ const ChatMessage = React.memo(function ChatMessage({
                 )}
               </div>
               <div className="flex items-center gap-2">
+                {!isStreaming && displayContent && displayContent.length > 300 && (
+                  <button
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    title={isCollapsed ? "Expand answer" : "Collapse answer"}
+                  >
+                    {isCollapsed ? (
+                      <>
+                        <ChevronDown className="h-3 w-3" />
+                        <span>Expand</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="h-3 w-3" />
+                        <span>Collapse</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </>
           )}
         </div>
 
-        {isUser ? (
-          // ── User message bubble ──
-          <>
-            <div
-              className="rounded-xl rounded-tr-sm relative overflow-hidden inline-block bg-primary text-primary-foreground px-4 py-3 max-w-full selection:bg-primary-foreground selection:text-primary"
-            >
-              <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
-                <MarkdownRenderer content={message.content} variant="user" />
-              </div>
-            </div>
+        {/* ═══════════════════════════════════════════════════════════
+            AG-UI SEQUENTIAL RENDERING:
+            1. Pre-timeline text (initial assistant commentary)
+            2. Timeline (tools / execution plan)
+            3. Post-timeline text (final answer)
+            ═══════════════════════════════════════════════════════════ */}
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: isHovered ? 1 : 0.8 }}
-              className="flex items-center gap-1 mt-2 justify-end"
+        {/* Pre-timeline text: rendered before tools/plan (no border, matches prod) */}
+        {preTimelineText && (
+          <div className="prose-container overflow-hidden break-words overflow-wrap-anywhere mb-2">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={assistantMarkdownComponents}
             >
-              {onRetry && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                        onClick={onRetry}
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Retry this prompt
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+              {preTimelineText}
+            </ReactMarkdown>
+          </div>
+        )}
+
+        {/* Timeline: only show when there are tool/plan segments */}
+        {hasTimelineContent && (
+          <AgentTimeline
+            segments={message.timelineSegments!.filter((s: TimelineSegment) => s.type === "tool_call" || s.type === "execution_plan")}
+            isStreaming={isStreaming}
+            isCollapsed={isCollapsed}
+          />
+        )}
+
+        {/* Crash recovery indicators */}
+        {!isUser && (isRecovering || message.isInterrupted) && (
+          <motion.div
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-lg border mb-3",
+              isRecovering
+                ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+            )}
+          >
+            {isRecovering ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">Recovering interrupted task...</p>
+                  <p className="text-xs opacity-70 mt-0.5">
+                    Checking if the backend task completed. This may take a moment.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <Activity className="h-4 w-4 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">Response was interrupted</p>
+                  <p className="text-xs opacity-70 mt-0.5">
+                    The page was reloaded while this response was streaming. Click Retry to resend.
+                  </p>
+                </div>
+                {onRetry && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onRetry}
+                    className="shrink-0 gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Retry
+                  </Button>
+                )}
+              </>
+            )}
+          </motion.div>
+        )}
+
+        {/* Message content — post-timeline text (or full content when no timeline split) */}
+        {displayContent && (
+          <div
+              className={cn(
+                "rounded-xl relative overflow-hidden",
+                isUser
+                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm max-w-full selection:bg-primary-foreground selection:text-primary"
+                  : ""
               )}
+            >
+              {isUser ? (
+                <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className="text-base font-bold text-primary-foreground mb-2 mt-3 first:mt-0 pb-1 border-b border-white/20">{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="text-sm font-semibold text-primary-foreground mb-1.5 mt-3 first:mt-0">{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-semibold text-primary-foreground mb-1 mt-2 first:mt-0">{children}</h3>
+                      ),
+                      p: ({ children }) => (
+                        <p className="text-sm leading-relaxed text-primary-foreground/90 mb-1.5 last:mb-0">{children}</p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="list-disc list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="list-decimal list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>
+                      ),
+                      li: ({ children }) => (
+                        <li className="leading-relaxed">{children}</li>
+                      ),
+                      strong: ({ children }) => (
+                        <strong className="font-semibold text-primary-foreground">{children}</strong>
+                      ),
+                      em: ({ children }) => (
+                        <em className="italic text-primary-foreground/90">{children}</em>
+                      ),
+                      code: ({ className, children, ...props }) => {
+                        const isBlock = /language-/.test(className || "") || String(children).includes("\n");
+                        if (isBlock) {
+                          return (
+                            <pre className="my-2 p-2.5 rounded-md bg-black/20 overflow-x-auto">
+                              <code className="text-xs font-mono text-primary-foreground/90 whitespace-pre-wrap break-words" {...props}>{children}</code>
+                            </pre>
+                          );
+                        }
+                        return (
+                          <code className="bg-black/20 text-primary-foreground px-1 py-0.5 rounded text-xs font-mono" {...props}>{children}</code>
+                        );
+                      },
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-2 border-white/30 pl-3 my-2 italic text-primary-foreground/80">{children}</blockquote>
+                      ),
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-primary-foreground hover:text-white">{children}</a>
+                      ),
+                      hr: () => <hr className="my-3 border-white/20" />,
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-2 rounded border border-white/20">
+                          <table className="w-full text-xs">{children}</table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead className="bg-black/10">{children}</thead>,
+                      th: ({ children }) => <th className="px-2 py-1 text-left font-semibold text-primary-foreground border-b border-white/20">{children}</th>,
+                      td: ({ children }) => <td className="px-2 py-1 border-b border-white/10 text-primary-foreground/90">{children}</td>,
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <div className="prose-container overflow-hidden break-words overflow-wrap-anywhere">
+                  {isCollapsed ? (
+                    <div className="space-y-2">
+                      <div className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
+                        {collapsedPreview}
+                        {displayContent.length > 300 && "..."}
+                      </div>
+                      <button
+                        onClick={() => setIsCollapsed(false)}
+                        className="text-xs text-primary hover:text-primary/80 underline transition-colors"
+                      >
+                        Show full answer
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={assistantMarkdownComponents}
+                      >
+                        {displayContent || "..."}
+                      </ReactMarkdown>
+                      {/* Streaming cursor */}
+                      {isStreaming && (
+                        <span className="inline-block w-1.5 h-4 bg-primary/60 animate-pulse ml-0.5 align-text-bottom" />
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+          </div>
+        )}
 
+        {/* Actions for user messages */}
+        {isUser && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isHovered ? 1 : 0.8 }}
+            className="flex items-center gap-1 mt-2 justify-end"
+          >
+            {/* Retry button */}
+            {onRetry && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1952,150 +1457,131 @@ const ChatMessage = React.memo(function ChatMessage({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                      onClick={() => onCopy(message.content, message.id)}
+                      onClick={onRetry}
                     >
-                      {isCopied ? (
-                        <Check className="h-3.5 w-3.5 text-green-400" />
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Retry this prompt
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            )}
+
+            {/* Copy button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    onClick={() => onCopy(message.content, message.id)}
+                  >
+                    {isCopied ? (
+                      <Check className="h-3.5 w-3.5 text-green-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isCopied ? "Copied!" : "Copy message"}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </motion.div>
+        )}
+
+        {/* Actions for assistant messages */}
+        {!isUser && displayContent && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isHovered ? 1 : 0.8 }}
+            className="flex items-center gap-1 mt-2"
+          >
+            {/* Collapse button */}
+            {!isStreaming && displayContent.length > 300 && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={() => setIsCollapsed(!isCollapsed)}
+                    >
+                      {isCollapsed ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
                       ) : (
-                        <Copy className="h-3.5 w-3.5" />
+                        <ChevronUp className="h-3.5 w-3.5" />
                       )}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {isCopied ? "Copied!" : "Copy message"}
+                    {isCollapsed ? "Expand answer" : "Collapse answer"}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            </motion.div>
-          </>
-        ) : (
-          // ── Assistant message ──
-          <>
-            {/* Recovery / interrupted banner */}
-            {(isRecovering || message.isInterrupted) && (
-              <motion.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-lg border mb-3",
-                  isRecovering
-                    ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
-                    : "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                )}
-              >
-                {isRecovering ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">Recovering interrupted task...</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Activity className="h-4 w-4 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">Response was interrupted</p>
-                    </div>
-                    {onRetry && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={onRetry}
-                        className="shrink-0 gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                        Retry
-                      </Button>
+            )}
+
+            {/* Retry button */}
+            {onRetry && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={onRetry}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Regenerate response
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+            {/* Copy button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    onClick={() => onCopy(displayContent, message.id)}
+                  >
+                    {isCopied ? (
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
                     )}
-                  </>
-                )}
-              </motion.div>
-            )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isCopied ? "Copied!" : "Copy response"}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
-            {/* Main content: timeline (streaming or completed with events) or fallback */}
-            {isStreaming || turnEvents.length > 0 ? (
-              <AgentTimeline
-                data={timelineData}
-                files={isLatestAnswer ? timelineFiles : []}
-                tasks={isLatestAnswer ? timelineTasks : []}
-                isLatestMessage={isLatestAnswer}
-                onFileDownload={onFileDownload}
-                onFileDelete={onFileDelete}
-                isDownloadingFile={isDownloadingFile}
-                downloadingFilePath={downloadingFilePath}
-                isDeletingFile={isDeletingFile}
-                deletingFilePath={deletingFilePath}
-                getSubagentInfo={getSubagentInfo}
-              />
-            ) : displayContent ? (
-              // Legacy fallback: completed message with no persisted events
-              <div className="rounded-xl bg-card/50 border border-border/50 px-4 py-3">
-                <MarkdownRenderer content={displayContent} />
-              </div>
-            ) : null}
+            {/* Divider */}
+            <div className="h-4 w-px bg-border/50" />
 
-            {/* Action buttons (copy, retry, collapse) */}
-            {displayContent && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: isHovered ? 1 : 0.8 }}
-                className="flex items-center gap-1 mt-2"
-              >
-                {onRetry && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                          onClick={onRetry}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Regenerate response
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                        onClick={() => onCopy(displayContent, message.id)}
-                      >
-                        {isCopied ? (
-                          <Check className="h-3.5 w-3.5 text-green-500" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {isCopied ? "Copied!" : "Copy response"}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <div className="h-4 w-px bg-border/50" />
-
-                <FeedbackButton
-                  messageId={message.id}
-                  conversationId={conversationId}
-                  feedback={feedback}
-                  onFeedbackChange={onFeedbackChange}
-                  onFeedbackSubmit={onFeedbackSubmit}
-                />
-              </motion.div>
-            )}
-
-          </>
+            {/* Feedback buttons */}
+            <FeedbackButton
+              messageId={message.id}
+              conversationId={conversationId}
+              feedback={feedback}
+              onFeedbackChange={onFeedbackChange}
+              onFeedbackSubmit={onFeedbackSubmit}
+            />
+          </motion.div>
         )}
       </div>
     </motion.div>
