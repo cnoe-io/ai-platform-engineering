@@ -54,33 +54,88 @@ export interface CallbackResult {
 
 /**
  * Spin up a local HTTP server on `port` that captures the OAuth redirect.
- * Returns a promise that resolves on the first `?code=` request.
+ *
+ * Returns { ready, result }:
+ *   ready  — resolves once the server is actually listening (safe to open browser)
+ *   result — resolves with the first ?code= callback received
+ *
+ * Uses Bun.serve() when available (compiled binary), falls back to node:http.
  */
-export async function startCallbackServer(port: number): Promise<CallbackResult> {
-  return new Promise((resolve, reject) => {
+export function startCallbackServer(port: number): {
+  ready: Promise<void>;
+  result: Promise<CallbackResult>;
+} {
+  let readyResolve!: () => void;
+  let readyReject!: (e: unknown) => void;
+  const ready = new Promise<void>((res, rej) => {
+    readyResolve = res;
+    readyReject = rej;
+  });
+
+  const result = new Promise<CallbackResult>((resolve, reject) => {
+    const successHtml =
+      "<html><body><h2>Authentication successful!</h2>" +
+      "<p>You may close this tab and return to the terminal.</p></body></html>";
+    const failHtml = "<html><body>Missing code parameter. Close this tab.</body></html>";
+
+    // Bun.serve() is preferred in compiled binaries — more reliable than node:http
+    if (typeof Bun !== "undefined") {
+      try {
+        let server: ReturnType<typeof Bun.serve>;
+        server = Bun.serve({
+          port,
+          hostname: "127.0.0.1",
+          fetch(req) {
+            const url = new URL(req.url);
+            const code = url.searchParams.get("code");
+            const state = url.searchParams.get("state") ?? "";
+            if (!code) {
+              return new Response(failHtml, {
+                headers: { "Content-Type": "text/html" },
+                status: 400,
+              });
+            }
+            // Stop after this request and resolve
+            queueMicrotask(() => {
+              server.stop(true);
+              resolve({ code, state });
+            });
+            return new Response(successHtml, {
+              headers: { "Content-Type": "text/html" },
+            });
+          },
+          error(err) {
+            reject(err);
+            return new Response("Internal error", { status: 500 });
+          },
+        });
+        readyResolve();
+      } catch (err) {
+        readyReject(err);
+        reject(err);
+      }
+      return;
+    }
+
+    // Fallback: node:http
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-      const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+      const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state") ?? "";
-
       if (!code) {
         res.writeHead(400, { "Content-Type": "text/html" });
-        res.end("<html><body>Missing code parameter. Close this tab.</body></html>");
+        res.end(failHtml);
         return;
       }
-
       res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(
-        "<html><body><h2>Authentication successful!</h2>" +
-          "<p>You may close this tab and return to the terminal.</p></body></html>",
-      );
-
+      res.end(successHtml);
       server.close(() => resolve({ code, state }));
     });
-
-    server.on("error", reject);
-    server.listen(port);
+    server.on("error", (err) => { readyReject(err); reject(err); });
+    server.listen(port, "127.0.0.1", () => readyResolve());
   });
+
+  return { ready, result };
 }
 
 // ---------------------------------------------------------------------------
@@ -164,13 +219,16 @@ export async function loginBrowser(serverUrl: string, clientId: string): Promise
     `&code_challenge_method=S256` +
     `&state=${state}`;
 
-  const callbackPromise = startCallbackServer(7842);
+  const { ready, result: callbackResult } = startCallbackServer(7842);
+
+  // Wait for the server to actually be listening before opening the browser
+  await ready;
 
   process.stdout.write(`Opening browser for authentication…\n`);
   process.stdout.write(`  ${authUrl}\n\n`);
   await openBrowser(authUrl);
 
-  const { code } = await callbackPromise;
+  const { code } = await callbackResult;
   const tokens = await exchangeCode(code, verifier, redirectUri, serverUrl, clientId);
   await storeTokens(tokens);
   return tokens;
