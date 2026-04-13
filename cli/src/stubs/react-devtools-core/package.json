@@ -1,0 +1,7 @@
+{
+  "name": "react-devtools-core",
+  "version": "6.0.0",
+  "description": "Production stub — devtools not loaded outside DEV mode.",
+  "main": "index.js",
+  "exports": { ".": "./index.js" }
+}

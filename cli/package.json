@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.52",
+    "react-devtools-core": "file:./src/stubs/react-devtools-core",
     "commander": "^12.1.0",
     "diff": "^7.0.0",
     "execa": "^9.5.2",
@@ -51,5 +52,8 @@
   },
   "trustedDependencies": [
     "@biomejs/biome"
-  ]
+  ],
+  "overrides": {
+    "react-devtools-core": "file:./src/stubs/react-devtools-core"
+  }
 }

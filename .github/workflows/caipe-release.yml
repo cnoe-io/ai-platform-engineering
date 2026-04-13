@@ -51,13 +51,14 @@ jobs:
           bun build src/index.ts \
             --compile \
             --target=${{ matrix.target }} \
-            --outfile=dist/${{ matrix.artifact }} \
-            --external react-devtools-core
+            --outfile=dist/${{ matrix.artifact }}
 
       - name: Ad-hoc sign binary (macOS only)
         if: runner.os == 'macOS'
         working-directory: cli/dist
-        run: codesign --sign - --force --preserve-metadata=entitlements ${{ matrix.artifact }}
+        run: |
+          codesign --remove-signature ${{ matrix.artifact }}
+          codesign --sign - --force --entitlements ../entitlements.plist ${{ matrix.artifact }}
 
       - name: Compute SHA-256 checksum
         working-directory: cli/dist

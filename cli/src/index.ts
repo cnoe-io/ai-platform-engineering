@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { createRequire } from "module";
-
-// Read version from package.json at runtime
-const _require = createRequire(import.meta.url);
-const pkg = _require("../package.json") as { version: string };
+import pkg from "../package.json";
 
 // Suppress color when --no-color or NO_COLOR is set.
 // This is done early so all downstream renderers respect it.
