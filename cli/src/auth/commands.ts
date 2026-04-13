@@ -28,7 +28,7 @@ interface GlobalOpts {
 // ---------------------------------------------------------------------------
 
 export async function runLogin(
-  opts: { manual?: boolean; device?: boolean },
+  opts: { manual?: boolean; device?: boolean; force?: boolean },
   globalOpts: GlobalOpts,
 ): Promise<void> {
   // Resolve server URL — run setup wizard if not configured
@@ -45,7 +45,7 @@ export async function runLogin(
 
   // Idempotency: already authenticated?
   const existing = await loadTokens();
-  if (existing && !isExpired(existing)) {
+  if (existing && !isExpired(existing) && !opts.force) {
     const identity = existing.identity ?? "(unknown)";
     if (globalOpts.json) {
       process.stdout.write(
@@ -53,7 +53,10 @@ export async function runLogin(
           "\n",
       );
     } else {
-      process.stdout.write(`Already authenticated as ${identity}.\n`);
+      process.stdout.write(
+        `Already authenticated as ${identity}.\n` +
+          `Run \`caipe auth login --force\` to re-authenticate, or \`caipe auth logout\` first.\n`,
+      );
     }
     return;
   }

@@ -56,6 +56,7 @@ authCmd
   .description("Authenticate with the CAIPE server")
   .option("--manual", "Print auth URL only; wait for user to paste authorization code back")
   .option("--device", "Device Authorization Grant (RFC 8628): display short user code + URL, poll until approved")
+  .option("--force", "Re-authenticate even if a valid session already exists")
   .action(async (opts: Record<string, unknown>) => {
     const { runLogin } = await import("./auth/commands.js");
     await runLogin(opts, program.opts());
