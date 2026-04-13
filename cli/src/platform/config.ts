@@ -25,6 +25,10 @@ export interface Settings {
   auth?: {
     apiKey?: string;
   };
+  setup?: {
+    /** true once the user has completed or explicitly skipped the setup wizard */
+    completed?: boolean;
+  };
 }
 
 export class ServerNotConfigured extends Error {
@@ -165,11 +169,13 @@ export function getServerUrl(flagOverride?: string): string {
   throw new ServerNotConfigured();
 }
 
-/** Strip trailing slash; reject non-HTTPS. */
+/** Strip trailing slash. Allow http://localhost for local dev; require https otherwise. */
 function normalizeUrl(raw: string): string {
   const url = raw.trim().replace(/\/+$/, "");
-  if (!url.startsWith("https://")) {
-    throw new Error(`Server URL must use HTTPS: ${url}`);
+  const isLocalhost =
+    url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
+  if (!url.startsWith("https://") && !isLocalhost) {
+    throw new Error(`Server URL must use HTTPS (or http://localhost for local dev): ${url}`);
   }
   return url;
 }

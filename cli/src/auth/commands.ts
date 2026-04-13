@@ -28,15 +28,20 @@ interface GlobalOpts {
 // ---------------------------------------------------------------------------
 
 export async function runLogin(
-  opts: { manual?: boolean; device?: boolean; force?: boolean },
+  opts: { manual?: boolean; device?: boolean; force?: boolean; setupWizard?: boolean },
   globalOpts: GlobalOpts,
 ): Promise<void> {
-  // Resolve server URL — run setup wizard if not configured
+  // Resolve server URL
   let serverUrl: string;
   try {
     serverUrl = getServerUrl(globalOpts.url);
+    // Re-run setup wizard if explicitly requested
+    if (opts.setupWizard) {
+      serverUrl = await runSetupWizard();
+    }
   } catch (err) {
     if (err instanceof ServerNotConfigured) {
+      // First run — wizard has not been completed yet
       serverUrl = await runSetupWizard();
     } else {
       throw err;

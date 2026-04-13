@@ -30,8 +30,10 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
   useInput((char, key) => {
     if (key.return) {
       const url = input.trim().replace(/\/+$/, "");
-      if (!url.startsWith("https://")) {
-        setError("Server URL must start with https://");
+      const isLocalhost =
+        url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
+      if (!url.startsWith("https://") && !isLocalhost) {
+        setError("URL must start with https:// (or http://localhost for local dev)");
         return;
       }
       if (url.includes("example.com") || url.includes("your-company")) {
@@ -41,6 +43,7 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
       setError(null);
       const settings = readSettings();
       settings.server = { ...settings.server, url };
+      settings.setup = { completed: true };
       writeSettings(settings);
       onDone(url);
       exit();
