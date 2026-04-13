@@ -2,10 +2,10 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { SupervisorChatPanel } from "@/components/chat/SupervisorChatPanel";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 
-interface PlatformEngineerChatViewProps {
+interface SupervisorChatViewProps {
   /** The Platform Engineer (supervisor) backend endpoint */
   endpoint: string;
   /** MongoDB conversation UUID */
@@ -23,14 +23,14 @@ interface PlatformEngineerChatViewProps {
 /**
  * Chat view for Platform Engineer (Supervisor).
  */
-export function PlatformEngineerChatView({
+export function SupervisorChatView({
   endpoint,
   conversationId,
   conversationTitle,
   readOnly,
   readOnlyReason,
   adminOrigin,
-}: PlatformEngineerChatViewProps) {
+}: SupervisorChatViewProps) {
   const { status } = useCAIPEHealth();
   const isDisconnected = status === "disconnected";
 
@@ -43,7 +43,7 @@ export function PlatformEngineerChatView({
         transition={{ duration: 0.2 }}
         className="flex-1 min-w-0 flex flex-col overflow-hidden"
       >
-        <ChatPanel
+        <SupervisorChatPanel
           endpoint={endpoint}
           conversationId={conversationId}
           conversationTitle={conversationTitle}

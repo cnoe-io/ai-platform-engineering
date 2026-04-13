@@ -223,8 +223,8 @@ export interface MessageFeedback {
   showFeedbackOptions?: boolean;
 }
 
-// Timeline types for structured agent execution display
-export type TimelineSegmentType = "thinking" | "execution_plan" | "tool_call" | "final_answer";
+// Timeline types for structured agent execution display (Supervisor)
+export type SupervisorTimelineSegmentType = "thinking" | "execution_plan" | "tool_call" | "final_answer";
 
 export interface ToolCallInfo {
   id: string;
@@ -241,9 +241,9 @@ export interface PlanStep {
   status: "pending" | "in_progress" | "completed" | "failed" | "input_required";
 }
 
-export interface TimelineSegment {
+export interface SupervisorTimelineSegment {
   id: string;
-  type: TimelineSegmentType;
+  type: SupervisorTimelineSegmentType;
   timestamp: Date;
   content?: string;
   toolCall?: ToolCallInfo;
@@ -282,7 +282,7 @@ export interface ChatMessage {
   senderName?: string;
   senderImage?: string;
   /** Structured timeline segments built during streaming */
-  timelineSegments?: TimelineSegment[];
+  timelineSegments?: SupervisorTimelineSegment[];
   /** Turn status for Dynamic Agents: done, interrupted, or waiting_for_input */
   turnStatus?: TurnStatus;
 }

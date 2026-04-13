@@ -181,7 +181,7 @@ function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
  * token). For persistence we merge consecutive content events (same namespace)
  * into a single event, flushing whenever a non-content event appears or the
  * namespace changes. This preserves the interleaved content/tool ordering that
- * DATimelineManager needs while reducing storage by ~95%.
+ * TimelineManager needs while reducing storage by ~95%.
  *
  * Non-content events (tool_start, tool_end, warning, error, input_required)
  * pass through unchanged.

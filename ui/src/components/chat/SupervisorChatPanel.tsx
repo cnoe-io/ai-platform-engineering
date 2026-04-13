@@ -1,0 +1,2659 @@
+"use client";
+
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useSession } from "next-auth/react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { assistantMarkdownComponents, assistantProseClassName } from "./MarkdownComponents";
+import TextareaAutosize from "react-textarea-autosize";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useChatStore } from "@/store/chat-store";
+import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
+import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
+import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
+import { cn, deduplicateByKey } from "@/lib/utils";
+import { ChatMessage as ChatMessageType, A2AEvent, SupervisorTimelineSegment, PlanStep } from "@/types/a2a";
+import { parsePlanStepsFromData, parseToolFromArtifact } from "@/lib/supervisor-timeline-parsers";
+import { SupervisorTimelineManager } from "@/lib/supervisor-timeline-manager";
+import { SupervisorTimeline } from "./SupervisorTimeline";
+import { getConfig } from "@/lib/config";
+import { apiClient } from "@/lib/api-client";
+import { FeedbackButton, Feedback } from "./FeedbackButton";
+import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
+import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
+import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
+import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
+import { useSlashCommands } from "./useSlashCommands";
+
+type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
+
+interface SupervisorChatPanelProps {
+  endpoint: string;
+  conversationId?: string; // MongoDB conversation UUID
+  conversationTitle?: string;
+  readOnly?: boolean;
+  readOnlyReason?: ReadOnlyReason;
+  /** Which admin tab the user navigated from (audit-logs or feedback) */
+  adminOrigin?: "audit-logs" | "feedback" | null;
+  /** When set, use DynamicAgentClient instead of A2ASDKClient */
+  selectedAgentId?: string;
+}
+
+export function SupervisorChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, selectedAgentId }: SupervisorChatPanelProps) {
+  const { data: session } = useSession();
+  const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
+  const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
+
+  // Derive the user's first name for message labels (falls back to "You")
+  const userDisplayName = useMemo(() => {
+    const fullName = session?.user?.name;
+    if (!fullName) return "You";
+    const firstName = fullName.split(" ")[0].trim();
+    return firstName || "You";
+  }, [session?.user?.name]);
+
+  const [input, setInput] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashFilter, setSlashFilter] = useState("");
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // User input form state (HITL - Human-in-the-Loop)
+  // Supports both A2A (contextId-based) and SSE/Dynamic Agents (agentId-based)
+  const [pendingUserInput, setPendingUserInput] = useState<{
+    messageId: string;
+    metadata: UserInputMetadata;
+    contextId?: string;
+    // SSE/Dynamic Agent specific fields
+    isSSE?: boolean;
+    agentId?: string;
+  } | null>(null);
+
+  // Track message IDs where the user explicitly dismissed the input form,
+  // so we don't re-show it after the restore effect runs.
+  const dismissedInputForMessageRef = useRef<Set<string>>(new Set());
+
+  // Auto-scroll state
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const isAutoScrollingRef = useRef(false);
+
+  // Message window: collapse older turns for render performance
+  const [olderTurnsExpanded, setOlderTurnsExpanded] = useState(false);
+
+  const {
+    activeConversationId,
+    getActiveConversation,
+    createConversation,
+    addMessage,
+    updateMessage,
+    appendToMessage,
+    addEventToMessage,
+    addA2AEvent,
+    clearA2AEvents,
+    addSSEEvent,
+    clearSSEEvents,
+    setConversationStreaming,
+    isConversationStreaming,
+    cancelConversationRequest,
+    updateMessageFeedback,
+    consumePendingMessage,
+    recoverInterruptedTask,
+    evictOldMessageContent,
+    loadMessagesFromServer,
+    updateConversationTitle,
+  } = useChatStore();
+
+  // Slash command registry (built-in + skills + agents)
+  const slashCommands = useSlashCommands();
+
+  // Get access token from session (if SSO is enabled and user is authenticated)
+  const ssoEnabled = getConfig('ssoEnabled');
+  const accessToken = ssoEnabled ? session?.accessToken : undefined;
+
+  const conversation = getActiveConversation();
+
+  // Check if THIS conversation is streaming (not global)
+  const isThisConversationStreaming = activeConversationId
+    ? isConversationStreaming(activeConversationId)
+    : false;
+
+  // Check if user is near the bottom of the scroll area
+  const isNearBottom = useCallback(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return true;
+
+    // During streaming, use a much larger threshold to prevent false positives
+    // when content updates faster than scroll can complete
+    const threshold = isThisConversationStreaming ? 300 : 100; // pixels from bottom
+    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    return scrollHeight - scrollTop - clientHeight < threshold;
+  }, [isThisConversationStreaming]);
+
+  // Scroll to bottom with smooth animation
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (messagesEndRef.current) {
+      isAutoScrollingRef.current = true;
+      messagesEndRef.current.scrollIntoView({ behavior, block: "end" });
+      // Reset auto-scrolling flag after animation
+      setTimeout(() => {
+        isAutoScrollingRef.current = false;
+        setIsUserScrolledUp(false);
+        setShowScrollButton(false);
+      }, behavior === "smooth" ? 300 : 0);
+    }
+  }, []);
+
+  // Handle scroll events to detect user scrolling
+  const handleScroll = useCallback(() => {
+    // Ignore scroll events caused by auto-scrolling
+    if (isAutoScrollingRef.current) return;
+
+    const nearBottom = isNearBottom();
+    setIsUserScrolledUp(!nearBottom);
+    setShowScrollButton(!nearBottom);
+  }, [isNearBottom]);
+
+  // Set up scroll listener
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", handleScroll);
+  }, [handleScroll]);
+
+  // Auto-scroll when new messages arrive (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (autoScrollEnabled && !isUserScrolledUp) {
+      scrollToBottom("smooth");
+    }
+  }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
+
+  // Auto-scroll during streaming only if user is near the bottom
+  useEffect(() => {
+    if (autoScrollEnabled && isThisConversationStreaming && !isUserScrolledUp) {
+      scrollToBottom("instant");
+    }
+  }, [conversation?.messages?.at(-1)?.content, isThisConversationStreaming, isUserScrolledUp, scrollToBottom]);
+
+  // Reset scroll state and collapse older turns when conversation changes
+  useEffect(() => {
+    setIsUserScrolledUp(false);
+    setShowScrollButton(false);
+    setOlderTurnsExpanded(false);
+    // Scroll to bottom when switching conversations. Use rAF to wait for
+    // the browser to lay out the newly rendered messages, then scroll.
+    // For very large conversations the DOM paint can take >50ms, so a
+    // fixed timeout is unreliable.
+    const raf = requestAnimationFrame(() => {
+      scrollToBottom("instant");
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeConversationId, scrollToBottom]);
+
+  // ═══════════════════════════════════════════════════════════════
+  // LEVEL 2 CRASH RECOVERY: On mount / conversation change, check for
+  // interrupted messages and attempt to recover the result via tasks/get.
+  // ═══════════════════════════════════════════════════════════════
+  const [recoveringMessageId, setRecoveringMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeConversationId || !conversation) return;
+    if (isThisConversationStreaming) return; // Don't recover while streaming
+
+    // Find the last interrupted assistant message with a taskId
+    const msgs = conversation.messages || [];
+    const interruptedMsg = [...msgs].reverse().find(
+      (m) => m.role === "assistant" && m.isInterrupted && m.taskId
+    );
+
+    // Diagnostic: log message states for debugging recovery detection
+    const assistantMsgs = msgs.filter((m) => m.role === "assistant");
+    if (assistantMsgs.length > 0) {
+      const last = assistantMsgs[assistantMsgs.length - 1];
+      console.log(`[ChatPanel][Recovery] Last assistant message: id=${last.id}, isFinal=${last.isFinal}, isInterrupted=${last.isInterrupted}, taskId=${last.taskId || 'none'}`);
+    }
+
+    if (!interruptedMsg) {
+      console.log(`[ChatPanel][Recovery] No interrupted message with taskId found in ${assistantMsgs.length} assistant messages`);
+      return;
+    }
+
+    // Don't re-attempt if already recovering this message
+    if (recoveringMessageId === interruptedMsg.id) return;
+
+    // Validate endpoint before attempting recovery
+    if (!endpoint) {
+      console.error(`[ChatPanel][Recovery] Cannot recover — endpoint is not set`);
+      return;
+    }
+
+    console.log(`[ChatPanel][Recovery] Found interrupted message ${interruptedMsg.id} with taskId=${interruptedMsg.taskId} — attempting recovery via ${endpoint}`);
+    setRecoveringMessageId(interruptedMsg.id);
+
+    recoverInterruptedTask(activeConversationId, interruptedMsg.id, endpoint, accessToken as string | undefined)
+      .then((recovered) => {
+        if (recovered) {
+          console.log(`[ChatPanel][Recovery] Successfully recovered task result for message ${interruptedMsg.id}`);
+        } else {
+          console.log(`[ChatPanel][Recovery] Could not recover task for message ${interruptedMsg.id} — user can retry`);
+        }
+      })
+      .catch((error) => {
+        console.error(`[ChatPanel][Recovery] Recovery failed:`, error);
+      })
+      .finally(() => {
+        setRecoveringMessageId(null);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, conversation?.messages?.length]);
+
+  // ═══════════════════════════════════════════════════════════════
+  // RESTORE PENDING USER INPUT FORM after page refresh / navigation.
+  // During live streaming, pendingUserInput is set when a UserInputMetaData
+  // artifact arrives.  That state is ephemeral — lost on refresh.  Here we
+  // reconstruct it from the persisted A2A events so the form re-appears.
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    // Clear dismissed-form tracking when switching conversations
+    dismissedInputForMessageRef.current.clear();
+    setPendingUserInput(null);
+  }, [activeConversationId]);
+
+  // Track last message events length to re-trigger restoration when events load
+  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.events?.length ?? 0;
+
+  useEffect(() => {
+    if (pendingUserInput || isThisConversationStreaming) return;
+    if (!conversation || conversation.messages.length === 0) return;
+
+    const messages = conversation.messages;
+    const lastMsg = messages[messages.length - 1];
+
+    // Only restore if the last message is from the assistant (user hasn't replied yet)
+    if (lastMsg.role !== "assistant") return;
+
+    // Don't restore if the assistant message completed (isFinal=true means the
+    // workflow finished; any HITL form in the events is from an earlier turn).
+    if (lastMsg.isFinal) {
+      console.log(`[ChatPanel] 📝 HITL restore skipped: last assistant message is final (workflow completed)`);
+      return;
+    }
+
+    // Don't restore if user explicitly dismissed the form for this message
+    if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
+
+    // Gather events from both conversation-level and message-level sources
+    const convEvents = conversation.a2aEvents || [];
+    const msgEvents = lastMsg.events || [];
+    const eventsToCheck = [...convEvents, ...msgEvents];
+    
+    const hitlEvents = eventsToCheck.filter(e => e.artifact?.name === "UserInputMetaData");
+    console.log(`[ChatPanel] 📝 HITL restore check: convEvents=${convEvents.length}, msgEvents=${msgEvents.length}, total=${eventsToCheck.length}, hitlEvents=${hitlEvents.length}`);
+
+    for (const event of eventsToCheck) {
+      if (event.artifact?.name !== "UserInputMetaData") continue;
+
+      let metadata: UserInputMetadata | null = null;
+
+      // Extract from DataPart (primary format)
+      if (event.artifact?.parts) {
+        for (const part of event.artifact.parts) {
+          if (part.kind === "data" && part.data) {
+            metadata = part.data as UserInputMetadata;
+            break;
+          }
+        }
+      }
+
+      // Fallback: artifact.metadata.metadata (legacy format)
+      if (!metadata && event.artifact?.metadata) {
+        const artMeta = event.artifact.metadata as Record<string, unknown>;
+        if (artMeta.metadata && typeof artMeta.metadata === "object") {
+          metadata = artMeta.metadata as UserInputMetadata;
+        }
+      }
+
+      console.log(`[ChatPanel] 📝 HITL event found: hasMetadata=${!!metadata}, inputFields=${metadata?.input_fields?.length ?? 0}, eventTime=${event.timestamp}`);
+
+      if (metadata?.input_fields && metadata.input_fields.length > 0) {
+        // Don't restore if the user already answered this HITL form.
+        // Use position-based check: if there's a user message AFTER the last
+        // assistant message, the form was already submitted. We avoid timestamp
+        // comparisons because MongoDB created_at can be later than streaming
+        // event timestamps (post-stream saves write user messages after events).
+        const assistantIdx = messages.findIndex(m => m.id === lastMsg.id);
+        const hasUserReplyAfter = messages.slice(assistantIdx + 1).some(m => m.role === "user");
+        if (hasUserReplyAfter) {
+          console.log(`[ChatPanel] 📝 HITL form already answered (user message after assistant)`);
+          continue;
+        }
+
+        console.log(
+          `[ChatPanel] 📝 Restoring pending user input form from persisted events (${metadata.input_fields.length} fields)`
+        );
+        setPendingUserInput({ messageId: lastMsg.id, metadata });
+        return;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, conversation?.messages?.length, conversation?.a2aEvents?.length, lastMsgEventsLen, isThisConversationStreaming]);
+
+  const handleCopy = async (content: string, id: string) => {
+    await navigator.clipboard.writeText(content);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Core submit function that accepts a message directly
+  // Uses @a2a-js/sdk with AsyncGenerator pattern (same as agent-forge)
+  const submitMessage = useCallback(async (messageToSend: string) => {
+    if (!messageToSend.trim() || isThisConversationStreaming) return;
+
+    // Create conversation if needed
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+
+    // Clear previous turn's events (tasks, tool completions, stream events)
+    // Dynamic agents use SSE events, default supervisor uses A2A events
+    const isDynamicAgent = !!selectedAgentId;
+    if (isDynamicAgent) {
+      console.log(`[SSE-DEBUG] 🧹 clearSSEEvents() called for conv=${convId} — starting new turn`);
+      clearSSEEvents(convId);
+    } else {
+      console.log(`[A2A-DEBUG] 🧹 clearA2AEvents() called for conv=${convId} — starting new turn`);
+      const preCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+      console.log(`[A2A-DEBUG] 🧹 PRE-CLEAR event count: ${preCleanConv?.a2aEvents?.length ?? 0}`, preCleanConv?.a2aEvents?.map((e: any) => `${e.type}/${e.artifact?.name || 'n/a'}`));
+      clearA2AEvents(convId);
+    }
+    const postCleanConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+    console.log(`[A2A-DEBUG] 🧹 POST-CLEAR event count: ${postCleanConv?.a2aEvents?.length ?? 0}`);
+
+    // Add user message - generate turnId for this request/response pair
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    addMessage(convId, {
+      role: "user",
+      content: messageToSend,
+      // Stamp sender identity so shared conversations attribute messages correctly
+      senderEmail: session?.user?.email ?? undefined,
+      senderName: session?.user?.name ?? undefined,
+      senderImage: session?.user?.image ?? undefined,
+    }, turnId);
+
+    // Add assistant message placeholder with same turnId
+    const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
+
+    // Create the appropriate client and stream based on whether a dynamic agent is selected.
+    // Dynamic agents use SSE events, default supervisor uses A2A events.
+    let abortFn: () => void;
+    let eventStream: AsyncIterable<ParsedA2AEvent | SSEAgentEvent>;
+
+    if (selectedAgentId) {
+      // Dynamic agent: use lightweight SSE client via proxy route
+      const dynClient = new DynamicAgentClient({
+        proxyUrl: "/api/dynamic-agents/chat",
+        accessToken,
+      });
+      abortFn = () => dynClient.abort();
+      eventStream = dynClient.sendMessageStream(messageToSend, convId, selectedAgentId);
+    } else {
+      // Default supervisor: use A2A SDK client
+      // userEmail is always sent so the backend can scope per-user resources
+      // (task builder workflows, memory/fact recall, etc.).
+      const a2aClient = new A2ASDKClient({
+        endpoint,
+        accessToken,
+        userEmail: session?.user?.email ?? undefined,
+      });
+      abortFn = () => a2aClient.abort();
+      eventStream = a2aClient.sendMessageStream(messageToSend, convId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // AGENT-FORGE PATTERN: Use local variables for streaming state
+    // ═══════════════════════════════════════════════════════════════
+    let accumulatedText = ""; // Matches agent-forge's accumulatedText
+    let rawStreamContent = ""; // Accumulates ALL streaming content (never reset)
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+    let hitlFormRequested = false;
+    let lastUIUpdate = 0;
+    let capturedTaskId: string | undefined; // Capture taskId from first event for crash recovery
+    const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
+    // Buffer events locally and flush on the same throttle as UI updates.
+    // Previously, addA2AEvent was called on EVERY token, causing a Zustand set()
+    // per token — hundreds of store updates/sec that saturated React's render pipeline.
+    const eventBuffer: (A2AEvent | SSEAgentEvent)[] = [];
+
+    // Helper to add buffered event to the correct store
+    const flushEventBuffer = () => {
+      for (const bufferedEvent of eventBuffer) {
+        if (isDynamicAgent) {
+          addSSEEvent(bufferedEvent as SSEAgentEvent, convId!);
+        } else {
+          addA2AEvent(bufferedEvent as A2AEvent, convId!);
+        }
+      }
+      eventBuffer.length = 0;
+    };
+
+    // Timeline manager - encapsulates segment mutation logic
+    const timeline = new SupervisorTimelineManager();
+    const streamStartTime = Date.now();
+
+    // Mark this conversation as streaming
+    setConversationStreaming(convId, {
+      conversationId: convId,
+      messageId: assistantMsgId,
+      client: { abort: abortFn } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+    });
+
+    try {
+      // ═══════════════════════════════════════════════════════════════
+      // AGENT-FORGE PATTERN: for await loop over async generator
+      // A2ASDKClient yields ParsedA2AEvent, DynamicAgentClient yields SSEAgentEvent
+      // ═══════════════════════════════════════════════════════════════
+      for await (const event of eventStream) {
+        eventCounter++;
+        const eventNum = eventCounter;
+
+        // Normalize event properties for unified processing
+        // A2A events have: artifactName, displayContent, shouldAppend
+        // SSE events have: type, content, artifact?.name
+        const isSSEEvent = isDynamicAgent;
+        const sseEvent = event as SSEAgentEvent;
+        const a2aEvent = event as ParsedA2AEvent;
+
+        // Extract common properties
+        const artifactName = isSSEEvent
+          ? sseEvent.type  // SSE events don't use artifact.name, just use the event type
+          : (a2aEvent.artifactName || "");
+        const newContent = isSSEEvent
+          ? (sseEvent.displayContent || sseEvent.content || "")
+          : (a2aEvent.displayContent || "");
+        const eventIsFinal = isSSEEvent ? sseEvent.isFinal : a2aEvent.isFinal;
+        const eventType = isSSEEvent ? sseEvent.type : a2aEvent.type;
+
+        // LEVEL 2 CRASH RECOVERY: Capture taskId from the first event that has one.
+        // This is persisted on the assistant message so that if the tab crashes,
+        // we can poll tasks/get on reload to recover the final result.
+        if (!capturedTaskId && event.taskId) {
+          capturedTaskId = event.taskId;
+          updateMessage(convId!, assistantMsgId, { taskId: capturedTaskId });
+        }
+
+        // Buffer event for batched store update (flushed on UI_UPDATE_INTERVAL)
+        // Use appropriate conversion function based on agent type
+        if (isDynamicAgent) {
+          // SSE events from DynamicAgentClient are already SSEAgentEvent objects
+          eventBuffer.push(event as SSEAgentEvent);
+        } else {
+          const storeEvent = toStoreEvent(event as ParsedA2AEvent, `event-${eventNum}-${Date.now()}`);
+          eventBuffer.push(storeEvent as A2AEvent);
+        }
+
+        // Flush buffer immediately for important events that update the Tasks panel
+        // (execution plans, tool notifications, final results, user input forms)
+        // For SSE events, map new event types to importance
+        // Note: Subagent invocations come through as tool_start/tool_end with tool_name="task"
+        const isImportantArtifact = isSSEEvent
+          ? (sseEvent.type === "tool_start" ||
+             sseEvent.type === "tool_end" ||
+             sseEvent.type === "error")
+          : (artifactName === "execution_plan_update" ||
+             artifactName === "execution_plan_status_update" ||
+             artifactName === "tool_notification_start" ||
+             artifactName === "tool_notification_end" ||
+             artifactName === "subagent_start" ||
+             artifactName === "subagent_content" ||
+             artifactName === "subagent_end" ||
+             artifactName === "partial_result" ||
+             artifactName === "final_result" ||
+             artifactName === "complete_result" ||
+             artifactName === "UserInputMetaData");
+
+        // Log important artifacts in detail
+        if (isImportantArtifact) {
+          // Access artifact from the raw A2A event (ParsedA2AEvent wraps it)
+          const rawArtifact = (event.raw as any)?.artifact;
+          const artifactText = rawArtifact?.parts?.[0]?.text?.substring(0, 200) || newContent?.substring(0, 200) || '';
+          console.log(`[Agent-DEBUG] ⚡ IMPORTANT EVENT #${eventNum}: ${artifactName}`, {
+            convId,
+            artifactId: rawArtifact?.artifactId,
+            text: artifactText,
+            bufferSize: eventBuffer.length,
+            taskId: event.taskId,
+          });
+        }
+
+        if (isImportantArtifact && eventBuffer.length > 0) {
+          console.log(`[Agent-DEBUG] 📤 FLUSH buffer (${eventBuffer.length} events) for important event: ${artifactName}`);
+          flushEventBuffer();
+          // Log store state right after flush
+          const storeConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+          console.log(`[Agent-DEBUG] POST-FLUSH store event count: ${isDynamicAgent ? storeConv?.streamEvents?.length ?? 0 : storeConv?.a2aEvents?.length ?? 0}`);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // BUILD TIMELINE SEGMENTS (via SupervisorTimelineManager)
+        // ═══════════════════════════════════════════════════════════════
+        if (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          let planSteps: PlanStep[] = [];
+          if (rawArtifact?.parts) {
+            for (const part of rawArtifact.parts) {
+              if (part.kind === "data" && part.data) {
+                planSteps = parsePlanStepsFromData(part.data);
+                if (planSteps.length > 0) break;
+              }
+            }
+          }
+          if (planSteps.length > 0) timeline.pushPlan(planSteps, eventNum);
+        } else if (artifactName === "tool_notification_start") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const toolInfo = rawArtifact ? parseToolFromArtifact({
+            artifactId: rawArtifact.artifactId || "",
+            name: rawArtifact.name || "",
+            description: rawArtifact.description || "",
+            parts: rawArtifact.parts || [],
+            metadata: rawArtifact.metadata,
+          }) : null;
+          if (toolInfo) timeline.pushToolStart(toolInfo, eventNum);
+        } else if (artifactName === "tool_notification_end") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const description = rawArtifact?.description || "";
+          const descMatch = description.match(/Tool call (?:completed|started):\s*(.+)/i);
+          const toolName = descMatch ? descMatch[1].trim() : "";
+          timeline.completeToolByName(toolName);
+        } else if (
+          artifactName === "final_result" ||
+          artifactName === "partial_result"
+        ) {
+          // final_result = supervisor's authoritative answer (from ResponseFormat tool)
+          // partial_result = fallback final answer (stream ended without explicit completion)
+          // Both represent the final answer. complete_result is a sub-agent result
+          // that streams inline under plan steps as thinking — NOT the final answer.
+          if (newContent) {
+            timeline.pushFinalAnswer(newContent, eventNum);
+          }
+        } else if (artifactName === "complete_result") {
+          // Sub-agent complete_result streams inline as thinking under the plan step
+          if (newContent) {
+            timeline.pushThinking(newContent, eventNum);
+          }
+        } else if (
+          newContent &&
+          !isImportantArtifact &&
+          (event.type === "message" || event.type === "artifact") &&
+          artifactName !== "tool_notification_start" &&
+          artifactName !== "tool_notification_end"
+        ) {
+          // Check if the backend tagged this streaming chunk as the final answer
+          // (last plan step is active — supervisor is synthesizing)
+          const isFinalAnswer = (event.raw as any)?.artifact?.metadata?.is_final_answer === true;
+          if (isFinalAnswer) {
+            timeline.pushFinalAnswer(newContent, eventNum, false);
+          } else {
+            timeline.pushThinking(newContent, eventNum);
+          }
+        }
+
+        // Flush timeline segments to store immediately for important artifacts
+        // (plan updates, tool notifications) so the UI renders without waiting
+        // for the next streaming_result event.
+        if (isImportantArtifact) {
+          updateMessage(convId!, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            timelineSegments: timeline.getSegments(),
+          });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // DETECT USER INPUT FORM REQUEST (A2A only - SSE uses different HITL)
+        // ═══════════════════════════════════════════════════════════════
+        if (!isSSEEvent && artifactName === "UserInputMetaData" && a2aEvent.metadata) {
+          console.log(`[ChatPanel] 📝 USER INPUT FORM REQUESTED - Event #${eventNum}`);
+          const metadata = a2aEvent.metadata as UserInputMetadata;
+          if (metadata.input_fields && metadata.input_fields.length > 0) {
+            console.log(`[ChatPanel] 📝 Form has ${metadata.input_fields.length} fields:`, metadata.input_fields.map(f => f.field_name));
+            hitlFormRequested = true;
+            timeline.markPlanInputRequired();
+            setPendingUserInput({
+              messageId: assistantMsgId,
+              metadata,
+              contextId: a2aEvent.contextId || convId,
+            });
+            if (metadata.response) {
+              accumulatedText = metadata.response;
+              updateMessage(convId!, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
+            }
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // DETECT USER INPUT FORM REQUEST (SSE/Dynamic Agents)
+        // ═══════════════════════════════════════════════════════════════
+        if (isSSEEvent && sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
+          console.log(`[ChatPanel] 📝 SSE INPUT REQUIRED - Event #${eventNum}`, sseEvent.inputRequiredData);
+          const { prompt, fields, agent } = sseEvent.inputRequiredData;
+          
+          // Convert SSE InputFieldDefinition[] to UserInputMetadata format
+          const inputFields: InputField[] = fields.map(f => ({
+            field_name: f.field_name,
+            field_label: f.field_label,
+            field_description: f.field_description,
+            field_type: f.field_type,
+            field_values: f.field_values,
+            required: f.required,
+            default_value: f.default_value,
+            placeholder: f.placeholder,
+          }));
+
+          hitlFormRequested = true;
+          timeline.markPlanInputRequired();
+          setPendingUserInput({
+            messageId: assistantMsgId,
+            metadata: {
+              user_input: true,
+              input_title: `Input Required`,
+              input_description: prompt,
+              input_fields: inputFields,
+            },
+            contextId: convId,
+            isSSE: true,
+            agentId: selectedAgentId,
+          });
+
+          // Update message content with the prompt
+          if (prompt) {
+            accumulatedText = prompt;
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
+          }
+        }
+
+        // 🔍 DEBUG: Condensed logging
+        const isImportantEvent = artifactName === "final_result" || artifactName === "partial_result" ||
+                                  artifactName === "complete_result" || eventType === "error" || artifactName === "UserInputMetaData";
+        if (isImportantEvent || eventNum % 50 === 0) {
+          console.log(`[Agent] #${eventNum} ${eventType}/${artifactName} len=${newContent?.length || 0} final=${eventIsFinal} buf=${accumulatedText.length}`);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PRIORITY 1: Handle final/complete results IMMEDIATELY
+        // (Agent-forge pattern)
+        //
+        // The backend sends different artifact names depending on the scenario:
+        //   - "final_result": multi-agent synthesis or explicit completion
+        //   - "partial_result": partial/streaming result
+        //   - "complete_result": single sub-agent completed (backend dedup
+        //     skips sending a separate final_result because the sub-agent's
+        //     complete_result IS the final answer)
+        //
+        // All three must be treated identically: replace accumulatedText,
+        // set isFinal=true, and guard against subsequent events corrupting
+        // the content via hasReceivedCompleteResult.
+        // ═══════════════════════════════════════════════════════════════
+        if (artifactName === "partial_result" || artifactName === "final_result" || artifactName === "complete_result") {
+          console.log(`\n${'🎉'.repeat(20)}`);
+          console.log(`[A2A SDK] 🎉 ${artifactName.toUpperCase()} RECEIVED! Event #${eventNum}`);
+          console.log(`[A2A SDK] 📄 Content: ${newContent.length} chars`);
+          console.log(`[A2A SDK] 📝 Preview: "${newContent.substring(0, 150)}..."`);
+          console.log(`${'🎉'.repeat(20)}\n`);
+
+          if (newContent) {
+            // Replace accumulated text with complete final text (agent-forge pattern)
+            accumulatedText = newContent;
+            // Append final result to raw stream content
+            rawStreamContent += `\n\n[${artifactName}]\n${newContent}`;
+            hasReceivedCompleteResult = true;
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true, timelineSegments: timeline.getSegments() });
+            // Don't break - continue to receive status-update event
+          } else if (accumulatedText.length > 0) {
+            // Fallback: use accumulated content
+            console.log(`[A2A SDK] ⚠️ ${artifactName} empty - using accumulated content`);
+            rawStreamContent += `\n\n[${artifactName}] (using accumulated content)`;
+            hasReceivedCompleteResult = true;
+            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true, timelineSegments: timeline.getSegments() });
+            // Don't break - continue to receive status-update event
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PRIORITY 2: Handle status events (completion signals)
+        // ═══════════════════════════════════════════════════════════════
+        if (event.type === "status" && event.isFinal) {
+          console.log(`[A2A SDK] 🏁 Stream complete (final status) - Event #${eventNum}`);
+          setConversationStreaming(convId!, null);
+          break;
+        }
+
+        // Skip events without content
+        if (!newContent) continue;
+
+        // ═══════════════════════════════════════════════════════════════
+        // ACCUMULATE RAW STREAM CONTENT (always append, never reset)
+        // This captures streaming output for the "Streaming Output" view
+        // NOTE: Tool notifications, execution plans, and subagent notifications
+        // are shown in the Tasks/Tools panel, so we exclude them from raw stream
+        // ═══════════════════════════════════════════════════════════════
+        const isToolOrPlanOrSubagentArtifact =
+          artifactName === "tool_notification_start" ||
+          artifactName === "tool_notification_end" ||
+          artifactName === "execution_plan_update" ||
+          artifactName === "execution_plan_status_update" ||
+          artifactName === "subagent_start" ||
+          artifactName === "subagent_end";
+
+        if ((event.type === "message" || event.type === "artifact") && !isToolOrPlanOrSubagentArtifact) {
+          // Only accumulate actual streaming content (not tool/subagent notifications)
+          rawStreamContent += newContent;
+        }
+
+        // Log error events for debugging (errors are displayed in dedicated UI, not accumulated)
+        if (event.type === "error") {
+          console.log(`[A2A SDK] ❌ ERROR EVENT received:`, { newContent, event });
+        }
+
+        // Skip tool/plan/subagent notifications from FINAL content (shown in Tasks panel)
+        if (isToolOrPlanOrSubagentArtifact) {
+          continue;
+        }
+
+        // GUARD: Don't accumulate to final content after receiving complete result
+        if (hasReceivedCompleteResult) continue;
+
+        // ═══════════════════════════════════════════════════════════════
+        // ACCUMULATE FINAL CONTENT (Agent-forge pattern)
+        // ═══════════════════════════════════════════════════════════════
+        if (event.type === "message" || event.type === "artifact") {
+          if ('shouldAppend' in event && event.shouldAppend === false) {
+            // append=false means start fresh for final content
+            console.log(`[A2A SDK] append=false - starting fresh with new content`);
+            accumulatedText = newContent;
+          } else {
+            // Default: append to accumulated text
+            accumulatedText += newContent;
+          }
+
+          // Throttle UI updates — flush event buffer + update message together
+          // so the store only gets ONE batched update per interval, not per token.
+          const now = Date.now();
+          if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
+            // Flush buffered events first
+            if (eventBuffer.length > 0) {
+              console.log(`[A2A-DEBUG] 📤 THROTTLE-FLUSH buffer (${eventBuffer.length} events) at interval`);
+              flushEventBuffer();
+            }
+            updateMessage(convId!, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              timelineSegments: timeline.getSegments(),
+            });
+            lastUIUpdate = now;
+          }
+        }
+      }
+
+      // Finalize timeline: mark thinking as !isStreaming, running tools as completed
+      timeline.finalize();
+
+      // ═══════════════════════════════════════════════════════════════
+      // FINALIZE (Agent-forge's finishStreamingMessage pattern)
+      // ═══════════════════════════════════════════════════════════════
+
+      // Flush any remaining buffered events
+      if (eventBuffer.length > 0) {
+        console.log(`[A2A-DEBUG] 📤 FINAL-FLUSH remaining buffer (${eventBuffer.length} events)`);
+        flushEventBuffer();
+      }
+
+      // Log final event state
+      const finalConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
+      const finalEvents = finalConv?.a2aEvents || [];
+      const execPlanEvents = finalEvents.filter((e: any) => e.artifact?.name === 'execution_plan_update' || e.artifact?.name === 'execution_plan_status_update');
+      const toolStartEvents = finalEvents.filter((e: any) => e.artifact?.name === 'tool_notification_start');
+      const toolEndEvents = finalEvents.filter((e: any) => e.artifact?.name === 'tool_notification_end');
+      console.log(`[A2A-DEBUG] 🏁 STREAM COMPLETE - total events in store: ${finalEvents.length}`, {
+        execution_plans: execPlanEvents.length,
+        tool_starts: toolStartEvents.length,
+        tool_ends: toolEndEvents.length,
+        exec_plan_texts: execPlanEvents.map((e: any) => e.artifact?.parts?.[0]?.text?.substring(0, 150)),
+      });
+
+      console.log(`[A2A SDK] 🏁 STREAM COMPLETE - ${eventCounter} events, hasResult=${hasReceivedCompleteResult}`);
+      console.log(`[A2A SDK] 📊 Final content: ${accumulatedText.length} chars, Raw stream: ${rawStreamContent.length} chars`);
+
+      // Compute duration for timeline summary
+      const streamDurationSec = (Date.now() - streamStartTime) / 1000;
+      const finalSegments = timeline.getSegments();
+
+      if (hitlFormRequested) {
+        // HITL: stream ended because the agent is waiting for user input.
+        // Keep isFinal=false so the form persists correctly across refresh.
+        console.log(`[A2A SDK] 📝 Stream ended with HITL form pending — keeping isFinal=false`);
+        updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: false, timelineSegments: finalSegments });
+      } else if (!hasReceivedCompleteResult) {
+        if (accumulatedText.length > 0) {
+          console.log(`[A2A SDK] ⚠️ No final_result - using accumulated content (${accumulatedText.length} chars)`);
+          updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent, isFinal: true, timelineSegments: finalSegments });
+        } else {
+          console.log(`[A2A SDK] ⚠️ Stream ended with no content`);
+          updateMessage(convId!, assistantMsgId, { rawStreamContent, isFinal: true, timelineSegments: finalSegments });
+        }
+      } else {
+        // Ensure rawStreamContent is saved even when we received final_result
+        updateMessage(convId!, assistantMsgId, { rawStreamContent, timelineSegments: finalSegments });
+      }
+
+      // Always clear streaming state
+      setConversationStreaming(convId!, null);
+
+    } catch (error) {
+      console.error("[A2A SDK] Stream error:", error);
+      appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
+      setConversationStreaming(convId, null);
+    }
+  }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, selectedAgentId, createConversation, clearA2AEvents, clearSSEEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, addSSEEvent, setConversationStreaming]);
+
+  // Handle queued messages after streaming completes
+  useEffect(() => {
+    if (!isThisConversationStreaming && queuedMessages.length > 0) {
+      // Process first queued message
+      const [firstMessage, ...remaining] = queuedMessages;
+      setQueuedMessages(remaining);
+      // Small delay to ensure previous message is fully processed
+      setTimeout(() => {
+        submitMessage(firstMessage);
+      }, 300);
+    }
+  }, [isThisConversationStreaming, queuedMessages, submitMessage]);
+
+  // Retry handler - re-sends the message content
+  const handleRetry = useCallback((content: string) => {
+    if (isThisConversationStreaming) return; // Don't retry while streaming
+    submitMessage(content);
+  }, [isThisConversationStreaming, submitMessage]);
+
+  // Handle /skills chat command: fetch catalog and render in-chat (FR-002)
+  const handleSkillsCommand = useCallback(async () => {
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+
+    // Add user message showing the command
+    const turnId = `turn-${Date.now()}`;
+    addMessage(convId, { role: "user", content: "/skills" }, turnId);
+
+    // Set a descriptive title instead of "/skills"
+    updateConversationTitle(convId, "Skills Catalog");
+
+    // Add placeholder assistant message
+    const msgId = addMessage(convId, { role: "assistant", content: "Loading skills..." }, turnId);
+
+    try {
+      const res = await fetch("/api/skills?page=1&page_size=50", { credentials: "include" });
+      if (!res.ok) {
+        updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
+        return;
+      }
+      const data = await res.json();
+      const skills = data.skills || [];
+      const total = typeof data.meta?.total === "number" ? data.meta.total : skills.length;
+      const noMatches = data.meta?.message === "no_matches";
+      if (skills.length === 0) {
+        updateMessage(
+          convId,
+          msgId,
+          {
+            content: noMatches
+              ? "No skills match your current search or filters. Open the skills page to adjust filters or add hubs."
+              : "No skills available at the moment. Ask an admin to register hubs or agent config skills.",
+            isFinal: true,
+          },
+        );
+        return;
+      }
+      const more = total > skills.length ? ` (showing ${skills.length} of ${total})` : "";
+      const lines = [
+        `**Available Skills**${more}\n`,
+        ...skills.map((s: { name: string; description: string; source: string }) =>
+          `- **${s.name}**: ${s.description} *(${s.source})*`
+        ),
+        "\n*Same catalog as the skills page (first page). Type /skills any time to refresh.*",
+      ];
+      updateMessage(convId, msgId, { content: lines.join("\n"), isFinal: true });
+    } catch {
+      updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
+    }
+  }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
+
+  // Handle /help command: show available commands in chat
+  const handleHelpCommand = useCallback(() => {
+    let convId = activeConversationId;
+    if (!convId) {
+      convId = createConversation();
+    }
+    const turnId = `turn-${Date.now()}`;
+    addMessage(convId, { role: "user", content: "/help" }, turnId);
+
+    // Set a descriptive title instead of "/help"
+    updateConversationTitle(convId, "Help & Commands");
+
+    const agentLines = DEFAULT_AGENTS.map(a => `  \`/@${a.id}\` — ${a.label} agent`).join("\n");
+    const helpText = [
+      "**Available Commands**\n",
+      "  `/skills` — List all available skills",
+      "  `/help` — Show this help message",
+      "  `/clear` — Clear the current conversation",
+      "",
+      "**Agents** (inserts @mention, then keep typing your question)\n",
+      agentLines,
+      "",
+      "*Type `/` to see the autocomplete menu. Use Arrow keys + Tab to select.*",
+    ].join("\n");
+
+    addMessage(convId, { role: "assistant", content: helpText, isFinal: true } as any, turnId);
+  }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
+
+  // Handle /clear command
+  const handleClearCommand = useCallback(() => {
+    // Create a fresh conversation (effectively clearing the current one)
+    createConversation();
+  }, [createConversation]);
+
+  // Unified slash command executor
+  const executeSlashCommand = useCallback(async (commandId: string) => {
+    switch (commandId) {
+      case "skills":
+        await handleSkillsCommand();
+        break;
+      case "help":
+        handleHelpCommand();
+        break;
+      case "clear":
+        handleClearCommand();
+        break;
+    }
+  }, [handleSkillsCommand, handleHelpCommand, handleClearCommand]);
+
+  // Wrapper for form submission that uses input state
+  const handleSubmit = useCallback(async (forceSend = false) => {
+    if (!input.trim()) return;
+
+    // Check for slash commands via the registry
+    const trimmed = input.trim();
+    if (trimmed.startsWith("/")) {
+      const cmdName = trimmed.slice(1).toLowerCase();
+      const cmd = slashCommands.find(
+        (c) => c.action === "execute" && c.id === cmdName,
+      );
+      if (cmd) {
+        setInput("");
+        await executeSlashCommand(cmd.id);
+        return;
+      }
+    }
+
+    // If streaming and not force sending, queue the message (up to 3)
+    if (isThisConversationStreaming && !forceSend) {
+      const message = input.trim();
+
+      // Add to queue if under limit
+      if (queuedMessages.length < 3) {
+        setQueuedMessages(prev => [...prev, message]);
+        setInput("");
+      } else {
+        // Queue is full - show feedback or prevent action
+        console.log("Queue is full (3/3). Send or cancel messages to queue more.");
+      }
+      return;
+    }
+
+    // If streaming and force sending, stop current task first
+    if (isThisConversationStreaming && forceSend) {
+      handleStop();
+      // Clear queued messages when force sending
+      setQueuedMessages([]);
+      // Wait a bit for cancellation to process
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Send message as-is (users can use @agent syntax naturally)
+    const message = input.trim();
+
+    // Dismiss any pending input form when user types text directly
+    if (pendingUserInput) {
+      dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+      setPendingUserInput(null);
+    }
+
+    setInput("");
+
+    await submitMessage(message);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand]);
+
+  // Auto-submit pending message from use case selection
+  useEffect(() => {
+    const pendingMessage = consumePendingMessage();
+    if (pendingMessage) {
+      submitMessage(pendingMessage);
+    }
+  }, [activeConversationId, consumePendingMessage, submitMessage]);
+
+  const handleStop = useCallback(() => {
+    if (activeConversationId) {
+      cancelConversationRequest(activeConversationId);
+    }
+  }, [activeConversationId, cancelConversationRequest]);
+
+  // Stable callback for feedback changes (avoids creating new function refs on each render)
+  const handleFeedbackChange = useCallback((messageId: string, feedback: Feedback) => {
+    if (activeConversationId) {
+      updateMessageFeedback(activeConversationId, messageId, feedback);
+    }
+  }, [activeConversationId, updateMessageFeedback]);
+
+  // Stable callback for feedback submission — persist to MongoDB alongside Langfuse
+  const handleFeedbackSubmit = useCallback(async (messageId: string, feedback: Feedback) => {
+    if (!feedback.type || getConfig('storageMode') !== 'mongodb') return;
+    try {
+      await apiClient.updateMessage(messageId, {
+        feedback: {
+          rating: feedback.type === 'like' ? 'positive' : 'negative',
+          comment: feedback.reason === 'Other' ? feedback.additionalFeedback : feedback.reason,
+        },
+      });
+    } catch (err) {
+      console.error('[ChatPanel] Failed to persist feedback to MongoDB:', err);
+    }
+  }, []);
+
+  // Handle user input form submission via HITL resume (not plain text)
+  const handleUserInputSubmit = useCallback(async (formData: Record<string, string>) => {
+    if (!pendingUserInput || !activeConversationId) return;
+
+    console.log("[ChatPanel] 📝 HITL form submitted:", formData);
+
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const selectionSummary = Object.entries(formData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+    addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    const contextId = pendingUserInput.contextId || activeConversationId;
+    const prevMessageId = pendingUserInput.messageId;
+    const inputFields = pendingUserInput.metadata.input_fields || [];
+    dismissedInputForMessageRef.current.add(prevMessageId);
+    setPendingUserInput(null);
+
+    const client = new A2ASDKClient({ endpoint, accessToken });
+
+    // Build HITL decision with form values for the backend executor's resume handler
+    const inputFieldsWithValues = inputFields.map(field => ({
+      ...field,
+      value: formData[field.field_name] || '',
+    }));
+
+    const decision: HITLDecision = {
+      type: 'edit',
+      actionName: 'CAIPEAgentResponse',
+      args: {
+        args: {
+          metadata: { input_fields: inputFieldsWithValues },
+          user_inputs: formData,
+        },
+      },
+    };
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => client.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+    });
+
+    let accumulatedText = "";
+    let rawStreamContent = "";
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+
+    // Timeline manager — seed with previous message's plan for continuity
+    const timeline = new SupervisorTimelineManager();
+    const prevMsg = useChatStore.getState().conversations
+      .find((c) => c.id === activeConversationId)?.messages
+      .find((m) => m.id === prevMessageId);
+    if (prevMsg?.timelineSegments) {
+      timeline.seedFromPrevious(prevMsg.timelineSegments);
+      // Remove plan + nested segments from the old message (it moved forward)
+      const planStepIds = new Set(
+        prevMsg.timelineSegments.find((s) => s.type === "execution_plan")?.planSteps?.map((s) => s.id) || [],
+      );
+      const keptSegments = prevMsg.timelineSegments.filter((s) => {
+        if (s.type === "execution_plan") return false;
+        if (s.type === "tool_call" && s.toolCall?.planStepId && planStepIds.has(s.toolCall.planStepId)) return false;
+        if (s.type === "thinking" && s.planStepId && planStepIds.has(s.planStepId)) return false;
+        return true;
+      });
+      updateMessage(activeConversationId, prevMessageId, { timelineSegments: keptSegments });
+    }
+
+    try {
+      for await (const event of client.sendHITLResponse(contextId, [decision])) {
+        eventCounter++;
+        const eventNum = eventCounter;
+        const artifactName = event.artifactName || "";
+        const newContent = event.displayContent;
+
+        const storeEvent = toStoreEvent(event, `event-${eventNum}-${Date.now()}`);
+        addA2AEvent(storeEvent as Parameters<typeof addA2AEvent>[0], activeConversationId);
+
+        // ── Build timeline segments (mirrors main streaming loop) ──
+        if (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          let planSteps: PlanStep[] = [];
+          if (rawArtifact?.parts) {
+            for (const part of rawArtifact.parts) {
+              if (part.kind === "data" && part.data) {
+                planSteps = parsePlanStepsFromData(part.data);
+                if (planSteps.length > 0) break;
+              }
+            }
+          }
+          if (planSteps.length > 0) timeline.pushPlan(planSteps, eventNum);
+        } else if (artifactName === "tool_notification_start") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const toolInfo = rawArtifact ? parseToolFromArtifact({
+            artifactId: rawArtifact.artifactId || "",
+            name: rawArtifact.name || "",
+            description: rawArtifact.description || "",
+            parts: rawArtifact.parts || [],
+            metadata: rawArtifact.metadata,
+          }) : null;
+          if (toolInfo) timeline.pushToolStart(toolInfo, eventNum);
+        } else if (artifactName === "tool_notification_end") {
+          const rawArtifact = (event.raw as any)?.artifact;
+          const description = rawArtifact?.description || "";
+          const descMatch = description.match(/Tool call (?:completed|started):\s*(.+)/i);
+          const toolName = descMatch ? descMatch[1].trim() : "";
+          timeline.completeToolByName(toolName);
+        } else if (
+          artifactName === "final_result" ||
+          artifactName === "partial_result"
+        ) {
+          if (newContent) {
+            timeline.pushFinalAnswer(newContent, eventNum);
+          }
+        } else if (artifactName === "complete_result") {
+          if (newContent) {
+            timeline.pushThinking(newContent, eventNum);
+          }
+        } else if (
+          newContent &&
+          (event.type === "message" || event.type === "artifact") &&
+          artifactName !== "tool_notification_start" &&
+          artifactName !== "tool_notification_end"
+        ) {
+          const isFinalAnswer = (event.raw as any)?.artifact?.metadata?.is_final_answer === true;
+          if (isFinalAnswer) {
+            timeline.pushFinalAnswer(newContent, eventNum, false);
+          } else {
+            timeline.pushThinking(newContent, eventNum);
+          }
+        }
+
+        if (artifactName === "partial_result" || artifactName === "final_result" || artifactName === "complete_result") {
+          if (newContent) {
+            accumulatedText = newContent;
+            rawStreamContent += `\n\n[${artifactName}]\n${newContent}`;
+            hasReceivedCompleteResult = true;
+            updateMessage(activeConversationId, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              isFinal: true,
+              timelineSegments: timeline.getSegments(),
+            });
+          } else if (accumulatedText.length > 0) {
+            rawStreamContent += `\n\n[${artifactName}] (using accumulated content)`;
+            hasReceivedCompleteResult = true;
+            updateMessage(activeConversationId, assistantMsgId, {
+              content: accumulatedText,
+              rawStreamContent,
+              isFinal: true,
+              timelineSegments: timeline.getSegments(),
+            });
+          }
+        }
+
+        if (event.type === "status" && event.isFinal) {
+          setConversationStreaming(activeConversationId, null);
+          break;
+        }
+
+        if (!newContent) continue;
+
+        // Skip tool notifications and execution plans from chat text —
+        // they are shown in the timeline via SupervisorTimelineManager
+        const isToolOrPlanArtifact =
+          artifactName === "tool_notification_start" ||
+          artifactName === "tool_notification_end" ||
+          artifactName === "execution_plan_update" ||
+          artifactName === "execution_plan_status_update";
+
+        if (isToolOrPlanArtifact) {
+          // Still flush timeline segments so the UI renders plan/tool updates
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            timelineSegments: timeline.getSegments(),
+          });
+          continue;
+        }
+
+        if (hasReceivedCompleteResult) continue;
+
+        if (event.shouldAppend === false) {
+          accumulatedText = newContent;
+        } else {
+          accumulatedText += newContent;
+        }
+        rawStreamContent += newContent;
+        updateMessage(activeConversationId, assistantMsgId, {
+          content: accumulatedText,
+          rawStreamContent,
+          timelineSegments: timeline.getSegments(),
+        });
+      }
+
+      // Finalize timeline
+      timeline.finalize();
+      const finalSegments = timeline.getSegments();
+
+      if (!hasReceivedCompleteResult) {
+        if (accumulatedText.length > 0) {
+          console.log(`[ChatPanel] HITL: no final/complete_result - using accumulated content (${accumulatedText.length} chars)`);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+            timelineSegments: finalSegments,
+          });
+        } else {
+          console.log(`[ChatPanel] HITL: stream ended with no content`);
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true, timelineSegments: finalSegments });
+        }
+      } else {
+        updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, timelineSegments: finalSegments });
+      }
+      setConversationStreaming(activeConversationId, null);
+    } catch (error) {
+      console.error("[ChatPanel] HITL resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
+      appendToMessage, addA2AEvent, setConversationStreaming]);
+
+  // Handle user input form submission via SSE/Dynamic Agents resume
+  const handleUserInputSubmitSSE = useCallback(async (formData: Record<string, string>) => {
+    if (!pendingUserInput || !activeConversationId || !pendingUserInput.agentId) return;
+
+    console.log("[ChatPanel] 📝 SSE HITL form submitted:", formData);
+
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const selectionSummary = Object.entries(formData)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+    addMessage(activeConversationId, { role: "user", content: selectionSummary || "Form submitted." }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    const prevMessageId = pendingUserInput.messageId;
+    dismissedInputForMessageRef.current.add(prevMessageId);
+    const agentId = pendingUserInput.agentId;
+    setPendingUserInput(null);
+
+    // Create Dynamic Agent client for resume
+    const dynClient = new DynamicAgentClient({
+      proxyUrl: "/api/dynamic-agents/chat",
+      accessToken,
+    });
+
+    // Send form data as JSON string
+    const formDataJson = JSON.stringify(formData);
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => dynClient.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
+    });
+
+    let accumulatedText = "";
+    let rawStreamContent = "";
+    let eventCounter = 0;
+    let hasReceivedCompleteResult = false;
+    let hitlFormRequested = false;
+
+    // Timeline manager — seed with previous message's plan for continuity
+    const timeline = new SupervisorTimelineManager();
+    const prevMsgSSE = useChatStore.getState().conversations
+      .find((c) => c.id === activeConversationId)?.messages
+      .find((m) => m.id === prevMessageId);
+    if (prevMsgSSE?.timelineSegments) {
+      timeline.seedFromPrevious(prevMsgSSE.timelineSegments);
+      const planStepIds = new Set(
+        prevMsgSSE.timelineSegments.find((s) => s.type === "execution_plan")?.planSteps?.map((s) => s.id) || [],
+      );
+      const keptSegments = prevMsgSSE.timelineSegments.filter((s) => {
+        if (s.type === "execution_plan") return false;
+        if (s.type === "tool_call" && s.toolCall?.planStepId && planStepIds.has(s.toolCall.planStepId)) return false;
+        if (s.type === "thinking" && s.planStepId && planStepIds.has(s.planStepId)) return false;
+        return true;
+      });
+      updateMessage(activeConversationId, prevMessageId, { timelineSegments: keptSegments });
+    }
+
+    try {
+      for await (const event of dynClient.resumeStream(activeConversationId, agentId, formDataJson)) {
+        eventCounter++;
+        const eventNum = eventCounter;
+        const sseEvent = event as SSEAgentEvent;
+
+        // Buffer event for store
+        addSSEEvent(sseEvent, activeConversationId);
+
+        // Handle input_required (agent may request more input)
+        if (sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
+          console.log(`[ChatPanel] 📝 SSE Additional input required:`, sseEvent.inputRequiredData);
+          const { prompt, fields } = sseEvent.inputRequiredData;
+
+          const inputFields: InputField[] = fields.map(f => ({
+            field_name: f.field_name,
+            field_label: f.field_label,
+            field_description: f.field_description,
+            field_type: f.field_type,
+            field_values: f.field_values,
+            required: f.required,
+            default_value: f.default_value,
+            placeholder: f.placeholder,
+          }));
+
+          hitlFormRequested = true;
+          timeline.markPlanInputRequired();
+          setPendingUserInput({
+            messageId: assistantMsgId,
+            metadata: {
+              user_input: true,
+              input_title: `Input Required`,
+              input_description: prompt,
+              input_fields: inputFields,
+            },
+            contextId: activeConversationId,
+            isSSE: true,
+            agentId,
+          });
+
+          if (prompt) {
+            accumulatedText = prompt;
+            updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, timelineSegments: timeline.getSegments() });
+          }
+          break; // Stream pauses for user input
+        }
+
+        // Handle content tokens — route through timeline as thinking
+        if (sseEvent.type === "content" && sseEvent.content) {
+          accumulatedText += sseEvent.content;
+          rawStreamContent += sseEvent.content;
+          timeline.pushThinking(sseEvent.content, eventNum);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            timelineSegments: timeline.getSegments(),
+          });
+        }
+
+        // Handle errors
+        if (sseEvent.type === "error") {
+          console.error("[ChatPanel] SSE resume error event:", sseEvent.displayContent);
+          appendToMessage(activeConversationId, assistantMsgId,
+            `\n\n**Error:** ${sseEvent.displayContent || "Unknown error"}`);
+          break;
+        }
+      }
+
+      // Finalize timeline
+      timeline.finalize();
+      const finalSegments = timeline.getSegments();
+
+      if (!hitlFormRequested && !hasReceivedCompleteResult) {
+        if (accumulatedText.length > 0) {
+          console.log(`[ChatPanel] SSE HITL resume: no final_result - using accumulated content (${accumulatedText.length} chars)`);
+          updateMessage(activeConversationId, assistantMsgId, {
+            content: accumulatedText,
+            rawStreamContent,
+            isFinal: true,
+            timelineSegments: finalSegments,
+          });
+        } else {
+          console.log(`[ChatPanel] SSE HITL resume: stream ended with no content`);
+          updateMessage(activeConversationId, assistantMsgId, { rawStreamContent, isFinal: true, timelineSegments: finalSegments });
+        }
+      }
+      setConversationStreaming(activeConversationId, null);
+    } catch (error) {
+      console.error("[ChatPanel] SSE HITL resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
+      appendToMessage, addSSEEvent, setConversationStreaming]);
+
+  // Handle slash command detection in input
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    setInput(newValue);
+
+    const cursorPos = e.target.selectionStart;
+    const textBeforeCursor = newValue.slice(0, cursorPos);
+
+    // Detect / at start of input or after a newline
+    const lastSlash = textBeforeCursor.lastIndexOf("/");
+    if (lastSlash !== -1) {
+      const charBefore = lastSlash > 0 ? textBeforeCursor[lastSlash - 1] : undefined;
+      const isAtStart = lastSlash === 0 || charBefore === "\n";
+
+      if (isAtStart) {
+        const filterText = textBeforeCursor.slice(lastSlash + 1);
+        if (!filterText.includes(" ") && !filterText.includes("\n")) {
+          setSlashFilter(filterText);
+          setShowSlashMenu(true);
+          setSlashSelectedIndex(0);
+          return;
+        }
+      }
+    }
+
+    setShowSlashMenu(false);
+  }, []);
+
+  // Handle slash command selection (Tab/Enter/click)
+  const handleSlashSelect = useCallback((cmd: SlashCommand) => {
+    setShowSlashMenu(false);
+
+    if (cmd.action === "execute") {
+      // Execute commands (e.g., /skills, /help, /clear)
+      setInput("");
+      executeSlashCommand(cmd.id);
+      return;
+    }
+
+    // Insert commands
+    if (cmd.category === "agent") {
+      // Agent: replace /text with @agentname + trailing space
+      const cursorPos = inputRef.current?.selectionStart ?? input.length;
+      const textBeforeCursor = input.slice(0, cursorPos);
+      const lastSlash = textBeforeCursor.lastIndexOf("/");
+      const textBefore = lastSlash >= 0 ? input.slice(0, lastSlash) : "";
+      const textAfter = input.slice(cursorPos);
+      const newText = textBefore + cmd.value + " " + textAfter;
+
+      setInput(newText);
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newPos = textBefore.length + cmd.value.length + 1;
+          inputRef.current.selectionStart = newPos;
+          inputRef.current.selectionEnd = newPos;
+          inputRef.current.focus();
+        }
+      }, 0);
+    } else if (cmd.category === "skill") {
+      // Skill: send a rich prompt so the supervisor recognizes the skill invocation
+      setInput("");
+      const skillPrompt = `Execute skill: ${cmd.value}\n\nRead and follow the instructions in the SKILL.md file for the "${cmd.value}" skill.`;
+      submitMessage(skillPrompt).then(() => {
+        const convId = activeConversationId;
+        if (convId) {
+          updateConversationTitle(convId, `Skill: ${cmd.label}`);
+        }
+      });
+    }
+  }, [input, executeSlashCommand, submitMessage, activeConversationId, updateConversationTitle]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Slash menu keyboard navigation
+    if (showSlashMenu) {
+      const filtered = getFilteredCommands(slashCommands, slashFilter);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashSelectedIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        if (filtered.length > 0) {
+          handleSlashSelect(filtered[slashSelectedIndex]);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSlashMenu(false);
+        return;
+      }
+    }
+
+    // Force send: Cmd/Ctrl + Enter
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit(true); // Force send
+      return;
+    }
+    // Normal send: Enter
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(false);
+    }
+  };
+
+  return (
+    <div className="h-full w-full flex flex-col bg-background relative">
+      {/* Messages Area */}
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
+          <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
+            {!conversation?.messages.length && (
+              <div className="text-center py-20">
+                <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                  <Sparkles className="h-8 w-8 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Welcome to {getConfig('appName')}</h2>
+                <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                  {getConfig('tagline')}
+                </p>
+                <p className="text-sm text-muted-foreground/80 max-w-lg mx-auto">
+                  {getConfig('description')}
+                </p>
+              </div>
+            )}
+
+            <AnimatePresence mode="popLayout">
+              {(() => {
+                const allMessages = deduplicateByKey(conversation?.messages ?? [], (msg) => msg.id);
+                const turns = groupMessagesIntoTurns(allMessages);
+                const shouldCollapse = turns.length > COLLAPSE_THRESHOLD && !olderTurnsExpanded;
+                const collapsedTurns = shouldCollapse ? turns.slice(0, -VISIBLE_TURN_COUNT) : [];
+                // Flatten visible turns back to messages for rendering
+                const visibleTurns = shouldCollapse ? turns.slice(-VISIBLE_TURN_COUNT) : turns;
+                const visibleMessages = visibleTurns.flatMap(t =>
+                  [t.userMsg, t.assistantMsg].filter(Boolean) as ChatMessageType[]
+                );
+
+                // Build a Set of visible message IDs for quick lookup against allMessages
+                const visibleMsgIds = new Set(visibleMessages.map(m => m.id));
+                // When expanded, render all messages
+                const renderMessages = olderTurnsExpanded || turns.length <= COLLAPSE_THRESHOLD
+                  ? allMessages
+                  : allMessages.filter(m => visibleMsgIds.has(m.id));
+
+                // Collect message IDs for older turns (for eviction on collapse)
+                const olderTurnMsgIds = shouldCollapse
+                  ? [] // Not needed when already collapsed
+                  : turns.slice(0, -VISIBLE_TURN_COUNT).flatMap(t =>
+                      [t.userMsg?.id, t.assistantMsg?.id].filter(Boolean) as string[]
+                    );
+
+                const handleCollapse = () => {
+                  // Evict content from old messages before collapsing
+                  if (activeConversationId && olderTurnMsgIds.length > 0) {
+                    evictOldMessageContent(activeConversationId, olderTurnMsgIds);
+                  }
+                  setOlderTurnsExpanded(false);
+                };
+
+                const handleExpand = () => {
+                  setOlderTurnsExpanded(true);
+                  // Re-load messages from MongoDB to restore evicted content
+                  if (activeConversationId) {
+                    loadMessagesFromServer(activeConversationId, { force: true });
+                  }
+                };
+
+                return (
+                  <>
+                    {/* Collapsed older turns banner */}
+                    {shouldCollapse && collapsedTurns.length > 0 && (
+                      <CollapsedTurnsBanner
+                        key="collapsed-turns"
+                        turns={collapsedTurns}
+                        onExpand={handleExpand}
+                      />
+                    )}
+
+                    {/* Re-collapse button when older turns are expanded */}
+                    {olderTurnsExpanded && turns.length > COLLAPSE_THRESHOLD && (
+                      <motion.button
+                        key="collapse-banner"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        onClick={handleCollapse}
+                        className={cn(
+                          "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg",
+                          "bg-muted/30 hover:bg-muted/50 border border-dashed border-border/40 hover:border-border/60",
+                          "transition-all duration-200 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <ChevronUp className="h-3 w-3" />
+                        <span>Collapse {turns.length - VISIBLE_TURN_COUNT} older turns</span>
+                      </motion.button>
+                    )}
+
+                    {/* Rendered messages (recent turns, or all if expanded) */}
+                    {renderMessages.map((msg, index, arr) => {
+                      const isLastMessage = index === arr.length - 1;
+                      const isAssistantStreaming = isThisConversationStreaming && msg.role === "assistant" && isLastMessage;
+
+                      // For retry: if user message, use its content; if assistant, find preceding user message
+                      const getRetryContent = () => {
+                        if (msg.role === "user") return msg.content;
+                        for (let i = index - 1; i >= 0; i--) {
+                          if (arr[i].role === "user") {
+                            return arr[i].content;
+                          }
+                        }
+                        return null;
+                      };
+
+                      // Check if this is the last assistant message (latest answer)
+                      const isLastAssistantMessage = msg.role === "assistant" &&
+                        index === arr.length - 1;
+
+                      return (
+                        <ChatMessage
+                          key={msg.id}
+                          message={msg}
+                          onCopy={handleCopy}
+                          isCopied={copiedId === msg.id}
+                          isStreaming={isAssistantStreaming}
+                          isLatestAnswer={isLastAssistantMessage}
+                          onStop={isAssistantStreaming ? handleStop : undefined}
+                          onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
+                          feedback={msg.feedback}
+                          onFeedbackChange={(feedback) => handleFeedbackChange(msg.id, feedback)}
+                          onFeedbackSubmit={(feedback) => handleFeedbackSubmit(msg.id, feedback)}
+                          isRecovering={recoveringMessageId === msg.id}
+                          conversationId={conversationId}
+                          userDisplayName={userDisplayName}
+                          showTimestamp={showTimestamps}
+                        />
+                      );
+                    })}
+                  </>
+                );
+              })()}
+            </AnimatePresence>
+
+            {/* User Input Form */}
+            {pendingUserInput && pendingUserInput.metadata.input_fields && (
+              <MetadataInputForm
+                messageId={pendingUserInput.messageId}
+                title={pendingUserInput.metadata.input_title}
+                description={pendingUserInput.metadata.input_description}
+                inputFields={pendingUserInput.metadata.input_fields}
+                onSubmit={pendingUserInput.isSSE ? handleUserInputSubmitSSE : handleUserInputSubmit}
+                onCancel={() => {
+                  if (pendingUserInput) {
+                    dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
+                    // For SSE, send dismissal message to resume the agent
+                    if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
+                      const dynClient = new DynamicAgentClient({
+                        proxyUrl: "/api/dynamic-agents/chat",
+                        accessToken,
+                      });
+                      // Fire-and-forget: resume with rejection message
+                      // The agent will receive "User dismissed the input form without providing values."
+                      (async () => {
+                        try {
+                          const dismissalMessage = "User dismissed the input form without providing values.";
+                          for await (const _event of dynClient.resumeStream(
+                            activeConversationId,
+                            pendingUserInput.agentId!,
+                            dismissalMessage
+                          )) {
+                            // Consume events but don't display - user dismissed
+                          }
+                        } catch (err) {
+                          console.error("[ChatPanel] Error sending SSE form dismissal:", err);
+                        }
+                      })();
+                    }
+                  }
+                  setPendingUserInput(null);
+                }}
+                disabled={isThisConversationStreaming}
+              />
+            )}
+
+            {/* Invisible marker for scroll-to-bottom */}
+            <div ref={messagesEndRef} className="h-px" />
+          </div>
+        </ScrollArea>
+      </div>
+
+      {/* Scroll to bottom button */}
+      <AnimatePresence>
+        {showScrollButton && conversation?.messages.length && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 10 }}
+            transition={{ duration: 0.2 }}
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10"
+          >
+            <Button
+              onClick={() => scrollToBottom("smooth")}
+              size="sm"
+              variant="secondary"
+              className="rounded-full shadow-lg border border-border/50 gap-1.5 px-4 hover:bg-primary hover:text-primary-foreground transition-colors"
+            >
+              <ArrowDown className="h-4 w-4" />
+              <span className="text-xs font-medium">New messages</span>
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Input Area - Fixed bottom, doesn't scroll */}
+      {readOnly ? (
+        <div className={`border-t border-border shrink-0 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'bg-red-500/10' : 'bg-amber-500/10'}`}>
+          <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+            <div className={`flex items-center gap-2 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
+              <ShieldCheck className="h-4 w-4 shrink-0" />
+              {readOnlyReason === 'admin_audit' ? (
+                <>
+                  <span className="text-sm font-medium">Read-Only Audit Mode</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-500">— You are viewing this conversation as an admin auditor.</span>
+                </>
+              ) : readOnlyReason === 'agent_deleted' ? (
+                <>
+                  <span className="text-sm font-medium">Agent No Longer Exists</span>
+                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deleted. You can view the history but cannot send new messages.</span>
+                </>
+              ) : readOnlyReason === 'agent_disabled' ? (
+                <>
+                  <span className="text-sm font-medium">Agent Disabled</span>
+                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been disabled by an administrator. You can view the history but cannot send new messages.</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm font-medium">View Only</span>
+                  <span className="text-xs text-amber-600 dark:text-amber-500">— This conversation was shared with you as read-only.</span>
+                </>
+              )}
+            </div>
+            {readOnlyReason === 'admin_audit' && (
+            <a
+              href={adminOrigin === 'audit-logs' ? '/admin?tab=audit-logs' : '/admin?tab=feedback'}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              {adminOrigin === 'audit-logs' ? 'Back to Audit Logs' : 'Back to Feedback'}
+            </a>
+            )}
+          </div>
+        </div>
+      ) : (
+      <div className="border-t border-border bg-background shrink-0">
+        <div className="max-w-7xl mx-auto px-6 py-3 space-y-2">
+          {/* Queued Messages Display */}
+          {queuedMessages.length > 0 && (
+            <div className="space-y-2">
+              <AnimatePresence mode="popLayout">
+                {queuedMessages.map((queuedMsg, index) => (
+                  <motion.div
+                    key={`${index}-${queuedMsg.slice(0, 20)}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg border border-border/50"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Queued {queuedMessages.length > 1 ? `(${index + 1}/${queuedMessages.length})` : 'message'}:
+                        </span>
+                        <button
+                          onClick={() => {
+                            setQueuedMessages(prev => prev.filter((_, i) => i !== index));
+                          }}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                          title="Remove this queued message"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <p className="text-sm text-foreground/90 break-words">{queuedMsg}</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+              {queuedMessages.length >= 3 && (
+                <div className="text-xs text-muted-foreground px-3">
+                  Maximum of 3 queued messages. Send or cancel messages to queue more.
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="relative">
+            {/* Slash command autocomplete menu */}
+            <SlashCommandMenu
+              filter={slashFilter}
+              commands={slashCommands}
+              selectedIndex={slashSelectedIndex}
+              onSelect={handleSlashSelect}
+              visible={showSlashMenu}
+            />
+
+            <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
+              <TextareaAutosize
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  isThisConversationStreaming
+                    ? queuedMessages.length >= 3
+                      ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
+                      : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
+                    : `Ask ${getConfig('appName')} anything, or type / to see commands, skills, and agents...`
+                }
+                className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                minRows={1}
+                maxRows={10}
+              />
+            {/* Send/Stop button - toggles based on streaming state */}
+            {isThisConversationStreaming ? (
+              <Button
+                size="icon"
+                onClick={handleStop}
+                variant="destructive"
+                className="shrink-0"
+                title="Stop generating"
+              >
+                <Square className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                onClick={() => handleSubmit(false)}
+                disabled={!input.trim()}
+                variant="default"
+                className="shrink-0"
+                title="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground text-center">
+            {getConfig('appName')} can make mistakes. Verify important info.
+            {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
+          </p>
+        </div>
+      </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StreamingView Component - Shows sub-agent cards and raw streaming output
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface StreamingViewProps {
+  message: ChatMessageType;
+  showRawStream: boolean;
+  setShowRawStream: (show: boolean) => void;
+  isStreaming?: boolean;
+}
+
+function StreamingView({ message, showRawStream, setShowRawStream, isStreaming = false }: StreamingViewProps) {
+  // Ref for auto-scrolling the Thinking container to the bottom on new content.
+  // Safe because content is truncated to 2000 chars during streaming.
+  const thinkingRef = useRef<HTMLDivElement>(null);
+
+  // ═══════════════════════════════════════════════════════════════
+  // THINKING SECTION: Light auto-scroll to bottom on new content.
+  // Safe because content is truncated to 2000 chars during streaming.
+  // ═══════════════════════════════════════════════════════════════
+  useEffect(() => {
+    if (isStreaming && thinkingRef.current) {
+      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
+    }
+  }, [message.rawStreamContent, isStreaming]);
+
+  return (
+    <div className="space-y-4">
+      {/* Show thinking indicator when no content yet */}
+      {!message.content && message.events.length === 0 && (
+        <motion.div
+          key="thinking"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card border border-border/50"
+        >
+          <div className="relative">
+            <div className="w-2 h-2 bg-primary rounded-full animate-ping absolute" />
+            <div className="w-2 h-2 bg-primary rounded-full" />
+          </div>
+          <span className="text-sm text-muted-foreground">Thinking...</span>
+        </motion.div>
+      )}
+
+      {/* Raw streaming output - collapsible - shows accumulated stream content.
+          PERFORMANCE: During streaming, only display the tail of rawStreamContent
+          to prevent the browser from re-rendering 80K+ chars on every token. */}
+      {(message.rawStreamContent || message.content) && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          className="mt-3"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Thinking
+              {message.rawStreamContent && (
+                <span className="ml-2 text-[10px] text-muted-foreground/60">
+                  ({message.rawStreamContent.length.toLocaleString()} chars)
+                </span>
+              )}
+            </span>
+            <button
+              onClick={() => setShowRawStream(!showRawStream)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showRawStream ? (
+                <>
+                  <ChevronUp className="h-3 w-3" />
+                  <span>Collapse</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3 w-3" />
+                  <span>Expand</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showRawStream && (
+              <motion.div
+                ref={thinkingRef}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="p-4 rounded-lg bg-card/80 border border-border/50 max-h-64 overflow-y-auto"
+              >
+                <pre className="text-sm text-foreground/80 font-mono whitespace-pre-wrap break-words leading-relaxed">
+                  {(() => {
+                    const raw = message.rawStreamContent || message.content || "";
+                    // During streaming, only show the last 2000 chars to prevent freezes
+                    if (isStreaming && raw.length > 2000) {
+                      return "…" + raw.slice(-2000);
+                    }
+                    return raw;
+                  })()}
+                </pre>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
+
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Message Window: Auto-collapse old turns for performance
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Number of recent turns to keep fully rendered. Older turns are collapsed. */
+const VISIBLE_TURN_COUNT = 2;
+/** Minimum total turns before auto-collapsing kicks in. */
+const COLLAPSE_THRESHOLD = 2;
+
+/** A "turn" is a user message + its assistant response (or a lone message). */
+interface Turn {
+  userMsg?: ChatMessageType;
+  assistantMsg?: ChatMessageType;
+  /** Short preview text for the collapsed summary row. */
+  preview: string;
+  /** Timestamp of the turn (user message timestamp). */
+  timestamp: Date;
+}
+
+/**
+ * Group a flat message list into turns (user+assistant pairs).
+ * Messages are paired by order: each user message is followed by an assistant
+ * message to form a turn. Unpaired messages become solo turns.
+ */
+function groupMessagesIntoTurns(messages: ChatMessageType[]): Turn[] {
+  const turns: Turn[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i];
+    if (msg.role === "user" && i + 1 < messages.length && messages[i + 1].role === "assistant") {
+      // Paired turn
+      const assistantMsg = messages[i + 1];
+      turns.push({
+        userMsg: msg,
+        assistantMsg,
+        preview: msg.content.slice(0, 80).trim() + (msg.content.length > 80 ? "..." : ""),
+        timestamp: msg.timestamp,
+      });
+      i += 2;
+    } else {
+      // Solo message (orphan user or assistant)
+      turns.push({
+        ...(msg.role === "user" ? { userMsg: msg } : { assistantMsg: msg }),
+        preview: msg.content.slice(0, 80).trim() + (msg.content.length > 80 ? "..." : ""),
+        timestamp: msg.timestamp,
+      });
+      i += 1;
+    }
+  }
+  return turns;
+}
+
+/**
+ * CollapsedTurnsBanner — lightweight summary for older turns that are hidden.
+ * Clicking it expands the old messages. Shows turn count, first query preview,
+ * and time range. Renders ~5 DOM nodes vs hundreds for full messages.
+ */
+const CollapsedTurnsBanner = React.memo(function CollapsedTurnsBanner({
+  turns,
+  onExpand,
+}: {
+  turns: Turn[];
+  onExpand: () => void;
+}) {
+  if (turns.length === 0) return null;
+
+  const oldest = turns[0];
+  const newest = turns[turns.length - 1];
+  const msgCount = turns.reduce((n, t) => n + (t.userMsg ? 1 : 0) + (t.assistantMsg ? 1 : 0), 0);
+
+  const formatTime = (d: Date) => {
+    const date = d instanceof Date ? d : new Date(d);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <motion.button
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      onClick={onExpand}
+      className={cn(
+        "w-full flex items-center gap-3 px-4 py-3 rounded-xl",
+        "bg-muted/40 hover:bg-muted/60 border border-border/40 hover:border-border/60",
+        "transition-all duration-200 cursor-pointer group text-left"
+      )}
+    >
+      {/* Icon */}
+      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+        <MessageSquare className="h-4 w-4 text-primary/70" />
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-foreground/80">
+            {turns.length} older {turns.length === 1 ? "turn" : "turns"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({msgCount} messages)
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
+          {oldest.preview}
+          {turns.length > 1 && ` — ... — ${newest.preview}`}
+        </p>
+      </div>
+
+      {/* Time range */}
+      <div className="flex items-center gap-1.5 shrink-0 text-xs text-muted-foreground/60">
+        <Clock className="h-3 w-3" />
+        <span>{formatTime(oldest.timestamp)}</span>
+        {turns.length > 1 && (
+          <>
+            <span>—</span>
+            <span>{formatTime(newest.timestamp)}</span>
+          </>
+        )}
+      </div>
+
+      {/* Expand hint */}
+      <ChevronDown className="h-4 w-4 text-muted-foreground/50 group-hover:text-foreground/70 transition-colors shrink-0" />
+    </motion.button>
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ChatMessage Component
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ChatMessageProps {
+  message: ChatMessageType;
+  onCopy: (content: string, id: string) => void;
+  isCopied: boolean;
+  isStreaming?: boolean;
+  isLatestAnswer?: boolean;
+  onStop?: () => void;
+  onRetry?: () => void;
+  feedback?: Feedback;
+  onFeedbackChange?: (feedback: Feedback) => void;
+  onFeedbackSubmit?: (feedback: Feedback) => void;
+  conversationId?: string;
+  isRecovering?: boolean;
+  userDisplayName?: string;
+  showTimestamp?: boolean;
+}
+
+/**
+ * ChatMessage — wrapped in React.memo to prevent re-renders of older messages
+ * when only the latest streaming message is updating (every 100ms).
+ */
+const ChatMessage = React.memo(function ChatMessage({
+  message,
+  onCopy,
+  isCopied,
+  isStreaming = false,
+  isLatestAnswer = false,
+  onStop,
+  onRetry,
+  feedback,
+  onFeedbackChange,
+  onFeedbackSubmit,
+  conversationId,
+  isRecovering = false,
+  userDisplayName = "You",
+  showTimestamp = false,
+}: ChatMessageProps) {
+  const isUser = message.role === "user";
+  const showThinkingDefault = useFeatureFlagStore((s) => s.flags.showThinking ?? true);
+  const [showRawStream, setShowRawStream] = useState(() => {
+    if (message.isFinal) return false;
+    return showThinkingDefault;
+  });
+  const [isHovered, setIsHovered] = useState(false);
+  // Collapse final answer for assistant messages - auto-collapse older answers, keep latest expanded
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    // Auto-collapse older answers, but keep latest answer expanded
+    if (isUser) return false;
+    return !isLatestAnswer && message.content && message.content.length > 300;
+  });
+
+  // Display all streamed content as-is
+  const displayContent = message.content;
+
+  // Get a preview of the streaming content (last 200 chars)
+  const streamPreview = message.content.slice(-200).trim();
+
+  // Get preview for collapsed view (first 300 chars)
+  const collapsedPreview = message.content.slice(0, 300).trim();
+
+  // When the timeline has a final_answer segment, it renders the answer itself —
+  // skip the separate markdown card for assistant messages to avoid duplication.
+  const timelineHasFinalAnswer = !isUser && message.timelineSegments?.some((s: SupervisorTimelineSegment) => s.type === "final_answer");
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      className={cn(
+        "flex gap-3 group px-3",
+        isUser ? "flex-row-reverse" : "flex-row"
+      )}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Avatar */}
+      <div
+        className={cn(
+          "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
+          isUser
+            ? "bg-primary"
+            : "gradient-primary-br",
+          isStreaming && "animate-pulse"
+        )}
+      >
+        {isUser ? (
+          message.senderImage ? (
+            <img
+              src={message.senderImage}
+              alt={message.senderName || userDisplayName}
+              className="w-9 h-9 rounded-xl object-cover"
+            />
+          ) : (
+            <User className="h-4 w-4 text-white" />
+          )
+        ) : isStreaming ? (
+          <Loader2 className="h-4 w-4 text-white animate-spin" />
+        ) : (
+          <Bot className="h-4 w-4 text-white" />
+        )}
+      </div>
+
+      {/* Message Content */}
+      <div className={cn(
+        "flex-1 min-w-0",
+        isUser ? "max-w-[85%] text-right ml-auto" : "max-w-full"
+      )}>
+        {/* Role label with collapse button and stop button for assistant messages */}
+        <div className={cn(
+          "flex items-center mb-1.5",
+          isUser
+            ? "text-primary justify-end"
+            : "text-muted-foreground justify-between"
+        )}>
+          {isUser ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium">
+                {message.senderName
+                  ? message.senderName.split(" ")[0]
+                  : userDisplayName}
+              </span>
+              {showTimestamp && (
+                <span className="text-[10px] text-muted-foreground/60 font-normal">
+                  {message.timestamp instanceof Date
+                    ? message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium">{getConfig('appName')}</span>
+                {showTimestamp && (
+                  <span className="text-[10px] text-muted-foreground/60 font-normal">
+                    {message.timestamp instanceof Date
+                      ? message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {!isStreaming && displayContent && displayContent.length > 300 && (
+                  <button
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    title={isCollapsed ? "Expand answer" : "Collapse answer"}
+                  >
+                    {isCollapsed ? (
+                      <>
+                        <ChevronDown className="h-3 w-3" />
+                        <span>Expand</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronUp className="h-3 w-3" />
+                        <span>Collapse</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════
+            SINGLE SupervisorTimeline INSTANCE — persists across streaming→post-stream
+            so the collapse useEffect (true→false transition) fires correctly.
+            ═══════════════════════════════════════════════════════════ */}
+        {message.role === "assistant" && message.timelineSegments && message.timelineSegments.length > 0 ? (
+          <SupervisorTimeline
+            segments={message.timelineSegments}
+            isStreaming={isStreaming}
+            isCollapsed={isCollapsed}
+          />
+        ) : isStreaming && message.role === "assistant" ? (
+          /* StreamingView fallback — shown before any A2A timeline events arrive */
+          <StreamingView
+            message={message}
+            showRawStream={showRawStream}
+            setShowRawStream={setShowRawStream}
+            isStreaming={isStreaming}
+          />
+        ) : (
+          /* Final output — no timeline segments, render as Markdown */
+          <>
+            {/* ═══════════════════════════════════════════════════════════
+                CRASH RECOVERY INDICATORS
+                Show when a message was interrupted or is being recovered.
+                ═══════════════════════════════════════════════════════════ */}
+            {!isUser && (isRecovering || message.isInterrupted) && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-lg border mb-3",
+                  isRecovering
+                    ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
+                    : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                )}
+              >
+                {isRecovering ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Recovering interrupted task...</p>
+                      <p className="text-xs opacity-70 mt-0.5">
+                        Checking if the backend task completed. This may take a moment.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-4 w-4 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Response was interrupted</p>
+                      <p className="text-xs opacity-70 mt-0.5">
+                        The page crashed or was reloaded while this response was streaming.
+                        {message.taskId
+                          ? " The backend task could not be recovered."
+                          : " No task ID was captured before the crash."}
+                      </p>
+                    </div>
+                    {onRetry && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onRetry}
+                        className="shrink-0 gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Retry
+                      </Button>
+                    )}
+                  </>
+                )}
+              </motion.div>
+            )}
+
+            {/* Hide the markdown card when the timeline already renders the final answer */}
+            {(isUser || !timelineHasFinalAnswer) && (<div
+              className={cn(
+                "rounded-xl relative overflow-hidden",
+                isUser
+                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm max-w-full selection:bg-primary-foreground selection:text-primary"
+                  : "bg-card/50 border border-border/50 px-4 py-3"
+              )}
+            >
+              {isUser ? (
+                <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className="text-base font-bold text-primary-foreground mb-2 mt-3 first:mt-0 pb-1 border-b border-white/20">{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="text-sm font-semibold text-primary-foreground mb-1.5 mt-3 first:mt-0">{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="text-sm font-semibold text-primary-foreground mb-1 mt-2 first:mt-0">{children}</h3>
+                      ),
+                      p: ({ children }) => (
+                        <p className="text-sm leading-relaxed text-primary-foreground/90 mb-1.5 last:mb-0">{children}</p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul className="list-disc list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className="list-decimal list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>
+                      ),
+                      li: ({ children }) => (
+                        <li className="leading-relaxed">{children}</li>
+                      ),
+                      strong: ({ children }) => (
+                        <strong className="font-semibold text-primary-foreground">{children}</strong>
+                      ),
+                      em: ({ children }) => (
+                        <em className="italic text-primary-foreground/90">{children}</em>
+                      ),
+                      code: ({ className, children, ...props }) => {
+                        const isBlock = /language-/.test(className || "") || String(children).includes("\n");
+                        if (isBlock) {
+                          return (
+                            <pre className="my-2 p-2.5 rounded-md bg-black/20 overflow-x-auto">
+                              <code className="text-xs font-mono text-primary-foreground/90 whitespace-pre-wrap break-words" {...props}>{children}</code>
+                            </pre>
+                          );
+                        }
+                        return (
+                          <code className="bg-black/20 text-primary-foreground px-1 py-0.5 rounded text-xs font-mono" {...props}>{children}</code>
+                        );
+                      },
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-2 border-white/30 pl-3 my-2 italic text-primary-foreground/80">{children}</blockquote>
+                      ),
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="underline text-primary-foreground hover:text-white">{children}</a>
+                      ),
+                      hr: () => <hr className="my-3 border-white/20" />,
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-2 rounded border border-white/20">
+                          <table className="w-full text-xs">{children}</table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead className="bg-black/10">{children}</thead>,
+                      th: ({ children }) => <th className="px-2 py-1 text-left font-semibold text-primary-foreground border-b border-white/20">{children}</th>,
+                      td: ({ children }) => <td className="px-2 py-1 border-b border-white/10 text-primary-foreground/90">{children}</td>,
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <div className="prose-container overflow-hidden break-words overflow-wrap-anywhere">
+                  {isCollapsed ? (
+                    <div className="space-y-2">
+                      <div className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
+                        {collapsedPreview}
+                        {displayContent.length > 300 && "..."}
+                      </div>
+                      <button
+                        onClick={() => setIsCollapsed(false)}
+                        className="text-xs text-primary hover:text-primary/80 underline transition-colors"
+                      >
+                        Show full answer
+                      </button>
+                    </div>
+                  ) : (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={assistantMarkdownComponents}
+                  >
+                    {displayContent || "..."}
+                  </ReactMarkdown>
+                  )}
+                </div>
+              )}
+            </div>)}
+
+            {/* Actions for user messages */}
+            {isUser && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: isHovered ? 1 : 0.8 }}
+                className="flex items-center gap-1 mt-2 justify-end"
+              >
+                {/* Retry button */}
+                {onRetry && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                          onClick={onRetry}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Retry this prompt
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+
+                {/* Copy button */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                        onClick={() => onCopy(message.content, message.id)}
+                      >
+                        {isCopied ? (
+                          <Check className="h-3.5 w-3.5 text-green-400" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isCopied ? "Copied!" : "Copy message"}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </motion.div>
+            )}
+
+          </>
+        )}
+
+        {/* Actions for assistant messages — outside the ternary so they render
+            whether the final answer comes from SupervisorTimeline or the markdown card */}
+        {!isUser && displayContent && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isHovered ? 1 : 0.8 }}
+            className="flex items-center gap-1 mt-2"
+          >
+            {/* Collapse button - bottom right */}
+            {!isStreaming && ((displayContent && displayContent.length > 300) || timelineHasFinalAnswer) && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={() => setIsCollapsed(!isCollapsed)}
+                    >
+                      {isCollapsed ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isCollapsed ? "Expand answer" : "Collapse answer"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+            {/* Retry button */}
+            {onRetry && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={onRetry}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Regenerate response
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
+            {/* Copy button */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                    onClick={() => onCopy(displayContent, message.id)}
+                  >
+                    {isCopied ? (
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isCopied ? "Copied!" : "Copy response"}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {/* Divider */}
+            <div className="h-4 w-px bg-border/50" />
+
+            {/* Feedback buttons */}
+            <FeedbackButton
+              messageId={message.id}
+              conversationId={conversationId}
+              feedback={feedback}
+              onFeedbackChange={onFeedbackChange}
+              onFeedbackSubmit={onFeedbackSubmit}
+            />
+          </motion.div>
+        )}
+      </div>
+    </motion.div>
+  );
+});

@@ -1,7 +1,7 @@
 /**
  * Shared parsing helpers for A2A timeline events.
  *
- * Used by ChatPanel (streaming loop) and TimelineManager.
+ * Used by SupervisorChatPanel (streaming loop) and SupervisorTimelineManager.
  * Parses structured DataPart plans emitted by the backend.
  */
 
