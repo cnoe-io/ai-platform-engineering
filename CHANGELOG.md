@@ -1,4 +1,309 @@
-## 0.2.43 (2026-04-02)
+## 0.3.0 (2026-04-13)
+
+## 0.2.43-rc.40 (2026-04-13)
+
+### Feat
+
+- **ui**: add /auth/reauth-complete page for new-tab OIDC re-auth flow
+
+### Fix
+
+- **ingestors**: defer credential validation to runtime in slack/webex ingestors
+- **compose**: remove slack-ingestor and webex-ingestor services
+- **deps**: re-lock agent uv.lock files to pin beautifulsoup4==4.14.3
+- **deps**: pin beautifulsoup4==4.14.3 in utils and regenerate lock files
+- **deps**: regenerate utils/uv.lock after langgraph 1.0.10 to 1.1.6 bump
+- **deps**: upgrade langgraph 1.0.10 to 1.1.6 in all agents and utils
+- **ui**: remove unused RefreshCw import and unused result variable
+- **ui**: remove debug auth routes and harden token expiry guard
+
+## 0.2.43-rc.39 (2026-04-12)
+
+### Fix
+
+- **docker**: force HTTP/1.1 for kubectl downloads to avoid HTTP/2 errors (#1197)
+
+## 0.2.43-rc.38 (2026-04-12)
+
+### Fix
+
+- **docker**: add retry flags to glab curl download in Dockerfile.a2a (#1194)
+
+## 0.2.43-rc.37 (2026-04-12)
+
+### Feat
+
+- **ci**: add weekly security CVE tracking issue workflow (#1191)
+
+### Fix
+
+- **supervisor**: replace RemoveMessage with synthetic ToolMessage for orphaned tool calls (#1195)
+- **rag**: rename fetch_datasources_and_entity_types to list_datasources_and_entity_types in prompt (#1070)
+- **docs**: replace broken relative spec link with GitHub URL (#1190)
+- **docs**: escape angle bracket in plan.md to fix MDX build failure (#1189)
+
+## 0.2.43-rc.36 (2026-04-12)
+
+### Fix
+
+- **deps**: fix 31 Dependabot alerts — protobuf, starlette, urllib3, transformers, ecdsa (#1183)
+
+## 0.2.43-rc.35 (2026-04-12)
+
+### Fix
+
+- **deps**: upgrade langchain-core/langgraph/go-stdlib — post-1179 security scan alerts (#1182)
+
+## 0.2.43-rc.34 (2026-04-12)
+
+### Fix
+
+- **deps**: bump gh CLI version from 2.63.2 to 2.89.0 in Dockerfile.a2a (#1181)
+
+## 0.2.43-rc.33 (2026-04-12)
+
+### Fix
+
+- **deps**: upgrade fastmcp, starlette, fastapi, scrapy, tj-actions — HIGH security alerts (#1180)
+
+## 0.2.43-rc.32 (2026-04-12)
+
+### Fix
+
+- **supervisor**: exclude format_markdown tool in structured response mode (#1074)
+- **ui**: deduplicate package-lock.json via npm install (#1177)
+
+## 0.2.43-rc.31 (2026-04-12)
+
+### Fix
+
+- **deps**: upgrade vulnerable dependencies — pypdf, langgraph, uv, webpack-dev-server, github-mcp-server (#1179)
+
+## 0.2.43-rc.30 (2026-04-12)
+
+### Fix
+
+- **aws**: omit --profile flag when no AWS_ACCOUNT_LIST profiles are configured (#1071)
+
+## 0.2.43-rc.29 (2026-04-12)
+
+### Fix
+
+- **deps**: upgrade langgraph 1.0.9→1.1.6 and langchain 1.2.6→1.2.15 to fix ImportError in CI (#1178)
+
+## 0.2.43-rc.28 (2026-04-10)
+
+### Fix
+
+- **deps**: regenerate uv.lock to fix locked sync in Docker build (#1175)
+- **setup**: production setup fixes — MetalLB, Docker FORWARD, Duo SSO (#1101)
+
+## 0.2.43-rc.27 (2026-04-10)
+
+## 0.2.43-rc.26 (2026-04-10)
+
+### Fix
+
+- **deps**: upgrade vulnerable dependencies across all agents and subpackages (#1173)
+
+## 0.2.43-rc.25 (2026-04-10)
+
+### Feat
+
+- **ui**: upgrade UI dependencies and components for v0.2.0 (#1171)
+
+### Fix
+
+- **supervisor**: unify single/distributed binding, streaming conformance, RAG caps (#1151)
+- **ci**: sync appVersion with chart version bump (#1174)
+- **ci**: pin action refs in sync-release-branches to fix workflow file issue (#1163)
+
+## 0.2.43-rc.24 (2026-04-10)
+
+### Fix
+
+- **ui**: guard login for chat urls (#1158)
+
+## 0.2.43-rc.23 (2026-04-10)
+
+### Fix
+
+- **slack-bot**: add missing default field in test_config_loaded_from_file_path (#1165)
+
+## 0.2.43-rc.21 (2026-04-10)
+
+### Fix
+
+- **github-mcp**: bump Go builder image to 1.25-alpine (#1170)
+
+## 0.2.43-rc.22 (2026-04-10)
+
+### Fix
+
+- OIDC group display, task builder tools, and supervisor response format (#1140)
+
+## 0.3.0-rc.2 (2026-04-09)
+
+### Fix
+
+- code scanning alert no. 1832: Artifact poisoning (#1159)
+
+## 0.2.43-rc.20 (2026-04-09)
+
+### Feat
+
+- **github-mcp**: add template support to create_repository tool (#1155)
+
+## 0.2.43-rc.19 (2026-04-09)
+
+### Fix
+
+- **slack-bot**: mount botConfig as file, add PDB and maxUnavailable=0 (#1154)
+
+## 0.2.43-rc.18 (2026-04-09)
+
+### Feat
+
+- Default enable metrics endpoints (#1064)
+
+## 0.2.43-rc.17 (2026-04-09)
+
+### Fix
+
+- **ci**: do not prebuild rag on .github file changes
+- **ci**: prebuild supervisor when only subagent changes if single-node
+- **ci**: use single-node syntax match for prebuilds w/o -
+- **aigateway**: update multiple llm providers in a batch and use lock to fix race condition
+- **ui**: fix conversations tab pagination and search
+
+## 0.2.43-rc.16 (2026-04-07)
+
+### Feat
+
+- **dynamic-agents**: add ModelRetryMiddleware to dynamic agent runtime
+- **supervisor**: add ModelRetryMiddleware, gate GitHub MCP tools, bump cnoe-agent-utils
+
+## 0.2.43-rc.15 (2026-04-07)
+
+### Feat
+
+- **ui**: add AI suggest buttons, CodeMirror editor, and markdown preview to custom agent builder
+- **ui**: add AI suggest proxy route for custom agent builder
+- **dynamic-agents**: add generic AI assistant suggest endpoint
+
+### Fix
+
+- **ui**: fix team-shared agents missing from new chat list and prevent header tab wrapping
+
+## 0.2.43-rc.14 (2026-04-07)
+
+### Feat
+
+- **rag**: add multi-org support to GitHub ingestor
+- **rag**: add multi-account support to AWS ingestor
+- **rag**: auto-track document_count in Client.ingest_documents
+- **ui**: add filter chip UI to MCPToolsView
+- **ui**: add custom metadata filter support in SearchView
+- **rag**: add nested metadata filtering support
+
+### Fix
+
+- **ui**: update AgentTimeline test to match removed streaming cursor
+- **dynamic-agents**: redact internal error details from /invoke response
+- **dynamic-agents**: handle MCP tool errors gracefully and surface in UI
+- **ui**: remove streaming cursor and use consistent markdown rendering in dynamic agent timeline
+- **rag**: support typed filter values for bool fields in search and MCP tools
+- **rag**: update ingestors for auto document_count tracking
+- **ui**: fix $project exclusion/expression mix in conversations pipeline
+- **ui**: avoid MongoDB 100MB $lookup limit in conversations endpoint
+- **rag**: read reload_interval from top-level field instead of metadata
+- **ui**: widen filter key and value inputs in SearchView
+- **ui**: show reload interval for all datasources with reload_interval
+
+### Refactor
+
+- **rag**: rename graph entity to structured entity
+
+## 0.2.43-rc.13 (2026-04-06)
+
+### Feat
+
+- **slack-bot**: add escalation workflows, fix feedback/streaming bugs (#1123)
+
+## 0.2.43-rc.12 (2026-04-06)
+
+### Fix
+
+- **deps**: pin langchain-core==1.2.26 to fix CVE-2025-68664 (#1125)
+
+## 0.2.43-rc.11 (2026-04-06)
+
+## 0.2.43-rc.10 (2026-04-06)
+
+## 0.2.43-rc.9 (2026-04-06)
+
+### Fix
+
+- **dev**: local dev no-SSO mode, Jira ADF descriptions, Docker networking (#1129)
+
+## 0.2.43-rc.8 (2026-04-06)
+
+### Feat
+
+- **dynamic-agents**: add OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP env var
+
+## 0.2.43-rc.7 (2026-04-06)
+
+### Feat
+
+- **security**: Grype Scan — rename, add container scanning for all 35 images, block on critical (#1126)
+
+### Refactor
+
+- consolidate A2A server into shared abstraction (#1116)
+
+## 0.2.43-rc.6 (2026-04-04)
+
+### Fix
+
+- **mcp**: move host/port from FastMCP() constructor to mcp.run()
+- **dev**: replace caipe-supervisor profile with caipe-supervisor-distributed
+- **dev**: add caipe-supervisor-distributed profile alias and optional slack-bot deps
+- **dev**: add caipe-supervisor-all-in-one service for single-node mode
+
+## 0.2.43-rc.5 (2026-04-03)
+
+## 0.2.43-rc.4 (2026-04-02)
+
+### Feat
+
+- **db**: auto-migrate web feedback on app startup (#1109)
+
+### Fix
+
+- **deps**: upgrade nltk==3.9.4, fastmcp==3.2.0, mcp==1.26.0 for critical CVEs (#1103)
+
+## 0.2.43-rc.3 (2026-04-02)
+
+### Feat
+
+- **admin**: enhanced platform statistics with Slack integration and unified filters (#1094)
+
+## 0.2.43-rc.2 (2026-04-02)
+
+### Fix
+
+- **subagent**: raise truncation limit to let eviction system work
+- **subagent**: truncate all string elements in tuple returns
+- **subagent**: truncate content inside (content, artifact) tuples
+- **docker**: install gh CLI in supervisor container
+- **subagent**: normalize MCP tool results for content_and_artifact format
+
+### Refactor
+
+- **subagent**: make _truncate_any shape-agnostic
+
+## 0.2.43-rc.1 (2026-04-02)
 
 ### Feat
 
@@ -17,6 +322,7 @@
 ### Feat
 
 - **github**: deploy GitHub MCP server as separate HTTP pod (#1077)
+- create snyk-container.yml
 
 ### Fix
 
