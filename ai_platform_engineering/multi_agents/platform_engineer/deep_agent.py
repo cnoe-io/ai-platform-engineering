@@ -94,6 +94,7 @@ logger = logging.getLogger(__name__)
 # Remote A2A agent tool
 from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import A2ARemoteAgentConnectTool
 from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper, SearchCapWrapper
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 # Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
@@ -102,6 +103,12 @@ RAG_CONNECTIVITY_RETRIES = 5
 MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
 MAX_SEARCH_CALLS = int(os.getenv("SEARCH_MAX_CALLS", "5"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
+
+# Structured Response Configuration
+# When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker.
+# This produces more polished output: the LLM makes a final structured call with clean markdown
+# in the 'content' field, and narration messages ("I'll search...") stream naturally before tools.
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "true").lower() == "true"
 
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
@@ -1453,6 +1460,20 @@ class PlatformEngineerDeepAgent:
         if rag_instructions:
             system_prompt += f"\n\n## RAG Knowledge Base\n{rag_instructions}"
 
+        # When structured response mode is enabled, add narration instruction so the
+        # LLM writes brief status messages before each tool call ("I'll search the
+        # knowledge base for..."). These stream to Slack/UI as polished waiting messages.
+        # The [FINAL ANSWER] marker section is NOT needed — the ResponseFormat tool
+        # handles clean final output via a structured LLM call.
+        if USE_STRUCTURED_RESPONSE:
+            system_prompt += (
+                "\n\n**Before invoking any tool, write one brief natural-language sentence describing what you are about to do.** "
+                "Describe the *intent* in plain English — NEVER mention internal tool names (search, fetch_document, fetch_url, write_todos, task, etc.). "
+                "For example: \"I'll search the knowledge base for information about X.\" or "
+                "\"Let me look up the full documentation for more details.\" or "
+                "\"I'll check with the GitHub agent for repository information.\"\n"
+            )
+
         system_prompt += """
 
 ## Self-Service Workflows (CRITICAL)
@@ -1540,7 +1561,16 @@ This format is required so the UI can display agent stickers next to each task.
             ],
         )
 
-        logger.info("Using [FINAL ANSWER] marker mode for plain-text token streaming")
+        # Structured response mode: the LLM calls a ResponseFormat tool for its
+        # final answer, producing a PlatformEngineerResponse with clean markdown
+        # in the 'content' field.  The agent_executor already handles the
+        # 'from_response_format_tool' event flag emitted by the graph.
+        if USE_STRUCTURED_RESPONSE:
+            from langchain.agents.structured_output import ToolStrategy
+            deep_agent_kwargs["response_format"] = ToolStrategy(PlatformEngineerResponse)
+            logger.info("Structured response mode enabled — ResponseFormat tool attached")
+        else:
+            logger.info("Using [FINAL ANSWER] marker mode for plain-text token streaming")
 
         # Attach cross-thread store for long-term memory (both modes)
         try:

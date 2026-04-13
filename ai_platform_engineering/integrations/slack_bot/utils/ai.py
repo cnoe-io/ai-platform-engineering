@@ -375,9 +375,10 @@ def stream_a2a_response(
           # After a sub-agent completes, allow post-subagent STREAMING_RESULT through
           # when the stream is already open. In [FINAL ANSWER] mode, pre-marker thinking
           # is suppressed at the agent level so only the clean final answer reaches here.
-          # If the stream is not yet open (typing indicator), accumulate for step cards.
+          # If the stream is not yet open (typing indicator), accumulate for step cards
+          # UNLESS this is the final answer — then fall through to open the stream.
           if any_subagent_completed:
-            if not stream_ts:
+            if not stream_ts and not streaming_final_answer:
               if current_step_id and plan_steps:
                 step_thinking.setdefault(current_step_id, [])
                 step_thinking[current_step_id].append(text)
@@ -465,9 +466,9 @@ def stream_a2a_response(
           # Without this, RAG queries (no sub-agents) are silent for 30-60s while
           # search/fetch_document run, because STREAMING_RESULT only arrives at the end.
           _start_stream_if_needed()
-          if throttler:
-            blocks = _build_progress_blocks(current_tool, plan_steps)
-            throttler.force_update(blocks, "Working on your request...")
+          # Do NOT push tool-name blocks into Slack — it clutters the message
+          # with ":mag: search..." indicators that the user shouldn't see.
+          # _start_stream_if_needed() above is enough to show the bot is active.
 
       elif parsed.event_type == EventType.TOOL_NOTIFICATION_END:
         if parsed.tool_notification:
