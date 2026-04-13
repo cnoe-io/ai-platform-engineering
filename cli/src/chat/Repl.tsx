@@ -25,6 +25,7 @@ interface ReplProps {
   session: ChatSession;
   adapter: StreamAdapter;
   systemContext: string;
+  serverUrl?: string;
   onExit: (session: ChatSession) => void;
 }
 
@@ -37,6 +38,8 @@ type RenderedMessage = {
   streamElapsed?: number;
   /** Tokens received so far in this response */
   streamTokens?: number;
+  /** Tool calls made during this response */
+  toolCalls?: Array<{ name: string; summary?: string }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -168,7 +171,12 @@ function InputBar({
       }
 
       if (key.ctrl && char === "c") {
-        onSubmit("/exit");
+        onSubmit("/stop-or-exit");
+        return;
+      }
+
+      if (key.escape) {
+        onEscape();
         return;
       }
 
@@ -185,12 +193,12 @@ function InputBar({
   );
 
   return (
-    <Box borderStyle="round" borderColor={disabled ? "gray" : "cyan"} paddingX={1}>
-      <Text color="cyan">{">"} </Text>
+    <Box paddingX={1}>
+      <Text color={disabled ? "gray" : "green"} bold>{"❯ "}</Text>
       <Text>{value}</Text>
-      {!disabled && <Text color="cyan">█</Text>}
+      {!disabled && <Text color="green">▊</Text>}
       {pickerActive && (
-        <Text dimColor> ↑↓ navigate  Enter select  Esc dismiss</Text>
+        <Text dimColor>  ↑↓ · Enter · Esc</Text>
       )}
     </Box>
   );
@@ -210,23 +218,59 @@ function MessageItem({ message, index }: MessageProps): React.ReactElement {
 
   return (
     <Box key={index} flexDirection="column" marginBottom={1}>
-      <Box>
-        {message.streaming === true ? (
+      {isUser ? (
+        /* User message: ❯ <text> */
+        <Box>
+          <Text color="green" bold>{"❯ "}</Text>
+          <Text>{message.content}</Text>
+        </Box>
+      ) : message.streaming === true ? (
+        /* Streaming: spinner status line + tool calls + accumulated text below */
+        <Box flexDirection="column">
           <StreamingSpinner
             elapsed={message.streamElapsed ?? 0}
             tokenCount={message.streamTokens ?? 0}
           />
-        ) : (
-          <Text bold color={isUser ? "green" : "blue"}>
-            {isUser ? "You" : "CAIPE"}
-          </Text>
-        )}
-      </Box>
-      <Box marginLeft={2}>
-        <Text>{isUser ? message.content : renderMarkdown(message.content)}</Text>
-      </Box>
+          {(message.toolCalls ?? []).map((tc, i) => (
+            <Box key={i} marginLeft={2}>
+              <Text dimColor>{"⎔ "}{tc.name}</Text>
+              {tc.summary != null && (
+                <Text dimColor color="gray"> {tc.summary}</Text>
+              )}
+            </Box>
+          ))}
+          {message.content.length > 0 && (
+            <Box marginLeft={2}>
+              <Text>{renderMarkdown(message.content)}</Text>
+            </Box>
+          )}
+        </Box>
+      ) : (
+        /* Completed AI response: ⏺ <text> + completed tool calls */
+        <Box flexDirection="column">
+          {(message.toolCalls ?? []).map((tc, i) => (
+            <Box key={i} marginLeft={2}>
+              <Text dimColor>{"✓ "}{tc.name}</Text>
+            </Box>
+          ))}
+          <Box>
+            <Text color="blue">{"⏺ "}</Text>
+            <Text>{renderMarkdown(message.content)}</Text>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Horizontal rule helper
+// ---------------------------------------------------------------------------
+
+function HRule({ color = "gray" }: { color?: string }): React.ReactElement {
+  // Ink doesn't expose terminal width directly; 80 cols is a safe floor
+  const cols = process.stdout.columns ?? 80;
+  return <Text color={color}>{"─".repeat(cols)}</Text>;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +282,7 @@ function TokenBudget({ used, max }: { used: number; max: number }): React.ReactE
   const color = pct > 0.85 ? "red" : pct > 0.65 ? "yellow" : "green";
   return (
     <Text dimColor>
-      tokens: <Text color={color}>{Math.round(used / 1000)}k</Text>/{Math.round(max / 1000)}k
+      <Text color={color}>{Math.round(used / 1000)}k</Text>/{Math.round(max / 1000)}k tokens
     </Text>
   );
 }
@@ -247,16 +291,18 @@ function TokenBudget({ used, max }: { used: number; max: number }): React.ReactE
 // Main REPL
 // ---------------------------------------------------------------------------
 
-export function Repl({ session, adapter, systemContext, onExit }: ReplProps): React.ReactElement {
+export function Repl({ session, adapter, systemContext, serverUrl, onExit }: ReplProps): React.ReactElement {
   const { exit } = useApp();
   const [messages, setMessages] = useState<RenderedMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [pickerIndex, setPickerIndex] = useState(0);
+  const [activeToolName, setActiveToolName] = useState<string | null>(null);
   const tokenCountRef = useRef(0);
   const streamStartRef = useRef(0);
   const ctrlDCountRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const MAX_TOKENS = 100_000;
 
   // Compute filtered commands whenever input changes
@@ -313,6 +359,23 @@ export function Repl({ session, adapter, systemContext, onExit }: ReplProps): Re
       switch (base) {
         case "/exit":
           handleExit();
+          break;
+
+        case "/stop-or-exit":
+          if (streaming && abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            setStreaming(false);
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.streaming) {
+                next[next.length - 1] = { ...last, streaming: false };
+              }
+              return next;
+            });
+          } else {
+            handleExit();
+          }
           break;
 
         case "/ctrl-d":
@@ -432,6 +495,23 @@ export function Repl({ session, adapter, systemContext, onExit }: ReplProps): Re
               }
               return next;
             });
+          } else if (ev.type === "tool") {
+            const summary = ev.input != null
+              ? JSON.stringify(ev.input).slice(0, 50)
+              : undefined;
+            setActiveToolName(ev.name);
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                const existing = last.toolCalls ?? [];
+                next[next.length - 1] = {
+                  ...last,
+                  toolCalls: [...existing, { name: ev.name, summary }],
+                };
+              }
+              return next;
+            });
           } else if (ev.type === "error") {
             setMessages((prev) => {
               const next = [...prev];
@@ -467,6 +547,7 @@ export function Repl({ session, adapter, systemContext, onExit }: ReplProps): Re
         });
       } finally {
         setStreaming(false);
+        setActiveToolName(null);
       }
     },
     [adapter, messages, session, systemContext, executeSlashCommand],
@@ -498,43 +579,61 @@ export function Repl({ session, adapter, systemContext, onExit }: ReplProps): Re
   }, [showPicker, filteredCommands.length]);
 
   const handleEscape = useCallback(() => {
-    setInput("");
-  }, []);
+    if (streaming && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setStreaming(false);
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.streaming) {
+          next[next.length - 1] = { ...last, streaming: false };
+        }
+        return next;
+      });
+    } else {
+      setInput("");
+    }
+  }, [streaming]);
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
+  // Compact server host for display (strip scheme, port 443/80)
+  const serverHost = serverUrl
+    ? serverUrl.replace(/^https?:\/\//, "").replace(/:443$/, "").replace(/:80$/, "")
+    : null;
+
   return (
     <Box flexDirection="column" height="100%">
-      {/* Status header */}
-      <Box borderStyle="single" borderColor="cyan" paddingX={1} justifyContent="space-between">
+      {/* Header: caipe  agent  server (subtle) */}
+      <Box paddingX={1} justifyContent="space-between">
         <Text bold color="cyan">caipe</Text>
         <Text dimColor>
-          agent: <Text color="white">{session.agentName}</Text>
-          {"  "}protocol: <Text color="white">{session.protocol}</Text>
+          {session.agentName !== "default" && (
+            <Text>{session.agentName}{"  "}</Text>
+          )}
+          {serverHost !== null && <Text>{serverHost}</Text>}
         </Text>
         <TokenBudget used={tokenCountRef.current} max={MAX_TOKENS} />
       </Box>
 
+      <HRule />
+
       {/* Messages */}
       <Box flexDirection="column" flexGrow={1} overflowY="hidden" paddingX={1} paddingY={1}>
         {messages.length === 0 && (
-          <Box>
-            <Text dimColor>Type a message or / to see commands.</Text>
-          </Box>
+          <Text dimColor>Type a message or / for commands.</Text>
         )}
         {messages.map((msg, i) => (
           <MessageItem key={i} message={msg} index={i} />
         ))}
         {statusText !== null && (
-          <Box>
-            <Text dimColor>{statusText}</Text>
-          </Box>
+          <Text dimColor>{statusText}</Text>
         )}
       </Box>
 
-      {/* Slash command picker — shown above input when input starts with "/" */}
+      {/* Slash command picker */}
       {showPicker && (
         <SlashPicker
           input={input}
@@ -543,12 +642,12 @@ export function Repl({ session, adapter, systemContext, onExit }: ReplProps): Re
         />
       )}
 
-      {/* Input */}
+      <HRule />
+
+      {/* Input — borderless, just ❯ prompt */}
       <InputBar
         value={input}
-        onChange={(v) => {
-          setInput(v);
-        }}
+        onChange={setInput}
         onSubmit={handlePickerSubmit}
         onUp={handleUp}
         onDown={handleDown}
@@ -557,8 +656,17 @@ export function Repl({ session, adapter, systemContext, onExit }: ReplProps): Re
         disabled={streaming}
       />
 
-      <Box paddingX={1}>
-        <Text dimColor>Ctrl+C · Ctrl+D×2 · /exit to end session</Text>
+      <HRule />
+
+      {/* Activity zone: tool calls or keyboard hints */}
+      <Box paddingX={2}>
+        {streaming && activeToolName !== null ? (
+          <Text dimColor>{"⎔ "}{activeToolName}{" · esc to interrupt"}</Text>
+        ) : streaming ? (
+          <Text dimColor>esc to interrupt · Ctrl+D (twice) to exit</Text>
+        ) : statusText !== null ? null : (
+          <Text dimColor>? for shortcuts · Ctrl+C to stop · Ctrl+D (twice) to exit</Text>
+        )}
       </Box>
     </Box>
   );
