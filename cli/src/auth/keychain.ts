@@ -1,7 +1,7 @@
 /**
  * OS keychain adapter via keytar.
  *
- * Tokens are stored under service name "caipe" with account "tokens".
+ * Tokens are stored under service name "CAIPE Platform Engineering CLI" with account "tokens".
  * The value is a JSON-serialized TokenSet.
  *
  * Invariant: access tokens are NEVER written to disk in plaintext.
@@ -10,7 +10,7 @@
 
 import keytar from "keytar";
 
-const SERVICE = "caipe";
+const SERVICE = "CAIPE Platform Engineering CLI";
 const ACCOUNT = "tokens";
 
 export interface TokenSet {
