@@ -50,7 +50,7 @@ jobs:
 
       - name: Build (verify compilation succeeds)
         working-directory: cli
-        run: bun build src/index.ts --outdir dist --target bun --external react-devtools-core
+        run: bun build src/index.ts --outdir dist --target bun
 
       - name: Cold-start check (<1s)
         working-directory: cli
