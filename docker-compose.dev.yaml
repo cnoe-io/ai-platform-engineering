@@ -1130,7 +1130,6 @@ services:
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
     profiles:
       - mas-agent-base
-      - all-agents
 
   ####################################################################################################
   #                                      AGENT JARVIS A2A P2P                                        #

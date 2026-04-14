@@ -640,23 +640,6 @@ services:
       - netutils-agent
       - all-agents
 
-  # MAS Agent Base
-  agent-mas-agent-base:
-    image: ghcr.io/cnoe-io/agent-mas-agent-base:${IMAGE_TAG:-0.2.36}
-    container_name: agent-mas-agent-base
-    env_file: [.env]
-    ports: ["8017:8000"]
-    environment:
-      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
-      - ENABLE_TRACING=${ENABLE_TRACING:-false}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
-      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
-    profiles:
-      - mas-agent-base
-      - all-agents
-
   ####################################################################################################
   #                                      CAIPE UI & MongoDB                                          #
   ####################################################################################################

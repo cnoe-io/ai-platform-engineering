@@ -9,7 +9,6 @@
     "gitlab",
     "jira",
     "komodor",
-    "mas-agent-base",
     "netutils",
     "pagerduty",
     "slack",
