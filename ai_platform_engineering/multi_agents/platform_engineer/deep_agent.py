@@ -94,6 +94,7 @@ logger = logging.getLogger(__name__)
 # Remote A2A agent tool
 from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import A2ARemoteAgentConnectTool
 from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import FetchDocumentCapWrapper, SearchCapWrapper
+from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
 
 # Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
@@ -102,6 +103,22 @@ RAG_CONNECTIVITY_RETRIES = 5
 MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
 MAX_SEARCH_CALLS = int(os.getenv("SEARCH_MAX_CALLS", "5"))
 RAG_CONNECTIVITY_WAIT_SECONDS = 10
+
+# Structured Response Configuration
+# When enabled, LLM uses ResponseFormat tool for final answers instead of [FINAL ANSWER] marker.
+# This produces more polished output: the LLM makes a final structured call with clean markdown
+# in the 'content' field, and narration messages ("I'll search...") stream naturally before tools.
+USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "true").lower() == "true"
+
+# Middleware toggles — disable to reduce latency by skipping write_todos / self-service overhead.
+# ENABLE_MIDDLEWARE=false disables ALL optional middleware (master switch).
+# Individual toggles override when ENABLE_MIDDLEWARE is true (or unset).
+ENABLE_MIDDLEWARE = os.getenv("ENABLE_MIDDLEWARE", "true").lower() == "true"
+ENABLE_DETERMINISTIC_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_DETERMINISTIC_MIDDLEWARE", "true").lower() == "true"
+ENABLE_SELF_SERVICE_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_SELF_SERVICE_MIDDLEWARE", "true").lower() == "true"
+ENABLE_POLICY_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_POLICY_MIDDLEWARE", "true").lower() == "true"
+ENABLE_SKILLS_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_SKILLS_MIDDLEWARE", "true").lower() == "true"
+ENABLE_FILE_ARG_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_FILE_ARG_MIDDLEWARE", "true").lower() == "true"
 
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
@@ -1100,6 +1117,9 @@ class PlatformEngineerDeepAgent:
         self._graph_lock = threading.RLock()
         self._graph = None
         self._graph_generation = 0
+        self._skills_loaded_count: int = 0
+        self._skills_merged_at: Optional[str] = None
+        self._last_built_catalog_generation: int = 0
         self._initialized = False
         self._subagent_tools: Dict[str, List[str]] = {}
         self._distributed_agents = _get_distributed_agents()
@@ -1173,6 +1193,25 @@ class PlatformEngineerDeepAgent:
             if self._platform_registry:
                 status["registry_status"] = self._platform_registry.get_registry_status()
             return status
+
+    def get_skills_status(self) -> dict:
+        """Skills load metadata for the /internal/supervisor/skills-status endpoint (FR-016)."""
+        from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
+
+        current_gen = get_catalog_cache_generation()
+        if self._last_built_catalog_generation == current_gen:
+            sync_status = "synced"
+        else:
+            sync_status = "stale"
+
+        return {
+            "graph_generation": self._graph_generation,
+            "skills_loaded_count": self._skills_loaded_count,
+            "skills_merged_at": self._skills_merged_at,
+            "catalog_cache_generation": current_gen,
+            "last_built_catalog_generation": self._last_built_catalog_generation,
+            "sync_status": sync_status,
+        }
 
     def _on_agents_changed(self):
         """Callback triggered when agent registry detects changes (distributed mode)."""
@@ -1286,6 +1325,21 @@ class PlatformEngineerDeepAgent:
     def _build_graph(self) -> None:
         """Sync wrapper for _build_graph_async (backwards-compatible entry point)."""
         asyncio.run(self._build_graph_async())
+
+    def _rebuild_graph(self) -> bool:
+        """Sync wrapper for _rebuild_graph_async (called by skills refresh endpoint)."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, self._rebuild_graph_async())
+                return future.result(timeout=120)
+        else:
+            return asyncio.run(self._rebuild_graph_async())
 
     async def _build_graph_async(self) -> None:
         """Build the deep agent graph with subagents (async to load MCP tools)."""
@@ -1446,12 +1500,27 @@ class PlatformEngineerDeepAgent:
         # This ensures all subagents are included with proper routing instructions
         system_prompt = generate_platform_system_prompt(
             self._prompt_config,
-            agents_for_prompt
+            agents_for_prompt,
+            use_structured_response=USE_STRUCTURED_RESPONSE,
         )
 
         # Append RAG instructions if RAG is enabled and tools are loaded
         if rag_instructions:
             system_prompt += f"\n\n## RAG Knowledge Base\n{rag_instructions}"
+
+        # When structured response mode is enabled, add narration instruction so the
+        # LLM writes brief status messages before each tool call ("I'll search the
+        # knowledge base for..."). These stream to Slack/UI as polished waiting messages.
+        # The [FINAL ANSWER] marker section is NOT needed — the ResponseFormat tool
+        # handles clean final output via a structured LLM call.
+        if USE_STRUCTURED_RESPONSE:
+            system_prompt += (
+                "\n\n**Before invoking any tool, write one brief natural-language sentence describing what you are about to do.** "
+                "Describe the *intent* in plain English — NEVER mention internal tool names (search, fetch_document, fetch_url, write_todos, task, etc.). "
+                "For example: \"I'll search the knowledge base for information about X.\" or "
+                "\"Let me look up the full documentation for more details.\" or "
+                "\"I'll check with the GitHub agent for repository information.\"\n"
+            )
 
         system_prompt += """
 
@@ -1492,11 +1561,20 @@ This format is required so the UI can display agent stickers next to each task.
         try:
             skills = get_merged_skills(include_content=True)
             self._skills_files, self._skills_sources = build_skills_files(skills)
+            self._skills_loaded_count = len(skills)
+            from datetime import datetime, timezone
+            self._skills_merged_at = datetime.now(timezone.utc).isoformat()
+            try:
+                from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
+                self._last_built_catalog_generation = get_catalog_cache_generation()
+            except Exception:
+                pass
             logger.info(f"📚 Loaded {len(skills)} skills for supervisor ({len(self._skills_sources)} sources)")
         except Exception as e:
             logger.warning(f"Failed to load skills catalog: {e}")
             self._skills_files = {}
             self._skills_sources = []
+            self._skills_loaded_count = 0
 
         # Build SkillsMiddleware with sources from catalog
         skills_middleware_list = []
@@ -1525,22 +1603,55 @@ This format is required so the UI can display agent stickers next to each task.
         # - write_todos: From TodoListMiddleware
         # - task: From SubAgentMiddleware
         # - read_file, write_file, ls, grep, glob, edit_file: From FilesystemMiddleware
+        # Build middleware list — each middleware can be toggled via env vars.
+        # ENABLE_MIDDLEWARE=false disables all optional middleware at once.
+        # ModelRetryMiddleware is always included (essential for error recovery).
+        middleware_list = [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+        ]
+
+        _mw_flags = {
+            "PolicyMiddleware": ENABLE_POLICY_MIDDLEWARE,
+            "SkillsMiddleware": ENABLE_SKILLS_MIDDLEWARE,
+            "DeterministicTaskMiddleware": ENABLE_DETERMINISTIC_MIDDLEWARE,
+            "CallToolWithFileArgMiddleware": ENABLE_FILE_ARG_MIDDLEWARE,
+            "SelfServiceWorkflowMiddleware": ENABLE_SELF_SERVICE_MIDDLEWARE,
+        }
+        if ENABLE_POLICY_MIDDLEWARE:
+            middleware_list.append(PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"))
+        if ENABLE_SKILLS_MIDDLEWARE:
+            middleware_list.extend(skills_middleware_list)
+        if ENABLE_DETERMINISTIC_MIDDLEWARE:
+            middleware_list.append(DeterministicTaskMiddleware())
+        if ENABLE_FILE_ARG_MIDDLEWARE:
+            middleware_list.append(CallToolWithFileArgMiddleware())
+        if ENABLE_SELF_SERVICE_MIDDLEWARE:
+            middleware_list.append(SelfServiceWorkflowMiddleware())
+
+        enabled = [k for k, v in _mw_flags.items() if v]
+        disabled = [k for k, v in _mw_flags.items() if not v]
+        logger.info(f"Middleware enabled: {enabled or '(none)'}")
+        if disabled:
+            logger.info(f"Middleware disabled: {disabled}")
+
         deep_agent_kwargs = dict(
             tools=all_tools,
             system_prompt=system_prompt,
             subagents=subagent_defs,
             model=base_model,
-            middleware=[
-                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
-                PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
-                *skills_middleware_list,
-                DeterministicTaskMiddleware(),
-                CallToolWithFileArgMiddleware(),
-                SelfServiceWorkflowMiddleware(),
-            ],
+            middleware=middleware_list,
         )
 
-        logger.info("Using [FINAL ANSWER] marker mode for plain-text token streaming")
+        # Structured response mode: the LLM calls a ResponseFormat tool for its
+        # final answer, producing a PlatformEngineerResponse with clean markdown
+        # in the 'content' field.  The agent_executor already handles the
+        # 'from_response_format_tool' event flag emitted by the graph.
+        if USE_STRUCTURED_RESPONSE:
+            from langchain.agents.structured_output import ToolStrategy
+            deep_agent_kwargs["response_format"] = ToolStrategy(PlatformEngineerResponse)
+            logger.info("Structured response mode enabled — ResponseFormat tool attached")
+        else:
+            logger.info("Using [FINAL ANSWER] marker mode for plain-text token streaming")
 
         # Attach cross-thread store for long-term memory (both modes)
         try:

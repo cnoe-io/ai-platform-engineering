@@ -590,17 +590,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Slack bot (and any streaming client) receives token-by-token updates.
         # This is deterministic — no dependency on the model emitting a marker.
         #
-        # Guard: only emit when the supervisor's synthesis was NOT already streamed
-        # live.  agent.py sets streaming_chunks_yielded = yielded_chunk_count —
-        # the number of post-marker (or no-marker) tokens it actually sent to the
-        # executor as live chunks.  When > 0 the answer reached the client already
-        # and re-emitting would duplicate.  When 0 the pre-marker buffer (or
-        # self-service suppression) held everything back — this is where deterministic
-        # chunking adds value.
-        streaming_chunks_yielded = event.get('streaming_chunks_yielded', 0)
+        # Guard: only emit when the content was NOT already delivered via
+        # streaming_result artifacts during the LLM call.  Two signals indicate
+        # prior delivery:
+        #   1. streaming_artifact_id is set — incremental parser already yielded
+        #   2. streaming_chunks_yielded > 0 — agent.py streamed live post-marker tokens
+        already_streamed_live = (
+            state.streaming_artifact_id
+            or event.get('streaming_chunks_yielded', 0) > 0
+        )
         if (
-            state.final_model_content
-            and streaming_chunks_yielded == 0
+            not already_streamed_live
+            and state.final_model_content
             and not is_datapart
             and isinstance(final_content, str)
             and final_content
@@ -840,6 +841,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if event.get('is_final_answer'):
             artifact.metadata = artifact.metadata or {}
             artifact.metadata['is_final_answer'] = True
+
+        if event.get('is_narration'):
+            artifact.metadata = artifact.metadata or {}
+            artifact.metadata['is_narration'] = True
 
         await self._send_artifact(event_queue, task, artifact, append=use_append)
 
@@ -1365,15 +1370,30 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                         f"{content[:300]}{'...' if len(content) > 300 else ''}"
                     )
 
+                    # Stream the ResponseFormat final answer in word-boundary
+                    # chunks — but only if incremental parsing hasn't already
+                    # streamed the content via tool_call_chunks.  When the
+                    # incremental parser ran, streaming_artifact_id is set from
+                    # the deltas it yielded; skip re-streaming to avoid
+                    # duplication in Slack.
+                    if isinstance(content, str) and content:
+                        if state.streaming_artifact_id:
+                            logger.info(
+                                f"Task {task.id}: content already streamed incrementally "
+                                f"(artifact {state.streaming_artifact_id}), skipping re-stream"
+                            )
+                            state.streaming_artifact_id = None
+                        else:
+                            await self._stream_final_content_as_chunks(
+                                content, state, task, event_queue
+                            )
+
                     artifact = new_text_artifact(
                         name='final_result',
                         description='Complete result from Platform Engineer',
                         text=content,
                     )
                     reused_id = False
-                    if state.streaming_artifact_id:
-                        artifact.artifact_id = state.streaming_artifact_id
-                        reused_id = True
                     logger.info(
                         f"📤 final_result artifact: id={artifact.artifact_id}, "
                         f"reused_streaming_id={reused_id}, parts={len(artifact.parts)}"
