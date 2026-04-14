@@ -47,7 +47,7 @@ jobs:
 
       - name: Set matrix based on changes
         id: set-matrix
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' }}
           CHANGED_AGENT_RAG: ${{ steps.filter.outputs.agent-rag }}
@@ -184,7 +184,7 @@ jobs:
 
       - name: 💬 Comment on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           COMPONENT: ${{ matrix.component }}
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -227,7 +227,7 @@ jobs:
       PACKAGE_NAME: prebuild/caipe-rag-${{ matrix.component }}
     steps:
       - name: Delete prebuild images for branch
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:
