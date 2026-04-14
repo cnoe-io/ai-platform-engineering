@@ -1183,16 +1183,16 @@ services:
   #                                 Slack Bot Integration                                            #
   ####################################################################################################
   slack-bot:
-    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-0.2.36}
+    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-0.4.0}
     container_name: slack-bot
     env_file: [.env]
     ports: ["8030:3000"]
     environment:
-      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
+      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
       - MONGODB_URI=${MONGODB_URI:-}
       - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
     depends_on:
-      - caipe-supervisor
+      - dynamic-agents
     profiles:
       - slack-bot
       - all-integrations

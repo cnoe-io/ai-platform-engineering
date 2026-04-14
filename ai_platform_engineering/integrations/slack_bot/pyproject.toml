@@ -1,6 +1,6 @@
 [project]
 name = "caipe-slack-bot"
-version = "0.3.0"
+version = "0.4.0"
 description = "CAIPE Slack Bot"
 license = "Apache-2.0"
 authors = [
@@ -11,6 +11,7 @@ dependencies = [
   "setuptools==82.0.1",
   "slack-bolt==1.27.0",
   "slack-sdk==3.41.0",
+  "httpx>=0.28,<1",
   "requests==2.33.0",
   "loguru==0.7.3",
   "pydantic==2.12.5",
