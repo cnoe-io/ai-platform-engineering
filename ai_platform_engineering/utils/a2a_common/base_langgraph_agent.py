@@ -40,6 +40,7 @@ from ai_platform_engineering.utils.mcp_config import (
 )
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
+from .bigtool import BigtoolConfig, create_bigtool_store, index_tools, get_relevant_tools
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
 
 
@@ -127,6 +128,18 @@ class BaseLangGraphAgent(ABC):
             f"min_messages={self.min_messages_to_keep}, "
             f"auto_compression={self.enable_auto_compression}"
         )
+
+        # BigTool: semantic tool selection (opt-in via BIGTOOL_ENABLED=true)
+        self.bigtool_config = BigtoolConfig.from_env()
+        self.bigtool_store = None
+        self.all_tools = None
+        if self.bigtool_config.enabled:
+            logger.info(
+                f"BigTool enabled: provider={self.bigtool_config.embeddings_provider}, "
+                f"model={self.bigtool_config.embeddings_model}, "
+                f"store={self.bigtool_config.vector_store_type}, "
+                f"top_k={self.bigtool_config.top_k}"
+            )
 
     @abstractmethod
     def get_agent_name(self) -> str:
@@ -1138,8 +1151,58 @@ Use this as the reference point for all date calculations. When users say "today
             **create_agent_kwargs,
         )
 
+        # BigTool: index tools for semantic selection
+        if self.bigtool_config.enabled:
+            try:
+                self.all_tools = list(tools)
+                self.bigtool_store = create_bigtool_store(self.bigtool_config)
+                index_tools(self.bigtool_store, tools, agent_name)
+                logger.info(
+                    f"{agent_name}: BigTool indexed {len(tools)} tools with "
+                    f"{self.bigtool_config.embeddings_provider} embeddings "
+                    f"using {self.bigtool_config.vector_store_type} store"
+                )
+            except Exception as e:
+                logger.warning(f"{agent_name}: BigTool initialization failed, continuing without it: {e}")
+                self.bigtool_store = None
+                self.all_tools = None
+
         # Agent initialization complete
         logger.info(f"✅ {agent_name} agent initialized with {len(tools)} tools")
+
+    def _create_bigtool_agent(self, relevant_tools: list) -> Any:
+        """Create a temporary agent graph with a subset of tools for BigTool filtering.
+
+        Args:
+            relevant_tools: The filtered subset of tools to use.
+
+        Returns:
+            A react agent graph using only the relevant tools.
+        """
+        agent_name = self.get_agent_name()
+        model_with_name = self.model.with_config(
+            run_name=agent_name,
+            tags=[f"agent:{agent_name}", "bigtool"],
+            metadata={"agent_name": agent_name, "bigtool_filtered": True},
+        )
+
+        create_agent_kwargs: Dict[str, Any] = {
+            "checkpointer": memory,
+            "prompt": self._get_system_instruction_with_date(),
+            "response_format": (
+                self.get_response_format_instruction(),
+                self.get_response_format_class(),
+            ),
+        }
+
+        if self.enable_auto_compression:
+            create_agent_kwargs["pre_model_hook"] = self._build_pre_model_hook()
+
+        return create_react_agent(
+            model_with_name,
+            relevant_tools,
+            **create_agent_kwargs,
+        )
 
     def _count_message_tokens(self, message: Any) -> int:
         """
@@ -2017,6 +2080,20 @@ Use this as the reference point for all date calculations. When users say "today
         except Exception as e:
             logger.error(f"{agent_name}: Post-compression orphan repair failed: {e}", exc_info=True)
 
+        # BigTool: select a filtered agent if enabled
+        active_graph = self.graph
+        if self.bigtool_config.enabled and self.bigtool_store and self.all_tools:
+            relevant_tools = get_relevant_tools(
+                query, self.all_tools, self.bigtool_store,
+                agent_name, self.bigtool_config.top_k,
+            )
+            if len(relevant_tools) < len(self.all_tools):
+                logger.info(
+                    f"{agent_name}: BigTool selected {len(relevant_tools)}/{len(self.all_tools)} "
+                    f"tools for query"
+                )
+                active_graph = self._create_bigtool_agent(relevant_tools)
+
         # Track which messages we've already processed to avoid duplicates
         seen_tool_calls = set()
 
@@ -2036,7 +2113,7 @@ Use this as the reference point for all date calculations. When users say "today
                 # Token-by-token streaming mode using 'messages' and 'custom' (for writer() events from tools)
                 logger.info(f"{agent_name}: Token-by-token streaming ENABLED")
                 processed_message_count = 0
-                async for item_type, item in self.graph.astream(inputs, config, stream_mode=['messages', 'custom']):
+                async for item_type, item in active_graph.astream(inputs, config, stream_mode=['messages', 'custom']):
                     # Process message stream
                     if item_type == 'custom':
                         # Handle custom events from writer() (e.g., sub-agent streaming)
@@ -2238,7 +2315,7 @@ Use this as the reference point for all date calculations. When users say "today
                 # Full message mode using 'values' (current behavior)
                 logger.info(f"{agent_name}: Token-by-token streaming DISABLED, using full message mode")
                 processed_message_count = 0
-                async for state in self.graph.astream(inputs, config, stream_mode='values'):
+                async for state in active_graph.astream(inputs, config, stream_mode='values'):
                     # Extract messages from the state
                     if not isinstance(state, dict) or 'messages' not in state:
                         continue
