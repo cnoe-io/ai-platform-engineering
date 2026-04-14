@@ -47,6 +47,30 @@ global:
   metrics:
     enabled: true
 
+  # Default VPA config for MCP containers in single-node mode.
+  # In multi-node mode, mcp.vpa in each agent subchart's values.yaml applies instead.
+  # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
+  #   agent-github:
+  #     mcp:
+  #       vpa:
+  #         enabled: false   # disable VPA for github MCP only
+  #         maxAllowed:
+  #           cpu: 2
+  #           memory: 2Gi
+  mcp:
+    vpa:
+      enabled: false
+      # "Off" = recommendations only (no restarts).
+      # Use "InPlaceOrRecreate" (Kubernetes 1.29+) or "Recreate" to apply automatically.
+      updateMode: "Off"
+      controlledResources: ["cpu", "memory"]
+      minAllowed:
+        cpu: 50m
+        memory: 128Mi
+      maxAllowed: {}
+      #   cpu: 2
+      #   memory: 2Gi
+
   agentgateway:
     enabled: false
 

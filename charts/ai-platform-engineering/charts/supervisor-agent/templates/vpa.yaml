@@ -1,0 +1,30 @@
+{{- if .Values.vpa.enabled }}
+{{- if .Values.autoscaling.enabled }}
+{{- fail "vpa.enabled and autoscaling.enabled cannot both be true - VPA conflicts with HPA on both CPU-based and memory-based scaling" }}
+{{- end }}
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{ include "supervisorAgent.fullname" . }}
+  labels:
+    {{- include "supervisorAgent.labels" . | nindent 4 }}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "supervisorAgent.fullname" . }}
+  updatePolicy:
+    updateMode: {{ .Values.vpa.updateMode | quote }}
+  resourcePolicy:
+    containerPolicies:
+      - containerName: {{ .Chart.Name }}
+        controlledResources: {{ .Values.vpa.controlledResources | toJson }}
+        {{- with .Values.vpa.minAllowed }}
+        minAllowed:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.vpa.maxAllowed }}
+        maxAllowed:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}

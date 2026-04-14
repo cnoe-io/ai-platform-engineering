@@ -1206,6 +1206,64 @@ agent-github:
     targetCPUUtilizationPercentage: 80
 ```
 
+**Vertical Pod Autoscaler**:
+
+VPA observes actual resource usage and surfaces right-sizing recommendations without restarting pods (the default `updateMode: "Off"`). Use it to tune `requests` and `limits` based on real workload data rather than guessing upfront.
+
+:::note Prerequisites
+The [VPA CRDs and controller](https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/docs/installation.md) must be installed in the cluster before setting `vpa.enabled: true`.
+:::
+
+:::caution
+Do not enable `vpa` and `autoscaling` on the same agent - VPA conflicts with HPA on both CPU-based and memory-based scaling.
+:::
+
+Enable in recommendation mode (no automatic changes):
+```yaml
+agent-github:
+  vpa:
+    enabled: true
+    updateMode: "Off"   # recommendations only - pods are not restarted
+```
+
+Set bounds to prevent VPA from recommending values that are too low or too high:
+```yaml
+agent-github:
+  vpa:
+    enabled: true
+    updateMode: "Off"
+    minAllowed:
+      cpu: 50m
+      memory: 128Mi
+    maxAllowed:
+      cpu: 2
+      memory: 2Gi
+```
+
+To let VPA apply changes automatically, prefer `InPlaceOrRecreate` on Kubernetes 1.29+. It resizes containers without eviction where possible, falling back to eviction only when in-place is not supported (e.g. memory decreases). Use `Recreate` on older clusters.
+```yaml
+agent-github:
+  vpa:
+    enabled: true
+    updateMode: "InPlaceOrRecreate"  # recommended: Kubernetes 1.29+ (InPlacePodVerticalScaling beta)
+    # updateMode: "Recreate"         # fallback for Kubernetes < 1.29: evicts and restarts pods
+```
+
+After enabling, retrieve the current recommendations:
+```bash
+kubectl get vpa <release>-agent-github -o jsonpath='{.status.recommendation}' | jq .
+```
+
+The output contains three values per container. Use `target` to set `requests`, and `upperBound` to set `limits`.
+
+In single-node deployment mode, MCP sidecar containers get their own VPA objects. Override the global default for a specific agent:
+```yaml
+agent-github:
+  mcp:
+    vpa:
+      enabled: false   # opt this agent's MCP container out of VPA
+```
+
 ### High Availability
 
 **Multi-Replica Deployment**:
