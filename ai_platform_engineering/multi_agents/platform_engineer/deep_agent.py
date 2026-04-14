@@ -1117,6 +1117,9 @@ class PlatformEngineerDeepAgent:
         self._graph_lock = threading.RLock()
         self._graph = None
         self._graph_generation = 0
+        self._skills_loaded_count: int = 0
+        self._skills_merged_at: Optional[str] = None
+        self._last_built_catalog_generation: int = 0
         self._initialized = False
         self._subagent_tools: Dict[str, List[str]] = {}
         self._distributed_agents = _get_distributed_agents()
@@ -1190,6 +1193,25 @@ class PlatformEngineerDeepAgent:
             if self._platform_registry:
                 status["registry_status"] = self._platform_registry.get_registry_status()
             return status
+
+    def get_skills_status(self) -> dict:
+        """Skills load metadata for the /internal/supervisor/skills-status endpoint (FR-016)."""
+        from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
+
+        current_gen = get_catalog_cache_generation()
+        if self._last_built_catalog_generation == current_gen:
+            sync_status = "synced"
+        else:
+            sync_status = "stale"
+
+        return {
+            "graph_generation": self._graph_generation,
+            "skills_loaded_count": self._skills_loaded_count,
+            "skills_merged_at": self._skills_merged_at,
+            "catalog_cache_generation": current_gen,
+            "last_built_catalog_generation": self._last_built_catalog_generation,
+            "sync_status": sync_status,
+        }
 
     def _on_agents_changed(self):
         """Callback triggered when agent registry detects changes (distributed mode)."""
@@ -1303,6 +1325,21 @@ class PlatformEngineerDeepAgent:
     def _build_graph(self) -> None:
         """Sync wrapper for _build_graph_async (backwards-compatible entry point)."""
         asyncio.run(self._build_graph_async())
+
+    def _rebuild_graph(self) -> bool:
+        """Sync wrapper for _rebuild_graph_async (called by skills refresh endpoint)."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, self._rebuild_graph_async())
+                return future.result(timeout=120)
+        else:
+            return asyncio.run(self._rebuild_graph_async())
 
     async def _build_graph_async(self) -> None:
         """Build the deep agent graph with subagents (async to load MCP tools)."""
@@ -1524,11 +1561,20 @@ This format is required so the UI can display agent stickers next to each task.
         try:
             skills = get_merged_skills(include_content=True)
             self._skills_files, self._skills_sources = build_skills_files(skills)
+            self._skills_loaded_count = len(skills)
+            from datetime import datetime, timezone
+            self._skills_merged_at = datetime.now(timezone.utc).isoformat()
+            try:
+                from ai_platform_engineering.skills_middleware.catalog import get_catalog_cache_generation
+                self._last_built_catalog_generation = get_catalog_cache_generation()
+            except Exception:
+                pass
             logger.info(f"📚 Loaded {len(skills)} skills for supervisor ({len(self._skills_sources)} sources)")
         except Exception as e:
             logger.warning(f"Failed to load skills catalog: {e}")
             self._skills_files = {}
             self._skills_sources = []
+            self._skills_loaded_count = 0
 
         # Build SkillsMiddleware with sources from catalog
         skills_middleware_list = []
