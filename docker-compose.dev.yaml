@@ -1106,6 +1106,32 @@ services:
     profiles:
       - netutils-agent
 
+  # MAS Agent Base
+  agent-mas-agent-base:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.a2a
+      args:
+        - AGENT_NAME=mas-agent-base
+        - AGENT_PACKAGE=mas_agent_base
+    image: ghcr.io/cnoe-io/agent-mas-agent-base:${IMAGE_TAG:-localtag}
+    container_name: agent-mas-agent-base
+    volumes:
+      - ./ai_platform_engineering/agents/mas-agent-base/mas_agent_base:/app/ai_platform_engineering/agents/agent/mas_agent_base
+      - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
+    env_file: [.env]
+    ports: ["8017:8000"]
+    environment:
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+    profiles:
+      - mas-agent-base
+      - all-agents
+
   ####################################################################################################
   #                                      AGENT JARVIS A2A P2P                                        #
   ####################################################################################################
