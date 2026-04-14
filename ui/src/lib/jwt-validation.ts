@@ -123,12 +123,13 @@ export function _resetJWKSCache(): void {
 const MAX_EXPIRY_DAYS = 90;
 
 /**
- * Get the HS256 signing key derived from NEXTAUTH_SECRET.
+ * Get the HS256 signing key for skills API tokens.
+ * Uses SKILLS_API_SECRET if set, falling back to NEXTAUTH_SECRET for backward compatibility.
  */
 function getLocalSigningKey(): Uint8Array {
-  const secret = process.env.NEXTAUTH_SECRET;
+  const secret = process.env.SKILLS_API_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) {
-    throw new Error('NEXTAUTH_SECRET is not configured');
+    throw new Error('Neither SKILLS_API_SECRET nor NEXTAUTH_SECRET is configured');
   }
   return new TextEncoder().encode(secret);
 }

@@ -36,7 +36,7 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
       userEmail: session?.user?.email,
       hasAccessToken: !!session?.accessToken,
       hasIdToken: !!session?.idToken,
-      accessTokenPrefix: session?.accessToken ? session.accessToken.substring(0, 20) + '...' : 'MISSING',
+      hasAccessToken: !!session?.accessToken,
       expiresAt: session?.expiresAt ? new Date((session.expiresAt as number) * 1000).toISOString() : 'N/A'
     });
     
@@ -68,7 +68,7 @@ export async function GET() {
   // Debug logging
   console.log('[User Info] Request headers:', {
     hasAuthorization: !!headers['Authorization'],
-    authHeader: headers['Authorization'] ? `${headers['Authorization'].substring(0, 20)}...` : 'MISSING'
+    hasAuthHeader: !!headers['Authorization']
   });
 
   try {

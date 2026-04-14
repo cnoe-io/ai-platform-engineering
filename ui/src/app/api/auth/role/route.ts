@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
 
   if (!session || !session.user?.email) {
-    return NextResponse.json({ role: 'user' }, { status: 200 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   let role = session.role || 'user';

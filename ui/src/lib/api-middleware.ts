@@ -50,8 +50,13 @@ export async function getAuthenticatedUser(
   if (!session || !session.user?.email) {
     const { allowAnonymous = false } = options;
     if (allowAnonymous && !getConfig('ssoEnabled')) {
-      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role: 'admin' };
-      return { user: fallbackUser, session: { role: 'admin', canViewAdmin: true } };
+      const allowAnonAdmin = process.env.ALLOW_ANONYMOUS_ADMIN === 'true';
+      if (!allowAnonAdmin) {
+        console.warn('[Auth] SSO is disabled and ALLOW_ANONYMOUS_ADMIN is not set — anonymous user gets role "user" only');
+      }
+      const role = allowAnonAdmin ? 'admin' : 'user';
+      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role };
+      return { user: fallbackUser, session: { role, canViewAdmin: allowAnonAdmin } };
     }
     throw new ApiError('Unauthorized', 401);
   }
