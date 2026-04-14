@@ -837,6 +837,10 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             artifact.metadata = artifact.metadata or {}
             artifact.metadata['is_final_answer'] = True
 
+        if event.get('is_narration'):
+            artifact.metadata = artifact.metadata or {}
+            artifact.metadata['is_narration'] = True
+
         await self._send_artifact(event_queue, task, artifact, append=use_append)
 
     async def _handle_stream_end(self, state: StreamState, task: A2ATask,

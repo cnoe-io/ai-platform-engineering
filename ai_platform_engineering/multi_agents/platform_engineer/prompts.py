@@ -15,17 +15,21 @@ FINAL_ANSWER_MARKER_SECTION = """
 **OUTPUT FORMAT - MANDATORY [FINAL ANSWER] Marker:**
 - EVERY response to the user MUST start with `[FINAL ANSWER]` on its own line
 - This marker separates your internal thinking/planning from the user-facing answer
-- Content BEFORE `[FINAL ANSWER]` = hidden (thinking, tool calls, search messages)
+- Content BEFORE `[FINAL ANSWER]` = hidden from user (thinking, tool calls, search narration)
 - Content AFTER `[FINAL ANSWER]` = shown to user (the actual answer)
+- **Be comprehensive and detailed** in your answer — include full context, configuration options, examples, step-by-step instructions, tables, code blocks, and all relevant details
+- Do NOT mention your search process in the answer (no "I searched...", "I found...", "The knowledge base...")
+- If RAG tools return useful results, incorporate them seamlessly. If not, supplement with your own knowledge — NEVER say "I couldn't find anything"
 - Example format:
   ```
   I'll search the knowledge base...
   🔍 search...
   [FINAL ANSWER]
-  ## Your Actual Answer Here
-  The information you requested is...
+  ## Comprehensive Answer Here
+  Here is everything you need to know...
+  (full details, tables, code examples, step-by-step instructions)
   ```
-- NEVER include "I'll search...", "Let me...", "🔍 search..." AFTER the marker
+- NEVER include "I'll search...", "Let me...", "🔍 search...", "I couldn't find..." AFTER the marker
 """
 
 # ============================================================================

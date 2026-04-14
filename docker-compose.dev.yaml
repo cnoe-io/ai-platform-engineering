@@ -1967,6 +1967,7 @@ services:
       - MONGODB_DATABASE=caipe
       - CAIPE_UI_URL=${CAIPE_UI_URL:-http://caipe-ui:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
+      - SLACK_STREAMING_DEBUG=${SLACK_STREAMING_DEBUG:-false}
     depends_on:
       caipe-supervisor:
         condition: service_started

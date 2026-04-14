@@ -638,7 +638,11 @@ class AIPlatformEngineerA2ABinding:
 
           # [FINAL ANSWER] marker split: buffer pre-marker text, stream post-marker tokens
           _final_answer_seen = False
+          _strip_post_marker_newlines = False  # strip leading \n from first post-marker chunks
           _pre_marker_buffer = ""
+          _MARKER = "[FINAL ANSWER]"
+          _MARKER_ALT = "[FINAL_ANSWER]"
+          _MARKER_MAX_LEN = max(len(_MARKER), len(_MARKER_ALT))
 
           # Response tracking (always None in [FINAL ANSWER] mode; kept for error-recovery path)
           response_format_result = None
@@ -1119,6 +1123,23 @@ class AIPlatformEngineerA2ABinding:
                           if tc_id:
                               pending_tool_calls[tc_id] = tool_name
 
+                          # ── Flush pre-marker buffer at tool-call boundary ──
+                          # Any tool call proves we haven't reached [FINAL ANSWER]
+                          # yet, so the entire buffer is safe to flush.  This must
+                          # run before the per-tool `continue` guards below so that
+                          # narration written before task/write_todos/etc. is not
+                          # trapped in the buffer during tool execution.
+                          if not USE_STRUCTURED_RESPONSE and _pre_marker_buffer and not _final_answer_seen:
+                              logging.info(f"Flushing pre-marker buffer at tool-call boundary ({len(_pre_marker_buffer)} chars)")
+                              yielded_chunk_count += 1
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": _pre_marker_buffer,
+                                  "is_narration": True,
+                              }
+                              _pre_marker_buffer = ""
+
                           # invoke_self_service_task — enter self-service mode to suppress intermediate text
                           if tool_name == "invoke_self_service_task":
                               self._in_self_service_workflow = True
@@ -1183,7 +1204,12 @@ class AIPlatformEngineerA2ABinding:
                       # often writes "I'll search the knowledge base..." in
                       # the same turn as a tool call — yield it so Slack can
                       # show it as a thinking/progress indicator.
-                      if USE_STRUCTURED_RESPONSE and hasattr(message, "content") and message.content:
+                      #
+                      # Tagged as is_narration so the Slack bot shows typing
+                      # status (not stream content). The marker gate below
+                      # doesn't run for tool-call messages because of the
+                      # continue, so we handle narration extraction here.
+                      if hasattr(message, "content") and message.content:
                           _narration = message.content
                           if isinstance(_narration, list):
                               _narration = "".join(
@@ -1194,11 +1220,13 @@ class AIPlatformEngineerA2ABinding:
                           if isinstance(_narration, str) and _narration.strip():
                               accumulated_ai_content.append(_narration)
                               yielded_chunk_count += 1
-                              yield {
+                              narration_event = {
                                   "is_task_complete": False,
                                   "require_user_input": False,
                                   "content": _narration,
+                                  "is_narration": True,
                               }
+                              yield narration_event
                       continue
 
                   content = message.content
@@ -1276,8 +1304,6 @@ class AIPlatformEngineerA2ABinding:
                               "content": content,
                           }
                       else:
-                          _MARKER = "[FINAL ANSWER]"
-                          _MARKER_ALT = "[FINAL_ANSWER]"
                           if not _final_answer_seen:
                               _pre_marker_buffer += content
                               marker_used = None
@@ -1287,11 +1313,34 @@ class AIPlatformEngineerA2ABinding:
                                   marker_used = _MARKER_ALT
                               if marker_used:
                                   _final_answer_seen = True
-                                  content = _pre_marker_buffer.split(marker_used, 1)[1]
+                                  _strip_post_marker_newlines = True
+                                  content = _pre_marker_buffer.split(marker_used, 1)[1].lstrip("\n\r")
+                                  _pre_marker_buffer = ""
                                   logging.info(f"[FINAL ANSWER] marker found; streaming post-marker content ({len(content)} chars)")
                               else:
-                                  # Pre-marker: suppress (thinking/reasoning)
+                                  # Pre-marker narration: stream through so the user
+                                  # sees thinking messages as the LLM works. Hold back
+                                  # the tail (up to marker length) to avoid leaking
+                                  # partial marker text like "[FINAL" into the stream.
+                                  safe_len = len(_pre_marker_buffer) - _MARKER_MAX_LEN
+                                  if safe_len > 0:
+                                      to_yield = _pre_marker_buffer[:safe_len]
+                                      _pre_marker_buffer = _pre_marker_buffer[safe_len:]
+                                      yielded_chunk_count += 1
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": to_yield,
+                                          "is_narration": True,
+                                      }
                                   continue
+                          # Strip leading newlines from first post-marker
+                          # chunks to avoid "Here\n's a summary" breaks
+                          # caused by token boundaries after the marker.
+                          if content and _strip_post_marker_newlines:
+                              content = content.lstrip("\n\r")
+                              if content:
+                                  _strip_post_marker_newlines = False
                           if content:
                               yielded_chunk_count += 1
                               yield {
@@ -1666,6 +1715,7 @@ class AIPlatformEngineerA2ABinding:
           _rf_last_content_len = 0
           _rf_word_buffer = ""
           _final_answer_seen = False
+          _strip_post_marker_newlines = False
           _pre_marker_buffer = ""
 
           try:

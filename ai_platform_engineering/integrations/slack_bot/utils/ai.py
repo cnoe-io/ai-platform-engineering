@@ -26,6 +26,8 @@ from .event_parser import (
 from .throttler import create_throttled_updater
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
+STREAMING_DEBUG = os.environ.get("SLACK_STREAMING_DEBUG", "false").lower() == "true"
+_token_seq = __import__("itertools").count(1)  # thread-safe monotonic counter for debug logging
 
 
 class StreamBuffer:
@@ -44,7 +46,7 @@ class StreamBuffer:
     self.stream_ts = stream_ts
     self.flush_interval = flush_interval
     self._buffer = ""
-    self._last_flush = time.monotonic()
+    self._last_flush = None  # set on first append, not init — avoids stale elapsed from LLM think time
     self._flushed_any = False
 
   @property
@@ -52,39 +54,35 @@ class StreamBuffer:
     return self._flushed_any
 
   def append(self, text):
-    """Add text to the buffer; auto-flush on paragraph breaks or after the interval.
-
-    Each ``chat_appendStream`` call creates a separate markdown block in
-    Slack, so flushing too often produces visible line splits.  We only
-    flush on **paragraph boundaries** (double-newline ``\\n\\n``) or when
-    the safety-interval fires with enough accumulated content.
-    """
+    """Add text to the buffer; auto-flush on newline or after the interval."""
     self._buffer += text
 
-    elapsed = time.monotonic() - self._last_flush
+    now = time.monotonic()
+    if self._last_flush is None:
+      self._last_flush = now  # start interval from first token, not from init
+    elapsed = now - self._last_flush
 
-    # Flush on paragraph boundaries (double-newline) — these are natural
-    # visual breaks in markdown.  Single newlines within a paragraph are
-    # kept in the buffer so the paragraph isn't split across Slack blocks.
-    if "\n\n" in self._buffer:
-      # Flush up to (and including) the last paragraph break
-      last_para = self._buffer.rfind("\n\n")
-      to_flush = self._buffer[: last_para + 2]
-      self._buffer = self._buffer[last_para + 2 :]
-      if to_flush:
-        self._send(to_flush)
-    elif elapsed >= self.flush_interval and len(self._buffer) >= 40:
-      # No paragraph break for a while and we have enough content —
-      # flush on the nearest single-newline boundary to avoid splitting
-      # mid-word/mid-sentence.
+    if STREAMING_DEBUG:
+      escaped_buf = self._buffer[:120].replace('\n', '\\n').replace('\r', '\\r')
+      logger.info(f"[STREAM_DEBUG BUFFER] +{len(text)} chars, buf_len={len(self._buffer)}, elapsed={elapsed:.2f}s, buf={escaped_buf!r}{'...' if len(self._buffer) > 120 else ''}")
+
+    # Prefer flushing on newline boundaries so markdown isn't split mid-token
+    if "\n" in self._buffer:
+      # Flush up to (and including) the last newline; keep the remainder
       last_nl = self._buffer.rfind("\n")
-      if last_nl >= 0:
-        to_flush = self._buffer[: last_nl + 1]
-        self._buffer = self._buffer[last_nl + 1 :]
-        if to_flush:
-          self._send(to_flush)
-      else:
-        self.flush()
+      to_flush = self._buffer[: last_nl + 1]
+      self._buffer = self._buffer[last_nl + 1 :]
+      if to_flush:
+        if STREAMING_DEBUG:
+          escaped = to_flush[:120].replace('\n', '\\n').replace('\r', '\\r')
+          logger.info(f"[STREAM_DEBUG FLUSH newline] {len(to_flush)} chars: {escaped!r}{'...' if len(to_flush) > 120 else ''}")
+        self._send(to_flush)
+    elif elapsed >= self.flush_interval:
+      # No newline seen for a while — flush everything as a safety net
+      if STREAMING_DEBUG:
+        escaped = self._buffer[:120].replace('\n', '\\n').replace('\r', '\\r')
+        logger.info(f"[STREAM_DEBUG FLUSH interval] {len(self._buffer)} chars: {escaped!r}{'...' if len(self._buffer) > 120 else ''}")
+      self.flush()
 
   def flush(self):
     """Send all buffered text to Slack immediately. No-op if buffer is empty."""
@@ -104,6 +102,8 @@ class StreamBuffer:
         chunks=[{"type": "markdown_text", "text": text}],
       )
       self._flushed_any = True
+      preview = text[:80].replace('\n', '\\n')
+      logger.info(f"SLACK appendStream text ({len(text)} chars): {preview}{'...' if len(text) > 80 else ''}")
       return True
     except Exception as e:
       logger.warning(f"SLACK appendStream text FAILED: {e}")
@@ -355,6 +355,26 @@ def stream_a2a_response(
           if artifact_meta.get("is_final_answer") and not streaming_final_answer:
             streaming_final_answer = True
 
+          # Debug: log every token the Slack bot receives (SLACK_STREAMING_DEBUG=true)
+          if STREAMING_DEBUG:
+            seq = next(_token_seq)
+            escaped = parsed.text_content.replace('\n', '\\n').replace('\r', '\\r')
+            logger.info(
+              f"[STREAM_DEBUG #{seq}] "
+              f"len={len(parsed.text_content)} "
+              f"is_final={artifact_meta.get('is_final_answer', False)} "
+              f"is_narr={artifact_meta.get('is_narration', False)} "
+              f"text={escaped!r}"
+            )
+
+          # Narration (pre-marker thinking text like "I'll search...",
+          # "Perfect! I found...") — show as typing status, not in stream.
+          # The thinking/search narration is internal; the detailed answer
+          # comes after [FINAL ANSWER] and is streamed as is_final_answer.
+          if artifact_meta.get("is_narration"):
+            _set_typing_status("is responding...")
+            continue
+
           # Track plan progress and latch final-answer streaming.
           if current_step_id and plan_steps and not streaming_final_answer:
             sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
@@ -418,9 +438,7 @@ def stream_a2a_response(
           # This keeps CAIPE in "thinking/typing" state while it searches/fetches.
           # Exception: is_final_answer chunks ARE the answer — open the stream for them.
           if not stream_ts and not streaming_final_answer:
-            status = text.strip().rstrip('\n')
-            if status:
-              _set_typing_status(status[:80])
+            _set_typing_status("is responding...")
             continue
           _start_stream_if_needed()
           if stream_buf:
@@ -483,9 +501,12 @@ def stream_a2a_response(
           # Without this, RAG queries (no sub-agents) are silent for 30-60s while
           # search/fetch_document run, because STREAMING_RESULT only arrives at the end.
           _start_stream_if_needed()
-          # Do NOT push tool-name blocks into Slack — it clutters the message
-          # with ":mag: search..." indicators that the user shouldn't see.
-          # _start_stream_if_needed() above is enough to show the bot is active.
+          # Show "composing answer" as typing status to bridge the gap
+          # between tool completion and first streaming token (~15s).
+          if current_tool == "composing_answer":
+            _set_typing_status("is composing the answer...")
+          # Do NOT push other tool-name blocks into Slack — it clutters the
+          # message with ":mag: search..." indicators the user shouldn't see.
 
       elif parsed.event_type == EventType.TOOL_NOTIFICATION_END:
         if parsed.tool_notification:

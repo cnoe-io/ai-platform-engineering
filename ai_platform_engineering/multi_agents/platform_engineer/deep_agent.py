@@ -110,6 +110,16 @@ RAG_CONNECTIVITY_WAIT_SECONDS = 10
 # in the 'content' field, and narration messages ("I'll search...") stream naturally before tools.
 USE_STRUCTURED_RESPONSE = os.getenv("USE_STRUCTURED_RESPONSE", "true").lower() == "true"
 
+# Middleware toggles — disable to reduce latency by skipping write_todos / self-service overhead.
+# ENABLE_MIDDLEWARE=false disables ALL optional middleware (master switch).
+# Individual toggles override when ENABLE_MIDDLEWARE is true (or unset).
+ENABLE_MIDDLEWARE = os.getenv("ENABLE_MIDDLEWARE", "true").lower() == "true"
+ENABLE_DETERMINISTIC_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_DETERMINISTIC_MIDDLEWARE", "true").lower() == "true"
+ENABLE_SELF_SERVICE_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_SELF_SERVICE_MIDDLEWARE", "true").lower() == "true"
+ENABLE_POLICY_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_POLICY_MIDDLEWARE", "true").lower() == "true"
+ENABLE_SKILLS_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_SKILLS_MIDDLEWARE", "true").lower() == "true"
+ENABLE_FILE_ARG_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_FILE_ARG_MIDDLEWARE", "true").lower() == "true"
+
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
     """Create an LLM via LLMFactory using prefixed environment variables.
@@ -1453,7 +1463,8 @@ class PlatformEngineerDeepAgent:
         # This ensures all subagents are included with proper routing instructions
         system_prompt = generate_platform_system_prompt(
             self._prompt_config,
-            agents_for_prompt
+            agents_for_prompt,
+            use_structured_response=USE_STRUCTURED_RESPONSE,
         )
 
         # Append RAG instructions if RAG is enabled and tools are loaded
@@ -1546,19 +1557,43 @@ This format is required so the UI can display agent stickers next to each task.
         # - write_todos: From TodoListMiddleware
         # - task: From SubAgentMiddleware
         # - read_file, write_file, ls, grep, glob, edit_file: From FilesystemMiddleware
+        # Build middleware list — each middleware can be toggled via env vars.
+        # ENABLE_MIDDLEWARE=false disables all optional middleware at once.
+        # ModelRetryMiddleware is always included (essential for error recovery).
+        middleware_list = [
+            ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+        ]
+
+        _mw_flags = {
+            "PolicyMiddleware": ENABLE_POLICY_MIDDLEWARE,
+            "SkillsMiddleware": ENABLE_SKILLS_MIDDLEWARE,
+            "DeterministicTaskMiddleware": ENABLE_DETERMINISTIC_MIDDLEWARE,
+            "CallToolWithFileArgMiddleware": ENABLE_FILE_ARG_MIDDLEWARE,
+            "SelfServiceWorkflowMiddleware": ENABLE_SELF_SERVICE_MIDDLEWARE,
+        }
+        if ENABLE_POLICY_MIDDLEWARE:
+            middleware_list.append(PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"))
+        if ENABLE_SKILLS_MIDDLEWARE:
+            middleware_list.extend(skills_middleware_list)
+        if ENABLE_DETERMINISTIC_MIDDLEWARE:
+            middleware_list.append(DeterministicTaskMiddleware())
+        if ENABLE_FILE_ARG_MIDDLEWARE:
+            middleware_list.append(CallToolWithFileArgMiddleware())
+        if ENABLE_SELF_SERVICE_MIDDLEWARE:
+            middleware_list.append(SelfServiceWorkflowMiddleware())
+
+        enabled = [k for k, v in _mw_flags.items() if v]
+        disabled = [k for k, v in _mw_flags.items() if not v]
+        logger.info(f"Middleware enabled: {enabled or '(none)'}")
+        if disabled:
+            logger.info(f"Middleware disabled: {disabled}")
+
         deep_agent_kwargs = dict(
             tools=all_tools,
             system_prompt=system_prompt,
             subagents=subagent_defs,
             model=base_model,
-            middleware=[
-                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
-                PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"),
-                *skills_middleware_list,
-                DeterministicTaskMiddleware(),
-                CallToolWithFileArgMiddleware(),
-                SelfServiceWorkflowMiddleware(),
-            ],
+            middleware=middleware_list,
         )
 
         # Structured response mode: the LLM calls a ResponseFormat tool for its
