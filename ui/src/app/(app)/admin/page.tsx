@@ -20,7 +20,6 @@ import {
   VisibilityBreakdown,
   CategoryBreakdown,
   RunStatsTable,
-  OverallRunStatsCard,
   TopCreatorsCard,
 } from "@/components/admin/SkillMetricsCards";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
@@ -1078,11 +1077,8 @@ function AdminPage() {
                       </Card>
                     )}
 
-                    {/* Top Creators + Run Performance */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <TopCreatorsCard creators={skillStats.top_creators} onUserClick={setSelectedUserEmail} />
-                      <OverallRunStatsCard stats={skillStats.overall_run_stats} />
-                    </div>
+                    {/* Top Creators */}
+                    <TopCreatorsCard creators={skillStats.top_creators} onUserClick={setSelectedUserEmail} />
 
                     {/* Top Skills by Runs */}
                     <RunStatsTable

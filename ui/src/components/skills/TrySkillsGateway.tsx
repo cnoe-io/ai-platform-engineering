@@ -45,6 +45,7 @@ export function TrySkillsGateway() {
 
   const [mintedKey, setMintedKey] = useState<string | null>(null);
   const [mintBusy, setMintBusy] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
   const [keys, setKeys] = useState<
     { key_id: string; created_at?: number; revoked_at?: number | null }[]
   >([]);
@@ -119,6 +120,7 @@ export function TrySkillsGateway() {
   const handleMint = async () => {
     setMintBusy(true);
     setMintedKey(null);
+    setMintError(null);
     try {
       const res = await fetch("/api/catalog-api-keys", {
         method: "POST",
@@ -127,6 +129,7 @@ export function TrySkillsGateway() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMintedKey(null);
+        setMintError(data.error || data.message || `Failed to mint API key (${res.status})`);
         return;
       }
       if (typeof data.key === "string") setMintedKey(data.key);
@@ -202,6 +205,12 @@ export function TrySkillsGateway() {
             {mintedKey ? (
               <span className="text-xs text-amber-600 dark:text-amber-400 break-all">
                 Copy once: <code>{mintedKey}</code>
+              </span>
+            ) : null}
+            {mintError ? (
+              <span className="text-xs text-destructive flex items-center gap-1">
+                <AlertCircle className="h-3 w-3 shrink-0" />
+                {mintError}
               </span>
             ) : null}
           </div>

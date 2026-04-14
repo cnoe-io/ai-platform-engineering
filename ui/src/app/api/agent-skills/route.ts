@@ -14,7 +14,6 @@ import type {
   SkillVisibility,
   ScanStatus,
 } from "@/types/agent-skill";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 
 /**
  * Agent Config API Routes
