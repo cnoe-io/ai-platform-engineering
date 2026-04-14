@@ -3,7 +3,7 @@
 """Tests for the AG-UI HITL handler."""
 
 import json
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, SSEEventType
 from ai_platform_engineering.integrations.slack_bot.utils.hitl_handler import (

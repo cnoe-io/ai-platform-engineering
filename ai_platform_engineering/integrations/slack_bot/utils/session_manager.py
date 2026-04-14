@@ -15,8 +15,6 @@ and don't need caching or API lookups.
 import time
 from typing import Optional, Dict, Tuple
 
-from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # TTL cache

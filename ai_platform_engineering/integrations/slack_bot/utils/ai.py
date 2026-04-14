@@ -17,7 +17,7 @@ import time
 
 from loguru import logger
 
-from ..sse_client import SSEClient, SSEEvent, SSEEventType, thread_ts_to_conversation_id
+from ..sse_client import SSEClient, SSEEventType, thread_ts_to_conversation_id
 from . import slack_formatter
 from . import utils as _utils
 from .config import config
@@ -181,12 +181,10 @@ def stream_response(
   plan_steps = {}  # step_id -> step dict
   sent_step_status = {}  # step_id -> last sent status
   step_thinking = {}  # step_id -> accumulated thinking text
-  current_step_id = None
 
   # Content accumulation
   accumulated_text = []  # TEXT_MESSAGE_CONTENT deltas
   needs_separator = False
-  trace_id = None
 
   # Loading messages shown in the animated typing indicator
   _loading_messages = [
@@ -289,7 +287,6 @@ def stream_response(
       # --- RUN_STARTED ---
       if event.type == SSEEventType.RUN_STARTED:
         if event.run_id:
-          trace_id = event.run_id
           logger.info(f"[{thread_ts}] RUN_STARTED run_id={event.run_id}")
 
       # --- TEXT_MESSAGE_START ---
@@ -393,10 +390,7 @@ def stream_response(
             stream_buf.flush()
           for step in event.steps:
             if isinstance(step, dict) and "step_id" in step:
-              prev_status = plan_steps.get(step["step_id"], {}).get("status")
               plan_steps[step["step_id"]] = step
-              if step.get("status") == "in_progress":
-                current_step_id = step["step_id"]
               # Send updates for changed steps
               if not overthink_mode:
                 _start_stream_if_needed()
