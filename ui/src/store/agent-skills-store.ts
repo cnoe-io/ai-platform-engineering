@@ -5,7 +5,6 @@ import type {
   UpdateAgentSkillInput,
   AgentSkillCategory,
 } from "@/types/agent-skill";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 
 /**
  * Agent Skills Store
@@ -259,41 +258,33 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       
       const response = await fetch("/api/agent-skills");
       
-      // Handle 503 (MongoDB not configured) gracefully - use built-in templates
+      // Handle 503 (MongoDB not configured) gracefully
       if (response.status === 503) {
-        console.log("[AgentSkillsStore] MongoDB not configured, using built-in templates only");
-        set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
+        console.log("[AgentSkillsStore] MongoDB not configured — no skills available");
+        set({ configs: [], isLoading: false });
         return;
       }
-      
-      // Handle 401 (not authenticated) gracefully - use built-in templates
+
+      // Handle 401 (not authenticated) gracefully
       if (response.status === 401) {
-        console.log("[AgentSkillsStore] Not authenticated, using built-in templates only");
-        set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
+        console.log("[AgentSkillsStore] Not authenticated — no skills available");
+        set({ configs: [], isLoading: false });
         return;
       }
-      
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: "Failed to fetch agent skills" }));
         throw new Error(error.error || `HTTP ${response.status}`);
       }
-      
+
       const data = await response.json();
       const transformed = data.map(transformSkill);
-      
-      // If no configs from MongoDB, fall back to built-in templates
-      if (transformed.length === 0) {
-        console.log("[AgentSkillsStore] No configs in MongoDB, using built-in templates");
-        set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
-        return;
-      }
-      
+
       set({ configs: transformed, isLoading: false });
       console.log(`[AgentSkillsStore] Loaded ${transformed.length} agent skills from MongoDB`);
     } catch (error: any) {
       console.error("[AgentSkillsStore] Failed to load configs:", error);
-      // Fall back to built-in templates
-      set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
+      set({ configs: [], isLoading: false });
     }
   },
 
