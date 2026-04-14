@@ -15,7 +15,6 @@ import {
   Settings,
   Loader2,
   AlertCircle,
-  Play,
   Edit,
   Trash2,
   Upload,
@@ -33,7 +32,6 @@ import {
   GitPullRequest,
   ArrowRight,
   X,
-  ExternalLink,
   MessageSquare,
   Star,
   History,
@@ -47,11 +45,8 @@ import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentSkill, AgentSkillCategory, WorkflowDifficulty } from "@/types/agent-skill";
-import { generateInputFormFromPrompt } from "@/types/agent-skill";
 
 interface AgentBuilderGalleryProps {
-  onSelectConfig?: (config: AgentSkill, fromHistory?: boolean) => void;
-  onRunQuickStart?: (prompt: string, configName?: string) => void;
   onEditConfig?: (config: AgentSkill) => void;
   onCreateNew?: () => void;
   onImportYaml?: () => void;
@@ -123,8 +118,6 @@ const getDifficultyColor = (difficulty?: WorkflowDifficulty) => {
 };
 
 export function AgentBuilderGallery({
-  onSelectConfig,
-  onRunQuickStart,
   onEditConfig,
   onCreateNew,
   onImportYaml,
@@ -148,35 +141,22 @@ export function AgentBuilderGallery({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"all" | "quick-start" | "workflows">("all");
 
-  // Input form state for quick-start with placeholders
+  // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
-  const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [editablePrompt, setEditablePrompt] = useState<string>("");
 
-  // Keep activeFormConfig in sync with store updates (e.g., after editing)
+  // Supervisor sync status — gates "Try Skill" button
+  const [supervisorSynced, setSupervisorSynced] = useState(false);
+  const [supervisorLoading, setSupervisorLoading] = useState(true);
+
   useEffect(() => {
-    if (activeFormConfig) {
-      // Find the latest version of this config in the store
-      const latestConfig = configs.find(c => c.id === activeFormConfig.id);
-      if (latestConfig) {
-        const latestPrompt = latestConfig.tasks[0]?.llm_prompt || "";
-        const currentPrompt = activeFormConfig.tasks[0]?.llm_prompt || "";
-
-        // Only update if the prompt has changed (to avoid infinite loop)
-        if (latestPrompt !== currentPrompt) {
-          console.log(`[AgentBuilderGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
-          console.log(`[AgentBuilderGallery] Old prompt:`, currentPrompt);
-          console.log(`[AgentBuilderGallery] New prompt:`, latestPrompt);
-
-          // Update activeFormConfig with latest data
-          setActiveFormConfig({ ...latestConfig, input_form: activeFormConfig.input_form });
-          // Update editablePrompt with latest llm_prompt
-          setEditablePrompt(latestPrompt);
-        }
-      }
-    }
-  }, [configs, activeFormConfig]); // Re-run when configs change or activeFormConfig changes
+    fetch("/api/skills/supervisor-status", { credentials: "include" })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
+      })
+      .catch(() => setSupervisorSynced(false))
+      .finally(() => setSupervisorLoading(false));
+  }, []);
 
   // Check if user can edit/delete a config
   const canModifyConfig = (config: AgentSkill) => {
@@ -261,98 +241,14 @@ export function AgentBuilderGallery({
   };
 
   const handleConfigClick = (config: AgentSkill) => {
-    if (config.is_quick_start) {
-      // Always show modal for quick-starts to allow editing
-      const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
-      const basePrompt = config.tasks[0]?.llm_prompt || "";
-
-      console.log(`[AgentBuilderGallery] Opening quick-start: ${config.name}`);
-      console.log(`[AgentBuilderGallery] Prompt from config:`, basePrompt);
-      console.log(`[AgentBuilderGallery] Full config:`, config);
-
-      setActiveFormConfig({ ...config, input_form: inputForm || undefined });
-      setEditablePrompt(basePrompt);
-
-      if (inputForm && inputForm.fields.length > 0) {
-        const initialValues: Record<string, string> = {};
-        inputForm.fields.forEach(f => { initialValues[f.name] = ""; });
-        setFormValues(initialValues);
-      } else {
-        setFormValues({});
-      }
-      setFormErrors({});
-    } else {
-      // Multi-step workflow - go to runner
-      onSelectConfig?.(config);
-    }
+    setActiveFormConfig(config);
   };
 
-  // Update editable prompt when form values change
-  const updateEditablePrompt = (newFormValues: Record<string, string>) => {
+  const handleTrySkill = () => {
     if (!activeFormConfig) return;
-
-    let prompt = activeFormConfig.tasks[0]?.llm_prompt || "";
-    Object.entries(newFormValues).forEach(([key, value]) => {
-      if (value.trim()) {
-        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        prompt = prompt.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, "g"), value.trim());
-        prompt = prompt.replace(new RegExp(`\\{${escapedKey}\\}`, "g"), value.trim());
-      }
-    });
-    setEditablePrompt(prompt);
-  };
-
-  const handleFormSubmit = () => {
-    if (!activeFormConfig) return;
-
-    // Validate required fields if there are any
-    if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
-      const errors: Record<string, string> = {};
-      activeFormConfig.input_form.fields.forEach(field => {
-        if (field.required && !formValues[field.name]?.trim()) {
-          errors[field.name] = `${field.label} is required`;
-        }
-      });
-
-      if (Object.keys(errors).length > 0) {
-        setFormErrors(errors);
-        return;
-      }
-    }
-
-    // Use the editable prompt (which may have been modified by the user)
-    setActiveFormConfig(null);
-    onRunQuickStart?.(editablePrompt, activeFormConfig.name);
-  };
-
-  const handleRunInChat = () => {
-    if (!activeFormConfig) return;
-
-    // Validate required fields if there are any
-    if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
-      const errors: Record<string, string> = {};
-      activeFormConfig.input_form.fields.forEach(field => {
-        if (field.required && !formValues[field.name]?.trim()) {
-          errors[field.name] = `${field.label} is required`;
-        }
-      });
-
-      if (Object.keys(errors).length > 0) {
-        setFormErrors(errors);
-        return;
-      }
-    }
-
-    // Create a new conversation
     const conversationId = createConversation();
-
-    // Set the pending message to be auto-submitted when the chat loads
-    setPendingMessage(editablePrompt);
-
-    // Close the modal
+    setPendingMessage(activeFormConfig.name);
     setActiveFormConfig(null);
-
-    // Navigate to the chat page
     router.push(`/chat/${conversationId}`);
   };
 
@@ -484,7 +380,7 @@ export function AgentBuilderGallery({
                       transition={{ delay: index * 0.03 }}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => config.is_quick_start ? handleConfigClick(config) : onSelectConfig?.(config)}
+                      onClick={() => handleConfigClick(config)}
                       className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-yellow-500 hover:shadow-lg transition-all text-left group cursor-pointer"
                     >
                       <div className={cn("p-2 rounded-lg bg-gradient-to-br shrink-0", gradientClass)}>
@@ -738,7 +634,7 @@ export function AgentBuilderGallery({
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.03 }}
                       className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
-                      onClick={() => onSelectConfig?.(config)}
+                      onClick={() => handleConfigClick(config)}
                     >
                       <div className={cn("w-10 h-10 rounded-lg bg-gradient-to-br flex items-center justify-center mb-3", gradientClass)}>
                         <Icon className="h-5 w-5 text-white" />
@@ -765,8 +661,8 @@ export function AgentBuilderGallery({
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
                         <div className="h-5 w-px bg-border/50" />
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onSelectConfig?.(config); }}>
-                          <Play className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); handleConfigClick(config); }}>
+                          <MessageSquare className="h-4 w-4" />
                         </Button>
                         {canModifyConfig(config) && (
                           <>
@@ -823,9 +719,6 @@ export function AgentBuilderGallery({
                     </div>
                     <div>
                       <h2 className="text-xl font-bold">{activeFormConfig.name}</h2>
-                      {activeFormConfig.description && (
-                        <p className="text-sm text-muted-foreground">{activeFormConfig.description}</p>
-                      )}
                     </div>
                   </div>
                   <Button variant="ghost" size="icon" onClick={() => setActiveFormConfig(null)}>
@@ -833,86 +726,78 @@ export function AgentBuilderGallery({
                   </Button>
                 </div>
 
-                {/* Input fields for placeholders (if any) */}
-                {activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0 && (
-                  <div className="space-y-4 mb-6">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                      <Settings className="h-4 w-4" />
-                      Fill in the details
-                    </div>
-                    {activeFormConfig.input_form.fields.map(field => (
-                      <div key={field.name} className="space-y-2">
-                        <label className="text-sm font-medium flex items-center gap-1">
-                          {field.label}
-                          {field.required && <span className="text-red-400">*</span>}
-                        </label>
-                        <Input
-                          type={field.type}
-                          placeholder={field.placeholder}
-                          value={formValues[field.name] || ""}
-                          onChange={e => {
-                            const newValues = { ...formValues, [field.name]: e.target.value };
-                            setFormValues(newValues);
-                            updateEditablePrompt(newValues);
-                            if (formErrors[field.name]) setFormErrors(prev => ({ ...prev, [field.name]: "" }));
-                          }}
-                          className={cn("h-11", formErrors[field.name] && "border-red-500")}
-                        />
-                        {field.helperText && !formErrors[field.name] && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <ExternalLink className="h-3 w-3" />{field.helperText}
-                          </p>
-                        )}
-                        {formErrors[field.name] && <p className="text-xs text-red-400">{formErrors[field.name]}</p>}
-                      </div>
+                {/* Description */}
+                {activeFormConfig.description && (
+                  <p className="text-sm text-muted-foreground mb-4 leading-relaxed">{activeFormConfig.description}</p>
+                )}
+
+                {/* Tags */}
+                {activeFormConfig.metadata?.tags && activeFormConfig.metadata.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {activeFormConfig.metadata.tags.map(tag => (
+                      <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
                     ))}
                   </div>
                 )}
 
-                {/* Editable Prompt */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium flex items-center gap-2">
-                      <Edit className="h-4 w-4 text-muted-foreground" />
-                      Prompt (editable)
-                    </label>
-                    <span className="text-xs text-muted-foreground">
-                      {editablePrompt.length} characters
-                    </span>
-                  </div>
-                  <textarea
-                    value={editablePrompt}
-                    onChange={e => setEditablePrompt(e.target.value)}
-                    rows={6}
-                    className="w-full px-4 py-3 text-sm rounded-lg border border-input bg-background resize-none font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    placeholder="Enter your prompt..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    You can edit the prompt before running the workflow
-                  </p>
+                {/* Badges row */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {activeFormConfig.difficulty && (
+                    <Badge variant="outline" className={cn("text-xs", getDifficultyColor(activeFormConfig.difficulty))}>
+                      {activeFormConfig.difficulty}
+                    </Badge>
+                  )}
+                  {activeFormConfig.metadata?.expected_agents?.slice(0, 3).map(agent => (
+                    <Badge key={agent} variant="outline" className="text-xs">{agent}</Badge>
+                  ))}
                 </div>
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
-                <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                <Button
-                  onClick={handleRunInChat}
-                  variant="outline"
-                  className="gap-2"
-                  disabled={!editablePrompt.trim()}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Run in Chat
-                </Button>
-                <Button
-                  onClick={handleFormSubmit}
-                  className="gradient-primary text-white gap-2"
-                  disabled={!editablePrompt.trim()}
-                >
-                  <Play className="h-4 w-4" />
-                  Run Workflow
-                </Button>
+              <div className="flex items-center justify-between gap-3 p-4 border-t bg-muted/30 shrink-0">
+                <div>
+                  {onEditConfig && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        setActiveFormConfig(null);
+                        onEditConfig(activeFormConfig);
+                      }}
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
+                  <div className="flex items-center gap-1.5">
+                    {!supervisorSynced && !supervisorLoading && (
+                      <span title="Skills are not synced with the supervisor. Rebuild from Admin → Supervisor Skills to enable.">
+                        <AlertTriangle className="h-4 w-4 text-orange-500" />
+                      </span>
+                    )}
+                    <Button
+                      onClick={handleTrySkill}
+                      className={cn(
+                        "gap-2",
+                        supervisorSynced && !supervisorLoading
+                          ? "gradient-primary text-white"
+                          : "bg-muted text-muted-foreground cursor-not-allowed"
+                      )}
+                      disabled={!supervisorSynced || supervisorLoading}
+                    >
+                      {supervisorLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageSquare className="h-4 w-4" />
+                      )}
+                      Try Skill
+                    </Button>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </motion.div>
