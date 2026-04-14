@@ -869,6 +869,26 @@ services:
       - rag
       - graph_rag
 
+  rag_jira_ingestor:
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.2.36}
+    container_name: jira-ingestor
+    environment:
+      - INGESTOR_TYPE=jira
+      - JIRA_URL=${JIRA_URL}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - ATLASSIAN_TOKEN=${ATLASSIAN_TOKEN}
+      - JIRA_PROJECTS=${JIRA_PROJECTS}
+      - JIRA_PAGE_SIZE=${JIRA_PAGE_SIZE:-100}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RAG_SERVER_URL=http://rag_server:9446
+      - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
+    env_file: [.env]
+    restart: unless-stopped
+    depends_on: [rag_server]
+    profiles:
+      - rag
+      - graph_rag
+
   # RAG Dependencies
   neo4j:
     image: neo4j:latest
