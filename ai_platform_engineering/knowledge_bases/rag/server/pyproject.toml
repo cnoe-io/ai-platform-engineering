@@ -47,8 +47,8 @@ run-server = "server.__main__:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.3.5",
-    "pytest-asyncio==0.25.3",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.3.0",
     "pytest-cov==6.2.1",
     "pytest-mock==3.14.0",
     "ruff==0.11.10",
@@ -69,8 +69,8 @@ build-backend = "uv_build"
 [tool.uv]
 constraint-dependencies = ["starlette>=0.50.0", "transformers>=5.0.0"]
 dev-dependencies = [
-    "pytest==8.3.5",
-    "pytest-asyncio==0.25.3",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.3.0",
     "pytest-cov==6.2.1",
     "pytest-mock==3.14.0",
     "pytest-timeout==2.4.0",
