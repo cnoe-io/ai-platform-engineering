@@ -5,6 +5,7 @@ import {
   withErrorHandler,
   requireAdmin,
   ApiError,
+  validateCredentialsRef,
 } from "@/lib/api-middleware";
 import { ObjectId } from "mongodb";
 
@@ -47,7 +48,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
     const hubs = await collection.find().sort({ created_at: 1 }).toArray();
 
-    return NextResponse.json({ hubs: hubs.map(sanitizeHub) });
+    // Count cached skills per hub
+    const hubSkills = await getCollection("hub_skills");
+    const counts = await hubSkills.aggregate<{ _id: string; count: number }>([
+      { $group: { _id: "$hub_id", count: { $sum: 1 } } },
+    ]).toArray();
+    const countMap = new Map(counts.map((c) => [c._id, c.count]));
+
+    return NextResponse.json({
+      hubs: hubs.map((h) => ({ ...sanitizeHub(h), skills_count: countMap.get(h.id) ?? 0 })),
+    });
   });
 });
 
@@ -110,7 +120,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       type,
       location: normalizedLocation,
       enabled: body.enabled !== false,
-      credentials_ref: body.credentials_ref || null,
+      credentials_ref: validateCredentialsRef(body.credentials_ref),
       last_success_at: null,
       last_failure_at: null,
       last_failure_message: null,

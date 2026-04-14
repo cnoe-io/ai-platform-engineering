@@ -2,8 +2,10 @@ import { NextRequest } from "next/server";
 import {
   withAuth,
   withErrorHandler,
+  requireAdmin,
   successResponse,
   ApiError,
+  validateCredentialsRef,
 } from "@/lib/api-middleware";
 
 /**
@@ -17,11 +19,13 @@ import {
  */
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (_req, _user) => {
+  return await withAuth(request, async (_req, _user, session) => {
+    requireAdmin(session);
+
     const body = await request.json();
     const repo: string = body.repo?.trim();
     const dirPath: string = body.path?.trim();
-    const credentialsRef: string | undefined = body.credentials_ref;
+    const credentialsRef = validateCredentialsRef(body.credentials_ref);
 
     if (!repo || !dirPath) {
       throw new ApiError("Both 'repo' (owner/repo) and 'path' are required", 400);

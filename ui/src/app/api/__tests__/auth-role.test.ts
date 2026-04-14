@@ -77,19 +77,19 @@ describe('GET /api/auth/role', () => {
     jest.clearAllMocks();
   });
 
-  it('returns role="user" when no session (unauthenticated)', async () => {
+  it('returns 401 when no session (unauthenticated)', async () => {
     mockGetServerSession.mockResolvedValue(null);
 
     const req = makeRequest('/api/auth/role');
     const res = await GET(req);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body).toEqual({ role: 'user' });
+    expect(body).toEqual({ error: 'Unauthorized' });
     expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
-  it('returns role="user" when session has no email', async () => {
+  it('returns 401 when session has no email', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { name: 'Test User' },
       role: 'user',
@@ -98,9 +98,9 @@ describe('GET /api/auth/role', () => {
     const req = makeRequest('/api/auth/role');
     const res = await GET(req);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body).toEqual({ role: 'user' });
+    expect(body).toEqual({ error: 'Unauthorized' });
     expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
