@@ -591,11 +591,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # This is deterministic — no dependency on the model emitting a marker.
         #
         # Guard: only emit when the content was NOT already delivered via
-        # streaming_result artifacts during the LLM call.  When
-        # streaming_artifact_id is set, the client already received progressive
-        # content and re-emitting would duplicate.
+        # streaming_result artifacts during the LLM call.  Two signals indicate
+        # prior delivery:
+        #   1. streaming_artifact_id is set — incremental parser already yielded
+        #   2. streaming_chunks_yielded > 0 — agent.py streamed live post-marker tokens
+        already_streamed_live = (
+            state.streaming_artifact_id
+            or event.get('streaming_chunks_yielded', 0) > 0
+        )
         if (
-            not state.streaming_artifact_id
+            not already_streamed_live
             and state.final_model_content
             and not is_datapart
             and isinstance(final_content, str)
