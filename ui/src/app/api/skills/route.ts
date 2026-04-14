@@ -181,6 +181,7 @@ function paginate(
 async function fetchFromBackend(
   params: QueryParams,
   authHeader?: string | null,
+  catalogKey?: string | null,
 ): Promise<CatalogResponse | null> {
   const backendUrl = process.env.BACKEND_SKILLS_URL;
   if (!backendUrl) return null;
@@ -201,6 +202,7 @@ async function fetchFromBackend(
 
     const headers: Record<string, string> = {};
     if (authHeader) headers["Authorization"] = authHeader;
+    if (catalogKey) headers["X-Caipe-Catalog-Key"] = catalogKey;
 
     const res = await fetch(url.toString(), {
       headers,
@@ -354,9 +356,10 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
 
   const params = parseQueryParams(req);
   const authHeader = req.headers.get("Authorization");
+  const catalogKey = req.headers.get("X-Caipe-Catalog-Key");
 
   // Try backend proxy first (forwards all query params)
-  const backendResult = await fetchFromBackend(params, authHeader);
+  const backendResult = await fetchFromBackend(params, authHeader, catalogKey);
   if (backendResult) {
     return NextResponse.json(backendResult);
   }

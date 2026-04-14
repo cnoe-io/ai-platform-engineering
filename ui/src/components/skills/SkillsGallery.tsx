@@ -19,7 +19,6 @@ import {
   Settings,
   Loader2,
   AlertCircle,
-  Play,
   Edit,
   Trash2,
   ChevronRight,
@@ -50,7 +49,6 @@ import {
   Wrench,
   ArrowRight,
   X,
-  ExternalLink,
   MessageSquare,
   Star,
   History,
@@ -73,7 +71,6 @@ import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentSkill, AgentSkillCategory, WorkflowDifficulty } from "@/types/agent-skill";
-import { generateInputFormFromPrompt } from "@/types/agent-skill";
 
 interface SkillsGalleryProps {
   onSelectConfig?: (config: AgentSkill, fromHistory?: boolean) => void;
@@ -99,6 +96,18 @@ function VisibilityBadge({ config }: { config: AgentSkill }) {
       <VIcon className="h-3 w-3" />
       {badge.label}
     </Badge>
+  );
+}
+
+function SyncDot({ synced, loading }: { synced: boolean; loading: boolean }) {
+  if (loading) {
+    return <span className="h-2 w-2 rounded-full bg-gray-400 animate-pulse" title="Checking sync status..." />;
+  }
+  return (
+    <span
+      className={cn("h-2 w-2 rounded-full", synced ? "bg-green-500" : "bg-gray-400")}
+      title={synced ? "Synced with supervisor" : "Not synced with supervisor"}
+    />
   );
 }
 
@@ -181,7 +190,6 @@ const getDifficultyColor = (difficulty?: WorkflowDifficulty) => {
 
 export function SkillsGallery({
   onSelectConfig,
-  onRunQuickStart,
   onEditConfig,
   onCreateNew,
 }: SkillsGalleryProps) {
@@ -218,6 +226,20 @@ export function SkillsGallery({
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [tokenDurationDays, setTokenDurationDays] = useState(90);
 
+  // Supervisor sync status — gates "Try Skill" button
+  const [supervisorSynced, setSupervisorSynced] = useState(false);
+  const [supervisorLoading, setSupervisorLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/skills/supervisor-status", { credentials: "include" })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
+      })
+      .catch(() => setSupervisorSynced(false))
+      .finally(() => setSupervisorLoading(false));
+  }, []);
+
   const closeApiHelp = useCallback(() => {
     setShowApiHelp(false);
     setGeneratedToken(null);
@@ -252,35 +274,8 @@ export function SkillsGallery({
     }
   }, [tokenDurationDays]);
 
-  // Input form state for skill run modal
+  // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
-  const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [editablePrompt, setEditablePrompt] = useState<string>("");
-
-  // Keep activeFormConfig in sync with store updates (e.g., after editing)
-  useEffect(() => {
-    if (activeFormConfig) {
-      // Find the latest version of this config in the store
-      const latestConfig = configs.find(c => c.id === activeFormConfig.id);
-      if (latestConfig) {
-        const latestPrompt = latestConfig.tasks[0]?.llm_prompt || "";
-        const currentPrompt = activeFormConfig.tasks[0]?.llm_prompt || "";
-
-        // Only update if the prompt has changed (to avoid infinite loop)
-        if (latestPrompt !== currentPrompt) {
-          console.log(`[SkillsGallery] Config updated in store, refreshing dialog:`, latestConfig.id);
-          console.log(`[SkillsGallery] Old prompt:`, currentPrompt);
-          console.log(`[SkillsGallery] New prompt:`, latestPrompt);
-
-          // Update activeFormConfig with latest data
-          setActiveFormConfig({ ...latestConfig, input_form: activeFormConfig.input_form });
-          // Update editablePrompt with latest llm_prompt
-          setEditablePrompt(latestPrompt);
-        }
-      }
-    }
-  }, [configs, activeFormConfig]); // Re-run when configs change or activeFormConfig changes
 
   // Check if user can edit a config (admins can edit system configs)
   const canEditConfig = (config: AgentSkill) => {
@@ -418,114 +413,15 @@ export function SkillsGallery({
   };
 
   const handleConfigClick = (config: AgentSkill) => {
-    if (config.is_quick_start || !workflowRunnerEnabled) {
-      const inputForm = config.input_form || generateInputFormFromPrompt(config.tasks[0]?.llm_prompt || "", config.name);
-      let basePrompt = config.tasks[0]?.llm_prompt || "";
-
-      // For skills with no explicit prompt (hub skills, builder skills),
-      // generate a concise invocation prompt from the name + description.
-      if (!basePrompt.trim() || config.skill_content) {
-        basePrompt = `Run the "${config.name}" skill.`;
-        if (config.description) {
-          basePrompt += ` ${config.description}`;
-        }
-      }
-
-      setActiveFormConfig({ ...config, input_form: inputForm || undefined });
-
-      if (inputForm && inputForm.fields.length > 0) {
-        const initialValues: Record<string, string> = {};
-        inputForm.fields.forEach(f => { initialValues[f.name] = f.defaultValue || ""; });
-        setFormValues(initialValues);
-
-        // Pre-substitute defaults into the prompt
-        let promptWithDefaults = basePrompt;
-        Object.entries(initialValues).forEach(([key, value]) => {
-          if (value.trim()) {
-            const ek = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            promptWithDefaults = promptWithDefaults.replace(new RegExp(`\\{\\{\\s*${ek}\\s*:[^}]*\\}\\}`, "g"), value.trim());
-            promptWithDefaults = promptWithDefaults.replace(new RegExp(`\\{\\{\\s*${ek}\\s*\\}\\}`, "g"), value.trim());
-            promptWithDefaults = promptWithDefaults.replace(new RegExp(`\\{${ek}\\}`, "g"), value.trim());
-          }
-        });
-        setEditablePrompt(promptWithDefaults);
-      } else {
-        setFormValues({});
-        setEditablePrompt(basePrompt);
-      }
-      setFormErrors({});
-    } else {
-      onSelectConfig?.(config);
-    }
+    // Open the "Try Skill" modal for any skill
+    setActiveFormConfig(config);
   };
 
-  // Update editable prompt when form values change
-  const updateEditablePrompt = (newFormValues: Record<string, string>) => {
+  const handleTrySkill = () => {
     if (!activeFormConfig) return;
-
-    let prompt = activeFormConfig.tasks[0]?.llm_prompt || "";
-    Object.entries(newFormValues).forEach(([key, value]) => {
-      if (value.trim()) {
-        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        // Match {{key:default}}, {{key}}, and {key}
-        prompt = prompt.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*:[^}]*\\}\\}`, "g"), value.trim());
-        prompt = prompt.replace(new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, "g"), value.trim());
-        prompt = prompt.replace(new RegExp(`\\{${escapedKey}\\}`, "g"), value.trim());
-      }
-    });
-    setEditablePrompt(prompt);
-  };
-
-  const handleFormSubmit = () => {
-    if (!activeFormConfig) return;
-
-    // Validate required fields if there are any
-    if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
-      const errors: Record<string, string> = {};
-      activeFormConfig.input_form.fields.forEach(field => {
-        if (field.required && !formValues[field.name]?.trim()) {
-          errors[field.name] = `${field.label} is required`;
-        }
-      });
-
-      if (Object.keys(errors).length > 0) {
-        setFormErrors(errors);
-        return;
-      }
-    }
-
-    // Use the editable prompt (which may have been modified by the user)
-    setActiveFormConfig(null);
-    onRunQuickStart?.(editablePrompt, activeFormConfig.name);
-  };
-
-  const handleRunInChat = () => {
-    if (!activeFormConfig) return;
-
-    // Validate required fields if there are any
-    if (activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0) {
-      const errors: Record<string, string> = {};
-      activeFormConfig.input_form.fields.forEach(field => {
-        if (field.required && !formValues[field.name]?.trim()) {
-          errors[field.name] = `${field.label} is required`;
-        }
-      });
-
-      if (Object.keys(errors).length > 0) {
-        setFormErrors(errors);
-        return;
-      }
-    }
-
-    // Create a new conversation
     const conversationId = createConversation();
-
-    setPendingMessage(editablePrompt);
-
-    // Close the modal
+    setPendingMessage(activeFormConfig.name);
     setActiveFormConfig(null);
-
-    // Navigate to the chat page
     router.push(`/chat/${conversationId}`);
   };
 
@@ -710,7 +606,7 @@ export function SkillsGallery({
                       transition={{ delay: index * 0.03 }}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => config.is_quick_start ? handleConfigClick(config) : onSelectConfig?.(config)}
+                      onClick={() => handleConfigClick(config)}
                       className="relative flex items-center gap-3 p-4 rounded-xl bg-card border border-border/50 hover:border-yellow-500 hover:shadow-lg transition-all text-left group cursor-pointer"
                     >
                       <div className={cn("p-2 rounded-lg bg-gradient-to-br shrink-0", gradientClass)}>
@@ -719,15 +615,10 @@ export function SkillsGallery({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate pr-8">{config.name}</p>
                         <div className="flex items-center gap-1 mt-0.5">
-                          {!workflowRunnerEnabled ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
-                          ) : config.is_quick_start ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
-                          )}
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
                           <CatalogSourceBadge config={config} />
                           <VisibilityBadge config={config} />
+                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                         </div>
                       </div>
 
@@ -826,6 +717,7 @@ export function SkillsGallery({
                           <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
                             {config.difficulty || "beginner"}
                           </Badge>
+                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                         </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
@@ -837,12 +729,7 @@ export function SkillsGallery({
                       </div>
                       <div className="flex items-center justify-between pt-3 border-t border-border/50">
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          {!workflowRunnerEnabled
-                            ? <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
-                            : config.is_quick_start
-                              ? <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
-                              : <Badge variant="outline" className="text-xs"><Workflow className="h-2.5 w-2.5 mr-0.5" />{config.tasks.length} steps</Badge>
-                          }
+                          <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
                         </div>
                       </div>
 
@@ -952,6 +839,7 @@ export function SkillsGallery({
                           <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
                             {config.difficulty || "beginner"}
                           </Badge>
+                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                         </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
@@ -1047,7 +935,7 @@ export function SkillsGallery({
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.03 }}
                       className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
-                      onClick={() => onSelectConfig?.(config)}
+                      onClick={() => handleConfigClick(config)}
                     >
                       <div className={cn("w-10 h-10 rounded-lg bg-gradient-to-br flex items-center justify-center mb-3", gradientClass)}>
                         <Icon className="h-5 w-5 text-white" />
@@ -1055,19 +943,11 @@ export function SkillsGallery({
                       <h3 className="font-medium mb-1 pr-16">{config.name}</h3>
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        {workflowRunnerEnabled ? (
-                          <>
-                            <Workflow className="h-3.5 w-3.5" />
-                            <span>{config.tasks.length} steps</span>
-                          </>
-                        ) : (
-                          <>
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            <span>Skill</span>
-                          </>
-                        )}
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        <span>Skill</span>
                         <CatalogSourceBadge config={config} />
                         <VisibilityBadge config={config} />
+                        <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                       </div>
 
                       {/* Action buttons grouped together - bottom-right on hover */}
@@ -1085,8 +965,8 @@ export function SkillsGallery({
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
                         <div className="h-5 w-px bg-border/50" />
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onSelectConfig?.(config); }}>
-                          <Play className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); handleConfigClick(config); }} title="Try Skill">
+                          <MessageSquare className="h-4 w-4" />
                         </Button>
                         {canEditConfig(config) && (
                           <>
@@ -1367,15 +1247,15 @@ curl -s "${typeof window !== "undefined" ? window.location.origin : "https://you
             >
               <div className="h-1.5 w-full gradient-primary shrink-0" />
               <div className="p-6 overflow-y-auto flex-1">
-                <div className="flex items-start justify-between mb-6">
+                <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg">
-                      <Zap className="h-5 w-5 text-white" />
+                      {(() => { const I = ICON_MAP[activeFormConfig.thumbnail || "Zap"] || Zap; return <I className="h-5 w-5 text-white" />; })()}
                     </div>
                     <div>
                       <h2 className="text-xl font-bold">{activeFormConfig.name}</h2>
-                      {activeFormConfig.description && (
-                        <p className="text-sm text-muted-foreground">{activeFormConfig.description}</p>
+                      {activeFormConfig.category && (
+                        <span className="text-xs text-muted-foreground">{activeFormConfig.category}</span>
                       )}
                     </div>
                   </div>
@@ -1384,88 +1264,77 @@ curl -s "${typeof window !== "undefined" ? window.location.origin : "https://you
                   </Button>
                 </div>
 
-                {/* Input fields for placeholders (if any) */}
-                {activeFormConfig.input_form && activeFormConfig.input_form.fields.length > 0 && (
-                  <div className="space-y-4 mb-6">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                      <Settings className="h-4 w-4" />
-                      Fill in the details
-                    </div>
-                    {activeFormConfig.input_form.fields.map(field => (
-                      <div key={field.name} className="space-y-2">
-                        <label className="text-sm font-medium flex items-center gap-1">
-                          {field.label}
-                          {field.required && <span className="text-red-400">*</span>}
-                        </label>
-                        <Input
-                          type={field.type}
-                          placeholder={field.placeholder}
-                          value={formValues[field.name] || ""}
-                          onChange={e => {
-                            const newValues = { ...formValues, [field.name]: e.target.value };
-                            setFormValues(newValues);
-                            updateEditablePrompt(newValues);
-                            if (formErrors[field.name]) setFormErrors(prev => ({ ...prev, [field.name]: "" }));
-                          }}
-                          className={cn("h-11", formErrors[field.name] && "border-red-500")}
-                        />
-                        {field.helperText && !formErrors[field.name] && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <ExternalLink className="h-3 w-3" />{field.helperText}
-                          </p>
-                        )}
-                        {formErrors[field.name] && <p className="text-xs text-red-400">{formErrors[field.name]}</p>}
-                      </div>
+                {/* Description */}
+                {activeFormConfig.description && (
+                  <p className="text-sm text-muted-foreground mb-4 leading-relaxed">{activeFormConfig.description}</p>
+                )}
+
+                {/* Tags */}
+                {activeFormConfig.metadata?.tags && activeFormConfig.metadata.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-4">
+                    {activeFormConfig.metadata.tags.map(tag => (
+                      <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
                     ))}
                   </div>
                 )}
 
-                {/* Editable Prompt */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium flex items-center gap-2">
-                      <Edit className="h-4 w-4 text-muted-foreground" />
-                      Prompt (editable)
-                    </label>
-                    <span className="text-xs text-muted-foreground">
-                      {editablePrompt.length} characters
-                    </span>
-                  </div>
-                  <textarea
-                    value={editablePrompt}
-                    onChange={e => setEditablePrompt(e.target.value)}
-                    rows={6}
-                    className="w-full px-4 py-3 text-sm rounded-lg border border-input bg-background resize-none font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    placeholder="Enter your prompt..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    You can edit the prompt before running the workflow
-                  </p>
+                {/* Badges row */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <CatalogSourceBadge config={activeFormConfig} />
+                  <VisibilityBadge config={activeFormConfig} />
+                  {activeFormConfig.difficulty && (
+                    <Badge variant="outline" className={cn("text-xs", getDifficultyColor(activeFormConfig.difficulty))}>
+                      {activeFormConfig.difficulty}
+                    </Badge>
+                  )}
+                  {activeFormConfig.metadata?.expected_agents?.slice(0, 3).map(agent => (
+                    <Badge key={agent} variant="outline" className="text-xs">{agent}</Badge>
+                  ))}
                 </div>
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
-                <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                <Button
-                  onClick={handleRunInChat}
-                  variant="outline"
-                  className="gap-2"
-                  disabled={!editablePrompt.trim()}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Run in Chat
-                </Button>
-                {workflowRunnerEnabled && (
-                  <Button
-                    onClick={handleFormSubmit}
-                    className="gradient-primary text-white gap-2"
-                    disabled={!editablePrompt.trim()}
-                  >
-                    <Play className="h-4 w-4" />
-                    Run Workflow
-                  </Button>
-                )}
+              <div className="flex items-center justify-between gap-3 p-4 border-t bg-muted/30 shrink-0">
+                <div>
+                  {onEditConfig && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => { setActiveFormConfig(null); onEditConfig(activeFormConfig); }}
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
+                  <div className="flex items-center gap-1.5">
+                    {!supervisorSynced && !supervisorLoading && (
+                      <span title="Skills are not synced with the supervisor. Rebuild from Admin → Supervisor Skills to enable.">
+                        <AlertTriangle className="h-4 w-4 text-orange-500" />
+                      </span>
+                    )}
+                    <Button
+                      onClick={handleTrySkill}
+                      className={cn(
+                        "gap-2",
+                        supervisorSynced && !supervisorLoading
+                          ? "gradient-primary text-white"
+                          : "bg-muted text-muted-foreground cursor-not-allowed"
+                      )}
+                      disabled={!supervisorSynced || supervisorLoading}
+                    >
+                      {supervisorLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageSquare className="h-4 w-4" />
+                      )}
+                      Try Skill
+                    </Button>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </motion.div>

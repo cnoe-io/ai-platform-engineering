@@ -17,6 +17,7 @@ interface SkillHub {
   last_failure_message: string | null;
   created_at: string;
   updated_at: string;
+  skills_count?: number;
   /** Set when skill-scanner runs on hub ingest (backend). */
   last_skill_scan_at?: number | null;
   last_skill_scan_exit_code?: number | null;
@@ -38,6 +39,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [crawlLoading, setCrawlLoading] = useState(false);
   const [crawlPaths, setCrawlPaths] = useState<string[]>([]);
   const [crawlPreview, setCrawlPreview] = useState<{ path: string; name: string; description: string }[]>([]);
@@ -131,17 +133,25 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   };
 
   const handleRefresh = async () => {
-    if (isAdmin) {
-      try {
-        await fetch("/api/skills/refresh", { method: "POST" });
-      } catch {
-        /* best-effort — backend may be unavailable */
-      }
-    }
+    setRefreshing(true);
+    setError(null);
     try {
-      await fetch("/api/skills?include_content=false");
-    } catch {}
-    await loadHubs();
+      if (isAdmin) {
+        try {
+          await fetch("/api/skills/refresh", { method: "POST" });
+        } catch {
+          /* best-effort — backend may be unavailable */
+        }
+      }
+      try {
+        await fetch("/api/skills?include_content=false");
+      } catch {}
+      await loadHubs();
+    } catch (err: any) {
+      setError(err.message || "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleCrawlPreview = async () => {
@@ -196,9 +206,9 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           </CardDescription>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh} className="gap-1">
-            <RefreshCcw className="h-3.5 w-3.5" />
-            Refresh
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="gap-1">
+            {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+            {refreshing ? "Refreshing..." : "Refresh"}
           </Button>
           {isAdmin && (
             <Button size="sm" onClick={() => setShowAddForm(!showAddForm)} className="gap-1">
@@ -290,16 +300,17 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           </div>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-6 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
+            <div className="grid grid-cols-7 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
               <div className="col-span-2">Repository</div>
               <div>Status</div>
+              <div>Skills</div>
               <div>Last Sync</div>
               <div>Added</div>
               {isAdmin && <div className="text-right">Actions</div>}
             </div>
             {hubs.map((hub) => (
               <div key={hub.id} className="space-y-0.5">
-              <div className="grid grid-cols-6 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
+              <div className="grid grid-cols-7 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
                 <div className="col-span-2 flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className="font-medium truncate">{hub.location}</span>
@@ -320,6 +331,9 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                   ) : (
                     <Badge variant="secondary" className="text-xs">Disabled</Badge>
                   )}
+                </div>
+                <div className="text-xs text-muted-foreground font-medium">
+                  {hub.skills_count ?? 0}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {hub.last_success_at
