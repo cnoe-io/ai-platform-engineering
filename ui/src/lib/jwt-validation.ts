@@ -188,7 +188,7 @@ export async function signLocalSkillsToken(
 export async function validateLocalSkillsJWT(
   token: string,
 ): Promise<JWTIdentity | null> {
-  const secret = process.env.NEXTAUTH_SECRET;
+  const secret = process.env.SKILLS_API_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) {
     return null; // No secret configured — cannot be a local token
   }

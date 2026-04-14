@@ -174,6 +174,67 @@ type ExchangeResult = {
 
 const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Server-side token store
+// ─────────────────────────────────────────────────────────────────────────────
+// Large OAuth tokens (refreshToken, idToken) are kept in server memory instead
+// of the JWT cookie.  This keeps the encrypted cookie under the 4096-byte
+// browser limit.  Only the accessToken and small metadata stay in the cookie.
+//
+// Trade-off: tokens are lost on process restart.  The accessToken (still in the
+// cookie) remains valid until it expires; after that the user re-authenticates.
+// For multi-replica deployments, use sticky sessions or a shared store (Redis).
+
+interface CachedTokens {
+  refreshToken?: string;
+  idToken?: string;
+  updatedAt: number;
+}
+
+const _serverTokenStore = new Map<string, CachedTokens>();
+const _TOKEN_STORE_TTL = 24 * 60 * 60; // 24h — matches session maxAge
+
+export function _getStoredTokens(sub: string | undefined): CachedTokens | undefined {
+  if (!sub) return undefined;
+  const entry = _serverTokenStore.get(sub);
+  if (!entry) return undefined;
+  if (Math.floor(Date.now() / 1000) - entry.updatedAt > _TOKEN_STORE_TTL) {
+    _serverTokenStore.delete(sub);
+    return undefined;
+  }
+  return entry;
+}
+
+function _storeTokens(sub: string | undefined, data: { refreshToken?: string; idToken?: string }): void {
+  if (!sub) return;
+  const existing = _serverTokenStore.get(sub);
+  _serverTokenStore.set(sub, {
+    refreshToken: data.refreshToken ?? existing?.refreshToken,
+    idToken: data.idToken ?? existing?.idToken,
+    updatedAt: Math.floor(Date.now() / 1000),
+  });
+}
+
+/** Reset server-side token store (for testing only). */
+export function _resetServerTokenStore(): void {
+  _serverTokenStore.clear();
+}
+
+// Periodic cleanup of expired entries
+if (typeof setInterval !== 'undefined') {
+  const _cleanupTimer = setInterval(() => {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [key, value] of _serverTokenStore) {
+      if (now - value.updatedAt > _TOKEN_STORE_TTL) {
+        _serverTokenStore.delete(key);
+      }
+    }
+  }, 10 * 60 * 1000);
+  if (typeof _cleanupTimer === 'object' && 'unref' in _cleanupTimer) {
+    (_cleanupTimer as NodeJS.Timeout).unref();
+  }
+}
+
 /**
  * Refresh the access token using the refresh token
  *
@@ -595,6 +656,36 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
     maxAge: 24 * 60 * 60, // 24 hours
+  },
+  // Custom encode/decode: offload large OAuth tokens (refreshToken, idToken)
+  // to server-side memory so the encrypted cookie stays under 4096 bytes.
+  // The JWT callback and session callback are unaffected — tokens are
+  // transparently rehydrated on decode and stripped on encode.
+  jwt: {
+    async encode({ token, secret, maxAge }) {
+      if (token?.sub) {
+        _storeTokens(token.sub, {
+          refreshToken: token.refreshToken as string | undefined,
+          idToken: token.idToken as string | undefined,
+        });
+      }
+      const { refreshToken: _rt, idToken: _idt, ...slimToken } = (token ?? {}) as Record<string, unknown>;
+      // Dynamic import avoids top-level ESM/CJS conflict with jose in test environments
+      const { encode } = await import("next-auth/jwt");
+      return encode({ token: slimToken as any, secret, maxAge });
+    },
+    async decode({ token, secret }) {
+      const { decode } = await import("next-auth/jwt");
+      const decoded = await decode({ token, secret });
+      if (decoded?.sub) {
+        const stored = _getStoredTokens(decoded.sub);
+        if (stored) {
+          if (stored.refreshToken) decoded.refreshToken = stored.refreshToken;
+          if (stored.idToken) decoded.idToken = stored.idToken;
+        }
+      }
+      return decoded;
+    },
   },
   // Explicitly disable session store (we use JWT only)
   // This prevents NextAuth from trying to write SST files

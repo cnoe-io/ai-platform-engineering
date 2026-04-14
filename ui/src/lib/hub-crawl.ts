@@ -6,6 +6,7 @@
  */
 
 import { getCollection } from "@/lib/mongodb";
+import { validateCredentialsRef } from "@/lib/api-middleware";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,8 +62,7 @@ const HUB_CACHE_TTL_MS = parseInt(
   10,
 );
 
-// Validate env var names to prevent arbitrary env var access
-const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// ENV_VAR_NAME_RE removed — use validateCredentialsRef from api-middleware instead
 
 // ---------------------------------------------------------------------------
 // Frontmatter parser (mirrors skill-templates-loader.ts)
@@ -309,14 +309,18 @@ export async function crawlGitLabRepo(
 function resolveToken(hub: SkillHubDoc): string | undefined {
   // First try the explicit credentials_ref
   if (hub.credentials_ref) {
-    if (!ENV_VAR_NAME_RE.test(hub.credentials_ref)) {
+    try {
+      const validated = validateCredentialsRef(hub.credentials_ref);
+      if (validated) {
+        const val = process.env[validated];
+        if (val) return val;
+      }
+    } catch {
       console.warn(
         `[HubCrawl] Invalid credentials_ref format: ${hub.credentials_ref}`,
       );
       return undefined;
     }
-    const val = process.env[hub.credentials_ref];
-    if (val) return val;
   }
 
   // Fall back to default token env vars

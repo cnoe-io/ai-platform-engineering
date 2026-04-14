@@ -3,6 +3,7 @@ import {
   withAuth,
   withErrorHandler,
   requireAdmin,
+  validateCredentialsRef,
 } from "@/lib/api-middleware";
 import { crawlGitHubRepo, crawlGitLabRepo } from "@/lib/hub-crawl";
 
@@ -16,7 +17,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     requireAdmin(session);
 
     const body = await request.json();
-    const { type, location, credentials_ref: credentialsRef } = body;
+    const { type, location } = body;
+    const credentialsRef = validateCredentialsRef(body.credentials_ref);
 
     if (!type || !location || typeof location !== "string") {
       return NextResponse.json(
@@ -40,7 +42,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         body: JSON.stringify({
           type,
           location: location.trim(),
-          credentials_ref: credentialsRef || null,
+          credentials_ref: credentialsRef,
         }),
         signal: AbortSignal.timeout(60_000),
       });
@@ -66,15 +68,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
             { status: 400 },
           );
         }
-        let token: string | undefined;
-        if (
-          credentialsRef &&
-          typeof credentialsRef === "string" &&
-          /^[A-Za-z_][A-Za-z0-9_]*$/.test(credentialsRef)
-        ) {
-          token = process.env[credentialsRef];
-        }
-        if (!token) token = process.env.GITHUB_TOKEN;
+        const token = (credentialsRef ? process.env[credentialsRef] : undefined)
+          || process.env.GITHUB_TOKEN;
 
         const crawled = await crawlGitHubRepo(owner, repo, token);
         const sliced = crawled.slice(0, maxPreview);
@@ -90,15 +85,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       }
 
       if (type === "gitlab") {
-        let token: string | undefined;
-        if (
-          credentialsRef &&
-          typeof credentialsRef === "string" &&
-          /^[A-Za-z_][A-Za-z0-9_]*$/.test(credentialsRef)
-        ) {
-          token = process.env[credentialsRef];
-        }
-        if (!token) token = process.env.GITLAB_TOKEN;
+        const token = (credentialsRef ? process.env[credentialsRef] : undefined)
+          || process.env.GITLAB_TOKEN;
 
         const crawled = await crawlGitLabRepo(location.trim(), token);
         const sliced = crawled.slice(0, maxPreview);
