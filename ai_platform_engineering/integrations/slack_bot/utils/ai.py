@@ -309,6 +309,7 @@ def stream_a2a_response(
   trace_id = None  # Langfuse trace ID for feedback scoring
   # streamed_any_text is tracked by stream_buf.has_flushed
   streaming_final_answer = False  # Latch: once last plan step streams, keep streaming
+  buffered_streaming_text = []  # No-plan flows: buffer STREAMING_RESULT for fallback delivery
 
   try:
     for event_data in a2a_client.send_message_stream(
@@ -378,8 +379,10 @@ def stream_a2a_response(
           # Deterministic chunker tags its chunks with is_final_answer=True.
           # Latch streaming_final_answer so the FINAL_RESULT handler skips
           # re-streaming the same content (prevents duplicate output).
+          # Only latch in plan flows — no-plan flows deliver FINAL_RESULT
+          # via stopStream to prevent metadata leaks from ToolStrategy output.
           artifact_meta = (parsed.artifact or {}).get("metadata", {})
-          if artifact_meta.get("is_final_answer") and not streaming_final_answer:
+          if artifact_meta.get("is_final_answer") and not streaming_final_answer and plan_steps:
             streaming_final_answer = True
 
           # Debug: log every token the Slack bot receives (LOG_LEVEL=DEBUG)
@@ -441,7 +444,9 @@ def stream_a2a_response(
               if last_step.get("status") == "completed":
                 streaming_final_answer = True
             else:
-              # Accumulate for step-detail cards (shown on step completion)
+              # Accumulate for step-detail cards (shown on step completion).
+              # Don't stream intermediate step thinking — only accumulate for
+              # step-detail cards that are sent on step completion.
               if parsed.should_append is False:
                 step_thinking[current_step_id] = [parsed.text_content]
               else:
@@ -451,9 +456,13 @@ def stream_a2a_response(
                 step = plan_steps.get(current_step_id, {})
                 title = step.get("title", "working")
                 _set_typing_status(f"is {title}...")
-            # Fall through to stream — narrative text like "I'll search
-            # the knowledge base..." should be visible. Post-tool echo
-            # suppression is handled by any_subagent_completed below.
+              continue
+            # Last step: fall through to stream the final answer content.
+            # Typing status update for last step when stream not started yet.
+            if not stream_ts:
+              step = plan_steps.get(current_step_id, {})
+              title = step.get("title", "working")
+              _set_typing_status(f"is {title}...")
 
           # Stream markdown (no plan, or final answer)
           # Safety filter: suppress any ToolStrategy metadata that may have leaked.
@@ -472,18 +481,33 @@ def stream_a2a_response(
                 step_thinking.setdefault(current_step_id, [])
                 step_thinking[current_step_id].append(text)
               else:
-                logger.debug(f"[{thread_ts}] Suppressing pre-stream post-subagent chunk ({len(text)} chars)")
+                buffered_streaming_text.append(text)  # Buffer for fallback
               continue
             # Latch streaming_final_answer only when ALL plan steps are done.
             # In multi-step plans, sub-agent N's narration arrives after sub-agent
             # N-1 completes (any_subagent_completed=True) but while sub-agent N is
             # still in_progress.  Latching here would cause FINAL_RESULT to be skipped,
             # leaving the user with only intermediate narration and no real answer.
-            all_steps_done = not plan_steps or all(
-              s.get("status") == "completed" for s in plan_steps.values()
-            )
-            if all_steps_done:
-              streaming_final_answer = True
+            # Only latch for plan flows — no-plan flows deliver via stopStream.
+            if plan_steps:
+              all_steps_done = all(
+                s.get("status") == "completed" for s in plan_steps.values()
+              )
+              if all_steps_done:
+                streaming_final_answer = True
+            else:
+              # No-plan flow after sub-agent: buffer, don't stream
+              buffered_streaming_text.append(text)
+              continue
+          # No-plan flows: buffer STREAMING_RESULT events silently. Only the
+          # clean FINAL_RESULT (from the ResponseFormat tool) is delivered via
+          # stopStream at finalization. This prevents ToolStrategy metadata
+          # (is_task_complete=, JSON fragments) from leaking into Slack.
+          if not plan_steps and not streaming_final_answer:
+            buffered_streaming_text.append(text)
+            if not stream_ts:
+              _set_typing_status("is responding...")
+            continue
           # Before the stream starts (typing indicator still visible), show narration
           # text as a typing status update rather than immediately opening the stream.
           # The stream will start when the first tool fires (TOOL_NOTIFICATION_START).
@@ -518,15 +542,10 @@ def stream_a2a_response(
             # Leave final_result_text set so finalization puts it in stopStream.chunks.
             logger.info(f"[{thread_ts}] Plan flow — deferring FINAL_RESULT to stopStream.chunks")
           else:
-            # No-plan flow: stream the final answer live via appendStream.
-            _start_stream_if_needed()
-            if stream_buf:
-              if needs_separator and stream_buf.has_flushed:
-                stream_buf.append("\n\n")
-                needs_separator = False
-              stream_buf.append(parsed.text_content)
-              stream_buf.flush()  # Flush immediately — don't wait for the interval
-              streaming_final_answer = True  # Mark as already streamed
+            # No-plan flow: defer FINAL_RESULT to stopStream at finalization.
+            # Don't stream via appendStream — STREAMING_RESULT may contain raw
+            # ToolStrategy metadata that we need to keep out of the channel.
+            logger.info(f"[{thread_ts}] No-plan flow — deferring FINAL_RESULT to stopStream.chunks")
         # Extract trace_id from artifact metadata
         if parsed.artifact and not trace_id:
           artifact_metadata = parsed.artifact.get("metadata", {})
@@ -716,6 +735,12 @@ def stream_a2a_response(
     if final_message_text:
       logger.debug(f"[{thread_ts}]   MESSAGE preview: {final_message_text[:200]}...")
 
+    # Use buffered no-plan streaming text as fallback when no authoritative
+    # source is available. FINAL_RESULT always takes priority (it's the clean
+    # user-facing answer); the buffer is only used when agents don't emit one.
+    if not final_result_text and not partial_result_text and buffered_streaming_text:
+      partial_result_text = "".join(buffered_streaming_text)
+
     final_text = _get_final_text(final_result_text, partial_result_text, final_message_text, last_artifacts, thread_ts)
 
     # Overthink mode: check for skip markers before posting
@@ -808,16 +833,14 @@ def stream_a2a_response(
 
       # 2. Build stop call with final answer + feedback blocks.
       # Skip final_text if the answer was already streamed live.
-      # For plan flows: only streaming_final_answer means the answer was streamed
-      #   (pre-plan chatter sets streamed_any_text but isn't the answer).
-      # For no-plan flows: streamed_any_text means the answer was streamed.
       stop_chunks = []
       streamed_any_text = stream_buf.has_flushed if stream_buf else False
-      # streaming_final_answer=True  → answer already streamed token-by-token (STREAMING_RESULT)
-      #                                 or via appendStream (no-plan FINAL_RESULT path)
-      # For plan flows, FINAL_RESULT text is deferred to stopStream.chunks (block+text mixing issue)
-      # so streaming_final_answer stays False and needs_final=True sends it in stop_chunks.
-      already_streamed = streaming_final_answer or (not plan_steps and streamed_any_text and not final_result_text)
+      # streaming_final_answer=True → answer already streamed token-by-token via
+      #   STREAMING_RESULT (plan flow last step). streamed_any_text in plan flows
+      #   means the last step's content was streamed (non-last steps are now gated).
+      # No-plan flows: nothing is streamed via appendStream (buffered instead),
+      #   so both flags are False → FINAL_RESULT always goes to stopStream.
+      already_streamed = streaming_final_answer or (plan_steps and streamed_any_text)
       needs_final = not already_streamed
       if needs_final and final_text:
         stop_chunks.append({"type": "markdown_text", "text": final_text})

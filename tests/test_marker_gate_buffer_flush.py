@@ -17,8 +17,6 @@ Usage:
     PYTHONPATH=. uv run pytest tests/test_marker_gate_buffer_flush.py -v
 """
 
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers — reproduce the exact logic from agent.py's stream() method
