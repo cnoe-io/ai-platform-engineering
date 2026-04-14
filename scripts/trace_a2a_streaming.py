@@ -200,7 +200,7 @@ def main():
         else:
             print(f"{t:7.2f} | {etype:<25} |")
 
-    print(f"\n--- Summary ---")
+    print("\n--- Summary ---")
     print(f"Total time: {events[-1]['t'] if events else 0:.1f}s")
     print(f"Tool events: {len(tool_events)}")
     print(f"Content chunks: {content_chunks}")
