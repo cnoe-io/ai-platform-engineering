@@ -6,36 +6,36 @@ Pydantic models for CAIPE Slack Bot configuration.
 
 import os
 
+from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 from typing import Dict, Any, Optional, List
 
 
 class GlobalDefaults(BaseModel):
-    """Global defaults that apply to all channels"""
+  """Global defaults that apply to all channels"""
 
-    time_frame: int = 19800
-    max_messages: int = 3
+  time_frame: int = 19800
+  max_messages: int = 3
+  default_agent_id: Optional[str] = None
 
-    jira_server: str = Field(
-        default_factory=lambda: os.environ.get("JIRA_BASE_URL", "")
-    )
+  jira_server: str = Field(default_factory=lambda: os.environ.get("JIRA_BASE_URL", ""))
 
-    # Prompt defaults — each can be overridden via SLACK_INTEGRATION_PROMPT_* env vars
-    response_style_instruction: str = Field(
-        default_factory=lambda: os.environ.get(
-            "SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE",
-            """Response Style: Keep your answers conversational and straightforward - like chatting with a colleague.
+  # Prompt defaults — each can be overridden via SLACK_INTEGRATION_PROMPT_* env vars
+  response_style_instruction: str = Field(
+    default_factory=lambda: os.environ.get(
+      "SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE",
+      """Response Style: Keep your answers conversational and straightforward - like chatting with a colleague.
 Be concise and get to the point (CRITICAL: MAXIMUM response length should be around 5 sentences UNLESS user
 specifically asks for full response. After providing information, ALWAYS ask if they would like to know more
 in a separate line.) without unnecessary details or overly formal explanations.
 If citing sources, CRITICAL: ALWAYS include the source AND LINK(S)!""",
-        )
     )
+  )
 
-    default_qanda_prompt: str = Field(
-        default_factory=lambda: os.environ.get(
-            "SLACK_INTEGRATION_PROMPT_QANDA",
-            """You are helping answer questions. A user has posted a message in the channel.
+  default_qanda_prompt: str = Field(
+    default_factory=lambda: os.environ.get(
+      "SLACK_INTEGRATION_PROMPT_QANDA",
+      """You are helping answer questions. A user has posted a message in the channel.
 
 STEP 1 - Check if this is an action request (no search needed):
 If the message is ONLY asking for human action with no technical question, respond with "Standing by for the team!" and stop.
@@ -62,13 +62,13 @@ End your response with a Sources section listing ALL sources you found during yo
 
 User message:
 {message_text}""",
-        )
     )
+  )
 
-    overthink_qanda_prompt: str = Field(
-        default_factory=lambda: os.environ.get(
-            "SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA",
-            """You are helping answer questions in a Slack channel. A user has posted a message.
+  overthink_qanda_prompt: str = Field(
+    default_factory=lambda: os.environ.get(
+      "SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA",
+      """You are helping answer questions in a Slack channel. A user has posted a message.
 
 STEP 1 - Quick filter (no search needed):
 - Is this ONLY a code/MR/PR review request with no technical question? Respond with [DEFER] and stop
@@ -103,13 +103,13 @@ STEP 4 - Respond (DO NOT show your reasoning steps, only output the final respon
 
 User message:
 {message_text}""",
-        )
     )
+  )
 
-    default_mention_prompt: str = Field(
-        default_factory=lambda: os.environ.get(
-            "SLACK_INTEGRATION_PROMPT_MENTION",
-            """A user has @mentioned you in Slack.
+  default_mention_prompt: str = Field(
+    default_factory=lambda: os.environ.get(
+      "SLACK_INTEGRATION_PROMPT_MENTION",
+      """A user has @mentioned you in Slack.
 
 STEP 1 - Determine intent:
 - Action request (create ticket, run pipeline, etc.) - execute the action
@@ -130,13 +130,13 @@ STEP 3 - Respond:
 
 User message:
 {message_text}""",
-        )
     )
+  )
 
-    humble_followup_prompt: str = Field(
-        default_factory=lambda: os.environ.get(
-            "SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP",
-            """You previously saw the user's message but did not respond automatically. The user is now following up by @mentioning you.
+  humble_followup_prompt: str = Field(
+    default_factory=lambda: os.environ.get(
+      "SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP",
+      """You previously saw the user's message but did not respond automatically. The user is now following up by @mentioning you.
 
 Start by briefly explaining why you did not respond earlier. There are two possible reasons based on your earlier analysis:
 1. You recognized it as a request for human action (like MR reviews, approvals, or asking someone to do something) - explain you stepped back to let humans handle it
@@ -152,13 +152,13 @@ Be conversational and supportive, not overly apologetic.
 
 User's follow-up message:
 {message_text}""",
-        )
     )
+  )
 
-    default_ai_alerts_prompt: str = Field(
-        default_factory=lambda: os.environ.get(
-            "SLACK_INTEGRATION_PROMPT_AI_ALERTS",
-            """You are an automated incident management and feedback tracking system that creates Jira tickets for alerts and user feedback.
+  default_ai_alerts_prompt: str = Field(
+    default_factory=lambda: os.environ.get(
+      "SLACK_INTEGRATION_PROMPT_AI_ALERTS",
+      """You are an automated incident management and feedback tracking system that creates Jira tickets for alerts and user feedback.
 
 Your task: Analyze this alert/feedback and determine the appropriate action (create ticket, resolve ticket, or no action).
 
@@ -195,160 +195,156 @@ INSTRUCTIONS:
 1. **Analysis**: Explain your reasoning - why does/doesn't this alert warrant a ticket?
 2. **Duplicate Check**: Search for existing tickets with the same core pattern
 3. **Action**: State what you did (created ticket X, updated ticket Y, or no action needed)""",
-        )
     )
+  )
 
 
 class VictorOpsEscalation(BaseModel):
-    """VictorOps on-call escalation configuration"""
+  """VictorOps on-call escalation configuration"""
 
-    enabled: bool = False
-    team: str = ""
+  enabled: bool = False
+  team: str = ""
 
 
 class EmojiEscalation(BaseModel):
-    """Emoji reaction escalation configuration"""
+  """Emoji reaction escalation configuration"""
 
-    enabled: bool = False
-    name: str = "eyes"
+  enabled: bool = False
+  name: str = "eyes"
 
 
 class EscalationConfig(BaseModel):
-    """Escalation workflows triggered by the 'Get help' button"""
+  """Escalation workflows triggered by the 'Get help' button"""
 
-    victorops: VictorOpsEscalation = Field(default_factory=VictorOpsEscalation)
-    users: List[str] = Field(default_factory=list)
-    emoji: EmojiEscalation = Field(default_factory=EmojiEscalation)
-    delete_admins: List[str] = Field(default_factory=list)
+  victorops: VictorOpsEscalation = Field(default_factory=VictorOpsEscalation)
+  users: List[str] = Field(default_factory=list)
+  emoji: EmojiEscalation = Field(default_factory=EmojiEscalation)
+  delete_admins: List[str] = Field(default_factory=list)
 
 
 def get_escalation_config(channel_config: "ChannelConfig") -> Optional["EscalationConfig"]:
-    """Extract escalation config from a ChannelConfig.
+  """Extract escalation config from a ChannelConfig.
 
-    Returns None if no escalation config exists OR if no escalation actions are enabled.
-    """
-    if not channel_config.other or not channel_config.other.escalation:
-        return None
-    esc = EscalationConfig(
-        **channel_config.other.escalation,
-        delete_admins=channel_config.other.delete_admins,
-    )
-    # Only return config if at least one escalation action is enabled
-    has_escalation = esc.victorops.enabled or esc.users or esc.emoji.enabled
-    return esc if has_escalation else None
+  Returns None if no escalation config exists OR if no escalation actions are enabled.
+  """
+  if not channel_config.other or not channel_config.other.escalation:
+    return None
+  esc = EscalationConfig(
+    **channel_config.other.escalation,
+    delete_admins=channel_config.other.delete_admins,
+  )
+  # Only return config if at least one escalation action is enabled
+  has_escalation = esc.victorops.enabled or esc.users or esc.emoji.enabled
+  return esc if has_escalation else None
 
 
 class IncludeBotsConfig(BaseModel):
-    """Configuration for including bot messages"""
+  """Configuration for including bot messages"""
 
-    enabled: bool = False
-    bot_list: Optional[List[str]] = None
+  enabled: bool = False
+  bot_list: Optional[List[str]] = None
 
 
 class QandaConfig(BaseModel):
-    """Q&A mode configuration"""
+  """Q&A mode configuration"""
 
-    enabled: bool = False
-    overthink: bool = False
-    include_bots: IncludeBotsConfig = Field(default_factory=IncludeBotsConfig)
-    custom_prompt: Optional[str] = None
+  enabled: bool = False
+  overthink: bool = False
+  include_bots: IncludeBotsConfig = Field(default_factory=IncludeBotsConfig)
+  custom_prompt: Optional[str] = None
 
 
 class AIAlertsConfig(BaseModel):
-    """AI alerts configuration"""
+  """AI alerts configuration"""
 
-    enabled: bool = False
-    custom_prompt: Optional[str] = None
+  enabled: bool = False
+  custom_prompt: Optional[str] = None
 
 
 class JiraConfig(BaseModel):
-    """Jira ticket creation configuration"""
+  """Jira ticket creation configuration"""
 
-    project_key: str
-    issue_type: str = "Bug"
-    additional_fields: Dict[str, Any] = Field(default_factory=dict)
+  project_key: str
+  issue_type: str = "Bug"
+  additional_fields: Dict[str, Any] = Field(default_factory=dict)
 
 
 class OtherConfig(BaseModel):
-    """Other channel configuration (Jira, escalation, delete_admins)"""
+  """Other channel configuration (Jira, escalation, delete_admins)"""
 
-    jira: Optional[JiraConfig] = None
-    escalation: Optional[Dict[str, Any]] = None
-    delete_admins: List[str] = Field(default_factory=list)
+  jira: Optional[JiraConfig] = None
+  escalation: Optional[Dict[str, Any]] = None
+  delete_admins: List[str] = Field(default_factory=list)
 
 
 class ChannelConfig(BaseModel):
-    """Configuration for a single Slack channel"""
+  """Configuration for a single Slack channel"""
 
-    name: str
-    ai_enabled: bool = False
-    custom_prompt: Optional[str] = None
-    qanda: QandaConfig = Field(default_factory=QandaConfig)
-    ai_alerts: AIAlertsConfig = Field(default_factory=AIAlertsConfig)
-    other: OtherConfig = Field(default_factory=OtherConfig)
+  name: str
+  ai_enabled: bool = False
+  agent_id: Optional[str] = None
+  custom_prompt: Optional[str] = None
+  qanda: QandaConfig = Field(default_factory=QandaConfig)
+  ai_alerts: AIAlertsConfig = Field(default_factory=AIAlertsConfig)
+  other: OtherConfig = Field(default_factory=OtherConfig)
 
-    @model_validator(mode="after")
-    def validate_bot_config(self):
-        """Ensure ai_alerts and qanda.include_bots are not both enabled"""
-        if self.ai_alerts.enabled and (self.qanda.enabled and self.qanda.include_bots.enabled):
-            raise ValueError(
-                "Cannot enable both ai_alerts and qanda.include_bots for the same channel. "
-                "ai_alerts processes bot messages (alerts) to take action, "
-                "while qanda.include_bots also processes bot messages for Q&A style responses. "
-                "Choose one based on your use case."
-            )
-        return self
+  @model_validator(mode="after")
+  def validate_bot_config(self):
+    """Ensure ai_alerts and qanda.include_bots are not both enabled"""
+    if self.ai_alerts.enabled and (self.qanda.enabled and self.qanda.include_bots.enabled):
+      raise ValueError("Cannot enable both ai_alerts and qanda.include_bots for the same channel. ai_alerts processes bot messages (alerts) to take action, while qanda.include_bots also processes bot messages for Q&A style responses. Choose one based on your use case.")
+    return self
+
+  @model_validator(mode="after")
+  def warn_missing_agent_id(self):
+    """Log warning when ai_enabled but no agent_id configured."""
+    if self.ai_enabled and not self.agent_id:
+      logger.warning(f"Channel '{self.name}' has ai_enabled=True but no agent_id set. Will fall back to defaults.default_agent_id.")
+    return self
 
 
 class Config(BaseModel):
-    """Top-level configuration"""
+  """Top-level configuration"""
 
-    defaults: GlobalDefaults = Field(default_factory=GlobalDefaults)
-    channels: Dict[str, ChannelConfig]
-    silence_env: bool = False
+  defaults: GlobalDefaults = Field(default_factory=GlobalDefaults)
+  channels: Dict[str, ChannelConfig]
+  silence_env: bool = False
 
-    @classmethod
-    def from_env(cls) -> "Config":
-        """Load config from CAIPE_BOT_CONFIG environment variable (YAML format or file path)"""
-        import yaml
+  @classmethod
+  def from_env(cls) -> "Config":
+    """Load config from CAIPE_BOT_CONFIG environment variable (YAML format or file path)"""
+    import yaml
 
-        config_str = os.environ.get("SLACK_INTEGRATION_BOT_CONFIG", os.environ.get("CAIPE_BOT_CONFIG"))
-        if not config_str:
-            raise ValueError("SLACK_INTEGRATION_BOT_CONFIG (or CAIPE_BOT_CONFIG) environment variable not set")
-        if os.path.isfile(config_str):
-            with open(config_str) as f:
-                raw_config = yaml.safe_load(f)
+    config_str = os.environ.get("SLACK_INTEGRATION_BOT_CONFIG", os.environ.get("CAIPE_BOT_CONFIG"))
+    if not config_str:
+      raise ValueError("SLACK_INTEGRATION_BOT_CONFIG (or CAIPE_BOT_CONFIG) environment variable not set")
+    if os.path.isfile(config_str):
+      with open(config_str) as f:
+        raw_config = yaml.safe_load(f)
+    else:
+      raw_config = yaml.safe_load(config_str)
+
+    # Parse channels
+    channels = {}
+    for channel_id, channel_data in raw_config.items():
+      channels[channel_id] = ChannelConfig(**channel_data)
+
+    silence_env = os.environ.get("SLACK_INTEGRATION_SILENCE_ENV", "false").lower() == "true"
+
+    return cls(channels=channels, silence_env=silence_env)
+
+  def apply_defaults_to_channels(self):
+    """Apply global defaults to channel configs (e.g., default prompts with style)"""
+    for channel_config in self.channels.values():
+      custom_prompt = channel_config.qanda.custom_prompt
+
+      if channel_config.qanda.overthink:
+        if custom_prompt:
+          channel_config.qanda.custom_prompt = self.defaults.overthink_qanda_prompt + "\n\n---\n\n" + "Additional channel-specific instructions (lower priority than the above overthink logic):\n" + custom_prompt
         else:
-            raw_config = yaml.safe_load(config_str)
-
-        # Parse channels
-        channels = {}
-        for channel_id, channel_data in raw_config.items():
-            channels[channel_id] = ChannelConfig(**channel_data)
-
-        silence_env = os.environ.get("SLACK_INTEGRATION_SILENCE_ENV", "false").lower() == "true"
-
-        return cls(channels=channels, silence_env=silence_env)
-
-    def apply_defaults_to_channels(self):
-        """Apply global defaults to channel configs (e.g., default prompts with style)"""
-        for channel_config in self.channels.values():
-            custom_prompt = channel_config.qanda.custom_prompt
-
-            if channel_config.qanda.overthink:
-                if custom_prompt:
-                    channel_config.qanda.custom_prompt = (
-                        self.defaults.overthink_qanda_prompt
-                        + "\n\n---\n\n"
-                        + "Additional channel-specific instructions (lower priority than the above overthink logic):\n"
-                        + custom_prompt
-                    )
-                else:
-                    channel_config.qanda.custom_prompt = self.defaults.overthink_qanda_prompt
-            elif not custom_prompt:
-                channel_config.qanda.custom_prompt = self.defaults.default_qanda_prompt
-            else:
-                if self.defaults.response_style_instruction not in custom_prompt:
-                    channel_config.qanda.custom_prompt = (
-                        custom_prompt + "\n\n" + self.defaults.response_style_instruction
-                    )
+          channel_config.qanda.custom_prompt = self.defaults.overthink_qanda_prompt
+      elif not custom_prompt:
+        channel_config.qanda.custom_prompt = self.defaults.default_qanda_prompt
+      else:
+        if self.defaults.response_style_instruction not in custom_prompt:
+          channel_config.qanda.custom_prompt = custom_prompt + "\n\n" + self.defaults.response_style_instruction
