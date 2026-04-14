@@ -3,6 +3,8 @@
 > **Date**: 2026-04-13 to 2026-04-14
 > **Authors**: Sri Aradhyula, Claude (Opus 4.6)
 > **Purpose**: Preserve institutional knowledge from the streaming regression investigation and remediation between CAIPE v0.2.41 ("golden") and v0.3.0.
+>
+> **See also**: [Streaming Comparison](./streaming-comparison.md) for the side-by-side event timeline and raw artifact dumps.
 
 ---
 

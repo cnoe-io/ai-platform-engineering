@@ -5,7 +5,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 from collections.abc import AsyncIterable
 from typing import Any, Optional
 
@@ -1710,12 +1709,14 @@ class AIPlatformEngineerA2ABinding:
           final_ai_message = None
           response_format_result = None
           response_format_args = None
-          response_format_streaming = False
-          response_format_content = None
-          _rf_last_content_len = 0
+          # NOTE: response_format_streaming, response_format_content,
+          # _rf_last_content_len, and _strip_post_marker_newlines are NOT
+          # reset here.  The retry path (Phase 1b below) uses a simplified
+          # stream handler that doesn't need the incremental ResponseFormat
+          # parser or the [FINAL ANSWER] marker-split state machine.  Those
+          # variables are only meaningful in the primary stream loop.
           _rf_word_buffer = ""
           _final_answer_seen = False
-          _strip_post_marker_newlines = False
           _pre_marker_buffer = ""
 
           try:
@@ -1968,7 +1969,9 @@ class AIPlatformEngineerA2ABinding:
           except Exception as state_err:
               logging.warning(f"Could not retrieve graph state for final message: {state_err}")
 
-      # Flush any remaining word-boundary buffer from incremental JSON parser
+      # Flush any remaining word-boundary buffer from incremental JSON parser.
+      # After this yield the generator is about to exit, so there's no need
+      # to reset _rf_word_buffer — it won't be read again.
       if _rf_word_buffer:
           yielded_chunk_count += 1
           yield {
@@ -1977,7 +1980,6 @@ class AIPlatformEngineerA2ABinding:
               "content": _rf_word_buffer,
               "is_final_answer": True,
           }
-          _rf_word_buffer = ""
 
       logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, final_answer_seen={_final_answer_seen}, response_format_args={response_format_args is not None}")
 

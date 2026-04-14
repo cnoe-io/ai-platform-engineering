@@ -26,7 +26,34 @@ from .event_parser import (
 from .throttler import create_throttled_updater
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
-STREAMING_DEBUG = os.environ.get("SLACK_STREAMING_DEBUG", "false").lower() == "true"
+
+# ---------------------------------------------------------------------------
+# Streaming behaviour toggles (env-var configurable)
+# ---------------------------------------------------------------------------
+
+# SLACK_NARRATION_AS_TYPING (default: "true")
+#   When "true" (the default), narration chunks (is_narration=True) are shown
+#   as a typing-status indicator ("is responding...") and are NOT streamed
+#   into the Slack message.  This is the clean UX — the user only sees the
+#   final answer, while the "I'll search the knowledge base..." narration is
+#   hidden behind a typing indicator.
+#
+#   When "false", narration text falls through to the StreamBuffer and is
+#   displayed inline in the Slack message — matching v0.2.41 behaviour where
+#   the user could see the agent's thinking in real time.
+SLACK_NARRATION_AS_TYPING = os.environ.get(
+    "SLACK_NARRATION_AS_TYPING", "true"
+).lower() == "true"
+
+# Token-level streaming debug logging.
+# Instead of a dedicated SLACK_STREAMING_DEBUG env var, we reuse the standard
+# LOG_LEVEL / LOGURU_LEVEL knob.  Set either to "DEBUG" to get per-token
+# streaming traces.  This keeps configuration canonical — one log-level
+# variable controls all verbosity, as suggested in PR review.
+_streaming_debug = os.environ.get(
+    "LOG_LEVEL", os.environ.get("LOGURU_LEVEL", "INFO")
+).upper() == "DEBUG"
+
 _token_seq = __import__("itertools").count(1)  # thread-safe monotonic counter for debug logging
 
 
@@ -62,9 +89,9 @@ class StreamBuffer:
       self._last_flush = now  # start interval from first token, not from init
     elapsed = now - self._last_flush
 
-    if STREAMING_DEBUG:
+    if _streaming_debug:
       escaped_buf = self._buffer[:120].replace('\n', '\\n').replace('\r', '\\r')
-      logger.info(f"[STREAM_DEBUG BUFFER] +{len(text)} chars, buf_len={len(self._buffer)}, elapsed={elapsed:.2f}s, buf={escaped_buf!r}{'...' if len(self._buffer) > 120 else ''}")
+      logger.debug(f"[STREAM_DEBUG BUFFER] +{len(text)} chars, buf_len={len(self._buffer)}, elapsed={elapsed:.2f}s, buf={escaped_buf!r}{'...' if len(self._buffer) > 120 else ''}")
 
     # Prefer flushing on newline boundaries so markdown isn't split mid-token
     if "\n" in self._buffer:
@@ -73,15 +100,15 @@ class StreamBuffer:
       to_flush = self._buffer[: last_nl + 1]
       self._buffer = self._buffer[last_nl + 1 :]
       if to_flush:
-        if STREAMING_DEBUG:
+        if _streaming_debug:
           escaped = to_flush[:120].replace('\n', '\\n').replace('\r', '\\r')
-          logger.info(f"[STREAM_DEBUG FLUSH newline] {len(to_flush)} chars: {escaped!r}{'...' if len(to_flush) > 120 else ''}")
+          logger.debug(f"[STREAM_DEBUG FLUSH newline] {len(to_flush)} chars: {escaped!r}{'...' if len(to_flush) > 120 else ''}")
         self._send(to_flush)
     elif elapsed >= self.flush_interval:
       # No newline seen for a while — flush everything as a safety net
-      if STREAMING_DEBUG:
+      if _streaming_debug:
         escaped = self._buffer[:120].replace('\n', '\\n').replace('\r', '\\r')
-        logger.info(f"[STREAM_DEBUG FLUSH interval] {len(self._buffer)} chars: {escaped!r}{'...' if len(self._buffer) > 120 else ''}")
+        logger.debug(f"[STREAM_DEBUG FLUSH interval] {len(self._buffer)} chars: {escaped!r}{'...' if len(self._buffer) > 120 else ''}")
       self.flush()
 
   def flush(self):
@@ -355,11 +382,11 @@ def stream_a2a_response(
           if artifact_meta.get("is_final_answer") and not streaming_final_answer:
             streaming_final_answer = True
 
-          # Debug: log every token the Slack bot receives (SLACK_STREAMING_DEBUG=true)
-          if STREAMING_DEBUG:
+          # Debug: log every token the Slack bot receives (LOG_LEVEL=DEBUG)
+          if _streaming_debug:
             seq = next(_token_seq)
             escaped = parsed.text_content.replace('\n', '\\n').replace('\r', '\\r')
-            logger.info(
+            logger.debug(
               f"[STREAM_DEBUG #{seq}] "
               f"len={len(parsed.text_content)} "
               f"is_final={artifact_meta.get('is_final_answer', False)} "
@@ -367,13 +394,38 @@ def stream_a2a_response(
               f"text={escaped!r}"
             )
 
-          # Narration (pre-marker thinking text like "I'll search...",
-          # "Perfect! I found...") — show as typing status, not in stream.
-          # The thinking/search narration is internal; the detailed answer
-          # comes after [FINAL ANSWER] and is streamed as is_final_answer.
+          # Narration handling — configurable via SLACK_NARRATION_AS_TYPING.
+          #
+          # Narration = pre-marker thinking text emitted by the supervisor
+          # while sub-agents run (e.g. "I'll search the knowledge base...",
+          # "Perfect! I found the document...").  These chunks carry
+          # is_narration=True in their artifact metadata.
+          #
+          # Default (SLACK_NARRATION_AS_TYPING=true):
+          #   Narration is shown ONLY as a typing-status indicator
+          #   ("is responding...") and is NOT appended to the Slack
+          #   message body.  The user sees a clean stream containing
+          #   only the final answer (is_final_answer chunks).
+          #
+          # Optional (SLACK_NARRATION_AS_TYPING=false):
+          #   Narration text falls through to the StreamBuffer and is
+          #   displayed inline in the Slack message — similar to v0.2.41
+          #   behaviour where the user saw the agent's thinking in real
+          #   time before the answer appeared.
+          #
+          # In both modes the typing indicator fires so Slack shows the
+          # "is responding..." bubble while the agent thinks.
           if artifact_meta.get("is_narration"):
+            # Always update the typing indicator so the user sees activity.
             _set_typing_status("is responding...")
-            continue
+            if SLACK_NARRATION_AS_TYPING:
+              # Suppress narration from the stream — only the typing
+              # indicator is visible.  The final answer will stream
+              # separately when is_final_answer chunks arrive.
+              continue
+            # When SLACK_NARRATION_AS_TYPING is False, we do NOT continue —
+            # narration text falls through to the StreamBuffer below and
+            # appears inline in the Slack message.
 
           # Track plan progress and latch final-answer streaming.
           if current_step_id and plan_steps and not streaming_final_answer:

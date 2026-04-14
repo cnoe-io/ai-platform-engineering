@@ -93,6 +93,10 @@ class TestNarrationStreamingSuppression(unittest.TestCase):
 
     Simulates the STREAMING_RESULT handler logic from ai.py (lines 349-449)
     to verify narration never reaches the StreamBuffer.
+
+    The narration behaviour is configurable via SLACK_NARRATION_AS_TYPING:
+      - True (default): narration -> typing status only, NOT in stream
+      - False: narration falls through to StreamBuffer (v0.2.41 style)
     """
 
     def _simulate_streaming_result(
@@ -101,8 +105,18 @@ class TestNarrationStreamingSuppression(unittest.TestCase):
         metadata: dict | None = None,
         stream_ts: str | None = None,
         streaming_final_answer: bool = False,
+        narration_as_typing: bool = True,
     ) -> dict:
         """Simulate what stream_a2a_response does with a STREAMING_RESULT event.
+
+        Args:
+            text: The text content from the streaming artifact.
+            metadata: Artifact metadata dict (may contain is_narration, is_final_answer).
+            stream_ts: Slack stream timestamp (None = stream not yet opened).
+            streaming_final_answer: Whether final-answer streaming is latched.
+            narration_as_typing: Simulates the SLACK_NARRATION_AS_TYPING env var.
+                When True (default), narration is suppressed from the stream.
+                When False, narration falls through to the StreamBuffer.
 
         Returns a dict of actions taken: {typing_status, stream_append, stream_opened}.
         """
@@ -117,10 +131,16 @@ class TestNarrationStreamingSuppression(unittest.TestCase):
         if artifact_meta.get("is_final_answer") and not streaming_final_answer:
             streaming_final_answer = True
 
-        # Narration -> typing status (lines 375-377)
+        # Narration handling (lines 397-428)
+        # When SLACK_NARRATION_AS_TYPING=true: typing status only, suppress from stream.
+        # When SLACK_NARRATION_AS_TYPING=false: typing status + fall through to stream.
         if artifact_meta.get("is_narration"):
+            # Always set typing status, regardless of the toggle.
             actions["typing_status"] = "is responding..."
-            return actions
+            if narration_as_typing:
+                # Suppress from stream — equivalent to `continue` in ai.py.
+                return actions
+            # Fall through: narration text will be appended to stream below.
 
         # Pre-stream narration (lines 441-443)
         if not stream_ts and not streaming_final_answer:
@@ -188,6 +208,66 @@ class TestNarrationStreamingSuppression(unittest.TestCase):
         )
         self.assertIsNone(actions["stream_append"])
         self.assertEqual(actions["typing_status"], "is responding...")
+
+    # --- SLACK_NARRATION_AS_TYPING=false tests (v0.2.41 style) ---
+
+    def test_narration_falls_through_when_toggle_disabled(self):
+        """With narration_as_typing=False, narration IS appended to stream.
+
+        This matches v0.2.41 behaviour where the user saw the agent's
+        thinking text ("I'll search the knowledge base...") inline in
+        the Slack message.
+        """
+        actions = self._simulate_streaming_result(
+            text="I'll search the knowledge base...",
+            metadata={"is_narration": True},
+            stream_ts="existing-stream-ts",
+            narration_as_typing=False,
+        )
+        # Typing status is ALWAYS set, even when narration falls through.
+        self.assertEqual(actions["typing_status"], "is responding...")
+        # But with the toggle off, text reaches the stream buffer.
+        self.assertTrue(actions["stream_opened"])
+        self.assertEqual(actions["stream_append"], "I'll search the knowledge base...")
+
+    def test_narration_toggle_off_still_sets_typing(self):
+        """Even with toggle off, typing indicator is always set for narration."""
+        actions = self._simulate_streaming_result(
+            text="Perfect! Found it.",
+            metadata={"is_narration": True},
+            stream_ts="existing-stream-ts",
+            narration_as_typing=False,
+        )
+        self.assertEqual(actions["typing_status"], "is responding...")
+
+    def test_narration_toggle_off_pre_stream_shows_typing(self):
+        """Before stream opens (no stream_ts), narration still shows typing.
+
+        Even with the toggle off, pre-stream chunks are suppressed because
+        the stream hasn't been opened yet. The typing indicator is shown.
+        """
+        actions = self._simulate_streaming_result(
+            text="Searching...",
+            metadata={"is_narration": True},
+            stream_ts=None,
+            narration_as_typing=False,
+        )
+        # Pre-stream: typing indicator, no stream append (stream not open).
+        self.assertEqual(actions["typing_status"], "is responding...")
+        # The narration falls through the is_narration gate, but then hits
+        # the pre-stream gate (no stream_ts + not final_answer).
+        self.assertFalse(actions["stream_opened"])
+
+    def test_default_toggle_is_true(self):
+        """Default narration_as_typing=True suppresses narration from stream."""
+        actions = self._simulate_streaming_result(
+            text="Thinking...",
+            metadata={"is_narration": True},
+            stream_ts="existing-stream-ts",
+        )
+        # Default is True — narration is suppressed.
+        self.assertIsNone(actions["stream_append"])
+        self.assertFalse(actions["stream_opened"])
 
 
 # ===========================================================================
@@ -309,10 +389,10 @@ class TestStreamingFinalAnswerLatch(unittest.TestCase):
         """Once latched, subsequent is_final_answer events don't re-latch."""
         streaming_final_answer = True  # already latched
         artifact_meta = {"is_final_answer": True}
-        latch_count = 0
-        if artifact_meta.get("is_final_answer") and not streaming_final_answer:
-            latch_count += 1
-        self.assertEqual(latch_count, 0)  # didn't re-latch
+        # The condition is False because streaming_final_answer is already True,
+        # so the latch guard (not streaming_final_answer) prevents re-entry.
+        would_relatch = artifact_meta.get("is_final_answer") and not streaming_final_answer
+        self.assertFalse(would_relatch)
 
     def test_narration_does_not_latch(self):
         """is_narration=True does NOT latch streaming_final_answer."""
@@ -455,17 +535,16 @@ class TestNeedsSeparator(unittest.TestCase):
         needs_separator = True
         has_flushed = False
         text = "First chunk"
-        if needs_separator and has_flushed:
-            text = "\n\n" + text
+        # When has_flushed is False, the separator guard prevents prepending
+        self.assertFalse(needs_separator and has_flushed)
         self.assertEqual(text, "First chunk")
 
     def test_no_separator_when_not_needed(self):
         """No separator when needs_separator is False."""
         needs_separator = False
-        has_flushed = True
         text = "Continuation"
-        if needs_separator and has_flushed:
-            text = "\n\n" + text
+        # When needs_separator is False, the guard prevents prepending
+        self.assertFalse(needs_separator)
         self.assertEqual(text, "Continuation")
 
 

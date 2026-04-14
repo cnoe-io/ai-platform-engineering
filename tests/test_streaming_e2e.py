@@ -225,16 +225,22 @@ class TestStructuredModeStreaming:
         """In structured mode, streaming_result events include is_final_answer metadata."""
         artifacts = _extract_artifacts(simple_query_events)
         streaming = _artifacts_by_name(artifacts, "streaming_result")
-        # In structured mode, at least some streaming chunks should have is_final_answer
+        # In structured mode, at least some streaming chunks should have
+        # is_final_answer metadata.  In marker mode, post-[FINAL ANSWER]
+        # chunks carry the same flag.  Either way verify presence.
         has_final = any(
             (a.get("metadata") or {}).get("is_final_answer") for a in streaming
         )
-        # This is mode-dependent: structured mode has is_final_answer on ResponseFormat
-        # chunks; marker mode has it on post-marker chunks. Either way, check presence.
         if streaming:
-            # At minimum, content should exist
+            # At minimum, content should exist in the streaming artifacts.
             texts = _artifact_texts(streaming)
-            assert len(texts) > 0
+            assert len(texts) > 0, "streaming_result artifacts must contain text"
+            # Verify at least one chunk is tagged as the final answer.
+            # This confirms the supervisor correctly sets is_final_answer
+            # metadata so clients can distinguish thinking from answer.
+            assert has_final, (
+                "Expected at least one streaming_result with is_final_answer=True"
+            )
 
     def test_no_narration_in_structured_mode_stream(self, simple_query_events):
         """Simple queries in structured mode should not emit is_narration artifacts."""
