@@ -165,13 +165,13 @@ requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.4.5" },
     { name = "beautifulsoup4", specifier = "==4.14.3" },
     { name = "cnoe-agent-utils", specifier = "==0.3.14" },
-    { name = "faiss-cpu", marker = "extra == 'bigtool-faiss'", specifier = ">=1.7.0" },
+    { name = "faiss-cpu", marker = "extra == 'bigtool-faiss'", specifier = "==1.13.2" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "langchain-community", marker = "extra == 'bigtool-faiss'", specifier = ">=0.3.0" },
+    { name = "langchain-community", marker = "extra == 'bigtool-faiss'", specifier = "==0.4.1" },
     { name = "langchain-core", specifier = "==1.2.28" },
-    { name = "langchain-huggingface", marker = "extra == 'bigtool-huggingface'", specifier = ">=0.1.0" },
+    { name = "langchain-huggingface", marker = "extra == 'bigtool-huggingface'", specifier = "==1.2.1" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
-    { name = "langchain-openai", specifier = ">=0.3.0" },
+    { name = "langchain-openai", specifier = "==1.1.0" },
     { name = "langgraph", specifier = "==1.1.6" },
     { name = "langgraph-checkpoint-mongodb", specifier = "==0.3.1" },
     { name = "langmem", specifier = "==0.0.30" },
@@ -1766,16 +1766,16 @@ wheels = [
 
 [[package]]
 name = "langchain-openai"
-version = "1.1.1"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "langchain-core" },
     { name = "openai" },
     { name = "tiktoken" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/38/c6517187ea5f0db6d682083116a020409b01eef0547b4330542c117cd25d/langchain_openai-1.1.1.tar.gz", hash = "sha256:72aa7262854104e0b2794522a90c49353c79d0132caa1be27ef253852685d5e7", size = 1037309, upload-time = "2025-12-08T16:17:29.838Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/18/29/cc7a7d1c42d19c903efa3ef9c9f00042942d28a00da1af12be5b7035375d/langchain_openai-1.1.0.tar.gz", hash = "sha256:9a33280c2e8315d013d64e6b15e583be347beb0d0f281755c335ae504ad0c184", size = 1034339, upload-time = "2025-11-24T14:20:48.929Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1d/95/d65d3e187cd717baeb62988ae90a995f93564657f67518fb775af4090880/langchain_openai-1.1.1-py3-none-any.whl", hash = "sha256:69b9be37e6ae3372b4d937cb9365cf55c0c59b5f7870e7507cb7d802a8b98b30", size = 84291, upload-time = "2025-12-08T16:17:24.418Z" },
+    { url = "https://files.pythonhosted.org/packages/da/ff/82699ef76f36818d86571a0b086ce07af5503a63d7430fc49e7d6aeb5dc1/langchain_openai-1.1.0-py3-none-any.whl", hash = "sha256:243bb345d0260ea1326c2b6ac2237ec29f082ab457c59e9306bac349df4577e8", size = 84282, upload-time = "2025-11-24T14:20:47.717Z" },
 ]
 
 [[package]]

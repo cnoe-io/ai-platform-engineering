@@ -27,16 +27,16 @@ dependencies = [
     "beautifulsoup4==4.14.3",
     "requests==2.33.0",
     "strands-agents==1.19.0",
-    "langchain-openai>=0.3.0",
+    "langchain-openai==1.1.0",
 ]
 
 [project.optional-dependencies]
 bigtool-faiss = [
-    "faiss-cpu>=1.7.0",
-    "langchain-community>=0.3.0",
+    "faiss-cpu==1.13.2",
+    "langchain-community==0.4.1",
 ]
 bigtool-huggingface = [
-    "langchain-huggingface>=0.1.0",
+    "langchain-huggingface==1.2.1",
 ]
 
 [tool.hatch.build.targets.wheel]
