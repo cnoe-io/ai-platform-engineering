@@ -4,7 +4,7 @@ This module provides access control checks for conversations.
 Agent visibility checks have been moved to the Next.js gateway.
 """
 
-from .auth import UserContext
+from dynamic_agents.models import UserContext
 
 
 def can_access_conversation(conversation: dict, user: UserContext) -> bool:

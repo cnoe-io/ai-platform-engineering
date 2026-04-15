@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from dynamic_agents.auth.auth import UserContext, get_current_user
+from dynamic_agents.auth.auth import UserContext, get_user_context
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class SuggestResponse(BaseModel):
 @router.post("/suggest", response_model=SuggestResponse)
 async def suggest(
     request: SuggestRequest,
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
 ) -> SuggestResponse:
     """Generate a suggestion using the specified LLM model.
 
