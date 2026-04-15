@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from dynamic_agents.auth.auth import UserContext, get_user_from_gateway
+from dynamic_agents.auth.auth import UserContext, get_user_context
 from dynamic_agents.models import MCPServerProbeResult
 from dynamic_agents.services.mcp_client import probe_server_tools
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/mcp-servers", tags=["mcp-servers"])
 @router.post("/{server_id}/probe", response_model=MCPServerProbeResult)
 async def probe_server(
     server_id: str,
-    user: UserContext = Depends(get_user_from_gateway),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> MCPServerProbeResult:
     """Probe an MCP server to discover available tools.

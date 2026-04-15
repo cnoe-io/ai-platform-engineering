@@ -473,7 +473,7 @@ _GATEWAY_DEFAULT_USER = UserContext(
 )
 
 
-async def get_user_from_gateway(
+async def get_user_context(
     request: Request,
     settings: Settings = Depends(get_settings),
 ) -> UserContext:

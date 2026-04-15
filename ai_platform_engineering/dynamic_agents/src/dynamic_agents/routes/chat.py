@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from dynamic_agents.auth.auth import get_user_from_gateway
+from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.services.agent_runtime import get_runtime_cache
@@ -84,7 +84,7 @@ async def _generate_sse_events(
 @router.post("/stream/start")
 async def chat_start_stream(
     request: ChatRequest,
-    user: UserContext = Depends(get_user_from_gateway),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
     """Start streaming a chat response from a dynamic agent.
@@ -196,7 +196,7 @@ async def _generate_resume_sse_events(
 @router.post("/stream/resume")
 async def chat_resume_stream(
     request: ResumeStreamRequest,
-    user: UserContext = Depends(get_user_from_gateway),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
     """Resume an interrupted stream after user provides form input.
@@ -253,7 +253,7 @@ async def chat_resume_stream(
 @router.post("/invoke")
 async def chat_invoke(
     request: ChatRequest,
-    user: UserContext = Depends(get_user_from_gateway),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Non-streaming chat invocation (for simple integrations).
@@ -319,7 +319,7 @@ async def chat_invoke(
 @router.post("/restart-runtime")
 async def restart_runtime(
     request: RestartRuntimeRequest,
-    user: UserContext = Depends(get_user_from_gateway),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Restart the agent runtime by invalidating the cache.
@@ -359,7 +359,7 @@ class CancelStreamRequest(BaseModel):
 @router.post("/stream/cancel")
 async def cancel_stream(
     request: CancelStreamRequest,
-    user: UserContext = Depends(get_user_from_gateway),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Cancel an active streaming request.
