@@ -5,14 +5,15 @@
  * Supports single-shot and --interactive-stdin multi-turn modes.
  */
 
-import { readFileSync } from "fs";
-import { resolveHeadlessCredentials } from "./auth.js";
-import { createOutputWriter, type OutputFormat } from "./output.js";
-import { createAdapter } from "../chat/stream.js";
+import { readFileSync } from "node:fs";
 import { DEFAULT_AGENT } from "../agents/types.js";
-import { getServerUrl } from "../platform/config.js";
 import { buildSystemContext } from "../chat/context.js";
 import { createSession } from "../chat/history.js";
+import { createAdapter } from "../chat/stream.js";
+import { authEndpoints, getA2aUrl, getAuthUrl, serverEndpoints } from "../platform/config.js";
+import { discoverAgentConfig } from "../platform/discovery.js";
+import { resolveHeadlessCredentials } from "./auth.js";
+import { type OutputFormat, createOutputWriter } from "./output.js";
 
 export interface HeadlessOpts {
   token?: string;
@@ -27,17 +28,19 @@ export interface HeadlessOpts {
 }
 
 export async function runHeadless(opts: HeadlessOpts): Promise<void> {
-  const serverUrl = (() => {
+  const authUrl = (() => {
     try {
-      return getServerUrl(opts.urlOverride);
+      return getAuthUrl(opts.urlOverride);
     } catch {
-      emitError('No CAIPE server URL configured. Set CAIPE_SERVER_URL or run `caipe config set server.url <url>`.');
+      emitError(
+        "No CAIPE auth URL configured. Set CAIPE_AUTH_URL or run `caipe config set auth.url <url>`.",
+      );
       process.exit(1);
     }
   })();
 
   // Resolve credentials
-  const credentials = await resolveHeadlessCredentials(opts.token, serverUrl);
+  const credentials = await resolveHeadlessCredentials(opts.token, authUrl);
   if (!credentials) {
     emitError(
       "No credentials configured for headless mode. " +
@@ -47,12 +50,28 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
   }
 
   const getToken = async () => credentials.accessToken;
-  const adapter = createAdapter(opts.protocol, DEFAULT_AGENT, serverUrl, getToken);
+  const agentConfig = await discoverAgentConfig(authUrl);
+  const a2aUrl = getA2aUrl();
+  const authEp = authEndpoints(authUrl);
+  const taskEndpoint =
+    opts.protocol === "agui"
+      ? a2aUrl
+        ? serverEndpoints(a2aUrl).aguiStream
+        : authEp.aguiStream
+      : (agentConfig.a2a?.endpoint ??
+        (a2aUrl ? serverEndpoints(a2aUrl).a2aTask : authEp.aguiStream));
+  const adapter = createAdapter(opts.protocol, DEFAULT_AGENT, taskEndpoint, getToken);
   const writer = createOutputWriter(opts.output);
 
   const cwd = process.cwd();
   const systemContext = await buildSystemContext(cwd, opts.noContext ?? false);
-  const session = createSession({ agentName: opts.agentName, workingDir: cwd, protocol: opts.protocol, headless: true, outputFormat: opts.output });
+  const session = createSession({
+    agentName: opts.agentName,
+    workingDir: cwd,
+    protocol: opts.protocol,
+    headless: true,
+    outputFormat: opts.output,
+  });
 
   if (opts.interactiveStdin) {
     // Multi-turn: read lines from stdin until EOF or \exit
@@ -126,12 +145,12 @@ async function readStdinAll(): Promise<string> {
 }
 
 async function* stdinLines(): AsyncIterable<string> {
-  const rl = (await import("readline")).createInterface({ input: process.stdin });
+  const rl = (await import("node:readline")).createInterface({ input: process.stdin });
   for await (const line of rl) {
     yield line;
   }
 }
 
 function emitError(message: string): void {
-  process.stderr.write(JSON.stringify({ error: message }) + "\n");
+  process.stderr.write(`${JSON.stringify({ error: message })}\n`);
 }

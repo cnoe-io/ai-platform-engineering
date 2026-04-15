@@ -726,15 +726,16 @@ Port-forward the supervisor if not already:
 kubectl port-forward service/caipe-supervisor-agent 8000:8000 -n caipe
 ```
 
-Then run:
+Then connect with the CAIPE CLI:
 
 ```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+caipe config set server.url http://localhost:8000
+caipe
 ```
 
 > [!NOTE]
-> When prompted to `💬 Enter token (optional): `, just press enter ⏎.
-> In production, your system will use a JWT or Bearer token for authentication here.
+> If OAuth is not configured yet, just press enter when prompted for authentication.
+> In production, use `caipe auth login` to authenticate via OAuth.
 
 **Try a test query:**
 ```text

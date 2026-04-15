@@ -5,10 +5,10 @@
  * session startup.  Spinners are React/Ink components used in the REPL.
  */
 
-import React from "react";
 import { Box, Text } from "ink";
+import React from "react";
 
-const NO_COLOR = Boolean(process.env["NO_COLOR"]);
+const NO_COLOR = Boolean(process.env.NO_COLOR);
 
 // ---------------------------------------------------------------------------
 // ASCII logo
@@ -76,7 +76,7 @@ export function Spinner({ label, color = "cyan" }: SpinnerProps): React.ReactEle
   useEffect(() => {
     const id = setInterval(() => {
       setFrame((f) => (f + 1) % frames.length);
-    }, 120);
+    }, 250);
     return () => clearInterval(id);
   }, [frames.length]);
 
@@ -119,14 +119,12 @@ export function StreamingSpinner({
   useEffect(() => {
     const id = setInterval(() => {
       setFrame((f) => (f + 1) % frames.length);
-    }, 120);
+    }, 250);
     return () => clearInterval(id);
   }, [frames.length]);
 
   const tokenStr =
-    tokenCount >= 1000
-      ? `↓ ${(tokenCount / 1000).toFixed(1)}k tokens`
-      : `↓ ${tokenCount} tokens`;
+    tokenCount >= 1000 ? `↓ ${(tokenCount / 1000).toFixed(1)}k tokens` : `↓ ${tokenCount} tokens`;
 
   return (
     <Box>
@@ -151,11 +149,7 @@ export interface ProgressBarProps {
   label?: string;
 }
 
-export function ProgressBar({
-  progress,
-  width = 30,
-  label,
-}: ProgressBarProps): React.ReactElement {
+export function ProgressBar({ progress, width = 30, label }: ProgressBarProps): React.ReactElement {
   const filled = Math.round(Math.max(0, Math.min(1, progress)) * width);
   const empty = width - filled;
   const bar = "█".repeat(filled) + "░".repeat(empty);

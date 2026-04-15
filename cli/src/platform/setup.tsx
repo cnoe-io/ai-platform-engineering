@@ -1,18 +1,20 @@
 /**
  * First-run setup wizard.
  *
- * Prompts the user for their CAIPE server URL, validates it is HTTPS,
- * and saves it to settings.json. Returns the saved URL.
+ * Prompts the user for their caipe-ui URL (auth / OAuth proxy, e.g.
+ * https://caipe.your-company.com) and saves it to settings.auth.url.
+ * The A2A backend URL (settings.server.url / CAIPE_SERVER_URL) is optional
+ * and can be set later via `caipe config set server.url <url>`.
  *
- * Called automatically by the chat runner when getServerUrl() throws
+ * Called automatically by the chat runner when getAuthUrl() throws
  * ServerNotConfigured in interactive mode.  In headless mode the error
  * propagates and the process exits 1.
  */
 
-import React, { useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { render } from "ink";
-import { writeSettings, readSettings } from "./config.js";
+import React, { useState } from "react";
+import { readSettings, writeSettings } from "./config.js";
 
 // ---------------------------------------------------------------------------
 // Ink wizard component
@@ -30,8 +32,7 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
   useInput((char, key) => {
     if (key.return) {
       const url = input.trim().replace(/\/+$/, "");
-      const isLocalhost =
-        url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
+      const isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
       if (!url.startsWith("https://") && !isLocalhost) {
         setError("URL must start with https:// (or http://localhost for local dev)");
         return;
@@ -42,7 +43,7 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
       }
       setError(null);
       const settings = readSettings();
-      settings.server = { ...settings.server, url };
+      settings.auth = { ...settings.auth, url };
       settings.setup = { completed: true };
       writeSettings(settings);
       onDone(url);
@@ -68,7 +69,7 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
         Welcome to CAIPE CLI — First-time Setup
       </Text>
       <Box marginTop={1}>
-        <Text>Enter your CAIPE server URL (e.g. https://caipe.your-company.com): </Text>
+        <Text>Enter your caipe-ui URL (e.g. https://caipe.your-company.com): </Text>
       </Box>
       <Box>
         <Text color="green">{input}</Text>

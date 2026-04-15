@@ -319,14 +319,15 @@ kubectl port-forward service/caipe-caipe-ui 3000:3000 -n caipe
 
 ### Task 11: Send Queries to Generate Traces
 
-Open the CAIPE UI at [http://localhost:3000](http://localhost:3000), or use the CLI:
+Open the CAIPE UI at [http://localhost:3000](http://localhost:3000), or use the CAIPE CLI:
 
 ```bash
-uvx https://github.com/cnoe-io/agent-chat-cli.git a2a
+caipe config set server.url http://localhost:8000
+caipe
 ```
 
 > [!NOTE]
-> When prompted to `Enter token (optional): `, just press enter.
+> If OAuth is not configured yet, just press enter when prompted for authentication.
 
 Try these queries to generate traces across multiple agents (same prompts as in [Multi-Agent Systems](/workshop/mas) and the [Conclusion](/workshop/conclusion)):
 

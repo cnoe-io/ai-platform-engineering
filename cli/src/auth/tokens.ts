@@ -8,8 +8,8 @@
  * Throws AuthRequired when no tokens exist or refresh has failed permanently.
  */
 
-import { endpoints } from "../platform/config.js";
-import { loadTokens, storeTokens, type TokenSet } from "./keychain.js";
+import { authEndpoints } from "../platform/config.js";
+import { type TokenSet, loadTokens, storeTokens } from "./keychain.js";
 
 /** Thrown when no valid token can be produced and interactive re-auth is needed. */
 export class AuthRequired extends Error {
@@ -30,7 +30,7 @@ const REFRESH_MARGIN_MS = 60_000;
  *   2. Loaded tokens expired + refresh token present → silent refresh → return
  *   3. No tokens / refresh failed → throw AuthRequired
  */
-export async function getValidToken(serverUrl: string): Promise<string> {
+export async function getValidToken(authUrl: string): Promise<string> {
   const tokens = await loadTokens();
   if (!tokens) throw new AuthRequired();
 
@@ -42,7 +42,7 @@ export async function getValidToken(serverUrl: string): Promise<string> {
     throw new AuthRequired("Session expired. Run `caipe auth login` to re-authenticate.");
   }
 
-  const refreshed = await refreshAccessToken(tokens.refreshToken, serverUrl);
+  const refreshed = await refreshAccessToken(tokens.refreshToken, authUrl);
   await storeTokens(refreshed);
   return refreshed.accessToken;
 }
@@ -50,11 +50,8 @@ export async function getValidToken(serverUrl: string): Promise<string> {
 /**
  * Exchange a refresh token for a new TokenSet via the token endpoint.
  */
-export async function refreshAccessToken(
-  refreshToken: string,
-  serverUrl: string,
-): Promise<TokenSet> {
-  const ep = endpoints(serverUrl);
+export async function refreshAccessToken(refreshToken: string, authUrl: string): Promise<TokenSet> {
+  const ep = authEndpoints(authUrl);
 
   const res = await fetch(ep.token, {
     method: "POST",
@@ -72,11 +69,9 @@ export async function refreshAccessToken(
   }
 
   const body = (await res.json()) as Record<string, unknown>;
-  const accessToken = String(body["access_token"] ?? "");
-  const newRefreshToken =
-    body["refresh_token"] != null ? String(body["refresh_token"]) : refreshToken;
-  const expiresIn =
-    typeof body["expires_in"] === "number" ? body["expires_in"] : 3600;
+  const accessToken = String(body.access_token ?? "");
+  const newRefreshToken = body.refresh_token != null ? String(body.refresh_token) : refreshToken;
+  const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 3600;
   const accessTokenExpiry = new Date(Date.now() + expiresIn * 1000).toISOString();
 
   return {

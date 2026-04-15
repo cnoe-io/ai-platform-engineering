@@ -6,28 +6,37 @@
  * First-run setup wizard if no server URL configured.
  */
 
-import React from "react";
 import { render } from "ink";
+import React from "react";
 
-import { getServerUrl, ServerNotConfigured } from "../platform/config.js";
-import { runSetupWizard } from "../platform/setup.js";
+import { DEFAULT_AGENT } from "../agents/types.js";
 import { getValidToken } from "../auth/tokens.js";
+import {
+  ServerNotConfigured,
+  authEndpoints,
+  getA2aUrl,
+  getAuthUrl,
+  serverEndpoints,
+} from "../platform/config.js";
+import { discoverAgentConfig } from "../platform/discovery.js";
 import { printLogo } from "../platform/display.js";
+import { runSetupWizard } from "../platform/setup.js";
+import { Repl } from "./Repl.js";
 import { buildSystemContext } from "./context.js";
 import { createSession, saveSession } from "./history.js";
-import { createAdapter } from "./stream.js";
-import { Repl } from "./Repl.js";
-import { DEFAULT_AGENT } from "../agents/types.js";
 import type { ChatSession } from "./history.js";
+import { createAdapter } from "./stream.js";
 
 // Read version lazily
 let _version = "0.1.0";
 try {
-  const { createRequire } = await import("module");
+  const { createRequire } = await import("node:module");
   const _req = createRequire(import.meta.url);
   const pkg = _req("../../package.json") as { version: string };
   _version = pkg.version;
-} catch { /* ignore */ }
+} catch {
+  /* ignore */
+}
 
 interface ChatOpts {
   agent?: string;
@@ -68,13 +77,13 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
 
   // ── Interactive mode ────────────────────────────────────────────────────
 
-  // Resolve server URL
-  let serverUrl: string;
+  // Resolve auth (caipe-ui/OAuth) URL
+  let authUrl: string;
   try {
-    serverUrl = getServerUrl(globalOpts.url);
+    authUrl = getAuthUrl(globalOpts.url);
   } catch (err) {
     if (err instanceof ServerNotConfigured) {
-      serverUrl = await runSetupWizard();
+      authUrl = await runSetupWizard();
     } else {
       throw err;
     }
@@ -91,15 +100,13 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
   // (registry fetch is best-effort; don't block chat if registry is down)
   try {
     const { fetchAgents, validateProtocol } = await import("../agents/registry.js");
-    const agents = await fetchAgents(serverUrl, async () => getValidToken(serverUrl));
+    const agents = await fetchAgents(authUrl, async () => getValidToken(authUrl));
     const agent = agents.find((a) => a.name === agentName);
     if (agent) {
       const validation = validateProtocol(agent, protocol);
       if (!validation.valid) {
         process.stdout.write(
-          `\nAgent "${agentName}" does not support protocol "${protocol}" ` +
-            `(supports: ${validation.supported.join(", ")}). ` +
-            `Switch protocol and continue? [y/N] `,
+          `\nAgent "${agentName}" does not support protocol "${protocol}" (supports: ${validation.supported.join(", ")}). Switch protocol and continue? [y/N] `,
         );
         const answer = await readLine();
         if (!answer.trim().toLowerCase().startsWith("y")) {
@@ -128,12 +135,23 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
     session.memoryContext = systemContext;
   }
 
+  // Discover endpoint from /.well-known/agent.json; fall back to derived paths.
+  // Discovery uses the auth URL; A2A task endpoint may come from an explicit
+  // CAIPE_SERVER_URL / settings.server.url override, otherwise from the agent card.
+  const agentConfig = await discoverAgentConfig(authUrl);
+  const a2aUrl = getA2aUrl();
+  const authEp = authEndpoints(authUrl);
+  const taskEndpoint =
+    protocol === "agui"
+      ? a2aUrl
+        ? serverEndpoints(a2aUrl).aguiStream
+        : authEp.aguiStream
+      : (agentConfig.a2a?.endpoint ??
+        (a2aUrl ? serverEndpoints(a2aUrl).a2aTask : authEp.aguiStream));
+
   // Create adapter
-  const adapter = createAdapter(
-    protocol,
-    DEFAULT_AGENT,
-    serverUrl,
-    () => getValidToken(serverUrl),
+  const adapter = createAdapter(protocol, DEFAULT_AGENT, taskEndpoint, () =>
+    getValidToken(authUrl),
   );
 
   // Mount REPL
@@ -143,7 +161,7 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
         session,
         adapter,
         systemContext,
-        serverUrl,
+        serverUrl: authUrl,
         onExit: (finalSession: ChatSession) => {
           saveSession(finalSession);
           unmount();

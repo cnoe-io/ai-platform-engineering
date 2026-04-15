@@ -2,13 +2,8 @@
  * Command handler for `caipe commit [--install-hook]`.
  */
 
-import { findRepoRoot, stagedFiles, gitUser } from "../platform/git.js";
-import {
-  buildCommitMessage,
-  promptSignedOffBy,
-  applyCommit,
-  installHook,
-} from "./dco.js";
+import { findRepoRoot, gitUser, stagedFiles } from "../platform/git.js";
+import { applyCommit, buildCommitMessage, installHook, promptSignedOffBy } from "./dco.js";
 
 export async function runCommit(opts: { installHook?: boolean }): Promise<void> {
   const cwd = process.cwd();
@@ -54,7 +49,7 @@ export async function runCommit(opts: { installHook?: boolean }): Promise<void> 
   const sob = await promptSignedOffBy(user);
 
   if (sob !== null) {
-    message = message.trimEnd() + `\n${sob}\n`;
+    message = `${message.trimEnd()}\n${sob}\n`;
   } else {
     process.stdout.write(
       "\n[WARNING] Proceeding without Signed-off-by. " +

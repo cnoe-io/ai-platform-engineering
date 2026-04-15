@@ -151,7 +151,7 @@ environment:
                  │
                  ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 4. A2A Client (Agent Forge / agent-chat-cli)                 │
+│ 4. A2A Client (Agent Forge / caipe-cli)                 │
 │    - Receives DataPart with structured JSON                  │
 │    - Parses PlatformEngineerResponse                         │
 │    - Renders metadata UI                                     │

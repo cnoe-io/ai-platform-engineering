@@ -5,8 +5,8 @@
  * Cache: ~/.config/caipe/agents-cache.json (5-minute TTL).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { agentsCachePath, endpoints, globalConfigDir } from "../platform/config.js";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { agentsCachePath, authEndpoints, globalConfigDir } from "../platform/config.js";
 import type { Agent } from "./types.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -39,7 +39,7 @@ export async function fetchAgents(
   }
 
   try {
-    const ep = endpoints(serverUrl);
+    const ep = authEndpoints(serverUrl);
     const token = await getToken();
     const res = await fetch(ep.agents, {
       headers: { Authorization: `Bearer ${token}` },
@@ -110,5 +110,5 @@ function writeCache(agents: Agent[]): void {
   const dir = globalConfigDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const cached: CachedAgents = { agents, cachedAt: new Date().toISOString() };
-  writeFileSync(agentsCachePath(), JSON.stringify(cached, null, 2) + "\n", "utf8");
+  writeFileSync(agentsCachePath(), `${JSON.stringify(cached, null, 2)}\n`, "utf8");
 }

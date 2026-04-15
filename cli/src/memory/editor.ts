@@ -5,14 +5,10 @@
  * Creates the file with a starter comment if it does not exist.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { execa } from "execa";
-import {
-  globalMemoryFile,
-  globalConfigDir,
-  projectClaudeDir,
-} from "../platform/config.js";
+import { globalConfigDir, globalMemoryFile, projectClaudeDir } from "../platform/config.js";
 
 const STARTER_COMMENT = `# CLAUDE.md — CAIPE Session Memory
 #
@@ -29,10 +25,7 @@ const STARTER_COMMENT = `# CLAUDE.md — CAIPE Session Memory
 /**
  * Open the memory file for `scope` in the user's editor.
  */
-export async function openMemoryFile(
-  scope: "project" | "global",
-  cwd: string,
-): Promise<void> {
+export async function openMemoryFile(scope: "project" | "global", cwd: string): Promise<void> {
   const filePath = resolveMemoryFilePath(scope, cwd);
 
   // Create file if absent
@@ -43,9 +36,9 @@ export async function openMemoryFile(
   }
 
   // Resolve editor
-  const editor = process.env["EDITOR"] ?? process.env["VISUAL"] ?? "vi";
+  const editor = process.env.EDITOR ?? process.env.VISUAL ?? "vi";
   process.stdout.write(`Opening ${filePath} in ${editor}...\n`);
-  process.stdout.write(`(To change editor, set $EDITOR in your shell.)\n\n`);
+  process.stdout.write("(To change editor, set $EDITOR in your shell.)\n\n");
 
   await execa(editor, [filePath], { stdio: "inherit" });
 }

@@ -7,14 +7,11 @@
  *   3. ~/.config/caipe/skills/ (global, requires --global flag)
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
-import { fetchCatalog, verifyChecksum, type CatalogEntry } from "./catalog.js";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { globalSkillsDir, projectClaudeDir } from "../platform/config.js";
+import { type CatalogEntry, fetchCatalog, verifyChecksum } from "./catalog.js";
 import { scanInstalledSkills } from "./scan.js";
-import {
-  globalSkillsDir,
-  projectClaudeDir,
-} from "../platform/config.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,7 +38,7 @@ export async function installSkill(name: string, opts: InstallOpts): Promise<voi
   const entry = catalog.skills.find((s) => s.name === name);
   if (!entry) {
     process.stderr.write(`[ERROR] Skill "${name}" not found in catalog.\n`);
-    process.stderr.write(`  Run \`caipe skills list\` to see available skills.\n`);
+    process.stderr.write("  Run `caipe skills list` to see available skills.\n");
     process.exit(1);
   }
 
@@ -52,8 +49,7 @@ export async function installSkill(name: string, opts: InstallOpts): Promise<voi
   const existing = scanInstalledSkills(cwd).find((s) => s.name === name);
   if (existing && !opts.force) {
     process.stderr.write(
-      `[WARNING] Skill "${name}" is already installed at ${existing.path}.\n` +
-        `  Use --force to overwrite.\n`,
+      `[WARNING] Skill "${name}" is already installed at ${existing.path}.\n  Use --force to overwrite.\n`,
     );
     process.exit(3);
   }

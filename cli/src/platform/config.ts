@@ -10,9 +10,9 @@
  *   5. (headless)   → throw ServerNotConfigured
  */
 
-import { homedir } from "os";
-import { join } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,10 +20,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 
 export interface Settings {
   server?: {
+    /** A2A backend URL (e.g. http://localhost:8000) — CAIPE_SERVER_URL */
     url?: string;
   };
   auth?: {
+    /** caipe-ui / OAuth URL (e.g. http://localhost:43000) — CAIPE_AUTH_URL */
+    url?: string;
     apiKey?: string;
+    /** Credential storage method. Default: "encrypted-file" (no OS prompts). */
+    credentialStorage?: "encrypted-file" | "keychain";
   };
   setup?: {
     /** true once the user has completed or explicitly skipped the setup wizard */
@@ -47,7 +52,7 @@ export class ServerNotConfigured extends Error {
 
 export function globalConfigDir(): string {
   // Respect XDG_CONFIG_HOME if set
-  const xdg = process.env["XDG_CONFIG_HOME"];
+  const xdg = process.env.XDG_CONFIG_HOME;
   const base = xdg && xdg.trim() !== "" ? xdg : join(homedir(), ".config");
   return join(base, "caipe");
 }
@@ -72,6 +77,10 @@ export function agentsCachePath(): string {
   return join(globalConfigDir(), "agents-cache.json");
 }
 
+export function skillsCachePath(): string {
+  return join(globalConfigDir(), "skills-cache.json");
+}
+
 export function configJsonPath(): string {
   return join(globalConfigDir(), "config.json");
 }
@@ -85,7 +94,6 @@ export function settingsJsonPath(): string {
  * Returns the first match, or null if we reach the filesystem root.
  */
 export function projectClaudeDir(cwd: string): string | null {
-  const { sep } = require("path") as typeof import("path");
   let dir = cwd;
   while (true) {
     const gitDir = join(dir, ".git");
@@ -138,7 +146,7 @@ export function readSettings(): Settings {
 
 export function writeSettings(s: Settings): void {
   ensureConfigDir();
-  writeFileSync(settingsJsonPath(), JSON.stringify(s, null, 2) + "\n", "utf8");
+  writeFileSync(settingsJsonPath(), `${JSON.stringify(s, null, 2)}\n`, "utf8");
 }
 
 // ---------------------------------------------------------------------------
@@ -146,34 +154,69 @@ export function writeSettings(s: Settings): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the CAIPE server base URL with priority:
- *   flagOverride → CAIPE_SERVER_URL env → settings.server.url → throw/wizard
+ * Resolve the caipe-ui / OAuth URL.
  *
- * In interactive mode (`headless: false`) callers should catch
- * `ServerNotConfigured` and invoke the setup wizard.
- * In headless mode (`headless: true`) callers should let the error propagate
- * so the process exits 1 with a JSON error.
+ * Priority: flagOverride → CAIPE_AUTH_URL → settings.auth.url
+ *           → settings.server.url (backward compat for single-URL setups)
+ *
+ * Throws ServerNotConfigured when nothing is configured.
  */
-export function getServerUrl(flagOverride?: string): string {
+export function getAuthUrl(flagOverride?: string): string {
   if (flagOverride && flagOverride.trim() !== "") {
     return normalizeUrl(flagOverride);
   }
-  const env = process.env["CAIPE_SERVER_URL"];
-  if (env && env.trim() !== "") {
-    return normalizeUrl(env);
+  const envAuth = process.env.CAIPE_AUTH_URL;
+  if (envAuth && envAuth.trim() !== "") {
+    return normalizeUrl(envAuth);
   }
   const settings = readSettings();
+  if (settings.auth?.url && settings.auth.url.trim() !== "") {
+    return normalizeUrl(settings.auth.url);
+  }
+  // Backward compat: old single-URL setups stored the UI URL in server.url
   if (settings.server?.url && settings.server.url.trim() !== "") {
     return normalizeUrl(settings.server.url);
   }
   throw new ServerNotConfigured();
 }
 
+/**
+ * Resolve the A2A backend URL.
+ *
+ * Priority: CAIPE_SERVER_URL → settings.server.url (only when auth.url is
+ * also explicitly configured, so we don't confuse the old single-URL setup
+ * where server.url held the UI address).
+ *
+ * Returns undefined when not explicitly set — callers fall back to the
+ * a2a.endpoint field from /.well-known/agent.json discovery.
+ */
+export function getA2aUrl(): string | undefined {
+  const envServer = process.env.CAIPE_SERVER_URL;
+  if (envServer && envServer.trim() !== "") {
+    return normalizeUrl(envServer);
+  }
+  const settings = readSettings();
+  const hasExplicitAuth =
+    (settings.auth?.url && settings.auth.url.trim() !== "") ||
+    (process.env.CAIPE_AUTH_URL && process.env.CAIPE_AUTH_URL.trim() !== "");
+  if (hasExplicitAuth && settings.server?.url && settings.server.url.trim() !== "") {
+    return normalizeUrl(settings.server.url);
+  }
+  return undefined;
+}
+
+/**
+ * @deprecated Use getAuthUrl() for the UI/OAuth URL.
+ * Kept as a thin alias so callers can be migrated incrementally.
+ */
+export function getServerUrl(flagOverride?: string): string {
+  return getAuthUrl(flagOverride);
+}
+
 /** Strip trailing slash. Allow http://localhost for local dev; require https otherwise. */
 function normalizeUrl(raw: string): string {
   const url = raw.trim().replace(/\/+$/, "");
-  const isLocalhost =
-    url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
+  const isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
   if (!url.startsWith("https://") && !isLocalhost) {
     throw new Error(`Server URL must use HTTPS (or http://localhost for local dev): ${url}`);
   }
@@ -184,14 +227,33 @@ function normalizeUrl(raw: string): string {
 // Derived endpoint helpers
 // ---------------------------------------------------------------------------
 
-export function endpoints(serverUrl: string) {
+/** Fallback paths derived from the caipe-ui (auth) URL. */
+export function authEndpoints(authUrl: string) {
   return {
-    oauthBase: `${serverUrl}/oauth`,
-    deviceCode: `${serverUrl}/oauth/device/code`,
-    token: `${serverUrl}/oauth/token`,
-    agents: `${serverUrl}/api/v1/agents`,
-    a2aTask: `${serverUrl}/tasks/send`,
-    aguiStream: `${serverUrl}/api/agui/stream`,
-    agentCard: `${serverUrl}/.well-known/agent.json`,
+    oauthBase: `${authUrl}/oauth`,
+    deviceCode: `${authUrl}/oauth/device/code`,
+    token: `${authUrl}/oauth/token`,
+    agentCard: `${authUrl}/.well-known/agent.json`,
+    agents: `${authUrl}/api/v1/agents`,
+    aguiStream: `${authUrl}/api/agui/stream`,
+    skills: `${authUrl}/api/skills`,
   };
+}
+
+/** Fallback paths derived from the A2A backend URL. */
+export function serverEndpoints(a2aUrl: string) {
+  return {
+    a2aTask: `${a2aUrl}/tasks/send`,
+    aguiStream: `${a2aUrl}/api/agui/stream`,
+    agents: `${a2aUrl}/api/v1/agents`,
+    skills: `${a2aUrl}/skills`,
+  };
+}
+
+/**
+ * @deprecated Use authEndpoints(authUrl) or serverEndpoints(a2aUrl).
+ * Kept temporarily so in-flight callers still compile.
+ */
+export function endpoints(url: string) {
+  return { ...authEndpoints(url), ...serverEndpoints(url) };
 }

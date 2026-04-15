@@ -5,9 +5,9 @@
  * Rolling 100k token window: oldest messages are dropped when exceeded.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "fs";
-import { join } from "path";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { sessionsDir } from "../platform/config.js";
 
 // ---------------------------------------------------------------------------
@@ -51,7 +51,9 @@ const MAX_CONTEXT_CHARS = 400_000;
 // Session creation
 // ---------------------------------------------------------------------------
 
-export function createSession(overrides: Partial<ChatSession> & Pick<ChatSession, "agentName" | "workingDir">): ChatSession {
+export function createSession(
+  overrides: Partial<ChatSession> & Pick<ChatSession, "agentName" | "workingDir">,
+): ChatSession {
   return {
     sessionId: randomUUID(),
     agentEndpoint: "",
@@ -86,7 +88,7 @@ export function saveSession(session: ChatSession): void {
   const dir = ensureSessionsDir();
   const path = join(dir, `${session.sessionId}.json`);
   const trimmed = applyRollingWindow(session);
-  writeFileSync(path, JSON.stringify(trimmed, null, 2) + "\n", "utf8");
+  writeFileSync(path, `${JSON.stringify(trimmed, null, 2)}\n`, "utf8");
 }
 
 /**

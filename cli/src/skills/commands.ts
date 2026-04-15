@@ -2,13 +2,13 @@
  * Command handlers for `caipe skills *` subcommands.
  */
 
-import React from "react";
 import { render } from "ink";
-import { fetchCatalog, verifyChecksum } from "./catalog.js";
+import React from "react";
+import { renderMarkdown } from "../platform/markdown.js";
+import { SkillsBrowser } from "./Browser.js";
+import { fetchCatalog } from "./catalog.js";
 import { installSkill } from "./install.js";
 import { scanInstalledSkills } from "./scan.js";
-import { SkillsBrowser } from "./Browser.js";
-import { renderMarkdown } from "../platform/markdown.js";
 
 // ---------------------------------------------------------------------------
 // skills list
@@ -33,7 +33,7 @@ export async function runSkillsList(opts: {
   }
 
   if (opts.json) {
-    process.stdout.write(JSON.stringify(list, null, 2) + "\n");
+    process.stdout.write(`${JSON.stringify(list, null, 2)}\n`);
     return;
   }
 

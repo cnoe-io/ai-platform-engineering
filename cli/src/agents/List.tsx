@@ -2,8 +2,8 @@
  * Ink agent list component (T034).
  */
 
-import React from "react";
 import { Box, Text } from "ink";
+import type React from "react";
 import { statusDot } from "../platform/display.js";
 import type { Agent } from "./types.js";
 
@@ -24,10 +24,18 @@ export function AgentList({ agents }: AgentListProps): React.ReactElement {
     <Box flexDirection="column">
       {/* Header row */}
       <Box>
-        <Text bold color="cyan">{"Name".padEnd(20)}</Text>
-        <Text bold color="cyan">{"Domain".padEnd(14)}</Text>
-        <Text bold color="cyan">{"Protocols".padEnd(16)}</Text>
-        <Text bold color="cyan">Status</Text>
+        <Text bold color="cyan">
+          {"Name".padEnd(20)}
+        </Text>
+        <Text bold color="cyan">
+          {"Domain".padEnd(14)}
+        </Text>
+        <Text bold color="cyan">
+          {"Protocols".padEnd(16)}
+        </Text>
+        <Text bold color="cyan">
+          Status
+        </Text>
       </Box>
       <Box>
         <Text dimColor>{"─".repeat(60)}</Text>
@@ -39,7 +47,7 @@ export function AgentList({ agents }: AgentListProps): React.ReactElement {
           <Text dimColor>{agent.domain.padEnd(14)}</Text>
           <Text dimColor>{(agent.protocols ?? ["a2a"]).join(", ").padEnd(16)}</Text>
           <Text>{statusDot(agent.available)}</Text>
-          <Text dimColor>  {agent.displayName}</Text>
+          <Text dimColor> {agent.displayName}</Text>
         </Box>
       ))}
     </Box>

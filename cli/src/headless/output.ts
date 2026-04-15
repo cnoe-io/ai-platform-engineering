@@ -42,7 +42,7 @@ class TextWriter implements OutputWriter {
       process.stdout.write(event.text);
     }
     if (event.type === "error") {
-      process.stderr.write(JSON.stringify({ error: event.message }) + "\n");
+      process.stderr.write(`${JSON.stringify({ error: event.message })}\n`);
     }
   }
 
@@ -66,13 +66,13 @@ class JsonWriter implements OutputWriter {
       this.accumulated += event.text;
     }
     if (event.type === "error") {
-      process.stderr.write(JSON.stringify({ error: event.message }) + "\n");
+      process.stderr.write(`${JSON.stringify({ error: event.message })}\n`);
     }
   }
 
   flush(agentName: string, protocol: string): void {
     process.stdout.write(
-      JSON.stringify({ response: this.accumulated, agent: agentName, protocol }) + "\n",
+      `${JSON.stringify({ response: this.accumulated, agent: agentName, protocol })}\n`,
     );
   }
 }
@@ -84,15 +84,15 @@ class JsonWriter implements OutputWriter {
 class NdjsonWriter implements OutputWriter {
   write(event: StreamEvent): void {
     if (event.type === "token") {
-      process.stdout.write(JSON.stringify({ type: "token", text: event.text }) + "\n");
+      process.stdout.write(`${JSON.stringify({ type: "token", text: event.text })}\n`);
     } else if (event.type === "done") {
-      process.stdout.write(JSON.stringify({ type: "done" }) + "\n");
+      process.stdout.write(`${JSON.stringify({ type: "done" })}\n`);
     } else if (event.type === "error") {
-      process.stderr.write(JSON.stringify({ error: event.message }) + "\n");
+      process.stderr.write(`${JSON.stringify({ error: event.message })}\n`);
     } else if (event.type === "tool") {
-      process.stdout.write(JSON.stringify({ type: "tool", name: event.name }) + "\n");
+      process.stdout.write(`${JSON.stringify({ type: "tool", name: event.name })}\n`);
     } else if (event.type === "started") {
-      process.stdout.write(JSON.stringify({ type: "started" }) + "\n");
+      process.stdout.write(`${JSON.stringify({ type: "started" })}\n`);
     }
   }
 

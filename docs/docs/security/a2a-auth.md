@@ -2,11 +2,13 @@
 
 The A2A protocol supports two authentication methods for securing agent-to-agent communication:
 
-> **Tip:** When testing OAuth2 authentication, use version `0.2.7` or greater of the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to ensure the `Authorization: Bearer <token>` header is sent correctly.
+> **Tip:** Use the [CAIPE CLI](https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli) for testing OAuth2 authentication. It handles the `Authorization: Bearer <token>` header automatically.
 >
-> **Usage:**
-> ```
-> docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:0.2.7
+> **Install and connect:**
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/cli/install.sh | sh
+> caipe auth login
+> caipe
 > ```
 
 ## Public Endpoints

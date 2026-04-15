@@ -412,8 +412,8 @@ lint-fix: ## Fix linting issues
 run-a2a: ## Run agent in A2A mode
 	uv run python -m agent_example
 
-run-a2a-client: ## Run A2A client
-	uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
+run-a2a-client: ## Connect via CAIPE CLI
+	caipe
 
 clean: ## Clean build artifacts
 	rm -rf .venv __pycache__ .pytest_cache .ruff_cache

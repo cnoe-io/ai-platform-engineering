@@ -10,7 +10,7 @@
     "jsxImportSource": "react",
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun-types"],
+    "types": ["node"],
     "baseUrl": ".",
     "paths": {
       "@platform/*": ["src/platform/*"],

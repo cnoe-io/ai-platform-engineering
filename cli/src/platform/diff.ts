@@ -8,7 +8,7 @@
 
 import { createTwoFilesPatch } from "diff";
 
-const NO_COLOR = Boolean(process.env["NO_COLOR"]);
+const NO_COLOR = Boolean(process.env.NO_COLOR);
 
 const GREEN = NO_COLOR ? "" : "\x1b[32m";
 const RED = NO_COLOR ? "" : "\x1b[31m";

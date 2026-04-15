@@ -5,9 +5,9 @@ import pkg from "../package.json";
 // Suppress color when --no-color or NO_COLOR is set.
 // This is done early so all downstream renderers respect it.
 function applyNoColor(args: string[]): void {
-  if (args.includes("--no-color") || process.env["NO_COLOR"]) {
-    process.env["NO_COLOR"] = "1";
-    process.env["FORCE_COLOR"] = "0";
+  if (args.includes("--no-color") || process.env.NO_COLOR) {
+    process.env.NO_COLOR = "1";
+    process.env.FORCE_COLOR = "0";
   }
 }
 applyNoColor(process.argv);
@@ -38,7 +38,10 @@ const chatCmd = program
   .option("--prompt <text>", "Inline prompt text (headless only)")
   .option("--prompt-file <path>", "Read prompt from file (headless only)")
   .option("--output <format>", "Headless response format: text | json | ndjson", "text")
-  .option("--interactive-stdin", "Multi-turn headless mode; reads newline-delimited turns from stdin")
+  .option(
+    "--interactive-stdin",
+    "Multi-turn headless mode; reads newline-delimited turns from stdin",
+  )
   .action(async (opts: Record<string, unknown>) => {
     const { runChat } = await import("./chat/runner.js");
     await runChat(opts, program.opts());
@@ -55,7 +58,10 @@ authCmd
   .command("login")
   .description("Authenticate with the CAIPE server")
   .option("--manual", "Print auth URL only; wait for user to paste authorization code back")
-  .option("--device", "Device Authorization Grant (RFC 8628): display short user code + URL, poll until approved")
+  .option(
+    "--device",
+    "Device Authorization Grant (RFC 8628): display short user code + URL, poll until approved",
+  )
   .option("--force", "Re-authenticate even if a valid session already exists")
   .option("--setup-wizard", "Re-run the server URL setup wizard before logging in")
   .action(async (opts: Record<string, unknown>) => {
@@ -65,7 +71,7 @@ authCmd
 
 authCmd
   .command("logout")
-  .description("Remove stored tokens from OS keychain")
+  .description("Remove stored credentials")
   .action(async () => {
     const { runLogout } = await import("./auth/commands.js");
     await runLogout();
@@ -113,7 +119,9 @@ configCmd
 // ---------------------------------------------------------------------------
 // caipe skills
 // ---------------------------------------------------------------------------
-const skillsCmd = program.command("skills").description("Manage the skills catalog and installed skills");
+const skillsCmd = program
+  .command("skills")
+  .description("Manage the skills catalog and installed skills");
 
 skillsCmd
   .command("list")

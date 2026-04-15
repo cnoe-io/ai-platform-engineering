@@ -5,9 +5,9 @@
  * They throw if the command fails; callers catch and handle gracefully.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { execa } from "execa";
-import { join } from "path";
-import { existsSync } from "fs";
 
 // ---------------------------------------------------------------------------
 // Repo discovery
@@ -42,11 +42,9 @@ export async function findRepoRoot(cwd: string): Promise<string | null> {
 export async function sampleFileTree(root: string, maxFiles = 150): Promise<string> {
   try {
     // Tracked files
-    const tracked = await execa(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd: root },
-    );
+    const tracked = await execa("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+      cwd: root,
+    });
     const lines = tracked.stdout.split("\n").filter(Boolean);
     const capped = lines.slice(0, maxFiles);
     if (lines.length > maxFiles) {

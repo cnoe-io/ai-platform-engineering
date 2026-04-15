@@ -2,30 +2,30 @@
  * Unit tests for headless mode (T045).
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import { existsSync, mkdirSync, rmSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let testDir: string;
 
 beforeEach(() => {
   testDir = join(tmpdir(), `caipe-headless-${process.pid}-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
-  process.env["XDG_CONFIG_HOME"] = testDir;
-  // Clear all credential env vars
-  delete process.env["CAIPE_TOKEN"];
-  delete process.env["CAIPE_API_KEY"];
-  delete process.env["CAIPE_CLIENT_ID"];
-  delete process.env["CAIPE_CLIENT_SECRET"];
+  process.env.XDG_CONFIG_HOME = testDir;
+  // Clear all credential env vars — use empty string, not undefined
+  process.env.CAIPE_TOKEN = "";
+  process.env.CAIPE_API_KEY = "";
+  process.env.CAIPE_CLIENT_ID = "";
+  process.env.CAIPE_CLIENT_SECRET = "";
 });
 
 afterEach(() => {
-  delete process.env["XDG_CONFIG_HOME"];
-  delete process.env["CAIPE_TOKEN"];
-  delete process.env["CAIPE_API_KEY"];
-  delete process.env["CAIPE_CLIENT_ID"];
-  delete process.env["CAIPE_CLIENT_SECRET"];
+  process.env.XDG_CONFIG_HOME = "";
+  process.env.CAIPE_TOKEN = "";
+  process.env.CAIPE_API_KEY = "";
+  process.env.CAIPE_CLIENT_ID = "";
+  process.env.CAIPE_CLIENT_SECRET = "";
   if (existsSync(testDir)) {
     rmSync(testDir, { recursive: true, force: true });
   }
@@ -41,7 +41,7 @@ describe("resolveHeadlessCredentials", () => {
   });
 
   it("returns jwt type for CAIPE_TOKEN env", async () => {
-    process.env["CAIPE_TOKEN"] = "my-jwt-token";
+    process.env.CAIPE_TOKEN = "my-jwt-token";
     const { resolveHeadlessCredentials } = await import("../src/headless/auth");
     const creds = await resolveHeadlessCredentials();
     expect(creds?.type).toBe("jwt");
@@ -49,14 +49,14 @@ describe("resolveHeadlessCredentials", () => {
   });
 
   it("--token flag takes priority over CAIPE_TOKEN env", async () => {
-    process.env["CAIPE_TOKEN"] = "env-token";
+    process.env.CAIPE_TOKEN = "env-token";
     const { resolveHeadlessCredentials } = await import("../src/headless/auth");
     const creds = await resolveHeadlessCredentials("flag-token");
     expect(creds?.accessToken).toBe("flag-token");
   });
 
   it("returns apikey type for CAIPE_API_KEY env", async () => {
-    process.env["CAIPE_API_KEY"] = "my-api-key";
+    process.env.CAIPE_API_KEY = "my-api-key";
     const { resolveHeadlessCredentials } = await import("../src/headless/auth");
     const creds = await resolveHeadlessCredentials();
     expect(creds?.type).toBe("apikey");
@@ -64,8 +64,8 @@ describe("resolveHeadlessCredentials", () => {
   });
 
   it("JWT takes priority over API key", async () => {
-    process.env["CAIPE_TOKEN"] = "jwt-wins";
-    process.env["CAIPE_API_KEY"] = "api-loses";
+    process.env.CAIPE_TOKEN = "jwt-wins";
+    process.env.CAIPE_API_KEY = "api-loses";
     const { resolveHeadlessCredentials } = await import("../src/headless/auth");
     const creds = await resolveHeadlessCredentials();
     expect(creds?.type).toBe("jwt");
@@ -73,8 +73,8 @@ describe("resolveHeadlessCredentials", () => {
   });
 
   it("client_credentials exchange when CAIPE_CLIENT_ID + SECRET set", async () => {
-    process.env["CAIPE_CLIENT_ID"] = "my-client";
-    process.env["CAIPE_CLIENT_SECRET"] = "my-secret";
+    process.env.CAIPE_CLIENT_ID = "my-client";
+    process.env.CAIPE_CLIENT_SECRET = "my-secret";
 
     // We need a server URL for the token exchange
     const configDir = join(testDir, "caipe");
@@ -83,12 +83,12 @@ describe("resolveHeadlessCredentials", () => {
     writeSettings({ server: { url: "https://caipe.test" } });
 
     const originalFetch = global.fetch;
-    global.fetch = mock(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve(
-        new Response(
-          JSON.stringify({ access_token: "cc-token", expires_in: 3600 }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ access_token: "cc-token", expires_in: 3600 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       ),
     ) as unknown as typeof fetch;
 
@@ -110,7 +110,10 @@ describe("createOutputWriter", () => {
     const { createOutputWriter } = await import("../src/headless/output");
     const chunks: string[] = [];
     const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = (chunk: unknown) => { chunks.push(String(chunk)); return true; };
+    process.stdout.write = (chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    };
 
     const writer = createOutputWriter("text");
     writer.write({ type: "token", text: "Hello " });
@@ -125,7 +128,10 @@ describe("createOutputWriter", () => {
     const { createOutputWriter } = await import("../src/headless/output");
     const chunks: string[] = [];
     const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = (chunk: unknown) => { chunks.push(String(chunk)); return true; };
+    process.stdout.write = (chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    };
 
     const writer = createOutputWriter("json");
     writer.write({ type: "token", text: "Hello " });
@@ -144,7 +150,10 @@ describe("createOutputWriter", () => {
     const { createOutputWriter } = await import("../src/headless/output");
     const chunks: string[] = [];
     const origWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = (chunk: unknown) => { chunks.push(String(chunk)); return true; };
+    process.stdout.write = (chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    };
 
     const writer = createOutputWriter("ndjson");
     writer.write({ type: "token", text: "tok1" });
@@ -164,7 +173,10 @@ describe("createOutputWriter", () => {
     for (const fmt of ["text", "json", "ndjson"] as const) {
       const errChunks: string[] = [];
       const origErrWrite = process.stderr.write.bind(process.stderr);
-      process.stderr.write = (chunk: unknown) => { errChunks.push(String(chunk)); return true; };
+      process.stderr.write = (chunk: unknown) => {
+        errChunks.push(String(chunk));
+        return true;
+      };
 
       const writer = createOutputWriter(fmt);
       writer.write({ type: "error", message: "Something failed" });
