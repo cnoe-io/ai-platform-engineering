@@ -2,12 +2,13 @@
  * CAIPE interactive chat REPL built with Ink 5 + React 18.
  *
  * Architecture:
- *   - ALL visible text (user prompts, streamed chunks, completed responses)
- *     goes into Ink's <Static> — rendered once, never redrawn.
- *   - The "dynamic" area (redrawn on state changes) contains ONLY the
- *     input bar + status footer — typically 3-4 lines, no flashing.
- *   - Markdown is rendered incrementally: each streamed chunk is passed
- *     through renderMarkdown() once when flushed, then frozen in <Static>.
+ *   - Completed messages (user prompts, rendered assistant responses)
+ *     go into Ink's <Static> — rendered once, never redrawn.
+ *   - During streaming, raw text accumulates in the "dynamic" area
+ *     (redrawn on state changes) so the user sees tokens as they arrive.
+ *   - When streaming finishes, the full response is rendered through
+ *     renderMarkdown() (tables, code blocks, styled headings) and pushed
+ *     as one <Static> item — no flashing, proper formatting.
  */
 
 import { Box, Static, Text, useApp, useInput } from "ink";
@@ -464,6 +465,7 @@ export function Repl({
   const [statusText, setStatusText] = useState<string | null>(null);
   const [pickerIndex, setPickerIndex] = useState(0);
   const [activeToolName, setActiveToolName] = useState<string | null>(null);
+  const [streamingText, setStreamingText] = useState("");
   const tokenCountRef = useRef(0);
   const streamStartRef = useRef(0);
   const ctrlDCountRef = useRef(0);
@@ -498,13 +500,6 @@ export function Repl({
     [pushStatic],
   );
 
-  const pushChunk = useCallback(
-    (text: string) => {
-      pushStatic({ kind: "chunk", text });
-    },
-    [pushStatic],
-  );
-
   const _pushTool = useCallback(
     (name: string) => {
       pushStatic({ kind: "tool", name });
@@ -512,9 +507,10 @@ export function Repl({
     [pushStatic],
   );
 
-  // ── Flush buffered streaming tokens into Static as complete lines ──
-  // Partial lines are held in lineBufferRef until a newline arrives,
-  // so words never break mid-line across Static items.
+  // ── Flush buffered streaming tokens ──
+  // Tokens accumulate in accumulatedRef and are displayed in the dynamic
+  // area via streamingText state.  When streaming ends, the full text is
+  // rendered through renderMarkdown() and pushed as one Static item.
   const flushTokens = useCallback(() => {
     const text = pendingTokensRef.current;
     const count = pendingTokenCountRef.current;
@@ -524,24 +520,23 @@ export function Repl({
     tokenCountRef.current += count;
     accumulatedRef.current += text;
     setStreamTokenCount((prev) => prev + count);
+    setStreamingText(accumulatedRef.current);
+  }, []);
 
-    lineBufferRef.current += text;
-    const lastNl = lineBufferRef.current.lastIndexOf("\n");
-    if (lastNl !== -1) {
-      // Push complete lines to Static — the remainder stays in the buffer
-      const completeLines = lineBufferRef.current.slice(0, lastNl + 1);
-      lineBufferRef.current = lineBufferRef.current.slice(lastNl + 1);
-      pushChunk(completeLines);
-    }
-  }, [pushChunk]);
-
-  // Flush whatever remains in the line buffer (called when streaming ends)
+  // Flush whatever remains in pending tokens (called when streaming ends)
   const flushLineBuffer = useCallback(() => {
-    if (lineBufferRef.current) {
-      pushChunk(lineBufferRef.current);
-      lineBufferRef.current = "";
+    // Any pending tokens not yet flushed
+    const text = pendingTokensRef.current;
+    if (text) {
+      pendingTokensRef.current = "";
+      const count = pendingTokenCountRef.current;
+      pendingTokenCountRef.current = 0;
+      tokenCountRef.current += count;
+      accumulatedRef.current += text;
+      setStreamTokenCount((prev) => prev + count);
     }
-  }, [pushChunk]);
+    lineBufferRef.current = "";
+  }, []);
 
   // ── Slash picker ──
   const filteredCommands = useMemo<SlashCommand[]>(() => {
@@ -751,11 +746,11 @@ export function Repl({
       pushUser(text);
       tokenCountRef.current += Math.ceil(prompt.length / 4);
 
-      // Start streaming — push the ⏺ prefix as the first chunk
+      // Start streaming — show response in dynamic area until complete
       accumulatedRef.current = "";
       setStreamTokenCount(0);
+      setStreamingText("");
       setStreaming(true);
-      pushStatic({ kind: "chunk", text: "" }); // spacer
 
       try {
         const gen = adapter.connect({
@@ -787,7 +782,7 @@ export function Repl({
           }
         }
 
-        // Flush remaining buffered tokens + partial line
+        // Flush remaining buffered tokens
         if (flushTimerRef.current) {
           clearTimeout(flushTimerRef.current);
           flushTimerRef.current = null;
@@ -795,17 +790,19 @@ export function Repl({
         flushTokens();
         flushLineBuffer();
 
-        // If pipe was requested, filter the accumulated response
+        // Clear streaming display and push markdown-rendered result to Static
+        setStreamingText("");
+
         let finalContent = accumulatedRef.current;
         if (parsed.pipeCmd && finalContent) {
           setStatusText(`Piping through: ${parsed.pipeCmd}`);
           finalContent = await pipeThrough(finalContent, parsed.pipeCmd);
-          // Show piped result as a completed assistant message
-          pushAssistant(finalContent);
         }
 
-        // Store full response in history for context
-        historyRef.current.push({ role: "assistant", content: accumulatedRef.current });
+        // Render and freeze the complete response in Static
+        if (finalContent) {
+          pushAssistant(finalContent);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         pushAssistant(`[ERROR] ${msg}`);
@@ -813,6 +810,7 @@ export function Repl({
         pendingTokensRef.current = "";
         pendingTokenCountRef.current = 0;
         lineBufferRef.current = "";
+        setStreamingText("");
         setStreaming(false);
         setActiveToolName(null);
         setStatusText(null);
@@ -827,7 +825,6 @@ export function Repl({
       flushLineBuffer,
       pushUser,
       pushAssistant,
-      pushStatic,
     ],
   );
 
@@ -917,13 +914,24 @@ export function Repl({
         }}
       </Static>
 
-      {/* Dynamic area: ONLY the input + status — tiny, no flashing */}
+      {/* Dynamic area: streaming text + input + status */}
       <Box flexDirection="column" flexGrow={1} paddingY={0}>
-        {staticItems.length === 0 && !streaming && (
+        {streaming && streamingText ? (
+          <Box paddingX={1} flexDirection="column">
+            <Box>
+              <Text color="blue">{"⏺ "}</Text>
+            </Box>
+            <Text>{streamingText}</Text>
+          </Box>
+        ) : staticItems.length === 0 && !streaming ? (
           <Box paddingX={1}>
             <Text dimColor>Type a message or / for commands.</Text>
           </Box>
-        )}
+        ) : streaming ? (
+          <Box paddingX={1}>
+            <Text color="blue">{"⏺ "}</Text>
+          </Box>
+        ) : null}
       </Box>
 
       {showPicker && (
