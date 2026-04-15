@@ -34,11 +34,12 @@ from dynamic_agents.models import (
     UserContext,
 )
 from dynamic_agents.services.builtin_tools import (
+    create_agent_info_tool,
     create_current_datetime_tool,
     create_fetch_url_tool,
     create_request_user_input_tool,
-    create_sleep_tool,
     create_user_info_tool,
+    create_wait_tool,
 )
 from dynamic_agents.services.encoders import StreamEncoder
 from dynamic_agents.services.mcp_client import (
@@ -319,18 +320,33 @@ class AgentRuntime:
             else:
                 logger.warning(f"Agent '{config.name}': user_info enabled but no user context available")
 
-        # sleep tool (enabled by default)
-        sleep_config = config.builtin_tools.sleep
-        if sleep_config and sleep_config.enabled:
-            max_seconds = sleep_config.max_seconds or 300
-            tools.append(create_sleep_tool(max_seconds=max_seconds))
-            config_summary["sleep"] = {"max_seconds": max_seconds}
+        # wait tool (enabled by default)
+        wait_config = config.builtin_tools.wait
+        if wait_config and wait_config.enabled:
+            max_seconds = wait_config.max_seconds or 300
+            tools.append(create_wait_tool(max_seconds=max_seconds))
+            config_summary["wait"] = {"max_seconds": max_seconds}
 
         # request_user_input tool (enabled by default)
         request_user_input_config = config.builtin_tools.request_user_input
         if request_user_input_config and request_user_input_config.enabled:
             tools.append(create_request_user_input_tool())
             config_summary["request_user_input"] = {}
+
+        # agent_info tool (enabled by default)
+        agent_info_config = config.builtin_tools.agent_info
+        if agent_info_config and agent_info_config.enabled:
+            gradient_theme = config.ui.gradient_theme if config.ui else None
+            tools.append(
+                create_agent_info_tool(
+                    name=config.name,
+                    description=config.description,
+                    model_id=config.model_id,
+                    model_provider=config.model_provider,
+                    gradient_theme=gradient_theme,
+                )
+            )
+            config_summary["agent_info"] = {}
 
         if tools:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")

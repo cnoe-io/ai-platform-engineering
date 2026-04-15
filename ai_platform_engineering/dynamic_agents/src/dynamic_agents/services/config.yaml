@@ -52,6 +52,11 @@ models:
     provider: "aws-bedrock"
     description: "Smaller, faster Claude 4.5 model"
 
+  - model_id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    name: "Claude 4.5 Sonnet (AWS Bedrock)"
+    provider: "aws-bedrock"
+    description: "Claude 4.5 Sonnet model"
+
   # OpenAI Models (direct API)
   - model_id: "gpt-4o"
     name: "GPT-4o"

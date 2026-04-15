@@ -1,10 +1,13 @@
 """Pydantic models for Dynamic Agents service."""
 
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class TransportType(str, Enum):
@@ -175,13 +178,13 @@ class UserInfoToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
-class SleepToolConfig(BaseModel):
-    """Configuration for the sleep built-in tool."""
+class WaitToolConfig(BaseModel):
+    """Configuration for the wait built-in tool."""
 
     enabled: bool = Field(True, description="Whether the tool is enabled")
     max_seconds: int = Field(
         300,
-        description="Maximum sleep duration in seconds",
+        description="Maximum wait duration in seconds",
         ge=1,
         le=3600,
     )
@@ -189,6 +192,12 @@ class SleepToolConfig(BaseModel):
 
 class RequestUserInputToolConfig(BaseModel):
     """Configuration for the request_user_input built-in tool."""
+
+    enabled: bool = Field(True, description="Whether the tool is enabled")
+
+
+class AgentInfoToolConfig(BaseModel):
+    """Configuration for the agent_info built-in tool."""
 
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
@@ -208,14 +217,37 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the user_info tool (returns info about the current user)",
     )
-    sleep: SleepToolConfig | None = Field(
+    wait: WaitToolConfig | None = Field(
         None,
-        description="Configuration for the sleep tool (pauses execution)",
+        description="Configuration for the wait tool (pauses execution)",
     )
     request_user_input: RequestUserInputToolConfig | None = Field(
         None,
         description="Configuration for the request_user_input tool (requests structured input from user)",
     )
+    agent_info: AgentInfoToolConfig | None = Field(
+        None,
+        description="Configuration for the agent_info tool (returns information about this agent)",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_sleep_to_wait(cls, data: Any) -> Any:
+        """Backward-compat: migrate legacy ``sleep`` field to ``wait``.
+
+        Existing MongoDB documents may still contain ``builtin_tools.sleep``
+        from before the rename.  This validator transparently migrates them
+        so the rest of the codebase only needs to know about ``wait``.
+        """
+        if isinstance(data, dict) and "sleep" in data:
+            if "wait" not in data or data["wait"] is None:
+                data["wait"] = data.pop("sleep")
+                logger.warning("Migrated deprecated 'builtin_tools.sleep' → 'wait'")
+            else:
+                # Both present — drop the legacy field, keep explicit 'wait'
+                data.pop("sleep")
+                logger.warning("Dropped deprecated 'builtin_tools.sleep' (explicit 'wait' already set)")
+        return data
 
 
 # =============================================================================
@@ -363,6 +395,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User message")
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
+    protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
 
