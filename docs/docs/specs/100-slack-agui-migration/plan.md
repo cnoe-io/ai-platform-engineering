@@ -507,6 +507,8 @@ Currently prepended ad-hoc as `f"The user email is {user_email}\n\n{final_messag
 
 **UI: Send ClientContext from web chat**: The web chat should send `ClientContext(source="webui")` in chat requests. Agent config editor could add a UI for previewing how system prompts render with different client contexts.
 
+**UI: Jinja2 template preview in agent config editor**: The system prompt textarea in the agent config editor should render a live preview of the Jinja2 template with sample `client_context` values. This would let agent creators see how conditionals resolve (e.g. Slack vs web UI, overthink on/off) without deploying and testing in Slack. Could use a client-side Jinja2-compatible renderer (e.g. Nunjucks) or call a backend preview endpoint.
+
 **UI: Text rendering between tool calls**: The custom encoder's `_handle_updates` closes text messages and new ones aren't properly started during active streaming. This causes gaps in rendered text between tool calls. Separate PR fix.
 
 **AuthContext**: The Next.js API server should add authenticated user context (from JWT) that the dynamic agents backend trusts. Currently `AgentContext` has `user_id`, `user_name`, `user_groups` but `user_name` and `user_groups` are never populated. This would formalize the auth context flow: Next.js validates JWT, extracts claims, passes `AuthContext` to dynamic agents which trusts it without re-validating.

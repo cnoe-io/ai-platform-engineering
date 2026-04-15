@@ -169,6 +169,7 @@ class SSEClient:
     conversation_id: str,
     agent_id: str,
     trace_id: Optional[str] = None,
+    client_context: Optional[Dict[str, Any]] = None,
   ) -> Iterator[SSEEvent]:
     """Stream a chat response from a dynamic agent.
 
@@ -177,6 +178,7 @@ class SSEClient:
         conversation_id: UUID v5 from thread_ts.
         agent_id: Dynamic agent config ID.
         trace_id: Optional Langfuse trace ID.
+        client_context: Optional client context dict for system prompt rendering.
 
     Yields:
         SSEEvent objects for each AG-UI event.
@@ -190,6 +192,8 @@ class SSEClient:
       "agent_id": agent_id,
       "trace_id": trace_id,
     }
+    if client_context:
+      payload["client_context"] = client_context
 
     url = f"{self.base_url}/api/v1/chat/stream/start"
     yield from self._stream_sse(url, payload)
@@ -200,6 +204,7 @@ class SSEClient:
     conversation_id: str,
     form_data: str,
     trace_id: Optional[str] = None,
+    client_context: Optional[Dict[str, Any]] = None,
   ) -> Iterator[SSEEvent]:
     """Resume a stream after HITL interrupt.
 
@@ -208,6 +213,7 @@ class SSEClient:
         conversation_id: Same conversation_id as the interrupted stream.
         form_data: JSON string of form field values, or rejection message.
         trace_id: Optional Langfuse trace ID.
+        client_context: Optional client context dict for system prompt rendering.
 
     Yields:
         SSEEvent objects for the resumed stream.
@@ -221,6 +227,8 @@ class SSEClient:
       "form_data": form_data,
       "trace_id": trace_id,
     }
+    if client_context:
+      payload["client_context"] = client_context
 
     url = f"{self.base_url}/api/v1/chat/stream/resume"
     yield from self._stream_sse(url, payload)
@@ -231,6 +239,7 @@ class SSEClient:
     conversation_id: str,
     agent_id: str,
     trace_id: Optional[str] = None,
+    client_context: Optional[Dict[str, Any]] = None,
   ) -> Dict[str, Any]:
     """Non-streaming chat invocation for bot users.
 
@@ -239,6 +248,7 @@ class SSEClient:
         conversation_id: UUID v5 from thread_ts.
         agent_id: Dynamic agent config ID.
         trace_id: Optional Langfuse trace ID.
+        client_context: Optional client context dict for system prompt rendering.
 
     Returns:
         Response dict with 'success', 'content', etc.
@@ -252,6 +262,8 @@ class SSEClient:
       "agent_id": agent_id,
       "trace_id": trace_id,
     }
+    if client_context:
+      payload["client_context"] = client_context
 
     headers = self._get_headers()
     headers["Accept"] = "application/json"

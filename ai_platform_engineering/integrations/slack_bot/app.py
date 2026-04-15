@@ -124,6 +124,7 @@ def _call_ai(
   additional_footer=None,
   overthink_mode=False,
   escalation_config=None,
+  client_context=None,
 ):
   """Route to stream_response or invoke_response based on user type."""
   logger.info(f"[{thread_ts}] _call_ai: conv={conversation_id} agent={agent_id} user={user_id} overthink={overthink_mode}")
@@ -144,6 +145,7 @@ def _call_ai(
       additional_footer=additional_footer,
       overthink_mode=overthink_mode,
       escalation_config=escalation_config,
+      client_context=client_context,
     )
   else:
     return ai.invoke_response(
@@ -157,6 +159,7 @@ def _call_ai(
       triggered_by_user_id=triggered_by_user_id,
       additional_footer=additional_footer,
       escalation_config=escalation_config,
+      client_context=client_context,
     )
 
 
@@ -214,19 +217,14 @@ def handle_mention(event, say, client):
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
 
-    if is_humble_followup:
-      mention_prompt = config.defaults.humble_followup_prompt
-    elif channel_config.custom_prompt:
-      mention_prompt = channel_config.custom_prompt
-    else:
-      mention_prompt = config.defaults.default_mention_prompt
-    final_message = mention_prompt.format(message_text=context_message)
-
-    if config.defaults.response_style_instruction not in final_message:
-      final_message += "\n\n" + config.defaults.response_style_instruction
-
+    client_context = {
+      "source": "slack",
+      "channel_type": "channel",
+      "channel_name": channel_config.name,
+      "humble_followup": is_humble_followup,
+    }
     if user_email:
-      final_message = f"The user email is {user_email}\n\n{final_message}"
+      client_context["user_email"] = user_email
 
     team_id = event.get("team")
     esc_config = get_escalation_config(channel_config)
@@ -235,12 +233,13 @@ def handle_mention(event, say, client):
       client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
-      message_text=final_message,
+      message_text=context_message,
       user_id=user_id,
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
       escalation_config=esc_config,
+      client_context=client_context,
     )
 
     if isinstance(result, dict) and result.get("retry_needed"):
@@ -315,9 +314,14 @@ def handle_qanda_message(event, say, client):
     agent_id = _get_agent_id(channel_config)
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
-    final_message = channel_config.qanda.custom_prompt.format(message_text=message_text)
+    client_context = {
+      "source": "slack",
+      "channel_type": "channel",
+      "channel_name": channel_config.name,
+      "overthink": channel_config.qanda.overthink,
+    }
     if user_email:
-      final_message = f"The user email is {user_email}\n\n{final_message}"
+      client_context["user_email"] = user_email
 
     esc_config = get_escalation_config(channel_config)
 
@@ -325,13 +329,14 @@ def handle_qanda_message(event, say, client):
       client=client,
       channel_id=channel_id,
       thread_ts=thread_ts,
-      message_text=final_message,
+      message_text=message_text,
       user_id=user_id,
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
       overthink_mode=channel_config.qanda.overthink,
       escalation_config=esc_config,
+      client_context=client_context,
     )
 
     if isinstance(result, dict) and result.get("skipped"):
@@ -388,14 +393,12 @@ def handle_dm_message(event, say, client):
     agent_id = _get_agent_id_for_dm()
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
-    dm_prompt = config.defaults.dm_prompt or config.defaults.default_mention_prompt
-    final_message = dm_prompt.format(message_text=context_message)
-
-    if config.defaults.response_style_instruction not in final_message:
-      final_message += "\n\n" + config.defaults.response_style_instruction
-
+    client_context = {
+      "source": "slack",
+      "channel_type": "dm",
+    }
     if user_email:
-      final_message = f"The user email is {user_email}\n\n{final_message}"
+      client_context["user_email"] = user_email
 
     team_id = event.get("team")
 
@@ -403,11 +406,12 @@ def handle_dm_message(event, say, client):
       client=client,
       channel_id=event.get("channel"),
       thread_ts=thread_ts,
-      message_text=final_message,
+      message_text=context_message,
       user_id=user_id,
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
+      client_context=client_context,
     )
 
     if isinstance(result, dict) and result.get("retry_needed"):
@@ -792,9 +796,15 @@ def handle_caipe_retry(ack, body, client):
     # Use a new conversation_id for retries to avoid LangGraph state conflicts
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
-    retry_message = ai.RETRY_PROMPT_PREFIX + channel_config.qanda.custom_prompt.format(message_text=thread_context)
+    retry_message = ai.RETRY_PROMPT_PREFIX + thread_context
+
+    client_context = {
+      "source": "slack",
+      "channel_type": "channel",
+      "channel_name": channel_config.name,
+    }
     if user_email:
-      retry_message = f"The user email is {user_email}\n\n{retry_message}"
+      client_context["user_email"] = user_email
 
     _call_ai(
       client=client,
@@ -806,6 +816,7 @@ def handle_caipe_retry(ack, body, client):
       agent_id=agent_id,
       conversation_id=conversation_id,
       additional_footer=f"Retried by <@{user_id}>",
+      client_context=client_context,
     )
   except Exception as e:
     logger.exception(f"Error handling retry: {e}")

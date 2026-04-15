@@ -21,146 +21,8 @@ class GlobalDefaults(BaseModel):
 
   jira_server: str = Field(default_factory=lambda: os.environ.get("JIRA_BASE_URL", ""))
 
-  # Prompt defaults — each can be overridden via SLACK_INTEGRATION_PROMPT_* env vars
-  response_style_instruction: str = Field(
-    default_factory=lambda: os.environ.get(
-      "SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE",
-      """Response Style: Keep your answers conversational and straightforward - like chatting with a colleague.
-Be concise and get to the point (CRITICAL: MAXIMUM response length should be around 5 sentences UNLESS user
-specifically asks for full response. After providing information, ALWAYS ask if they would like to know more
-in a separate line.) without unnecessary details or overly formal explanations.
-If citing sources, CRITICAL: ALWAYS include the source AND LINK(S)!""",
-    )
-  )
-
-  default_qanda_prompt: str = Field(
-    default_factory=lambda: os.environ.get(
-      "SLACK_INTEGRATION_PROMPT_QANDA",
-      """You are helping answer questions. A user has posted a message in the channel.
-
-STEP 1 - Check if this is an action request (no search needed):
-If the message is ONLY asking for human action with no technical question, respond with "Standing by for the team!" and stop.
-- Asking for code/MR/PR review with no technical question
-- Asking for approvals on an MR/PR
-- Asking a human to take an action (rerun pipeline, close ticket, etc.)
-- Asking "who can help" or "can someone" do something
-
-STEP 2 - Search for sources (MANDATORY - DO NOT SKIP):
-You MUST execute search queries against the knowledge base before responding.
-- Do NOT answer from general knowledge - internal documentation may differ from public information
-- Do NOT assume you know the answer - always search first
-- Try different keyword combinations and related concepts
-- Aim for at least 5 search queries to ensure comprehensive coverage
-If you respond without searching, your answer will likely be wrong.
-
-STEP 3 - Respond based on what you found:
-- Answer in ~5 sentences, conversational tone
-- If you found nothing relevant, say so honestly and suggest where to ask
-- Ask if they want more details
-
-STEP 4 - List sources (REQUIRED):
-End your response with a Sources section listing ALL sources you found during your search, with titles and links. Include sources even if only tangentially related.
-
-User message:
-{message_text}""",
-    )
-  )
-
-  overthink_qanda_prompt: str = Field(
-    default_factory=lambda: os.environ.get(
-      "SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA",
-      """You are helping answer questions in a Slack channel. A user has posted a message.
-
-STEP 1 - Quick filter (no search needed):
-- Is this ONLY a code/MR/PR review request with no technical question? Respond with [DEFER] and stop
-- Is this ONLY asking a human to take an action with no information question? Respond with [DEFER] and stop
-- Otherwise, continue to Step 2
-
-STEP 2 - Search for sources (MANDATORY - DO NOT SKIP):
-You MUST execute search queries against the knowledge base before responding.
-- Do NOT answer from general knowledge - internal documentation may differ from public information
-- Do NOT assume you know the answer - always search first
-- Try different keyword combinations and related concepts
-- Aim for at least 5 search queries to ensure comprehensive coverage
-- Use both keyword_search=true (for exact terms, parameter names, config values) AND semantic search (for concepts, how-to questions) — do not use only one mode
-- If any result looks relevant, use fetch_document to get the full content — prioritize configuration/setup documents over error or troubleshooting documents
-If you respond without searching, your answer will likely be wrong.
-
-STEP 3 - Assess confidence based on what you found:
-- Found 2+ sources that agree on the answer? HIGH confidence
-- Found 1 source that DIRECTLY and COMPLETELY answers the question (not just mentions it)? HIGH confidence
-- Found sources that mention the topic but don't contain the specific answer? LOW confidence
-- Found only tangentially related info or nothing useful? LOW confidence
-
-STEP 4 - Respond (DO NOT show your reasoning steps, only output the final response):
-- If LOW confidence:
-  - List any sources you found with titles and links (even if not directly relevant) for debugging purposes
-  - Final line must be [LOW_CONFIDENCE]
-- If HIGH confidence:
-  - Answer in ~5 sentences, conversational tone
-  - Reference sources inline when relevant
-  - End with a Sources: section listing ALL sources you found with titles and links
-  - Final line must be [CONFIDENCE: HIGH]
-
-User message:
-{message_text}""",
-    )
-  )
-
-  default_mention_prompt: str = Field(
-    default_factory=lambda: os.environ.get(
-      "SLACK_INTEGRATION_PROMPT_MENTION",
-      """A user has @mentioned you in Slack.
-
-STEP 1 - Determine intent:
-- Action request (create ticket, run pipeline, etc.) - execute the action
-- Question or research request - continue to Step 2
-
-STEP 2 - Search for sources (MANDATORY for questions):
-You MUST execute search queries against the knowledge base before answering any question.
-- Do NOT answer from general knowledge - internal documentation may differ from public information
-- Do NOT assume you know the answer - always search first
-- Try different keyword combinations and related concepts
-- Aim for at least 5 search queries to ensure comprehensive coverage
-If you respond without searching, your answer will likely be wrong.
-
-STEP 3 - Respond:
-- For actions: execute and confirm what you did
-- For questions: answer based on search results in ~5 sentences, conversational tone
-- End with a Sources section listing ALL sources you found, with titles and links
-
-User message:
-{message_text}""",
-    )
-  )
-
-  dm_prompt: Optional[str] = Field(
-    default_factory=lambda: os.environ.get("SLACK_INTEGRATION_PROMPT_DM"),
-    description="Optional DM-specific prompt. Falls back to default_mention_prompt if not set.",
-  )
-
-  humble_followup_prompt: str = Field(
-    default_factory=lambda: os.environ.get(
-      "SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP",
-      """You previously saw the user's message but did not respond automatically. The user is now following up by @mentioning you.
-
-Start by briefly explaining why you did not respond earlier. There are two possible reasons based on your earlier analysis:
-1. You recognized it as a request for human action (like MR reviews, approvals, or asking someone to do something) - explain you stepped back to let humans handle it
-2. You researched but were not confident in what you found - explain you are not an expert on this topic
-
-Then offer to help now:
-- If it was a human action request, ask how you can assist (maybe they have a technical question, or want help with something else)
-- If it was low confidence, share what you found from your research, be clear about gaps, and suggest where they might find better help
-
-If you did any research, end with a Sources section listing ALL sources you found, with titles and links.
-
-Be conversational and supportive, not overly apologetic.
-
-User's follow-up message:
-{message_text}""",
-    )
-  )
-
+  # AI alerts prompt — stays here because it's a per-message template
+  # with per-event variables (bot_username, alert_text, etc.), not a system prompt
   default_ai_alerts_prompt: str = Field(
     default_factory=lambda: os.environ.get(
       "SLACK_INTEGRATION_PROMPT_AI_ALERTS",
@@ -257,7 +119,6 @@ class QandaConfig(BaseModel):
   enabled: bool = False
   overthink: bool = False
   include_bots: IncludeBotsConfig = Field(default_factory=IncludeBotsConfig)
-  custom_prompt: Optional[str] = None
 
 
 class AIAlertsConfig(BaseModel):
@@ -289,7 +150,6 @@ class ChannelConfig(BaseModel):
   name: str
   ai_enabled: bool = False
   agent_id: Optional[str] = None
-  custom_prompt: Optional[str] = None
   qanda: QandaConfig = Field(default_factory=QandaConfig)
   ai_alerts: AIAlertsConfig = Field(default_factory=AIAlertsConfig)
   other: OtherConfig = Field(default_factory=OtherConfig)
@@ -338,19 +198,3 @@ class Config(BaseModel):
     silence_env = os.environ.get("SLACK_INTEGRATION_SILENCE_ENV", "false").lower() == "true"
 
     return cls(channels=channels, silence_env=silence_env)
-
-  def apply_defaults_to_channels(self):
-    """Apply global defaults to channel configs (e.g., default prompts with style)"""
-    for channel_config in self.channels.values():
-      custom_prompt = channel_config.qanda.custom_prompt
-
-      if channel_config.qanda.overthink:
-        if custom_prompt:
-          channel_config.qanda.custom_prompt = self.defaults.overthink_qanda_prompt + "\n\n---\n\n" + "Additional channel-specific instructions (lower priority than the above overthink logic):\n" + custom_prompt
-        else:
-          channel_config.qanda.custom_prompt = self.defaults.overthink_qanda_prompt
-      elif not custom_prompt:
-        channel_config.qanda.custom_prompt = self.defaults.default_qanda_prompt
-      else:
-        if self.defaults.response_style_instruction not in custom_prompt:
-          channel_config.qanda.custom_prompt = custom_prompt + "\n\n" + self.defaults.response_style_instruction
