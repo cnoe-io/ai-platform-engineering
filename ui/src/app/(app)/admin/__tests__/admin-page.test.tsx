@@ -61,8 +61,6 @@ jest.mock('@/components/admin/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div />,
   CategoryBreakdown: () => <div />,
   RunStatsTable: () => <div />,
-  OverallRunStatsCard: () => <div />,
-  TopCreatorsCard: () => <div />,
 }));
 
 jest.mock('@/components/admin/CheckpointStatsSection', () => ({

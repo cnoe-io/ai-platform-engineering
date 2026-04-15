@@ -20,7 +20,7 @@ dependencies = [
 
 [dependency-groups]
 unittest = [
-  "pytest==9.0.2",
+  "pytest==9.0.3",
   "pytest-mock==3.15.1",
 ]
 

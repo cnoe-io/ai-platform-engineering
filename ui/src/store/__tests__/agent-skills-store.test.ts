@@ -14,7 +14,6 @@
 
 import { act } from "@testing-library/react";
 import { useAgentSkillsStore } from "../agent-skills-store";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 import type { AgentSkill, CreateAgentSkillInput } from "@/types/agent-skill";
 
 // ============================================================================
@@ -295,7 +294,7 @@ describe("agent-skills-store", () => {
       expect(configs[0].updated_at).toBeInstanceOf(Date);
     });
 
-    it("handles 503 - uses BUILTIN_QUICK_START_TEMPLATES", async () => {
+    it("handles 503 - falls back to empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/agent-skills/seed")) {
@@ -323,12 +322,10 @@ describe("agent-skills-store", () => {
         await useAgentSkillsStore.getState().loadSkills();
       });
 
-      expect(useAgentSkillsStore.getState().configs).toEqual(
-        BUILTIN_QUICK_START_TEMPLATES
-      );
+      expect(useAgentSkillsStore.getState().configs).toEqual([]);
     });
 
-    it("handles 401 - uses BUILTIN_QUICK_START_TEMPLATES", async () => {
+    it("handles 401 - falls back to empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/agent-skills/seed")) {
@@ -350,12 +347,10 @@ describe("agent-skills-store", () => {
         await useAgentSkillsStore.getState().loadSkills();
       });
 
-      expect(useAgentSkillsStore.getState().configs).toEqual(
-        BUILTIN_QUICK_START_TEMPLATES
-      );
+      expect(useAgentSkillsStore.getState().configs).toEqual([]);
     });
 
-    it("handles error - falls back to built-in templates", async () => {
+    it("handles error - falls back to empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/agent-skills/seed")) {
@@ -380,9 +375,7 @@ describe("agent-skills-store", () => {
         await useAgentSkillsStore.getState().loadSkills();
       });
 
-      expect(useAgentSkillsStore.getState().configs).toEqual(
-        BUILTIN_QUICK_START_TEMPLATES
-      );
+      expect(useAgentSkillsStore.getState().configs).toEqual([]);
     });
 
     it("calls seedTemplates if not seeded", async () => {
