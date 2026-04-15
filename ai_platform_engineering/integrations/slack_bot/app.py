@@ -48,13 +48,13 @@ if AUTH_ENABLED:
 else:
   logger.info("Auth disabled (set SLACK_INTEGRATION_ENABLE_AUTH=true to enable)")
 
-# Initialize SSE client - DYNAMIC_AGENTS_URL is required
-DYNAMIC_AGENTS_URL = os.environ.get("DYNAMIC_AGENTS_URL")
-if not DYNAMIC_AGENTS_URL:
-  raise ValueError("DYNAMIC_AGENTS_URL environment variable is required")
+# Initialize SSE client - CAIPE_API_URL is required
+CAIPE_API_URL = os.environ.get("CAIPE_API_URL")
+if not CAIPE_API_URL:
+  raise ValueError("CAIPE_API_URL environment variable is required")
 
-sse_client = SSEClient(DYNAMIC_AGENTS_URL, timeout=300, auth_client=auth_client)
-logger.info(f"SSE client initialized at {DYNAMIC_AGENTS_URL}")
+sse_client = SSEClient(CAIPE_API_URL, timeout=300, auth_client=auth_client)
+logger.info(f"SSE client initialized at {CAIPE_API_URL}")
 
 # Initialize session manager (in-memory only — conversation IDs are deterministic)
 session_manager = SessionManager()
@@ -67,28 +67,20 @@ retry_delay = int(os.environ.get("CAIPE_CONNECT_RETRY_DELAY", "6"))
 
 for attempt in range(1, max_retries + 1):
   try:
-    logger.info(f"Connecting to {APP_NAME} at {DYNAMIC_AGENTS_URL} (attempt {attempt}/{max_retries})")
-    health_resp = _requests.get(f"{DYNAMIC_AGENTS_URL.rstrip('/')}/healthz", timeout=10)
+    logger.info(f"Connecting to {APP_NAME} at {CAIPE_API_URL} (attempt {attempt}/{max_retries})")
+    health_resp = _requests.get(f"{CAIPE_API_URL.rstrip('/')}/api/health", timeout=10)
     if health_resp.ok:
-      logger.info(f"Connected to {APP_NAME} dynamic agents (status {health_resp.status_code})")
+      logger.info(f"Connected to {APP_NAME} API (status {health_resp.status_code})")
     else:
       raise Exception(f"Health check returned {health_resp.status_code}: {health_resp.text}")
     break
   except Exception as e:
     if attempt < max_retries:
-      logger.warning(f"Dynamic agents not ready, retrying in {retry_delay}s...")
+      logger.warning(f"{APP_NAME} API not ready, retrying in {retry_delay}s...")
       time.sleep(retry_delay)
     else:
       logger.error(f"Failed to connect to {APP_NAME} after {max_retries} attempts: {e}.")
       sys.exit(1)
-
-# Verify CAIPE UI connectivity for endpoints
-_ui_url = os.environ.get("CAIPE_UI_URL", "http://localhost:3000")
-try:
-  _resp = _requests.get(f"{_ui_url.rstrip('/')}/api/feedback", timeout=5)
-  logger.info(f"CAIPE UI reachable at {_ui_url} (status {_resp.status_code})")
-except Exception as _e:
-  logger.warning(f"CAIPE UI not reachable at {_ui_url}: {_e}  — integrations like feedback will fail until the UI is available")
 
 
 def _get_agent_id(channel_config=None) -> str:

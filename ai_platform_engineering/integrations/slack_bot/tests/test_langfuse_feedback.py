@@ -28,7 +28,7 @@ class TestScoringUtility:
   @patch("ai_platform_engineering.integrations.slack_bot.utils.scoring.requests.post")
   def test_calls_feedback_api(self, mock_post, monkeypatch):
     """Test that submit_feedback_score calls POST /api/feedback."""
-    monkeypatch.setenv("CAIPE_UI_URL", "http://ui:3000")
+    monkeypatch.setenv("CAIPE_API_URL", "http://ui:3000")
     monkeypatch.setenv("SLACK_WORKSPACE_URL", "https://slack.test")
 
     mock_response = MagicMock()
@@ -67,7 +67,7 @@ class TestScoringUtility:
   @patch("ai_platform_engineering.integrations.slack_bot.utils.scoring.requests.post")
   def test_permalink_links_to_message(self, mock_post, monkeypatch):
     """Test that permalink deep-links to the bot reply, not the thread."""
-    monkeypatch.setenv("CAIPE_UI_URL", "http://ui:3000")
+    monkeypatch.setenv("CAIPE_API_URL", "http://ui:3000")
     monkeypatch.setenv("SLACK_WORKSPACE_URL", "https://slack.test")
 
     mock_response = MagicMock()
@@ -93,7 +93,7 @@ class TestScoringUtility:
   @patch("ai_platform_engineering.integrations.slack_bot.utils.scoring.requests.post")
   def test_invalid_message_ts_falls_back_to_thread(self, mock_post, monkeypatch):
     """Test that non-timestamp message_ts (e.g. 'wrong_answer') is ignored."""
-    monkeypatch.setenv("CAIPE_UI_URL", "http://ui:3000")
+    monkeypatch.setenv("CAIPE_API_URL", "http://ui:3000")
     monkeypatch.setenv("SLACK_WORKSPACE_URL", "https://slack.test")
 
     mock_response = MagicMock()
@@ -120,7 +120,7 @@ class TestScoringUtility:
   @patch("ai_platform_engineering.integrations.slack_bot.utils.scoring.requests.post")
   def test_api_failure_returns_false(self, mock_post, monkeypatch):
     """Test that API errors are handled gracefully."""
-    monkeypatch.setenv("CAIPE_UI_URL", "http://ui:3000")
+    monkeypatch.setenv("CAIPE_API_URL", "http://ui:3000")
     monkeypatch.setenv("SLACK_WORKSPACE_URL", "")
 
     mock_response = MagicMock()
@@ -143,7 +143,7 @@ class TestScoringUtility:
   @patch("ai_platform_engineering.integrations.slack_bot.utils.scoring.requests.post")
   def test_network_error_returns_false(self, mock_post, monkeypatch):
     """Test that network failures are handled gracefully."""
-    monkeypatch.setenv("CAIPE_UI_URL", "http://ui:3000")
+    monkeypatch.setenv("CAIPE_API_URL", "http://ui:3000")
 
     mock_post.side_effect = Exception("Connection refused")
 
@@ -162,7 +162,7 @@ class TestScoringUtility:
   @patch("ai_platform_engineering.integrations.slack_bot.utils.scoring.requests.post")
   def test_dislike_feedback_type(self, mock_post, monkeypatch):
     """Test that non-thumbs_up values map to feedbackType='dislike'."""
-    monkeypatch.setenv("CAIPE_UI_URL", "http://ui:3000")
+    monkeypatch.setenv("CAIPE_API_URL", "http://ui:3000")
     monkeypatch.setenv("SLACK_WORKSPACE_URL", "")
 
     mock_response = MagicMock()
@@ -189,7 +189,7 @@ class TestScoringUtility:
   @patch("ai_platform_engineering.integrations.slack_bot.utils.scoring.requests.post")
   def test_dm_channel_name(self, mock_post, monkeypatch):
     """Test that DM channels get channelName='DM'."""
-    monkeypatch.setenv("CAIPE_UI_URL", "http://ui:3000")
+    monkeypatch.setenv("CAIPE_API_URL", "http://ui:3000")
     monkeypatch.setenv("SLACK_WORKSPACE_URL", "")
 
     mock_response = MagicMock()

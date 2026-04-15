@@ -3,8 +3,10 @@
 """
 SSE client for Dynamic Agents streaming via AG-UI protocol.
 
-Targets the /api/v1/chat/* endpoints on the dynamic agents backend.
-Uses httpx for streaming HTTP requests.
+Routes requests through the Next.js API gateway which proxies to the
+dynamic agents backend.  Uses flat ``/api/v1/chat/`` routes with all
+parameters (including ``conversation_id`` and ``protocol``) in the
+request body.  Uses httpx for streaming HTTP requests.
 """
 
 import json
@@ -133,17 +135,17 @@ class SSEEvent:
 class SSEClient:
   """SSE client for Dynamic Agents streaming via AG-UI protocol.
 
-  Provides three methods:
-  - stream_chat(): POST /api/v1/chat/stream/start?protocol=agui (SSE stream)
+  Routes through the Next.js API gateway (flat paths, all params in body):
+  - stream_chat(): POST /api/v1/chat/stream/start (SSE stream)
   - invoke(): POST /api/v1/chat/invoke (JSON response)
-  - resume_stream(): POST /api/v1/chat/stream/resume?protocol=agui (SSE stream)
+  - resume_stream(): POST /api/v1/chat/stream/resume (SSE stream)
   """
 
   def __init__(self, base_url: str, timeout: int = 300, auth_client: Optional[Any] = None):
     """Initialize SSE client.
 
     Args:
-        base_url: Dynamic agents backend URL (e.g. http://dynamic-agents:8100).
+        base_url: CAIPE API URL (e.g. http://caipe-ui:3000).
         timeout: Streaming timeout in seconds.
         auth_client: Optional OAuth2ClientCredentials instance for Bearer tokens.
     """
@@ -190,6 +192,7 @@ class SSEClient:
       "message": message,
       "conversation_id": conversation_id,
       "agent_id": agent_id,
+      "protocol": "agui",
       "trace_id": trace_id,
     }
     if client_context:
@@ -222,9 +225,10 @@ class SSEClient:
         Exception: On connection or HTTP errors.
     """
     payload = {
-      "agent_id": agent_id,
       "conversation_id": conversation_id,
+      "agent_id": agent_id,
       "form_data": form_data,
+      "protocol": "agui",
       "trace_id": trace_id,
     }
     if client_context:
@@ -286,13 +290,11 @@ class SSEClient:
 
     Args:
         url: Full endpoint URL.
-        payload: JSON request body.
+        payload: JSON request body (includes protocol, conversation_id, etc.).
 
     Yields:
         SSEEvent objects.
     """
-    params = {"protocol": "agui"}
-
     try:
       with httpx.Client(timeout=self.timeout) as client:
         with client.stream(
@@ -300,7 +302,6 @@ class SSEClient:
           url,
           json=payload,
           headers=self._get_headers(),
-          params=params,
         ) as response:
           if not response.is_success:
             error_text = response.read().decode()

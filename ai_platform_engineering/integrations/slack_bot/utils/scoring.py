@@ -112,7 +112,7 @@ def submit_feedback_score(
     payload["userEmail"] = user_email
 
   # Call the unified feedback API
-  feedback_api_url = os.environ.get("CAIPE_UI_URL", "http://localhost:3000")
+  feedback_api_url = os.environ.get("CAIPE_API_URL", "http://localhost:3000")
   url = f"{feedback_api_url.rstrip('/')}/api/feedback"
 
   try:
