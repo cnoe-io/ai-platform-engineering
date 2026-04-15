@@ -132,10 +132,12 @@ class BaseLangGraphAgent(ABC):
         )
 
         # Token budget management (opt-in via ENABLE_TOKEN_BUDGET=true)
+        # Use __class__.__name__ instead of get_agent_name() to avoid calling
+        # an overridden method during __init__ (before subclass init completes).
         self.token_budget = None
         if os.getenv("ENABLE_TOKEN_BUDGET", "false").lower() == "true":
             self.token_budget = TokenBudgetManager(
-                agent_name=self.get_agent_name(),
+                agent_name=self.__class__.__name__,
             )
             logger.info(
                 f"Token budget enabled: max_tokens={self.token_budget.MAX_TOKENS}, "
