@@ -1188,11 +1188,11 @@ services:
     env_file: [.env]
     ports: ["8030:3000"]
     environment:
-      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
       - MONGODB_URI=${MONGODB_URI:-}
       - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
     depends_on:
-      - dynamic-agents
+      - caipe-ui
     profiles:
       - slack-bot
       - all-integrations

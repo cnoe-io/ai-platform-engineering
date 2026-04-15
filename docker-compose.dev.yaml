@@ -1962,13 +1962,12 @@ services:
       - SLACK_INTEGRATION_AUTH_CLIENT_SECRET=${SLACK_INTEGRATION_AUTH_CLIENT_SECRET:-}
       - SLACK_INTEGRATION_AUTH_SCOPE=${SLACK_INTEGRATION_AUTH_SCOPE:-}
       - SLACK_INTEGRATION_AUTH_AUDIENCE=${SLACK_INTEGRATION_AUTH_AUDIENCE:-}
-      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
       - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
       - MONGODB_DATABASE=caipe
-      - CAIPE_UI_URL=${CAIPE_UI_URL:-http://caipe-ui:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
-      dynamic-agents:
+      caipe-ui:
         condition: service_started
         required: false
       caipe-mongodb:
