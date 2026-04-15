@@ -4,11 +4,7 @@
  * These are dynamically imported by index.ts to keep startup fast.
  */
 
-import {
-  getServerUrl,
-  readSettings,
-  ServerNotConfigured,
-} from "../platform/config.js";
+import { ServerNotConfigured, getAuthUrl, readSettings } from "../platform/config.js";
 import { runSetupWizard } from "../platform/setup.js";
 import { clearTokens, loadTokens } from "./keychain.js";
 import { loginBrowser, loginDevice, loginManual } from "./oauth.js";
@@ -31,18 +27,18 @@ export async function runLogin(
   opts: { manual?: boolean; device?: boolean; force?: boolean; setupWizard?: boolean },
   globalOpts: GlobalOpts,
 ): Promise<void> {
-  // Resolve server URL
-  let serverUrl: string;
+  // Resolve auth (caipe-ui/OAuth) URL
+  let authUrl: string;
   try {
-    serverUrl = getServerUrl(globalOpts.url);
+    authUrl = getAuthUrl(globalOpts.url);
     // Re-run setup wizard if explicitly requested
     if (opts.setupWizard) {
-      serverUrl = await runSetupWizard();
+      authUrl = await runSetupWizard();
     }
   } catch (err) {
     if (err instanceof ServerNotConfigured) {
       // First run — wizard has not been completed yet
-      serverUrl = await runSetupWizard();
+      authUrl = await runSetupWizard();
     } else {
       throw err;
     }
@@ -51,16 +47,19 @@ export async function runLogin(
   // Idempotency: already authenticated?
   const existing = await loadTokens();
   if (existing && !isExpired(existing) && !opts.force) {
-    const identity = existing.identity ?? "(unknown)";
+    const who = existing.displayName || existing.identity || "(unknown)";
     if (globalOpts.json) {
       process.stdout.write(
-        JSON.stringify({ authenticated: true, identity, message: "Already authenticated" }) +
-          "\n",
+        `${JSON.stringify({
+          authenticated: true,
+          identity: existing.identity,
+          displayName: existing.displayName,
+          message: "Already authenticated",
+        })}\n`,
       );
     } else {
       process.stdout.write(
-        `Already authenticated as ${identity}.\n` +
-          `Run \`caipe auth login --force\` to re-authenticate, or \`caipe auth logout\` first.\n`,
+        `Already authenticated as ${who}.\nRun \`caipe auth login --force\` to re-authenticate, or \`caipe auth logout\` first.\n`,
       );
     }
     return;
@@ -69,19 +68,25 @@ export async function runLogin(
   const clientId = DEFAULT_CLIENT_ID;
 
   if (opts.device) {
-    await loginDevice(serverUrl, clientId);
+    await loginDevice(authUrl, clientId);
   } else if (opts.manual) {
-    await loginManual(serverUrl, clientId);
+    await loginManual(authUrl, clientId);
   } else {
-    await loginBrowser(serverUrl, clientId);
+    await loginBrowser(authUrl, clientId);
   }
 
   const tokens = await loadTokens();
-  const identity = tokens?.identity ?? "(authenticated)";
+  const who = tokens?.displayName || tokens?.identity || "(authenticated)";
   if (globalOpts.json) {
-    process.stdout.write(JSON.stringify({ authenticated: true, identity }) + "\n");
+    process.stdout.write(
+      `${JSON.stringify({
+        authenticated: true,
+        identity: tokens?.identity,
+        displayName: tokens?.displayName,
+      })}\n`,
+    );
   } else {
-    process.stdout.write(`\nAuthenticated as ${identity}.\n`);
+    process.stdout.write(`\nAuthenticated as ${who}.\n`);
   }
 }
 
@@ -100,7 +105,7 @@ export async function runLogout(): Promise<void> {
 
   const removed = await clearTokens();
   if (removed) {
-    process.stdout.write("Logged out — tokens removed from keychain.\n");
+    process.stdout.write("Logged out — credentials removed.\n");
   } else {
     process.stdout.write("No stored tokens found.\n");
   }
@@ -110,16 +115,13 @@ export async function runLogout(): Promise<void> {
 // status
 // ---------------------------------------------------------------------------
 
-export async function runStatus(
-  opts: { json?: boolean },
-  globalOpts: GlobalOpts,
-): Promise<void> {
+export async function runStatus(opts: { json?: boolean }, globalOpts: GlobalOpts): Promise<void> {
   const useJson = opts.json ?? globalOpts.json;
   const tokens = await loadTokens();
 
   if (!tokens) {
     if (useJson) {
-      process.stdout.write(JSON.stringify({ authenticated: false }) + "\n");
+      process.stdout.write(`${JSON.stringify({ authenticated: false })}\n`);
     } else {
       process.stdout.write("Not authenticated. Run `caipe auth login`.\n");
     }
@@ -128,17 +130,22 @@ export async function runStatus(
 
   const expired = isExpired(tokens);
   const expiresAt = tokens.accessTokenExpiry ?? null;
-  const identity = tokens.identity ?? "(unknown)";
+  const who = tokens.displayName || tokens.identity || "(unknown)";
 
   if (useJson) {
     process.stdout.write(
-      JSON.stringify({ authenticated: !expired, identity, expiresAt }) + "\n",
+      `${JSON.stringify({
+        authenticated: !expired,
+        identity: tokens.identity,
+        displayName: tokens.displayName,
+        expiresAt,
+      })}\n`,
     );
   } else {
     if (expired) {
-      process.stdout.write(`Session expired (${identity}). Run \`caipe auth login\` to refresh.\n`);
+      process.stdout.write(`Session expired (${who}). Run \`caipe auth login\` to refresh.\n`);
     } else {
-      process.stdout.write(`Authenticated as ${identity}`);
+      process.stdout.write(`Authenticated as ${who}`);
       if (expiresAt) {
         process.stdout.write(` (expires ${new Date(expiresAt).toLocaleString()})`);
       }

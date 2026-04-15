@@ -31,7 +31,7 @@ sidebar_label: Architecture
    - Added `ENABLE_METADATA_DETECTION=true` flag
    - Feature is opt-in and backward compatible
 
-### Client Side (agent-chat-cli) - ⚠️ NEEDS DEBUG
+### Client Side (caipe-cli) - ⚠️ NEEDS DEBUG
 
 1. **Chat Interface** (`chat_interface.py`)
    - Updated field mapping: `name`, `description`, `required` (was `field_name`, `field_description`)
@@ -54,14 +54,14 @@ sidebar_label: Architecture
 - `docker-compose.dev.yaml` (staged)
 - `agent_aws/agent.py` (staged)
 
-### agent-chat-cli:
+### caipe-cli:
 - `chat_interface.py` (modified, not staged)
 - `a2a_client.py` (modified, not staged)
 
 
 ## Next Steps
 
-1. **Debug agent-chat-cli hanging issue**
+1. **Debug caipe-cli hanging issue**
    - Check if streaming completion event is being received
    - Verify JSON parsing doesn't cause exceptions
    - Test with DEBUG=true to see detailed logs

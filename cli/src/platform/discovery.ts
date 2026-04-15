@@ -10,8 +10,8 @@
  * Keycloak tomorrow without any CLI change.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { globalConfigDir } from "./config.js";
 
 // ---------------------------------------------------------------------------
@@ -26,8 +26,14 @@ export interface AgentOAuthConfig {
   scopes?: string[];
 }
 
+export interface AgentA2AConfig {
+  /** Full URL of the A2A task endpoint (e.g. http://localhost:8000/tasks/send) */
+  endpoint?: string;
+}
+
 export interface AgentConfig {
   oauth?: AgentOAuthConfig;
+  a2a?: AgentA2AConfig;
   /** ISO 8601 — when this cache entry expires */
   _cachedAt?: string;
 }
@@ -127,10 +133,8 @@ export function resolveOAuthEndpoints(
 ): ResolvedOAuthEndpoints {
   const oauth = config.oauth ?? {};
   return {
-    authorizationEndpoint:
-      oauth.authorization_endpoint ?? `${serverUrl}/oauth/authorize`,
-    tokenEndpoint:
-      oauth.token_endpoint ?? `${serverUrl}/oauth/token`,
+    authorizationEndpoint: oauth.authorization_endpoint ?? `${serverUrl}/oauth/authorize`,
+    tokenEndpoint: oauth.token_endpoint ?? `${serverUrl}/oauth/token`,
     deviceAuthorizationEndpoint:
       oauth.device_authorization_endpoint ?? `${serverUrl}/oauth/device/code`,
     clientId: oauth.client_id ?? defaultClientId,

@@ -2,22 +2,29 @@
  * Unit tests for skill install, scan, and update (T029, T032).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 let testDir: string;
 
 beforeEach(() => {
   testDir = join(tmpdir(), `caipe-skills-${process.pid}-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
-  process.env["XDG_CONFIG_HOME"] = testDir;
+  process.env.XDG_CONFIG_HOME = testDir;
 });
 
 afterEach(() => {
-  delete process.env["XDG_CONFIG_HOME"];
+  process.env.XDG_CONFIG_HOME = "";
+  // Reset cwd to a stable directory before deleting testDir to avoid
+  // process.cwd() throwing ENOENT in subsequent tests.
+  try {
+    process.chdir(tmpdir());
+  } catch {
+    /* ignore */
+  }
   if (existsSync(testDir)) {
     rmSync(testDir, { recursive: true, force: true });
   }
@@ -39,7 +46,7 @@ describe("scanInstalledSkills", () => {
     mkdirSync(join(projectDir, ".claude"), { recursive: true });
     writeFileSync(
       join(projectDir, ".claude", "my-skill.md"),
-      `---\nname: my-skill\nversion: 1.0.0\ndescription: A test skill\n---\n# Skill Body\n`,
+      "---\nname: my-skill\nversion: 1.0.0\ndescription: A test skill\n---\n# Skill Body\n",
     );
 
     const { scanInstalledSkills } = await import("../src/skills/scan");
@@ -67,7 +74,7 @@ describe("scanInstalledSkills", () => {
     mkdirSync(join(configDir, "skills"), { recursive: true });
     writeFileSync(
       join(configDir, "skills", "global-skill.md"),
-      `---\nname: global-skill\nversion: 2.0.0\ndescription: Global\n---\n`,
+      "---\nname: global-skill\nversion: 2.0.0\ndescription: Global\n---\n",
     );
 
     const { scanInstalledSkills } = await import("../src/skills/scan");
@@ -84,7 +91,7 @@ describe("installSkill", () => {
     mkdirSync(join(projectDir, ".git"), { recursive: true });
     mkdirSync(join(projectDir, ".claude"), { recursive: true });
 
-    const content = `---\nname: test-skill\nversion: 1.0.0\ndescription: Test\n---\n# Test\n`;
+    const content = "---\nname: test-skill\nversion: 1.0.0\ndescription: Test\n---\n# Test\n";
     const hash = createHash("sha256").update(content, "utf8").digest("hex");
 
     const originalFetch = global.fetch;
@@ -140,10 +147,10 @@ describe("installSkill", () => {
     mkdirSync(join(projectDir, ".claude"), { recursive: true });
     writeFileSync(
       join(projectDir, ".claude", "existing-skill.md"),
-      `---\nname: existing-skill\nversion: 1.0.0\ndescription: existing\n---\n`,
+      "---\nname: existing-skill\nversion: 1.0.0\ndescription: existing\n---\n",
     );
 
-    const content = `---\nname: existing-skill\nversion: 1.1.0\ndescription: existing\n---\n`;
+    const content = "---\nname: existing-skill\nversion: 1.1.0\ndescription: existing\n---\n";
     const hash = createHash("sha256").update(content, "utf8").digest("hex");
 
     const originalFetch = global.fetch;
@@ -171,13 +178,18 @@ describe("installSkill", () => {
 
     const originalExit = process.exit;
     let exitCode: number | undefined;
-    process.exit = ((code: number) => { exitCode = code; throw new Error("EXIT"); }) as typeof process.exit;
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error("EXIT");
+    }) as typeof process.exit;
 
     process.chdir(projectDir);
     try {
       const { installSkill } = await import("../src/skills/install");
       await installSkill("existing-skill", {});
-    } catch { /* expected */ } finally {
+    } catch {
+      /* expected */
+    } finally {
       global.fetch = originalFetch;
       process.exit = originalExit;
       process.chdir(testDir);
@@ -198,12 +210,17 @@ describe("installSkill", () => {
 
     const originalExit = process.exit;
     let exitCode: number | undefined;
-    process.exit = ((code: number) => { exitCode = code; throw new Error("EXIT"); }) as typeof process.exit;
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error("EXIT");
+    }) as typeof process.exit;
 
     try {
       const { installSkill } = await import("../src/skills/install");
       await installSkill("nonexistent-skill", {});
-    } catch { /* expected */ } finally {
+    } catch {
+      /* expected */
+    } finally {
       global.fetch = originalFetch;
       process.exit = originalExit;
     }
@@ -221,7 +238,7 @@ describe("runSkillsUpdateCore", () => {
     mkdirSync(join(projectDir, ".claude"), { recursive: true });
     writeFileSync(
       join(projectDir, ".claude", "my-skill.md"),
-      `---\nname: my-skill\nversion: 1.1.0\ndescription: test\n---\n`,
+      "---\nname: my-skill\nversion: 1.1.0\ndescription: test\n---\n",
     );
 
     const originalFetch = global.fetch;
@@ -231,7 +248,17 @@ describe("runSkillsUpdateCore", () => {
           JSON.stringify({
             version: "1",
             generated: new Date().toISOString(),
-            skills: [{ name: "my-skill", version: "1.1.0", description: "test", author: "cnoe", tags: [], url: "https://x.com", checksum: "sha256:x" }],
+            skills: [
+              {
+                name: "my-skill",
+                version: "1.1.0",
+                description: "test",
+                author: "cnoe",
+                tags: [],
+                url: "https://x.com",
+                checksum: "sha256:x",
+              },
+            ],
           }),
           { status: 200 },
         ),
@@ -254,7 +281,7 @@ describe("runSkillsUpdateCore", () => {
     mkdirSync(join(projectDir, ".claude"), { recursive: true });
     writeFileSync(
       join(projectDir, ".claude", "my-skill.md"),
-      `---\nname: my-skill\nversion: 1.0.0\ndescription: test\n---\n`,
+      "---\nname: my-skill\nversion: 1.0.0\ndescription: test\n---\n",
     );
 
     const originalFetch = global.fetch;
@@ -264,7 +291,17 @@ describe("runSkillsUpdateCore", () => {
           JSON.stringify({
             version: "1",
             generated: new Date().toISOString(),
-            skills: [{ name: "my-skill", version: "1.1.0", description: "test", author: "cnoe", tags: [], url: "https://x.com", checksum: "sha256:x" }],
+            skills: [
+              {
+                name: "my-skill",
+                version: "1.1.0",
+                description: "test",
+                author: "cnoe",
+                tags: [],
+                url: "https://x.com",
+                checksum: "sha256:x",
+              },
+            ],
           }),
           { status: 200 },
         ),

@@ -2,21 +2,21 @@
  * Unit tests for memory loading and context assembly.
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync, existsSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let testDir: string;
 
 beforeEach(() => {
   testDir = join(tmpdir(), `caipe-ctx-${process.pid}-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
-  process.env["XDG_CONFIG_HOME"] = testDir;
+  process.env.XDG_CONFIG_HOME = testDir;
 });
 
 afterEach(() => {
-  delete process.env["XDG_CONFIG_HOME"];
+  process.env.XDG_CONFIG_HOME = "";
   if (existsSync(testDir)) {
     rmSync(testDir, { recursive: true, force: true });
   }
@@ -41,7 +41,7 @@ describe("loadMemoryFiles", () => {
     const files = loadMemoryFiles(testDir);
     const global_ = files.find((f) => f.scope === "global");
     expect(global_).toBeDefined();
-    expect(global_!.content).toContain("Hello world.");
+    expect(global_?.content).toContain("Hello world.");
   });
 
   it("loads project CLAUDE.md when .claude/ exists with .git", async () => {
@@ -55,7 +55,7 @@ describe("loadMemoryFiles", () => {
     const files = loadMemoryFiles(projectDir);
     const project = files.find((f) => f.scope === "project");
     expect(project).toBeDefined();
-    expect(project!.content).toContain("Bye world.");
+    expect(project?.content).toContain("Bye world.");
   });
 
   it("loads managed memory files in alphabetical order", async () => {
@@ -69,8 +69,8 @@ describe("loadMemoryFiles", () => {
     const files = loadMemoryFiles(projectDir);
     const managed = files.filter((f) => f.scope === "managed");
     expect(managed).toHaveLength(2);
-    expect(managed[0]!.content).toBe("AAA");
-    expect(managed[1]!.content).toBe("BBB");
+    expect(managed[0]?.content).toBe("AAA");
+    expect(managed[1]?.content).toBe("BBB");
   });
 
   it("emits warning to stderr and truncates at 50k token budget", async () => {
@@ -94,7 +94,7 @@ describe("loadMemoryFiles", () => {
 
     const global_ = files.find((f) => f.scope === "global");
     expect(global_).toBeDefined();
-    expect(global_!.content.length).toBeLessThanOrEqual(200_020); // budget + small overhead
+    expect(global_?.content.length).toBeLessThanOrEqual(200_020); // budget + small overhead
     expect(stderrChunks.join("")).toContain("truncated");
   });
 });
@@ -135,8 +135,10 @@ describe("buildSystemContext", () => {
   });
 
   it("includes repository section for a git repo", async () => {
-    // ESM exports are sealed — use mock.module() to stub the git helpers.
-    mock.module("../src/platform/git", () => ({
+    // Clear module cache so that the freshly mocked git module is picked up
+    // by context.ts when it is re-imported below.
+    vi.resetModules();
+    vi.doMock("../src/platform/git", () => ({
       findRepoRoot: async () => "/fake/root",
       sampleFileTree: async () => "src/index.ts\npackage.json",
       recentLog: async () => "abc1234 Initial commit",
@@ -144,6 +146,7 @@ describe("buildSystemContext", () => {
 
     const { buildSystemContext } = await import("../src/chat/context");
     const ctx = await buildSystemContext(testDir, false);
+    vi.doUnmock("../src/platform/git");
     expect(ctx).toContain("<repository>");
     expect(ctx).toContain("src/index.ts");
     expect(ctx).toContain("Initial commit");

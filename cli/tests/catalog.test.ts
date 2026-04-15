@@ -2,22 +2,22 @@
  * Unit tests for skills catalog (T028).
  */
 
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let testDir: string;
 
 beforeEach(() => {
   testDir = join(tmpdir(), `caipe-cat-${process.pid}-${Date.now()}`);
   mkdirSync(testDir, { recursive: true });
-  process.env["XDG_CONFIG_HOME"] = testDir;
+  process.env.XDG_CONFIG_HOME = testDir;
 });
 
 afterEach(() => {
-  delete process.env["XDG_CONFIG_HOME"];
+  process.env.XDG_CONFIG_HOME = "";
   if (existsSync(testDir)) {
     rmSync(testDir, { recursive: true, force: true });
   }
@@ -44,7 +44,7 @@ const MOCK_CATALOG = {
 describe("fetchCatalog", () => {
   it("fetches from network and caches result", async () => {
     const originalFetch = global.fetch;
-    global.fetch = mock(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve(
         new Response(JSON.stringify(MOCK_CATALOG), {
           status: 200,
@@ -67,15 +67,23 @@ describe("fetchCatalog", () => {
     // Prime the cache
     const configDir = join(testDir, "caipe");
     mkdirSync(configDir, { recursive: true });
-    const cacheObj = { catalog: MOCK_CATALOG, cachedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() }; // 2h old
+    const cacheObj = {
+      catalog: MOCK_CATALOG,
+      cachedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    }; // 2h old
     writeFileSync(join(configDir, "catalog-cache.json"), JSON.stringify(cacheObj));
 
     const originalFetch = global.fetch;
-    global.fetch = mock(() => Promise.reject(new Error("Network error"))) as unknown as unknown as typeof fetch;
+    global.fetch = vi.fn(() =>
+      Promise.reject(new Error("Network error")),
+    ) as unknown as unknown as typeof fetch;
 
     const stderrChunks: string[] = [];
     const origWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = (chunk: unknown) => { stderrChunks.push(String(chunk)); return true; };
+    process.stderr.write = (chunk: unknown) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    };
 
     try {
       const { fetchCatalog } = await import("../src/skills/catalog");
@@ -97,7 +105,7 @@ describe("fetchCatalog", () => {
 
     let fetchCalled = false;
     const originalFetch = global.fetch;
-    global.fetch = mock(() => {
+    global.fetch = vi.fn(() => {
       fetchCalled = true;
       return Promise.resolve(new Response("{}", { status: 200 }));
     }) as unknown as typeof fetch;

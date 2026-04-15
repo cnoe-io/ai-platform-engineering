@@ -327,7 +327,7 @@ StreamEvent union type  ──► Repl.tsx (protocol-agnostic render)
 - **Extended card**: `GET /agent/authenticatedExtendedCard` with Bearer token for private metadata
 - **Protocol registry**: `GET /api/v1/agents` returns `protocols: string[]` per agent; used for pre-connect validation
 - Session context UUID passed per request to preserve conversation state across turns
-- First-party reference: `cnoe-io/agent-chat-cli`
+- First-party CLI: `caipe-cli` (this project), superseding `cnoe-io/agent-chat-cli`
 
 | A2A event / pattern | StreamEvent emitted |
 |---------------------|-------------------|

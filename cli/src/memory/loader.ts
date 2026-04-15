@@ -12,13 +12,9 @@
  * Token estimation: rough approximation of 1 token ≈ 4 chars.
  */
 
-import { existsSync, readdirSync, readFileSync } from "fs";
-import { join } from "path";
-import {
-  globalMemoryFile,
-  globalConfigDir,
-  projectClaudeDir,
-} from "../platform/config.js";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { globalMemoryFile, projectClaudeDir } from "../platform/config.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,17 +59,13 @@ export function loadMemoryFiles(cwd: string): MemoryFile[] {
 
     const remaining = MAX_CHARS - totalChars;
     if (remaining <= 0) {
-      process.stderr.write(
-        `[WARNING] Memory budget exhausted — skipping ${path}\n`,
-      );
+      process.stderr.write(`[WARNING] Memory budget exhausted — skipping ${path}\n`);
       return;
     }
 
     if (content.length > remaining) {
-      process.stderr.write(
-        `[WARNING] Memory file ${path} truncated to fit 50k token budget.\n`,
-      );
-      content = content.slice(0, remaining) + "\n... (truncated)";
+      process.stderr.write(`[WARNING] Memory file ${path} truncated to fit 50k token budget.\n`);
+      content = `${content.slice(0, remaining)}\n... (truncated)`;
     }
 
     totalChars += content.length;
@@ -113,7 +105,5 @@ export function loadMemoryFiles(cwd: string): MemoryFile[] {
  */
 export function buildMemoryContext(files: MemoryFile[]): string {
   if (files.length === 0) return "";
-  return files
-    .map((f) => `<!-- memory:${f.scope}:${f.path} -->\n${f.content}`)
-    .join("\n\n");
+  return files.map((f) => `<!-- memory:${f.scope}:${f.path} -->\n${f.content}`).join("\n\n");
 }

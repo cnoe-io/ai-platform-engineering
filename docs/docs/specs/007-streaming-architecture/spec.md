@@ -68,8 +68,8 @@ return Output(response=final_response)  # ← Blocking return
 ### Current State (Not Streaming)
 
 ```bash
-uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a \
-  --host 10.99.255.178 --port 8000
+caipe config set server.url http://10.99.255.178:8000
+caipe
 
 # Type: show me komodor clusters
 #

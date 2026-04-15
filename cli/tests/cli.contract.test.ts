@@ -8,8 +8,8 @@
  * without launching a full server.
  */
 
-import { describe, it, expect } from "bun:test";
-import { getServerUrl, ServerNotConfigured } from "../src/platform/config";
+import { describe, expect, it } from "vitest";
+import { ServerNotConfigured } from "../src/platform/config";
 
 // ── ServerNotConfigured error contract ────────────────────────────────────────
 
@@ -121,10 +121,17 @@ describe("StreamAdapter contract", () => {
     const originalFetch = global.fetch;
     global.fetch = (() =>
       Promise.resolve(
-        new Response(new ReadableStream({ start(c) { c.close(); } }), {
-          status: 200,
-          headers: { "Content-Type": "text/event-stream" },
-        }),
+        new Response(
+          new ReadableStream({
+            start(c) {
+              c.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" },
+          },
+        ),
       )) as unknown as typeof fetch;
 
     try {

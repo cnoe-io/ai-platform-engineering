@@ -5,8 +5,9 @@
  * `i` to install from within browser.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Spinner } from "../platform/display.js";
 import { renderMarkdown } from "../platform/markdown.js";
 import type { CatalogEntry } from "./catalog.js";
@@ -183,7 +184,7 @@ export function SkillsBrowser({
       <Box flexDirection="column">
         <Box borderStyle="single" borderColor="cyan" paddingX={1}>
           <Text bold>Preview: {selectedSkill.name}</Text>
-          <Text dimColor>  Press any key to return</Text>
+          <Text dimColor> Press any key to return</Text>
         </Box>
         <Box padding={1}>
           {previewLoading ? (
@@ -203,7 +204,7 @@ export function SkillsBrowser({
         <Text bold color="cyan">
           Skills Catalog
         </Text>
-        <Text dimColor>↑↓ navigate  Enter preview  i install  / search  q quit</Text>
+        <Text dimColor>↑↓ navigate Enter preview i install / search q quit</Text>
       </Box>
 
       {/* Search bar */}
@@ -226,9 +227,7 @@ export function SkillsBrowser({
               <Text color={isSelected ? "cyan" : undefined} bold={isSelected}>
                 {isSelected ? "▶ " : "  "}
               </Text>
-              <Text color={isSelected ? "white" : undefined}>
-                {skill.name}
-              </Text>
+              <Text color={isSelected ? "white" : undefined}>{skill.name}</Text>
               <Text color="gray"> v{skill.version}</Text>
               {isInstalled && <Text color="green"> ✓</Text>}
               <Text dimColor> — {skill.description}</Text>
@@ -245,7 +244,9 @@ export function SkillsBrowser({
       )}
 
       <Box paddingX={1}>
-        <Text dimColor>{filtered.length} skill{filtered.length !== 1 ? "s" : ""}</Text>
+        <Text dimColor>
+          {filtered.length} skill{filtered.length !== 1 ? "s" : ""}
+        </Text>
       </Box>
     </Box>
   );

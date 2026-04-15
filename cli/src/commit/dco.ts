@@ -7,14 +7,13 @@
  * - installHook(): write prepare-commit-msg hook
  */
 
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "fs";
-import { join } from "path";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { execa } from "execa";
 import type { GitUser } from "../platform/git.js";
 
 // Read model version from env (set at build time) or fallback
-const MODEL_VERSION =
-  process.env["CAIPE_MODEL_VERSION"] ?? "claude-sonnet-4-6";
+const MODEL_VERSION = process.env.CAIPE_MODEL_VERSION ?? "claude-sonnet-4-6";
 
 // ---------------------------------------------------------------------------
 // buildCommitMessage
@@ -49,18 +48,15 @@ export function buildCommitMessage(draft: string, modelVersion?: string): string
  * Returns the signed-off line, or null if user declined.
  */
 export async function promptSignedOffBy(gitUser: GitUser): Promise<string | null> {
-  const suggestion =
-    gitUser.email
-      ? `Signed-off-by: ${gitUser.name} <${gitUser.email}>`
-      : null;
+  const suggestion = gitUser.email ? `Signed-off-by: ${gitUser.name} <${gitUser.email}>` : null;
 
   if (suggestion) {
-    process.stdout.write(`\nSigned-off-by (Enter to use, Ctrl+C to skip):\n`);
+    process.stdout.write("\nSigned-off-by (Enter to use, Ctrl+C to skip):\n");
     process.stdout.write(`  Suggestion: ${suggestion}\n`);
-    process.stdout.write(`> `);
+    process.stdout.write("> ");
   } else {
-    process.stdout.write(`\nSigned-off-by (Enter name <email>, or Enter to skip):\n`);
-    process.stdout.write(`> `);
+    process.stdout.write("\nSigned-off-by (Enter name <email>, or Enter to skip):\n");
+    process.stdout.write("> ");
   }
 
   const raw = await readLine();

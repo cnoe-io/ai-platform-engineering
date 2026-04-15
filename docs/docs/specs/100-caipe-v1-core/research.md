@@ -4,7 +4,7 @@
 
 ## How this research was conducted
 
-Analysis of terminal CLI design patterns in the Node.js/TypeScript/Bun ecosystem, cross-referenced with the caipe-cli spec and CAIPE constitution. The A2A protocol patterns are derived from `cnoe-io/agent-chat-cli` — the first-party Python reference implementation for A2A agent communication used in this project. All architectural decisions are original to caipe-cli.
+Analysis of terminal CLI design patterns in the Node.js/TypeScript/Bun ecosystem, cross-referenced with the caipe-cli spec and CAIPE constitution. The A2A protocol patterns are derived from the original `cnoe-io/agent-chat-cli` Python reference implementation, now superseded by `caipe-cli` (this TypeScript/Bun CLI). All architectural decisions are original to caipe-cli.
 
 ---
 
@@ -178,7 +178,7 @@ Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, ident
 - A2A is the default because all current grid agents support it; AG-UI adoption is in progress
 - AG-UI support future-proofs the CLI for agents migrating to the newer interface
 - Common `StreamAdapter` interface means zero REPL changes when switching protocols — only the adapter changes
-- `cnoe-io/agent-chat-cli` is the first-party A2A reference for patterns
+- `caipe-cli` (this project) is the first-party A2A CLI, superseding `cnoe-io/agent-chat-cli`
 
 **A2A protocol (default)**:
 

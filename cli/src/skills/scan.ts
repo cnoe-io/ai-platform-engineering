@@ -9,8 +9,8 @@
  * Each file must have YAML frontmatter with at least `name` and `version`.
  */
 
-import { existsSync, readdirSync, readFileSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { globalSkillsDir, projectClaudeDir } from "../platform/config.js";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,10 @@ function parseFrontmatter(content: string): Record<string, string> {
     const idx = line.indexOf(":");
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
-    const val = line.slice(idx + 1).trim().replace(/^['"]|['"]$/g, "");
+    const val = line
+      .slice(idx + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "");
     result[key] = val;
   }
   return result;
@@ -73,14 +76,14 @@ function scanDir(dir: string, scope: InstalledSkill["scope"]): InstalledSkill[] 
     }
 
     const fm = parseFrontmatter(content);
-    const name = fm["name"];
-    const version = fm["version"];
+    const name = fm.name;
+    const version = fm.version;
     if (!name || !version) continue; // not a skill file
 
     skills.push({
       name,
       version,
-      description: fm["description"] ?? "",
+      description: fm.description ?? "",
       path,
       scope,
     });

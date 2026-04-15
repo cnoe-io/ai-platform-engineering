@@ -44,9 +44,9 @@ jobs:
         working-directory: cli
         run: bun run lint
 
-      - name: Run unit tests
+      - name: Run unit tests (vitest)
         working-directory: cli
-        run: bun test tests/ --reporter verbose
+        run: bun run test
 
       - name: Build (verify compilation succeeds)
         working-directory: cli

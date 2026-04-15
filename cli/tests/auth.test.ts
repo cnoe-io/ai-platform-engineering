@@ -6,13 +6,13 @@
  *   - Device Auth polling scenarios (RFC 8628)
  */
 
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { type TokenSet, clearTokens, loadTokens, storeTokens } from "../src/auth/keychain";
 // ── Import under test ────────────────────────────────────────────────────────
 import { generatePKCE } from "../src/auth/oauth";
-import { isExpired, refreshAccessToken, getValidToken, AuthRequired } from "../src/auth/tokens";
-import { storeTokens, loadTokens, clearTokens, type TokenSet } from "../src/auth/keychain";
+import { AuthRequired, getValidToken, isExpired, refreshAccessToken } from "../src/auth/tokens";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,8 +99,8 @@ describe("keychain", () => {
     await storeTokens(tokens);
     const loaded = await loadTokens();
     expect(loaded).not.toBeNull();
-    expect(loaded!.accessToken).toBe(tokens.accessToken);
-    expect(loaded!.identity).toBe(tokens.identity);
+    expect(loaded?.accessToken).toBe(tokens.accessToken);
+    expect(loaded?.identity).toBe(tokens.identity);
   });
 
   it("clearTokens removes the stored credential", async () => {
@@ -135,7 +135,7 @@ describe("getValidToken", () => {
 
     // Mock fetch to simulate a refresh token response
     const originalFetch = global.fetch;
-    global.fetch = mock(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve(
         new Response(
           JSON.stringify({
@@ -164,7 +164,7 @@ describe("getValidToken", () => {
     await storeTokens(expiredTokens());
 
     const originalFetch = global.fetch;
-    global.fetch = mock(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 })),
     ) as unknown as typeof fetch;
 
@@ -178,7 +178,7 @@ describe("getValidToken", () => {
   it("throws AuthRequired when expired and no refresh token", async () => {
     await storeTokens(expiredTokens());
     const stored = await loadTokens();
-    await storeTokens({ ...stored!, refreshToken: undefined });
+    await storeTokens({ ...(stored as NonNullable<typeof stored>), refreshToken: undefined });
 
     await expect(getValidToken(SERVER_URL)).rejects.toBeInstanceOf(AuthRequired);
   });
@@ -203,7 +203,7 @@ describe("loginDevice polling behavior", () => {
     let callCount = 0;
 
     const originalFetch = global.fetch;
-    global.fetch = mock((url: string) => {
+    global.fetch = vi.fn((url: string) => {
       const u = String(url);
       // Device code request
       if (u.includes("/oauth/device/code")) {
@@ -224,10 +224,10 @@ describe("loginDevice polling behavior", () => {
       callCount++;
       if (callCount <= 2) {
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ error: "authorization_pending" }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
-          ),
+          new Response(JSON.stringify({ error: "authorization_pending" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
         );
       }
       return Promise.resolve(
@@ -261,7 +261,7 @@ describe("loginDevice polling behavior", () => {
     let callCount = 0;
 
     const originalFetch = global.fetch;
-    global.fetch = mock((url: string) => {
+    global.fetch = vi.fn((url: string) => {
       const u = String(url);
       if (u.includes("/device/code")) {
         return Promise.resolve(
@@ -280,17 +280,17 @@ describe("loginDevice polling behavior", () => {
       callCount++;
       if (callCount === 1) {
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ error: "slow_down" }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
-          ),
+          new Response(JSON.stringify({ error: "slow_down" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
         );
       }
       return Promise.resolve(
-        new Response(
-          JSON.stringify({ access_token: "slowed_token", expires_in: 3600 }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ access_token: "slowed_token", expires_in: 3600 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
     }) as unknown as typeof fetch;
 
@@ -322,21 +322,27 @@ describe("loginDevice polling behavior", () => {
       throw new Error(`PROCESS_EXIT:${code}`);
     }) as typeof process.exit;
 
-    global.fetch = mock((url: string) => {
+    global.fetch = vi.fn((url: string) => {
       const u = String(url);
       if (u.includes("/device/code")) {
         return Promise.resolve(
           new Response(
-            JSON.stringify({ device_code: "dc", user_code: "A", verification_uri: "https://x", expires_in: 60, interval: 0 }),
+            JSON.stringify({
+              device_code: "dc",
+              user_code: "A",
+              verification_uri: "https://x",
+              expires_in: 60,
+              interval: 0,
+            }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           ),
         );
       }
       return Promise.resolve(
-        new Response(
-          JSON.stringify({ error: "access_denied" }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ error: "access_denied" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
     }) as unknown as typeof fetch;
 
@@ -371,21 +377,27 @@ describe("loginDevice polling behavior", () => {
       throw new Error(`PROCESS_EXIT:${code}`);
     }) as typeof process.exit;
 
-    global.fetch = mock((url: string) => {
+    global.fetch = vi.fn((url: string) => {
       const u = String(url);
       if (u.includes("/device/code")) {
         return Promise.resolve(
           new Response(
-            JSON.stringify({ device_code: "dc", user_code: "A", verification_uri: "https://x", expires_in: 60, interval: 0 }),
+            JSON.stringify({
+              device_code: "dc",
+              user_code: "A",
+              verification_uri: "https://x",
+              expires_in: 60,
+              interval: 0,
+            }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           ),
         );
       }
       return Promise.resolve(
-        new Response(
-          JSON.stringify({ error: "expired_token" }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ error: "expired_token" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
     }) as unknown as typeof fetch;
 
@@ -419,7 +431,7 @@ describe("loginDevice polling behavior", () => {
       throw new Error("EXIT");
     }) as typeof process.exit;
 
-    global.fetch = mock((url: string) => {
+    global.fetch = vi.fn((url: string) => {
       const u = String(url);
       if (u.includes("/device/code")) {
         return Promise.resolve(
@@ -462,7 +474,7 @@ describe("loginDevice polling behavior", () => {
       throw new Error("EXIT");
     }) as typeof process.exit;
 
-    global.fetch = mock(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve(new Response("Not Found", { status: 404 })),
     ) as unknown as typeof fetch;
 
@@ -487,12 +499,12 @@ describe("refreshAccessToken", () => {
 
   it("exchanges refresh token for new access token", async () => {
     const originalFetch = global.fetch;
-    global.fetch = mock(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve(
-        new Response(
-          JSON.stringify({ access_token: "refreshed", expires_in: 3600 }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ access_token: "refreshed", expires_in: 3600 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       ),
     ) as unknown as typeof fetch;
 
@@ -506,7 +518,7 @@ describe("refreshAccessToken", () => {
 
   it("throws AuthRequired on 400 response", async () => {
     const originalFetch = global.fetch;
-    global.fetch = mock(() =>
+    global.fetch = vi.fn(() =>
       Promise.resolve(new Response("{}", { status: 400 })),
     ) as unknown as typeof fetch;
 

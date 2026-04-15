@@ -5,12 +5,11 @@
  * prompts for confirmation, and applies updates with backup.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
+import { readFileSync, writeFileSync } from "node:fs";
 import semver from "semver";
+import { renderDiff } from "../platform/diff.js";
 import { fetchCatalog } from "./catalog.js";
 import { scanInstalledSkills } from "./scan.js";
-import { renderDiff } from "../platform/diff.js";
 
 export interface UpdateReport {
   updated: string[];
@@ -73,9 +72,7 @@ export async function runSkillsUpdateCore(
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       newContent = await res.text();
     } catch (err) {
-      process.stderr.write(
-        `[ERROR] Could not fetch update for "${skill.name}": ${String(err)}\n`,
-      );
+      process.stderr.write(`[ERROR] Could not fetch update for "${skill.name}": ${String(err)}\n`);
       report.errors.push(skill.name);
       continue;
     }
@@ -87,8 +84,8 @@ export async function runSkillsUpdateCore(
     process.stdout.write(
       `\nUpdate available: ${skill.name} v${skill.version} → v${catalogEntry.version}\n`,
     );
-    process.stdout.write(diff + "\n");
-    process.stdout.write(`Apply update? [y/N] `);
+    process.stdout.write(`${diff}\n`);
+    process.stdout.write("Apply update? [y/N] ");
 
     const answer = await readLine();
     if (!answer.trim().toLowerCase().startsWith("y")) {
@@ -103,19 +100,14 @@ export async function runSkillsUpdateCore(
 
     // Write new version
     writeFileSync(skill.path, newContent, "utf8");
-    process.stdout.write(
-      `Updated "${skill.name}" (backup: ${backupPath})\n`,
-    );
+    process.stdout.write(`Updated "${skill.name}" (backup: ${backupPath})\n`);
     report.updated.push(skill.name);
   }
 
   // Summary
   if (!opts.dryRun) {
     process.stdout.write(
-      `\nUpdate complete: ${report.updated.length} updated, ` +
-        `${report.skipped.length} skipped, ${report.upToDate.length} up to date` +
-        (report.errors.length > 0 ? `, ${report.errors.length} errors` : "") +
-        "\n",
+      `\nUpdate complete: ${report.updated.length} updated, ${report.skipped.length} skipped, ${report.upToDate.length} up to date${report.errors.length > 0 ? `, ${report.errors.length} errors` : ""}\n`,
     );
   }
 
