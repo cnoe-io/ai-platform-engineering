@@ -376,9 +376,14 @@ def extract_form_response(payload: Dict[str, Any], form_id: str) -> Dict[str, An
         if "value" in action_value:
           response[field_id] = action_value["value"]
         elif "selected_option" in action_value:
-          response[field_id] = action_value["selected_option"]["value"]
+          opt = action_value["selected_option"]
+          # selected_option is None when user hasn't picked anything yet
+          if opt is not None:
+            response[field_id] = opt["value"]
         elif "selected_options" in action_value:
-          response[field_id] = [opt["value"] for opt in action_value["selected_options"]]
+          opts = action_value["selected_options"]
+          if opts:
+            response[field_id] = [opt["value"] for opt in opts]
 
   return response
 

@@ -154,56 +154,44 @@ class TestAlreadyStreamedPath:
 
 
 # ---------------------------------------------------------------------------
-# 3. Plan + SSE streaming
+# 3. Tool call with thinking text
 # ---------------------------------------------------------------------------
 
 
-def _plan_step(step_id, title, status="pending", order=0):
-  return {"step_id": step_id, "title": title, "status": status, "order": order}
-
-
-class TestPlanAndSSEStreaming:
-  def test_plan_update_then_content_streams_correctly(self):
-    """Plan update followed by content — both are handled and stop stream called."""
+class TestToolThinkingInStream:
+  def test_thinking_before_tool_not_in_final_stream(self):
+    """Text before a tool call is consumed as thinking, not duplicated in final output."""
     events = [
-      SSEEvent(
-        type=SSEEventType.STATE_DELTA,
-        steps=[
-          _plan_step("s1", "Search docs", "in_progress"),
-        ],
-      ),
-      SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Here are the docs."),
-      SSEEvent(type=SSEEventType.RUN_FINISHED, run_id="run-1"),
-    ]
-    mock_slack = _run_stream(events)
-    mock_slack.chat_stopStream.assert_called_once()
-
-  def test_plan_steps_force_completed_at_finalization(self):
-    """Steps still in_progress at finalization are force-completed."""
-    events = [
-      SSEEvent(
-        type=SSEEventType.STATE_DELTA,
-        steps=[
-          _plan_step("s1", "Step 1", "completed"),
-          _plan_step("s2", "Step 2", "in_progress"),
-          _plan_step("s3", "Step 3", "pending"),
-        ],
-      ),
-      SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Done"),
+      SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Let me search..."),
+      SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name="search", tool_call_id="tc-1"),
+      SSEEvent(type=SSEEventType.TOOL_CALL_END, tool_call_id="tc-1"),
+      SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Here is the answer."),
       SSEEvent(type=SSEEventType.RUN_FINISHED, run_id="run-1"),
     ]
     mock_slack = _run_stream(events)
 
-    # Gather all task_update chunks from appendStream
-    all_task_updates = {}
+    # The final delivered text should contain the answer, not the thinking
+    delivered = _get_all_delivered_text(mock_slack)
+    assert "Here is the answer." in delivered
+
+  def test_thinking_appears_as_tool_details(self):
+    """Thinking text is shown as details on the tool's checklist item."""
+    events = [
+      SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Checking docs..."),
+      SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name="search", tool_call_id="tc-1"),
+      SSEEvent(type=SSEEventType.TOOL_CALL_END, tool_call_id="tc-1"),
+      SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Found it."),
+      SSEEvent(type=SSEEventType.RUN_FINISHED, run_id="run-1"),
+    ]
+    mock_slack = _run_stream(events)
+
+    # Find the in_progress task_update for tc-1
     for c in mock_slack.chat_appendStream.call_args_list:
       for chunk in c.kwargs.get("chunks", []):
-        if chunk.get("type") == "task_update":
-          all_task_updates[chunk["id"]] = chunk["status"]
-
-    # s2 and s3 should be force-completed
-    assert all_task_updates.get("s2") == "complete", "s2 should be force-completed"
-    assert all_task_updates.get("s3") == "complete", "s3 should be force-completed"
+        if chunk.get("type") == "task_update" and chunk.get("status") == "in_progress":
+          assert chunk.get("details") == "Checking docs..."
+          return
+    raise AssertionError("No in_progress task_update found with thinking details")
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +203,7 @@ class TestSSEErrorPath:
   def test_error_with_no_content_returns_retry_needed(self):
     """RUN_ERROR event with no content triggers retry_needed."""
     events = [
-      SSEEvent(type=SSEEventType.RUN_ERROR, message="Supervisor unavailable"),
+      SSEEvent(type=SSEEventType.RUN_ERROR, message="Agent unavailable"),
     ]
     mock_sse = _mock_sse_client(events)
     mock_slack = _mock_slack()

@@ -348,7 +348,7 @@ class SSEClient:
 
     return SSEEvent(
       type=raw_type,
-      delta=data.get("delta") if raw_type == SSEEventType.TEXT_MESSAGE_CONTENT else None,
+      delta=data.get("delta") if raw_type in (SSEEventType.TEXT_MESSAGE_CONTENT, SSEEventType.TOOL_CALL_ARGS) else None,
       message_id=data.get("messageId"),
       tool_call_id=data.get("toolCallId"),
       tool_call_name=data.get("toolCallName"),

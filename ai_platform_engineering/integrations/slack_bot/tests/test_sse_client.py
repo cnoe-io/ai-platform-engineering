@@ -205,11 +205,9 @@ class TestSSEClientParseEvent:
     assert event.type == SSEEventType.RUN_ERROR
     assert event.message == "Agent failed"
 
-  def test_delta_only_set_for_text_message_content(self):
-    """delta field should only be populated for TEXT_MESSAGE_CONTENT events."""
+  def test_delta_not_set_for_state_delta(self):
+    """STATE_DELTA has a 'delta' in raw JSON, but SSEEvent.delta should not be set."""
     client = SSEClient("http://example.com")
-    # STATE_DELTA also has a "delta" in the raw JSON, but SSEEvent.delta
-    # should only be set for TEXT_MESSAGE_CONTENT
     data = json.dumps(
       {
         "type": "STATE_DELTA",
@@ -217,5 +215,20 @@ class TestSSEClientParseEvent:
       }
     )
     event = client._parse_event(data)
-    assert event.delta is None  # Not a TEXT_MESSAGE_CONTENT
+    assert event.delta is None  # Not a TEXT_MESSAGE_CONTENT or TOOL_CALL_ARGS
     assert event.steps is not None  # But steps should be populated
+
+  def test_delta_set_for_tool_call_args(self):
+    """TOOL_CALL_ARGS events should have delta populated with the args JSON string."""
+    client = SSEClient("http://example.com")
+    data = json.dumps(
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "tc-1",
+        "delta": '{"thought": "searching"}',
+      }
+    )
+    event = client._parse_event(data)
+    assert event.type == SSEEventType.TOOL_CALL_ARGS
+    assert event.delta == '{"thought": "searching"}'
+    assert event.tool_call_id == "tc-1"

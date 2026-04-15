@@ -1,162 +1,147 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Slack Block Kit Formatting Utilities
-Formats A2A responses and plans into rich Slack messages
+Slack Block Kit formatting utilities for streaming task progress.
+
+Builds task_update and plan_update chunks for chat.appendStream,
+and error/text blocks for chat.stopStream / chat.postMessage.
 """
 
 from typing import List, Dict, Any, Optional
 
 
-# Maps A2A plan step statuses to Slack task_update statuses
-STATUS_MAP_A2A_TO_SLACK = {
-    "pending": "pending",
-    "in_progress": "in_progress",
-    "completed": "complete",
-    "failed": "error",
+# Maps backend statuses to Slack task_update statuses.
+# Backend uses "completed"; Slack's task_update uses "complete".
+STATUS_TO_SLACK = {
+  "pending": "pending",
+  "in_progress": "in_progress",
+  "completed": "complete",
+  "failed": "error",
 }
 
 
-def _format_step_title(step: Dict[str, Any]) -> str:
-    """Format step title with agent name prefix like the UI does."""
-    title = step.get("title", "")
-    agent = step.get("agent", "")
-    if agent and agent != "Supervisor":
-        return f"[{agent}] {title}"
-    return title
-
-
-def build_task_update_chunks(
-    steps: List[Dict[str, Any]],
-    step_details: Optional[Dict[str, str]] = None,
-) -> List[Dict[str, Any]]:
-    """Convert A2A plan steps to Slack task_update chunk format.
-
-    Args:
-        steps: List of plan step dicts with step_id, title, status, order.
-        step_details: Optional map of step_id -> details text to include.
-    """
-    chunks = []
-    for step in sorted(steps, key=lambda s: s.get("order", 0)):
-        chunk = {
-            "type": "task_update",
-            "id": step["step_id"],
-            "title": _format_step_title(step),
-            "status": STATUS_MAP_A2A_TO_SLACK.get(step.get("status", "pending"), "pending"),
-        }
-        if step_details:
-            details = step_details.get(step["step_id"])
-            if details:
-                chunk["details"] = details
-        chunks.append(chunk)
-    return chunks
-
-
 def build_single_task_update(
-    step_id: str,
-    title: str,
-    status: str,
-    details: Optional[str] = None,
+  step_id: str,
+  title: str,
+  status: str,
+  details: Optional[str] = None,
+  output: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Build a single task_update chunk for appendStream."""
-    chunk = {
-        "type": "task_update",
-        "id": step_id,
-        "title": title,
-        "status": STATUS_MAP_A2A_TO_SLACK.get(status, "pending"),
-    }
-    if details:
-        chunk["details"] = details
-    return chunk
+  """Build a single task_update chunk for appendStream.
+
+  Args:
+      step_id: Unique ID for the task card.
+      title: Display title.
+      status: One of pending, in_progress, completed, failed.
+      details: Optional short text shown below the title (max 256 chars).
+      output: Optional output text shown on completion (max 256 chars).
+  """
+  chunk: Dict[str, Any] = {
+    "type": "task_update",
+    "id": step_id,
+    "title": title[:250],
+    "status": STATUS_TO_SLACK.get(status, "pending"),
+  }
+  if details:
+    chunk["details"] = details[:250]
+  if output:
+    chunk["output"] = output[:250]
+  return chunk
+
+
+def build_plan_update(title: str) -> Dict[str, Any]:
+  """Build a plan_update chunk for appendStream."""
+  return {
+    "type": "plan_update",
+    "title": title[:250],
+  }
+
+
+def build_todo_task_updates(
+  todos: List[Dict[str, Any]],
+  todo_details: Optional[Dict[int, str]] = None,
+  todo_outputs: Optional[Dict[int, str]] = None,
+) -> List[Dict[str, Any]]:
+  """Convert backend todo items to Slack task_update chunks.
+
+  Args:
+      todos: List of todo dicts with 'id', 'content', 'status'.
+      todo_details: Optional map of todo id -> details text (thinking).
+      todo_outputs: Optional map of todo id -> output text (tool thought).
+  """
+  chunks = []
+  for todo in todos:
+    todo_id = todo.get("id", 0)
+    chunk = build_single_task_update(
+      step_id=f"todo_{todo_id}",
+      title=todo.get("content", ""),
+      status=todo.get("status", "pending"),
+      details=(todo_details or {}).get(todo_id),
+      output=(todo_outputs or {}).get(todo_id),
+    )
+    chunks.append(chunk)
+  return chunks
 
 
 def split_text_into_blocks(text: str, max_length: int = 3000) -> List[str]:
-    """Split text into chunks that fit within Slack's block text limit."""
-    if len(text) <= max_length:
-        return [text]
+  """Split text into chunks that fit within Slack's block text limit."""
+  if len(text) <= max_length:
+    return [text]
 
-    chunks = []
-    current_chunk = ""
+  chunks = []
+  current_chunk = ""
 
-    paragraphs = text.split("\n\n")
+  paragraphs = text.split("\n\n")
 
-    for paragraph in paragraphs:
-        if len(paragraph) > max_length:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-                current_chunk = ""
-
-            lines = paragraph.split("\n")
-            for line in lines:
-                if len(line) > max_length:
-                    if current_chunk:
-                        chunks.append(current_chunk.strip())
-                    chunks.append(line[: max_length - 50] + "\n\n_[Line truncated due to length]_")
-                    current_chunk = ""
-                elif len(current_chunk) + len(line) + 1 > max_length:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = line
-                else:
-                    current_chunk += ("\n" + line) if current_chunk else line
-
-        elif len(current_chunk) + len(paragraph) + 2 > max_length:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-            current_chunk = paragraph
-        else:
-            current_chunk += ("\n\n" + paragraph) if current_chunk else paragraph
-
-    if current_chunk:
+  for paragraph in paragraphs:
+    if len(paragraph) > max_length:
+      if current_chunk:
         chunks.append(current_chunk.strip())
+        current_chunk = ""
 
-    return chunks
+      lines = paragraph.split("\n")
+      for line in lines:
+        if len(line) > max_length:
+          if current_chunk:
+            chunks.append(current_chunk.strip())
+          chunks.append(line[: max_length - 50] + "\n\n_[Line truncated due to length]_")
+          current_chunk = ""
+        elif len(current_chunk) + len(line) + 1 > max_length:
+          chunks.append(current_chunk.strip())
+          current_chunk = line
+        else:
+          current_chunk += ("\n" + line) if current_chunk else line
 
+    elif len(current_chunk) + len(paragraph) + 2 > max_length:
+      if current_chunk:
+        chunks.append(current_chunk.strip())
+      current_chunk = paragraph
+    else:
+      current_chunk += ("\n\n" + paragraph) if current_chunk else paragraph
 
-def format_message_part(part: Dict[str, Any]) -> str:
-    """Format a single message part (text, file, or data)."""
-    kind = part.get("kind", "text")
+  if current_chunk:
+    chunks.append(current_chunk.strip())
 
-    if kind == "text":
-        return part.get("text", "")
-    elif kind == "file":
-        file_info = part.get("file", {})
-        name = file_info.get("name", "file")
-        uri = file_info.get("uri", "")
-        if uri:
-            return f"<{uri}|{name}>"
-        return f"{name}"
-    elif kind == "data":
-        return f"```{part.get('data', {})}```"
-
-    return ""
+  return chunks
 
 
 def format_error_message(error_message: str) -> List[Dict[str, Any]]:
-    """Format an error message as Slack blocks."""
-    full_error_text = f"*Error*\n{error_message}"
-
-    blocks = [
+  """Format an error message as Slack blocks."""
+  return [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": f"*Error*\n{error_message}",
+      },
+    },
+    {
+      "type": "context",
+      "elements": [
         {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": full_error_text,
-            },
+          "type": "mrkdwn",
+          "text": "_You can try asking again or rephrase your question._",
         }
-    ]
-
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": "_You can try asking again or rephrase your question._",
-                }
-            ],
-        }
-    )
-
-    return blocks
-
-
+      ],
+    },
+  ]

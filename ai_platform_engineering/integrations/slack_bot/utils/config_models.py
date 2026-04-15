@@ -17,6 +17,7 @@ class GlobalDefaults(BaseModel):
   time_frame: int = 19800
   max_messages: int = 3
   default_agent_id: Optional[str] = None
+  dm_agent_id: Optional[str] = None
 
   jira_server: str = Field(default_factory=lambda: os.environ.get("JIRA_BASE_URL", ""))
 
@@ -131,6 +132,11 @@ STEP 3 - Respond:
 User message:
 {message_text}""",
     )
+  )
+
+  dm_prompt: Optional[str] = Field(
+    default_factory=lambda: os.environ.get("SLACK_INTEGRATION_PROMPT_DM"),
+    description="Optional DM-specific prompt. Falls back to default_mention_prompt if not set.",
   )
 
   humble_followup_prompt: str = Field(

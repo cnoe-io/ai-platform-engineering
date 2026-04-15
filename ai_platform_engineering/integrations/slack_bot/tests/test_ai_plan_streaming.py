@@ -1,13 +1,17 @@
 """Tests for plan-mode streaming in ai.py using the SSE path.
 
-Covers: lazy stream start, setStatus behavior, plan step streaming,
-force-complete at finalization, stopStream final answer, and StreamBuffer batching.
+Covers: lazy stream start, setStatus behavior, tool call streaming with
+thinking text and thought extraction, stopStream final answer, and StreamBuffer batching.
 """
 
 import time
 from unittest.mock import Mock
 
-from ai_platform_engineering.integrations.slack_bot.utils.ai import stream_response, StreamBuffer
+from ai_platform_engineering.integrations.slack_bot.utils.ai import (
+  stream_response,
+  StreamBuffer,
+  _extract_tool_thought,
+)
 from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, SSEEventType
 
 
@@ -20,16 +24,16 @@ def _content_event(text):
   return SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta=text)
 
 
-def _plan_event(steps):
-  return SSEEvent(type=SSEEventType.STATE_DELTA, steps=steps)
+def _tool_start_event(name="search", tool_call_id="tc-1"):
+  return SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name=name, tool_call_id=tool_call_id)
 
 
-def _tool_start_event(name="search"):
-  return SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name=name)
+def _tool_args_event(tool_call_id="tc-1", delta='{"thought": "Looking for docs"}'):
+  return SSEEvent(type=SSEEventType.TOOL_CALL_ARGS, tool_call_id=tool_call_id, delta=delta)
 
 
-def _tool_end_event(name="search"):
-  return SSEEvent(type=SSEEventType.TOOL_CALL_END, tool_call_name=name)
+def _tool_end_event(tool_call_id="tc-1"):
+  return SSEEvent(type=SSEEventType.TOOL_CALL_END, tool_call_id=tool_call_id)
 
 
 def _done_event(run_id="run-1"):
@@ -38,10 +42,6 @@ def _done_event(run_id="run-1"):
 
 def _error_event(message="Something failed"):
   return SSEEvent(type=SSEEventType.RUN_ERROR, message=message)
-
-
-def _make_step(step_id, title, status="pending", order=0, agent=""):
-  return {"step_id": step_id, "title": title, "status": status, "order": order, "agent": agent}
 
 
 def _mock_slack():
@@ -63,6 +63,16 @@ def _mock_sse_client(events):
   return mock
 
 
+def _get_task_updates(mock_slack):
+  """Collect all task_update chunks from appendStream calls."""
+  updates = []
+  for c in mock_slack.chat_appendStream.call_args_list:
+    for chunk in c.kwargs.get("chunks", []):
+      if chunk.get("type") == "task_update":
+        updates.append(chunk)
+  return updates
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -72,9 +82,10 @@ class TestLazyStreamAndSetStatus:
   """Verify setStatus is called before startStream, and startStream is deferred."""
 
   def test_set_status_called_before_start_stream(self):
-    """setStatus('is thinking...') fires immediately; startStream fires on first content."""
+    """setStatus('is thinking...') fires immediately; startStream fires on first tool call."""
     events = [
-      _plan_event([_make_step("s1", "Search docs", "in_progress", 0)]),
+      _tool_start_event("search", "tc-1"),
+      _tool_end_event("tc-1"),
       _content_event("Done"),
       _done_event(),
     ]
@@ -109,7 +120,7 @@ class TestLazyStreamAndSetStatus:
     assert set_status_idx < start_stream_idx
 
   def test_start_stream_with_content_only(self):
-    """If no plan but content arrives, startStream fires and final text goes via stopStream."""
+    """If no tool calls but content arrives, startStream fires and final text goes via stopStream."""
     events = [
       _content_event("Here is the answer"),
       _done_event(),
@@ -133,51 +144,6 @@ class TestLazyStreamAndSetStatus:
     mock_slack.chat_startStream.assert_called_once()
     # stopStream should be called to finalize
     mock_slack.chat_stopStream.assert_called_once()
-
-
-class TestForceCompleteAtFinalization:
-  """Steps left in_progress/pending are force-completed before stopStream."""
-
-  def test_pending_steps_force_completed(self):
-    """Steps that never reached 'completed' are force-completed at finalization."""
-    events = [
-      _plan_event(
-        [
-          _make_step("s1", "Step 1", "completed", 0),
-          _make_step("s2", "Step 2", "in_progress", 1),
-          _make_step("s3", "Step 3", "pending", 2),
-        ]
-      ),
-      _content_event("All done"),
-      _done_event(),
-    ]
-    mock_sse = _mock_sse_client(events)
-    mock_slack = _mock_slack()
-
-    stream_response(
-      sse_client=mock_sse,
-      slack_client=mock_slack,
-      channel_id="C1",
-      thread_ts="t1",
-      message_text="hi",
-      team_id="T1",
-      user_id="U123",
-      agent_id="test-agent",
-      conversation_id="conv-1",
-    )
-
-    # Collect all task_update chunks sent via appendStream
-    all_task_updates = {}
-    for c in mock_slack.chat_appendStream.call_args_list:
-      chunks = c.kwargs.get("chunks", [])
-      for chunk in chunks:
-        if chunk.get("type") == "task_update":
-          # Keep the last status sent per step
-          all_task_updates[chunk["id"]] = chunk["status"]
-
-    # s2 and s3 should have been force-completed to "complete"
-    assert all_task_updates.get("s2") == "complete", "s2 should be force-completed"
-    assert all_task_updates.get("s3") == "complete", "s3 should be force-completed"
 
 
 class TestStopStreamCarriesFinalAnswer:
@@ -217,7 +183,8 @@ class TestToolEvents:
   def test_tool_start_initiates_stream(self):
     """TOOL_START calls _start_stream_if_needed, which initiates the Slack stream."""
     events = [
-      _tool_start_event("rag_search"),
+      _tool_start_event("rag_search", "tc-1"),
+      _tool_end_event("tc-1"),
       _content_event("Result"),
       _done_event(),
     ]
@@ -242,7 +209,8 @@ class TestToolEvents:
   def test_tool_start_tries_to_start_stream(self):
     """When stream fails, TOOL_START still tries to start it (graceful degradation)."""
     events = [
-      _tool_start_event("rag_search"),
+      _tool_start_event("rag_search", "tc-1"),
+      _tool_end_event("tc-1"),
       _content_event("Result"),
       _done_event(),
     ]
@@ -269,8 +237,8 @@ class TestToolEvents:
   def test_tool_end_typing_status_when_no_stream(self):
     """TOOL_END updates typing status to 'is working...' when stream has not started."""
     events = [
-      _tool_start_event("my_tool"),
-      _tool_end_event("my_tool"),
+      _tool_start_event("my_tool", "tc-1"),
+      _tool_end_event("tc-1"),
       _content_event("Done"),
       _done_event(),
     ]
@@ -293,6 +261,220 @@ class TestToolEvents:
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert any("working" in s for s in status_calls), "Should update typing status to 'is working...' after tool end when stream not started"
+
+
+class TestThinkingBuffer:
+  """Text between tool calls is buffered as 'thinking' and shown as details on tools."""
+
+  def test_thinking_text_shown_as_tool_start_details(self):
+    """Text before a tool call appears as details on the tool's in_progress checklist item."""
+    events = [
+      _content_event("Let me search for that..."),
+      _tool_start_event("rag_search", "tc-1"),
+      _tool_end_event("tc-1"),
+      _content_event("Here is the answer."),
+      _done_event(),
+    ]
+    mock_slack = Mock()
+    mock_slack.chat_startStream.return_value = {"ts": "stream-ts-1"}
+    mock_slack.chat_appendStream.return_value = {"ok": True}
+    mock_slack.chat_stopStream.return_value = {"ok": True}
+    mock_slack.assistant_threads_setStatus.return_value = {"ok": True}
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    updates = _get_task_updates(mock_slack)
+    in_progress = [u for u in updates if u["status"] == "in_progress"]
+    assert len(in_progress) == 1
+    assert in_progress[0]["details"] == "Let me search for that..."
+
+  def test_thinking_between_tools_shown_on_second_tool(self):
+    """Text between two tool calls is shown as details on the second tool."""
+    events = [
+      _tool_start_event("rag_search", "tc-1"),
+      _tool_end_event("tc-1"),
+      _content_event("Now let me check Jira..."),
+      _tool_start_event("jira_search", "tc-2"),
+      _tool_end_event("tc-2"),
+      _content_event("Final answer."),
+      _done_event(),
+    ]
+    mock_slack = Mock()
+    mock_slack.chat_startStream.return_value = {"ts": "stream-ts-1"}
+    mock_slack.chat_appendStream.return_value = {"ok": True}
+    mock_slack.chat_stopStream.return_value = {"ok": True}
+    mock_slack.assistant_threads_setStatus.return_value = {"ok": True}
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    updates = _get_task_updates(mock_slack)
+    # First tool should have no thinking details (no text before it)
+    first_in_progress = [u for u in updates if u["status"] == "in_progress" and u["id"] == "tc-1"]
+    assert len(first_in_progress) == 1
+    assert first_in_progress[0].get("details") is None
+
+    # Second tool should have the thinking text
+    second_in_progress = [u for u in updates if u["status"] == "in_progress" and u["id"] == "tc-2"]
+    assert len(second_in_progress) == 1
+    assert second_in_progress[0]["details"] == "Now let me check Jira..."
+
+  def test_thinking_truncated_to_200_chars(self):
+    """Thinking text longer than 200 chars is truncated."""
+    long_text = "A" * 250
+    events = [
+      _content_event(long_text),
+      _tool_start_event("search", "tc-1"),
+      _tool_end_event("tc-1"),
+      _content_event("Done."),
+      _done_event(),
+    ]
+    mock_slack = Mock()
+    mock_slack.chat_startStream.return_value = {"ts": "stream-ts-1"}
+    mock_slack.chat_appendStream.return_value = {"ok": True}
+    mock_slack.chat_stopStream.return_value = {"ok": True}
+    mock_slack.assistant_threads_setStatus.return_value = {"ok": True}
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    updates = _get_task_updates(mock_slack)
+    in_progress = [u for u in updates if u["status"] == "in_progress"]
+    assert len(in_progress) == 1
+    assert len(in_progress[0]["details"]) == 200
+
+  def test_final_text_after_tools_streamed_normally(self):
+    """Text after the last tool call is the final answer, streamed via appendStream."""
+    events = [
+      _tool_start_event("search", "tc-1"),
+      _tool_end_event("tc-1"),
+      _content_event("Here is the final answer."),
+      _done_event(),
+    ]
+    mock_slack = Mock()
+    mock_slack.chat_startStream.return_value = {"ts": "stream-ts-1"}
+    mock_slack.chat_appendStream.return_value = {"ok": True}
+    mock_slack.chat_stopStream.return_value = {"ok": True}
+    mock_slack.assistant_threads_setStatus.return_value = {"ok": True}
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    # Final answer text should appear somewhere (appendStream or stopStream)
+    all_text = []
+    for c in mock_slack.chat_appendStream.call_args_list:
+      for chunk in c.kwargs.get("chunks", []):
+        if chunk.get("type") == "markdown_text":
+          all_text.append(chunk["text"])
+    stop_call = mock_slack.chat_stopStream.call_args
+    for chunk in stop_call.kwargs.get("chunks") or []:
+      if chunk.get("type") == "markdown_text":
+        all_text.append(chunk["text"])
+    combined = "".join(all_text)
+    assert "Here is the final answer." in combined
+
+
+class TestToolThoughtExtraction:
+  """Tests for _extract_tool_thought and TOOL_CALL_ARGS thought display."""
+
+  def test_extract_thought_basic(self):
+    assert _extract_tool_thought('{"thought": "Looking for docs"}') == "Looking for docs"
+
+  def test_extract_reason(self):
+    assert _extract_tool_thought('{"reason": "Need to check"}') == "Need to check"
+
+  def test_extract_first_matching_key(self):
+    """Returns the first matching key in priority order."""
+    result = _extract_tool_thought('{"reason": "R", "thought": "T"}')
+    assert result == "T"  # thought comes before reason in _THOUGHT_KEYS
+
+  def test_extract_skips_empty(self):
+    assert _extract_tool_thought('{"thought": "", "reason": "Actual reason"}') == "Actual reason"
+
+  def test_extract_truncates_long_text(self):
+    long = "X" * 300
+    result = _extract_tool_thought(f'{{"thought": "{long}"}}')
+    assert result.endswith("...")
+    assert len(result) == 203  # 200 + "..."
+
+  def test_extract_returns_none_for_no_thought(self):
+    assert _extract_tool_thought('{"query": "kubernetes"}') is None
+
+  def test_extract_returns_none_for_invalid_json(self):
+    assert _extract_tool_thought("not json") is None
+
+  def test_extract_returns_none_for_empty(self):
+    assert _extract_tool_thought("") is None
+    assert _extract_tool_thought(None) is None
+
+  def test_tool_args_thought_shown_on_completed(self):
+    """Thought extracted from TOOL_CALL_ARGS is shown as details on the completed checklist item."""
+    events = [
+      _tool_start_event("rag_search", "tc-1"),
+      _tool_args_event("tc-1", '{"thought": "Searching for k8s docs", "query": "kubernetes"}'),
+      _tool_end_event("tc-1"),
+      _content_event("Here is the answer."),
+      _done_event(),
+    ]
+    mock_slack = Mock()
+    mock_slack.chat_startStream.return_value = {"ts": "stream-ts-1"}
+    mock_slack.chat_appendStream.return_value = {"ok": True}
+    mock_slack.chat_stopStream.return_value = {"ok": True}
+    mock_slack.assistant_threads_setStatus.return_value = {"ok": True}
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    updates = _get_task_updates(mock_slack)
+    completed = [u for u in updates if u["status"] == "complete"]
+    assert len(completed) == 1
+    assert completed[0]["details"] == "Searching for k8s docs"
 
 
 class TestStreamBuffer:

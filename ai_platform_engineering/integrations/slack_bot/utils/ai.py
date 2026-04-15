@@ -17,12 +17,89 @@ import time
 
 from loguru import logger
 
-from ..sse_client import SSEClient, SSEEventType, thread_ts_to_conversation_id
+try:
+  from sse_client import SSEClient, SSEEventType, thread_ts_to_conversation_id  # type: ignore[import]
+except ImportError:
+  from ..sse_client import SSEClient, SSEEventType, thread_ts_to_conversation_id
 from . import slack_formatter
 from . import utils as _utils
 from .config import config
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
+
+# Keys to search for in tool arguments to find reasoning/thought text.
+# Matches the UI's extractToolThought() in ui/src/types/timeline.ts.
+_THOUGHT_KEYS = (
+  "thought",
+  "thoughts",
+  "reason",
+  "thinking",
+  "rationale",
+  "explanation",
+  "description",
+  "purpose",
+  "intent",
+  "goal",
+)
+
+_MAX_DETAILS_LEN = 200
+
+
+def _parse_write_todos_args(raw_args_json: str) -> list[dict] | None:
+  """Parse the todo list from write_todos tool arguments.
+
+  The write_todos tool is called with args like:
+  {"todos": [{"id": 1, "content": "...", "status": "in_progress"}, ...]}
+
+  Args:
+      raw_args_json: JSON string of write_todos tool arguments.
+
+  Returns:
+      List of todo dicts, or None if parsing fails.
+  """
+  if not raw_args_json:
+    return None
+  try:
+    args = json.loads(raw_args_json)
+  except (json.JSONDecodeError, TypeError):
+    return None
+  if not isinstance(args, dict):
+    return None
+  todos = args.get("todos")
+  if not isinstance(todos, list) or not todos:
+    return None
+  return todos
+
+
+def _extract_tool_thought(raw_args_json: str) -> str | None:
+  """Extract a thought/reason string from JSON-encoded tool arguments.
+
+  Searches for well-known keys (thought, reason, etc.) in the parsed
+  args dict and returns the first non-empty string value found, truncated
+  to _MAX_DETAILS_LEN characters.
+
+  Args:
+      raw_args_json: JSON string of tool arguments (may be truncated by backend).
+
+  Returns:
+      Truncated thought string, or None if no thought field found.
+  """
+  if not raw_args_json:
+    return None
+  try:
+    args = json.loads(raw_args_json)
+  except (json.JSONDecodeError, TypeError):
+    return None
+  if not isinstance(args, dict):
+    return None
+  for key in _THOUGHT_KEYS:
+    value = args.get(key)
+    if isinstance(value, str) and value.strip():
+      trimmed = value.strip()
+      if len(trimmed) > _MAX_DETAILS_LEN:
+        return trimmed[:_MAX_DETAILS_LEN] + "..."
+      return trimmed
+  return None
 
 
 class StreamBuffer:
@@ -78,10 +155,12 @@ class StreamBuffer:
     """Send *text* to Slack and update bookkeeping."""
     self._last_flush = time.monotonic()
     try:
+      chunks = [{"type": "markdown_text", "text": text}]
+      logger.debug(f"SLACK appendStream text: {text[:100]!r}")
       self.slack_client.chat_appendStream(
         channel=self.channel_id,
         ts=self.stream_ts,
-        chunks=[{"type": "markdown_text", "text": text}],
+        chunks=chunks,
       )
       self._flushed_any = True
       return True
@@ -102,14 +181,16 @@ def _build_footer_text(triggered_by_user_id=None, additional_footer=None) -> str
 
 
 # Prefix added to retry messages after tool failures
-RETRY_PROMPT_PREFIX = """IMPORTANT: A previous attempt to answer this question failed because some tools/subagents were unavailable or timed out.
+# Prefix added to retry messages after tool failures
+_DEFAULT_RETRY_PREFIX = """IMPORTANT: A previous attempt to answer this question failed because some tools or subagents were unavailable or timed out.
 
 Please try a different approach:
-- If you don't have access to certain tools (GitLab, VictorOps, etc.), say so and offer alternatives
+- If certain tools are unavailable, say so and offer alternatives
 - Ask the user to paste relevant information directly if needed
-- Avoid spawning complex subagents - keep it simple
+- Keep it simple — avoid complex subagent chains
 
 """
+RETRY_PROMPT_PREFIX = os.environ.get("SLACK_INTEGRATION_PROMPT_RETRY_PREFIX", _DEFAULT_RETRY_PREFIX)
 
 
 def stream_response(
@@ -177,14 +258,104 @@ def stream_response(
   current_tool = None
   active_tools = {}  # tool_call_id -> tool_name
 
-  # Plan step tracking
-  plan_steps = {}  # step_id -> step dict
-  sent_step_status = {}  # step_id -> last sent status
-  step_thinking = {}  # step_id -> accumulated thinking text
-
   # Content accumulation
   accumulated_text = []  # TEXT_MESSAGE_CONTENT deltas
   needs_separator = False
+
+  # Thinking buffer: text between tool calls is treated as reasoning
+  # for the next tool call, shown as details on the tool's checklist item.
+  # Text after the last tool call is the final answer (streamed normally).
+  pending_thinking = []  # accumulated text chunks before next tool call
+  tool_args_buffer = {}  # tool_call_id -> accumulated JSON args string
+
+  # Todo-aware progress display:
+  # When the agent uses write_todos, we show todos as task cards instead of
+  # raw tool names. Thinking text and tool thoughts attach to the active todo.
+  todo_items = []  # latest todo list from the API
+  active_todo_id = None  # id of the currently in_progress todo
+  todo_details = {}  # todo_id -> details text (thinking)
+  todo_outputs = {}  # todo_id -> output text (tool thought)
+  has_todos = False  # True once we've seen any todos
+
+  # Subagent context: non-empty when events come from a subagent.
+  # Text from subagents is suppressed — only the main agent's text is shown.
+  in_subagent = False
+
+  def _update_and_emit_todos(todos: list):
+    """Update todo state from the given list and emit plan_update + task_update chunks.
+
+    Assigns index-based IDs when the backend omits them (write_todos tool
+    does not include 'id' in its args).
+
+    Args:
+        todos: List of todo dicts with 'content', 'status', and optionally 'id'.
+    """
+    nonlocal todo_items, active_todo_id, has_todos
+    if not todos:
+      return
+
+    # Normalize: ensure every todo has an 'id' (use 1-based index as fallback)
+    for i, t in enumerate(todos):
+      if "id" not in t:
+        t["id"] = i + 1
+
+    todo_items = todos
+    has_todos = True
+
+    # Find the active (in_progress) todo
+    active_todo_id = None
+    for t in todos:
+      if t.get("status") == "in_progress":
+        active_todo_id = t["id"]
+        break
+
+    # Emit plan_update with the active todo's content as title
+    plan_title = None
+    if active_todo_id is not None:
+      for t in todos:
+        if t["id"] == active_todo_id:
+          plan_title = t.get("content")
+          break
+    if not plan_title and todos:
+      plan_title = todos[0].get("content", "Working...")
+
+    _start_stream_if_needed()
+    if not stream_ts:
+      return
+
+    try:
+      chunks = []
+      if plan_title:
+        chunks.append(slack_formatter.build_plan_update(plan_title))
+      chunks.extend(slack_formatter.build_todo_task_updates(todos, todo_details, todo_outputs))
+      logger.debug(f"[{thread_ts}] SLACK appendStream todos: {len(chunks)} chunks: {chunks}")
+      slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
+    except Exception as e:
+      logger.warning(f"[{thread_ts}] SLACK appendStream todos FAILED: {e}")
+
+  def _emit_active_todo_update():
+    """Re-emit the active todo's task_update with current details/output."""
+    if not has_todos or active_todo_id is None or not stream_ts:
+      return
+    active_todo = None
+    for t in todo_items:
+      if t.get("id") == active_todo_id:
+        active_todo = t
+        break
+    if not active_todo:
+      return
+    try:
+      chunk = slack_formatter.build_single_task_update(
+        step_id=f"todo_{active_todo_id}",
+        title=active_todo.get("content", ""),
+        status=active_todo.get("status", "in_progress"),
+        details=todo_details.get(active_todo_id),
+        output=todo_outputs.get(active_todo_id),
+      )
+      logger.debug(f"[{thread_ts}] SLACK appendStream active todo update: {chunk}")
+      slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
+    except Exception as e:
+      logger.warning(f"[{thread_ts}] SLACK appendStream todo update FAILED: {e}")
 
   # Loading messages shown in the animated typing indicator
   _loading_messages = [
@@ -233,7 +404,7 @@ def stream_response(
       )
       stream_ts = start_response["ts"]
       stream_buf = StreamBuffer(slack_client, channel_id, stream_ts)
-      logger.info(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
+      logger.debug(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
       _set_typing_status("")
       return stream_ts
     except Exception as e:
@@ -264,6 +435,7 @@ def stream_response(
       response_ts = initial_response["ts"]
 
   # Choose stream source: resume or new
+  logger.info(f"[{thread_ts}] stream_response: conv={conversation_id} agent={agent_id} resume={is_resume}")
   if is_resume:
     event_stream = sse_client.resume_stream(
       agent_id=agent_id,
@@ -287,35 +459,62 @@ def stream_response(
       # --- RUN_STARTED ---
       if event.type == SSEEventType.RUN_STARTED:
         if event.run_id:
-          logger.info(f"[{thread_ts}] RUN_STARTED run_id={event.run_id}")
+          logger.info(f"[{thread_ts}] RUN_STARTED run_id={event.run_id} conv={conversation_id} agent={agent_id}")
 
       # --- TEXT_MESSAGE_START ---
       elif event.type == SSEEventType.TEXT_MESSAGE_START:
-        logger.debug(f"[{thread_ts}] TEXT_MESSAGE_START msg_id={event.message_id}")
-        _start_stream_if_needed()
+        if in_subagent:
+          logger.debug(f"[{thread_ts}] TEXT_MESSAGE_START suppressed (subagent)")
+        else:
+          logger.debug(f"[{thread_ts}] TEXT_MESSAGE_START msg_id={event.message_id}")
+          _start_stream_if_needed()
 
       # --- TEXT_MESSAGE_CONTENT ---
       elif event.type == SSEEventType.TEXT_MESSAGE_CONTENT:
+        if in_subagent:
+          continue
         if event.delta:
           accumulated_text.append(event.delta)
 
-          # Before the stream starts, show text as typing status
-          if not stream_ts and not overthink_mode:
-            status = event.delta.strip()
-            if status:
-              _set_typing_status(status[:80])
-            continue
+          # Before any tool has been seen, buffer text as potential "thinking".
+          # Between tool calls (active_tools empty but seen_any_tool is True),
+          # also buffer as thinking for the *next* tool call.
+          # Once all tools are done and RUN_FINISHED comes, pending_thinking
+          # is flushed as the final answer in the finalization block.
+          #
+          # While a tool IS active, text is mid-tool output — stream it live.
+          if active_tools:
+            # Mid-tool text — stream it live
+            _start_stream_if_needed()
+            if stream_buf:
+              text = event.delta
+              if needs_separator and stream_buf.has_flushed:
+                text = "\n\n" + text
+                needs_separator = False
+              stream_buf.append(text)
+          else:
+            # No tool currently running — buffer as thinking
+            pending_thinking.append(event.delta)
 
-          _start_stream_if_needed()
-          if stream_buf:
-            text = event.delta
-            if needs_separator and stream_buf.has_flushed:
-              text = "\n\n" + text
-              needs_separator = False
-            stream_buf.append(text)
+            if has_todos and active_todo_id is not None:
+              # Todo-aware mode: attach thinking to the active todo's details
+              thinking_text = "".join(pending_thinking).strip()
+              if thinking_text:
+                todo_details[active_todo_id] = thinking_text[:_MAX_DETAILS_LEN]
+                _emit_active_todo_update()
+
+            # Before the stream starts, show text as typing status
+            if not stream_ts and not overthink_mode:
+              status = event.delta.strip()
+              if status:
+                _set_typing_status(status[:80])
+            # Don't stream yet — might be thinking for the next tool call.
+            # If RUN_FINISHED arrives, we'll stream it as the final answer.
 
       # --- TEXT_MESSAGE_END ---
       elif event.type == SSEEventType.TEXT_MESSAGE_END:
+        if in_subagent:
+          continue
         if stream_buf:
           stream_buf.flush()
         logger.debug(f"[{thread_ts}] TEXT_MESSAGE_END msg_id={event.message_id}")
@@ -328,25 +527,43 @@ def stream_response(
         current_tool = tool_name
         if event.tool_call_id:
           active_tools[event.tool_call_id] = tool_name
+          tool_args_buffer[event.tool_call_id] = ""
         logger.info(f"[{thread_ts}] Tool started: {tool_name}")
-        # Open the stream on first tool call so the user sees progress
-        _start_stream_if_needed()
-        # Show tool as a task_update chunk (plan-like progress)
-        if stream_ts and event.tool_call_id:
-          try:
-            chunk = slack_formatter.build_single_task_update(
-              step_id=event.tool_call_id,
-              title=tool_name,
-              status="in_progress",
-            )
-            slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-          except Exception as e:
-            logger.warning(f"[{thread_ts}] SLACK appendStream tool start FAILED: {e}")
+
+        # Consume pending thinking text
+        thinking_text = "".join(pending_thinking).strip()
+        pending_thinking.clear()
+
+        if has_todos or tool_name == "write_todos":
+          # Todo-aware mode (or write_todos itself): suppress raw tool cards.
+          # Attach thinking to the active todo's details if available.
+          if thinking_text and active_todo_id is not None:
+            todo_details[active_todo_id] = thinking_text[:_MAX_DETAILS_LEN]
+            _emit_active_todo_update()
+          # Still open the stream so todo cards are visible.
+          _start_stream_if_needed()
+        else:
+          # Fallback: show raw tool names as task cards
+          details = thinking_text[:_MAX_DETAILS_LEN] if thinking_text else None
+          _start_stream_if_needed()
+          if stream_ts and event.tool_call_id:
+            try:
+              chunk = slack_formatter.build_single_task_update(
+                step_id=event.tool_call_id,
+                title=tool_name,
+                status="in_progress",
+                details=details,
+              )
+              logger.debug(f"[{thread_ts}] SLACK appendStream raw tool start: {chunk}")
+              slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
+            except Exception as e:
+              logger.warning(f"[{thread_ts}] SLACK appendStream tool start FAILED: {e}")
 
       # --- TOOL_CALL_ARGS ---
       elif event.type == SSEEventType.TOOL_CALL_ARGS:
-        # Tool arguments — not displayed to user, just logged
-        pass
+        # Accumulate tool arguments; extract thought/reason for display
+        if event.tool_call_id and event.delta:
+          tool_args_buffer[event.tool_call_id] = tool_args_buffer.get(event.tool_call_id, "") + event.delta
 
       # --- TOOL_CALL_END ---
       elif event.type == SSEEventType.TOOL_CALL_END:
@@ -356,17 +573,45 @@ def stream_response(
         logger.info(f"[{thread_ts}] Tool completed: {display_name}")
         current_tool = None
         needs_separator = True
-        # Update task_update chunk to completed
-        if stream_ts and tool_call_id:
-          try:
-            chunk = slack_formatter.build_single_task_update(
-              step_id=tool_call_id,
-              title=display_name,
-              status="completed",
-            )
-            slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-          except Exception as e:
-            logger.warning(f"[{thread_ts}] SLACK appendStream tool end FAILED: {e}")
+
+        # Extract thought from accumulated tool args
+        raw_args = ""
+        if tool_call_id and tool_call_id in tool_args_buffer:
+          raw_args = tool_args_buffer.pop(tool_call_id, "")
+
+        if display_name == "write_todos":
+          # Parse todos directly from the tool's args — the checkpoint is not
+          # persisted mid-stream, so the REST API would return stale data.
+          parsed_todos = _parse_write_todos_args(raw_args)
+          logger.info(f"[{thread_ts}] write_todos raw_args({len(raw_args)} chars): {raw_args[:300]}")
+          logger.info(f"[{thread_ts}] write_todos parsed {len(parsed_todos) if parsed_todos else 0} todos")
+          if parsed_todos:
+            _update_and_emit_todos(parsed_todos)
+          else:
+            logger.warning(f"[{thread_ts}] write_todos completed but could not parse todos from args")
+        elif has_todos:
+          # Todo-aware mode: attach tool thought to active todo's output.
+          # Skip subagent tools — their args are instructions, not thoughts.
+          if display_name != "task":
+            thought = _extract_tool_thought(raw_args)
+            if thought and active_todo_id is not None:
+              todo_outputs[active_todo_id] = thought
+              _emit_active_todo_update()
+        else:
+          # Fallback: show raw tool completion with thought as details
+          details = _extract_tool_thought(raw_args)
+          if stream_ts and tool_call_id:
+            try:
+              chunk = slack_formatter.build_single_task_update(
+                step_id=tool_call_id,
+                title=display_name,
+                status="completed",
+                details=details,
+              )
+              logger.debug(f"[{thread_ts}] SLACK appendStream raw tool end: {chunk}")
+              slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
+            except Exception as e:
+              logger.warning(f"[{thread_ts}] SLACK appendStream tool end FAILED: {e}")
         if not stream_ts:
           _set_typing_status("is working...")
 
@@ -382,40 +627,6 @@ def stream_response(
         step_name = event.name or event.run_id or "step"
         logger.info(f"[{thread_ts}] Step finished: {step_name}")
 
-      # --- STATE_DELTA ---
-      elif event.type == SSEEventType.STATE_DELTA:
-        # Plan step updates via JSON Patch or structured delta
-        if event.steps and isinstance(event.steps, list):
-          if stream_buf:
-            stream_buf.flush()
-          for step in event.steps:
-            if isinstance(step, dict) and "step_id" in step:
-              plan_steps[step["step_id"]] = step
-              # Send updates for changed steps
-              if not overthink_mode:
-                _start_stream_if_needed()
-              cur_status = step.get("status", "pending")
-              if stream_ts and (step["step_id"] not in sent_step_status or sent_step_status[step["step_id"]] != cur_status):
-                sent_step_status[step["step_id"]] = cur_status
-                try:
-                  chunk = slack_formatter.build_single_task_update(
-                    step_id=step["step_id"],
-                    title=slack_formatter._format_step_title(step),
-                    status=cur_status,
-                  )
-                  slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-                except Exception as e:
-                  logger.warning(f"[{thread_ts}] SLACK appendStream step update FAILED: {e}")
-              elif not stream_ts and cur_status == "in_progress":
-                title = step.get("title", "working")
-                _set_typing_status(f"is working on: {title}")
-
-      # --- STATE_SNAPSHOT ---
-      elif event.type == SSEEventType.STATE_SNAPSHOT:
-        # Full state snapshot — logged but not acted on (deferred per spec)
-        if event.snapshot:
-          logger.debug(f"[{thread_ts}] STATE_SNAPSHOT received ({len(event.snapshot)} keys)")
-
       # --- CUSTOM ---
       elif event.type == SSEEventType.CUSTOM:
         if event.name == "WARNING":
@@ -423,6 +634,7 @@ def stream_response(
           logger.warning(f"[{thread_ts}] Agent warning: {warning_msg}")
         elif event.name == "NAMESPACE_CONTEXT":
           namespace = (event.value or {}).get("namespace", [])
+          in_subagent = len(namespace) > 0
           logger.info(f"[{thread_ts}] Subagent context: {namespace}")
         elif event.name == "TOOL_ERROR":
           tool_error = (event.value or {}).get("error", "unknown error")
@@ -446,7 +658,7 @@ def stream_response(
       # --- RUN_FINISHED ---
       elif event.type == SSEEventType.RUN_FINISHED:
         outcome = event.outcome or "success"
-        logger.info(f"[{thread_ts}] RUN_FINISHED outcome={outcome}")
+        logger.info(f"[{thread_ts}] RUN_FINISHED outcome={outcome} conv={conversation_id} agent={agent_id}")
 
         if outcome == "interrupt" and event.interrupt:
           # HITL interrupt — render form and return
@@ -496,7 +708,7 @@ def stream_response(
       # --- RUN_ERROR ---
       elif event.type == SSEEventType.RUN_ERROR:
         error_msg = event.message or "Unknown agent error"
-        logger.error(f"[{thread_ts}] RUN_ERROR: {error_msg}")
+        logger.error(f"[{thread_ts}] RUN_ERROR: {error_msg} conv={conversation_id} agent={agent_id}")
 
         # If we got any text content, show it despite the error
         final_text = "".join(accumulated_text).strip()
@@ -549,10 +761,19 @@ def stream_response(
     if not final_text:
       final_text = "I've completed your request."
 
-    logger.info(f"[{thread_ts}] Final text: {len(final_text)} chars")
+    logger.info(f"[{thread_ts}] Final text: {len(final_text)} chars, conv={conversation_id} agent={agent_id}")
 
     # Clear typing status
     _set_typing_status("")
+
+    # Flush any pending thinking text as the final answer (stream it live)
+    if pending_thinking and stream_buf:
+      final_thinking = "".join(pending_thinking)
+      if needs_separator and stream_buf.has_flushed:
+        final_thinking = "\n\n" + final_thinking
+        needs_separator = False
+      stream_buf.append(final_thinking)
+      pending_thinking.clear()
 
     # Start stream if never started
     _start_stream_if_needed()
@@ -563,28 +784,6 @@ def stream_response(
         stream_buf.flush()
 
       streamed_any_text = stream_buf.has_flushed if stream_buf else False
-
-      # Force-complete any pending plan steps
-      if plan_steps:
-        final_chunks = []
-        for step in plan_steps.values():
-          sid = step["step_id"]
-          cur_sent = sent_step_status.get(sid)
-          if cur_sent != "completed":
-            thinking = "".join(step_thinking.get(sid, []))
-            final_chunks.append(
-              slack_formatter.build_single_task_update(
-                step_id=sid,
-                title=slack_formatter._format_step_title(step),
-                status="completed",
-                details=thinking[:500] if thinking else None,
-              )
-            )
-        if final_chunks:
-          try:
-            slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=final_chunks)
-          except Exception as e:
-            logger.warning(f"[{thread_ts}] SLACK appendStream final steps FAILED: {e}")
 
       # Build stop call
       stop_chunks = []
@@ -599,7 +798,7 @@ def stream_response(
         additional_footer=additional_footer,
         escalation_config=escalation_config,
       )
-      logger.info(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
+      logger.debug(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
       try:
         slack_client.chat_stopStream(
           channel=channel_id,
@@ -725,6 +924,7 @@ def invoke_response(
   Returns:
       List of Slack blocks for the response, or dict with retry_needed=True on errors.
   """
+  logger.info(f"[{thread_ts}] invoke_response: conv={conversation_id} agent={agent_id}")
   try:
     result = sse_client.invoke(
       message=message_text,
@@ -775,31 +975,6 @@ def invoke_response(
       text="Error",
     )
     return error_blocks
-
-
-_STEP_STATUS_EMOJI = {
-  "pending": "⏳",
-  "in_progress": "🔄",
-  "completed": "✅",
-  "failed": "❌",
-}
-
-
-def _build_progress_blocks(current_tool, plan_steps=None):
-  """Build progress blocks for throttled updates (bot-user fallback)."""
-  header_text = f"*{APP_NAME} is {current_tool}-ing...*" if current_tool else f"*{APP_NAME} is working...*"
-  blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": header_text}}]
-  if plan_steps:
-    lines = []
-    for step in sorted(plan_steps.values(), key=lambda s: s.get("order", 0)):
-      status = step.get("status", "pending")
-      emoji = _STEP_STATUS_EMOJI.get(status, "⏳")
-      title = slack_formatter._format_step_title(step)
-      lines.append(f"{emoji} {title}")
-    plan_text = "\n".join(lines)
-    if len(plan_text) <= 2000:
-      blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": plan_text}]})
-  return blocks
 
 
 def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
@@ -970,7 +1145,7 @@ def handle_ai_alert_processing(
   team_id = event.get("team")
   user_id = event.get("user", event.get("bot_id"))
 
-  logger.info(f"[{thread_ts}] AI processing alert from {bot_username}")
+  logger.info(f"[{thread_ts}] AI processing alert from {bot_username}, agent={agent_id}")
 
   if not _utils.verify_thread_exists(slack_client, channel_id, thread_ts):
     logger.warning(f"[{thread_ts}] Ignoring alert — parent message was deleted")

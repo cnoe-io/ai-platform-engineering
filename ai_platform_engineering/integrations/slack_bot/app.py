@@ -8,6 +8,7 @@ Supports @mention queries, Q&A mode, AI alert processing, HITL forms, and feedba
 """
 
 import os
+import re
 import sys
 import time
 import requests as _requests
@@ -100,6 +101,16 @@ def _get_agent_id(channel_config=None) -> str:
   return ""
 
 
+def _get_agent_id_for_dm() -> str:
+  """Resolve agent_id for DMs: dm_agent_id -> default_agent_id -> empty."""
+  if config.defaults.dm_agent_id:
+    return config.defaults.dm_agent_id
+  if config.defaults.default_agent_id:
+    return config.defaults.default_agent_id
+  logger.warning("No agent_id configured for DMs — using empty string")
+  return ""
+
+
 def _call_ai(
   client,
   channel_id,
@@ -115,6 +126,7 @@ def _call_ai(
   escalation_config=None,
 ):
   """Route to stream_response or invoke_response based on user type."""
+  logger.info(f"[{thread_ts}] _call_ai: conv={conversation_id} agent={agent_id} user={user_id} overthink={overthink_mode}")
   can_stream = user_id and user_id[0] in ("U", "W")
 
   if can_stream:
@@ -373,10 +385,11 @@ def handle_dm_message(event, say, client):
     if event.get("thread_ts"):
       context_message = slack_context.build_thread_context(app, event.get("channel"), thread_ts, message_text, bot_user_id)
 
-    agent_id = _get_agent_id()  # DMs use global default
+    agent_id = _get_agent_id_for_dm()
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
-    final_message = config.defaults.default_mention_prompt.format(message_text=context_message)
+    dm_prompt = config.defaults.dm_prompt or config.defaults.default_mention_prompt
+    final_message = dm_prompt.format(message_text=context_message)
 
     if config.defaults.response_style_instruction not in final_message:
       final_message += "\n\n" + config.defaults.response_style_instruction
@@ -534,7 +547,7 @@ def handle_message_events(body, say, client):
 # =============================================================================
 # HITL (Human-in-the-Loop) Form Action Handler
 # =============================================================================
-@app.action({"action_id": "hitl_.*"})
+@app.action(re.compile(r"hitl_.*"))
 def handle_hitl_action(ack, body, client):
   ack()
   try:

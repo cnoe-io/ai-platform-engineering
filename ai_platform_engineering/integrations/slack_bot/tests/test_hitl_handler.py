@@ -250,6 +250,32 @@ class TestExtractFormResponse:
     response = extract_form_response(payload, "hitl_1")
     assert response["tags"] == ["urgent", "critical"]
 
+  def test_select_none_selected(self):
+    """Regression: selected_option is None when user hasn't picked anything."""
+    payload = {"state": {"values": {"block_hitl_1_format": {"hitl_1_format": {"type": "static_select", "selected_option": None}}}}}
+    response = extract_form_response(payload, "hitl_1")
+    assert "format" not in response
+
+  def test_multiselect_none_selected(self):
+    """selected_options can be empty list or None."""
+    payload = {"state": {"values": {"block_hitl_1_tags": {"hitl_1_tags": {"type": "multi_static_select", "selected_options": []}}}}}
+    response = extract_form_response(payload, "hitl_1")
+    assert "tags" not in response
+
+  def test_mixed_fields_some_none(self):
+    """Some fields filled, some left empty — only filled fields appear."""
+    payload = {
+      "state": {
+        "values": {
+          "block_hitl_1_name": {"hitl_1_name": {"value": "Alice"}},
+          "block_hitl_1_env": {"hitl_1_env": {"type": "static_select", "selected_option": None}},
+        }
+      }
+    }
+    response = extract_form_response(payload, "hitl_1")
+    assert response["name"] == "Alice"
+    assert "env" not in response
+
 
 class TestHITLCallbackHandler:
   """Tests for the HITL callback handler."""

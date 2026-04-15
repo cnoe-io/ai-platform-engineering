@@ -12,7 +12,10 @@ import requests
 from typing import Optional
 from loguru import logger
 
-from ..sse_client import thread_ts_to_conversation_id
+try:
+  from sse_client import thread_ts_to_conversation_id  # type: ignore[import]
+except ImportError:
+  from ..sse_client import thread_ts_to_conversation_id
 from .session_manager import SessionManager
 from .config_models import Config
 
