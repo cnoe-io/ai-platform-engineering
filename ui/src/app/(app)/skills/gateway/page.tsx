@@ -23,7 +23,7 @@ export default function SkillsGatewayPage() {
             type="button"
             className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground"
           >
-            Try API / Gateway
+            Skills API Gateway
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-6">

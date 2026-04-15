@@ -57,6 +57,7 @@ export function TrySkillsGateway() {
   // Query builder state
   const [queryQ, setQueryQ] = useState("");
   const [querySource, setQuerySource] = useState("");
+  const [queryRepo, setQueryRepo] = useState("");
   const [queryTags, setQueryTags] = useState("");
   const [queryVisibility, setQueryVisibility] = useState("");
   const [queryPageSize, setQueryPageSize] = useState("20");
@@ -70,6 +71,8 @@ export function TrySkillsGateway() {
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const [skillNames, setSkillNames] = useState<string[]>([]);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  // Hub repos discovered from catalog metadata
+  const [availableRepos, setAvailableRepos] = useState<{ location: string; type: string }[]>([]);
 
   const baseUrl =
     typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com";
@@ -78,13 +81,14 @@ export function TrySkillsGateway() {
     const params = new URLSearchParams();
     if (queryQ.trim()) params.set("q", queryQ.trim());
     if (querySource) params.set("source", querySource);
+    if (queryRepo) params.set("repo", queryRepo);
     if (queryTags.trim()) params.set("tags", queryTags.trim());
     if (queryVisibility) params.set("visibility", queryVisibility);
     params.set("page", "1");
     params.set("page_size", queryPageSize || "20");
     if (queryIncludeContent) params.set("include_content", "true");
     return `${baseUrl}/api/skills?${params.toString()}`;
-  }, [baseUrl, queryQ, querySource, queryTags, queryVisibility, queryPageSize, queryIncludeContent]);
+  }, [baseUrl, queryQ, querySource, queryRepo, queryTags, queryVisibility, queryPageSize, queryIncludeContent]);
 
   const catalogUrl = buildCatalogUrl();
 
@@ -131,6 +135,7 @@ export function TrySkillsGateway() {
         if (!data?.skills) return;
         const tags = new Set<string>();
         const names: string[] = [];
+        const repoMap = new Map<string, string>();
         for (const s of data.skills) {
           if (s.name) names.push(s.name);
           if (Array.isArray(s.metadata?.tags)) {
@@ -138,9 +143,19 @@ export function TrySkillsGateway() {
               if (typeof t === "string" && t.trim()) tags.add(t.trim().toLowerCase());
             }
           }
+          const loc = s.metadata?.hub_location;
+          const hubType = s.metadata?.hub_type;
+          if (typeof loc === "string" && loc && typeof hubType === "string") {
+            repoMap.set(loc, hubType);
+          }
         }
         setAvailableTags(Array.from(tags).sort());
         setSkillNames(names.sort());
+        setAvailableRepos(
+          Array.from(repoMap.entries())
+            .map(([location, type]) => ({ location, type }))
+            .sort((a, b) => a.location.localeCompare(b.location)),
+        );
       })
       .catch(() => {});
   }, [loadSync, loadKeys]);
@@ -267,13 +282,43 @@ export function TrySkillsGateway() {
               <label className="text-xs font-medium text-muted-foreground">Source</label>
               <select
                 value={querySource}
-                onChange={(e) => setQuerySource(e.target.value)}
+                onChange={(e) => {
+                  setQuerySource(e.target.value);
+                  if (!["hub", "github", "gitlab"].includes(e.target.value)) setQueryRepo("");
+                }}
                 className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 <option value="">All sources</option>
-                <option value="default">default</option>
-                <option value="agent_skills">agent_skills</option>
-                <option value="hub">hub</option>
+                <option value="default">Built-in</option>
+                <option value="agent_skills">Custom Skills</option>
+                {availableRepos.some(r => r.type === "github") && (
+                  <option value="github">GitHub</option>
+                )}
+                {availableRepos.some(r => r.type === "gitlab") && (
+                  <option value="gitlab">GitLab</option>
+                )}
+                {availableRepos.length === 0 && <option value="hub">Hub</option>}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Repository</label>
+              <select
+                value={queryRepo}
+                onChange={(e) => {
+                  setQueryRepo(e.target.value);
+                  if (e.target.value) {
+                    const match = availableRepos.find(r => r.location === e.target.value);
+                    setQuerySource(match?.type || "hub");
+                  }
+                }}
+                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="">All repos</option>
+                {availableRepos.map((r) => (
+                  <option key={r.location} value={r.location}>
+                    {r.location} ({r.type})
+                  </option>
+                ))}
               </select>
             </div>
             <div className="relative">
@@ -587,55 +632,74 @@ export function TrySkillsGateway() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Claude (Desktop / Code)</CardTitle>
+          <CardTitle className="text-base">Claude Code</CardTitle>
           <CardDescription>
-            CAIPE remains the source of truth for <strong>listing</strong> skills; export or copy
-            SKILL.md bodies when <code>include_content=true</code> if you mirror files locally.
+            Create a <code>/skills</code> slash command that lets Claude Code browse and install skills
+            from this gateway.
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-sm space-y-2 list-decimal list-inside text-muted-foreground">
-          <ol className="space-y-2 pl-1">
-            <li>Obtain an OIDC access token or mint a catalog API key above.</li>
-            <li>
-              Run the <code>curl</code> example against <code>/api/skills</code> and save the JSON.
-            </li>
-            <li>
-              Map each skill to a folder under{" "}
-              <code className="text-foreground">.claude/skills/&lt;name&gt;/SKILL.md</code> or your
-              team&apos;s agreed layout per{" "}
-              <a
-                className="text-primary underline"
-                href="https://agentskills.io/specification"
-                target="_blank"
-                rel="noreferrer"
-              >
-                agentskills.io
-              </a>
-              .
-            </li>
-            <li>Reload the assistant; treat the catalog as authoritative for names and descriptions.</li>
-          </ol>
-        </CardContent>
-      </Card>
+        <CardContent className="text-sm space-y-4 text-muted-foreground">
+          <div>
+            <p className="font-medium text-foreground mb-2">1. Configure your API key</p>
+            <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`mkdir -p ~/.config/caipe
+cat > ~/.config/caipe/config.json << 'EOF'
+{
+  "api_key": "<your-catalog-api-key>",
+  "base_url": "${baseUrl}"
+}
+EOF`}</pre>
+          </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Cursor</CardTitle>
-          <CardDescription>
-            Align with project rules or <code>.cursor/skills</code> (team convention).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm space-y-2 text-muted-foreground">
-          <ol className="space-y-2 list-decimal list-inside pl-1">
-            <li>Authenticate the same way as for Claude (token or catalog key header).</li>
-            <li>Fetch catalog JSON from <code>/api/skills</code> with the query params you need.</li>
-            <li>
-              Add concise rules in <code>.cursor/rules</code> referencing skill names, or symlink /
-              copy exported <code>SKILL.md</code> files into <code>.cursor/skills</code> if your org
-              uses that layout.
-            </li>
-            <li>Re-fetch when admins refresh the catalog or hubs change.</li>
-          </ol>
+          <div>
+            <p className="font-medium text-foreground mb-2">2. Create the bootstrap skill</p>
+            <p className="mb-2">
+              Add this file to your repo. It calls the gateway and lets Claude browse, search, and
+              install skills as <code>.claude/commands/</code> files.
+            </p>
+            <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`mkdir -p .claude/commands
+cat > .claude/commands/skills.md << 'SKILL'
+---
+description: Browse and install skills from the CAIPE catalog
+---
+
+## User Input
+\`\`\`text
+$ARGUMENTS
+\`\`\`
+
+## SECURITY — never expose the API key
+- NEVER print, echo, or display the API key in any output.
+- Store in a shell variable, pass only via -H header.
+
+## Steps
+
+1. Load credentials (do NOT echo the key):
+   \`\`\`bash
+   CAIPE_KEY="" CAIPE_URL=""
+   if [ -f ~/.config/caipe/config.json ]; then
+     CAIPE_KEY=$(python3 -c "import json; print(json.load(open('$HOME/.config/caipe/config.json')).get('api_key',''))" 2>/dev/null)
+     CAIPE_URL=$(python3 -c "import json; print(json.load(open('$HOME/.config/caipe/config.json')).get('base_url',''))" 2>/dev/null)
+   fi
+   [ -z "$CAIPE_URL" ] && CAIPE_URL="https://catalog.caipe.dev"
+   [ -n "$CAIPE_KEY" ] && echo "KEY_FOUND" || echo "NO_KEY"
+   \`\`\`
+
+2. Search: curl -sS "$CAIPE_URL/api/skills?source=github&q=<query>&page=1&page_size=20" -H "X-Caipe-Catalog-Key: $CAIPE_KEY"
+
+3. Display as table, offer to install selected skill to .claude/commands/<name>.md
+SKILL`}</pre>
+          </div>
+
+          <div>
+            <p className="font-medium text-foreground mb-2">3. Use it</p>
+            <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`# Browse all skills
+/skills
+
+# Search for specific skills
+/skills docker
+/skills kubernetes
+/skills python`}</pre>
+          </div>
         </CardContent>
       </Card>
 

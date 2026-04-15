@@ -55,10 +55,7 @@ import {
   Globe,
   UsersRound,
   User,
-  HelpCircle,
-  Copy,
-  Check,
-  ShieldAlert,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -289,50 +286,6 @@ export function SkillsGallery({
   const [viewMode, setViewMode] = useState<"all" | "workflows" | "my-skills" | "team" | "global">("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | CatalogSource>("all");
 
-  // API help dialog state
-  const [showApiHelp, setShowApiHelp] = useState(false);
-  const [copiedCurl, setCopiedCurl] = useState(false);
-
-  // API token generation state
-  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
-  const [isGeneratingToken, setIsGeneratingToken] = useState(false);
-  const [copiedToken, setCopiedToken] = useState(false);
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [tokenDurationDays, setTokenDurationDays] = useState(90);
-
-  const closeApiHelp = useCallback(() => {
-    setShowApiHelp(false);
-    setGeneratedToken(null);
-    setCopiedToken(false);
-    setTokenError(null);
-    setIsGeneratingToken(false);
-    setTokenDurationDays(90);
-  }, []);
-
-  const handleGenerateToken = useCallback(async () => {
-    setIsGeneratingToken(true);
-    setTokenError(null);
-    setGeneratedToken(null);
-    setCopiedToken(false);
-    try {
-      const res = await fetch("/api/skills/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ expires_in_days: tokenDurationDays }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to generate token (${res.status})`);
-      }
-      const data = await res.json();
-      setGeneratedToken(data.token);
-    } catch (err: any) {
-      setTokenError(err.message || "Failed to generate token");
-    } finally {
-      setIsGeneratingToken(false);
-    }
-  }, [tokenDurationDays]);
 
   // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
@@ -565,12 +518,12 @@ export function SkillsGallery({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setShowApiHelp(true)}
+                onClick={() => router.push("/skills/gateway")}
                 className="gap-1.5"
-                title="How to access Skills via API"
+                title="Skills API Gateway"
               >
-                <HelpCircle className="h-4 w-4" />
-                API
+                <ExternalLink className="h-4 w-4" />
+                Skills API Gateway
               </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
@@ -1127,225 +1080,6 @@ export function SkillsGallery({
           )}
         </div>
       )}
-
-      {/* API Help Modal */}
-      <AnimatePresence>
-        {showApiHelp && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={closeApiHelp}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-2xl mx-4 bg-card border rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="h-1.5 w-full gradient-primary shrink-0" />
-              <div className="p-6 overflow-y-auto flex-1">
-                <div className="flex items-start justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg">
-                      <Terminal className="h-5 w-5 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold">Skills API Access</h2>
-                      <p className="text-sm text-muted-foreground">
-                        Retrieve skills from external clients like Claude Code, Cursor, or any HTTP client
-                      </p>
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={() => setShowApiHelp(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                {/* API Endpoint */}
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2">API Endpoint</h3>
-                    <div className="px-4 py-3 rounded-lg bg-muted/50 border border-border/50 font-mono text-sm">
-                      GET /api/skills
-                    </div>
-                  </div>
-
-                  {/* Query Parameters */}
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2">Query Parameters</h3>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">q</code> — Search by name or description</p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">source</code> — Filter: <code className="bg-muted px-1 py-0.5 rounded text-xs">default</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">agent_skills</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">hub</code></p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">tags</code> — Comma-separated tag filter</p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">include_content</code> — Include full SKILL.md content (<code className="bg-muted px-1 py-0.5 rounded text-xs">true</code>/<code className="bg-muted px-1 py-0.5 rounded text-xs">false</code>)</p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">visibility</code> — Optional: <code className="bg-muted px-1 py-0.5 rounded text-xs">global</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">team</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">personal</code></p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">page</code> / <code className="bg-muted px-1.5 py-0.5 rounded text-xs">page_size</code> — Pagination (1–100 per page)</p>
-                    </div>
-                  </div>
-
-                  {/* Generate API Key */}
-                  <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Key className="h-4 w-4 text-primary" />
-                      <h3 className="text-sm font-semibold">Generate API Key</h3>
-                    </div>
-                    <p className="text-xs text-muted-foreground mb-3">
-                      Generate a personal API key for programmatic access to the Skills API from CLI tools, scripts, or AI assistants.
-                    </p>
-
-                    {!generatedToken && (
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs text-muted-foreground whitespace-nowrap">Expires in:</label>
-                          <select
-                            value={tokenDurationDays}
-                            onChange={(e) => setTokenDurationDays(Number(e.target.value))}
-                            className="h-8 px-2 text-xs rounded-md border border-input bg-background"
-                          >
-                            <option value={30}>30 days</option>
-                            <option value={60}>60 days</option>
-                            <option value={90}>90 days</option>
-                          </select>
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={handleGenerateToken}
-                          disabled={isGeneratingToken}
-                          className="gap-1.5"
-                        >
-                          {isGeneratingToken ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Key className="h-3 w-3" />
-                          )}
-                          {isGeneratingToken ? "Generating..." : "Generate API Key"}
-                        </Button>
-                      </div>
-                    )}
-
-                    {tokenError && (
-                      <div className="mt-3 flex items-center gap-2 text-xs text-red-500">
-                        <AlertCircle className="h-3 w-3 shrink-0" />
-                        {tokenError}
-                      </div>
-                    )}
-
-                    {generatedToken && (
-                      <div className="mt-3 space-y-3">
-                        <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                          <p className="text-xs text-amber-600 dark:text-amber-400">
-                            Copy this token now — it won&apos;t be shown again.
-                          </p>
-                        </div>
-                        <div className="relative">
-                          <pre className="p-3 pr-12 rounded-lg bg-[#1e1e2e] border border-border/30 text-[11px] font-mono text-zinc-300 overflow-x-auto whitespace-pre-wrap break-all">
-                            {generatedToken}
-                          </pre>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute top-2 right-2 h-7 w-7"
-                            onClick={() => {
-                              navigator.clipboard.writeText(generatedToken);
-                              setCopiedToken(true);
-                              setTimeout(() => setCopiedToken(false), 2000);
-                            }}
-                          >
-                            {copiedToken ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* curl Example */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-semibold">Example Request</h3>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 gap-1.5 text-xs"
-                        onClick={() => {
-                          const token = generatedToken || (session as any)?.accessToken || "YOUR_API_TOKEN";
-                          const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com";
-                          const curl = `curl -s "${baseUrl}/api/skills" \\\n  -H "Authorization: Bearer ${token}" | jq .`;
-                          navigator.clipboard.writeText(curl);
-                          setCopiedCurl(true);
-                          setTimeout(() => setCopiedCurl(false), 2000);
-                        }}
-                      >
-                        {copiedCurl ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                        {copiedCurl ? "Copied!" : "Copy"}
-                      </Button>
-                    </div>
-                    <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
-                      <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
-                        <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">bash</span>
-                      </div>
-                      <pre className="p-4 text-[13px] leading-relaxed font-mono text-zinc-300 overflow-x-auto">
-{`curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills" \\
-  -H "Authorization: Bearer ${generatedToken ? generatedToken.slice(0, 20) + "..." : (session as any)?.accessToken ? (session as any).accessToken.slice(0, 20) + "..." : "$CAIPE_TOKEN"}" | jq .`}
-                      </pre>
-                    </div>
-                  </div>
-
-                  {/* Token Warning */}
-                  <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
-                    <ShieldAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-semibold text-red-500">Do not share your API token</p>
-                      <p className="text-xs text-red-400/80 mt-1">
-                        Your API token is scoped to your identity and grants access to the Skills API.
-                        Never share it in public repositories, Slack messages, screenshots, or documentation.
-                        Treat it like a password.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Usage with Claude Code / Cursor */}
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2">Using with Claude Code or Cursor</h3>
-                    <div className="text-sm text-muted-foreground space-y-2">
-                      <p>
-                        You can use the Skills API to list available skills from any client.
-                        Pass the skill name to your AI assistant as context:
-                      </p>
-                      <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
-                        <div className="flex items-center px-4 py-2 border-b border-border/20 bg-[#181825]">
-                          <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">bash</span>
-                        </div>
-                        <pre className="p-4 text-[13px] leading-relaxed font-mono text-zinc-300 overflow-x-auto">
-{`# List all skills
-curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills" \\
-  -H "Authorization: Bearer $CAIPE_TOKEN" | jq '.skills[].name'
-
-# Get a specific skill with full content
-curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills?q=aws-cost&include_content=true" \\
-  -H "Authorization: Bearer $CAIPE_TOKEN" | jq .`}
-                        </pre>
-                      </div>
-                      <p className="text-xs text-muted-foreground/80 mt-2">
-                        Store your token in an environment variable (<code className="bg-muted px-1 py-0.5 rounded text-xs">CAIPE_TOKEN</code>) instead of
-                        hardcoding it. This makes it easy to use across tools without exposing the value.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
-                <Button variant="ghost" onClick={() => setShowApiHelp(false)}>Close</Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Skill Run Modal */}
       <AnimatePresence>
