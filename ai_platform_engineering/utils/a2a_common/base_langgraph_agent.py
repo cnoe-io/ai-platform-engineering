@@ -38,6 +38,9 @@ from ai_platform_engineering.utils.checkpointer import get_checkpointer
 from ai_platform_engineering.utils.mcp_config import (
     resolve_mcp_mode, resolve_mcp_url, is_http_mode,
 )
+from ai_platform_engineering.utils.token_budget import (
+    TokenBudgetManager, TokenBudgetExceeded, ToolCallLimitExceeded,
+)
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
@@ -127,6 +130,17 @@ class BaseLangGraphAgent(ABC):
             f"min_messages={self.min_messages_to_keep}, "
             f"auto_compression={self.enable_auto_compression}"
         )
+
+        # Token budget management (opt-in via ENABLE_TOKEN_BUDGET=true)
+        self.token_budget = None
+        if os.getenv("ENABLE_TOKEN_BUDGET", "false").lower() == "true":
+            self.token_budget = TokenBudgetManager(
+                agent_name=self.get_agent_name(),
+            )
+            logger.info(
+                f"Token budget enabled: max_tokens={self.token_budget.MAX_TOKENS}, "
+                f"max_tool_calls={self.token_budget.MAX_TOOL_CALLS}"
+            )
 
     @abstractmethod
     def get_agent_name(self) -> str:
@@ -761,6 +775,9 @@ Use this as the reference point for all date calculations. When users say "today
         # Get max tool output size from environment (default 10KB for smaller context models)
         max_tool_output = int(os.getenv("MAX_TOOL_OUTPUT_SIZE", "10000"))
 
+        # Capture token budget for closure access in wrapper functions
+        token_budget = self.token_budget
+
         wrapped_tools = []
 
         for tool in tools:
@@ -778,10 +795,24 @@ Use this as the reference point for all date calculations. When users say "today
                     original_coroutine = tool.coroutine
 
                     # Create wrapped async function with error handling
-                    async def safe_coroutine(*args, _orig=original_coroutine, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                    async def safe_coroutine(*args, _orig=original_coroutine, _tool_name=tool_name, _max_size=max_tool_output, _budget=token_budget, **kwargs):
+                        if _budget:
+                            try:
+                                _budget.check_before_tool_call(tool_name=_tool_name, params=kwargs)
+                            except (TokenBudgetExceeded, ToolCallLimitExceeded) as exc:
+                                logger.warning(f"Token budget exceeded for {_tool_name}: {exc}")
+                                return _budget.get_partial_results_message()
+                            except Exception as exc:
+                                logger.warning(f"Token budget check failed for {_tool_name}, proceeding: {exc}")
                         try:
                             result = await _orig(*args, **kwargs)
                             result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                            if _budget:
+                                try:
+                                    _budget.add_result(_tool_name, result)
+                                    _budget.update_consumption(result)
+                                except Exception as exc:
+                                    logger.warning(f"Token budget tracking failed for {_tool_name}: {exc}")
                             return result
                         except Exception as e:
                             user_msg = self._parse_tool_error(e, _tool_name)
@@ -830,10 +861,24 @@ Use this as the reference point for all date calculations. When users say "today
 
                     if original_run:
                         @wraps(original_run)
-                        def safe_run(*args, _orig=original_run, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                        def safe_run(*args, _orig=original_run, _tool_name=tool_name, _max_size=max_tool_output, _budget=token_budget, **kwargs):
+                            if _budget:
+                                try:
+                                    _budget.check_before_tool_call(tool_name=_tool_name, params=kwargs)
+                                except (TokenBudgetExceeded, ToolCallLimitExceeded) as exc:
+                                    logger.warning(f"Token budget exceeded for {_tool_name}: {exc}")
+                                    return _budget.get_partial_results_message()
+                                except Exception as exc:
+                                    logger.warning(f"Token budget check failed for {_tool_name}, proceeding: {exc}")
                             try:
                                 result = _orig(*args, **kwargs)
                                 result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                                if _budget:
+                                    try:
+                                        _budget.add_result(_tool_name, result)
+                                        _budget.update_consumption(result)
+                                    except Exception as exc:
+                                        logger.warning(f"Token budget tracking failed for {_tool_name}: {exc}")
                                 return result
                             except Exception as e:
                                 user_msg = self._parse_tool_error(e, _tool_name)
@@ -843,10 +888,24 @@ Use this as the reference point for all date calculations. When users say "today
 
                     if original_arun:
                         @wraps(original_arun)
-                        async def safe_arun(*args, _orig=original_arun, _tool_name=tool_name, _max_size=max_tool_output, **kwargs):
+                        async def safe_arun(*args, _orig=original_arun, _tool_name=tool_name, _max_size=max_tool_output, _budget=token_budget, **kwargs):
+                            if _budget:
+                                try:
+                                    _budget.check_before_tool_call(tool_name=_tool_name, params=kwargs)
+                                except (TokenBudgetExceeded, ToolCallLimitExceeded) as exc:
+                                    logger.warning(f"Token budget exceeded for {_tool_name}: {exc}")
+                                    return _budget.get_partial_results_message()
+                                except Exception as exc:
+                                    logger.warning(f"Token budget check failed for {_tool_name}, proceeding: {exc}")
                             try:
                                 result = await _orig(*args, **kwargs)
                                 result, was_truncated = self._truncate_tool_output(result, _tool_name, _max_size)
+                                if _budget:
+                                    try:
+                                        _budget.add_result(_tool_name, result)
+                                        _budget.update_consumption(result)
+                                    except Exception as exc:
+                                        logger.warning(f"Token budget tracking failed for {_tool_name}: {exc}")
                                 return result
                             except Exception as e:
                                 user_msg = self._parse_tool_error(e, _tool_name)
@@ -1945,6 +2004,10 @@ Use this as the reference point for all date calculations. When users say "today
             - content: str
         """
         agent_name = self.get_agent_name()
+
+        # Reset token budget for each new query
+        if self.token_budget:
+            self.token_budget.reset()
 
         # Auto-inject current date into every query for all agents
         # This eliminates need for agents to call get_current_date() tool
