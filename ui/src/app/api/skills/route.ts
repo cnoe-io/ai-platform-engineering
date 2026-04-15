@@ -11,7 +11,7 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  *
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
- *   If BACKEND_SKILLS_URL is configured, proxies to the Python backend GET /skills.
+ *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
  *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-skills.
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
@@ -174,16 +174,15 @@ function paginate(
 }
 
 /**
- * Try to proxy to the Python backend at BACKEND_SKILLS_URL.
+ * Try to proxy to the Python backend at NEXT_PUBLIC_A2A_BASE_URL.
  * Returns null if not configured or unreachable.
  * Forwards query params so the backend can also filter server-side.
  */
 async function fetchFromBackend(
   params: QueryParams,
   authHeader?: string | null,
-  catalogKey?: string | null,
 ): Promise<CatalogResponse | null> {
-  const backendUrl = process.env.BACKEND_SKILLS_URL;
+  const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
   if (!backendUrl) return null;
 
   try {
@@ -202,7 +201,6 @@ async function fetchFromBackend(
 
     const headers: Record<string, string> = {};
     if (authHeader) headers["Authorization"] = authHeader;
-    if (catalogKey) headers["X-Caipe-Catalog-Key"] = catalogKey;
 
     const res = await fetch(url.toString(), {
       headers,
@@ -233,6 +231,14 @@ async function aggregateLocally(
     );
     const templates = loadSkillTemplatesInternal();
     for (const t of templates) {
+      const meta: Record<string, unknown> = {
+        category: t.category,
+        icon: t.icon,
+        tags: t.tags,
+      };
+      if (t.input_variables && t.input_variables.length > 0) {
+        meta.input_variables = t.input_variables;
+      }
       skills.push({
         id: t.id,
         name: t.name,
@@ -240,11 +246,7 @@ async function aggregateLocally(
         source: "default",
         source_id: null,
         content: includeContent ? t.content : null,
-        metadata: {
-          category: t.category,
-          icon: t.icon,
-          tags: t.tags,
-        },
+        metadata: meta,
       });
     }
     sourcesLoaded.push("default");
@@ -356,10 +358,9 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
 
   const params = parseQueryParams(req);
   const authHeader = req.headers.get("Authorization");
-  const catalogKey = req.headers.get("X-Caipe-Catalog-Key");
 
   // Try backend proxy first (forwards all query params)
-  const backendResult = await fetchFromBackend(params, authHeader, catalogKey);
+  const backendResult = await fetchFromBackend(params, authHeader);
   if (backendResult) {
     return NextResponse.json(backendResult);
   }

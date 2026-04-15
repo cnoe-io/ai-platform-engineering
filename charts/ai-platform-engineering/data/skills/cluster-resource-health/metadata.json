@@ -6,5 +6,9 @@
     "AWS",
     "Kubernetes",
     "Monitoring"
+  ],
+  "input_variables": [
+    { "name": "cluster_name", "label": "Cluster Name", "required": false, "placeholder": "e.g. prod-us-east-1" },
+    { "name": "namespace", "label": "Namespace", "required": false, "placeholder": "e.g. default, kube-system" }
   ]
 }

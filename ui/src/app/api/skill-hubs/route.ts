@@ -25,6 +25,7 @@ interface SkillHubDoc {
   location: string;
   enabled: boolean;
   credentials_ref: string | null;
+  labels: string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -103,6 +104,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       // Not a URL — keep as-is (already owner/repo format)
     }
 
+    const labels: string[] = Array.isArray(body.labels)
+      ? body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20)
+      : [];
+
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
 
     // Check for duplicate location (use normalized)
@@ -121,6 +126,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       location: normalizedLocation,
       enabled: body.enabled !== false,
       credentials_ref: validateCredentialsRef(body.credentials_ref),
+      labels,
       last_success_at: null,
       last_failure_at: null,
       last_failure_message: null,

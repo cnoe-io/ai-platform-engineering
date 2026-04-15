@@ -90,6 +90,14 @@ export type AgentSkillCategory =
 /**
  * Metadata for an agent skill
  */
+/** An input variable definition for the "Try Skill" parameter form. */
+export interface SkillInputVariable {
+  name: string;
+  label: string;
+  required: boolean;
+  placeholder?: string;
+}
+
 export interface AgentSkillMetadata {
   /** Environment variables required for this skill to work */
   env_vars_required?: string[];
@@ -103,6 +111,8 @@ export interface AgentSkillMetadata {
   expected_agents?: string[];
   /** (Experimental) Tool allowlist for this skill -- not enforced by backend yet */
   allowed_tools?: string[];
+  /** Input variables shown in the Try Skill modal when skill has no {{var}} in prompt */
+  input_variables?: SkillInputVariable[];
 }
 
 /** Scan status set by skill-scanner on save/publish (FR-027). */
@@ -428,13 +438,12 @@ export function parseTaskConfigObject(
 }
 
 /**
- * Built-in quick-start templates — kept as an empty array.
- * Skills are now loaded from charts/data/skills/ SKILL.md files via the
- * /api/skill-templates endpoint and seeded into MongoDB from there.
- * This constant is retained for backward compatibility with the store
- * fallback paths but no longer ships hardcoded skill definitions.
+ * Built-in quick-start templates (formerly "Use Cases")
  *
- * @deprecated Use skill-templates API instead.
+ * @deprecated Templates are now loaded from disk at `charts/data/skills/`.
+ * This array is kept for backward compatibility but is intentionally empty.
+ * Use `loadSkillTemplatesInternal()` from `@/app/api/skills/skill-templates-loader`
+ * and the seed route to populate MongoDB from disk templates instead.
  */
 export const BUILTIN_QUICK_START_TEMPLATES: AgentSkill[] = [];
 

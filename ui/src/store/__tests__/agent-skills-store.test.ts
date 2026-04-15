@@ -294,7 +294,7 @@ describe("agent-skills-store", () => {
       expect(configs[0].updated_at).toBeInstanceOf(Date);
     });
 
-    it("handles 503 - falls back to empty configs", async () => {
+    it("handles 503 - returns empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/agent-skills/seed")) {
@@ -325,7 +325,7 @@ describe("agent-skills-store", () => {
       expect(useAgentSkillsStore.getState().configs).toEqual([]);
     });
 
-    it("handles 401 - falls back to empty configs", async () => {
+    it("handles 401 - returns empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/agent-skills/seed")) {
@@ -350,7 +350,7 @@ describe("agent-skills-store", () => {
       expect(useAgentSkillsStore.getState().configs).toEqual([]);
     });
 
-    it("handles error - falls back to empty configs", async () => {
+    it("handles error - returns empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
         if (u.includes("/api/agent-skills/seed")) {
