@@ -95,20 +95,25 @@ export function Spinner({ label, color = "cyan" }: SpinnerProps): React.ReactEle
 export interface StreamingSpinnerProps {
   /** Action label, e.g. "Generating", "Thinking" */
   label?: string;
+  /** Elapsed seconds since streaming began */
+  elapsed: number;
 }
 
 /**
- * Streaming status indicator:   ◐ Generating…
+ * Streaming status line:   ◐ Generating… (12s)
  *
- * Static (no animation, no timers) to avoid Ink re-render flashing.
+ * No animated frames — elapsed time is the only changing value (1 Hz),
+ * and the dynamic area is only ~4 lines so re-renders are imperceptible.
  */
 export function StreamingSpinner({
   label = "Generating",
+  elapsed,
 }: StreamingSpinnerProps): React.ReactElement {
   return (
     <Box>
       <Text color={NO_COLOR ? undefined : "blue"}>◐ </Text>
-      <Text color={NO_COLOR ? undefined : "blue"}>{label}…</Text>
+      <Text color={NO_COLOR ? undefined : "blue"}>{label}… </Text>
+      <Text dimColor>({elapsed}s)</Text>
     </Box>
   );
 }
