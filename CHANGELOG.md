@@ -1,4 +1,17 @@
-## 0.3.1 (2026-04-15)
+## 0.3.2 (2026-04-15)
+
+## 0.3.1-rc.2 (2026-04-15)
+
+### Feat
+
+- **ui**: add skills gateway visual editor and /skills/gateway route (#1220)
+
+### Fix
+
+- **setup**: guard ConfigMap patches and enable ip_forward at runtime (#1221)
+- **ci**: add contents:write permission to notify-release jobs (#1219)
+
+## 0.3.1-rc.1 (2026-04-15)
 
 ## 0.3.0-rc.8 (2026-04-15)
 
