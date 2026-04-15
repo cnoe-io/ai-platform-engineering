@@ -253,12 +253,14 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           NEW_VERSION="${{ github.event.inputs.version }}"
-          echo "🔄 Creating DRAFT GitHub Release for $NEW_VERSION..."
+          PREV_VERSION="${{ needs.commit-release.outputs.current_version }}"
+          echo "🔄 Creating DRAFT GitHub Release for $NEW_VERSION (notes since $PREV_VERSION)..."
 
           gh release create "$NEW_VERSION" \
             --repo "${{ github.repository }}" \
             --title "Release $NEW_VERSION" \
             --generate-notes \
+            --notes-start-tag "$PREV_VERSION" \
             --draft
 
           echo "✅ Draft release created"
