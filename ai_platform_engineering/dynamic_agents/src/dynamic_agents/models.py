@@ -34,15 +34,18 @@ class VisibilityType(str, Enum):
 class UserContext(BaseModel):
     """Authenticated user context.
 
-    Created from JWT claims during authentication and passed through
-    to services that need user information.
+    Only ``email`` is required.  Everything else is opaque — callers may
+    pass arbitrary fields (``is_admin``, ``groups``, ``can_view_admin``,
+    etc.) and they will be stored and accessible as attributes via
+    Pydantic's ``extra="allow"``.
+
+    The ``user_info`` tool dumps all fields so agents can see whatever
+    the gateway or auth layer chose to include.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     email: str
-    name: str | None = None
-    groups: list[str] = []
-    is_admin: bool = False
-    raw_claims: dict[str, Any] = {}
 
 
 # =============================================================================

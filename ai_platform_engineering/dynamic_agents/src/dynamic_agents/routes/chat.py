@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from dynamic_agents.auth.access import can_use_agent
 from dynamic_agents.auth.auth import get_user_from_gateway
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
@@ -111,14 +110,10 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config
+    # Get agent config (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
     server_ids = list(agent.allowed_tools.keys())
@@ -219,14 +214,10 @@ async def chat_resume_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config
+    # Get agent config (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
     server_ids = list(agent.allowed_tools.keys())
@@ -272,14 +263,10 @@ async def chat_invoke(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config
+    # Get agent config (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
     server_ids = list(agent.allowed_tools.keys())
@@ -343,14 +330,10 @@ async def restart_runtime(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config to verify access
+    # Get agent config to verify it exists (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access - only users who can use the agent can restart it
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Invalidate the runtime cache
     cache = get_runtime_cache()
@@ -392,14 +375,10 @@ async def cancel_stream(
         f"[cancel] Cancel request received: agent={request.agent_id}, conv={request.conversation_id}, user={user.email}"
     )
 
-    # Get agent config to verify access
+    # Get agent config to verify it exists (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access - only users who can use the agent can cancel it
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Cancel the stream via the runtime cache
     cache = get_runtime_cache()

@@ -469,9 +469,7 @@ async def require_admin(
 _GATEWAY_DEFAULT_USER = UserContext(
     email="internal@caipe.local",
     name="Internal Service",
-    groups=[],
     is_admin=False,
-    raw_claims={},
 )
 
 
@@ -483,7 +481,13 @@ async def get_user_from_gateway(
 
     The Next.js API gateway authenticates the user (via session cookie or
     Bearer token) and injects a trusted ``X-User-Context`` header containing
-    a base64-encoded JSON ``UserContext``.
+    a base64-encoded JSON object.
+
+    The decoded JSON is passed directly to ``UserContext``.  Only ``email``
+    is required; all other fields (``name``, ``is_admin``, ``is_authorized``,
+    ``can_view_admin``, etc.) are opaque and pass through via
+    ``extra="allow"``.  This keeps the gateway in control of what
+    authorization flags exist — DA doesn't need to know or care.
 
     Fallback behaviour:
     - If ``AUTH_ENABLED=false`` (dev mode): returns a dev admin user.
@@ -503,7 +507,6 @@ async def get_user_from_gateway(
             name="Dev User",
             groups=["admin"],
             is_admin=True,
-            raw_claims={},
         )
 
     header = request.headers.get("X-User-Context")
@@ -514,13 +517,7 @@ async def get_user_from_gateway(
     try:
         decoded = base64.b64decode(header)
         data = json.loads(decoded)
-        return UserContext(
-            email=data.get("email", "unknown@caipe.local"),
-            name=data.get("name"),
-            groups=data.get("groups", []),
-            is_admin=data.get("is_admin", False),
-            raw_claims=data.get("raw_claims", {}),
-        )
+        return UserContext(**data)
     except Exception as e:
         logger.warning(f"Malformed X-User-Context header: {e}")
         raise HTTPException(

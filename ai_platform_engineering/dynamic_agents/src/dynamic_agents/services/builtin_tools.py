@@ -300,38 +300,42 @@ def create_current_datetime_tool():
 def create_user_info_tool(user: UserContext):
     """Create a user_info tool with the current user's information.
 
+    Returns all fields present on the ``UserContext`` instance, including
+    any opaque extra fields injected by the gateway (``is_admin``,
+    ``is_authorized``, ``can_view_admin``, etc.).  The tool output adapts
+    automatically when the gateway adds or removes fields — no code
+    changes needed here.
+
     Args:
-        user: User context containing email, name, and groups
+        user: User context (email required, everything else opaque).
 
     Returns:
         A LangChain tool that returns user information.
     """
+
+    # Snapshot once — UserContext is immutable for the lifetime of a request.
+    _user_data = user.model_dump(exclude={"raw_claims"})
 
     @tool
     def user_info(thought: str = "") -> dict:
         """Get information about the current user.
 
         Use this tool when you need to personalize responses, check user identity,
-        or access user group memberships for authorization decisions.
+        or access user metadata for authorization decisions.
 
         Args:
             thought: Brief reasoning for why you need user information
 
         Returns:
-            Dictionary with user information:
-            - email: User's email address
-            - name: User's display name (may be null)
-            - groups: List of group names the user belongs to
+            Dictionary with user information.  Always includes ``email``.
+            Other fields (``name``, ``is_admin``, ``groups``, etc.) depend
+            on how the user was authenticated.
 
         Example:
             info = user_info()
-            print(f"Hello, {info['name'] or info['email']}!")
+            print(f"Hello, {info.get('name') or info['email']}!")
         """
-        return {
-            "email": user.email,
-            "name": user.name,
-            "groups": user.groups,
-        }
+        return _user_data
 
     return user_info
 

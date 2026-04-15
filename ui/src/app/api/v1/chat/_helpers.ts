@@ -31,9 +31,11 @@ export interface AuthResult {
  * Resolve user identity from the request (session cookie or Bearer token).
  *
  * If the caller is authenticated, builds a base64-encoded ``X-User-Context``
- * header containing ``{ email, name, groups, is_admin }``.  This is injected
- * into the proxied request so DA can identify the user without doing its
- * own OIDC validation.
+ * header containing ``{ email, name, is_admin, is_authorized, can_view_admin,
+ * can_access_dynamic_agents }``.  These are pre-computed boolean flags —
+ * the DA backend treats them as opaque and passes them through to tools
+ * like ``user_info``.  No group arrays are sent (they were removed from
+ * the session to keep cookie size under 4KB).
  *
  * If the caller is unauthenticated (e.g. Slack bot), returns an empty
  * result — DA will use its default internal user.
@@ -46,12 +48,21 @@ export async function authenticateRequest(
       allowAnonymous: true,
     });
 
-    // Build X-User-Context from the resolved user
+    // Build X-User-Context from pre-computed authorization flags.
+    // DA doesn't parse these — they pass through via extra="allow"
+    // on UserContext and are available to the user_info tool.
+    //
+    // Cast session to Record to access optional fields that may not
+    // be present on the anonymous fallback type (which only has
+    // { role, canViewAdmin }).
+    const s = session as Record<string, unknown>;
     const userContext = {
       email: user.email,
       name: user.name ?? null,
-      groups: (session as Record<string, unknown>)?.groups ?? [],
       is_admin: user.role === "admin",
+      is_authorized: (s?.isAuthorized as boolean) ?? true,
+      can_view_admin: (s?.canViewAdmin as boolean) ?? false,
+      can_access_dynamic_agents: (s?.canAccessDynamicAgents as boolean) ?? false,
     };
 
     const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
