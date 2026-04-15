@@ -95,44 +95,20 @@ export function Spinner({ label, color = "cyan" }: SpinnerProps): React.ReactEle
 export interface StreamingSpinnerProps {
   /** Action label, e.g. "Generating", "Thinking" */
   label?: string;
-  /** Elapsed seconds since streaming began */
-  elapsed: number;
-  /** Tokens received so far in this response */
-  tokenCount: number;
 }
 
 /**
- * Claude Code-style streaming status line:
- *   ◐ Generating… (12s · ↓ 541 tokens)
+ * Streaming status indicator:   ◐ Generating…
  *
- * Uses CAIPE's unique beacon spinner frames.
+ * Static (no animation, no timers) to avoid Ink re-render flashing.
  */
 export function StreamingSpinner({
   label = "Generating",
-  elapsed,
-  tokenCount,
 }: StreamingSpinnerProps): React.ReactElement {
-  const { useState, useEffect } = React;
-  const frames = NO_COLOR ? SPINNER_PLAIN : CAIPE_SPINNER_FRAMES;
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setFrame((f) => (f + 1) % frames.length);
-    }, 250);
-    return () => clearInterval(id);
-  }, [frames.length]);
-
-  const tokenStr =
-    tokenCount >= 1000 ? `↓ ${(tokenCount / 1000).toFixed(1)}k tokens` : `↓ ${tokenCount} tokens`;
-
   return (
     <Box>
-      <Text color={NO_COLOR ? undefined : "blue"}>{frames[frame]} </Text>
-      <Text color={NO_COLOR ? undefined : "blue"}>{label}… </Text>
-      <Text dimColor>
-        ({elapsed}s · {tokenStr})
-      </Text>
+      <Text color={NO_COLOR ? undefined : "blue"}>◐ </Text>
+      <Text color={NO_COLOR ? undefined : "blue"}>{label}…</Text>
     </Box>
   );
 }

@@ -4,11 +4,11 @@
  * Architecture:
  *   - Completed messages (user prompts, rendered assistant responses)
  *     go into Ink's <Static> — rendered once, never redrawn.
- *   - During streaming, raw text accumulates in the "dynamic" area
- *     (redrawn on state changes) so the user sees tokens as they arrive.
+ *   - During streaming, only the spinner + elapsed time is visible
+ *     (tiny dynamic area, no flashing).
  *   - When streaming finishes, the full response is rendered through
  *     renderMarkdown() (tables, code blocks, styled headings) and pushed
- *     as one <Static> item — no flashing, proper formatting.
+ *     as one <Static> item.
  */
 
 import { Box, Static, Text, useApp, useInput } from "ink";
@@ -460,18 +460,13 @@ export function Repl({
   // ── UI state ──
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [streamElapsed, setStreamElapsed] = useState(0);
-  const [streamTokenCount, setStreamTokenCount] = useState(0);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [pickerIndex, setPickerIndex] = useState(0);
   const [activeToolName, setActiveToolName] = useState<string | null>(null);
-  const [streamingText, setStreamingText] = useState("");
   const tokenCountRef = useRef(0);
-  const streamStartRef = useRef(0);
   const ctrlDCountRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingTokensRef = useRef("");
-  const pendingTokenCountRef = useRef(0);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lineBufferRef = useRef(""); // holds partial line until newline arrives
 
@@ -507,33 +502,22 @@ export function Repl({
     [pushStatic],
   );
 
-  // ── Flush buffered streaming tokens ──
-  // Tokens accumulate in accumulatedRef and are displayed in the dynamic
-  // area via streamingText state.  When streaming ends, the full text is
-  // rendered through renderMarkdown() and pushed as one Static item.
+  // ── Flush buffered streaming tokens into accumulatedRef ──
+  // No UI update during streaming — just accumulate.  The full response
+  // is rendered through renderMarkdown() when streaming finishes.
   const flushTokens = useCallback(() => {
     const text = pendingTokensRef.current;
-    const count = pendingTokenCountRef.current;
     if (!text) return;
     pendingTokensRef.current = "";
-    pendingTokenCountRef.current = 0;
-    tokenCountRef.current += count;
     accumulatedRef.current += text;
-    setStreamTokenCount((prev) => prev + count);
-    setStreamingText(accumulatedRef.current);
   }, []);
 
   // Flush whatever remains in pending tokens (called when streaming ends)
   const flushLineBuffer = useCallback(() => {
-    // Any pending tokens not yet flushed
     const text = pendingTokensRef.current;
     if (text) {
       pendingTokensRef.current = "";
-      const count = pendingTokenCountRef.current;
-      pendingTokenCountRef.current = 0;
-      tokenCountRef.current += count;
       accumulatedRef.current += text;
-      setStreamTokenCount((prev) => prev + count);
     }
     lineBufferRef.current = "";
   }, []);
@@ -553,18 +537,7 @@ export function Repl({
     setPickerIndex(0);
   }, [filteredCommands.length]);
 
-  // ── Elapsed timer ──
-  useEffect(() => {
-    if (!streaming) {
-      setStreamElapsed(0);
-      return;
-    }
-    streamStartRef.current = Date.now();
-    const id = setInterval(() => {
-      setStreamElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [streaming]);
+  // Elapsed timer disabled — even 1Hz re-renders cause Ink screen flashing.
 
   // ── Exit ──
   const handleExit = useCallback(() => {
@@ -746,10 +719,8 @@ export function Repl({
       pushUser(text);
       tokenCountRef.current += Math.ceil(prompt.length / 4);
 
-      // Start streaming — show response in dynamic area until complete
+      // Start streaming — spinner only, no text until complete
       accumulatedRef.current = "";
-      setStreamTokenCount(0);
-      setStreamingText("");
       setStreaming(true);
 
       try {
@@ -763,14 +734,12 @@ export function Repl({
 
         for await (const ev of gen) {
           if (ev.type === "token") {
-            const newTokens = Math.ceil(ev.text.length / 4);
             pendingTokensRef.current += ev.text;
-            pendingTokenCountRef.current += newTokens;
             if (!flushTimerRef.current) {
               flushTimerRef.current = setTimeout(() => {
                 flushTimerRef.current = null;
                 flushTokens();
-              }, 300);
+              }, 500);
             }
           } else if (ev.type === "tool") {
             setActiveToolName(ev.name);
@@ -790,8 +759,7 @@ export function Repl({
         flushTokens();
         flushLineBuffer();
 
-        // Clear streaming display and push markdown-rendered result to Static
-        setStreamingText("");
+        // Push markdown-rendered result to Static
 
         let finalContent = accumulatedRef.current;
         if (parsed.pipeCmd && finalContent) {
@@ -808,9 +776,7 @@ export function Repl({
         pushAssistant(`[ERROR] ${msg}`);
       } finally {
         pendingTokensRef.current = "";
-        pendingTokenCountRef.current = 0;
         lineBufferRef.current = "";
-        setStreamingText("");
         setStreaming(false);
         setActiveToolName(null);
         setStatusText(null);
@@ -914,24 +880,13 @@ export function Repl({
         }}
       </Static>
 
-      {/* Dynamic area: streaming text + input + status */}
+      {/* Dynamic area: only input + status — tiny, no flashing */}
       <Box flexDirection="column" flexGrow={1} paddingY={0}>
-        {streaming && streamingText ? (
-          <Box paddingX={1} flexDirection="column">
-            <Box>
-              <Text color="blue">{"⏺ "}</Text>
-            </Box>
-            <Text>{streamingText}</Text>
-          </Box>
-        ) : staticItems.length === 0 && !streaming ? (
+        {staticItems.length === 0 && !streaming && (
           <Box paddingX={1}>
             <Text dimColor>Type a message or / for commands.</Text>
           </Box>
-        ) : streaming ? (
-          <Box paddingX={1}>
-            <Text color="blue">{"⏺ "}</Text>
-          </Box>
-        ) : null}
+        )}
       </Box>
 
       {showPicker && (
@@ -956,11 +911,7 @@ export function Repl({
       <Box paddingX={2} justifyContent="space-between">
         <Box>
           {streaming ? (
-            <StreamingSpinner
-              elapsed={streamElapsed}
-              tokenCount={streamTokenCount}
-              label={activeToolName ? `⎔ ${activeToolName}` : "Generating"}
-            />
+            <StreamingSpinner label={activeToolName ? `⎔ ${activeToolName}` : "Generating"} />
           ) : statusText !== null ? (
             <Text dimColor>{statusText}</Text>
           ) : (
