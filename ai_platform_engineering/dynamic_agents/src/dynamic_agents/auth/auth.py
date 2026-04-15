@@ -4,9 +4,12 @@ Supports:
 - JWT token validation via OIDC provider
 - Userinfo endpoint for fetching groups (access tokens often don't contain groups)
 - Auth bypass for local development (AUTH_ENABLED=false)
+- Gateway-trusted user context via X-User-Context header
 """
 
+import base64
 import hashlib
+import json
 import logging
 import time
 from typing import Any, Optional
@@ -280,8 +283,10 @@ def check_admin_role(groups: list[str], settings: Settings) -> bool:
         # Support comma-separated list of admin groups
         admin_groups = [g.strip().lower() for g in settings.oidc_required_admin_group.split(",") if g.strip()]
         return any(
-            any(user_group.lower() == admin_group or f"cn={admin_group}" in user_group.lower()
-                for admin_group in admin_groups)
+            any(
+                user_group.lower() == admin_group or f"cn={admin_group}" in user_group.lower()
+                for admin_group in admin_groups
+            )
             for user_group in groups
         )
 
@@ -453,3 +458,72 @@ async def require_admin(
             detail="Admin role required",
         )
     return user
+
+
+# ═══════════════════════════════════════════════════════════════
+# Gateway-trusted auth (for routes proxied through Next.js)
+# ═══════════════════════════════════════════════════════════════
+
+# Default user for unauthenticated internal callers (e.g. Slack bot).
+# Shared/global identity — not admin, no special group memberships.
+_GATEWAY_DEFAULT_USER = UserContext(
+    email="internal@caipe.local",
+    name="Internal Service",
+    groups=[],
+    is_admin=False,
+    raw_claims={},
+)
+
+
+async def get_user_from_gateway(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> UserContext:
+    """Extract user context from the gateway's X-User-Context header.
+
+    The Next.js API gateway authenticates the user (via session cookie or
+    Bearer token) and injects a trusted ``X-User-Context`` header containing
+    a base64-encoded JSON ``UserContext``.
+
+    Fallback behaviour:
+    - If ``AUTH_ENABLED=false`` (dev mode): returns a dev admin user.
+    - If the header is missing: returns a shared default service identity
+      (``internal@caipe.local``, non-admin).  This covers internal callers
+      like the Slack bot that don't carry user credentials.
+    - If the header is present but malformed: returns 400.
+
+    This dependency is used by chat routes that are proxied through the
+    gateway.  All other routes continue to use ``get_current_user()`` which
+    validates JWTs directly.
+    """
+    if not settings.auth_enabled:
+        logger.debug("Auth disabled (AUTH_ENABLED=false), returning dev user")
+        return UserContext(
+            email="dev@localhost",
+            name="Dev User",
+            groups=["admin"],
+            is_admin=True,
+            raw_claims={},
+        )
+
+    header = request.headers.get("X-User-Context")
+    if not header:
+        logger.debug("No X-User-Context header — using default internal user")
+        return _GATEWAY_DEFAULT_USER
+
+    try:
+        decoded = base64.b64decode(header)
+        data = json.loads(decoded)
+        return UserContext(
+            email=data.get("email", "unknown@caipe.local"),
+            name=data.get("name"),
+            groups=data.get("groups", []),
+            is_admin=data.get("is_admin", False),
+            raw_claims=data.get("raw_claims", {}),
+        )
+    except Exception as e:
+        logger.warning(f"Malformed X-User-Context header: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="Malformed X-User-Context header",
+        )
