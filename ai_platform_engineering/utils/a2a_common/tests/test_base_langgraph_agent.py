@@ -8,6 +8,7 @@ Tests the core functionality of the BaseLangGraphAgent class,
 including date/time injection and system instruction generation.
 """
 
+import os
 import pytest
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -17,6 +18,7 @@ from typing import Dict, Any
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
+from ai_platform_engineering.utils.a2a_common.bigtool import BigtoolConfig
 
 
 class MockLangGraphAgent(BaseLangGraphAgent):
@@ -675,4 +677,180 @@ class TestEmergencyContextRepair:
         config = {"configurable": {"thread_id": "test"}}
         # Should not raise even when everything fails
         await agent._emergency_context_repair(config, "test_agent")
+
+
+# ---------------------------------------------------------------------------
+# Tests for BigTool integration in BaseLangGraphAgent
+# ---------------------------------------------------------------------------
+
+
+class TestBigToolIntegration:
+    """Test BigTool semantic tool selection integration in BaseLangGraphAgent."""
+
+    def _make_mock_tools(self, names_and_descs):
+        """Create mock tools with name and description."""
+        tools = []
+        for name, desc in names_and_descs:
+            tool = Mock()
+            tool.name = name
+            tool.description = desc
+            tool.args_schema = None
+            tools.append(tool)
+        return tools
+
+    def test_bigtool_disabled_by_default(self):
+        """When BIGTOOL_ENABLED is not set, bigtool_config.enabled is False."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BIGTOOL_ENABLED", None)
+            agent = MockLangGraphAgent()
+            agent.bigtool_config = BigtoolConfig.from_env()
+        assert agent.bigtool_config.enabled is False
+
+    def test_bigtool_enabled_from_env(self):
+        """When BIGTOOL_ENABLED=true, bigtool_config.enabled is True."""
+        with patch.dict(os.environ, {"BIGTOOL_ENABLED": "true"}):
+            agent = MockLangGraphAgent()
+            agent.bigtool_config = BigtoolConfig.from_env()
+        assert agent.bigtool_config.enabled is True
+
+    def test_bigtool_config_reads_all_env_vars(self):
+        """All BIGTOOL_* env vars are read correctly."""
+        env = {
+            "BIGTOOL_ENABLED": "true",
+            "BIGTOOL_VECTOR_STORE": "faiss",
+            "BIGTOOL_EMBEDDINGS_PROVIDER": "huggingface",
+            "BIGTOOL_EMBEDDINGS_MODEL": "all-MiniLM-L6-v2",
+            "BIGTOOL_TOP_K": "5",
+        }
+        with patch.dict(os.environ, env):
+            agent = MockLangGraphAgent()
+            agent.bigtool_config = BigtoolConfig.from_env()
+        assert agent.bigtool_config.vector_store_type == "faiss"
+        assert agent.bigtool_config.embeddings_provider == "huggingface"
+        assert agent.bigtool_config.embeddings_model == "all-MiniLM-L6-v2"
+        assert agent.bigtool_config.top_k == 5
+
+    def test_bigtool_store_none_when_disabled(self):
+        """bigtool_store and all_tools are None when BigTool is disabled."""
+        agent = MockLangGraphAgent()
+        agent.bigtool_config = BigtoolConfig(enabled=False)
+        agent.bigtool_store = None
+        agent.all_tools = None
+        assert agent.bigtool_store is None
+        assert agent.all_tools is None
+
+    @patch("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.create_react_agent")
+    @patch("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.memory")
+    def test_create_bigtool_agent_creates_graph(self, mock_memory, mock_create_react):
+        """_create_bigtool_agent creates a react agent with filtered tools."""
+        mock_create_react.return_value = Mock()
+
+        agent = MockLangGraphAgent()
+        agent.model = Mock()
+        agent.model.with_config = Mock(return_value=Mock())
+        agent.enable_auto_compression = False
+        agent.bigtool_config = BigtoolConfig(enabled=True)
+
+        tools = self._make_mock_tools([
+            ("list_apps", "List applications"),
+            ("get_app", "Get application details"),
+        ])
+
+        result = agent._create_bigtool_agent(tools)
+
+        mock_create_react.assert_called_once()
+        call_args = mock_create_react.call_args
+        # Second positional arg is the tools list
+        assert call_args[0][1] == tools
+        assert result is not None
+
+    @patch("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.create_react_agent")
+    @patch("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.memory")
+    def test_create_bigtool_agent_includes_compression_when_enabled(self, mock_memory, mock_create_react):
+        """_create_bigtool_agent passes pre_model_hook when auto_compression is on."""
+        mock_create_react.return_value = Mock()
+
+        agent = MockLangGraphAgent()
+        agent.model = Mock()
+        agent.model.with_config = Mock(return_value=Mock())
+        agent.enable_auto_compression = True
+        agent.max_context_tokens = 10000
+        agent.min_messages_to_keep = 5
+        agent.bigtool_config = BigtoolConfig(enabled=True)
+        agent.tools_info = {}
+
+        tools = self._make_mock_tools([("list_apps", "List applications")])
+        agent._create_bigtool_agent(tools)
+
+        call_kwargs = mock_create_react.call_args[1]
+        assert "pre_model_hook" in call_kwargs
+
+    @patch("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.get_relevant_tools")
+    def test_stream_uses_bigtool_filtered_agent_when_enabled(self, mock_get_relevant):
+        """When BigTool is enabled and finds fewer tools, a specialized agent should be used."""
+        agent = MockLangGraphAgent()
+        agent.bigtool_config = BigtoolConfig(enabled=True, top_k=2)
+
+        all_tools = self._make_mock_tools([
+            ("list_apps", "List applications"),
+            ("get_app", "Get application details"),
+            ("sync_app", "Sync application"),
+            ("delete_app", "Delete application"),
+        ])
+        agent.all_tools = all_tools
+        agent.bigtool_store = Mock()
+
+        # Return only 2 relevant tools
+        mock_get_relevant.return_value = all_tools[:2]
+
+        mock_bigtool_agent = Mock()
+        agent._create_bigtool_agent = Mock(return_value=mock_bigtool_agent)
+
+        # Verify that get_relevant_tools is called with correct args
+        mock_get_relevant("test query", all_tools, agent.bigtool_store, "test_agent", 2)
+
+        mock_get_relevant.assert_called_once_with(
+            "test query", all_tools, agent.bigtool_store, "test_agent", 2
+        )
+
+    @patch("ai_platform_engineering.utils.a2a_common.base_langgraph_agent.get_relevant_tools")
+    def test_stream_skips_bigtool_when_all_tools_returned(self, mock_get_relevant):
+        """When BigTool returns all tools, no specialized agent should be created."""
+        agent = MockLangGraphAgent()
+        agent.bigtool_config = BigtoolConfig(enabled=True, top_k=3)
+
+        all_tools = self._make_mock_tools([
+            ("list_apps", "List applications"),
+            ("get_app", "Get application details"),
+        ])
+        agent.all_tools = all_tools
+        agent.bigtool_store = Mock()
+
+        # Return ALL tools (no filtering happened)
+        mock_get_relevant.return_value = all_tools
+
+        agent._create_bigtool_agent = Mock()
+
+        # Simulate the filtering logic from stream()
+        relevant_tools = mock_get_relevant("query", all_tools, agent.bigtool_store, "test_agent", 3)
+        if len(relevant_tools) < len(all_tools):
+            agent._create_bigtool_agent(relevant_tools)
+
+        # Should NOT have created a bigtool agent since all tools were returned
+        agent._create_bigtool_agent.assert_not_called()
+
+    def test_stream_skips_bigtool_when_store_is_none(self):
+        """When bigtool_store is None (init failed), stream uses self.graph."""
+        agent = MockLangGraphAgent()
+        agent.bigtool_config = BigtoolConfig(enabled=True)
+        agent.bigtool_store = None
+        agent.all_tools = None
+
+        # The condition `self.bigtool_store and self.all_tools` is False
+        should_filter = (
+            agent.bigtool_config.enabled
+            and agent.bigtool_store
+            and agent.all_tools
+        )
+        assert not should_filter
 

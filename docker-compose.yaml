@@ -295,6 +295,12 @@ services:
       - MCP_HOST=mcp-argocd
       - MCP_PORT=8000
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
+      # BigTool: semantic tool selection (opt-in)
+      - BIGTOOL_ENABLED=${BIGTOOL_ENABLED:-false}
+      - BIGTOOL_VECTOR_STORE=${BIGTOOL_VECTOR_STORE:-memory}
+      - BIGTOOL_EMBEDDINGS_PROVIDER=${BIGTOOL_EMBEDDINGS_PROVIDER:-azure}
+      - BIGTOOL_EMBEDDINGS_MODEL=${BIGTOOL_EMBEDDINGS_MODEL:-text-embedding-3-large}
+      - BIGTOOL_TOP_K=${BIGTOOL_TOP_K:-3}
     depends_on:
       mcp-argocd:
         condition: service_healthy

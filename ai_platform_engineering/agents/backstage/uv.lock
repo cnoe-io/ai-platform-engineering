@@ -168,6 +168,7 @@ dependencies = [
     { name = "httpx" },
     { name = "langchain-core" },
     { name = "langchain-mcp-adapters" },
+    { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-mongodb" },
     { name = "langmem" },
@@ -187,9 +188,13 @@ requires-dist = [
     { name = "agntcy-app-sdk", specifier = "==0.4.5" },
     { name = "beautifulsoup4", specifier = "==4.14.3" },
     { name = "cnoe-agent-utils", specifier = "==0.3.14" },
+    { name = "faiss-cpu", marker = "extra == 'bigtool-faiss'", specifier = "==1.13.2" },
     { name = "httpx", specifier = "==0.28.1" },
+    { name = "langchain-community", marker = "extra == 'bigtool-faiss'", specifier = "==0.4.1" },
     { name = "langchain-core", specifier = "==1.2.28" },
+    { name = "langchain-huggingface", marker = "extra == 'bigtool-huggingface'", specifier = "==1.2.1" },
     { name = "langchain-mcp-adapters", specifier = "==0.2.1" },
+    { name = "langchain-openai", specifier = "==1.1.0" },
     { name = "langgraph", specifier = "==1.1.6" },
     { name = "langgraph-checkpoint-mongodb", specifier = "==0.3.1" },
     { name = "langmem", specifier = "==0.0.30" },
@@ -202,6 +207,7 @@ requires-dist = [
     { name = "requests", specifier = "==2.33.0" },
     { name = "strands-agents", specifier = "==1.19.0" },
 ]
+provides-extras = ["bigtool-faiss", "bigtool-huggingface"]
 
 [[package]]
 name = "aiofile"
