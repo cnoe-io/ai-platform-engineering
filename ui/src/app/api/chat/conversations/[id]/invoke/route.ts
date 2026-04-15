@@ -1,24 +1,23 @@
 /**
- * Unified gateway route for resuming a Dynamic Agent stream after HITL.
+ * Unified gateway route for non-streaming Dynamic Agent invocation.
  *
- * POST /api/chat/conversations/:id/stream/resume
- * Body: { agent_id, form_data, trace_id?, client_context? }
- * Response: SSE stream (text/event-stream)
+ * POST /api/chat/conversations/:id/invoke
+ * Body: { message, agent_id, trace_id?, client_context? }
+ * Response: JSON { success, content, agent_id, conversation_id, trace_id }
  *
  * The conversationId comes from the URL path — it is NOT in the body.
- * Call this after the user submits (or dismisses) a HITL form that was
- * requested via an `input_required` event from /stream/start.
+ * Used by clients that cannot consume SSE streams (e.g. Slack bot users).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import {
   authenticateRequest,
   getDynamicAgentsConfig,
-  proxySSEStream,
-} from "../_helpers";
+  proxyJSONRequest,
+} from "../stream/_helpers";
 
 export const runtime = "nodejs";
-export const maxDuration = 300; // 5 minutes
+export const maxDuration = 300; // 5 minutes — invoke runs the full agent loop
 
 export async function POST(
   request: NextRequest,
@@ -36,8 +35,8 @@ export async function POST(
 
   // Parse body
   let body: {
+    message: string;
     agent_id: string;
-    form_data: string;
     trace_id?: string | null;
     client_context?: Record<string, unknown> | null;
   };
@@ -50,30 +49,28 @@ export async function POST(
     );
   }
 
-  if (!body.agent_id || body.form_data === undefined) {
+  if (!body.message || !body.agent_id) {
     return NextResponse.json(
-      { success: false, error: "Missing required fields: agent_id, form_data" },
+      { success: false, error: "Missing required fields: message, agent_id" },
       { status: 400 },
     );
   }
 
   // Build backend request body — inject conversationId from URL path
   const backendPayload: Record<string, unknown> = {
+    message: body.message,
     conversation_id: conversationId,
     agent_id: body.agent_id,
-    form_data: body.form_data,
   };
   if (body.trace_id) backendPayload.trace_id = body.trace_id;
   if (body.client_context) backendPayload.client_context = body.client_context;
 
-  // Forward protocol query param from the request (default to server config)
-  const protocol = request.nextUrl.searchParams.get("protocol") || daConfig.agentProtocol;
-  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/resume?protocol=${protocol}`;
+  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`;
 
-  return proxySSEStream(
+  return proxyJSONRequest(
     backendUrl,
     JSON.stringify(backendPayload),
     authResult.accessToken,
-    "[stream/resume]",
+    "[invoke]",
   );
 }

@@ -2,7 +2,7 @@
  * Unified gateway route for starting a Dynamic Agent stream.
  *
  * POST /api/chat/conversations/:id/stream/start
- * Body: { message, agent_id }
+ * Body: { message, agent_id, trace_id?, client_context? }
  * Response: SSE stream (text/event-stream)
  *
  * The conversationId comes from the URL path — it is NOT in the body.
@@ -35,7 +35,12 @@ export async function POST(
   if (daConfig instanceof NextResponse) return daConfig;
 
   // Parse body
-  let body: { message: string; agent_id: string };
+  let body: {
+    message: string;
+    agent_id: string;
+    trace_id?: string | null;
+    client_context?: Record<string, unknown> | null;
+  };
   try {
     body = await request.json();
   } catch {
@@ -53,17 +58,21 @@ export async function POST(
   }
 
   // Build backend request body — inject conversationId from URL path
-  const backendBody = JSON.stringify({
+  const backendPayload: Record<string, unknown> = {
     message: body.message,
     conversation_id: conversationId,
     agent_id: body.agent_id,
-  });
+  };
+  if (body.trace_id) backendPayload.trace_id = body.trace_id;
+  if (body.client_context) backendPayload.client_context = body.client_context;
 
-  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/start?protocol=${daConfig.agentProtocol}`;
+  // Forward protocol query param from the request (default to server config)
+  const protocol = request.nextUrl.searchParams.get("protocol") || daConfig.agentProtocol;
+  const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/start?protocol=${protocol}`;
 
   return proxySSEStream(
     backendUrl,
-    backendBody,
+    JSON.stringify(backendPayload),
     authResult.accessToken,
     "[stream/start]",
   );

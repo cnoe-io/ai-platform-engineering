@@ -6,10 +6,10 @@
  *
  * The factory creates the appropriate adapter based on the protocol config.
  *
- * Routes:
- *   POST /api/chat/conversations/:id/stream/start   → streamMessage
- *   POST /api/chat/conversations/:id/stream/resume   → resumeStream
- *   POST /api/chat/conversations/:id/stream/cancel   → cancelStream
+ * Routes (flat, conversation_id + protocol in body):
+ *   POST /api/v1/chat/stream/start   → streamMessage
+ *   POST /api/v1/chat/stream/resume   → resumeStream
+ *   POST /api/v1/chat/stream/cancel   → cancelStream
  */
 
 import type { StreamCallbacks, StreamParams } from "./callbacks";
@@ -51,10 +51,10 @@ export interface StreamAdapterConfig {
  * The adapter owns the HTTP lifecycle (fetch, abort, error handling).
  * Callers just provide StreamCallbacks.
  *
- * Routes are derived from the conversationId in StreamParams:
- *   /api/chat/conversations/{conversationId}/stream/start
- *   /api/chat/conversations/{conversationId}/stream/resume
- *   /api/chat/conversations/{conversationId}/stream/cancel
+ * Routes are flat — conversation_id and protocol are in the request body:
+ *   /api/v1/chat/stream/start
+ *   /api/v1/chat/stream/resume
+ *   /api/v1/chat/stream/cancel
  */
 export function createStreamAdapter(config: StreamAdapterConfig): StreamAdapter {
   switch (config.protocol) {
