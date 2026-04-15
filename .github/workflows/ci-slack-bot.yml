@@ -287,6 +287,8 @@ jobs:
   # Notify release-finalize workflow when this CI completes
   notify-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for repository_dispatch via gh api
     needs: [determine-changes, build-and-push, retag-unchanged]
     if: |
       always() &&

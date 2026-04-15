@@ -281,6 +281,8 @@ jobs:
   # Notify release-finalize workflow when this CI completes (for final release builds only)
   notify-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for repository_dispatch via gh api
     needs: [determine-changes, build-and-push, retag-unchanged]
     # Only notify for final releases (non-RC tags) - RC builds don't need release finalization
     if: |
