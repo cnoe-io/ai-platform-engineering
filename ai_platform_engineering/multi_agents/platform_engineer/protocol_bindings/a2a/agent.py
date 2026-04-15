@@ -45,6 +45,11 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Suppress Langfuse media scanner false positives: it recursively walks all
+# LangGraph state and tries to parse any string starting with "data:" as a
+# base64 data URI.  Skill SKILL.md content triggers this harmlessly.
+logging.getLogger("langfuse.media").setLevel(logging.CRITICAL)
+
 
 def _tool_narration(tool_name: str, tool_args: dict) -> str | None:
     """Generate a brief narration sentence to stream before a tool call.
@@ -497,6 +502,10 @@ class AIPlatformEngineerA2ABinding:
           # Store user_email in graph state for middleware to use in task prompts
           if user_email:
               state_dict['user_email'] = user_email
+          # Inject skills files into state for SkillsMiddleware / StateBackend
+          skills_files = getattr(self._mas_instance, '_skills_files', None)
+          if skills_files:
+              state_dict['files'] = dict(skills_files)
           inputs = state_dict
 
       config = self.tracing.create_config(context_id)
