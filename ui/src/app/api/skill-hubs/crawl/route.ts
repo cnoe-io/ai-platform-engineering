@@ -9,7 +9,7 @@ import { crawlGitHubRepo, crawlGitLabRepo } from "@/lib/hub-crawl";
 
 /**
  * POST /api/skill-hubs/crawl — preview SKILL.md paths for a repo (FR-017).
- * Proxies to Python when BACKEND_SKILLS_URL is set; otherwise crawls from Next server.
+ * Proxies to Python when NEXT_PUBLIC_A2A_BASE_URL is set; otherwise crawls from Next server.
  * Admin only.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -27,7 +27,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    const backendUrl = process.env.BACKEND_SKILLS_URL;
+    const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
     if (backendUrl) {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",

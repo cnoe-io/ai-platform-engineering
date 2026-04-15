@@ -29,6 +29,8 @@ import {
   Workflow,
   Bug,
   Clock,
+  Variable,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +52,7 @@ import type {
   AgentSkillCategory,
   CreateAgentSkillInput,
   WorkflowDifficulty,
+  SkillInputVariable,
 } from "@/types/agent-skill";
 
 interface SkillsEditorProps {
@@ -164,6 +167,9 @@ export function SkillsEditor({
     thumbnail: existingConfig?.thumbnail || "Zap",
     tags: existingConfig?.metadata?.tags?.join(", ") || "",
   });
+  const [inputVariables, setInputVariables] = useState<SkillInputVariable[]>(
+    existingConfig?.metadata?.input_variables || []
+  );
   const [tasks, setTasks] = useState<AgentSkillTask[]>(
     existingConfig?.tasks || [{ ...emptyTask }]
   );
@@ -376,6 +382,7 @@ export function SkillsEditor({
         input_form: existingConfig?.input_form, // Preserve input_form during updates
         metadata: {
           tags: tags.length > 0 ? tags : undefined,
+          input_variables: inputVariables.length > 0 ? inputVariables : undefined,
         },
       };
 
@@ -517,6 +524,77 @@ export function SkillsEditor({
             className="h-9 text-sm"
           />
           <p className="text-xs text-muted-foreground mt-1">Separate tags with commas</p>
+        </div>
+
+        {/* Input Variables */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+              <Variable className="h-3.5 w-3.5" />
+              Input Variables
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 text-xs px-2 gap-1"
+              onClick={() => setInputVariables(prev => [...prev, { name: "", label: "", required: false, placeholder: "" }])}
+            >
+              <Plus className="h-3 w-3" />
+              Add
+            </Button>
+          </div>
+          {inputVariables.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Add variables to prompt users for parameters when they try this skill.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {inputVariables.map((v, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <Input
+                    value={v.name}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
+                      setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, name: val } : item));
+                    }}
+                    placeholder="var_name"
+                    className="h-8 text-sm w-28 font-mono"
+                  />
+                  <Input
+                    value={v.label}
+                    onChange={(e) => setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, label: e.target.value } : item))}
+                    placeholder="Label"
+                    className="h-8 text-sm w-28"
+                  />
+                  <Input
+                    value={v.placeholder || ""}
+                    onChange={(e) => setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, placeholder: e.target.value } : item))}
+                    placeholder="placeholder text"
+                    className="h-8 text-sm flex-1"
+                  />
+                  <label className="flex items-center gap-1 text-xs text-muted-foreground shrink-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={v.required}
+                      onChange={(e) => setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, required: e.target.checked } : item))}
+                      className="h-3 w-3 rounded border-border"
+                    />
+                    Required
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={() => setInputVariables(prev => prev.filter((_, i) => i !== idx))}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Category */}

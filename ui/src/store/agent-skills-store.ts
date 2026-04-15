@@ -260,23 +260,23 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       
       // Handle 503 (MongoDB not configured) gracefully
       if (response.status === 503) {
-        console.log("[AgentSkillsStore] MongoDB not configured — no skills available");
+        console.log("[AgentSkillsStore] MongoDB not configured");
         set({ configs: [], isLoading: false });
         return;
       }
 
       // Handle 401 (not authenticated) gracefully
       if (response.status === 401) {
-        console.log("[AgentSkillsStore] Not authenticated — no skills available");
+        console.log("[AgentSkillsStore] Not authenticated");
         set({ configs: [], isLoading: false });
         return;
       }
-
+      
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: "Failed to fetch agent skills" }));
         throw new Error(error.error || `HTTP ${response.status}`);
       }
-
+      
       const data = await response.json();
       const transformed = data.map(transformSkill);
 

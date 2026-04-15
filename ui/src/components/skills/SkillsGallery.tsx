@@ -21,7 +21,6 @@ import {
   AlertCircle,
   Edit,
   Trash2,
-  ChevronRight,
   Sparkles,
   Zap,
   Server,
@@ -56,10 +55,7 @@ import {
   Globe,
   UsersRound,
   User,
-  HelpCircle,
-  Copy,
-  Check,
-  ShieldAlert,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,13 +66,60 @@ import { getConfig } from "@/lib/config";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentSkill, AgentSkillCategory, WorkflowDifficulty } from "@/types/agent-skill";
+import type { AgentSkill, WorkflowDifficulty } from "@/types/agent-skill";
 
 interface SkillsGalleryProps {
-  onSelectConfig?: (config: AgentSkill, fromHistory?: boolean) => void;
-  onRunQuickStart?: (prompt: string, configName?: string) => void;
   onEditConfig?: (config: AgentSkill) => void;
   onCreateNew?: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Template variable extraction — parses {{var}} and {{var:default}} from prompt
+// ---------------------------------------------------------------------------
+
+interface TemplateVar {
+  name: string;
+  label: string;
+  defaultValue: string;
+  required: boolean;
+}
+
+function extractTemplateVars(config: AgentSkill): TemplateVar[] {
+  // 1. Try extracting from llm_prompt {{var}} / {{var:default}} syntax
+  const prompt = config.tasks?.[0]?.llm_prompt || "";
+  if (prompt) {
+    const seen = new Set<string>();
+    const vars: TemplateVar[] = [];
+    const re = /\{\{(\w+)(?::([^}]*))?\}\}/g;
+    let m;
+
+    while ((m = re.exec(prompt)) !== null) {
+      const name = m[1];
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const defaultValue = m[2] ?? "";
+      vars.push({
+        name,
+        label: name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+        defaultValue,
+        required: !defaultValue,
+      });
+    }
+    if (vars.length > 0) return vars;
+  }
+
+  // 2. Fallback: use metadata.input_variables (catalog / built-in skills)
+  const inputVars = (config.metadata as Record<string, unknown>)?.input_variables;
+  if (Array.isArray(inputVars)) {
+    return inputVars.map((v: Record<string, unknown>) => ({
+      name: String(v.name || ""),
+      label: String(v.label || v.name || ""),
+      defaultValue: String(v.placeholder || ""),
+      required: Boolean(v.required),
+    }));
+  }
+
+  return [];
 }
 
 const VISIBILITY_BADGE_CONFIG: Record<string, { icon: React.ElementType; label: string; className: string }> = {
@@ -99,18 +142,6 @@ function VisibilityBadge({ config }: { config: AgentSkill }) {
   );
 }
 
-function SyncDot({ synced, loading }: { synced: boolean; loading: boolean }) {
-  if (loading) {
-    return <span className="h-2 w-2 rounded-full bg-gray-400 animate-pulse" title="Checking sync status..." />;
-  }
-  return (
-    <span
-      className={cn("h-2 w-2 rounded-full", synced ? "bg-green-500" : "bg-gray-400")}
-      title={synced ? "Synced with supervisor" : "Not synced with supervisor"}
-    />
-  );
-}
-
 type CatalogSource = "default" | "agent_skills" | "hub";
 
 function skillCatalogSource(config: AgentSkill): CatalogSource {
@@ -128,10 +159,51 @@ const SOURCE_LABELS: Record<CatalogSource, string> = {
 
 function CatalogSourceBadge({ config }: { config: AgentSkill }) {
   const src = skillCatalogSource(config);
+  const meta = config.metadata as { hub_location?: string; hub_type?: string } | undefined;
+
+  if (src === "hub" && meta?.hub_location) {
+    // Show GitHub/GitLab icon + short repo path
+    const loc = meta.hub_location.replace(/^https?:\/\/github\.com\//, "").replace(/^https?:\/\/gitlab\.com\//, "").replace(/\/+$/, "");
+    const isGitHub = !meta.hub_type || meta.hub_type === "github";
+    return (
+      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground gap-0.5">
+        {isGitHub ? (
+          <svg className="h-2.5 w-2.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        ) : (
+          <GitBranch className="h-2.5 w-2.5" />
+        )}
+        {loc}
+      </Badge>
+    );
+  }
+
+  if (src === "default") {
+    return (
+      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground gap-0.5">
+        <Database className="h-2.5 w-2.5" />
+        {SOURCE_LABELS[src]}
+      </Badge>
+    );
+  }
+
+  // Custom / agent_skills
   return (
-    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground">
+    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground gap-0.5">
+      <User className="h-2.5 w-2.5" />
       {SOURCE_LABELS[src]}
     </Badge>
+  );
+}
+
+function SyncDot({ synced, loading }: { synced: boolean; loading: boolean }) {
+  if (loading) {
+    return <span className="h-2 w-2 rounded-full bg-gray-400 animate-pulse" title="Checking sync status..." />;
+  }
+  return (
+    <span
+      className={cn("h-2 w-2 rounded-full", synced ? "bg-green-500" : "bg-gray-400")}
+      title={synced ? "Synced with supervisor" : "Not synced — supervisor not connected or skills not loaded"}
+    />
   );
 }
 
@@ -189,7 +261,6 @@ const getDifficultyColor = (difficulty?: WorkflowDifficulty) => {
 };
 
 export function SkillsGallery({
-  onSelectConfig,
   onEditConfig,
   onCreateNew,
 }: SkillsGalleryProps) {
@@ -215,23 +286,17 @@ export function SkillsGallery({
   const [viewMode, setViewMode] = useState<"all" | "workflows" | "my-skills" | "team" | "global">("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | CatalogSource>("all");
 
-  // API help dialog state
-  const [showApiHelp, setShowApiHelp] = useState(false);
-  const [copiedCurl, setCopiedCurl] = useState(false);
 
-  // API token generation state
-  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
-  const [isGeneratingToken, setIsGeneratingToken] = useState(false);
-  const [copiedToken, setCopiedToken] = useState(false);
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [tokenDurationDays, setTokenDurationDays] = useState(90);
+  // Skill run modal state
+  const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
+  const [paramValues, setParamValues] = useState<Record<string, string>>({});
 
-  // Supervisor sync status — gates "Try Skill" button
+  // Supervisor sync state
   const [supervisorSynced, setSupervisorSynced] = useState(false);
   const [supervisorLoading, setSupervisorLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/skills/supervisor-status", { credentials: "include" })
+    fetch("/api/skills/supervisor-status")
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
@@ -239,43 +304,6 @@ export function SkillsGallery({
       .catch(() => setSupervisorSynced(false))
       .finally(() => setSupervisorLoading(false));
   }, []);
-
-  const closeApiHelp = useCallback(() => {
-    setShowApiHelp(false);
-    setGeneratedToken(null);
-    setCopiedToken(false);
-    setTokenError(null);
-    setIsGeneratingToken(false);
-    setTokenDurationDays(90);
-  }, []);
-
-  const handleGenerateToken = useCallback(async () => {
-    setIsGeneratingToken(true);
-    setTokenError(null);
-    setGeneratedToken(null);
-    setCopiedToken(false);
-    try {
-      const res = await fetch("/api/skills/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ expires_in_days: tokenDurationDays }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to generate token (${res.status})`);
-      }
-      const data = await res.json();
-      setGeneratedToken(data.token);
-    } catch (err: any) {
-      setTokenError(err.message || "Failed to generate token");
-    } finally {
-      setIsGeneratingToken(false);
-    }
-  }, [tokenDurationDays]);
-
-  // Skill run modal state
-  const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
 
   // Check if user can edit a config (admins can edit system configs)
   const canEditConfig = (config: AgentSkill) => {
@@ -324,6 +352,8 @@ export function SkillsGallery({
               tags: (s.metadata?.tags as string[]) || [],
               catalog_source: s.source,
               catalog_visibility: s.visibility,
+              hub_location: (s.metadata?.hub_location as string) || "",
+              hub_type: (s.metadata?.hub_type as string) || "",
             },
           } as AgentSkill),
         );
@@ -413,14 +443,36 @@ export function SkillsGallery({
   };
 
   const handleConfigClick = (config: AgentSkill) => {
-    // Open the "Try Skill" modal for any skill
     setActiveFormConfig(config);
+    // Pre-fill parameter values from defaults
+    const vars = extractTemplateVars(config);
+    const defaults: Record<string, string> = {};
+    for (const v of vars) {
+      defaults[v.name] = v.defaultValue;
+    }
+    setParamValues(defaults);
   };
 
   const handleTrySkill = () => {
     if (!activeFormConfig) return;
+    const vars = extractTemplateVars(activeFormConfig);
+    // Check required fields
+    const missing = vars.filter(v => v.required && !paramValues[v.name]?.trim());
+    if (missing.length > 0) return; // validation errors shown inline
+
+    const skillId = activeFormConfig.id || activeFormConfig.name;
+    let message = `Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`;
+    // Append parameters if any variables have values
+    const filledParams = vars.filter(v => paramValues[v.name]?.trim());
+    if (filledParams.length > 0) {
+      message += "\n\nParameters:";
+      for (const v of filledParams) {
+        message += `\n- ${v.name}: ${paramValues[v.name].trim()}`;
+      }
+    }
+
     const conversationId = createConversation();
-    setPendingMessage(activeFormConfig.name);
+    setPendingMessage(message);
     setActiveFormConfig(null);
     router.push(`/chat/${conversationId}`);
   };
@@ -466,12 +518,12 @@ export function SkillsGallery({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setShowApiHelp(true)}
+                onClick={() => router.push("/skills/gateway")}
                 className="gap-1.5"
-                title="How to access Skills via API"
+                title="Skills API Gateway"
               >
-                <HelpCircle className="h-4 w-4" />
-                API
+                <ExternalLink className="h-4 w-4" />
+                Skills API Gateway
               </Button>
               <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
                 <Plus className="h-4 w-4" />
@@ -615,7 +667,13 @@ export function SkillsGallery({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate pr-8">{config.name}</p>
                         <div className="flex items-center gap-1 mt-0.5">
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                          {!workflowRunnerEnabled ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                          ) : config.is_quick_start ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
+                          )}
                           <CatalogSourceBadge config={config} />
                           <VisibilityBadge config={config} />
                           <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
@@ -714,10 +772,10 @@ export function SkillsGallery({
                         <div className="flex items-center gap-1 flex-wrap justify-end">
                           <CatalogSourceBadge config={config} />
                           <VisibilityBadge config={config} />
+                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                           <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
                             {config.difficulty || "beginner"}
                           </Badge>
-                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                         </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
@@ -729,7 +787,12 @@ export function SkillsGallery({
                       </div>
                       <div className="flex items-center justify-between pt-3 border-t border-border/50">
                         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                          {!workflowRunnerEnabled
+                            ? <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                            : config.is_quick_start
+                              ? <Badge variant="outline" className="text-xs"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                              : <Badge variant="outline" className="text-xs"><Workflow className="h-2.5 w-2.5 mr-0.5" />{config.tasks.length} steps</Badge>
+                          }
                         </div>
                       </div>
 
@@ -836,10 +899,10 @@ export function SkillsGallery({
                         <div className="flex items-center gap-1 flex-wrap justify-end">
                           <CatalogSourceBadge config={config} />
                           <VisibilityBadge config={config} />
+                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                           <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
                             {config.difficulty || "beginner"}
                           </Badge>
-                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
                         </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
@@ -943,8 +1006,17 @@ export function SkillsGallery({
                       <h3 className="font-medium mb-1 pr-16">{config.name}</h3>
                       <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        <span>Skill</span>
+                        {workflowRunnerEnabled ? (
+                          <>
+                            <Workflow className="h-3.5 w-3.5" />
+                            <span>{config.tasks.length} steps</span>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span>Skill</span>
+                          </>
+                        )}
                         <CatalogSourceBadge config={config} />
                         <VisibilityBadge config={config} />
                         <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
@@ -965,7 +1037,7 @@ export function SkillsGallery({
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
                         <div className="h-5 w-px bg-border/50" />
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); handleConfigClick(config); }} title="Try Skill">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); handleConfigClick(config); }}>
                           <MessageSquare className="h-4 w-4" />
                         </Button>
                         {canEditConfig(config) && (
@@ -1009,225 +1081,6 @@ export function SkillsGallery({
         </div>
       )}
 
-      {/* API Help Modal */}
-      <AnimatePresence>
-        {showApiHelp && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={closeApiHelp}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-2xl mx-4 bg-card border rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="h-1.5 w-full gradient-primary shrink-0" />
-              <div className="p-6 overflow-y-auto flex-1">
-                <div className="flex items-start justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg">
-                      <Terminal className="h-5 w-5 text-white" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold">Skills API Access</h2>
-                      <p className="text-sm text-muted-foreground">
-                        Retrieve skills from external clients like Claude Code, Cursor, or any HTTP client
-                      </p>
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={() => setShowApiHelp(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                {/* API Endpoint */}
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2">API Endpoint</h3>
-                    <div className="px-4 py-3 rounded-lg bg-muted/50 border border-border/50 font-mono text-sm">
-                      GET /api/skills
-                    </div>
-                  </div>
-
-                  {/* Query Parameters */}
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2">Query Parameters</h3>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">q</code> — Search by name or description</p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">source</code> — Filter: <code className="bg-muted px-1 py-0.5 rounded text-xs">default</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">agent_skills</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">hub</code></p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">tags</code> — Comma-separated tag filter</p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">include_content</code> — Include full SKILL.md content (<code className="bg-muted px-1 py-0.5 rounded text-xs">true</code>/<code className="bg-muted px-1 py-0.5 rounded text-xs">false</code>)</p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">visibility</code> — Optional: <code className="bg-muted px-1 py-0.5 rounded text-xs">global</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">team</code>, <code className="bg-muted px-1 py-0.5 rounded text-xs">personal</code></p>
-                      <p><code className="bg-muted px-1.5 py-0.5 rounded text-xs">page</code> / <code className="bg-muted px-1.5 py-0.5 rounded text-xs">page_size</code> — Pagination (1–100 per page)</p>
-                    </div>
-                  </div>
-
-                  {/* Generate API Key */}
-                  <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Key className="h-4 w-4 text-primary" />
-                      <h3 className="text-sm font-semibold">Generate API Key</h3>
-                    </div>
-                    <p className="text-xs text-muted-foreground mb-3">
-                      Generate a personal API key for programmatic access to the Skills API from CLI tools, scripts, or AI assistants.
-                    </p>
-
-                    {!generatedToken && (
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs text-muted-foreground whitespace-nowrap">Expires in:</label>
-                          <select
-                            value={tokenDurationDays}
-                            onChange={(e) => setTokenDurationDays(Number(e.target.value))}
-                            className="h-8 px-2 text-xs rounded-md border border-input bg-background"
-                          >
-                            <option value={30}>30 days</option>
-                            <option value={60}>60 days</option>
-                            <option value={90}>90 days</option>
-                          </select>
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={handleGenerateToken}
-                          disabled={isGeneratingToken}
-                          className="gap-1.5"
-                        >
-                          {isGeneratingToken ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Key className="h-3 w-3" />
-                          )}
-                          {isGeneratingToken ? "Generating..." : "Generate API Key"}
-                        </Button>
-                      </div>
-                    )}
-
-                    {tokenError && (
-                      <div className="mt-3 flex items-center gap-2 text-xs text-red-500">
-                        <AlertCircle className="h-3 w-3 shrink-0" />
-                        {tokenError}
-                      </div>
-                    )}
-
-                    {generatedToken && (
-                      <div className="mt-3 space-y-3">
-                        <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                          <p className="text-xs text-amber-600 dark:text-amber-400">
-                            Copy this token now — it won&apos;t be shown again.
-                          </p>
-                        </div>
-                        <div className="relative">
-                          <pre className="p-3 pr-12 rounded-lg bg-[#1e1e2e] border border-border/30 text-[11px] font-mono text-zinc-300 overflow-x-auto whitespace-pre-wrap break-all">
-                            {generatedToken}
-                          </pre>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute top-2 right-2 h-7 w-7"
-                            onClick={() => {
-                              navigator.clipboard.writeText(generatedToken);
-                              setCopiedToken(true);
-                              setTimeout(() => setCopiedToken(false), 2000);
-                            }}
-                          >
-                            {copiedToken ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* curl Example */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-semibold">Example Request</h3>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 gap-1.5 text-xs"
-                        onClick={() => {
-                          const token = generatedToken || (session as any)?.accessToken || "YOUR_API_TOKEN";
-                          const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com";
-                          const curl = `curl -s "${baseUrl}/api/skills" \\\n  -H "Authorization: Bearer ${token}" | jq .`;
-                          navigator.clipboard.writeText(curl);
-                          setCopiedCurl(true);
-                          setTimeout(() => setCopiedCurl(false), 2000);
-                        }}
-                      >
-                        {copiedCurl ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                        {copiedCurl ? "Copied!" : "Copy"}
-                      </Button>
-                    </div>
-                    <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
-                      <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
-                        <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">bash</span>
-                      </div>
-                      <pre className="p-4 text-[13px] leading-relaxed font-mono text-zinc-300 overflow-x-auto">
-{`curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills" \\
-  -H "Authorization: Bearer ${generatedToken ? generatedToken.slice(0, 20) + "..." : (session as any)?.accessToken ? (session as any).accessToken.slice(0, 20) + "..." : "$CAIPE_TOKEN"}" | jq .`}
-                      </pre>
-                    </div>
-                  </div>
-
-                  {/* Token Warning */}
-                  <div className="flex items-start gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
-                    <ShieldAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-semibold text-red-500">Do not share your API token</p>
-                      <p className="text-xs text-red-400/80 mt-1">
-                        Your API token is scoped to your identity and grants access to the Skills API.
-                        Never share it in public repositories, Slack messages, screenshots, or documentation.
-                        Treat it like a password.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Usage with Claude Code / Cursor */}
-                  <div>
-                    <h3 className="text-sm font-semibold mb-2">Using with Claude Code or Cursor</h3>
-                    <div className="text-sm text-muted-foreground space-y-2">
-                      <p>
-                        You can use the Skills API to list available skills from any client.
-                        Pass the skill name to your AI assistant as context:
-                      </p>
-                      <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]">
-                        <div className="flex items-center px-4 py-2 border-b border-border/20 bg-[#181825]">
-                          <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">bash</span>
-                        </div>
-                        <pre className="p-4 text-[13px] leading-relaxed font-mono text-zinc-300 overflow-x-auto">
-{`# List all skills
-curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills" \\
-  -H "Authorization: Bearer $CAIPE_TOKEN" | jq '.skills[].name'
-
-# Get a specific skill with full content
-curl -s "${typeof window !== "undefined" ? window.location.origin : "https://your-instance.example.com"}/api/skills?q=aws-cost&include_content=true" \\
-  -H "Authorization: Bearer $CAIPE_TOKEN" | jq .`}
-                        </pre>
-                      </div>
-                      <p className="text-xs text-muted-foreground/80 mt-2">
-                        Store your token in an environment variable (<code className="bg-muted px-1 py-0.5 rounded text-xs">CAIPE_TOKEN</code>) instead of
-                        hardcoding it. This makes it easy to use across tools without exposing the value.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="flex items-center justify-end gap-3 p-4 border-t bg-muted/30 shrink-0">
-                <Button variant="ghost" onClick={() => setShowApiHelp(false)}>Close</Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Skill Run Modal */}
       <AnimatePresence>
         {activeFormConfig && (
@@ -1247,15 +1100,15 @@ curl -s "${typeof window !== "undefined" ? window.location.origin : "https://you
             >
               <div className="h-1.5 w-full gradient-primary shrink-0" />
               <div className="p-6 overflow-y-auto flex-1">
-                <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start justify-between mb-6">
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg">
-                      {(() => { const I = ICON_MAP[activeFormConfig.thumbnail || "Zap"] || Zap; return <I className="h-5 w-5 text-white" />; })()}
+                      <Zap className="h-5 w-5 text-white" />
                     </div>
                     <div>
                       <h2 className="text-xl font-bold">{activeFormConfig.name}</h2>
-                      {activeFormConfig.category && (
-                        <span className="text-xs text-muted-foreground">{activeFormConfig.category}</span>
+                      {activeFormConfig.description && (
+                        <p className="text-sm text-muted-foreground">{activeFormConfig.description}</p>
                       )}
                     </div>
                   </div>
@@ -1264,76 +1117,81 @@ curl -s "${typeof window !== "undefined" ? window.location.origin : "https://you
                   </Button>
                 </div>
 
-                {/* Description */}
+                {/* Description preview */}
                 {activeFormConfig.description && (
-                  <p className="text-sm text-muted-foreground mb-4 leading-relaxed">{activeFormConfig.description}</p>
+                  <p className="text-sm text-muted-foreground">{activeFormConfig.description}</p>
                 )}
-
                 {/* Tags */}
-                {activeFormConfig.metadata?.tags && activeFormConfig.metadata.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {activeFormConfig.metadata.tags.map(tag => (
+                {activeFormConfig.metadata?.tags && Array.isArray(activeFormConfig.metadata.tags) && (activeFormConfig.metadata.tags as string[]).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {(activeFormConfig.metadata.tags as string[]).map((tag: string) => (
                       <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
                     ))}
                   </div>
                 )}
 
-                {/* Badges row */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <CatalogSourceBadge config={activeFormConfig} />
-                  <VisibilityBadge config={activeFormConfig} />
-                  {activeFormConfig.difficulty && (
-                    <Badge variant="outline" className={cn("text-xs", getDifficultyColor(activeFormConfig.difficulty))}>
-                      {activeFormConfig.difficulty}
-                    </Badge>
-                  )}
-                  {activeFormConfig.metadata?.expected_agents?.slice(0, 3).map(agent => (
-                    <Badge key={agent} variant="outline" className="text-xs">{agent}</Badge>
-                  ))}
-                </div>
+                {/* Template variable parameters */}
+                {(() => {
+                  const vars = extractTemplateVars(activeFormConfig);
+                  if (vars.length === 0) return null;
+                  return (
+                    <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Parameters</p>
+                      {vars.map((v) => (
+                        <div key={v.name}>
+                          <label className="text-sm font-medium text-foreground">
+                            {v.label}
+                            {v.required && <span className="text-destructive ml-0.5">*</span>}
+                          </label>
+                          <Input
+                            type="text"
+                            value={paramValues[v.name] ?? v.defaultValue}
+                            onChange={(e) => setParamValues(prev => ({ ...prev, [v.name]: e.target.value }))}
+                            placeholder={v.defaultValue ? `Default: ${v.defaultValue}` : `Enter ${v.label.toLowerCase()}`}
+                            className={cn(
+                              "mt-1 h-9 text-sm",
+                              v.required && !paramValues[v.name]?.trim() && paramValues[v.name] !== undefined && paramValues[v.name] !== v.defaultValue
+                                ? "border-destructive"
+                                : "",
+                            )}
+                          />
+                          {v.defaultValue && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5">Default: {v.defaultValue}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Footer */}
               <div className="flex items-center justify-between gap-3 p-4 border-t bg-muted/30 shrink-0">
                 <div>
                   {onEditConfig && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5"
-                      onClick={() => { setActiveFormConfig(null); onEditConfig(activeFormConfig); }}
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                      Edit
+                    <Button variant="ghost" size="sm" onClick={() => { setActiveFormConfig(null); onEditConfig(activeFormConfig); }}>
+                      <Edit className="h-3.5 w-3.5 mr-1" /> Edit
                     </Button>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                  <div className="flex items-center gap-1.5">
-                    {!supervisorSynced && !supervisorLoading && (
-                      <span title="Skills are not synced with the supervisor. Rebuild from Admin → Supervisor Skills to enable.">
-                        <AlertTriangle className="h-4 w-4 text-orange-500" />
-                      </span>
+                  {!supervisorSynced && !supervisorLoading && (
+                    <span title="Skills must be synced with the supervisor first"><AlertTriangle className="h-4 w-4 text-amber-500" /></span>
+                  )}
+                  <Button
+                    onClick={handleTrySkill}
+                    className={supervisorSynced ? "gradient-primary text-white gap-2" : "gap-2"}
+                    variant={supervisorSynced ? "default" : "secondary"}
+                    disabled={!supervisorSynced || supervisorLoading || extractTemplateVars(activeFormConfig).some(v => v.required && !paramValues[v.name]?.trim())}
+                  >
+                    {supervisorLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MessageSquare className="h-4 w-4" />
                     )}
-                    <Button
-                      onClick={handleTrySkill}
-                      className={cn(
-                        "gap-2",
-                        supervisorSynced && !supervisorLoading
-                          ? "gradient-primary text-white"
-                          : "bg-muted text-muted-foreground cursor-not-allowed"
-                      )}
-                      disabled={!supervisorSynced || supervisorLoading}
-                    >
-                      {supervisorLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MessageSquare className="h-4 w-4" />
-                      )}
-                      Try Skill
-                    </Button>
-                  </div>
+                    Try Skill
+                  </Button>
                 </div>
               </div>
             </motion.div>
