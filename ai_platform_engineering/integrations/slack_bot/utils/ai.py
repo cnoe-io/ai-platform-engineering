@@ -393,10 +393,10 @@ def stream_a2a_response(
           # Deterministic chunker tags its chunks with is_final_answer=True.
           # Latch streaming_final_answer so the FINAL_RESULT handler skips
           # re-streaming the same content (prevents duplicate output).
-          # Only latch in plan flows — no-plan flows deliver FINAL_RESULT
-          # via stopStream to prevent metadata leaks from ToolStrategy output.
+          # This applies to BOTH plan and no-plan flows: is_final_answer
+          # chunks are clean post-marker text, safe to stream directly.
           artifact_meta = (parsed.artifact or {}).get("metadata", {})
-          if artifact_meta.get("is_final_answer") and not streaming_final_answer and plan_steps:
+          if artifact_meta.get("is_final_answer") and not streaming_final_answer:
             streaming_final_answer = True
 
           # Debug: log every token the Slack bot receives (LOG_LEVEL=DEBUG)
@@ -513,11 +513,13 @@ def stream_a2a_response(
               # No-plan flow after sub-agent: buffer, don't stream
               buffered_streaming_text.append(text)
               continue
-          # No-plan flows: buffer STREAMING_RESULT events silently. Only the
-          # clean FINAL_RESULT (from the ResponseFormat tool) is delivered via
-          # stopStream at finalization. This prevents ToolStrategy metadata
+          # No-plan flows: buffer non-final STREAMING_RESULT events silently.
+          # The clean FINAL_RESULT (from the ResponseFormat tool) is delivered
+          # via stopStream at finalization. This prevents ToolStrategy metadata
           # (is_task_complete=, JSON fragments) from leaking into Slack.
-          if not plan_steps and not streaming_final_answer:
+          # Exception: is_final_answer chunks are clean post-[FINAL ANSWER]
+          # marker text — stream them through for real-time output.
+          if not plan_steps and not streaming_final_answer and not artifact_meta.get("is_final_answer"):
             buffered_streaming_text.append(text)
             if not stream_ts:
               _set_typing_status("is responding...")
