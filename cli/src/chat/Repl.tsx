@@ -474,7 +474,6 @@ export function Repl({
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingTokensRef = useRef("");
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lineBufferRef = useRef(""); // holds partial line until newline arrives
 
   // ── Helpers to push items to the Static list ──
   // biome-ignore lint/correctness/useExhaustiveDependencies: nextKey is a stable ref-based counter, not a reactive dependency
@@ -515,29 +514,22 @@ export function Repl({
     [pushStatic],
   );
 
-  // ── Flush buffered streaming tokens into Static as complete lines ──
-  // Partial lines are held in lineBufferRef until a newline arrives,
-  // so words never break mid-line across Static items.
+  // ── Flush buffered streaming tokens directly to Static ──
   const flushTokens = useCallback(() => {
     const text = pendingTokensRef.current;
     if (!text) return;
     pendingTokensRef.current = "";
     accumulatedRef.current += text;
-
-    lineBufferRef.current += text;
-    const lastNl = lineBufferRef.current.lastIndexOf("\n");
-    if (lastNl !== -1) {
-      const completeLines = lineBufferRef.current.slice(0, lastNl + 1);
-      lineBufferRef.current = lineBufferRef.current.slice(lastNl + 1);
-      pushChunk(completeLines);
-    }
+    pushChunk(text);
   }, [pushChunk]);
 
-  // Flush whatever remains in the line buffer (called when streaming ends)
+  // Flush any remaining pending tokens (called when streaming ends)
   const flushLineBuffer = useCallback(() => {
-    if (lineBufferRef.current) {
-      pushChunk(lineBufferRef.current);
-      lineBufferRef.current = "";
+    const text = pendingTokensRef.current;
+    if (text) {
+      pendingTokensRef.current = "";
+      accumulatedRef.current += text;
+      pushChunk(text);
     }
   }, [pushChunk]);
 
@@ -799,7 +791,7 @@ export function Repl({
               flushTimerRef.current = setTimeout(() => {
                 flushTimerRef.current = null;
                 flushTokens();
-              }, 300);
+              }, 150);
             }
           } else if (ev.type === "tool") {
             setActiveToolName(ev.name);
@@ -836,7 +828,6 @@ export function Repl({
         pushAssistant(`[ERROR] ${msg}`);
       } finally {
         pendingTokensRef.current = "";
-        lineBufferRef.current = "";
         setStreaming(false);
         setActiveToolName(null);
         setStatusText(null);
