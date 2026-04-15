@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TransportType(str, Enum):
@@ -344,6 +344,19 @@ class DynamicAgentConfig(DynamicAgentConfigBase):
 # =============================================================================
 
 
+class ClientContext(BaseModel):
+    """Opaque client context passed through to system prompt rendering.
+
+    Only ``source`` is required. Clients send arbitrary extra fields
+    (e.g. overthink, channel_type) which agent system prompts can
+    reference via Jinja2 conditionals like ``{% if client_context.overthink %}``.
+    """
+
+    source: str = Field(..., description="Client identifier, e.g. 'slack', 'webui'")
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ChatRequest(BaseModel):
     """Request to chat with a dynamic agent."""
 
@@ -351,6 +364,7 @@ class ChatRequest(BaseModel):
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
+    client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
 
 
 # =============================================================================

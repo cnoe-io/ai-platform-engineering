@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from dynamic_agents.auth.access import can_use_agent
 from dynamic_agents.auth.auth import get_current_user
 from dynamic_agents.log_config import conversation_id_var
-from dynamic_agents.models import ChatRequest, DynamicAgentConfig, UserContext
+from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.encoders import StreamEncoder, get_encoder
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -45,6 +45,7 @@ async def _generate_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    client_context: ClientContext | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming.
 
@@ -67,6 +68,7 @@ async def _generate_sse_events(
             mcp_servers,
             session_id,
             user=user,
+            client_context=client_context,
         )
 
         # Stream response with trace_id for Langfuse tracing
@@ -142,6 +144,7 @@ async def chat_start_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            client_context=request.client_context,
         ),
         media_type="text/event-stream",
         headers={
@@ -295,6 +298,7 @@ async def chat_invoke(
             mcp_servers,
             request.conversation_id,
             user=user,
+            client_context=request.client_context,
         )
 
         # Use custom encoder for invoke — we just need accumulated content

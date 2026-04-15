@@ -16,6 +16,8 @@ from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
+from jinja2 import ChainableUndefined, TemplateSyntaxError
+from jinja2.sandbox import SandboxedEnvironment, SecurityError
 from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
@@ -23,7 +25,14 @@ from langgraph.types import Command
 from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
-from dynamic_agents.models import AgentContext, DynamicAgentConfig, MCPServerConfig, SubAgentRef, UserContext
+from dynamic_agents.models import (
+    AgentContext,
+    ClientContext,
+    DynamicAgentConfig,
+    MCPServerConfig,
+    SubAgentRef,
+    UserContext,
+)
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
@@ -58,6 +67,60 @@ def _sanitize_agent_name(name: str) -> str:
     return re.sub(r"[\s<|\\/>]+", "_", name)
 
 
+# Module-level restricted Jinja2 sandbox for system prompt rendering.
+# - ChainableUndefined: missing/nested keys return "" instead of raising.
+# - Built-in globals stripped: agent prompts only need conditionals and
+#   variable interpolation, not lipsum(), cycler(), namespace(), etc.
+_jinja_env = SandboxedEnvironment(undefined=ChainableUndefined)
+_jinja_env.globals = {}
+
+
+class SystemPromptRenderError(Exception):
+    """Raised when a system prompt Jinja2 template fails to render.
+
+    Wraps TemplateSyntaxError, SecurityError, and other Jinja2 failures
+    with a user-facing message so the caller can surface it cleanly.
+    """
+
+
+def _render_system_prompt(
+    template_str: str,
+    client_context: ClientContext | None,
+) -> str:
+    """Render a system prompt template with client context via Jinja2.
+
+    Uses a restricted ``SandboxedEnvironment`` to prevent code execution
+    in templates.  All built-in globals (``lipsum``, ``range``, ``cycler``,
+    etc.) are stripped — only variable interpolation and control flow
+    (``if``/``for``) are available.
+
+    ``ChainableUndefined`` ensures missing keys evaluate to falsy empty
+    strings instead of raising errors — agent creators can safely write
+    ``{%% if client_context.overthink %%}`` without worrying about KeyError.
+
+    Args:
+        template_str: The system prompt, possibly containing Jinja2 syntax.
+        client_context: ClientContext from ChatRequest, or None.
+
+    Returns:
+        Rendered system prompt string.
+
+    Raises:
+        SystemPromptRenderError: If the template has syntax errors,
+            attempts unsafe attribute access, or otherwise fails to render.
+    """
+    ctx = client_context.model_dump() if client_context else {}
+    try:
+        template = _jinja_env.from_string(template_str)
+        return template.render(client_context=ctx)
+    except TemplateSyntaxError as exc:
+        raise SystemPromptRenderError(f"Invalid system prompt template syntax: {exc}") from exc
+    except SecurityError as exc:
+        raise SystemPromptRenderError(f"System prompt template blocked unsafe operation: {exc}") from exc
+    except Exception as exc:
+        raise SystemPromptRenderError(f"System prompt template rendering failed: {exc}") from exc
+
+
 class AgentRuntime:
     """Runtime for a single dynamic agent instance."""
 
@@ -68,12 +131,14 @@ class AgentRuntime:
         settings: Settings | None = None,
         mongo_service: "MongoDBService | None" = None,
         user: UserContext | None = None,
+        client_context: ClientContext | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
         self.settings = settings or get_settings()
         self._mongo_service = mongo_service
         self._user = user
+        self._client_context = client_context
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
@@ -156,8 +221,12 @@ class AgentRuntime:
         if tools:
             tools = wrap_tools_with_error_handling(tools, agent_name=self.config.name)
 
-        # 6. System prompt from agent config
-        system_prompt = self.config.system_prompt
+        # 6. System prompt from agent config, rendered with client context
+        try:
+            system_prompt = _render_system_prompt(self.config.system_prompt, self._client_context)
+        except SystemPromptRenderError as exc:
+            logger.error(f"Agent '{self.config.name}' failed to initialize: {exc}")
+            raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
 
         # 7. Create the LLM
         # model_id and model_provider are required fields - no fallback to env vars
@@ -796,6 +865,7 @@ class AgentRuntimeCache:
         mcp_servers: list[MCPServerConfig],
         session_id: str,
         user: UserContext | None = None,
+        client_context: ClientContext | None = None,
     ) -> AgentRuntime:
         """Get an existing runtime or create a new one.
 
@@ -804,6 +874,7 @@ class AgentRuntimeCache:
             mcp_servers: Available MCP server configurations
             session_id: Conversation/session ID
             user: User context for builtin tools
+            client_context: Opaque client context for system prompt rendering
 
         Returns:
             Initialized AgentRuntime instance
@@ -834,6 +905,7 @@ class AgentRuntimeCache:
             mcp_servers,
             mongo_service=self._mongo_service,
             user=user,
+            client_context=client_context,
         )
         await runtime.initialize()
         self._cache[key] = runtime
