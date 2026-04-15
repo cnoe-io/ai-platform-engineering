@@ -1,8 +1,9 @@
 /**
  * API route for probing MCP servers to discover available tools.
- * 
+ *
  * This endpoint proxies to the dynamic-agents backend service which
  * actually connects to the MCP server and retrieves the tool list.
+ * Auth is forwarded via X-User-Context header (same as chat routes).
  */
 
 import { NextRequest } from "next/server";
@@ -14,7 +15,8 @@ import {
   ApiError,
   requireAdmin,
 } from "@/lib/api-middleware";
-import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
+import { authenticateRequest } from "@/app/api/v1/chat/_helpers";
+import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
 
@@ -50,14 +52,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     try {
-      // Build headers with auth token
+      // Build headers with X-User-Context (same pattern as chat routes)
+      const auth = await authenticateRequest(request);
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
-
-      // Forward the access token to the Dynamic Agents backend
-      if (session.accessToken) {
-        headers["Authorization"] = `Bearer ${session.accessToken}`;
+      if (auth.userContextHeader) {
+        headers["X-User-Context"] = auth.userContextHeader;
       }
 
       // Call the dynamic agents backend to probe the server
@@ -70,12 +71,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         const errorData = await response.json().catch(() => ({}));
         throw new ApiError(
           errorData.detail || `Probe failed with status ${response.status}`,
-          response.status
+          response.status,
         );
       }
 
       const probeResult = await response.json();
-      
+
       // Forward the probe result from backend, preserving success/error status
       if (probeResult.success === false) {
         // Backend returned a probe failure (e.g., connection error)
@@ -102,7 +103,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       if (err.cause?.code === "ECONNREFUSED" || err.message?.includes("fetch failed")) {
         throw new ApiError(
           "Dynamic agents service is not available. Please ensure it is running.",
-          503
+          503,
         );
       }
 
