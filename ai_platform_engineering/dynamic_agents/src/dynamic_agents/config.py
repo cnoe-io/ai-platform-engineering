@@ -59,9 +59,6 @@ class Settings(BaseSettings):
     # Runtime
     agent_runtime_ttl_seconds: int = 3600  # 1 hour cache TTL for agent runtimes
 
-    # Seed configuration path (for MCP servers and agents loaded at startup)
-    seed_config_path: str | None = None
-
 
 @lru_cache
 def get_settings() -> Settings:

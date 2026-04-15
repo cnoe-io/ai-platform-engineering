@@ -13,7 +13,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import UserContext, get_current_user
-from dynamic_agents.services.models_config import get_available_models
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +58,6 @@ async def suggest(
         raise HTTPException(
             status_code=400,
             detail=f"user_message exceeds maximum length of {MAX_INPUT_CHARS} characters",
-        )
-
-    # Validate model exists
-    available_models = get_available_models()
-    model_ids = {m.model_id for m in available_models}
-    if request.model_id not in model_ids:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown model_id: {request.model_id}. Available: {sorted(model_ids)}",
         )
 
     logger.info(
