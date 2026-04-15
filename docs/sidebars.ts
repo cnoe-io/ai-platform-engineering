@@ -503,7 +503,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
-          id: 'tools-utils/agent-chat-cli',
+          id: 'tools-utils/caipe-cli',
         },
         {
           type: 'doc',

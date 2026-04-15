@@ -20,6 +20,7 @@ APP_NAME ?= ai-platform-engineering
 	test-slack-stream test-slack-conformance \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
+	caipe-cli-test caipe-cli-lint caipe-cli-build \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
@@ -140,20 +141,31 @@ run-a2a: install-deps ## Run the AI Platform Engineer single-node deep agent wit
 	echo "Starting AI Platform Engineer A2A server (single-node) on $$HOST:$$PORT"; \
 	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app --host $$HOST --port $$PORT --reload
 
-run-a2a-client: ## Run the agent-chat-cli client to connect to the A2A agent
+run-a2a-client: ## Connect to the A2A agent using the CAIPE CLI
 	@HOST=$${A2A_HOST:-localhost}; \
 	PORT=$${A2A_PORT:-8000}; \
-	echo "Connecting to A2A agent at $$HOST:$$PORT..."; \
-	docker run -it --network=host \
-		-e A2A_HOST=$$HOST \
-		-e A2A_PORT=$$PORT \
-		ghcr.io/cnoe-io/agent-chat-cli:stable
+	echo "Connecting to A2A agent at $$HOST:$$PORT via CAIPE CLI..."; \
+	cd cli && bun run dev -- chat --url http://$$HOST:$$PORT
 
-run-a2a-client-local: setup-venv ## Run agent-chat-cli from local source
+run-a2a-client-local: ## Run CAIPE CLI from local source (dev mode)
 	@HOST=$${A2A_HOST:-localhost}; \
 	PORT=$${A2A_PORT:-8000}; \
-	echo "Running local agent-chat-cli connecting to $$HOST:$$PORT..."; \
-	cd agent-chat-cli && A2A_HOST=$$HOST A2A_PORT=$$PORT uv run python -m agent_chat_cli a2a
+	echo "Running local CAIPE CLI connecting to $$HOST:$$PORT..."; \
+	cd cli && bun run dev -- chat --url http://$$HOST:$$PORT
+
+## ========== CAIPE CLI ==========
+
+caipe-cli-test: ## Run CAIPE CLI unit tests (vitest)
+	@echo "Running CAIPE CLI tests..."
+	@cd cli && bun run test
+
+caipe-cli-lint: ## Lint CAIPE CLI (Biome)
+	@echo "Linting CAIPE CLI..."
+	@cd cli && bun run lint
+
+caipe-cli-build: ## Build CAIPE CLI binary (current platform)
+	@echo "Building CAIPE CLI binary..."
+	@cd cli && bun install && npm run compile
 
 ## ========== CAIPE UI ==========
 

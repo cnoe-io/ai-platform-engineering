@@ -143,17 +143,15 @@ COMPOSE_PROFILES="github,rag,tracing" docker compose up
 
 ## Connect to the agent
 
-Once services are running, connect with the agent chat CLI:
+Once services are running, connect with the CAIPE CLI:
 
-**Using Docker (host network):**
 ```bash
-docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
+caipe config set server.url http://localhost:8000
+caipe auth login
+caipe
 ```
 
-**Using uvx:**
-```bash
-uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
-```
+> **Install:** `curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/cli/install.sh | sh`
 
 ---
 

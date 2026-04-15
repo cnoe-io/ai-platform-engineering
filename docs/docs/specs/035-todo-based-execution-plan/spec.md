@@ -43,7 +43,7 @@ The Platform Engineer now uses **TODO lists as execution plans** instead of text
 ### 5. **Backward Compatible**
 - Clients receive `execution_plan_update` artifact (same as before)
 - New `execution_plan_status_update` artifact for in-place updates
-- agent-chat-cli updated to handle both
+- caipe-cli updated to handle both
 - agent-forge will need similar update (trivial)
 
 
