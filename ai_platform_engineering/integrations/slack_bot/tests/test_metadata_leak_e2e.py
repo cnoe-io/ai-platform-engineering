@@ -131,8 +131,9 @@ class TestSSEContentStreaming:
 class TestAlreadyStreamedPath:
   def test_tool_then_content_delivered_in_final(self):
     """
-    Without todos, tools don't open the stream. Content after tool calls
-    is delivered via stopStream in the finalization block.
+    Without todos, tools don't open the stream during tool execution.
+    Content after tool calls is the final answer — delivered via
+    appendStream (pending_thinking flush) or stopStream in finalization.
     """
     events = [
       SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name="search", tool_call_id="tc-1"),
@@ -142,10 +143,9 @@ class TestAlreadyStreamedPath:
     ]
     mock_slack = _run_stream(events)
 
-    # Stream opens at finalization — content delivered via stopStream
-    stop_texts = _get_stop_stream_markdown(mock_slack)
-    stop_combined = "".join(stop_texts)
-    assert "Streaming answer" in stop_combined
+    # Content should be delivered (via appendStream or stopStream)
+    delivered = _get_all_delivered_text(mock_slack)
+    assert "Streaming answer" in delivered
 
 
 # ---------------------------------------------------------------------------
@@ -170,12 +170,14 @@ class TestToolThinkingInStream:
     assert "Here is the answer." in delivered
 
   def test_thinking_appears_in_typing_status(self):
-    """Thinking text before a tool is shown in the typing status indicator, not as task cards."""
+    """Thinking text before a tool is shown in the typing status indicator on TEXT_MESSAGE_END."""
     events = [
       SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Checking docs..."),
+      SSEEvent(type=SSEEventType.TEXT_MESSAGE_END),
       SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name="search", tool_call_id="tc-1"),
       SSEEvent(type=SSEEventType.TOOL_CALL_END, tool_call_id="tc-1"),
       SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Found it."),
+      SSEEvent(type=SSEEventType.TEXT_MESSAGE_END),
       SSEEvent(type=SSEEventType.RUN_FINISHED, run_id="run-1"),
     ]
     mock_slack = _run_stream(events)

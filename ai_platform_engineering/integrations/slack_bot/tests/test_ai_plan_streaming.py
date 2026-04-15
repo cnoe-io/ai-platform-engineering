@@ -5,12 +5,18 @@ thinking text and thought extraction, stopStream final answer, and StreamBuffer 
 """
 
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from ai_platform_engineering.integrations.slack_bot.utils.ai import (
   stream_response,
   StreamBuffer,
   _extract_tool_thought,
+  _INITIAL_LOADING_MESSAGES,
+  _STATUS_PREFIX,
+  _STATUS_MAX_LEN,
+  _STATUS_SKIP_LOW_CONFIDENCE,
+  _STATUS_SKIP_DEFER,
+  _STATUS_ERROR,
 )
 from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, SSEEventType
 
@@ -22,6 +28,10 @@ from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, 
 
 def _content_event(text):
   return SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta=text)
+
+
+def _text_message_end_event():
+  return SSEEvent(type=SSEEventType.TEXT_MESSAGE_END)
 
 
 def _tool_start_event(name="search", tool_call_id="tc-1"):
@@ -104,12 +114,12 @@ class TestLazyStreamAndSetStatus:
       conversation_id="conv-1",
     )
 
-    # setStatus should be called at least once (the initial "thinking..." call)
+    # setStatus should be called at least once (the initial status call)
     assert mock_slack.assistant_threads_setStatus.call_count >= 1
     first_set_status = mock_slack.assistant_threads_setStatus.call_args_list[0]
-    assert first_set_status.kwargs["status"] == "thinking..."
-    # loading_messages always starts with "thinking..." and may grow as thinking progresses
-    assert first_set_status.kwargs["loading_messages"][0] == "thinking..."
+    # Initial call sends first loading message as status, full list as loading_messages
+    assert first_set_status.kwargs["status"] == _INITIAL_LOADING_MESSAGES[0]
+    assert len(first_set_status.kwargs["loading_messages"]) >= 2
 
     # startStream should have been called
     mock_slack.chat_startStream.assert_called_once()
@@ -236,8 +246,8 @@ class TestToolEvents:
     # Stream should have been opened for the write_todos tool
     mock_slack.chat_startStream.assert_called_once()
 
-  def test_tool_end_typing_status_when_no_stream(self):
-    """TOOL_END updates typing status to 'working...' when stream has not started."""
+  def test_tool_end_no_working_status_when_no_stream(self):
+    """TOOL_END does NOT set 'working...' status — status only updates from content or thoughts."""
     events = [
       _tool_start_event("my_tool", "tc-1"),
       _tool_end_event("tc-1"),
@@ -262,19 +272,21 @@ class TestToolEvents:
     )
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
-    assert any("working" in s for s in status_calls), "Should update typing status to 'working...' after tool end when stream not started"
+    assert not any("working" in s for s in status_calls), "Should NOT set 'working...' status on tool end"
 
 
 class TestThinkingBuffer:
   """Text between tool calls is buffered as 'thinking' and shown as details on tools."""
 
   def test_thinking_text_shown_as_typing_status(self):
-    """Text before a tool call appears in the typing indicator status."""
+    """Text before a tool call appears in the typing indicator status on TEXT_MESSAGE_END."""
     events = [
       _content_event("Let me search for that..."),
+      _text_message_end_event(),
       _tool_start_event("rag_search", "tc-1"),
       _tool_end_event("tc-1"),
       _content_event("Here is the answer."),
+      _text_message_end_event(),
       _done_event(),
     ]
     mock_slack = Mock()
@@ -304,14 +316,16 @@ class TestThinkingBuffer:
     assert any("Let me search for that" in s for s in status_calls), f"Thinking should appear in status, got: {status_calls}"
 
   def test_thinking_between_tools_shown_in_status(self):
-    """Text between two tool calls is shown in the typing indicator status."""
+    """Text between two tool calls is shown in the typing indicator status on TEXT_MESSAGE_END."""
     events = [
       _tool_start_event("rag_search", "tc-1"),
       _tool_end_event("tc-1"),
       _content_event("Now let me check Jira..."),
+      _text_message_end_event(),
       _tool_start_event("jira_search", "tc-2"),
       _tool_end_event("tc-2"),
       _content_event("Final answer."),
+      _text_message_end_event(),
       _done_event(),
     ]
     mock_slack = Mock()
@@ -337,13 +351,15 @@ class TestThinkingBuffer:
     assert len(updates) == 0
 
   def test_thinking_truncated_in_typing_status(self):
-    """Long thinking text is truncated to fit in the typing status (max 80 chars)."""
+    """Long thinking text is truncated to fit in the typing status (Slack max 50 chars)."""
     long_text = "A" * 250
     events = [
       _content_event(long_text),
+      _text_message_end_event(),
       _tool_start_event("search", "tc-1"),
       _tool_end_event("tc-1"),
       _content_event("Done."),
+      _text_message_end_event(),
       _done_event(),
     ]
     mock_slack = Mock()
@@ -364,12 +380,12 @@ class TestThinkingBuffer:
       conversation_id="conv-1",
     )
 
-    # Typing status should be truncated — max 80 chars total
+    # Typing status should be truncated — Slack hard limit is 50 chars
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
-    thinking_statuses = [s for s in status_calls if "💭" in s]
+    thinking_statuses = [s for s in status_calls if _STATUS_PREFIX.rstrip() in s]
     assert len(thinking_statuses) >= 1
     for s in thinking_statuses:
-      assert len(s) <= 80, f"Status should be max 80 chars, got {len(s)}: {s}"
+      assert len(s) <= _STATUS_MAX_LEN, f"Status should be max {_STATUS_MAX_LEN} chars, got {len(s)}: {s}"
 
   def test_final_text_after_tools_streamed_normally(self):
     """Text after the last tool call is the final answer, streamed via appendStream."""
@@ -409,6 +425,68 @@ class TestThinkingBuffer:
         all_text.append(chunk["text"])
     combined = "".join(all_text)
     assert "Here is the final answer." in combined
+
+  def test_interleaved_text_between_tools_only_final_shown(self):
+    """Regression: text messages between tool calls must NOT leak into final output.
+
+    Scenario: agent emits text → tool → text → tool → ... → final text → RUN_FINISHED.
+    Only the last text segment ("Mars is red") should appear in the Slack message.
+    The intermediate texts ("Working on it...", "Searching...") are thinking and
+    must be suppressed from the rendered output.
+    """
+    events = [
+      # First thinking text + tool
+      _content_event("Working on it..."),
+      _text_message_end_event(),
+      _tool_start_event("sleep", "tc-1"),
+      _tool_end_event("tc-1"),
+      # Second thinking text + tool
+      _content_event("Searching..."),
+      _text_message_end_event(),
+      _tool_start_event("sleep", "tc-2"),
+      _tool_end_event("tc-2"),
+      # Third thinking text + tool
+      _content_event("Analyzing data..."),
+      _text_message_end_event(),
+      _tool_start_event("sleep", "tc-3"),
+      _tool_end_event("tc-3"),
+      # Final answer
+      _content_event("Mars is red"),
+      _text_message_end_event(),
+      _done_event(),
+    ]
+    mock_slack = _mock_slack()
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    # Collect all rendered text from appendStream and stopStream
+    all_text = []
+    for c in mock_slack.chat_appendStream.call_args_list:
+      for chunk in c.kwargs.get("chunks", []):
+        if chunk.get("type") == "markdown_text":
+          all_text.append(chunk["text"])
+    stop_call = mock_slack.chat_stopStream.call_args
+    for chunk in stop_call.kwargs.get("chunks") or []:
+      if chunk.get("type") == "markdown_text":
+        all_text.append(chunk["text"])
+    combined = "".join(all_text)
+
+    # Only the final answer should be present
+    assert "Mars is red" in combined
+    # Intermediate thinking text must NOT appear
+    assert "Working on it..." not in combined
+    assert "Searching..." not in combined
+    assert "Analyzing data..." not in combined
 
 
 class TestToolThoughtExtraction:
@@ -573,3 +651,230 @@ class TestStreamBuffer:
     assert buf.has_flushed is False
     # Buffer should be cleared even on error (don't re-send stale content)
     assert buf._buffer == ""
+
+
+# ---------------------------------------------------------------------------
+# Overthink mode skip status
+# ---------------------------------------------------------------------------
+
+
+class TestOverthinkSkipStatus:
+  """Verify overthink mode flashes a typing status before skipping."""
+
+  @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
+  def test_low_confidence_flashes_status(self, mock_sleep):
+    """LOW_CONFIDENCE flashes skip status then clears after 2s."""
+    events = [
+      _content_event("[LOW_CONFIDENCE] I'm not sure about this."),
+      _text_message_end_event(),
+      _done_event(),
+    ]
+    mock_slack = _mock_slack()
+
+    result = stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+      overthink_mode=True,
+    )
+
+    assert isinstance(result, dict)
+    assert result["skipped"] is True
+    assert result["reason"] == "low_confidence"
+
+    # Should have called setStatus with the skip message then cleared it
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    assert _STATUS_SKIP_LOW_CONFIDENCE in status_calls
+    assert status_calls[-1] == ""  # last call clears the status
+
+    # Should sleep 2s to keep the status visible
+    mock_sleep.assert_called_once_with(2)
+
+  @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
+  def test_defer_flashes_status(self, mock_sleep):
+    """DEFER flashes skip status then clears after 2s."""
+    events = [
+      _content_event("[DEFER] This needs human approval."),
+      _text_message_end_event(),
+      _done_event(),
+    ]
+    mock_slack = _mock_slack()
+
+    result = stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+      overthink_mode=True,
+    )
+
+    assert isinstance(result, dict)
+    assert result["skipped"] is True
+    assert result["reason"] == "defer"
+
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    assert _STATUS_SKIP_DEFER in status_calls
+    assert status_calls[-1] == ""
+
+    mock_sleep.assert_called_once_with(2)
+
+  @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
+  def test_overthink_shows_thinking_then_skip_status(self, mock_sleep):
+    """In overthink mode, thinking statuses are shown during processing, then skip status on skip."""
+    events = [
+      _content_event("Some thinking..."),
+      _text_message_end_event(),
+      _tool_start_event("search", "tc-1"),
+      _tool_end_event("tc-1"),
+      _content_event("[LOW_CONFIDENCE] Not sure."),
+      _text_message_end_event(),
+      _done_event(),
+    ]
+    mock_slack = _mock_slack()
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+      overthink_mode=True,
+    )
+
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+
+    # Should see: initial thinking prefix, thinking text on TEXT_MESSAGE_END,
+    # second text on TEXT_MESSAGE_END, skip message, then cleared ""
+    thinking_statuses = [s for s in status_calls if _STATUS_PREFIX.rstrip() in s]
+    assert len(thinking_statuses) >= 1, f"Expected thinking statuses, got: {status_calls}"
+
+    # Skip status should be present
+    assert _STATUS_SKIP_LOW_CONFIDENCE in status_calls
+
+    # Last call clears the status
+    assert status_calls[-1] == ""
+
+  @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
+  def test_overthink_no_stream_opened(self, mock_sleep):
+    """In overthink mode, no Slack stream is opened (no todos, no plan cards)."""
+    events = [
+      _content_event("Thinking about this..."),
+      _text_message_end_event(),
+      _content_event("[LOW_CONFIDENCE] Not sure."),
+      _text_message_end_event(),
+      _done_event(),
+    ]
+    mock_slack = _mock_slack()
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+      overthink_mode=True,
+    )
+
+    # Stream should never have been opened
+    mock_slack.chat_startStream.assert_not_called()
+    mock_slack.chat_appendStream.assert_not_called()
+    mock_slack.chat_stopStream.assert_not_called()
+
+  @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
+  def test_overthink_run_error_flashes_status_no_stream(self, mock_sleep):
+    """RUN_ERROR in overthink mode flashes error status, doesn't stream error."""
+    events = [
+      SSEEvent(type=SSEEventType.RUN_ERROR, message="MCP server timeout"),
+    ]
+    mock_slack = _mock_slack()
+
+    result = stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+      overthink_mode=True,
+    )
+
+    assert isinstance(result, dict)
+    assert result["skipped"] is True
+    assert result["reason"] == "error"
+
+    # Should flash the error status then clear it
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    assert _STATUS_ERROR in status_calls
+    assert status_calls[-1] == ""
+
+    mock_sleep.assert_called_once_with(2)
+
+    # No error message posted to Slack
+    mock_slack.chat_startStream.assert_not_called()
+    mock_slack.chat_stopStream.assert_not_called()
+    mock_slack.chat_postMessage.assert_not_called()
+
+  @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
+  def test_overthink_exception_flashes_status_no_stream(self, mock_sleep):
+    """Exception during streaming in overthink mode flashes error status, doesn't post error."""
+    mock_slack = _mock_slack()
+
+    # SSE client whose iterator raises mid-stream (simulates connection error
+    # during iteration, not during the stream_chat() call itself — stream_chat
+    # returns a generator so the exception happens inside the for-loop).
+    def _exploding_generator(*args, **kwargs):
+      raise Exception("Connection refused")
+      yield  # noqa: unreachable — makes this a generator function
+
+    mock_sse = Mock()
+    mock_sse.stream_chat.return_value = _exploding_generator()
+
+    result = stream_response(
+      sse_client=mock_sse,
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+      overthink_mode=True,
+    )
+
+    assert isinstance(result, dict)
+    assert result["skipped"] is True
+    assert result["reason"] == "error"
+
+    # Should flash the error status then clear it
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    assert _STATUS_ERROR in status_calls
+    assert status_calls[-1] == ""
+
+    mock_sleep.assert_called_once_with(2)
+
+    # No error message posted to Slack
+    mock_slack.chat_stopStream.assert_not_called()
+    mock_slack.chat_postMessage.assert_not_called()

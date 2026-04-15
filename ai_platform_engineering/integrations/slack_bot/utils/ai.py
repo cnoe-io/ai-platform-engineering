@@ -44,6 +44,20 @@ _THOUGHT_KEYS = (
 
 _MAX_DETAILS_LEN = 200
 
+# Typing indicator constants (overridable via env vars)
+_STATUS_PREFIX = "💭 "
+_STATUS_MAX_LEN = 50  # Slack loading_messages hard limit is 50 chars
+_DEFAULT_LOADING_MESSAGES = [
+  "👀 takin a look...",
+  "👀 checking...",
+  "👀 on it...",
+]
+_raw_loading = os.environ.get("SLACK_LOADING_MESSAGES")
+_INITIAL_LOADING_MESSAGES = ([m.strip() for m in _raw_loading.split(",") if m.strip()] if _raw_loading else _DEFAULT_LOADING_MESSAGES) or _DEFAULT_LOADING_MESSAGES  # fall back if split produces empty list
+_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "😅 not sure about this")
+_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "🙋 letting the team handle this")
+_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "😕 something went wrong")
+
 
 def _parse_write_todos_args(raw_args_json: str) -> list[dict] | None:
   """Parse the todo list from write_todos tool arguments.
@@ -268,6 +282,7 @@ def stream_response(
   # Text after the last tool call is the final answer (streamed normally).
   pending_thinking = []  # accumulated text chunks before next tool call
   tool_args_buffer = {}  # tool_call_id -> accumulated JSON args string
+  typing_text_buf = []  # accumulated text for typing indicator (reset on TEXT_MESSAGE_END / TOOL_CALL_ARGS)
 
   # Todo-aware progress display:
   # When the agent uses write_todos, we show todos as task cards instead of
@@ -358,38 +373,29 @@ def stream_response(
     except Exception as e:
       logger.warning(f"[{thread_ts}] SLACK appendStream todo update FAILED: {e}")
 
-  _STATUS_PREFIX = "thinking 💭 "
-  _STATUS_MAX_LEN = 80
-  # Track loading messages for the typing indicator. Slack requires
-  # loading_messages to display custom text — without it, Slack shows
-  # its own default "Generating response...".
-  _typing_messages = ["thinking..."]
-
   def _set_typing_status(status_text, loading_messages=None):
     """Set the typing indicator status (best-effort, non-blocking).
+
+    Truncates to _STATUS_MAX_LEN (Slack hard limit) with trailing "..."
+    when the text is too long.  ``loading_messages`` can be a list (passed
+    through) or omitted (defaults to ``[status_text]``).
 
     IMPORTANT: Only call this BEFORE startStream. Calling setStatus after
     startStream creates a second message in the thread.
     Only works for streamable users (U/W prefix), not bot users (B prefix).
-
-    When loading_messages is not provided, the current _typing_messages
-    list is used. New status text is appended to _typing_messages so
-    Slack cycles through all accumulated thinking states.
     """
-    if not can_stream or overthink_mode:
+    if not can_stream:
       return
+    if status_text and len(status_text) > _STATUS_MAX_LEN:
+      status_text = status_text[: _STATUS_MAX_LEN - 3] + "..."
+    if loading_messages is None:
+      loading_messages = [status_text] if status_text else [_STATUS_PREFIX.rstrip()]
     try:
-      msgs = loading_messages
-      if msgs is None:
-        # Append new status to the rolling list (avoid duplicates)
-        if status_text and status_text not in _typing_messages:
-          _typing_messages.append(status_text)
-        msgs = _typing_messages
       kwargs = dict(
         channel_id=channel_id,
         thread_ts=thread_ts,
         status=status_text,
-        loading_messages=msgs,
+        loading_messages=loading_messages,
       )
       slack_client.assistant_threads_setStatus(**kwargs)
     except Exception as e:
@@ -425,24 +431,24 @@ def stream_response(
         logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
       return None
 
-  if not overthink_mode:
-    if can_stream:
-      _set_typing_status("thinking...")
-    else:
-      # Non-streaming fallback: post a "working..." message
-      initial_blocks = [
-        {
-          "type": "section",
-          "text": {"type": "mrkdwn", "text": f"*{APP_NAME} is working...*"},
-        }
-      ]
-      initial_response = slack_client.chat_postMessage(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        blocks=initial_blocks,
-        text=f"*{APP_NAME} is working...*",
-      )
-      response_ts = initial_response["ts"]
+  if can_stream:
+    _set_typing_status(_INITIAL_LOADING_MESSAGES[0], _INITIAL_LOADING_MESSAGES)
+  elif not overthink_mode:
+    # Non-streaming fallback: post a "working..." message
+    # (skip in overthink mode — don't post visible messages for silent evaluation)
+    initial_blocks = [
+      {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": f"*{APP_NAME} is working...*"},
+      }
+    ]
+    initial_response = slack_client.chat_postMessage(
+      channel=channel_id,
+      thread_ts=thread_ts,
+      blocks=initial_blocks,
+      text=f"*{APP_NAME} is working...*",
+    )
+    response_ts = initial_response["ts"]
 
   # Choose stream source: resume or new
   logger.info(f"[{thread_ts}] stream_response: conv={conversation_id} agent={agent_id} resume={is_resume}")
@@ -513,13 +519,10 @@ def stream_response(
                 todo_details[active_todo_id] = thinking_text[:_MAX_DETAILS_LEN]
                 _emit_active_todo_update()
 
-            # Before the stream starts, show accumulated thinking as typing status
-            if not stream_ts and not overthink_mode:
-              text = "".join(pending_thinking).strip()
-              if text:
-                # Show the tail of accumulated thinking so status reflects latest thought
-                max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
-                _set_typing_status(f"{_STATUS_PREFIX}{text[-max_text:]}")
+            # Accumulate text for typing indicator — status is updated
+            # on TEXT_MESSAGE_END (not on every chunk) to avoid flicker.
+            if not stream_ts:
+              typing_text_buf.append(event.delta)
             # Don't stream yet — might be thinking for the next tool call.
             # If RUN_FINISHED arrives, we'll stream it as the final answer.
 
@@ -529,6 +532,12 @@ def stream_response(
           continue
         if stream_buf:
           stream_buf.flush()
+        # Update typing indicator with accumulated text, then reset buffer
+        if not stream_ts and typing_text_buf:
+          text = "".join(typing_text_buf).strip()
+          if text:
+            _set_typing_status(f"{_STATUS_PREFIX}{text}")
+          typing_text_buf.clear()
         logger.debug(f"[{thread_ts}] TEXT_MESSAGE_END msg_id={event.message_id}")
 
       # --- TOOL_CALL_START ---
@@ -560,14 +569,13 @@ def stream_response(
         if event.tool_call_id and event.delta:
           tool_args_buffer[event.tool_call_id] = tool_args_buffer.get(event.tool_call_id, "") + event.delta
 
-          # Before stream starts, try to extract thought from partial args
-          # for the typing indicator. If JSON is incomplete, _extract_tool_thought
-          # returns None and we skip — best-effort, not critical.
-          if not stream_ts and not overthink_mode:
+          # Extract thought from partial args and set status immediately,
+          # resetting the typing text buffer since the thought supersedes it.
+          if not stream_ts:
             thought = _extract_tool_thought(tool_args_buffer[event.tool_call_id])
             if thought:
-              max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
-              _set_typing_status(f"{_STATUS_PREFIX}{thought[:max_text]}")
+              typing_text_buf.clear()
+              _set_typing_status(f"{_STATUS_PREFIX}{thought}")
 
       # --- TOOL_CALL_END ---
       elif event.type == SSEEventType.TOOL_CALL_END:
@@ -603,18 +611,14 @@ def stream_response(
         # No raw tool cards in the else case — task cards are only for todos.
         if not stream_ts:
           if tool_thought:
-            max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
-            _set_typing_status(f"{_STATUS_PREFIX}{tool_thought[:max_text]}")
-          else:
-            _set_typing_status("working...")
+            _set_typing_status(f"{_STATUS_PREFIX}{tool_thought}")
 
       # --- STEP_STARTED ---
       elif event.type == SSEEventType.STEP_STARTED:
         step_name = event.name or event.run_id or "step"
         logger.info(f"[{thread_ts}] Step started: {step_name}")
         if not stream_ts:
-          max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
-          _set_typing_status(f"{_STATUS_PREFIX}{step_name[:max_text]}")
+          _set_typing_status(f"{_STATUS_PREFIX}{step_name}")
 
       # --- STEP_FINISHED ---
       elif event.type == SSEEventType.STEP_FINISHED:
@@ -704,6 +708,14 @@ def stream_response(
         error_msg = event.message or "Unknown agent error"
         logger.error(f"[{thread_ts}] RUN_ERROR: {error_msg} conv={conversation_id} agent={agent_id}")
 
+        # Overthink mode: don't stream errors — flash a casual status and bail
+        if overthink_mode:
+          logger.info(f"[{thread_ts}] Overthink: suppressing error, flashing status")
+          _set_typing_status(_STATUS_ERROR)
+          time.sleep(2)
+          _set_typing_status("")
+          return {"skipped": True, "reason": "error"}
+
         # If we got any text content, show it despite the error
         final_text = "".join(accumulated_text).strip()
         if final_text and final_text != "I've completed your request.":
@@ -740,12 +752,30 @@ def stream_response(
         logger.debug(f"[{thread_ts}] RAW event (ignored)")
 
     # --- Finalization ---
-    final_text = "".join(accumulated_text).strip()
+    # When tool calls interleaved with text messages, accumulated_text
+    # contains ALL text (thinking + final answer concatenated).  Only the
+    # last text segment — still sitting in pending_thinking — is the real
+    # answer.  Use it when available; fall back to accumulated_text only
+    # when there was no tool-interleaved thinking.
+    if pending_thinking:
+      final_text = "".join(pending_thinking).strip()
+    else:
+      final_text = "".join(accumulated_text).strip()
 
     # Overthink mode: check for skip markers
     if overthink_mode and final_text:
       skip_result = _check_overthink_skip(final_text, thread_ts)
       if skip_result:
+        # Flash a brief status so the user knows the bot noticed.
+        # Must block here — if we return immediately, Slack clears the
+        # typing indicator when the Bolt listener exits.
+        reason = skip_result.get("reason", "")
+        if reason == "defer":
+          _set_typing_status(_STATUS_SKIP_DEFER)
+        elif reason == "low_confidence":
+          _set_typing_status(_STATUS_SKIP_LOW_CONFIDENCE)
+        time.sleep(2)
+        _set_typing_status("")
         return skip_result
       if "[CONFIDENCE: HIGH]" in final_text:
         final_text = final_text.replace("[CONFIDENCE: HIGH]", "").rstrip()
@@ -760,6 +790,10 @@ def stream_response(
     # Clear typing status
     _set_typing_status("")
 
+    # Start stream if never started (must happen BEFORE flushing
+    # pending_thinking so that stream_buf exists)
+    _start_stream_if_needed()
+
     # Flush any pending thinking text as the final answer (stream it live)
     if pending_thinking and stream_buf:
       final_thinking = "".join(pending_thinking)
@@ -768,9 +802,6 @@ def stream_response(
         needs_separator = False
       stream_buf.append(final_thinking)
       pending_thinking.clear()
-
-    # Start stream if never started
-    _start_stream_if_needed()
 
     if stream_ts:
       # Flush remaining buffer
@@ -856,6 +887,15 @@ def stream_response(
 
   except Exception as e:
     logger.exception(f"[{thread_ts}] Error during streaming: {e}")
+
+    # Overthink mode: don't stream errors — flash a casual status and bail
+    if overthink_mode:
+      logger.info(f"[{thread_ts}] Overthink: suppressing exception, flashing status")
+      _set_typing_status(_STATUS_ERROR)
+      time.sleep(2)
+      _set_typing_status("")
+      return {"skipped": True, "reason": "error"}
+
     error_blocks = slack_formatter.format_error_message(str(e))
     try:
       error_blocks.extend(
