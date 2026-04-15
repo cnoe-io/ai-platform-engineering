@@ -879,6 +879,22 @@ def stream_a2a_response(
             additional_footer=additional_footer,
             escalation_config=escalation_config,
           )
+        if "msg_too_long" in err_str:
+          # Response exceeded Slack streaming message limit. Fall back to
+          # a regular post which uses split_text_into_blocks to chunk it.
+          logger.warning(
+            f"[{thread_ts}] Streaming message too long — posting final answer as regular message"
+          )
+          return _post_final_response(
+            slack_client,
+            channel_id,
+            thread_ts,
+            final_text,
+            response_ts,
+            triggered_by_user_id=triggered_by_user_id,
+            additional_footer=additional_footer,
+            escalation_config=escalation_config,
+          )
         raise
 
     elif can_stream:
