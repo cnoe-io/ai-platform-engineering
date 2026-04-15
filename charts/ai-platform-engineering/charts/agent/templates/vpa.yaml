@@ -1,7 +1,14 @@
-{{- if .Values.vpa.enabled }}
+{{- /*
+  Effective VPA config: local values take precedence over global defaults.
+  global.vpa.enabled=true activates VPA on all agents; per-agent vpa.enabled=false opts out.
+*/ -}}
+{{- $globalVpa := dig "vpa" dict .Values.global }}
+{{- $vpaEnabled := or .Values.vpa.enabled (and $globalVpa $globalVpa.enabled) }}
+{{- if $vpaEnabled }}
 {{- if .Values.autoscaling.enabled }}
 {{- fail "vpa.enabled and autoscaling.enabled cannot both be true - VPA conflicts with HPA on both CPU-based and memory-based scaling" }}
 {{- end }}
+{{- $vpa := mergeOverwrite (deepCopy $globalVpa) .Values.vpa }}
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
@@ -14,27 +21,27 @@ spec:
     kind: Deployment
     name: {{ include "agent.fullname" . }}
   updatePolicy:
-    updateMode: {{ .Values.vpa.updateMode | quote }}
+    updateMode: {{ $vpa.updateMode | quote }}
   resourcePolicy:
     containerPolicies:
       - containerName: {{ .Chart.Name }}
-        controlledResources: {{ .Values.vpa.controlledResources | toJson }}
-        {{- with .Values.vpa.minAllowed }}
+        controlledResources: {{ $vpa.controlledResources | toJson }}
+        {{- with $vpa.minAllowed }}
         minAllowed:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- with .Values.vpa.maxAllowed }}
+        {{- with $vpa.maxAllowed }}
         maxAllowed:
           {{- toYaml . | nindent 10 }}
         {{- end }}
       {{- if eq .Values.mcp.mode "http" }}
       - containerName: mcp
-        controlledResources: {{ .Values.vpa.controlledResources | toJson }}
-        {{- with .Values.vpa.minAllowed }}
+        controlledResources: {{ $vpa.controlledResources | toJson }}
+        {{- with $vpa.minAllowed }}
         minAllowed:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- with .Values.vpa.maxAllowed }}
+        {{- with $vpa.maxAllowed }}
         maxAllowed:
           {{- toYaml . | nindent 10 }}
         {{- end }}

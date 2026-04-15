@@ -47,6 +47,32 @@ global:
   metrics:
     enabled: true
 
+  # Global VPA config for all agent deployments (supervisor + all sub-agents).
+  # Requires VPA to be installed in the cluster.
+  # Do not enable alongside global autoscaling — VPA conflicts with HPA on CPU/memory scaling.
+  # Setting initial resource requests (see resources: in each agent section) improves early VPA recommendations.
+  # NOTE: per-agent opt-out via vpa.enabled=false is not supported (Helm cannot distinguish
+  # "explicitly false" from the default "false"). To enable VPA selectively, keep global.vpa.enabled=false
+  # and set vpa.enabled=true on individual agents instead.
+  # Override global defaults per-agent with non-enabled fields:
+  #   agent-github:
+  #     vpa:
+  #       maxAllowed:
+  #         cpu: 2
+  #         memory: 2Gi
+  vpa:
+    enabled: false
+    # "InPlaceOrRecreate" applies recommendations in-place (Kubernetes 1.29+) or recreates the pod.
+    # Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters.
+    updateMode: "InPlaceOrRecreate"
+    controlledResources: ["cpu", "memory"]
+    minAllowed:
+      cpu: 50m
+      memory: 128Mi
+    maxAllowed: {}
+    #   cpu: 2
+    #   memory: 2Gi
+
   # Default VPA config for MCP containers in single-node mode.
   # In multi-node mode, mcp.vpa in each agent subchart's values.yaml applies instead.
   # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
@@ -62,7 +88,7 @@ global:
       enabled: false
       # "Off" = recommendations only (no restarts).
       # Use "InPlaceOrRecreate" (Kubernetes 1.29+) or "Recreate" to apply automatically.
-      updateMode: "Off"
+      updateMode: "InPlaceOrRecreate"
       controlledResources: ["cpu", "memory"]
       minAllowed:
         cpu: 50m
