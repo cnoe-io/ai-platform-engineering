@@ -75,10 +75,16 @@ class StreamBuffer:
     self._buffer = ""
     self._last_flush = None  # set on first append, not init — avoids stale elapsed from LLM think time
     self._flushed_any = False
+    self._trailing_newlines = 0  # count of trailing \n chars in last flushed text
+    self._dead = False  # True after msg_too_long — stop trying to append
 
   @property
   def has_flushed(self):
     return self._flushed_any
+
+  @property
+  def trailing_newlines(self):
+    return self._trailing_newlines
 
   def append(self, text):
     """Add text to the buffer; auto-flush on newline or after the interval."""
@@ -121,6 +127,8 @@ class StreamBuffer:
 
   def _send(self, text):
     """Send *text* to Slack and update bookkeeping."""
+    if self._dead:
+      return False  # stream hit msg_too_long — stop spamming Slack
     self._last_flush = time.monotonic()
     try:
       self.slack_client.chat_appendStream(
@@ -129,11 +137,16 @@ class StreamBuffer:
         chunks=[{"type": "markdown_text", "text": text}],
       )
       self._flushed_any = True
+      self._trailing_newlines = len(text) - len(text.rstrip('\n'))
       preview = text[:80].replace('\n', '\\n')
       logger.info(f"SLACK appendStream text ({len(text)} chars): {preview}{'...' if len(text) > 80 else ''}")
       return True
     except Exception as e:
-      logger.warning(f"SLACK appendStream text FAILED: {e}")
+      if "msg_too_long" in str(e):
+        self._dead = True
+        logger.warning("SLACK appendStream msg_too_long — disabling further appends")
+      else:
+        logger.warning(f"SLACK appendStream text FAILED: {e}")
       return False
 
 
@@ -205,6 +218,7 @@ def stream_a2a_response(
   step_thinking = {}  # step_id -> accumulated thinking text per step
   current_step_id = None  # which step is in_progress
   needs_separator = False  # insert \n\n before next streamed markdown (after tool_end)
+  _stream_text_started = False  # True after the first text chunk is sent to StreamBuffer
 
   # Loading messages shown in the animated typing indicator before stream starts
   _loading_messages = [
@@ -379,10 +393,10 @@ def stream_a2a_response(
           # Deterministic chunker tags its chunks with is_final_answer=True.
           # Latch streaming_final_answer so the FINAL_RESULT handler skips
           # re-streaming the same content (prevents duplicate output).
-          # Only latch in plan flows — no-plan flows deliver FINAL_RESULT
-          # via stopStream to prevent metadata leaks from ToolStrategy output.
+          # This applies to BOTH plan and no-plan flows: is_final_answer
+          # chunks are clean post-marker text, safe to stream directly.
           artifact_meta = (parsed.artifact or {}).get("metadata", {})
-          if artifact_meta.get("is_final_answer") and not streaming_final_answer and plan_steps:
+          if artifact_meta.get("is_final_answer") and not streaming_final_answer:
             streaming_final_answer = True
 
           # Debug: log every token the Slack bot receives (LOG_LEVEL=DEBUG)
@@ -499,11 +513,13 @@ def stream_a2a_response(
               # No-plan flow after sub-agent: buffer, don't stream
               buffered_streaming_text.append(text)
               continue
-          # No-plan flows: buffer STREAMING_RESULT events silently. Only the
-          # clean FINAL_RESULT (from the ResponseFormat tool) is delivered via
-          # stopStream at finalization. This prevents ToolStrategy metadata
+          # No-plan flows: buffer non-final STREAMING_RESULT events silently.
+          # The clean FINAL_RESULT (from the ResponseFormat tool) is delivered
+          # via stopStream at finalization. This prevents ToolStrategy metadata
           # (is_task_complete=, JSON fragments) from leaking into Slack.
-          if not plan_steps and not streaming_final_answer:
+          # Exception: is_final_answer chunks are clean post-[FINAL ANSWER]
+          # marker text — stream them through for real-time output.
+          if not plan_steps and not streaming_final_answer and not artifact_meta.get("is_final_answer"):
             buffered_streaming_text.append(text)
             if not stream_ts:
               _set_typing_status("is responding...")
@@ -518,8 +534,20 @@ def stream_a2a_response(
             continue
           _start_stream_if_needed()
           if stream_buf:
+            # Strip leading whitespace from the very first text chunk so the
+            # Slack message doesn't start with blank lines.
+            if not _stream_text_started:
+              text = text.lstrip()
+              if not text:
+                continue
+              _stream_text_started = True
             if needs_separator and stream_buf.has_flushed:
-              text = "\n\n" + text
+              # Ensure exactly \n\n (paragraph break) between tool output and
+              # next text.  Use the buffer's trailing newline count to compute
+              # the exact deficit — no guessing about what the text starts with.
+              gap = max(0, 2 - stream_buf.trailing_newlines)
+              if gap:
+                text = "\n" * gap + text
               needs_separator = False
             stream_buf.append(text)
 
@@ -879,6 +907,22 @@ def stream_a2a_response(
             additional_footer=additional_footer,
             escalation_config=escalation_config,
           )
+        if "msg_too_long" in err_str:
+          # Response exceeded Slack streaming message limit. Fall back to
+          # a regular post which uses split_text_into_blocks to chunk it.
+          logger.warning(
+            f"[{thread_ts}] Streaming message too long — posting final answer as regular message"
+          )
+          return _post_final_response(
+            slack_client,
+            channel_id,
+            thread_ts,
+            final_text,
+            response_ts,
+            triggered_by_user_id=triggered_by_user_id,
+            additional_footer=additional_footer,
+            escalation_config=escalation_config,
+          )
         raise
 
     elif can_stream:
@@ -1057,36 +1101,52 @@ def _post_final_response(
   additional_footer=None,
   escalation_config=None,
 ):
-  """Post final response as a regular message (fallback for bot messages)."""
+  """Post final response as a regular message (fallback for bot messages).
+
+  Splits into multiple messages if the response exceeds Slack's 50-block limit.
+  """
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
-  final_blocks = []
-  for chunk in text_chunks:
-    final_blocks.append(
-      {
-        "type": "markdown",
-        "text": chunk,
-      }
-    )
+  content_blocks = [{"type": "markdown", "text": chunk} for chunk in text_chunks]
 
-  # Append feedback + footer blocks (actions, context_actions, footer)
-  final_blocks.extend(
-    _build_stream_final_blocks(
-      channel_id, thread_ts, original_ts,
-      triggered_by_user_id=triggered_by_user_id,
-      additional_footer=additional_footer,
-      escalation_config=escalation_config,
-    )
+  footer_blocks = _build_stream_final_blocks(
+    channel_id, thread_ts, original_ts,
+    triggered_by_user_id=triggered_by_user_id,
+    additional_footer=additional_footer,
+    escalation_config=escalation_config,
   )
 
-  slack_client.chat_postMessage(
-    channel=channel_id,
-    thread_ts=thread_ts,
-    blocks=final_blocks,
-    text=final_text[:100],
-  )
+  # Slack allows max 50 blocks per message.  Reserve space for footer blocks
+  # in the last batch so they always appear at the end.
+  max_blocks = 50
+  max_content_per_msg = max_blocks - len(footer_blocks)
 
-  return final_blocks
+  all_blocks = []
+  if len(content_blocks) <= max_content_per_msg:
+    # Fits in one message
+    all_blocks = content_blocks + footer_blocks
+    slack_client.chat_postMessage(
+      channel=channel_id,
+      thread_ts=thread_ts,
+      blocks=all_blocks,
+      text=final_text[:100],
+    )
+  else:
+    # Split into multiple messages; footer on the last one
+    for i in range(0, len(content_blocks), max_content_per_msg):
+      batch = content_blocks[i:i + max_content_per_msg]
+      is_last = i + max_content_per_msg >= len(content_blocks)
+      if is_last:
+        batch.extend(footer_blocks)
+      slack_client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        blocks=batch,
+        text=final_text[:100] if i == 0 else "(continued)",
+      )
+    all_blocks = content_blocks + footer_blocks
+
+  return all_blocks
 
 
 def _build_stream_final_blocks(
