@@ -129,10 +129,10 @@ class TestSSEContentStreaming:
 
 
 class TestAlreadyStreamedPath:
-  def test_tool_then_content_streamed_live(self):
+  def test_tool_then_content_delivered_in_final(self):
     """
-    When a tool call starts the stream BEFORE content arrives, content
-    flows through appendStream and is NOT duplicated in stopStream chunks.
+    Without todos, tools don't open the stream. Content after tool calls
+    is delivered via stopStream in the finalization block.
     """
     events = [
       SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name="search", tool_call_id="tc-1"),
@@ -142,15 +142,10 @@ class TestAlreadyStreamedPath:
     ]
     mock_slack = _run_stream(events)
 
-    # Content should be in appendStream (stream was already open from TOOL_CALL_START)
-    appended = _get_append_stream_markdown(mock_slack)
-    combined = "".join(appended)
-    assert "Streaming answer" in combined
-
-    # stopStream should NOT carry the content again
+    # Stream opens at finalization — content delivered via stopStream
     stop_texts = _get_stop_stream_markdown(mock_slack)
     stop_combined = "".join(stop_texts)
-    assert "Streaming answer" not in stop_combined, "Streamed content must not be duplicated in stopStream chunks"
+    assert "Streaming answer" in stop_combined
 
 
 # ---------------------------------------------------------------------------
@@ -174,8 +169,8 @@ class TestToolThinkingInStream:
     delivered = _get_all_delivered_text(mock_slack)
     assert "Here is the answer." in delivered
 
-  def test_thinking_appears_as_tool_details(self):
-    """Thinking text is shown as details on the tool's checklist item."""
+  def test_thinking_appears_in_typing_status(self):
+    """Thinking text before a tool is shown in the typing status indicator, not as task cards."""
     events = [
       SSEEvent(type=SSEEventType.TEXT_MESSAGE_CONTENT, delta="Checking docs..."),
       SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_name="search", tool_call_id="tc-1"),
@@ -185,13 +180,14 @@ class TestToolThinkingInStream:
     ]
     mock_slack = _run_stream(events)
 
-    # Find the in_progress task_update for tc-1
+    # No raw tool cards should be emitted
     for c in mock_slack.chat_appendStream.call_args_list:
       for chunk in c.kwargs.get("chunks", []):
-        if chunk.get("type") == "task_update" and chunk.get("status") == "in_progress":
-          assert chunk.get("details") == "Checking docs..."
-          return
-    raise AssertionError("No in_progress task_update found with thinking details")
+        assert chunk.get("type") != "task_update", f"Raw task_update should not appear: {chunk}"
+
+    # Thinking should appear in typing status
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    assert any("Checking docs" in s for s in status_calls), f"Thinking should appear in status, got: {status_calls}"
 
 
 # ---------------------------------------------------------------------------

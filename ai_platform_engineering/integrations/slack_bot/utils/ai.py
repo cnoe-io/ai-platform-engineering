@@ -358,12 +358,12 @@ def stream_response(
     except Exception as e:
       logger.warning(f"[{thread_ts}] SLACK appendStream todo update FAILED: {e}")
 
-  # Loading messages shown in the animated typing indicator
-  _loading_messages = [
-    "is thinking...",
-    "Convincing the AI to stop overthinking...",
-    "is resorting to some magic",
-  ]
+  _STATUS_PREFIX = "thinking 💭 "
+  _STATUS_MAX_LEN = 80
+  # Track loading messages for the typing indicator. Slack requires
+  # loading_messages to display custom text — without it, Slack shows
+  # its own default "Generating response...".
+  _typing_messages = ["thinking..."]
 
   def _set_typing_status(status_text, loading_messages=None):
     """Set the typing indicator status (best-effort, non-blocking).
@@ -371,17 +371,26 @@ def stream_response(
     IMPORTANT: Only call this BEFORE startStream. Calling setStatus after
     startStream creates a second message in the thread.
     Only works for streamable users (U/W prefix), not bot users (B prefix).
+
+    When loading_messages is not provided, the current _typing_messages
+    list is used. New status text is appended to _typing_messages so
+    Slack cycles through all accumulated thinking states.
     """
     if not can_stream or overthink_mode:
       return
     try:
+      msgs = loading_messages
+      if msgs is None:
+        # Append new status to the rolling list (avoid duplicates)
+        if status_text and status_text not in _typing_messages:
+          _typing_messages.append(status_text)
+        msgs = _typing_messages
       kwargs = dict(
         channel_id=channel_id,
         thread_ts=thread_ts,
         status=status_text,
+        loading_messages=msgs,
       )
-      if loading_messages:
-        kwargs["loading_messages"] = loading_messages
       slack_client.assistant_threads_setStatus(**kwargs)
     except Exception as e:
       logger.warning(f"[{thread_ts}] SLACK setStatus('{status_text}') FAILED: {e}")
@@ -418,7 +427,7 @@ def stream_response(
 
   if not overthink_mode:
     if can_stream:
-      _set_typing_status("is thinking...", loading_messages=_loading_messages)
+      _set_typing_status("thinking...")
     else:
       # Non-streaming fallback: post a "working..." message
       initial_blocks = [
@@ -470,7 +479,6 @@ def stream_response(
           logger.debug(f"[{thread_ts}] TEXT_MESSAGE_START suppressed (subagent)")
         else:
           logger.debug(f"[{thread_ts}] TEXT_MESSAGE_START msg_id={event.message_id}")
-          _start_stream_if_needed()
 
       # --- TEXT_MESSAGE_CONTENT ---
       elif event.type == SSEEventType.TEXT_MESSAGE_CONTENT:
@@ -485,16 +493,15 @@ def stream_response(
           # Once all tools are done and RUN_FINISHED comes, pending_thinking
           # is flushed as the final answer in the finalization block.
           #
-          # While a tool IS active, text is mid-tool output — stream it live.
-          if active_tools:
-            # Mid-tool text — stream it live
-            _start_stream_if_needed()
-            if stream_buf:
-              text = event.delta
-              if needs_separator and stream_buf.has_flushed:
-                text = "\n\n" + text
-                needs_separator = False
-              stream_buf.append(text)
+          # While a tool IS active and stream is open (todos), stream live.
+          # Otherwise buffer — the final answer will pick it up.
+          if active_tools and stream_buf:
+            # Mid-tool text — stream it live (only if stream already open)
+            text = event.delta
+            if needs_separator and stream_buf.has_flushed:
+              text = "\n\n" + text
+              needs_separator = False
+            stream_buf.append(text)
           else:
             # No tool currently running — buffer as thinking
             pending_thinking.append(event.delta)
@@ -506,11 +513,13 @@ def stream_response(
                 todo_details[active_todo_id] = thinking_text[:_MAX_DETAILS_LEN]
                 _emit_active_todo_update()
 
-            # Before the stream starts, show text as typing status
+            # Before the stream starts, show accumulated thinking as typing status
             if not stream_ts and not overthink_mode:
-              status = event.delta.strip()
-              if status:
-                _set_typing_status(status[:80])
+              text = "".join(pending_thinking).strip()
+              if text:
+                # Show the tail of accumulated thinking so status reflects latest thought
+                max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
+                _set_typing_status(f"{_STATUS_PREFIX}{text[-max_text:]}")
             # Don't stream yet — might be thinking for the next tool call.
             # If RUN_FINISHED arrives, we'll stream it as the final answer.
 
@@ -538,35 +547,27 @@ def stream_response(
         pending_thinking.clear()
 
         if has_todos or tool_name == "write_todos":
-          # Todo-aware mode (or write_todos itself): suppress raw tool cards.
+          # Todo-aware mode (or write_todos itself): open stream for todo cards.
           # Attach thinking to the active todo's details if available.
           if thinking_text and active_todo_id is not None:
             todo_details[active_todo_id] = thinking_text[:_MAX_DETAILS_LEN]
             _emit_active_todo_update()
-          # Still open the stream so todo cards are visible.
           _start_stream_if_needed()
-        else:
-          # Fallback: show raw tool names as task cards
-          details = thinking_text[:_MAX_DETAILS_LEN] if thinking_text else None
-          _start_stream_if_needed()
-          if stream_ts and event.tool_call_id:
-            try:
-              chunk = slack_formatter.build_single_task_update(
-                step_id=event.tool_call_id,
-                title=tool_name,
-                status="in_progress",
-                details=details,
-              )
-              logger.debug(f"[{thread_ts}] SLACK appendStream raw tool start: {chunk}")
-              slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-            except Exception as e:
-              logger.warning(f"[{thread_ts}] SLACK appendStream tool start FAILED: {e}")
 
       # --- TOOL_CALL_ARGS ---
       elif event.type == SSEEventType.TOOL_CALL_ARGS:
         # Accumulate tool arguments; extract thought/reason for display
         if event.tool_call_id and event.delta:
           tool_args_buffer[event.tool_call_id] = tool_args_buffer.get(event.tool_call_id, "") + event.delta
+
+          # Before stream starts, try to extract thought from partial args
+          # for the typing indicator. If JSON is incomplete, _extract_tool_thought
+          # returns None and we skip — best-effort, not critical.
+          if not stream_ts and not overthink_mode:
+            thought = _extract_tool_thought(tool_args_buffer[event.tool_call_id])
+            if thought:
+              max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
+              _set_typing_status(f"{_STATUS_PREFIX}{thought[:max_text]}")
 
       # --- TOOL_CALL_END ---
       elif event.type == SSEEventType.TOOL_CALL_END:
@@ -581,6 +582,7 @@ def stream_response(
         raw_args = ""
         if tool_call_id and tool_call_id in tool_args_buffer:
           raw_args = tool_args_buffer.pop(tool_call_id, "")
+        tool_thought = _extract_tool_thought(raw_args) if display_name != "write_todos" else None
 
         if display_name == "write_todos":
           # Parse todos directly from the tool's args — the checkpoint is not
@@ -595,35 +597,24 @@ def stream_response(
         elif has_todos:
           # Todo-aware mode: attach tool thought to active todo's output.
           # Skip subagent tools — their args are instructions, not thoughts.
-          if display_name != "task":
-            thought = _extract_tool_thought(raw_args)
-            if thought and active_todo_id is not None:
-              todo_outputs[active_todo_id] = thought
-              _emit_active_todo_update()
-        else:
-          # Fallback: show raw tool completion with thought as details
-          details = _extract_tool_thought(raw_args)
-          if stream_ts and tool_call_id:
-            try:
-              chunk = slack_formatter.build_single_task_update(
-                step_id=tool_call_id,
-                title=display_name,
-                status="completed",
-                details=details,
-              )
-              logger.debug(f"[{thread_ts}] SLACK appendStream raw tool end: {chunk}")
-              slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-            except Exception as e:
-              logger.warning(f"[{thread_ts}] SLACK appendStream tool end FAILED: {e}")
+          if display_name != "task" and tool_thought and active_todo_id is not None:
+            todo_outputs[active_todo_id] = tool_thought
+            _emit_active_todo_update()
+        # No raw tool cards in the else case — task cards are only for todos.
         if not stream_ts:
-          _set_typing_status("is working...")
+          if tool_thought:
+            max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
+            _set_typing_status(f"{_STATUS_PREFIX}{tool_thought[:max_text]}")
+          else:
+            _set_typing_status("working...")
 
       # --- STEP_STARTED ---
       elif event.type == SSEEventType.STEP_STARTED:
         step_name = event.name or event.run_id or "step"
         logger.info(f"[{thread_ts}] Step started: {step_name}")
         if not stream_ts:
-          _set_typing_status(f"is working on: {step_name}")
+          max_text = _STATUS_MAX_LEN - len(_STATUS_PREFIX)
+          _set_typing_status(f"{_STATUS_PREFIX}{step_name[:max_text]}")
 
       # --- STEP_FINISHED ---
       elif event.type == SSEEventType.STEP_FINISHED:

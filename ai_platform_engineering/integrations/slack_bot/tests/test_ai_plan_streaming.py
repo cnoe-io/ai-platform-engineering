@@ -82,7 +82,7 @@ class TestLazyStreamAndSetStatus:
   """Verify setStatus is called before startStream, and startStream is deferred."""
 
   def test_set_status_called_before_start_stream(self):
-    """setStatus('is thinking...') fires immediately; startStream fires on first tool call."""
+    """setStatus('thinking...') fires immediately; startStream fires on first tool call."""
     events = [
       _tool_start_event("search", "tc-1"),
       _tool_end_event("tc-1"),
@@ -104,11 +104,12 @@ class TestLazyStreamAndSetStatus:
       conversation_id="conv-1",
     )
 
-    # setStatus should be called at least once (the initial "is thinking..." call)
+    # setStatus should be called at least once (the initial "thinking..." call)
     assert mock_slack.assistant_threads_setStatus.call_count >= 1
     first_set_status = mock_slack.assistant_threads_setStatus.call_args_list[0]
-    assert first_set_status.kwargs["status"] == "is thinking..."
-    assert "loading_messages" in first_set_status.kwargs
+    assert first_set_status.kwargs["status"] == "thinking..."
+    # loading_messages always starts with "thinking..." and may grow as thinking progresses
+    assert first_set_status.kwargs["loading_messages"][0] == "thinking..."
 
     # startStream should have been called
     mock_slack.chat_startStream.assert_called_once()
@@ -180,8 +181,8 @@ class TestStopStreamCarriesFinalAnswer:
 class TestToolEvents:
   """Tool start/end events start the stream and flush the buffer."""
 
-  def test_tool_start_initiates_stream(self):
-    """TOOL_START calls _start_stream_if_needed, which initiates the Slack stream."""
+  def test_tool_start_does_not_open_stream_without_todos(self):
+    """TOOL_START without todos does not open the stream — stream opens at finalization."""
     events = [
       _tool_start_event("rag_search", "tc-1"),
       _tool_end_event("tc-1"),
@@ -203,39 +204,40 @@ class TestToolEvents:
       conversation_id="conv-1",
     )
 
-    # TOOL_START should trigger startStream so plan cards can appear immediately
+    # Stream opens at finalization, not at TOOL_START
+    mock_slack.chat_startStream.assert_called_once()
+    # Verify it was called during finalization (last startStream before stopStream)
+    mock_slack.chat_stopStream.assert_called_once()
+
+  def test_stream_opens_on_tool_start_with_todos(self):
+    """TOOL_START opens stream when write_todos is the tool."""
+    events = [
+      _tool_start_event("write_todos", "tc-wt-1"),
+      _tool_args_event("tc-wt-1", '{"todos": [{"content": "Step 1", "status": "in_progress"}]}'),
+      _tool_end_event("tc-wt-1"),
+      _content_event("Done"),
+      _done_event(),
+    ]
+    mock_sse = _mock_sse_client(events)
+    mock_slack = _mock_slack()
+
+    stream_response(
+      sse_client=mock_sse,
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    # Stream should have been opened for the write_todos tool
     mock_slack.chat_startStream.assert_called_once()
 
-  def test_tool_start_tries_to_start_stream(self):
-    """When stream fails, TOOL_START still tries to start it (graceful degradation)."""
-    events = [
-      _tool_start_event("rag_search", "tc-1"),
-      _tool_end_event("tc-1"),
-      _content_event("Result"),
-      _done_event(),
-    ]
-    mock_sse = _mock_sse_client(events)
-    mock_slack = _mock_slack()
-    # Make startStream fail
-    mock_slack.chat_startStream.side_effect = Exception("startStream unavailable")
-
-    stream_response(
-      sse_client=mock_sse,
-      slack_client=mock_slack,
-      channel_id="C1",
-      thread_ts="t1",
-      message_text="hi",
-      team_id="T1",
-      user_id="U123",
-      agent_id="test-agent",
-      conversation_id="conv-1",
-    )
-
-    # startStream should have been attempted
-    assert mock_slack.chat_startStream.called, "Should attempt to start stream on TOOL_START"
-
   def test_tool_end_typing_status_when_no_stream(self):
-    """TOOL_END updates typing status to 'is working...' when stream has not started."""
+    """TOOL_END updates typing status to 'working...' when stream has not started."""
     events = [
       _tool_start_event("my_tool", "tc-1"),
       _tool_end_event("tc-1"),
@@ -260,14 +262,14 @@ class TestToolEvents:
     )
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
-    assert any("working" in s for s in status_calls), "Should update typing status to 'is working...' after tool end when stream not started"
+    assert any("working" in s for s in status_calls), "Should update typing status to 'working...' after tool end when stream not started"
 
 
 class TestThinkingBuffer:
   """Text between tool calls is buffered as 'thinking' and shown as details on tools."""
 
-  def test_thinking_text_shown_as_tool_start_details(self):
-    """Text before a tool call appears as details on the tool's in_progress checklist item."""
+  def test_thinking_text_shown_as_typing_status(self):
+    """Text before a tool call appears in the typing indicator status."""
     events = [
       _content_event("Let me search for that..."),
       _tool_start_event("rag_search", "tc-1"),
@@ -293,13 +295,16 @@ class TestThinkingBuffer:
       conversation_id="conv-1",
     )
 
+    # No raw tool cards — task cards are only for todos
     updates = _get_task_updates(mock_slack)
-    in_progress = [u for u in updates if u["status"] == "in_progress"]
-    assert len(in_progress) == 1
-    assert in_progress[0]["details"] == "Let me search for that..."
+    assert len(updates) == 0
 
-  def test_thinking_between_tools_shown_on_second_tool(self):
-    """Text between two tool calls is shown as details on the second tool."""
+    # Thinking text should appear in typing status
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    assert any("Let me search for that" in s for s in status_calls), f"Thinking should appear in status, got: {status_calls}"
+
+  def test_thinking_between_tools_shown_in_status(self):
+    """Text between two tool calls is shown in the typing indicator status."""
     events = [
       _tool_start_event("rag_search", "tc-1"),
       _tool_end_event("tc-1"),
@@ -327,19 +332,12 @@ class TestThinkingBuffer:
       conversation_id="conv-1",
     )
 
+    # No raw tool cards
     updates = _get_task_updates(mock_slack)
-    # First tool should have no thinking details (no text before it)
-    first_in_progress = [u for u in updates if u["status"] == "in_progress" and u["id"] == "tc-1"]
-    assert len(first_in_progress) == 1
-    assert first_in_progress[0].get("details") is None
+    assert len(updates) == 0
 
-    # Second tool should have the thinking text
-    second_in_progress = [u for u in updates if u["status"] == "in_progress" and u["id"] == "tc-2"]
-    assert len(second_in_progress) == 1
-    assert second_in_progress[0]["details"] == "Now let me check Jira..."
-
-  def test_thinking_truncated_to_200_chars(self):
-    """Thinking text longer than 200 chars is truncated."""
+  def test_thinking_truncated_in_typing_status(self):
+    """Long thinking text is truncated to fit in the typing status (max 80 chars)."""
     long_text = "A" * 250
     events = [
       _content_event(long_text),
@@ -366,10 +364,12 @@ class TestThinkingBuffer:
       conversation_id="conv-1",
     )
 
-    updates = _get_task_updates(mock_slack)
-    in_progress = [u for u in updates if u["status"] == "in_progress"]
-    assert len(in_progress) == 1
-    assert len(in_progress[0]["details"]) == 200
+    # Typing status should be truncated — max 80 chars total
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    thinking_statuses = [s for s in status_calls if "💭" in s]
+    assert len(thinking_statuses) >= 1
+    for s in thinking_statuses:
+      assert len(s) <= 80, f"Status should be max 80 chars, got {len(s)}: {s}"
 
   def test_final_text_after_tools_streamed_normally(self):
     """Text after the last tool call is the final answer, streamed via appendStream."""
@@ -444,8 +444,8 @@ class TestToolThoughtExtraction:
     assert _extract_tool_thought("") is None
     assert _extract_tool_thought(None) is None
 
-  def test_tool_args_thought_shown_on_completed(self):
-    """Thought extracted from TOOL_CALL_ARGS is shown as details on the completed checklist item."""
+  def test_tool_args_thought_shown_in_typing_status(self):
+    """Thought extracted from TOOL_CALL_ARGS is shown in the typing status indicator."""
     events = [
       _tool_start_event("rag_search", "tc-1"),
       _tool_args_event("tc-1", '{"thought": "Searching for k8s docs", "query": "kubernetes"}'),
@@ -471,10 +471,13 @@ class TestToolThoughtExtraction:
       conversation_id="conv-1",
     )
 
+    # No raw tool cards
     updates = _get_task_updates(mock_slack)
-    completed = [u for u in updates if u["status"] == "complete"]
-    assert len(completed) == 1
-    assert completed[0]["details"] == "Searching for k8s docs"
+    assert len(updates) == 0
+
+    # Thought should appear in typing status
+    status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
+    assert any("Searching for k8s docs" in s for s in status_calls), f"Thought should appear in status, got: {status_calls}"
 
 
 class TestStreamBuffer:

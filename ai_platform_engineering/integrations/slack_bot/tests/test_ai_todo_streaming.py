@@ -244,11 +244,10 @@ class TestWriteTodosFromArgs:
     ]
     mock_slack, _ = _run_stream(events)
 
-    # Should still work — falls back to raw mode since no todos were parsed
+    # Should still work — no raw tool cards rendered (raw cards removed)
     task_updates = _get_task_updates(mock_slack)
-    # rag_search should show as raw card since has_todos is still False
     raw_search = [u for u in task_updates if u.get("title") == "rag_search"]
-    assert len(raw_search) >= 1
+    assert len(raw_search) == 0, "raw tool cards should not be rendered"
     mock_slack.chat_stopStream.assert_called_once()
 
 
@@ -338,8 +337,8 @@ class TestRawToolSuppression:
     raw_search = [u for u in task_updates if u.get("title") == "rag_search"]
     assert len(raw_search) == 0, "Raw tool card should be suppressed in todo-aware mode"
 
-  def test_raw_tool_shown_when_no_todos(self):
-    """Without todos, regular tool calls still show as raw task_update cards."""
+  def test_no_raw_tool_cards_without_todos(self):
+    """Without todos, regular tool calls do not show as task_update cards."""
     events = [
       _run_started_event(),
       _tool_start_event("rag_search", "tc-1"),
@@ -351,7 +350,7 @@ class TestRawToolSuppression:
 
     task_updates = _get_task_updates(mock_slack)
     raw_search = [u for u in task_updates if u.get("title") == "rag_search"]
-    assert len(raw_search) >= 1, "Raw tool cards should still appear when no todos"
+    assert len(raw_search) == 0, "Raw tool cards should not appear — task cards are only for todos"
 
 
 # ---------------------------------------------------------------------------
@@ -592,7 +591,7 @@ class TestFullTodoScenario:
     assert stop_call is not None
 
   def test_write_todos_no_args_falls_back_gracefully(self):
-    """If write_todos has no parseable args, falls back to raw mode gracefully."""
+    """If write_todos has no parseable args, no task cards shown but response still delivered."""
     events = [
       _run_started_event(),
       _tool_start_event("write_todos", "tc-wt-1"),
@@ -605,7 +604,8 @@ class TestFullTodoScenario:
     ]
     mock_slack, _ = _run_stream(events)
 
-    # Should still work — raw tool cards shown as fallback
+    # No raw tool cards — task cards are only for todos
     task_updates = _get_task_updates(mock_slack)
-    assert len(task_updates) >= 1  # At least rag_search shows as raw card
+    raw_cards = [u for u in task_updates if u.get("title") == "rag_search"]
+    assert len(raw_cards) == 0, "Raw tool cards should not appear"
     mock_slack.chat_stopStream.assert_called_once()
