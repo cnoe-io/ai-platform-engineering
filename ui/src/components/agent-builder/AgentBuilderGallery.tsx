@@ -755,7 +755,7 @@ export function AgentBuilderGallery({
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
                   {!supervisorSynced && !supervisorLoading && (
-                    <AlertTriangle className="h-4 w-4 text-amber-500" title="Skills must be synced with the supervisor first" />
+                    <span title="Skills must be synced with the supervisor first"><AlertTriangle className="h-4 w-4 text-amber-500" /></span>
                   )}
                   <Button
                     onClick={handleTrySkill}
