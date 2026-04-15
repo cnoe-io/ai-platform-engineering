@@ -14,7 +14,6 @@ import type {
   SkillVisibility,
   ScanStatus,
 } from "@/types/agent-skill";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 
 /**
  * Agent Config API Routes
@@ -30,18 +29,18 @@ import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 
 // Storage configuration - MongoDB only for agent config skills
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
-const BACKEND_SKILLS_URL = process.env.BACKEND_SKILLS_URL || "";
+const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
 async function scanSkillContent(
   name: string,
   content: string,
   configId?: string,
 ): Promise<{ scan_status: ScanStatus; scan_summary?: string }> {
-  if (!BACKEND_SKILLS_URL || !content?.trim()) {
+  if (!SUPERVISOR_URL || !content?.trim()) {
     return { scan_status: "unscanned" };
   }
   try {
-    const resp = await fetch(`${BACKEND_SKILLS_URL}/skills/scan-content`, {
+    const resp = await fetch(`${SUPERVISOR_URL}/skills/scan-content`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, content, config_id: configId }),
@@ -72,8 +71,8 @@ const ANCILLARY_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB soft limit (FR-028)
  * keeps the expensive hub cache intact.
  */
 function triggerSupervisorRefresh(): void {
-  if (!BACKEND_SKILLS_URL) return;
-  const url = `${BACKEND_SKILLS_URL}/skills/refresh?include_hubs=false`;
+  if (!SUPERVISOR_URL) return;
+  const url = `${SUPERVISOR_URL}/skills/refresh?include_hubs=false`;
   fetch(url, {
     method: "POST",
     signal: AbortSignal.timeout(30_000),

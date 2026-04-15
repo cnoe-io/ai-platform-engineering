@@ -6,5 +6,9 @@
     "ArgoCD",
     "Kubernetes",
     "Monitoring"
+  ],
+  "input_variables": [
+    { "name": "app_name", "label": "Application Name", "required": false, "placeholder": "e.g. my-service" },
+    { "name": "environment", "label": "Environment", "required": false, "placeholder": "e.g. staging, production" }
   ]
 }

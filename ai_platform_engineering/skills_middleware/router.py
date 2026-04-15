@@ -301,9 +301,12 @@ async def refresh_skills(
     invalidate_skills_cache(include_hubs=include_hubs)
     mas = get_mas_instance()
     rebuilt = False
-    if mas is not None and hasattr(mas, "_rebuild_graph"):
+    if mas is not None:
         try:
-            rebuilt = bool(mas._rebuild_graph())
+            if hasattr(mas, "_rebuild_graph_async"):
+                rebuilt = bool(await mas._rebuild_graph_async())
+            elif hasattr(mas, "_rebuild_graph"):
+                rebuilt = bool(mas._rebuild_graph())
         except Exception as e:
             logger.error("MAS rebuild after skills refresh failed: %s", e)
 
@@ -316,7 +319,10 @@ async def refresh_skills(
     }
     if mas is not None:
         out["graph_generation"] = getattr(mas, "_graph_generation", None)
-        out["skills_loaded_count"] = getattr(mas, "_skills_loaded_count", None)
+        if hasattr(mas, "get_skills_status"):
+            out["skills_loaded_count"] = mas.get_skills_status().get("skills_loaded_count")
+        else:
+            out["skills_loaded_count"] = getattr(mas, "_skills_loaded_count", None)
     return out
 
 

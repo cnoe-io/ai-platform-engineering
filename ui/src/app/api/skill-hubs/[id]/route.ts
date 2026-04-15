@@ -5,6 +5,7 @@ import {
   withErrorHandler,
   requireAdmin,
   ApiError,
+  validateCredentialsRef,
 } from "@/lib/api-middleware";
 
 /**
@@ -51,7 +52,9 @@ export const PATCH = withErrorHandler(
         update.location = loc;
       }
       if (body.credentials_ref !== undefined)
-        update.credentials_ref = body.credentials_ref || null;
+        update.credentials_ref = validateCredentialsRef(body.credentials_ref);
+      if (Array.isArray(body.labels))
+        update.labels = body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20);
 
       await collection.updateOne({ id }, { $set: update });
 

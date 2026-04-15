@@ -11,14 +11,15 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  *
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
- *   If BACKEND_SKILLS_URL is configured, proxies to the Python backend GET /skills.
+ *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
  *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-skills.
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
  * Query params:
  *   q               — case-insensitive text search in skill name and description
- *   source          — filter by source: "default", "agent_skills", "hub"
+ *   source          — filter by source: "default", "agent_skills", "hub", "github", "gitlab"
+ *   repo            — filter hub skills by repository location (e.g. "owner/repo")
  *   tags            — comma-separated tag filter (metadata.tags includes any)
  *   include_content — include full SKILL.md body for each skill (default false)
  *   page            — page number, 1-indexed (default: omit for all results)
@@ -58,6 +59,7 @@ interface CatalogResponse {
 interface QueryParams {
   q: string;
   source: string;
+  repo: string;
   visibility: string;
   tags: string[];
   includeContent: boolean;
@@ -89,6 +91,7 @@ function parseQueryParams(req: NextRequest): QueryParams {
   return {
     q: (sp.get("q") || "").trim().toLowerCase(),
     source: (sp.get("source") || "").trim().toLowerCase(),
+    repo: (sp.get("repo") || "").trim().toLowerCase(),
     visibility: (sp.get("visibility") || "").trim().toLowerCase(),
     tags,
     includeContent: sp.get("include_content") === "true",
@@ -115,9 +118,17 @@ function filterSkills(
   }
 
   if (params.source) {
-    result = result.filter(
-      (s) => s.source.toLowerCase() === params.source,
-    );
+    if (params.source === "github" || params.source === "gitlab") {
+      result = result.filter(
+        (s) =>
+          s.source === "hub" &&
+          (s.metadata as { hub_type?: string })?.hub_type === params.source,
+      );
+    } else {
+      result = result.filter(
+        (s) => s.source.toLowerCase() === params.source,
+      );
+    }
   }
 
   if (params.visibility) {
@@ -125,6 +136,13 @@ function filterSkills(
     result = result.filter((s) => {
       const mv = (s.metadata as { visibility?: string })?.visibility;
       return (mv || "global").toLowerCase() === v;
+    });
+  }
+
+  if (params.repo) {
+    result = result.filter((s) => {
+      const loc = (s.metadata as { hub_location?: string })?.hub_location;
+      return loc ? loc.toLowerCase() === params.repo : false;
     });
   }
 
@@ -174,7 +192,7 @@ function paginate(
 }
 
 /**
- * Try to proxy to the Python backend at BACKEND_SKILLS_URL.
+ * Try to proxy to the Python backend at NEXT_PUBLIC_A2A_BASE_URL.
  * Returns null if not configured or unreachable.
  * Forwards query params so the backend can also filter server-side.
  */
@@ -182,7 +200,7 @@ async function fetchFromBackend(
   params: QueryParams,
   authHeader?: string | null,
 ): Promise<CatalogResponse | null> {
-  const backendUrl = process.env.BACKEND_SKILLS_URL;
+  const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
   if (!backendUrl) return null;
 
   try {
@@ -191,6 +209,7 @@ async function fetchFromBackend(
     if (params.includeContent) incoming.set("include_content", "true");
     if (params.q) incoming.set("q", params.q);
     if (params.source) incoming.set("source", params.source);
+    if (params.repo) incoming.set("repo", params.repo);
     if (params.visibility) incoming.set("visibility", params.visibility);
     if (params.tags.length > 0) incoming.set("tags", params.tags.join(","));
     if (params.page !== null) {
@@ -231,6 +250,14 @@ async function aggregateLocally(
     );
     const templates = loadSkillTemplatesInternal();
     for (const t of templates) {
+      const meta: Record<string, unknown> = {
+        category: t.category,
+        icon: t.icon,
+        tags: t.tags,
+      };
+      if (t.input_variables && t.input_variables.length > 0) {
+        meta.input_variables = t.input_variables;
+      }
       skills.push({
         id: t.id,
         name: t.name,
@@ -238,11 +265,7 @@ async function aggregateLocally(
         source: "default",
         source_id: null,
         content: includeContent ? t.content : null,
-        metadata: {
-          category: t.category,
-          icon: t.icon,
-          tags: t.tags,
-        },
+        metadata: meta,
       });
     }
     sourcesLoaded.push("default");

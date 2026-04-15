@@ -53,8 +53,11 @@ export function parseFrontmatter(raw: string): Record<string, string> {
         result[currentKey] = currentValue.trim();
       }
       currentKey = keyMatch[1];
-      currentValue = keyMatch[2];
-    } else if (currentKey) {
+      const val = keyMatch[2].trim();
+      // YAML folded scalar ">" or literal "|" — value is on next lines
+      currentValue = val === ">" || val === "|" ? "" : val;
+    } else if (currentKey && line.match(/^\s+/)) {
+      // Continuation line (indented) — append with space
       currentValue += " " + line.trim();
     }
   }

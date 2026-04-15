@@ -6,5 +6,9 @@
     "AWS",
     "Cost",
     "Optimization"
+  ],
+  "input_variables": [
+    { "name": "time_period", "label": "Time Period", "required": false, "placeholder": "last 30 days" },
+    { "name": "aws_account", "label": "AWS Account", "required": false, "placeholder": "e.g. 123456789012 or my-account-alias" }
   ]
 }
