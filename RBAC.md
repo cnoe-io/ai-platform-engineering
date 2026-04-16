@@ -21,9 +21,11 @@ graph TB
 
 ---
 
-## Use Case 1: Slack Channel → Custom Agent Mapping
+## Use Case 1: Slack Channel → Custom Agent Mapping + Pre-Auth
 
 **Scenario:** Slack channel `#platform-incidents` routes to a PagerDuty agent. Only SRE team members access it.
+
+**First Message Experience:** When a new user sends their first message to the bot, they receive a pre-auth prompt asking them to authenticate before their question is processed. This ensures they are linked to a Keycloak account and have proper RBAC permissions before accessing agents.
 
 ### Sequence Diagram: Message from Slack
 
@@ -76,28 +78,43 @@ flowchart TD
     L --> N["Error: Access Denied"]
 ```
 
-### Auto-Bootstrap on First Message
+### Auto-Bootstrap & Pre-Auth Prompt on First Message
 
 ```mermaid
 flowchart TD
     A["User Sends<br/>First Message"] --> B{Slack ↔ Keycloak<br/>Linked?}
     B -->|Yes| C["✅ Use Existing Link"]
-    B -->|No| D{SLACK_FORCE_LINK?}
+    B -->|No| D{Recently<br/>Prompted?}
     
-    D -->|true| E["Send Manual Link<br/>HMAC-signed URL"]
-    D -->|false| F["Attempt Silent<br/>Auto-Bootstrap"]
+    D -->|Yes| E["Skip Prompt<br/>(Spam Prevention)"]
+    D -->|No| F["Send Pre-Auth Prompt<br/>with Link Button"]
+    F --> G["Mark User as<br/>Prompted 1hr TTL"]
+    G --> H["Don't Process<br/>Question Yet"]
     
-    F --> G["Fetch Slack<br/>User Email"]
-    G --> H["Query Keycloak<br/>by Email"]
-    H --> I{Match Found?}
-    I -->|Yes| J["Store slack_user_id<br/>in Keycloak attrs"]
-    I -->|No| E
+    E --> I["Check:<br/>SLACK_FORCE_LINK?"]
+    I -->|true| J["Send Manual Link<br/>HMAC-signed URL"]
+    I -->|false| K["Attempt Silent<br/>Auto-Bootstrap"]
     
-    E --> K["User Clicks Link<br/>→ UI Links Accounts"]
-    C --> L["✅ User Authenticated"]
-    J --> L
-    K --> L
+    K --> L["Fetch Slack<br/>User Email"]
+    L --> M["Query Keycloak<br/>by Email"]
+    M --> N{Match Found?}
+    N -->|Yes| O["Store slack_user_id<br/>in Keycloak attrs"]
+    N -->|No| J
+    
+    J --> P["User Clicks Link<br/>in Prompt or Message"]
+    O --> Q["✅ User Authenticated"]
+    P --> Q
+    C --> Q
+    H --> R["User Clicks Link<br/>in Prompt Button"]
+    R --> Q
 ```
+
+**Pre-Auth Prompt Details:**
+- Sent only when `RBAC_ENABLED=true` and user is unlinked
+- Interactive Slack message with "Authenticate Now" button
+- Button points to HMAC-signed linking URL (10min TTL)
+- User marked as prompted (1hr TTL) to prevent spam
+- Question processing deferred until user authenticates
 
 ---
 
