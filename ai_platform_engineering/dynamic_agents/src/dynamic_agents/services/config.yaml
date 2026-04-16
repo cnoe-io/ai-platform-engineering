@@ -106,7 +106,7 @@ mcp_servers:
 
   - description: Knowledge Base tools
     enabled: true
-    endpoint: http://rag-server.caipe-preview.svc.cluster.local:9446/mcp
+    endpoint: ${RAG_SERVER_MCP_URL:-http://rag-server.caipe-preview.svc.cluster.local:9446/mcp}
     id: knowledge-base
     name: Knowledge Base
     transport: http
