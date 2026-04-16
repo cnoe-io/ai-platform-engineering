@@ -1,17 +1,17 @@
 apiVersion: v2
 # pyproject.toml version
-appVersion: 0.3.3 # Do NOT modify. It will be updated automatically using the release workflow
+appVersion: 0.3.3-rc.1 # Do NOT modify. It will be updated automatically using the release workflow
 name: ai-platform-engineering
 description: Parent chart to deploy multiple agent subcharts as different platform agents
 sources:
   - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
-version: 0.3.3 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+version: 0.3.3-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 dependencies:
   # AI Platform Engineer Multi-Agent
   - name: supervisor-agent
     # Chart version for agent subchart
-    version: 0.3.3 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.3.3-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
   # Single agent chart used multiple times with different aliases
   - name: agent
     version: 0.3.3 # Do NOT bump this. It will be updated automatically using the PR or release workflow
@@ -179,7 +179,7 @@ dependencies:
         parent: global.enabledSubAgents.rag
   # CAIPE UI
   - name: caipe-ui
-    version: 0.3.3 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.3.3-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - caipe-ui
   # Dynamic Agents - Standalone agent builder with MCP tool support
