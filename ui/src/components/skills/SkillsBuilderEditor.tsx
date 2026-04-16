@@ -95,6 +95,7 @@ import {
   type CreateAgentSkillInput,
   type WorkflowDifficulty,
   type SkillVisibility,
+  type SkillInputVariable,
 } from "@/types/agent-skill";
 import type { Team } from "@/types/teams";
 import type { SkillTemplate } from "@/skills";
@@ -1135,6 +1136,9 @@ export function SkillsBuilderEditor({
     thumbnail: existingConfig?.thumbnail || "Zap",
   });
   const [tags, setTags] = useState<string[]>(existingConfig?.metadata?.tags || []);
+  const [inputVariables, setInputVariables] = useState<SkillInputVariable[]>(
+    existingConfig?.metadata?.input_variables || []
+  );
   const [skillContent, setSkillContent] = useState(
     existingConfig?.skill_content || createBlankSkillMd()
   );
@@ -1192,6 +1196,7 @@ export function SkillsBuilderEditor({
       }
       return existingConfig?.metadata?.allowed_tools || [];
     })(),
+    inputVariables: existingConfig?.metadata?.input_variables || [],
   });
   const [saved, setSaved] = useState(false);
 
@@ -1208,9 +1213,10 @@ export function SkillsBuilderEditor({
       visibility !== s.visibility ||
       JSON.stringify(tags) !== JSON.stringify(s.tags) ||
       JSON.stringify(selectedTeamIds) !== JSON.stringify(s.selectedTeamIds) ||
-      JSON.stringify(allowedTools) !== JSON.stringify(s.allowedTools)
+      JSON.stringify(allowedTools) !== JSON.stringify(s.allowedTools) ||
+      JSON.stringify(inputVariables) !== JSON.stringify(s.inputVariables)
     );
-  }, [formData, skillContent, visibility, tags, selectedTeamIds, allowedTools, saved]);
+  }, [formData, skillContent, visibility, tags, selectedTeamIds, allowedTools, inputVariables, saved]);
 
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
@@ -1405,6 +1411,7 @@ export function SkillsBuilderEditor({
         thumbnail: existingConfig?.thumbnail || "Zap",
       });
       setTags(existingConfig?.metadata?.tags || []);
+      setInputVariables(existingConfig?.metadata?.input_variables || []);
       setSkillContent(existingConfig?.skill_content || createBlankSkillMd());
       setVisibility(existingConfig?.visibility || "private");
       setSelectedTeamIds(existingConfig?.shared_with_teams || []);
@@ -1458,6 +1465,7 @@ export function SkillsBuilderEditor({
       thumbnail: template.icon,
     }));
     setTags(template.tags);
+    setInputVariables([]);
   };
 
   const handleImportSkillMd = (content: string) => {
@@ -1760,6 +1768,7 @@ Rewrite the above skill document. Output ONLY the improved SKILL.md text with no
         metadata: {
           tags: tags.length > 0 ? tags : undefined,
           allowed_tools: allowedTools.length > 0 ? allowedTools : undefined,
+          input_variables: inputVariables.length > 0 ? inputVariables : undefined,
         },
         visibility,
         shared_with_teams: visibility === "team" ? selectedTeamIds : undefined,
@@ -1861,6 +1870,7 @@ Rewrite the above skill document. Output ONLY the improved SKILL.md text with no
                         setSkillContentAndSyncTools(createBlankSkillMd());
                         setFormData(prev => ({ ...prev, name: "", description: "" }));
                         setTags([]);
+                        setInputVariables([]);
                         setSelectedTemplateId(null);
                         setShowTemplateMenu(false);
                       }}
@@ -2192,6 +2202,75 @@ Rewrite the above skill document. Output ONLY the improved SKILL.md text with no
                       </Badge>
                     </button>
                   </div>
+                </div>
+
+                {/* Row 3: Input Variables — parameters shown in Try Skill modal */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                      <Variable className="h-3 w-3" />
+                      Input Variables
+                    </label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-5 text-[10px] px-1.5 gap-0.5"
+                      onClick={() => setInputVariables(prev => [...prev, { name: "", label: "", required: false, placeholder: "" }])}
+                    >
+                      <Plus className="h-2.5 w-2.5" />
+                      Add
+                    </Button>
+                  </div>
+                  {inputVariables.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground">
+                      No input variables. Add variables to prompt users for parameters in the Try Skill modal.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {inputVariables.map((v, idx) => (
+                        <div key={idx} className="flex items-center gap-1.5">
+                          <Input
+                            value={v.name}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/[^a-zA-Z0-9_]/g, "");
+                              setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, name: val } : item));
+                            }}
+                            placeholder="name"
+                            className="h-6 text-xs w-24 font-mono"
+                          />
+                          <Input
+                            value={v.label}
+                            onChange={(e) => setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, label: e.target.value } : item))}
+                            placeholder="Label"
+                            className="h-6 text-xs w-28"
+                          />
+                          <Input
+                            value={v.placeholder || ""}
+                            onChange={(e) => setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, placeholder: e.target.value } : item))}
+                            placeholder="placeholder"
+                            className="h-6 text-xs flex-1"
+                          />
+                          <label className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={v.required}
+                              onChange={(e) => setInputVariables(prev => prev.map((item, i) => i === idx ? { ...item, required: e.target.checked } : item))}
+                              className="h-3 w-3 rounded border-border"
+                            />
+                            Req
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setInputVariables(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-muted-foreground hover:text-destructive shrink-0"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>

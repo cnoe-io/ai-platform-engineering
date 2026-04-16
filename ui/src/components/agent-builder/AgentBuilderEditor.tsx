@@ -302,7 +302,7 @@ export function AgentBuilderEditor({
     // Check permission for system configs
     if (isEditMode && existingConfig?.is_system && !isAdmin) {
       toast(
-        "Only administrators can edit system templates.\n\nTo customize this template:\n• Use 'Run in Chat' to test variations\n• Create your own workflow based on this template\n• Contact your admin for template modifications",
+        "Only administrators can edit system templates.\n\nTo customize this template:\n• Use 'Try Skill' to test variations\n• Create your own workflow based on this template\n• Contact your admin for template modifications",
         "warning",
         7000
       );
@@ -405,7 +405,7 @@ export function AgentBuilderEditor({
       // If it's a permission error for system configs, show specific guidance
       if (errorMessage.includes("system") || errorMessage.includes("admin")) {
         toast(
-          `Cannot edit system template: ${errorMessage}\n\nTo customize this template, please contact your admin or use "Run in Chat" to test different variations.`,
+          `Cannot edit system template: ${errorMessage}\n\nTo customize this template, please contact your admin or use "Try Skill" to test different variations.`,
           "error",
           7000
         );

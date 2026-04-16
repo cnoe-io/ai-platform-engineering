@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.3.0"
+version = "0.3.3"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -86,7 +86,7 @@ dev = [
     "asyncpg==0.31.0",
     "mongomock==4.3.0",
     "psycopg[binary]==3.3.3",
-    "pytest==9.0.2",
+    "pytest==9.0.3",
     "ruff==0.14.8",
 ]
 unittest = [

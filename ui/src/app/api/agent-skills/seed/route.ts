@@ -7,41 +7,76 @@ import {
   ApiError,
 } from "@/lib/api-middleware";
 import type { AgentSkill } from "@/types/agent-skill";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
+import {
+  loadSkillTemplatesInternal,
+  type SkillTemplateData,
+} from "@/app/api/skills/skill-templates-loader";
 
 /**
  * Seed API Route
  *
  * POST /api/agent-skills/seed
- * Seeds the database with built-in templates if they don't exist.
+ * Seeds the database with skill templates loaded from disk (charts/data/skills/).
  * Can be called on app startup or manually by admin.
  * Removes system templates that are no longer in the whitelist.
  *
  * GET /api/agent-skills/seed
  * Checks if seeding is needed (returns { needsSeeding: boolean, count: number })
  *
- * The BUILTIN_SKILL_IDS env var controls which built-in templates are seeded.
+ * The BUILTIN_SKILL_IDS env var controls which disk templates are seeded.
  * When set, only templates whose IDs appear in the comma-separated list are seeded.
- * When unset or empty, all templates are seeded.
+ * When unset or empty, all disk templates are seeded.
  */
 
 /**
- * Returns the subset of BUILTIN_QUICK_START_TEMPLATES allowed by the
- * BUILTIN_SKILL_IDS environment variable. If the variable is unset or
- * empty, all templates are returned.
+ * Convert a disk SkillTemplateData into an AgentSkill suitable for MongoDB.
  */
-function getEnabledTemplates(): AgentSkill[] {
+function templateToAgentSkill(t: SkillTemplateData): AgentSkill {
+  const now = new Date();
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    category: t.category || "Custom",
+    tasks: [
+      {
+        display_text: t.title || t.name,
+        llm_prompt: t.content,
+        subagent: "user_input",
+      },
+    ],
+    owner_id: "system",
+    is_system: true,
+    created_at: now,
+    updated_at: now,
+    is_quick_start: true,
+    thumbnail: t.icon || "Zap",
+    metadata: {
+      tags: t.tags || [],
+      schema_version: "1.0",
+    },
+  };
+}
+
+/**
+ * Returns the subset of disk templates allowed by the BUILTIN_SKILL_IDS
+ * environment variable. If the variable is unset or empty, all templates
+ * are returned.
+ */
+function getEnabledTemplates(): SkillTemplateData[] {
+  const allTemplates = loadSkillTemplatesInternal();
   const raw = process.env.BUILTIN_SKILL_IDS?.trim();
   if (!raw) {
-    return BUILTIN_QUICK_START_TEMPLATES;
+    return allTemplates;
   }
   const allowedIds = new Set(raw.split(",").map((id) => id.trim()).filter(Boolean));
-  return BUILTIN_QUICK_START_TEMPLATES.filter((t) => allowedIds.has(t.id));
+  return allTemplates.filter((t) => allowedIds.has(t.id));
 }
 
 // Check if seeding is needed
 async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCount: number; templateCount: number }> {
   const enabledTemplates = getEnabledTemplates();
+  const allTemplates = loadSkillTemplatesInternal();
 
   if (!isMongoDBConfigured) {
     return { needsSeeding: false, existingCount: 0, templateCount: enabledTemplates.length };
@@ -49,7 +84,7 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
 
   const collection = await getCollection<AgentSkill>("agent_skills");
   const enabledIds = enabledTemplates.map((t) => t.id);
-  const allSystemIds = BUILTIN_QUICK_START_TEMPLATES.map((t) => t.id);
+  const allSystemIds = allTemplates.map((t) => t.id);
   const disabledIds = allSystemIds.filter((id) => !new Set(enabledIds).has(id));
 
   // Count how many of the enabled templates already exist
@@ -70,14 +105,15 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
   };
 }
 
-// Seed the database with enabled built-in templates and remove non-whitelisted ones
-async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number; removed: number }> {
+// Seed the database with enabled disk templates and remove non-whitelisted ones
+async function seedTemplatesFromDisk(): Promise<{ seeded: number; skipped: number; removed: number }> {
   if (!isMongoDBConfigured) {
     throw new ApiError("MongoDB is not configured", 503);
   }
 
   const collection = await getCollection<AgentSkill>("agent_skills");
   const enabledTemplates = getEnabledTemplates();
+  const allTemplates = loadSkillTemplatesInternal();
   const enabledIds = new Set(enabledTemplates.map((t) => t.id));
 
   let seeded = 0;
@@ -92,14 +128,8 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
       continue;
     }
 
-    // Insert the template with proper dates
-    const configToInsert: AgentSkill = {
-      ...template,
-      owner_id: "system",
-      is_system: true,
-      created_at: new Date(),
-      updated_at: new Date(),
-    };
+    // Convert disk template to AgentSkill and insert
+    const configToInsert = templateToAgentSkill(template);
 
     await collection.insertOne(configToInsert);
     seeded++;
@@ -107,7 +137,7 @@ async function seedBuiltinTemplates(): Promise<{ seeded: number; skipped: number
   }
 
   // Remove system templates that are no longer in the whitelist
-  const allSystemIds = BUILTIN_QUICK_START_TEMPLATES.map((t) => t.id);
+  const allSystemIds = allTemplates.map((t) => t.id);
   const disabledIds = allSystemIds.filter((id) => !enabledIds.has(id));
   let removed = 0;
   if (disabledIds.length > 0) {
@@ -131,7 +161,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
     return NextResponse.json({
       needsSeeding: false,
-      message: "MongoDB not configured - using built-in templates from code",
+      message: "MongoDB not configured - using disk templates from charts/data/skills/",
       existingCount: 0,
       templateCount: enabledTemplates.length,
     });
@@ -168,7 +198,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   // Perform seeding (also removes non-whitelisted system templates)
-  const result = await seedBuiltinTemplates();
+  const result = await seedTemplatesFromDisk();
 
   console.log(`[Seed] Seeding complete: ${result.seeded} seeded, ${result.skipped} skipped, ${result.removed} removed`);
 

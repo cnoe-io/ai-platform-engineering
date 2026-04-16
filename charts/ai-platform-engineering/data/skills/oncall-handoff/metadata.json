@@ -7,5 +7,9 @@
     "Jira",
     "ArgoCD",
     "Multi-Agent"
+  ],
+  "input_variables": [
+    { "name": "team_name", "label": "Team Name", "required": false, "placeholder": "e.g. platform-engineering" },
+    { "name": "handoff_period", "label": "Handoff Period", "required": false, "placeholder": "last 24 hours" }
   ]
 }

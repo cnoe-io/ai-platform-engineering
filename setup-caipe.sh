@@ -1127,6 +1127,13 @@ install_nginx_ingress() {
   # reaches the cluster. On cloud clusters (EKS/GKE/AKS) the cloud LB handles
   # this automatically — skip iptables entirely.
   if $ENABLE_METALLB && [[ -n "$CAIPE_DOMAIN" ]]; then
+    # DNAT requires IP forwarding to be enabled at runtime — not just in sysctl.conf.
+    if [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != "1" ]]; then
+      sudo sysctl -w net.ipv4.ip_forward=1 &>/dev/null \
+        && log "Enabled ip_forward (net.ipv4.ip_forward=1)" \
+        || warn "Could not enable ip_forward — DNAT rules may not work"
+    fi
+
     local host_ip
     host_ip=$(hostname -I | awk '{print $1}')
     # Guard every iptables add with -C (check) to prevent duplicate rules on re-runs.
@@ -2539,18 +2546,22 @@ _ensure_dynamic_agents_mongodb() {
 
   # Patch MONGODB_URI into dynamic-agents ConfigMap using python3 to avoid
   # shell special-character escaping issues with ? in the URI.
-  local cur_uri
-  cur_uri=$(kubectl get cm caipe-dynamic-agents-config -n caipe \
-    -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
-  if [[ "$cur_uri" != "$mongo_uri" ]]; then
-    python3 -c "
+  if kubectl get cm caipe-dynamic-agents-config -n caipe &>/dev/null; then
+    local cur_uri
+    cur_uri=$(kubectl get cm caipe-dynamic-agents-config -n caipe \
+      -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
+    if [[ "$cur_uri" != "$mongo_uri" ]]; then
+      python3 -c "
 import subprocess, json
 patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}'}})
 subprocess.run(['kubectl','patch','cm','caipe-dynamic-agents-config',
-  '-n','caipe','--type','merge','-p',patch], check=True)
+  '-n','caipe','--type','merge','-p',patch], check=False)
 "
-    kubectl rollout restart deploy/caipe-dynamic-agents -n caipe &>/dev/null
-    log "dynamic-agents MONGODB_URI patched → ${mongo_uri}"
+      kubectl rollout restart deploy/caipe-dynamic-agents -n caipe &>/dev/null
+      log "dynamic-agents MONGODB_URI patched → ${mongo_uri}"
+    fi
+  else
+    warn "caipe-dynamic-agents-config ConfigMap not found — skipping MONGODB_URI patch (will be set on next helm upgrade)"
   fi
 
   # Also ensure the UI secret has a MONGODB_URI so the UI can persist sessions
@@ -2566,18 +2577,21 @@ subprocess.run(['kubectl','patch','cm','caipe-dynamic-agents-config',
   # from MongoDB instead of falling back to task_config.yaml only.
   # In multi-node mode the supervisor mounts caipe-supervisor-agent-env;
   # in single-node mode it mounts caipe-single-node-agent-env — patch both.
-  local cur_sup_uri needs_restart=0
-  cur_sup_uri=$(kubectl get cm caipe-supervisor-agent-env -n caipe \
-    -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
-  if [[ "$cur_sup_uri" != "$mongo_uri" ]]; then
-    python3 -c "
+  local needs_restart=0
+  if kubectl get cm caipe-supervisor-agent-env -n caipe &>/dev/null; then
+    local cur_sup_uri
+    cur_sup_uri=$(kubectl get cm caipe-supervisor-agent-env -n caipe \
+      -o jsonpath='{.data.MONGODB_URI}' 2>/dev/null || true)
+    if [[ "$cur_sup_uri" != "$mongo_uri" ]]; then
+      python3 -c "
 import subprocess, json
 patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}', 'MONGODB_DATABASE': 'caipe'}})
 subprocess.run(['kubectl','patch','cm','caipe-supervisor-agent-env',
-  '-n','caipe','--type','merge','-p',patch], check=True)
+  '-n','caipe','--type','merge','-p',patch], check=False)
 "
-    needs_restart=1
-    log "supervisor MONGODB_URI patched (multi-node cm) → ${mongo_uri}"
+      needs_restart=1
+      log "supervisor MONGODB_URI patched (multi-node cm) → ${mongo_uri}"
+    fi
   fi
   # Also patch caipe-single-node-agent-env (single-node deployments)
   if kubectl get cm caipe-single-node-agent-env -n caipe &>/dev/null; then
@@ -2589,7 +2603,7 @@ subprocess.run(['kubectl','patch','cm','caipe-supervisor-agent-env',
 import subprocess, json
 patch = json.dumps({'data': {'MONGODB_URI': '${mongo_uri}', 'MONGODB_DATABASE': 'caipe'}})
 subprocess.run(['kubectl','patch','cm','caipe-single-node-agent-env',
-  '-n','caipe','--type','merge','-p',patch], check=True)
+  '-n','caipe','--type','merge','-p',patch], check=False)
 "
       needs_restart=1
       log "supervisor MONGODB_URI patched (single-node cm) → ${mongo_uri}"

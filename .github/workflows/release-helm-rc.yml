@@ -42,7 +42,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
         with:
           egress-policy: audit
 
@@ -118,7 +118,7 @@ jobs:
       - name: 🏷️ Resolve versions (Helm RC + latest image RC for appVersion)
         id: versions
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.release_version }}
           IS_HOTFIX: ${{ steps.version.outputs.is_hotfix }}

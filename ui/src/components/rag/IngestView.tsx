@@ -57,7 +57,8 @@ import {
   getChunkContent,
   cleanupDataSource,
   WEBLOADER_INGESTOR_ID,
-  CONFLUENCE_INGESTOR_ID
+  CONFLUENCE_INGESTOR_ID,
+  JIRA_INGESTOR_ID
 } from './api/index'
 import type { DatasourceDocumentsResponse, DocumentInfo, ChunkInfo } from './api/index'
 import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
@@ -1550,7 +1551,9 @@ export default function IngestView() {
                       const hasActiveJob = latestJob && (latestJob.status === 'in_progress' || latestJob.status === 'pending')
                       const isWebloaderDatasource = ds.ingestor_id === WEBLOADER_INGESTOR_ID
                       const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
+                      const isJiraDatasource = ds.ingestor_id === JIRA_INGESTOR_ID
                       const supportsReload = isWebloaderDatasource || isConfluenceDatasource
+                      const isConfigDriven = isJiraDatasource
                       const icon = getIconForType(ds.source_type)
                       
                       // Get reload interval (first-class field or default)
@@ -1628,9 +1631,9 @@ export default function IngestView() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => setShowReIngestConfirm(ds.datasource_id)}
-                                  disabled={hasActiveJob || !supportsReload || !hasPermission(Permission.INGEST)}
+                                  disabled={hasActiveJob || !supportsReload || isConfigDriven || !hasPermission(Permission.INGEST)}
                                   className="h-7 w-7 p-0"
-                                  title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions' : !supportsReload ? 'Re-ingest not supported' : hasActiveJob ? 'Job in progress' : 'Re-ingest'}
+                                  title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions' : isConfigDriven ? 'Managed by ingestor config' : !supportsReload ? 'Re-ingest not supported' : hasActiveJob ? 'Job in progress' : 'Re-ingest'}
                                 >
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 </Button>
@@ -1648,9 +1651,9 @@ export default function IngestView() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => setShowDeleteDataSourceConfirm(ds.datasource_id)}
-                                  disabled={hasActiveJob || !hasPermission(Permission.DELETE)}
+                                  disabled={hasActiveJob || isConfigDriven || !hasPermission(Permission.DELETE)}
                                   className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
-                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions' : hasActiveJob ? 'Job in progress' : 'Delete'}
+                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions' : isConfigDriven ? 'Managed by ingestor config' : hasActiveJob ? 'Job in progress' : 'Delete'}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>

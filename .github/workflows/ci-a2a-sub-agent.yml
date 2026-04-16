@@ -85,7 +85,7 @@ jobs:
 
       - name: Generate path filters
         id: generate-filters
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
@@ -113,7 +113,7 @@ jobs:
 
       - name: Set matrix based on changes
         id: set-matrix
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
@@ -181,7 +181,7 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
         with:
           egress-policy: audit
 
@@ -190,7 +190,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -266,7 +266,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
         with:
           egress-policy: audit
 
@@ -333,7 +333,7 @@ jobs:
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -381,6 +381,8 @@ jobs:
   # Notify release-finalize workflow when this CI completes (for final release builds only)
   notify-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for repository_dispatch via gh api
     needs: [determine-agents, build-and-push, retag-unchanged]
     # Only notify for final releases (non-RC tags) - RC builds don't need release finalization
     if: |

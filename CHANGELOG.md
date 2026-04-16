@@ -1,4 +1,58 @@
-## 0.3.0 (2026-04-13)
+## 0.3.3 (2026-04-15)
+
+## 0.3.2-rc.2 (2026-04-15)
+
+### Fix
+
+- **ci**: bump Go 1.25→1.26 and langgraph 1.0.10→1.1.6 (#1222)
+
+## 0.3.2-rc.1 (2026-04-15)
+
+## 0.3.1-rc.2 (2026-04-15)
+
+### Feat
+
+- **ui**: add skills gateway visual editor and /skills/gateway route (#1220)
+
+### Fix
+
+- **setup**: guard ConfigMap patches and enable ip_forward at runtime (#1221)
+- **ci**: add contents:write permission to notify-release jobs (#1219)
+
+## 0.3.1-rc.1 (2026-04-15)
+
+## 0.3.0-rc.8 (2026-04-15)
+
+## 0.3.0-rc.7 (2026-04-15)
+
+### Fix
+
+- **slack-bot,supervisor**: streaming newlines, msg_too_long resilience, A2A skills injection (#1218)
+
+### Refactor
+
+- **ui**: simplify skills gallery and remove unused types
+
+## 0.3.0-rc.6 (2026-04-14)
+
+## 0.3.0-rc.5 (2026-04-14)
+
+### Fix
+
+- **rag**: rename ExampleEntityMatch to ExampleStructuredEntityMatch in common models (#1200)
+
+## 0.3.0-rc.4 (2026-04-14)
+
+### Feat
+
+- **rag**: add Jira issue ingestor and UI read-only datasource support (#988)
+
+### Fix
+
+- **streaming**: restore 0.2.41 streaming UX with marker gate fixes and middleware toggles (#1210)
+- **ui**: auth hardening + credentials_ref env var validation (#1211)
+
+## 0.3.0-rc.3 (2026-04-13)
 
 ## 0.2.43-rc.40 (2026-04-13)
 

@@ -136,7 +136,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         # Log all state keys to diagnose whether invoke_self_service_task's Command update was applied
         state_keys = list(state.keys()) if hasattr(state, 'keys') else "N/A"
         logger.info(f"[DeterministicTaskMiddleware] before_model: task_pending={task_pending}, tasks_count={len(tasks)}, state_keys={state_keys}")
-        
+
         if not task_pending or not tasks:
             logger.info(f"[DeterministicTaskMiddleware] before_model: No pending tasks, passing through (task_pending={task_pending}, tasks={len(tasks)})")
             return None
@@ -307,7 +307,12 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         if not current_todos or not all(t.get("status") == "completed" for t in current_todos):
             return None
 
-        logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all already completed), terminating loop")
+        # In structured response mode, the LLM still needs to call the
+        # ResponseFormat tool after all tasks complete.  Jumping to "end"
+        # would skip that final tool call and produce a blank response.
+        # Instead, just inject ToolMessages so the model knows the todos
+        # are done and can proceed to generate the structured response.
+        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE
 
         tool_messages = [
             ToolMessage(
@@ -318,10 +323,12 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             for tc in write_todos_calls
         ]
 
-        return {
-            "messages": tool_messages,
-            "jump_to": "end",
-        }
+        if USE_STRUCTURED_RESPONSE:
+            logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all completed), continuing for structured response")
+            return {"messages": tool_messages}
+        else:
+            logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all completed), terminating loop")
+            return {"messages": tool_messages, "jump_to": "end"}
 
     @hook_config(can_jump_to=["end"])
     async def aafter_model(self, state: TaskOrchestrationState, runtime: Any = None) -> dict[str, Any] | None:

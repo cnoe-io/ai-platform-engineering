@@ -2,9 +2,6 @@ name: "[Tests][Release Tag] Quick Sanity Integration"
 description: "Deploy a release-tag Helm chart via setup-caipe.sh into Kind and run sanity tests"
 
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       chart_version:
@@ -56,10 +53,10 @@ jobs:
           echo "::endgroup::"
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
 
       - name: Install helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Install kind
         run: |
@@ -175,7 +172,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kind-logs-release-${{ env.CHART_VERSION }}
           path: kind-logs.txt

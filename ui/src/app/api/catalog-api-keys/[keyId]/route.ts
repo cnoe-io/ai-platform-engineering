@@ -15,7 +15,7 @@ export const DELETE = withErrorHandler(
   ) => {
     const { keyId } = await context.params;
     return await withAuth(request, async (_req, _user, session) => {
-      const backendUrl = process.env.BACKEND_SKILLS_URL;
+      const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
       if (!backendUrl) {
         return NextResponse.json(
           { error: "backend_not_configured" },
