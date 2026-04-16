@@ -293,7 +293,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             )
                             for tc in rag_calls
                         ]
-                        return {"messages": tool_messages, "jump_to": "end"}
+                        return {"messages": tool_messages}
             except Exception as rag_err:
                 logger.debug(f"[DeterministicTaskMiddleware] RAG hard-stop check failed: {rag_err}")
             return None
