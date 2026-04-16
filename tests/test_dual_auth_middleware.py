@@ -32,16 +32,14 @@ async def agent_card_endpoint(request: Request):
     return JSONResponse({"name": "test-agent"})
 
 
-def _make_app(verify_return=False):
+def _make_app():
     """Create a Starlette app with DualAuthMiddleware.
 
-    Uses unittest.mock to patch verify_token at the call site inside
-    dual_auth_middleware.dispatch(), avoiding the oauth2_middleware
-    module-level env validation entirely.
+    Patches the env so the middleware module-level check for
+    A2A_AUTH_SHARED_KEY passes, then builds a fresh app with
+    the middleware attached.
     """
-    # Patch the env so the middleware module accepts the shared key
     with patch.dict(os.environ, {"A2A_AUTH_SHARED_KEY": SHARED_KEY}):
-        # Reimport to pick up patched env
         import importlib
         import ai_platform_engineering.utils.auth.dual_auth_middleware as dam
         importlib.reload(dam)
@@ -52,26 +50,10 @@ def _make_app(verify_return=False):
             Route("/.well-known/agent.json", agent_card_endpoint),
         ],
     )
-
-    # Patch verify_token lazily imported inside dispatch
-    _original_dispatch = dam.DualAuthMiddleware.dispatch
-
-    async def _patched_dispatch(self, request, call_next):
-        with patch(
-            "ai_platform_engineering.utils.auth.oauth2_middleware.verify_token",
-            side_effect=lambda t: verify_return if not callable(verify_return) else verify_return(t),
-        ):
-            return await _original_dispatch(self, request, call_next)
-
-    with patch.object(dam.DualAuthMiddleware, "dispatch", _patched_dispatch):
-        app.add_middleware(
-            dam.DualAuthMiddleware,
-            public_paths=PUBLIC_PATHS,
-        )
-
-    # Restore dispatch for actual use
-    dam.DualAuthMiddleware.dispatch = _original_dispatch
-
+    app.add_middleware(
+        dam.DualAuthMiddleware,
+        public_paths=PUBLIC_PATHS,
+    )
     return app
 
 
@@ -80,7 +62,7 @@ class TestDualAuthMiddleware:
 
     def test_shared_key_grants_access(self):
         """Shared key in Bearer header should be accepted immediately."""
-        app = _make_app(verify_return=False)
+        app = _make_app()
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/", headers={"Authorization": f"Bearer {SHARED_KEY}"})
         assert resp.status_code == 200
@@ -88,17 +70,29 @@ class TestDualAuthMiddleware:
 
     def test_valid_jwt_grants_access(self):
         """Valid OAuth2 JWT should be accepted when shared key doesn't match."""
-        app = _make_app(verify_return=lambda t: t == "valid-jwt-token")
+        app = _make_app()
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.get("/", headers={"Authorization": "Bearer valid-jwt-token"})
+        with patch(
+            "ai_platform_engineering.utils.auth.oauth2_middleware.verify_token",
+            side_effect=lambda t: t == "valid-jwt-token",
+        ):
+            resp = client.get(
+                "/", headers={"Authorization": "Bearer valid-jwt-token"}
+            )
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
     def test_invalid_token_rejected(self):
         """Token that is neither shared key nor valid JWT should be rejected."""
-        app = _make_app(verify_return=False)
+        app = _make_app()
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.get("/", headers={"Authorization": "Bearer bad-token"})
+        with patch(
+            "ai_platform_engineering.utils.auth.oauth2_middleware.verify_token",
+            return_value=False,
+        ):
+            resp = client.get(
+                "/", headers={"Authorization": "Bearer bad-token"}
+            )
         assert resp.status_code == 401
 
     def test_missing_auth_header_rejected(self):
@@ -133,12 +127,15 @@ class TestDualAuthMiddleware:
 
     def test_jwt_validation_error_returns_403(self):
         """If JWT validation raises an exception, return 403."""
-        def exploding_verify(token):
-            raise RuntimeError("JWKS fetch failed")
-
-        app = _make_app(verify_return=exploding_verify)
+        app = _make_app()
         client = TestClient(app, raise_server_exceptions=False)
-        resp = client.get("/", headers={"Authorization": "Bearer some-token"})
+        with patch(
+            "ai_platform_engineering.utils.auth.oauth2_middleware.verify_token",
+            side_effect=RuntimeError("JWKS fetch failed"),
+        ):
+            resp = client.get(
+                "/", headers={"Authorization": "Bearer some-token"}
+            )
         assert resp.status_code == 403
 
     def test_sse_unauthorized_format(self):

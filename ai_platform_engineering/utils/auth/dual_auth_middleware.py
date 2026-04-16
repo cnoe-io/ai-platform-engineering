@@ -10,6 +10,7 @@ Priority:
   3. If both fail → 401 Unauthorized.
 """
 
+import hmac
 import logging
 import os
 
@@ -75,7 +76,8 @@ class DualAuthMiddleware(BaseHTTPMiddleware):
         access_token = auth_header.split("Bearer ")[1]
 
         # 1. Try shared key first (fast path for A2A machine-to-machine)
-        if access_token == A2A_AUTH_SHARED_KEY:
+        # Use constant-time comparison to prevent timing attacks.
+        if hmac.compare_digest(access_token, A2A_AUTH_SHARED_KEY):
             logger.debug("Authenticated via shared key")
             return await call_next(request)
 
