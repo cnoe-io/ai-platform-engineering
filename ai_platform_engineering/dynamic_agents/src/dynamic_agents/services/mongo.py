@@ -16,8 +16,6 @@ from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import (
     DynamicAgentConfig,
     MCPServerConfig,
-    MCPServerConfigCreate,
-    MCPServerConfigUpdate,
     UserContext,
     VisibilityType,
 )
@@ -93,46 +91,6 @@ class MongoDBService:
     # =========================================================================
     # Read-only agent access
     # =========================================================================
-
-    def create_agent(self, agent: DynamicAgentConfigCreate, owner_id: str) -> DynamicAgentConfig:
-        """Create a new dynamic agent config.
-
-        Raises:
-            ValueError: If agent name is reserved or already exists.
-        """
-        now = datetime.now(timezone.utc)
-
-        # Generate semantic agent_id from name
-        agent_id = _slugify(agent.name)
-
-        # Validate: not reserved
-        if agent_id in RESERVED_AGENT_SLUGS or agent_id.startswith("__"):
-            raise ValueError(f"Agent name '{agent.name}' is reserved")
-
-        # Validate: unique
-        if self._get_agents_collection().find_one({"_id": agent_id}):
-            raise ValueError(f"Agent with ID '{agent_id}' already exists")
-
-        doc = {
-            "_id": agent_id,
-            **agent.model_dump(),
-            "owner_id": owner_id,
-            "is_system": False,
-            "created_at": now,
-            "updated_at": now,
-        }
-
-        self._get_agents_collection().insert_one(doc)
-        created = DynamicAgentConfig(**doc)
-        try:
-            from dynamic_agents.services.keycloak_sync import get_keycloak_sync_service
-
-            get_keycloak_sync_service().sync_agent_resource(
-                created.id, created.name, created.visibility.value
-            )
-        except Exception as e:
-            logger.warning("Keycloak sync after agent create failed: %s", e)
-        return created
 
     def get_agent(self, agent_id: str) -> DynamicAgentConfig | None:
         """Get a dynamic agent config by ID."""
