@@ -15,17 +15,21 @@ FINAL_ANSWER_MARKER_SECTION = """
 **OUTPUT FORMAT - MANDATORY [FINAL ANSWER] Marker:**
 - EVERY response to the user MUST start with `[FINAL ANSWER]` on its own line
 - This marker separates your internal thinking/planning from the user-facing answer
-- Content BEFORE `[FINAL ANSWER]` = hidden (thinking, tool calls, search messages)
+- Content BEFORE `[FINAL ANSWER]` = hidden from user (thinking, tool calls, search narration)
 - Content AFTER `[FINAL ANSWER]` = shown to user (the actual answer)
+- **Be comprehensive and detailed** in your answer — include full context, configuration options, examples, step-by-step instructions, tables, code blocks, and all relevant details
+- Do NOT mention your search process in the answer (no "I searched...", "I found...", "The knowledge base...")
+- If RAG tools return useful results, incorporate them seamlessly. If not, supplement with your own knowledge — NEVER say "I couldn't find anything"
 - Example format:
   ```
   I'll search the knowledge base...
   🔍 search...
   [FINAL ANSWER]
-  ## Your Actual Answer Here
-  The information you requested is...
+  ## Comprehensive Answer Here
+  Here is everything you need to know...
+  (full details, tables, code examples, step-by-step instructions)
   ```
-- NEVER include "I'll search...", "Let me...", "🔍 search..." AFTER the marker
+- NEVER include "I'll search...", "Let me...", "🔍 search...", "I couldn't find..." AFTER the marker
 """
 
 # ============================================================================
@@ -165,11 +169,15 @@ def generate_system_prompt(agents: Dict[str, Any], rag_config: Optional[Dict[str
 
   # Conditionally include [FINAL ANSWER] marker section based on structured response mode
   # When structured response is enabled, we use the ResponseFormat tool instead of markers
-  final_answer_instructions = "" if use_structured_response else FINAL_ANSWER_MARKER_SECTION
-
   if use_structured_response:
-    logger.info("Structured response mode enabled - excluding [FINAL ANSWER] marker section from prompt")
+    final_answer_instructions = (
+      "**Before invoking any tool, write one brief sentence describing what you are about to do.** "
+      "For example: \"I'll search the knowledge base for information about X.\" or "
+      "\"Let me fetch the full document for more details.\""
+    )
+    logger.info("Structured response mode enabled - adding narration instruction, excluding [FINAL ANSWER] marker")
   else:
+    final_answer_instructions = FINAL_ANSWER_MARKER_SECTION
     logger.info("Unstructured response mode - including [FINAL ANSWER] marker section in prompt")
 
   if yaml_template:
@@ -191,8 +199,8 @@ LLM Instructions:
 {tool_instructions_str}
 """
 
-# Generate the system prompt
-system_prompt = generate_system_prompt(agents)
+# Generate the system prompt — always use [FINAL ANSWER] marker mode (plain-text streaming)
+system_prompt = generate_system_prompt(agents, use_structured_response=False)
 
 logger.debug("="*50)
 logger.debug(f"System Prompt Generated:\n{system_prompt}")

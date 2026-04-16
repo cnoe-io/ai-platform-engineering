@@ -12,7 +12,7 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     # LangChain ecosystem (versions must align with common's langchain-openai)
     "langchain==1.0.8",
-    "langchain-core==1.2.26",
+    "langchain-core==1.2.28",
     "langchain-community==0.4.1",
     "langchain-milvus==0.3.0",
     # Vector DB
@@ -22,11 +22,11 @@ dependencies = [
     "a2a-sdk==0.2.16",
     "cnoe-agent-utils==0.3.14",
     # Web framework
-    "fastapi[standard]==0.118.0",
+    "fastapi[standard]==0.122.0",
     "uvicorn==0.37.0",
-    "fastmcp==3.2.0",
+    "fastmcp==3.2.3",
     # HTTP clients
-    "aiohttp==3.12.15",
+    "aiohttp==3.13.4",
     "aiohttp-retry==2.9.1",
     "httpx==0.28.1",
     # Data processing
@@ -36,7 +36,7 @@ dependencies = [
     # Auth & utils
     "openai==2.19.0",
     "python-dotenv==1.1.1",
-    "python-jose[cryptography]==3.5.0",
+    "PyJWT[crypto]==2.12.1",
     "click==8.3.0",
     "aiofile==3.9.0",
     "common",
@@ -47,8 +47,8 @@ run-server = "server.__main__:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest==8.3.5",
-    "pytest-asyncio==0.25.3",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.3.0",
     "pytest-cov==6.2.1",
     "pytest-mock==3.14.0",
     "ruff==0.11.10",
@@ -56,8 +56,8 @@ dev = [
 # HuggingFace local embeddings variant (~900MB additional due to PyTorch)
 # Use the -hf image variant or install with: pip install server[huggingface]
 huggingface = [
-    "sentence-transformers==5.0.0",
-    "huggingface-hub==0.36.0",
+    "sentence-transformers==5.4.0",
+    "huggingface-hub==1.3.0",
     "common[huggingface]",
 ]
 
@@ -67,9 +67,10 @@ build-backend = "uv_build"
 
 
 [tool.uv]
+constraint-dependencies = ["starlette>=0.50.0", "transformers>=5.0.0"]
 dev-dependencies = [
-    "pytest==8.3.5",
-    "pytest-asyncio==0.25.3",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.3.0",
     "pytest-cov==6.2.1",
     "pytest-mock==3.14.0",
     "pytest-timeout==2.4.0",

@@ -12,6 +12,7 @@ interface SkillHub {
   location: string;
   enabled: boolean;
   credentials_ref: string | null;
+  labels?: string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -34,6 +35,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [formLocation, setFormLocation] = useState("");
   const [formCredRef, setFormCredRef] = useState("");
+  const [formLabels, setFormLabels] = useState("");
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -71,6 +73,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
     setAdding(true);
     setError(null);
     try {
+      const labels = formLabels.split(",").map((l) => l.trim().toLowerCase()).filter(Boolean);
       const res = await fetch("/api/skill-hubs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -78,6 +81,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           type: "github",
           location: formLocation.trim(),
           credentials_ref: formCredRef.trim() || null,
+          labels: labels.length > 0 ? labels : undefined,
           enabled: true,
         }),
       });
@@ -87,6 +91,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       }
       setFormLocation("");
       setFormCredRef("");
+      setFormLabels("");
       setShowAddForm(false);
       await loadHubs();
     } catch (err: any) {
@@ -244,6 +249,19 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                 Name of the environment variable holding a GitHub token. Falls back to GITHUB_TOKEN if empty.
               </p>
             </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Labels (optional, comma-separated)</label>
+              <input
+                type="text"
+                value={formLabels}
+                onChange={(e) => setFormLabels(e.target.value)}
+                placeholder="e.g. security, platform, networking"
+                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Labels are merged into every skill&apos;s tags from this hub.
+              </p>
+            </div>
             <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="outline" size="sm" onClick={() => setShowAddForm(false)}>
                 Cancel
@@ -303,6 +321,11 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                 <div className="col-span-2 flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className="font-medium truncate">{hub.location}</span>
+                  {hub.labels && hub.labels.length > 0 && hub.labels.map((label) => (
+                    <Badge key={label} variant="secondary" className="text-[10px] px-1.5 py-0">
+                      {label}
+                    </Badge>
+                  ))}
                 </div>
                 <div>
                   {hub.enabled ? (

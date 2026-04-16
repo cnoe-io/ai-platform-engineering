@@ -18,13 +18,13 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -64,13 +64,13 @@ jobs:
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -133,23 +133,28 @@ jobs:
           if [[ -n "$EXISTING_NUM" ]]; then
             echo "✅ Updated existing sync PR #${EXISTING_NUM}: ${EXISTING_URL}"
           else
+            BODY_FILE=$(mktemp)
+            {
+              echo "## Automated sync: \`main\` → \`${RELEASE_BRANCH}\`"
+              echo ""
+              echo "This PR was automatically generated to forward-merge changes from \`main\` into \`${RELEASE_BRANCH}\`."
+              echo ""
+              echo "| Field | Value |"
+              echo "|---|---|"
+              echo "| **Triggered by** | @${{ github.actor }} |"
+              echo "| **main commit** | [\`${MAIN_SHORT}\`](https://github.com/${{ github.repository }}/commit/${MAIN_SHA}) |"
+              echo "| **Workflow run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
+              echo ""
+              echo "---"
+              echo "> Merge this PR to keep \`${RELEASE_BRANCH}\` up to date with \`main\`."
+              echo "> If you need to skip a specific commit, cherry-pick selectively instead of merging."
+            } > "$BODY_FILE"
             PR_URL=$(gh pr create \
               --title "chore(release): sync main into ${RELEASE_BRANCH}" \
-              --body "## Automated sync: \`main\` → \`${RELEASE_BRANCH}\`
-
-This PR was automatically generated to forward-merge changes from \`main\` into \`${RELEASE_BRANCH}\`.
-
-| Field | Value |
-|---|---|
-| **Triggered by** | @${{ github.actor }} |
-| **main commit** | [\`${MAIN_SHORT}\`](https://github.com/${{ github.repository }}/commit/${MAIN_SHA}) |
-| **Workflow run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
-
----
-> Merge this PR to keep \`${RELEASE_BRANCH}\` up to date with \`main\`.
-> If you need to skip a specific commit, cherry-pick selectively instead of merging." \
+              --body-file "$BODY_FILE" \
               --head "$SYNC_BRANCH" \
               --base "$RELEASE_BRANCH" \
               --label "sync" 2>&1 || true)
+            rm -f "$BODY_FILE"
             echo "✅ Created sync PR: ${PR_URL}"
           fi

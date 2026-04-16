@@ -5,6 +5,7 @@ import {
   withErrorHandler,
   requireAdmin,
   ApiError,
+  validateCredentialsRef,
 } from "@/lib/api-middleware";
 import { ObjectId } from "mongodb";
 
@@ -24,6 +25,7 @@ interface SkillHubDoc {
   location: string;
   enabled: boolean;
   credentials_ref: string | null;
+  labels: string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -47,7 +49,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
     const hubs = await collection.find().sort({ created_at: 1 }).toArray();
 
-    return NextResponse.json({ hubs: hubs.map(sanitizeHub) });
+    // Count cached skills per hub
+    const hubSkills = await getCollection("hub_skills");
+    const counts = await hubSkills.aggregate<{ _id: string; count: number }>([
+      { $group: { _id: "$hub_id", count: { $sum: 1 } } },
+    ]).toArray();
+    const countMap = new Map(counts.map((c) => [c._id, c.count]));
+
+    return NextResponse.json({
+      hubs: hubs.map((h) => ({ ...sanitizeHub(h), skills_count: countMap.get(h.id) ?? 0 })),
+    });
   });
 });
 
@@ -93,6 +104,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       // Not a URL — keep as-is (already owner/repo format)
     }
 
+    const labels: string[] = Array.isArray(body.labels)
+      ? body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20)
+      : [];
+
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
 
     // Check for duplicate location (use normalized)
@@ -110,7 +125,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       type,
       location: normalizedLocation,
       enabled: body.enabled !== false,
-      credentials_ref: body.credentials_ref || null,
+      credentials_ref: validateCredentialsRef(body.credentials_ref),
+      labels,
       last_success_at: null,
       last_failure_at: null,
       last_failure_message: null,

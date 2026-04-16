@@ -50,8 +50,13 @@ export async function getAuthenticatedUser(
   if (!session || !session.user?.email) {
     const { allowAnonymous = false } = options;
     if (allowAnonymous && !getConfig('ssoEnabled')) {
-      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role: 'admin' };
-      return { user: fallbackUser, session: { role: 'admin', canViewAdmin: true } };
+      const allowAnonAdmin = process.env.ALLOW_ANONYMOUS_ADMIN === 'true';
+      if (!allowAnonAdmin) {
+        console.warn('[Auth] SSO is disabled and ALLOW_ANONYMOUS_ADMIN is not set — anonymous user gets role "user" only');
+      }
+      const role = allowAnonAdmin ? 'admin' : 'user';
+      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role };
+      return { user: fallbackUser, session: { role, canViewAdmin: allowAnonAdmin } };
     }
     throw new ApiError('Unauthorized', 401);
   }
@@ -115,6 +120,15 @@ export async function getAuthFromBearerOrSession(
   request: NextRequest,
 ): Promise<{ user: { email: string; name: string; role: string }; session: any }> {
   const authHeader = request.headers.get('Authorization');
+  const catalogKey = request.headers.get('X-Caipe-Catalog-Key');
+
+  // Path 0: Catalog API key (supervisor-minted, read-only skills access)
+  if (catalogKey) {
+    return {
+      user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },
+      session: { role: 'user', canViewAdmin: false, catalogKey },
+    };
+  }
 
   // Path 1: Bearer JWT
   if (authHeader?.startsWith('Bearer ')) {
@@ -233,6 +247,37 @@ export function withErrorHandler<T>(
 // ============================================================================
 // Validation
 // ============================================================================
+
+/**
+ * Validate a credentials_ref value (an env var name used to look up a secret).
+ *
+ * credentials_ref is an indirection layer: admins store the *name* of a
+ * server-side env var (e.g. "GITHUB_TOKEN_PRIVATE") instead of the secret
+ * itself.  At runtime the server reads `process.env[credentials_ref]`.
+ *
+ * Without validation, an attacker-controlled credentials_ref could read
+ * arbitrary env vars (OPENAI_API_KEY, MONGODB_URI, etc.) and exfiltrate
+ * them via the outgoing HTTP request's Authorization header.
+ *
+ * Returns the sanitized string, or throws ApiError(400).
+ */
+const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+export function validateCredentialsRef(
+  value: unknown,
+): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') {
+    throw new ApiError('credentials_ref must be a string', 400);
+  }
+  if (!ENV_VAR_NAME_RE.test(value)) {
+    throw new ApiError(
+      'credentials_ref must be a valid env var name (letters, digits, underscores)',
+      400,
+    );
+  }
+  return value;
+}
 
 /**
  * Validate required fields in request body

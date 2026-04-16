@@ -310,7 +310,11 @@ mkdir -p "$FEATURE_DIR"
 
 TEMPLATE=$(resolve_template "spec-template" "$REPO_ROOT")
 SPEC_FILE="$FEATURE_DIR/spec.md"
-if [ -n "$TEMPLATE" ] && [ -f "$TEMPLATE" ]; then cp "$TEMPLATE" "$SPEC_FILE"; else touch "$SPEC_FILE"; fi
+if [ -f "$SPEC_FILE" ]; then
+    >&2 echo "Spec already exists at $SPEC_FILE — skipping template copy"
+else
+    if [ -n "$TEMPLATE" ] && [ -f "$TEMPLATE" ]; then cp "$TEMPLATE" "$SPEC_FILE"; else touch "$SPEC_FILE"; fi
+fi
 
 # Inform the user how to persist the feature variable in their own shell
 printf '# To persist: export SPECIFY_FEATURE=%q\n' "$BRANCH_NAME" >&2

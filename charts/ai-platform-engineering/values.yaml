@@ -45,7 +45,7 @@ global:
     enableGraphRag: true
 
   metrics:
-    enabled: false
+    enabled: true
 
   agentgateway:
     enabled: false

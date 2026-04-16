@@ -1,0 +1,125 @@
+[
+  {
+    "event": "TaskStatusUpdateEvent",
+    "data": {
+      "taskId": "task-mock-001",
+      "contextId": "ctx-mock-001",
+      "status": {
+        "state": "working",
+        "message": {
+          "role": "agent",
+          "parts": [{"text": "Looking up GitHub profile..."}]
+        }
+      },
+      "final": false
+    }
+  },
+  {
+    "event": "TaskArtifactUpdateEvent",
+    "data": {
+      "taskId": "task-mock-001",
+      "contextId": "ctx-mock-001",
+      "artifact": {
+        "artifactId": "art-mock-001",
+        "name": "tool_notification_start",
+        "description": "Calling GitHub API",
+        "parts": [{"text": "Calling Agent Github..."}],
+        "metadata": {
+          "sourceAgent": "github",
+          "agentType": "notification"
+        }
+      },
+      "append": false,
+      "lastChunk": false
+    }
+  },
+  {
+    "event": "TaskArtifactUpdateEvent",
+    "data": {
+      "taskId": "task-mock-001",
+      "contextId": "ctx-mock-001",
+      "artifact": {
+        "artifactId": "art-mock-002",
+        "name": "streaming_result",
+        "description": "Streaming agent response",
+        "parts": [{"text": "Here is the GitHub profile for **testuser**:\n\n"}],
+        "metadata": {
+          "sourceAgent": "github"
+        }
+      },
+      "append": false,
+      "lastChunk": false
+    }
+  },
+  {
+    "event": "TaskArtifactUpdateEvent",
+    "data": {
+      "taskId": "task-mock-001",
+      "contextId": "ctx-mock-001",
+      "artifact": {
+        "artifactId": "art-mock-002",
+        "name": "streaming_result",
+        "description": "Streaming agent response",
+        "parts": [{"text": "| Field | Value |\n|-------|-------|\n| **Username** | testuser |\n| **Name** | Test User |\n| **Public Repos** | 42 |\n| **Followers** | 100 |\n"}],
+        "metadata": {
+          "sourceAgent": "github"
+        }
+      },
+      "append": true,
+      "lastChunk": false
+    }
+  },
+  {
+    "event": "TaskArtifactUpdateEvent",
+    "data": {
+      "taskId": "task-mock-001",
+      "contextId": "ctx-mock-001",
+      "artifact": {
+        "artifactId": "art-mock-001",
+        "name": "tool_notification_end",
+        "description": "GitHub API call completed",
+        "parts": [{"text": "Agent task Github completed"}],
+        "metadata": {
+          "sourceAgent": "github",
+          "agentType": "notification"
+        }
+      },
+      "append": false,
+      "lastChunk": false
+    }
+  },
+  {
+    "event": "TaskArtifactUpdateEvent",
+    "data": {
+      "taskId": "task-mock-001",
+      "contextId": "ctx-mock-001",
+      "artifact": {
+        "artifactId": "art-mock-003",
+        "name": "final_result",
+        "description": "Final result",
+        "parts": [{"text": "Here is the GitHub profile for **testuser**:\n\n| Field | Value |\n|-------|-------|\n| **Username** | testuser |\n| **Name** | Test User |\n| **Public Repos** | 42 |\n| **Followers** | 100 |\n\nThe user has been active on GitHub with 42 public repositories and 100 followers."}],
+        "metadata": {
+          "sourceAgent": "github",
+          "trace_id": "trace-mock-001"
+        }
+      },
+      "append": false,
+      "lastChunk": true
+    }
+  },
+  {
+    "event": "TaskStatusUpdateEvent",
+    "data": {
+      "taskId": "task-mock-001",
+      "contextId": "ctx-mock-001",
+      "status": {
+        "state": "completed",
+        "message": {
+          "role": "agent",
+          "parts": [{"text": "Task completed successfully"}]
+        }
+      },
+      "final": true
+    }
+  }
+]

@@ -342,7 +342,7 @@ def generate_platform_skill_examples(config: Dict[str, Any], platform_registry) 
     
     return agent_skill_examples
 
-def generate_platform_system_prompt(config: Dict[str, Any], agents: Dict[str, Any]) -> str:
+def generate_platform_system_prompt(config: Dict[str, Any], agents: Dict[str, Any], use_structured_response: bool = True) -> str:
     """Generate dynamic system prompt for platform engineer based on available tools."""
     agent_prompts = config.get("agent_prompts", {})
     tool_instructions = []
@@ -387,14 +387,22 @@ def generate_platform_system_prompt(config: Dict[str, Any], agents: Dict[str, An
     
     logger.info(f"System Prompt Template: {yaml_template}")
     
+    # When structured response is disabled, inject the [FINAL ANSWER] marker instructions
+    # so the LLM knows to use marker-based streaming (pre-marker text is suppressed,
+    # post-marker text streams token-by-token to the client).
+    if use_structured_response:
+        final_answer_instructions = ""
+    else:
+        from ai_platform_engineering.multi_agents.platform_engineer.prompts import FINAL_ANSWER_MARKER_SECTION
+        final_answer_instructions = FINAL_ANSWER_MARKER_SECTION
+
     if yaml_template:
-        # Provide rag_instructions placeholder - RAG is handled separately in deep_agent_single.py
+        # Provide rag_instructions placeholder - RAG is handled separately in deep_agent.py
         # Use empty string as default since deep agent adds RAG instructions after template formatting
-        # final_answer_instructions is empty for single-node (uses structured response by default)
         return yaml_template.format(
             tool_instructions=tool_instructions_str,
             rag_instructions="",
-            final_answer_instructions=""
+            final_answer_instructions=final_answer_instructions
         )
     else:
         return f"""
@@ -404,6 +412,7 @@ LLM Instructions:
 - Only respond to requests related to the integrated tools. Always call the appropriate agent or tool.
 - When responding, use markdown format. Make sure all URLs are presented as clickable links.
 
+{final_answer_instructions}
 
 {tool_instructions_str}
 """

@@ -17,9 +17,9 @@ dependencies = [
     "agntcy-app-sdk==0.4.0",
     "click>=8.2.0",
     "claude-agent-sdk>=0.1.0",
-    "pytest>=8.3.5",
+    "pytest>=9.0.3",
     "tabulate>=0.9.0",
-    "uv",
+    "uv==0.11.6",
     "fastapi>=0.115.11",
     "uvicorn>=0.34.2",
     "httpx>=0.27.0",
@@ -75,4 +75,5 @@ markers = [
 ]
 
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4"]
+override-dependencies = ["protobuf==5.29.6"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0", "starlette==0.50.0", "langchain-core>=1.2.22", "langgraph>=1.0.10", "langgraph-checkpoint>=4.0.0"]

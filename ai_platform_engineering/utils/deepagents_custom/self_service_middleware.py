@@ -48,35 +48,54 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
     Hooks used:
       * ``before_model`` — captures ``user_email`` from graph state.
       * ``wrap_model_call`` / ``awrap_model_call`` — appends the workflow
-        list to ``request.system_prompt`` before the LLM is invoked.
+        list to ``request.system_message`` before the LLM is invoked.
     """
 
     def __init__(self) -> None:
         self._user_email: Optional[str] = None
+        # Cache the rendered prompt section per user_email so we don't
+        # re-query MongoDB/YAML and rebuild strings on every loop iteration.
+        # Invalidated when user_email changes between requests.
+        self._cached_section: Optional[str] = None
+        self._cached_for_email: Optional[str] = object()  # sentinel ≠ None
 
     def _build_workflow_prompt_section(self, user_email: Optional[str] = None) -> str:
-        """Query MongoDB/YAML for workflow names visible to *user_email*."""
+        """Query MongoDB/YAML for workflow names visible to *user_email*.
+
+        Results are cached per user_email for the lifetime of the graph
+        invocation (typically many loop iterations).  The cache is busted
+        when ``before_model`` detects a new user_email.
+        """
+        if user_email == self._cached_for_email and self._cached_section is not None:
+            return self._cached_section
+
         try:
-            from ai_platform_engineering.multi_agents.platform_engineer.deep_agent_single import (
+            from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
                 load_task_config,
             )
 
             config = load_task_config(user_email=user_email)
             if not config:
+                self._cached_section = ""
+                self._cached_for_email = user_email
                 return ""
 
             names = list(config.keys())
             if not names:
+                self._cached_section = ""
+                self._cached_for_email = user_email
                 return ""
 
             lines = [f"- {name}" for name in names]
-            return (
+            self._cached_section = (
                 "\n\n## Currently Available Self-Service Workflows\n\n"
                 f"There are **{len(names)}** workflows available:\n"
                 + "\n".join(lines)
                 + "\n\nWhen a user's request matches one of these, call "
                 "`invoke_self_service_task(task_name=\"<exact name>\")` immediately."
             )
+            self._cached_for_email = user_email
+            return self._cached_section
         except Exception as exc:
             logger.warning(f"SelfServiceWorkflowMiddleware: failed to load workflows: {exc}")
             return ""
@@ -97,7 +116,14 @@ class SelfServiceWorkflowMiddleware(AgentMiddleware):
 
     def _inject_workflows(self, request: ModelRequest) -> None:
         section = self._build_workflow_prompt_section(user_email=self._user_email)
-        if section and hasattr(request, "system_prompt") and request.system_prompt:
+        if not section:
+            return
+        # ModelRequest uses `system_message` (SystemMessage object), not `system_prompt`
+        if hasattr(request, "system_message") and request.system_message is not None:
+            from deepagents.middleware._utils import append_to_system_message
+            request.system_message = append_to_system_message(request.system_message, section)
+        elif hasattr(request, "system_prompt") and request.system_prompt:
+            # Fallback for any future API that uses a plain string
             request.system_prompt = request.system_prompt + section
 
     def wrap_model_call(

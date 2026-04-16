@@ -16,6 +16,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
+  getUserTeamIds,
 } from "@/lib/api-middleware";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
@@ -30,7 +31,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
     const userEmail = user.email || "";
-    const userTeams = session.teams || [];
+    const userTeams = await getUserTeamIds(userEmail);
 
     // Build query for agents visible to this user:
     // 1. Global agents (anyone can see)
@@ -41,7 +42,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       enabled: true,
       $or: [
         { visibility: "global" as const },
-        { visibility: "team" as const, shared_with_teams: { $in: userTeams } },
+        ...(userTeams.length > 0
+          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeams } }]
+          : []),
         { visibility: "team" as const, owner_id: userEmail },
         { visibility: "private" as const, owner_id: userEmail },
       ],

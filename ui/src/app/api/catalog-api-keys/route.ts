@@ -8,12 +8,12 @@ import {
  * GET /api/catalog-api-keys — list metadata for caller’s catalog API keys.
  * POST /api/catalog-api-keys — mint a new key (one-time full key in response).
  *
- * Proxies to Python when BACKEND_SKILLS_URL is set (T051).
+ * Proxies to Python when NEXT_PUBLIC_A2A_BASE_URL is set (T051).
  */
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, _user, session) => {
-    const backendUrl = process.env.BACKEND_SKILLS_URL;
+    const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
     if (!backendUrl) {
       return NextResponse.json(
         { error: "backend_not_configured", keys: [] },
@@ -36,10 +36,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, _user, session) => {
-    const backendUrl = process.env.BACKEND_SKILLS_URL;
+    const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
     if (!backendUrl) {
       return NextResponse.json(
-        { error: "backend_not_configured", message: "BACKEND_SKILLS_URL is not set." },
+        { error: "backend_not_configured", message: "NEXT_PUBLIC_A2A_BASE_URL is not set." },
         { status: 503 },
       );
     }

@@ -136,7 +136,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         # Log all state keys to diagnose whether invoke_self_service_task's Command update was applied
         state_keys = list(state.keys()) if hasattr(state, 'keys') else "N/A"
         logger.info(f"[DeterministicTaskMiddleware] before_model: task_pending={task_pending}, tasks_count={len(tasks)}, state_keys={state_keys}")
-        
+
         if not task_pending or not tasks:
             logger.info(f"[DeterministicTaskMiddleware] before_model: No pending tasks, passing through (task_pending={task_pending}, tasks={len(tasks)})")
             return None
@@ -265,6 +265,37 @@ class DeterministicTaskMiddleware(AgentMiddleware):
 
         write_todos_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] == "write_todos"]
         if not write_todos_calls or len(write_todos_calls) != len(last_ai_msg.tool_calls):
+            # Detect RAG loop: model keeps calling a RAG tool whose cap is already exhausted.
+            # Only terminate when ALL tool calls target individually-capped tools.
+            # This allows e.g. fetch_document to proceed even if search is capped.
+            try:
+                from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import is_rag_hard_stopped, is_rag_tool_capped  # noqa: PLC0415
+                from langgraph.config import get_config  # noqa: PLC0415
+                cfg = get_config()
+                thread_id = cfg.get("configurable", {}).get("thread_id", "__default__") if cfg else "__default__"
+                if is_rag_hard_stopped(thread_id):
+                    rag_tool_names = {"fetch_document", "search"}
+                    rag_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] in rag_tool_names]
+                    all_calls_are_rag = rag_calls and len(rag_calls) == len(last_ai_msg.tool_calls)
+                    all_individually_capped = all_calls_are_rag and all(
+                        is_rag_tool_capped(thread_id, tc["name"]) for tc in rag_calls
+                    )
+                    if all_individually_capped:
+                        logger.info(
+                            f"[DeterministicTaskMiddleware] RAG loop detected "
+                            f"(caps exhausted, still calling {[tc['name'] for tc in rag_calls]}), terminating"
+                        )
+                        tool_messages = [
+                            ToolMessage(
+                                content="RAG budget exhausted. Synthesize your answer from what was already retrieved.",
+                                tool_call_id=tc["id"],
+                                name=tc["name"],
+                            )
+                            for tc in rag_calls
+                        ]
+                        return {"messages": tool_messages, "jump_to": "end"}
+            except Exception as rag_err:
+                logger.debug(f"[DeterministicTaskMiddleware] RAG hard-stop check failed: {rag_err}")
             return None
 
         for tc in write_todos_calls:
@@ -276,7 +307,12 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         if not current_todos or not all(t.get("status") == "completed" for t in current_todos):
             return None
 
-        logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all already completed), terminating loop")
+        # In structured response mode, the LLM still needs to call the
+        # ResponseFormat tool after all tasks complete.  Jumping to "end"
+        # would skip that final tool call and produce a blank response.
+        # Instead, just inject ToolMessages so the model knows the todos
+        # are done and can proceed to generate the structured response.
+        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE
 
         tool_messages = [
             ToolMessage(
@@ -287,10 +323,12 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             for tc in write_todos_calls
         ]
 
-        return {
-            "messages": tool_messages,
-            "jump_to": "end",
-        }
+        if USE_STRUCTURED_RESPONSE:
+            logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all completed), continuing for structured response")
+            return {"messages": tool_messages}
+        else:
+            logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all completed), terminating loop")
+            return {"messages": tool_messages, "jump_to": "end"}
 
     @hook_config(can_jump_to=["end"])
     async def aafter_model(self, state: TaskOrchestrationState, runtime: Any = None) -> dict[str, Any] | None:

@@ -8,6 +8,13 @@
 import fs from "fs";
 import path from "path";
 
+export interface SkillInputVariable {
+  name: string;
+  label: string;
+  required: boolean;
+  placeholder?: string;
+}
+
 export interface SkillTemplateData {
   id: string;
   name: string;
@@ -17,6 +24,7 @@ export interface SkillTemplateData {
   icon: string;
   tags: string[];
   content: string;
+  input_variables?: SkillInputVariable[];
 }
 
 function resolveSkillsDir(): string {
@@ -52,12 +60,28 @@ function parseFrontmatter(content: string): {
   let description = "";
   const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
   if (match) {
-    for (const line of match[1].split("\n")) {
-      const nameMatch = line.match(/^name:\s*(.*)/);
-      if (nameMatch) name = nameMatch[1].trim();
-      const descMatch = line.match(/^description:\s*(.*)/);
-      if (descMatch) description = descMatch[1].trim();
+    const lines = match[1].split("\n");
+    let currentKey = "";
+    let currentValue = "";
+
+    for (const line of lines) {
+      const keyMatch = line.match(/^(\w[\w-]*):\s*(.*)/);
+      if (keyMatch) {
+        // Store previous key
+        if (currentKey === "name") name = currentValue.trim();
+        if (currentKey === "description") description = currentValue.trim();
+        currentKey = keyMatch[1];
+        const val = keyMatch[2].trim();
+        // YAML folded scalar ">" or literal "|" — value is on next lines
+        currentValue = val === ">" || val === "|" ? "" : val;
+      } else if (currentKey && line.match(/^\s+/)) {
+        // Continuation line (indented) — append with space
+        currentValue += " " + line.trim();
+      }
     }
+    // Store last key
+    if (currentKey === "name") name = currentValue.trim();
+    if (currentKey === "description") description = currentValue.trim();
   }
   return { name, description };
 }
@@ -67,6 +91,7 @@ interface SkillMetadata {
   category?: string;
   icon?: string;
   tags?: string[];
+  input_variables?: SkillInputVariable[];
 }
 
 function parseMetadata(raw: string): SkillMetadata {
@@ -83,7 +108,7 @@ function buildTemplate(
   metadata: SkillMetadata,
 ): SkillTemplateData {
   const fm = parseFrontmatter(content);
-  return {
+  const tpl: SkillTemplateData = {
     id: fm.name || id,
     name: fm.name || id,
     description: fm.description,
@@ -93,6 +118,10 @@ function buildTemplate(
     tags: metadata.tags || [],
     content,
   };
+  if (metadata.input_variables && metadata.input_variables.length > 0) {
+    tpl.input_variables = metadata.input_variables;
+  }
+  return tpl;
 }
 
 function loadFromFolderLayout(skillsDir: string): SkillTemplateData[] {

@@ -1,3 +1,5 @@
+import tempfile
+
 import pytest
 
 from ai_platform_engineering.integrations.slack_bot.utils.config_models import Config
@@ -37,6 +39,26 @@ class TestChannelIDToJira:
         monkeypatch.setenv("SLACK_INTEGRATION_BOT_CONFIG", "invalid json{")
         with pytest.raises(Exception):  # JSON decode error
             Config.from_env()
+
+    def test_config_loaded_from_file_path(self, monkeypatch):
+        yaml_content = """
+C456:
+  name: "#file-channel"
+  ai_enabled: "true"
+  qanda:
+    enabled: "true"
+  ai_alerts:
+    enabled: "false"
+  default: {}
+"""
+        monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            monkeypatch.setenv("CAIPE_BOT_CONFIG", f.name)
+            cfg = Config.from_env()
+        assert "C456" in cfg.channels
+        assert cfg.channels["C456"].name == "#file-channel"
 
     def test_config_without_other_uses_defaults(self, monkeypatch):
         monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)

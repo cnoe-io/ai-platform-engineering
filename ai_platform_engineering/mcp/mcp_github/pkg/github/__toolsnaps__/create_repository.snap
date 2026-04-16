@@ -2,11 +2,11 @@
   "annotations": {
     "title": "Create repository"
   },
-  "description": "Create a new GitHub repository in your account or specified organization",
+  "description": "Create a new GitHub repository in your account or specified organization. Optionally create from a template repository by providing template_owner and template_repo.",
   "inputSchema": {
     "properties": {
       "autoInit": {
-        "description": "Initialize with README",
+        "description": "Initialize with README (ignored when using a template)",
         "type": "boolean"
       },
       "description": {
@@ -24,6 +24,14 @@
       "private": {
         "description": "Whether repo should be private",
         "type": "boolean"
+      },
+      "template_owner": {
+        "description": "Owner of the template repository to create from (requires template_repo)",
+        "type": "string"
+      },
+      "template_repo": {
+        "description": "Name of the template repository to create from (requires template_owner)",
+        "type": "string"
       }
     },
     "required": [

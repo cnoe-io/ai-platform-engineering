@@ -19,18 +19,18 @@ dependencies = [
     "agntcy-acp==1.5.2",
     "click==8.2.1",
     "langchain-anthropic==1.2.0",
-    "langchain-core==1.2.26",
+    "langchain-core==1.2.28",
     "langchain-google-genai==4.0.0",
     "langchain-mcp-adapters==0.1.11",
     "langchain-openai==1.1.1",
-    "langgraph==1.0.4",
-    "pytest==8.4.1",
+    "langgraph==1.1.6",
+    "pytest==9.0.3",
     "tabulate==0.9.0",
-    "uv==0.8.4",
+    "uv==0.11.6",
     "rich==14.1.0",
     "sseclient==0.0.27",
     "cnoe-agent-utils==0.3.14",
-    "fastmcp==3.2.0",
+    "fastmcp==3.2.3",
 ]
 
 [tool.hatch.build.targets.wheel]

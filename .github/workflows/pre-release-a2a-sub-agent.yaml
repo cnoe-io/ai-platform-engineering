@@ -44,7 +44,6 @@ jobs:
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
       !contains(github.head_ref, 'single-node') &&
-      !contains(github.head_ref, '-sngle-node-') &&
       github.event.action != 'closed'
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
@@ -59,7 +58,7 @@ jobs:
 
       - name: Generate path filters
         id: generate-filters
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
@@ -84,7 +83,7 @@ jobs:
 
       - name: Set matrix based on changes
         id: set-matrix
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD_ALL: >-
             ${{
@@ -113,7 +112,6 @@ jobs:
       needs.determine-agents.outputs.should_build == 'true' &&
       startsWith(github.head_ref, 'prebuild/') &&
       !contains(github.head_ref, 'single-node') &&
-      !contains(github.head_ref, '-sngle-node-') &&
       github.event.action != 'closed'
     permissions:
       contents: read
@@ -133,7 +131,7 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
         with:
           egress-policy: audit
 
@@ -145,7 +143,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -209,7 +207,7 @@ jobs:
 
       - name: 💬 Comment on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           AGENT: ${{ matrix.agent }}
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -239,7 +237,7 @@ jobs:
 
   load-config-cleanup:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node') && !contains(github.event.pull_request.head.ref, '-sngle-node-')
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node')
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:
@@ -258,7 +256,7 @@ jobs:
   cleanup-images:
     runs-on: ubuntu-latest
     needs: load-config-cleanup
-    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node') && !contains(github.event.pull_request.head.ref, '-sngle-node-')
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node')
     permissions:
       contents: read
       packages: write
@@ -271,7 +269,7 @@ jobs:
       PACKAGE_NAME: prebuild/agent-${{ matrix.agent }}
     steps:
       - name: Delete prebuild images for branch
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:

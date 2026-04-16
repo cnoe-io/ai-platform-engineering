@@ -8,6 +8,7 @@ kind: ConfigMap
 metadata:
   name: {{ printf "%s-supervisor-agent-env" .Release.Name }}
 data:
+  DISTRIBUTED_AGENTS: "all"
   {{- $port := (index .Values "supervisor-agent" "multiAgentConfig" "port" | default "8000") -}}
   {{- range $name, $enabled := (default dict .Values.global.enabledSubAgents) }}
   {{- if $enabled }}

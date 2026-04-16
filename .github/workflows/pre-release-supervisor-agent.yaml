@@ -7,6 +7,7 @@ on:
     paths:
       - 'build/Dockerfile'
       - 'ai_platform_engineering/multi_agents/**'
+      - 'ai_platform_engineering/agents/**'
       - 'ai_platform_engineering/utils/**'
       - 'pyproject.toml'
       - 'uv.lock'
@@ -32,7 +33,7 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176  # v2.17.0
         with:
           egress-policy: audit
       - name: Checkout repository
@@ -40,16 +41,43 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check build eligibility
+        id: eligibility
+        shell: bash
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}"
+          BASE="origin/${{ github.event.pull_request.base.ref }}"
+
+          CORE_CHANGED=false
+          if git diff --name-only "$BASE..HEAD" -- \
+              build/Dockerfile \
+              ai_platform_engineering/multi_agents \
+              ai_platform_engineering/utils \
+              pyproject.toml \
+              uv.lock \
+              ai_platform_engineering/__init__.py | grep -q .; then
+            CORE_CHANGED=true
+          fi
+
+          if [[ "$CORE_CHANGED" == "true" || "${{ contains(github.head_ref, 'single-node') }}" == "true" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.eligibility.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        if: steps.eligibility.outputs.should_build == 'true'
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute prebuild tag
+        if: steps.eligibility.outputs.should_build == 'true'
         id: compute_tag
         shell: bash
         run: |
@@ -62,6 +90,7 @@ jobs:
           echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
 
       - name: Extract metadata for Docker
+        if: steps.eligibility.outputs.should_build == 'true'
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
         with:
@@ -70,8 +99,10 @@ jobs:
             type=raw,value=${{ env.PREBUILD_TAG }}
 
       - name: Set up QEMU
+        if: steps.eligibility.outputs.should_build == 'true'
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
       - name: Build and Push A2A Docker image
+        if: steps.eligibility.outputs.should_build == 'true'
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
           context: .
@@ -84,8 +115,8 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: 💬 Comment on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        if: steps.eligibility.outputs.should_build == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
           IMAGE_REF: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
@@ -122,7 +153,7 @@ jobs:
       PACKAGE_NAME: prebuild/ai-platform-engineering
     steps:
       - name: Delete prebuild images for branch
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:

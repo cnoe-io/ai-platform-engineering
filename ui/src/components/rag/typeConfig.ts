@@ -15,6 +15,7 @@ export const colorMap: { [key: string]: string } = {
     'github': '#3f3f3f',
     'slack': '#4A154B',
     'webex': '#07C1E4',
+    'jira': '#0052CC',
 };
 
 // Icon map for ingestor/datasource types

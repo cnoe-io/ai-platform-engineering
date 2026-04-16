@@ -4,21 +4,20 @@
  * Covers:
  *  - WORKFLOW_RUNNER_ENABLED feature flag gating
  *  - Search/filter by name, description, category
- *  - Variable substitution in run modal
  *  - Delete confirm/cancel flow
- *  - Run in Chat flow (createConversation, setPendingMessage, navigation)
+ *  - Try Skill flow (createConversation, setPendingMessage, navigation)
  *  - View mode switching (all, my-skills, global, workflows)
  *  - Edit/delete visibility (admin vs non-admin, system vs user configs)
  *  - Favorites section and toggle
  *  - Loading/error states
  *  - Empty states
- *  - Editable prompt and disabled buttons
  *  - Modal interactions (backdrop, X button, Cancel)
  *  - Edit config and onSelectConfig callbacks
+ *  - Supervisor sync gating (Try Skill disabled when not synced)
  */
 
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SkillsGallery } from "../SkillsGallery";
 import type { AgentSkill } from "@/types/agent-skill";
 
@@ -152,21 +151,25 @@ function mockConfigs() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function renderGallery(props: Partial<React.ComponentProps<typeof SkillsGallery>> = {}) {
-  return render(
-    <SkillsGallery
-      onSelectConfig={jest.fn()}
-      onRunQuickStart={jest.fn()}
-      onEditConfig={jest.fn()}
-      onCreateNew={jest.fn()}
-      {...props}
-    />
-  );
+async function renderGallery(props: Partial<React.ComponentProps<typeof SkillsGallery>> = {}) {
+  let result: ReturnType<typeof render>;
+  await act(async () => {
+    result = render(
+      <SkillsGallery
+        onEditConfig={jest.fn()}
+        onCreateNew={jest.fn()}
+        {...props}
+      />
+    );
+  });
+  return result!;
 }
 
 // ---------------------------------------------------------------------------
-// Global reset
+// Global reset + fetch mock
 // ---------------------------------------------------------------------------
+
+let mockSupervisorSynced = true;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -174,10 +177,43 @@ beforeEach(() => {
   mockIsLoading = false;
   mockError = null;
   mockIsAdmin = false;
+  mockSupervisorSynced = true;
   mockIsFavorite.mockReturnValue(false);
   mockGetFavoriteConfigs.mockReturnValue([]);
   mockCreateConversation.mockReturnValue("conv-abc");
   _configs = [];
+
+  // Mock global.fetch for supervisor-status and catalog endpoints
+  global.fetch = jest.fn((url: string | URL | Request) => {
+    const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+
+    if (urlStr.includes("/api/skills/supervisor-status")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          mas_registered: mockSupervisorSynced,
+          skills_loaded_count: mockSupervisorSynced ? 5 : 0,
+        }),
+      } as Response);
+    }
+
+    if (urlStr.includes("/api/skills")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ skills: [] }),
+      } as Response);
+    }
+
+    // Default: return empty OK response
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({}),
+    } as Response);
+  }) as jest.Mock;
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -190,49 +226,35 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () => {
     _configs = [makeQuickStart(), makeWorkflow()];
   });
 
-  it("does NOT render the Run Workflow button in the modal when the flag is off", () => {
-    renderGallery();
-
-    // Open the modal by clicking the quick-start card
-    const card = screen.getByText("Incident Correlation & Root Cause Analysis");
-    fireEvent.click(card);
-
-    // Run in Chat must be present
-    expect(screen.getByRole("button", { name: /run in chat/i })).toBeInTheDocument();
-
-    // Run Workflow must be absent
-    expect(screen.queryByRole("button", { name: /run workflow/i })).not.toBeInTheDocument();
-  });
-
-  it("does NOT render the Multi-Step Workflows section when the flag is off", () => {
-    renderGallery();
-
+  it("does NOT render the Multi-Step Workflows section when the flag is off", async () => {
+    await renderGallery();
     expect(screen.queryByText("Multi-Step Workflows")).not.toBeInTheDocument();
   });
 
-  it("still renders the quick-start card gallery when the flag is off", () => {
-    renderGallery();
-
+  it("still renders the quick-start card gallery when the flag is off", async () => {
+    await renderGallery();
     expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
   });
 
-  it("renders Run in Chat as the only action button in the modal", () => {
-    renderGallery();
-
+  it("opens modal with Try Skill button when clicking a skill card", async () => {
+    await renderGallery();
     const card = screen.getByText("Incident Correlation & Root Cause Analysis");
-    fireEvent.click(card);
-
-    const buttons = screen.getAllByRole("button");
-    const runWorkflow = buttons.find(b => /run workflow/i.test(b.textContent ?? ""));
-    expect(runWorkflow).toBeUndefined();
+    await act(async () => { fireEvent.click(card); });
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
   });
 
-  it("still renders Cancel button in the modal when the flag is off", () => {
-    renderGallery();
-
+  it("does NOT show Run Workflow or Run in Chat buttons in the modal", async () => {
+    await renderGallery();
     const card = screen.getByText("Incident Correlation & Root Cause Analysis");
-    fireEvent.click(card);
+    await act(async () => { fireEvent.click(card); });
+    expect(screen.queryByRole("button", { name: /run workflow/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /run in chat/i })).not.toBeInTheDocument();
+  });
 
+  it("still renders Cancel button in the modal when the flag is off", async () => {
+    await renderGallery();
+    const card = screen.getByText("Incident Correlation & Root Cause Analysis");
+    await act(async () => { fireEvent.click(card); });
     expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
   });
 });
@@ -243,99 +265,65 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
     _configs = [makeQuickStart(), makeWorkflow()];
   });
 
-  it("renders the Run Workflow button in the modal when the flag is on", () => {
-    renderGallery();
-
-    const card = screen.getByText("Incident Correlation & Root Cause Analysis");
-    fireEvent.click(card);
-
-    expect(screen.getByRole("button", { name: /run workflow/i })).toBeInTheDocument();
-  });
-
-  it("renders the Multi-Step Workflows section when the flag is on", () => {
-    renderGallery();
-
+  it("renders the Multi-Step Workflows section when the flag is on", async () => {
+    await renderGallery();
     expect(screen.getByText("Multi-Step Workflows")).toBeInTheDocument();
   });
 
-  it("renders both Run in Chat and Run Workflow buttons in the modal", () => {
-    renderGallery();
-
+  it("opens modal and shows Try Skill button when clicking a quick-start card", async () => {
+    await renderGallery();
     const card = screen.getByText("Incident Correlation & Root Cause Analysis");
-    fireEvent.click(card);
-
-    expect(screen.getByRole("button", { name: /run in chat/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /run workflow/i })).toBeInTheDocument();
+    await act(async () => { fireEvent.click(card); });
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
   });
 
-  it("displays the workflow card name in the Multi-Step Workflows section", () => {
-    renderGallery();
-
+  it("displays the workflow card name in the Multi-Step Workflows section", async () => {
+    await renderGallery();
     expect(screen.getAllByText("Multi-Step Deploy Workflow").length).toBeGreaterThan(0);
-  });
-
-  it("calls onRunQuickStart when Run Workflow is clicked", () => {
-    const onRunQuickStart = jest.fn();
-    renderGallery({ onRunQuickStart });
-
-    const card = screen.getByText("Incident Correlation & Root Cause Analysis");
-    fireEvent.click(card);
-
-    const btn = screen.getByRole("button", { name: /run workflow/i });
-    fireEvent.click(btn);
-
-    expect(onRunQuickStart).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("SkillsGallery — flag transition (disabled → enabled)", () => {
-  it("reflects flag changes without remounting", () => {
+  it("reflects flag changes without remounting", async () => {
     mockWorkflowRunnerEnabled = false;
     _configs = [makeQuickStart()];
-    const { rerender, queryByRole } = render(
-      <SkillsGallery
-        onSelectConfig={jest.fn()}
-        onRunQuickStart={jest.fn()}
-        onEditConfig={jest.fn()}
-        onCreateNew={jest.fn()}
-      />
-    );
+    let result: ReturnType<typeof render>;
+    await act(async () => {
+      result = render(
+        <SkillsGallery onEditConfig={jest.fn()} onCreateNew={jest.fn()} />
+      );
+    });
 
     // Open modal
-    fireEvent.click(screen.getByText("Incident Correlation & Root Cause Analysis"));
-    expect(queryByRole("button", { name: /run workflow/i })).not.toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Incident Correlation & Root Cause Analysis"));
+    });
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
 
     // Simulate flag flip
     mockWorkflowRunnerEnabled = true;
-    rerender(
-      <SkillsGallery
-        onSelectConfig={jest.fn()}
-        onRunQuickStart={jest.fn()}
-        onEditConfig={jest.fn()}
-        onCreateNew={jest.fn()}
-      />
-    );
+    await act(async () => {
+      result!.rerender(
+        <SkillsGallery onEditConfig={jest.fn()} onCreateNew={jest.fn()} />
+      );
+    });
 
-    expect(screen.getByRole("button", { name: /run workflow/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
   });
 });
 
 describe("SkillsGallery — Multi-Step section only with workflow configs", () => {
-  it("does NOT render Multi-Step section even when enabled if there are no workflow configs", () => {
+  it("does NOT render Multi-Step section even when enabled if there are no workflow configs", async () => {
     mockWorkflowRunnerEnabled = true;
     _configs = [makeQuickStart()]; // no multi-step configs
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.queryByText("Multi-Step Workflows")).not.toBeInTheDocument();
   });
 
-  it("does NOT render Multi-Step section when disabled even if workflow configs exist", () => {
+  it("does NOT render Multi-Step section when disabled even if workflow configs exist", async () => {
     mockWorkflowRunnerEnabled = false;
     _configs = [makeWorkflow()];
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.queryByText("Multi-Step Workflows")).not.toBeInTheDocument();
   });
 });
@@ -354,95 +342,35 @@ describe("SkillsGallery — search and filter", () => {
     ] as AgentSkill[];
   });
 
-  it("filters configs by search query matching name", () => {
-    renderGallery();
-
+  it("filters configs by search query matching name", async () => {
+    await renderGallery();
     const searchInput = screen.getByPlaceholderText(/search by name/i);
     fireEvent.change(searchInput, { target: { value: "DevOps" } });
-
     expect(screen.getByText("DevOps Health Check")).toBeInTheDocument();
     expect(screen.queryByText("Cost Explorer")).not.toBeInTheDocument();
   });
 
-  it("filters configs by search query matching description", () => {
-    renderGallery();
-
+  it("filters configs by search query matching description", async () => {
+    await renderGallery();
     const searchInput = screen.getByPlaceholderText(/search by name/i);
     fireEvent.change(searchInput, { target: { value: "AWS costs" } });
-
     expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
     expect(screen.queryByText("DevOps Health Check")).not.toBeInTheDocument();
   });
 
-  it("shows all configs when search query is empty", () => {
-    renderGallery();
-
+  it("shows all configs when search query is empty", async () => {
+    await renderGallery();
     expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
     expect(screen.getByText("DevOps Health Check")).toBeInTheDocument();
     expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
   });
 
-  it("filters by category button", () => {
-    renderGallery();
-
+  it("filters by category button", async () => {
+    await renderGallery();
     const cloudBtn = screen.getByRole("button", { name: "Cloud" });
     fireEvent.click(cloudBtn);
-
     expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
     expect(screen.queryByText("DevOps Health Check")).not.toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// updateEditablePrompt – variable substitution
-// ---------------------------------------------------------------------------
-
-describe("SkillsGallery — variable substitution in run modal", () => {
-  beforeEach(() => {
-    mockWorkflowRunnerEnabled = false;
-    _configs = [{
-      ...makeQuickStart("qs-vars"),
-      name: "Deploy Helper",
-      tasks: [{
-        display_text: "Deploy",
-        llm_prompt: "Deploy {{app_name}} to {{cluster}}",
-        subagent: "user_input",
-      }],
-      input_form: {
-        title: "Deploy Helper",
-        fields: [
-          { name: "app_name", label: "App Name", type: "text" as const, required: true, placeholder: "Enter app name" },
-          { name: "cluster", label: "Cluster", type: "text" as const, required: true, placeholder: "Enter cluster" },
-        ],
-      },
-    }] as AgentSkill[];
-  });
-
-  it("replaces {{variables}} in the prompt when form fields are filled", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Deploy Helper"));
-
-    const appInput = screen.getByPlaceholderText(/enter app name/i);
-    fireEvent.change(appInput, { target: { value: "my-service" } });
-
-    const clusterInput = screen.getByPlaceholderText(/enter cluster/i);
-    fireEvent.change(clusterInput, { target: { value: "prod-us" } });
-
-    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
-    expect(promptArea.value).toBe("Deploy my-service to prod-us");
-  });
-
-  it("shows validation error for required empty field on submit", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Deploy Helper"));
-
-    const runBtn = screen.getByRole("button", { name: /run in chat/i });
-    fireEvent.click(runBtn);
-
-    expect(screen.getByText(/app name is required/i)).toBeInTheDocument();
-    expect(screen.getByText(/cluster is required/i)).toBeInTheDocument();
   });
 });
 
@@ -467,22 +395,17 @@ describe("SkillsGallery — delete", () => {
   });
 
   it("calls deleteSkill when user confirms deletion", async () => {
-    renderGallery();
-
+    await renderGallery();
     const deleteButtons = screen.getAllByTitle("Delete template");
     fireEvent.click(deleteButtons[0]);
-
     expect(mockDeleteConfig).toHaveBeenCalledWith("qs-del");
   });
 
-  it("does NOT call deleteSkill when user cancels", () => {
+  it("does NOT call deleteSkill when user cancels", async () => {
     (window.confirm as jest.Mock).mockReturnValue(false);
-
-    renderGallery();
-
+    await renderGallery();
     const deleteButtons = screen.getAllByTitle("Delete template");
     fireEvent.click(deleteButtons[0]);
-
     expect(mockDeleteConfig).not.toHaveBeenCalled();
   });
 });
@@ -497,13 +420,11 @@ describe("SkillsGallery — Skills Builder button", () => {
     _configs = [makeQuickStart()];
   });
 
-  it("calls onCreateNew when Skills Builder button is clicked", () => {
+  it("calls onCreateNew when Skills Builder button is clicked", async () => {
     const onCreateNew = jest.fn();
-    renderGallery({ onCreateNew });
-
+    await renderGallery({ onCreateNew });
     const btn = screen.getByRole("button", { name: /skills builder/i });
     fireEvent.click(btn);
-
     expect(onCreateNew).toHaveBeenCalledTimes(1);
   });
 });
@@ -513,49 +434,41 @@ describe("SkillsGallery — Skills Builder button", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — edit/delete visibility", () => {
-  it("shows edit and delete buttons for non-system configs", () => {
+  it("shows edit and delete buttons for non-system configs", async () => {
     _configs = [{
       ...makeQuickStart("user-skill"),
       is_system: false,
       owner_id: "test@example.com",
     }] as AgentSkill[];
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.getAllByTitle("Edit template").length).toBeGreaterThan(0);
     expect(screen.getAllByTitle("Delete template").length).toBeGreaterThan(0);
   });
 
-  it("admin sees edit button on system configs but delete is disabled", () => {
+  it("admin sees edit button on system configs but delete is disabled", async () => {
     mockIsAdmin = true;
     _configs = [makeQuickStart("sys-1")];
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.getAllByTitle("Edit template").length).toBeGreaterThan(0);
-    // Delete button shows as disabled with informational title
     expect(screen.queryByTitle("Delete template")).not.toBeInTheDocument();
     expect(screen.getAllByTitle("Built-in skills cannot be deleted").length).toBeGreaterThan(0);
   });
 
-  it("non-admin does NOT see edit on system configs, delete is disabled", () => {
+  it("non-admin does NOT see edit on system configs, delete is disabled", async () => {
     mockIsAdmin = false;
     _configs = [makeQuickStart("sys-2")];
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.queryByTitle("Edit template")).not.toBeInTheDocument();
-    // Delete button is present but disabled
     expect(screen.queryByTitle("Delete template")).not.toBeInTheDocument();
     expect(screen.getAllByTitle("Built-in skills cannot be deleted").length).toBeGreaterThan(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Run in Chat flow
+// Try Skill flow
 // ---------------------------------------------------------------------------
 
-describe("SkillsGallery — Run in Chat", () => {
+describe("SkillsGallery — Try Skill", () => {
   beforeEach(() => {
     _configs = [{
       ...makeQuickStart("qs-chat"),
@@ -566,63 +479,120 @@ describe("SkillsGallery — Run in Chat", () => {
     }] as AgentSkill[];
   });
 
-  it("calls createConversation, setPendingMessage, and router.push on Run in Chat", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Chat Skill"));
-
-    const runBtn = screen.getByRole("button", { name: /run in chat/i });
-    fireEvent.click(runBtn);
-
+  it("calls createConversation, setPendingMessage with 'Lookup skill and use:', and router.push on Try Skill", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
+    const tryBtn = screen.getByRole("button", { name: /try skill/i });
+    await act(async () => { fireEvent.click(tryBtn); });
     expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockSetPendingMessage).toHaveBeenCalledWith("Perform the task");
+    expect(mockSetPendingMessage).toHaveBeenCalledWith(
+      "Execute skill: qs-chat\n\nRead and follow the instructions in the SKILL.md file for the \"qs-chat\" skill."
+    );
     expect(mockRouterPush).toHaveBeenCalledWith("/chat/conv-abc");
   });
 
-  it("closes the modal after navigation", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Chat Skill"));
-    expect(screen.getByRole("button", { name: /run in chat/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /run in chat/i }));
-
-    expect(screen.queryByRole("button", { name: /run in chat/i })).not.toBeInTheDocument();
+  it("closes the modal after navigation", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /try skill/i })); });
+    expect(screen.queryByRole("button", { name: /try skill/i })).not.toBeInTheDocument();
   });
 
-  it("validation blocks Run in Chat when required fields are empty", () => {
+  it("Try Skill is disabled when supervisor is not synced", async () => {
+    mockSupervisorSynced = false;
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
+    const tryBtn = screen.getByRole("button", { name: /try skill/i });
+    expect(tryBtn).toBeDisabled();
+  });
+
+  it("Try Skill is enabled when supervisor is synced", async () => {
+    mockSupervisorSynced = true;
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
+    const tryBtn = screen.getByRole("button", { name: /try skill/i });
+    expect(tryBtn).not.toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Template variable parameters
+// ---------------------------------------------------------------------------
+
+describe("SkillsGallery — template variable parameters", () => {
+  beforeEach(() => {
     _configs = [{
-      ...makeQuickStart("qs-form"),
-      name: "Form Skill",
+      ...makeQuickStart("qs-vars"),
+      name: "Deploy Helper",
       is_system: false,
       owner_id: "test@example.com",
-      tasks: [{ display_text: "Deploy", llm_prompt: "Deploy {{app}}", subagent: "user_input" }],
-      input_form: {
-        title: "Deploy",
-        fields: [{ name: "app", label: "App", type: "text" as const, required: true, placeholder: "Enter app" }],
-      },
+      tasks: [{
+        display_text: "Deploy",
+        llm_prompt: "Deploy {{app_name}} to {{cluster:prod-us}} with {{replicas:3}} replicas",
+        subagent: "user_input",
+      }],
     }] as AgentSkill[];
-
-    renderGallery();
-    fireEvent.click(screen.getByText("Form Skill"));
-    fireEvent.click(screen.getByRole("button", { name: /run in chat/i }));
-
-    expect(screen.getByText(/app is required/i)).toBeInTheDocument();
-    expect(mockCreateConversation).not.toHaveBeenCalled();
-    expect(mockRouterPush).not.toHaveBeenCalled();
   });
 
-  it("uses the manually edited prompt, not the original template", () => {
-    renderGallery();
+  it("renders parameter input fields for template variables", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Deploy Helper")); });
+    expect(screen.getByText("Parameters")).toBeInTheDocument();
+    expect(screen.getByText(/App Name/)).toBeInTheDocument();
+    expect(screen.getByText(/Cluster/)).toBeInTheDocument();
+    expect(screen.getByText(/Replicas/)).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByText("Chat Skill"));
+  it("pre-fills default values for variables with defaults", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Deploy Helper")); });
+    const clusterInput = screen.getByDisplayValue("prod-us") as HTMLInputElement;
+    expect(clusterInput).toBeInTheDocument();
+    const replicasInput = screen.getByDisplayValue("3") as HTMLInputElement;
+    expect(replicasInput).toBeInTheDocument();
+  });
 
-    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
-    fireEvent.change(promptArea, { target: { value: "Custom prompt text" } });
+  it("disables Try Skill when required parameter is empty", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Deploy Helper")); });
+    // app_name is required (no default) and starts empty
+    const tryBtn = screen.getByRole("button", { name: /try skill/i });
+    expect(tryBtn).toBeDisabled();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: /run in chat/i }));
+  it("enables Try Skill when required parameter is filled", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Deploy Helper")); });
+    const appInput = screen.getByPlaceholderText(/enter app name/i);
+    await act(async () => { fireEvent.change(appInput, { target: { value: "my-service" } }); });
+    const tryBtn = screen.getByRole("button", { name: /try skill/i });
+    expect(tryBtn).not.toBeDisabled();
+  });
 
-    expect(mockSetPendingMessage).toHaveBeenCalledWith("Custom prompt text");
+  it("sends message with parameters on Try Skill", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Deploy Helper")); });
+    const appInput = screen.getByPlaceholderText(/enter app name/i);
+    await act(async () => { fireEvent.change(appInput, { target: { value: "my-service" } }); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /try skill/i })); });
+    expect(mockSetPendingMessage).toHaveBeenCalledWith(
+      "Execute skill: qs-vars\n\nRead and follow the instructions in the SKILL.md file for the \"qs-vars\" skill.\n\nParameters:\n- app_name: my-service\n- cluster: prod-us\n- replicas: 3"
+    );
+    expect(mockRouterPush).toHaveBeenCalledWith("/chat/conv-abc");
+  });
+
+  it("does not render Parameters section for skills without variables", async () => {
+    _configs = [{
+      ...makeQuickStart("qs-no-vars"),
+      name: "Simple Skill",
+      is_system: false,
+      owner_id: "test@example.com",
+      tasks: [{ display_text: "Do it", llm_prompt: "Just do the thing", subagent: "user_input" }],
+    }] as AgentSkill[];
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Simple Skill")); });
+    expect(screen.queryByText("Parameters")).not.toBeInTheDocument();
   });
 });
 
@@ -659,40 +629,33 @@ describe("SkillsGallery — view mode", () => {
     _configs = [mySkill, globalSkill, teamSkill];
   });
 
-  it("My Skills view shows only user-owned non-system configs", () => {
-    renderGallery();
-
+  it("My Skills view shows only user-owned non-system configs", async () => {
+    await renderGallery();
     const allButtons = screen.getAllByRole("button");
     const mySkillsBtn = allButtons.find(b => b.textContent?.includes("My Skills"));
     fireEvent.click(mySkillsBtn!);
-
     expect(screen.getByText("My Personal Skill")).toBeInTheDocument();
     expect(screen.queryByText("Global System Skill")).not.toBeInTheDocument();
     expect(screen.queryByText("Team Shared Skill")).not.toBeInTheDocument();
   });
 
-  it("Global view shows configs where visibility=global or is_system", () => {
-    renderGallery();
-
+  it("Global view shows configs where visibility=global or is_system", async () => {
+    await renderGallery();
     const allButtons = screen.getAllByRole("button");
     const globalBtn = allButtons.find(b => b.textContent?.trim() === "Global");
     fireEvent.click(globalBtn!);
-
     expect(screen.getByText("Global System Skill")).toBeInTheDocument();
     expect(screen.queryByText("My Personal Skill")).not.toBeInTheDocument();
   });
 
-  it("Workflows view shows only is_quick_start=false configs when flag is on", () => {
+  it("Workflows view shows only is_quick_start=false configs when flag is on", async () => {
     mockWorkflowRunnerEnabled = true;
     const wf = makeWorkflow("wf-view");
     _configs = [mySkill, wf];
-
-    renderGallery();
-
+    await renderGallery();
     const allButtons = screen.getAllByRole("button");
     const multiStepBtn = allButtons.find(b => b.textContent?.includes("Multi-Step"));
     fireEvent.click(multiStepBtn!);
-
     expect(screen.getByText("Multi-Step Deploy Workflow")).toBeInTheDocument();
     expect(screen.queryByText("My Personal Skill")).not.toBeInTheDocument();
   });
@@ -710,38 +673,31 @@ describe("SkillsGallery — favorites", () => {
     owner_id: "test@example.com",
   } as AgentSkill;
 
-  it("renders Favorites section when getFavoriteSkills returns configs", () => {
+  it("renders Favorites section when getFavoriteSkills returns configs", async () => {
     _configs = [favSkill];
     mockGetFavoriteConfigs.mockReturnValue([favSkill]);
     mockIsFavorite.mockImplementation((id: string) => id === "fav-1");
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.getByText("Favorites")).toBeInTheDocument();
   });
 
-  it("hides Favorites section when empty", () => {
+  it("hides Favorites section when empty", async () => {
     _configs = [makeQuickStart()];
     mockGetFavoriteConfigs.mockReturnValue([]);
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.queryByText("Favorites")).not.toBeInTheDocument();
   });
 
-  it("clicking the star button calls toggleFavorite", () => {
+  it("clicking the star button calls toggleFavorite", async () => {
     _configs = [{
       ...makeQuickStart("star-1"),
       name: "Star Skill",
       is_system: false,
       owner_id: "test@example.com",
     }] as AgentSkill[];
-
-    renderGallery();
-
+    await renderGallery();
     const starBtn = screen.getByTitle("Add to favorites");
     fireEvent.click(starBtn);
-
     expect(mockToggleFavorite).toHaveBeenCalledWith("star-1");
   });
 });
@@ -751,34 +707,27 @@ describe("SkillsGallery — favorites", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — loading/error", () => {
-  it("renders spinner when isLoading=true", () => {
+  it("renders spinner when isLoading=true", async () => {
     mockIsLoading = true;
     _configs = [];
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.getByTestId("spinner")).toBeInTheDocument();
   });
 
-  it("renders error with Try Again button when error is set", () => {
+  it("renders error with Try Again button when error is set", async () => {
     mockError = "Failed to load configs";
     _configs = [];
-
-    renderGallery();
-
+    await renderGallery();
     expect(screen.getByText("Failed to load configs")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
   });
 
-  it("Try Again calls loadSkills", () => {
+  it("Try Again calls loadSkills", async () => {
     mockError = "Network error";
     _configs = [];
     mockLoadConfigs.mockClear();
-
-    renderGallery();
-
+    await renderGallery();
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
-
     expect(mockLoadConfigs).toHaveBeenCalled();
   });
 });
@@ -790,12 +739,9 @@ describe("SkillsGallery — loading/error", () => {
 describe("SkillsGallery — empty states", () => {
   it("shows 'No skills match your search' when search yields no results", async () => {
     _configs = [makeQuickStart()];
-
-    renderGallery();
-
+    await renderGallery();
     const searchInput = screen.getByPlaceholderText(/search by name/i);
     fireEvent.change(searchInput, { target: { value: "nonexistent-xyz" } });
-
     await waitFor(() => {
       expect(screen.getByText(/No skills match your search/)).toBeInTheDocument();
     });
@@ -804,56 +750,15 @@ describe("SkillsGallery — empty states", () => {
   it("My Skills empty state shows 'Create your first skill' with Skills Builder button", async () => {
     _configs = [makeQuickStart()];
     const onCreateNew = jest.fn();
-
-    renderGallery({ onCreateNew });
-
+    await renderGallery({ onCreateNew });
     const allButtons = screen.getAllByRole("button");
     const mySkillsBtn = allButtons.find(b => b.textContent?.includes("My Skills"));
     fireEvent.click(mySkillsBtn!);
-
     await waitFor(() => {
       expect(screen.getByText(/create your first skill/i)).toBeInTheDocument();
     });
     const builderBtn = screen.getAllByRole("button").filter(b => /skills builder/i.test(b.textContent || ""));
     expect(builderBtn.length).toBeGreaterThan(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Editable prompt and disabled buttons
-// ---------------------------------------------------------------------------
-
-describe("SkillsGallery — editable prompt", () => {
-  beforeEach(() => {
-    _configs = [{
-      ...makeQuickStart("qs-prompt"),
-      name: "Prompt Skill",
-      is_system: false,
-      owner_id: "test@example.com",
-      tasks: [{ display_text: "Run", llm_prompt: "Original prompt text", subagent: "user_input" }],
-    }] as AgentSkill[];
-  });
-
-  it("editing the prompt textarea updates the editable prompt", () => {
-    renderGallery();
-    fireEvent.click(screen.getByText("Prompt Skill"));
-
-    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
-    expect(promptArea.value).toBe("Original prompt text");
-
-    fireEvent.change(promptArea, { target: { value: "Modified prompt" } });
-    expect(promptArea.value).toBe("Modified prompt");
-  });
-
-  it("Run in Chat button is disabled when prompt is empty", () => {
-    renderGallery();
-    fireEvent.click(screen.getByText("Prompt Skill"));
-
-    const promptArea = screen.getByPlaceholderText(/enter your prompt/i);
-    fireEvent.change(promptArea, { target: { value: "" } });
-
-    const runBtn = screen.getByRole("button", { name: /run in chat/i });
-    expect(runBtn).toBeDisabled();
   });
 });
 
@@ -871,26 +776,24 @@ describe("SkillsGallery — modal interactions", () => {
     }] as AgentSkill[];
   });
 
-  it("clicking Cancel closes modal", () => {
-    renderGallery();
-    fireEvent.click(screen.getByText("Modal Skill"));
-    expect(screen.getByText("Prompt (editable)")).toBeInTheDocument();
-
+  it("clicking Cancel closes modal", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Modal Skill")); });
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
     const cancelBtns = screen.getAllByRole("button", { name: /cancel/i });
-    fireEvent.click(cancelBtns[0]);
-
-    expect(screen.queryByText("Prompt (editable)")).not.toBeInTheDocument();
+    await act(async () => { fireEvent.click(cancelBtns[0]); });
+    expect(screen.queryByRole("button", { name: /try skill/i })).not.toBeInTheDocument();
   });
 
-  it("clicking backdrop closes modal", () => {
-    renderGallery();
-    fireEvent.click(screen.getByText("Modal Skill"));
-    expect(screen.getByText("Prompt (editable)")).toBeInTheDocument();
-
+  it("clicking backdrop closes modal", async () => {
+    await renderGallery();
+    await act(async () => { fireEvent.click(screen.getByText("Modal Skill")); });
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
     const backdrop = document.querySelector("[class*='fixed inset-0']") as HTMLElement;
-    if (backdrop) fireEvent.click(backdrop);
-
-    expect(screen.queryByText("Prompt (editable)")).not.toBeInTheDocument();
+    if (backdrop) {
+      await act(async () => { fireEvent.click(backdrop); });
+    }
+    expect(screen.queryByRole("button", { name: /try skill/i })).not.toBeInTheDocument();
   });
 });
 
@@ -899,7 +802,7 @@ describe("SkillsGallery — modal interactions", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — edit callback", () => {
-  it("calls onEditConfig for user-owned config when edit button is clicked", () => {
+  it("calls onEditConfig for user-owned config when edit button is clicked", async () => {
     const userConfig = {
       ...makeQuickStart("edit-1"),
       name: "Editable Skill",
@@ -907,197 +810,37 @@ describe("SkillsGallery — edit callback", () => {
       owner_id: "test@example.com",
     } as AgentSkill;
     _configs = [userConfig];
-
     const onEditConfig = jest.fn();
-    renderGallery({ onEditConfig });
-
+    await renderGallery({ onEditConfig });
     const editBtn = screen.getByTitle("Edit template");
     fireEvent.click(editBtn);
-
     expect(onEditConfig).toHaveBeenCalledTimes(1);
     expect(onEditConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "edit-1" }));
   });
 
-  it("calls onEditConfig for system config when admin clicks edit", () => {
+  it("calls onEditConfig for system config when admin clicks edit", async () => {
     mockIsAdmin = true;
     _configs = [makeQuickStart("sys-edit")];
-
     const onEditConfig = jest.fn();
-    renderGallery({ onEditConfig });
-
+    await renderGallery({ onEditConfig });
     const editBtn = screen.getByTitle("Edit template");
     fireEvent.click(editBtn);
-
     expect(onEditConfig).toHaveBeenCalledTimes(1);
     expect(onEditConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "sys-edit" }));
   });
 });
 
 // ---------------------------------------------------------------------------
-// onSelectConfig for workflow cards
+// Workflow card opens modal
 // ---------------------------------------------------------------------------
 
-describe("SkillsGallery — onSelectConfig for workflows", () => {
-  it("clicking a workflow card calls onSelectConfig when flag is on", () => {
+describe("SkillsGallery — workflow card opens modal", () => {
+  it("clicking a workflow card opens the modal with Try Skill button", async () => {
     mockWorkflowRunnerEnabled = true;
     _configs = [makeWorkflow("wf-select")];
-
-    const onSelectConfig = jest.fn();
-    renderGallery({ onSelectConfig });
-
+    await renderGallery();
     const cards = screen.getAllByText("Multi-Step Deploy Workflow");
-    fireEvent.click(cards[0]);
-
-    expect(onSelectConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "wf-select" }));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Variable defaults — {{variable:default}} support
-// ---------------------------------------------------------------------------
-
-describe("SkillsGallery — variable defaults ({{name:default}} syntax)", () => {
-  beforeEach(() => {
-    mockWorkflowRunnerEnabled = false;
-    _configs = [{
-      ...makeQuickStart("qs-defaults"),
-      name: "Default Vars Skill",
-      tasks: [{
-        display_text: "Run defaults",
-        llm_prompt: "Deploy {{app_name:my-service}} to {{cluster:prod-us}} with {{replicas:3}}",
-        subagent: "user_input",
-      }],
-      input_form: {
-        title: "Default Vars Skill",
-        fields: [
-          { name: "app_name", label: "App Name", type: "text" as const, required: false, placeholder: "Default: my-service", defaultValue: "my-service" },
-          { name: "cluster", label: "Cluster", type: "text" as const, required: false, placeholder: "Default: prod-us", defaultValue: "prod-us" },
-          { name: "replicas", label: "Replicas", type: "number" as const, required: false, placeholder: "Default: 3", defaultValue: "3" },
-        ],
-      },
-    }] as AgentSkill[];
-  });
-
-  it("pre-fills form fields with default values", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Default Vars Skill"));
-
-    const appInput = screen.getByPlaceholderText(/default: my-service/i) as HTMLInputElement;
-    expect(appInput.value).toBe("my-service");
-
-    const clusterInput = screen.getByPlaceholderText(/default: prod-us/i) as HTMLInputElement;
-    expect(clusterInput.value).toBe("prod-us");
-
-    const replicasInput = screen.getByPlaceholderText(/default: 3/i) as HTMLInputElement;
-    expect(replicasInput.value).toBe("3");
-  });
-
-  it("pre-substitutes defaults into the editable prompt", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Default Vars Skill"));
-
-    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
-    expect(promptArea.value).toBe("Deploy my-service to prod-us with 3");
-  });
-
-  it("allows overriding default values and updates prompt", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Default Vars Skill"));
-
-    const appInput = screen.getByPlaceholderText(/default: my-service/i);
-    fireEvent.change(appInput, { target: { value: "new-service" } });
-
-    const promptArea = screen.getByPlaceholderText(/enter your prompt/i) as HTMLTextAreaElement;
-    expect(promptArea.value).toContain("new-service");
-  });
-
-  it("does not show validation error for optional (default) fields when empty", () => {
-    // Clear the default value to simulate user clearing
-    _configs = [{
-      ...makeQuickStart("qs-optional"),
-      name: "Optional Vars Skill",
-      tasks: [{
-        display_text: "Run",
-        llm_prompt: "Deploy {required_app} to {{cluster:prod}}",
-        subagent: "user_input",
-      }],
-      input_form: {
-        title: "Optional Vars",
-        fields: [
-          { name: "required_app", label: "Required App", type: "text" as const, required: true, placeholder: "Enter required app" },
-          { name: "cluster", label: "Cluster", type: "text" as const, required: false, placeholder: "Default: prod", defaultValue: "prod" },
-        ],
-      },
-    }] as AgentSkill[];
-
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Optional Vars Skill"));
-
-    // Clear the optional field
-    const clusterInput = screen.getByPlaceholderText(/default: prod/i);
-    fireEvent.change(clusterInput, { target: { value: "" } });
-
-    // Try to submit — only the required field should error
-    const runBtn = screen.getByRole("button", { name: /run in chat/i });
-    fireEvent.click(runBtn);
-
-    expect(screen.getByText(/required app is required/i)).toBeInTheDocument();
-    expect(screen.queryByText(/cluster is required/i)).not.toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Auto-generated input form (no explicit input_form, parsed from prompt)
-// ---------------------------------------------------------------------------
-
-describe("SkillsGallery — auto-generated form from prompt variables", () => {
-  beforeEach(() => {
-    mockWorkflowRunnerEnabled = false;
-    _configs = [{
-      ...makeQuickStart("qs-auto"),
-      name: "Auto Form Skill",
-      tasks: [{
-        display_text: "Auto",
-        llm_prompt: "Check the status of {{service_url}} on {{port_number:8080}}",
-        subagent: "user_input",
-      }],
-      // No input_form — should be auto-generated from prompt variables
-    }] as AgentSkill[];
-  });
-
-  it("auto-generates form fields from prompt variables", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Auto Form Skill"));
-
-    // Should detect service_url (required) and port_number (optional with default)
-    expect(screen.getByText(/service url/i)).toBeInTheDocument();
-    expect(screen.getByText(/port number/i)).toBeInTheDocument();
-  });
-
-  it("infers URL type for variable with 'url' in name", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Auto Form Skill"));
-
-    // The service_url field should be of type url
-    const urlInput = screen.getByPlaceholderText(/enter service url/i);
-    expect(urlInput).toBeInTheDocument();
-    expect(urlInput).toHaveAttribute("type", "url");
-  });
-
-  it("infers number type for variable with 'number' in name", () => {
-    renderGallery();
-
-    fireEvent.click(screen.getByText("Auto Form Skill"));
-
-    // port_number should have type number
-    const numInput = screen.getByPlaceholderText(/default: 8080/i);
-    expect(numInput).toBeInTheDocument();
-    expect(numInput).toHaveAttribute("type", "number");
+    await act(async () => { fireEvent.click(cards[0]); });
+    expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
   });
 });

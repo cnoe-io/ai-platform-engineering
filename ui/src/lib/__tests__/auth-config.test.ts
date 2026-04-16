@@ -3,11 +3,64 @@
  * Tests OIDC configuration, token refresh, and group authorization
  */
 
-import { hasRequiredGroup, isAdminUser, canViewAdminDashboard, canAccessDynamicAgents } from '../auth-config'
+// Mock jose so we can control decodeJwt in group re-evaluation tests
+jest.mock('jose', () => ({
+  decodeJwt: jest.fn(),
+}))
 
-// Note: We don't test the full authOptions NextAuth config here
-// as it requires complex NextAuth mocking. Instead, we focus on
-// the exported utility functions that are used by the config.
+import { hasRequiredGroup, isAdminUser, canViewAdminDashboard, canAccessDynamicAgents, authOptions, _resetInflightRefreshes } from '../auth-config'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utility: build a fake fetch mock that handles OIDC discovery + token exchange
+// ─────────────────────────────────────────────────────────────────────────────
+function makeRefreshFetchMock(opts: {
+  discoveryFails?: boolean
+  tokenFails?: boolean
+  nonJsonResponse?: boolean
+  newTokens?: Record<string, unknown>
+} = {}) {
+  return jest.fn().mockImplementation(async (url: RequestInfo | URL) => {
+    const urlStr = url.toString()
+
+    // OIDC discovery endpoint
+    if (urlStr.includes('.well-known')) {
+      if (opts.discoveryFails) {
+        return { ok: false, status: 500 }
+      }
+      return {
+        ok: true,
+        json: async () => ({ token_endpoint: 'https://sso.example.com/token' }),
+      }
+    }
+
+    // Token exchange endpoint
+    if (opts.nonJsonResponse) {
+      return {
+        ok: false,
+        headers: { get: () => 'text/html' },
+        text: async () => '<html>Error page</html>',
+      }
+    }
+    if (opts.tokenFails) {
+      return {
+        ok: false,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ error: 'invalid_grant', error_description: 'Refresh token expired' }),
+      }
+    }
+    return {
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        access_token: 'new-access-token',
+        id_token: 'new-id-token',
+        refresh_token: 'new-refresh-token',
+        expires_in: 3600,
+        ...opts.newTokens,
+      }),
+    }
+  })
+}
 
 describe('auth-config', () => {
   describe('hasRequiredGroup', () => {
@@ -77,7 +130,10 @@ describe('auth-config', () => {
     const originalEnv = process.env
 
     beforeEach(() => {
-      jest.resetModules()
+      // Note: jest.resetModules() deliberately omitted here.
+      // Each test uses jest.isolateModules() to get an isolated module load.
+      // Calling jest.resetModules() here would invalidate the top-level
+      // jose mock reference captured by the already-loaded authOptions module.
       process.env = { ...originalEnv }
     })
 
@@ -108,7 +164,7 @@ describe('auth-config', () => {
     const originalEnv = process.env
 
     beforeEach(() => {
-      jest.resetModules()
+      // See note in 'Token refresh configuration' — jest.resetModules() omitted intentionally.
       process.env = { ...originalEnv }
     })
 
@@ -164,116 +220,446 @@ describe('auth-config', () => {
     })
   })
 
-  describe('Token Refresh Function', () => {
+  // ─────────────────────────────────────────────────────────────────────────
+  // JWT callback — real implementation tests
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('JWT callback', () => {
     const originalEnv = process.env
-    let mockFetch: jest.Mock
+    let fetchSpy: jest.SpyInstance
 
     beforeEach(() => {
-      jest.resetModules()
-      process.env = { ...originalEnv }
-      process.env.OIDC_ISSUER = 'https://test-oidc.com'
-      process.env.OIDC_CLIENT_ID = 'test-client-id'
-      process.env.OIDC_CLIENT_SECRET = 'test-client-secret'
-
-      // Mock fetch globally
-      mockFetch = jest.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          access_token: 'new-access-token',
-          id_token: 'new-id-token',
-          expires_in: 3600,
-          refresh_token: 'new-refresh-token',
-        }),
-      } as Response)
-
-      global.fetch = mockFetch as any
+      process.env = {
+        ...originalEnv,
+        OIDC_ISSUER: 'https://sso.example.com',
+        OIDC_CLIENT_ID: 'test-client-id',
+        OIDC_CLIENT_SECRET: 'test-client-secret',
+        OIDC_ENABLE_REFRESH_TOKEN: 'true',
+      }
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(makeRefreshFetchMock())
     })
 
     afterEach(() => {
       process.env = originalEnv
-      mockFetch.mockRestore()
+      fetchSpy.mockRestore()
     })
 
-    it('should successfully refresh token with valid refresh_token', async () => {
-      // This is testing the refreshAccessToken function indirectly
-      // through the JWT callback behavior
+    it('should store all tokens on initial sign-in', async () => {
+      const now = Math.floor(Date.now() / 1000)
 
-      const token = {
-        accessToken: 'old-token',
-        refreshToken: 'valid-refresh-token',
-        expiresAt: Math.floor(Date.now() / 1000) + 60, // Expires in 1 minute
-      }
-
-      // Simulate the refresh by calling fetch
-      const response = await fetch('https://test-oidc.com/protocol/openid-connect/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: token.refreshToken,
-          client_id: process.env.OIDC_CLIENT_ID!,
-          client_secret: process.env.OIDC_CLIENT_SECRET!,
-        }),
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {},
+        account: {
+          access_token: 'at',
+          id_token: 'idt',
+          refresh_token: 'rt',
+          expires_at: now + 3600,
+        },
+        profile: {
+          sub: 'sub-123',
+          email: 'user@example.com',
+          groups: ['backstage-access'],
+        },
       })
 
-      const data = await response.json()
-
-      expect(response.ok).toBe(true)
-      expect(data.access_token).toBe('new-access-token')
-      expect(data.id_token).toBe('new-id-token')
-      expect(data.expires_in).toBe(3600)
+      expect(result.accessToken).toBe('at')
+      expect(result.idToken).toBe('idt')
+      expect(result.refreshToken).toBe('rt')
+      expect(result.expiresAt).toBe(now + 3600)
+      expect(result.isAuthorized).toBe(true)
+      expect(result.role).toBe('user')
+      expect(result.groupsCheckedAt).toBeGreaterThanOrEqual(now)
     })
 
-    it('should handle refresh token failure', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        json: async () => ({
-          error: 'invalid_grant',
-          error_description: 'Refresh token expired',
-        }),
-      } as Response)
+    it('should set isAuthorized=false when user lacks required group', async () => {
+      const now = Math.floor(Date.now() / 1000)
 
-      const response = await fetch('https://test-oidc.com/protocol/openid-connect/token')
-
-      expect(response.ok).toBe(false)
-
-      const data = await response.json()
-      expect(data.error).toBe('invalid_grant')
-    })
-
-    it('should call correct OIDC token endpoint', async () => {
-      await fetch('https://test-oidc.com/protocol/openid-connect/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: 'test-refresh-token',
-          client_id: 'test-client-id',
-          client_secret: 'test-client-secret',
-        }),
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {},
+        account: {
+          access_token: 'at',
+          id_token: 'idt',
+          expires_at: now + 3600,
+        },
+        profile: {
+          sub: 'sub-123',
+          email: 'nogroup@example.com',
+          groups: ['unrelated-group'],
+        },
       })
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://test-oidc.com/protocol/openid-connect/token',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        })
+      expect(result.isAuthorized).toBe(false)
+    })
+
+    it('should NOT refresh token when expiry is more than 5 minutes away', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'old-at',
+          refreshToken: 'rt',
+          expiresAt: now + 600, // 10 minutes — no refresh needed
+        },
+      })
+
+      expect(result.accessToken).toBe('old-at')
+      // fetch should NOT have been called (no refresh needed)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('should attempt token refresh when within 5 minutes of expiry', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'old-at',
+          idToken: 'old-idt',
+          refreshToken: 'old-rt',
+          expiresAt: now + 60, // 1 minute — refresh triggered
+        },
+      })
+
+      expect(result.accessToken).toBe('new-access-token')
+      expect(result.idToken).toBe('new-id-token')
+      expect(result.refreshToken).toBe('new-refresh-token')
+      expect(result.error).toBeUndefined()
+    })
+
+    it('should return RefreshTokenExpired when token expired by more than 1 hour', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          refreshToken: 'rt',
+          expiresAt: now - 4000, // expired 4000s ago (>1h)
+        },
+      })
+
+      expect(result.error).toBe('RefreshTokenExpired')
+      // Should NOT call fetch when token is that stale
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('should skip refresh attempt when token already has an error', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          refreshToken: 'rt',
+          expiresAt: now + 60,
+          error: 'RefreshTokenExpired',
+        },
+      })
+
+      expect(result.error).toBe('RefreshTokenExpired')
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('should return RefreshTokenExpired when token exchange returns non-JSON', async () => {
+      fetchSpy.mockRestore()
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(
+        makeRefreshFetchMock({ nonJsonResponse: true }),
       )
+
+      const now = Math.floor(Date.now() / 1000)
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          refreshToken: 'rt',
+          expiresAt: now + 60,
+        },
+      })
+
+      expect(result.error).toBe('RefreshTokenExpired')
+    })
+
+    it('should return RefreshTokenExpired when token exchange fails', async () => {
+      fetchSpy.mockRestore()
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(
+        makeRefreshFetchMock({ tokenFails: true }),
+      )
+
+      const now = Math.floor(Date.now() / 1000)
+
+      // Access token already expired (-10s): if refresh token also gives invalid_grant
+      // this is a real failure (not a concurrent race), so the user must re-authenticate.
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          refreshToken: 'rt',
+          expiresAt: now - 10,
+        },
+      })
+
+      expect(result.error).toBe('RefreshTokenExpired')
+    })
+
+    it('should fall back to Keycloak-style token endpoint when OIDC discovery fails', async () => {
+      fetchSpy.mockRestore()
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(
+        makeRefreshFetchMock({ discoveryFails: true }),
+      )
+
+      const now = Math.floor(Date.now() / 1000)
+
+      // Should still attempt the refresh using Keycloak fallback path
+      await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          refreshToken: 'rt',
+          expiresAt: now + 60,
+        },
+      })
+
+      // Discovery failed → fallback → token exchange also "failed" (our mock returns non-JSON
+      // for the fallback call because discovery-fails mock only mocks the discovery call)
+      // The important assertion: it attempted a refresh (fetch was called)
+      expect(fetchSpy).toHaveBeenCalled()
+    })
+
+    it('should keep existing refresh token when provider does not return a new one', async () => {
+      fetchSpy.mockRestore()
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(
+        makeRefreshFetchMock({ newTokens: { refresh_token: undefined } }),
+      )
+
+      const now = Math.floor(Date.now() / 1000)
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          refreshToken: 'original-rt',
+          expiresAt: now + 60,
+        },
+      })
+
+      // Should keep original refresh token (null-coalescing in auth-config.ts)
+      expect(result.refreshToken).toBe('original-rt')
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Group re-evaluation every 4 hours
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Group re-evaluation after token refresh', () => {
+    const originalEnv = process.env
+    let fetchSpy: jest.SpyInstance
+    let mockDecodeJwt: jest.Mock
+
+    beforeEach(() => {
+      process.env = {
+        ...originalEnv,
+        OIDC_ISSUER: 'https://sso.example.com',
+        OIDC_CLIENT_ID: 'test-client-id',
+        OIDC_CLIENT_SECRET: 'test-client-secret',
+        OIDC_ENABLE_REFRESH_TOKEN: 'true',
+        OIDC_REQUIRED_ADMIN_GROUP: 'platform-admins',
+      }
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(makeRefreshFetchMock())
+      mockDecodeJwt = jest.requireMock('jose').decodeJwt
+      mockDecodeJwt.mockReset()
+    })
+
+    afterEach(() => {
+      process.env = originalEnv
+      fetchSpy.mockRestore()
+    })
+
+    it('should re-evaluate groups when 4+ hours have passed since last check', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      mockDecodeJwt.mockReturnValue({
+        groups: ['backstage-access'],
+      })
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          idToken: 'old-idt',
+          refreshToken: 'rt',
+          expiresAt: now + 60,
+          groupsCheckedAt: now - 5 * 60 * 60, // 5 hours ago
+          isAuthorized: true,
+          role: 'user',
+          canViewAdmin: false,
+        },
+      })
+
+      // decodeJwt should be called with the freshly-refreshed id_token
+      expect(mockDecodeJwt).toHaveBeenCalledWith('new-id-token')
+      // groupsCheckedAt must be updated to "now" (re-eval happened)
+      expect(result.groupsCheckedAt).toBeGreaterThanOrEqual(now)
+      // isAuthorized reflects the re-evaluated groups
+      expect(result.isAuthorized).toBe(true)
+      // Note: role promotion (user→admin) requires OIDC_REQUIRED_ADMIN_GROUP to be
+      // set at module LOAD time. That constant is evaluated once at import; env changes
+      // in beforeEach arrive too late. Role promotion is covered in isAdminUser unit tests.
+    })
+
+    it('should NOT re-evaluate groups when less than 4 hours have passed', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      mockDecodeJwt.mockReturnValue({ groups: ['backstage-access'] })
+
+      await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          idToken: 'old-idt',
+          refreshToken: 'rt',
+          expiresAt: now + 60,
+          groupsCheckedAt: now - 1 * 60 * 60, // only 1 hour ago
+          isAuthorized: true,
+          role: 'user',
+        },
+      })
+
+      // decodeJwt should NOT have been called (interval not reached)
+      expect(mockDecodeJwt).not.toHaveBeenCalled()
+    })
+
+    it('should skip group re-evaluation when refreshed token has an error', async () => {
+      fetchSpy.mockRestore()
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(
+        makeRefreshFetchMock({ tokenFails: true }),
+      )
+
+      const now = Math.floor(Date.now() / 1000)
+
+      mockDecodeJwt.mockReturnValue({ groups: ['backstage-access'] })
+
+      // Access token already expired: this is a real refresh failure (not a race),
+      // so the token gets error:'RefreshTokenExpired' and group re-eval is skipped.
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          idToken: 'old-idt',
+          refreshToken: 'rt',
+          expiresAt: now - 10,
+          groupsCheckedAt: now - 5 * 60 * 60, // 5 hours ago
+          isAuthorized: true,
+          role: 'user',
+        },
+      })
+
+      // Token refresh failed → shouldRecheckGroups is false → decodeJwt not called
+      expect(mockDecodeJwt).not.toHaveBeenCalled()
+      expect(result.error).toBe('RefreshTokenExpired')
+    })
+
+    it('should fall back gracefully when decodeJwt throws during group re-check', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      mockDecodeJwt.mockImplementation(() => {
+        throw new Error('Malformed JWT')
+      })
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'at',
+          idToken: 'old-idt',
+          refreshToken: 'rt',
+          expiresAt: now + 60,
+          groupsCheckedAt: now - 5 * 60 * 60,
+          isAuthorized: true,
+          role: 'user',
+        },
+      })
+
+      // Should return the refreshed token without re-evaluated groups
+      expect(result.accessToken).toBe('new-access-token')
+      // Existing authorization should be preserved
+      expect(result.isAuthorized).toBe(true)
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to decode id_token'),
+        expect.any(Error),
+      )
+
+      consoleSpy.mockRestore()
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // session callback
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('session callback', () => {
+    it('should pass accessToken and idToken to session when no error', async () => {
+      const result = await (authOptions.callbacks!.session! as Function)({
+        session: { user: { name: 'Test', email: 'test@example.com' } },
+        token: {
+          accessToken: 'at',
+          idToken: 'idt',
+          refreshToken: 'rt',
+          isAuthorized: true,
+          role: 'user',
+          expiresAt: 9999999999,
+          hasRefreshToken: true,
+        },
+      })
+
+      expect(result.accessToken).toBe('at')
+      expect(result.idToken).toBe('idt')
+      expect(result.isAuthorized).toBe(true)
+      expect(result.role).toBe('user')
+    })
+
+    it('should clear accessToken from session when RefreshTokenExpired', async () => {
+      const result = await (authOptions.callbacks!.session! as Function)({
+        session: { user: { name: 'Test', email: 'test@example.com' } },
+        token: {
+          accessToken: 'at',
+          idToken: 'idt',
+          error: 'RefreshTokenExpired',
+          isAuthorized: true,
+          role: 'user',
+        },
+      })
+
+      expect(result.accessToken).toBeUndefined()
+      expect(result.error).toBe('RefreshTokenExpired')
+    })
+
+    it('should NOT include tokens in session when token has error', async () => {
+      const result = await (authOptions.callbacks!.session! as Function)({
+        session: { user: {} },
+        token: {
+          accessToken: 'at',
+          idToken: 'idt',
+          error: 'RefreshTokenError',
+        },
+      })
+
+      // error path clears accessToken
+      expect(result.accessToken).toBeUndefined()
+    })
+
+    it('should set role to user as default', async () => {
+      const result = await (authOptions.callbacks!.session! as Function)({
+        session: { user: {} },
+        token: {
+          // no role set
+        },
+      })
+
+      expect(result.role).toBe('user')
     })
   })
 
   describe('extractGroups helper', () => {
     it('should extract groups from various OIDC claim formats', () => {
-      expect(true).toBe(true) // Placeholder - covered by JWT callback integration
+      expect(true).toBe(true) // Covered by JWT callback integration
     })
   })
 
   describe('isAdminUser', () => {
     it('returns false when OIDC_REQUIRED_ADMIN_GROUP is not set', () => {
       // Default is empty string, so returns false
-      const groups = ['backstage-admins', 'backstage-access']
-      // Since env var is not set in test, it defaults to empty string
       expect(isAdminUser([])).toBe(false)
     })
   })
@@ -378,6 +764,179 @@ describe('auth-config', () => {
         const { canAccessDynamicAgents: fn } = require('../auth-config')
         expect(fn(['eng'])).toBe(false)
       })
+    })
+  })
+
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Concurrent refresh race safety nets
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Concurrent refresh race safety nets', () => {
+    const originalEnv = process.env
+    let fetchSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      process.env = {
+        ...originalEnv,
+        OIDC_ISSUER: 'https://sso.example.com',
+        OIDC_CLIENT_ID: 'test-client-id',
+        OIDC_CLIENT_SECRET: 'test-client-secret',
+        OIDC_ENABLE_REFRESH_TOKEN: 'true',
+      }
+      _resetInflightRefreshes()
+    })
+
+    afterEach(() => {
+      process.env = originalEnv
+      fetchSpy?.mockRestore()
+    })
+
+    it('Safety net 1: concurrent callers share one HTTP exchange', async () => {
+      // Two JWT callbacks with the same refresh token fire simultaneously.
+      // Only one fetch should happen (the in-flight dedup kicks in for the second).
+      let resolveExchange!: (v: Response) => void
+      const exchangeHeld = new Promise<Response>((res) => { resolveExchange = res })
+
+      let fetchCallCount = 0
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+        fetchCallCount++
+        const urlStr = url.toString()
+        if (urlStr.includes('.well-known')) {
+          return {
+            ok: true,
+            json: async () => ({ token_endpoint: 'https://sso.example.com/token' }),
+          } as Response
+        }
+        // Hold the exchange until we're ready
+        return exchangeHeld
+      })
+
+      const now = Math.floor(Date.now() / 1000)
+      const baseToken = {
+        accessToken: 'at',
+        idToken: 'old-idt',
+        refreshToken: 'shared-rt',
+        expiresAt: now + 60,
+      }
+
+      // Fire two concurrent calls
+      const call1 = (authOptions.callbacks!.jwt! as Function)({ token: { ...baseToken } })
+      const call2 = (authOptions.callbacks!.jwt! as Function)({ token: { ...baseToken } })
+
+      // Resolve the held exchange with a successful response
+      resolveExchange({
+        ok: true,
+        headers: { get: () => 'application/json' },
+        json: async () => ({
+          access_token: 'new-at',
+          id_token: 'new-idt',
+          refresh_token: 'new-rt',
+          expires_in: 3600,
+        }),
+      } as any)
+
+      const [result1, result2] = await Promise.all([call1, call2])
+
+      // Both should get new tokens
+      expect(result1.accessToken).toBe('new-at')
+      expect(result2.accessToken).toBe('new-at')
+
+      // Only 2 fetches total: 1 discovery + 1 exchange (not 2 exchanges)
+      // (The second caller joined the in-flight Promise)
+      expect(fetchCallCount).toBe(2)
+    })
+
+    it('Safety net 2: invalid_grant with valid access token keeps session (no logout)', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(makeRefreshFetchMock({
+        tokenFails: false,
+        // Override to return invalid_grant specifically
+      }))
+      // Override with invalid_grant scenario
+      fetchSpy.mockRestore()
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+        const urlStr = url.toString()
+        if (urlStr.includes('.well-known')) {
+          return {
+            ok: true,
+            json: async () => ({ token_endpoint: 'https://sso.example.com/token' }),
+          } as Response
+        }
+        // Token exchange: return invalid_grant
+        return {
+          ok: false,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ error: 'invalid_grant', error_description: 'Token already used' }),
+        } as any
+      })
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'still-valid-at',
+          refreshToken: 'consumed-rt',
+          expiresAt: now + 200, // access token still valid but within 5-min refresh window
+        },
+      })
+
+      // Should NOT be logged out — access token is still valid
+      expect(result.error).toBeUndefined()
+      expect(result.accessToken).toBe('still-valid-at')
+      // Should suppress further refresh attempts until token expires
+      expect(result.refreshSuppressedUntil).toBe(now + 200)
+    })
+
+    it('Safety net 3: suppressed refresh prevents further refresh attempts', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(makeRefreshFetchMock())
+
+      // Token has refreshSuppressedUntil set (from a prior graceful invalid_grant)
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'still-valid-at',
+          refreshToken: 'consumed-rt',
+          expiresAt: now + 200,
+          refreshSuppressedUntil: now + 200, // suppressed until token expires
+        },
+      })
+
+      // Should return the token as-is without attempting refresh
+      expect(result.accessToken).toBe('still-valid-at')
+      expect(result.error).toBeUndefined()
+      // No fetch calls — refresh was suppressed
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('Safety net 2: invalid_grant with expired access token still logs out', async () => {
+      const now = Math.floor(Date.now() / 1000)
+
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+        const urlStr = url.toString()
+        if (urlStr.includes('.well-known')) {
+          return {
+            ok: true,
+            json: async () => ({ token_endpoint: 'https://sso.example.com/token' }),
+          } as Response
+        }
+        return {
+          ok: false,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ error: 'invalid_grant', error_description: 'Token already used' }),
+        } as any
+      })
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {
+          accessToken: 'expired-at',
+          refreshToken: 'consumed-rt',
+          expiresAt: now - 300, // access token has already expired
+        },
+      })
+
+      // Access token is expired too — user must re-authenticate
+      expect(result.error).toBe('RefreshTokenExpired')
     })
   })
 })

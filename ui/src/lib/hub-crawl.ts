@@ -6,6 +6,7 @@
  */
 
 import { getCollection } from "@/lib/mongodb";
+import { validateCredentialsRef } from "@/lib/api-middleware";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +38,7 @@ export interface SkillHubDoc {
   location: string;
   enabled: boolean;
   credentials_ref: string | null;
+  labels?: string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -61,8 +63,7 @@ const HUB_CACHE_TTL_MS = parseInt(
   10,
 );
 
-// Validate env var names to prevent arbitrary env var access
-const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// ENV_VAR_NAME_RE removed — use validateCredentialsRef from api-middleware instead
 
 // ---------------------------------------------------------------------------
 // Frontmatter parser (mirrors skill-templates-loader.ts)
@@ -76,12 +77,26 @@ function parseFrontmatter(content: string): {
   let description = "";
   const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
   if (match) {
-    for (const line of match[1].split("\n")) {
-      const nameMatch = line.match(/^name:\s*(.*)/);
-      if (nameMatch) name = nameMatch[1].trim();
-      const descMatch = line.match(/^description:\s*(.*)/);
-      if (descMatch) description = descMatch[1].trim();
+    const lines = match[1].split("\n");
+    let currentKey = "";
+    let currentValue = "";
+
+    for (const line of lines) {
+      const keyMatch = line.match(/^(\w[\w-]*):\s*(.*)/);
+      if (keyMatch) {
+        if (currentKey === "name") name = currentValue.trim();
+        if (currentKey === "description") description = currentValue.trim();
+        currentKey = keyMatch[1];
+        const val = keyMatch[2].trim();
+        // YAML folded scalar ">" or literal "|" — value is on next lines
+        currentValue = val === ">" || val === "|" ? "" : val;
+      } else if (currentKey && line.match(/^\s+/)) {
+        // Continuation line (indented) — append with space
+        currentValue += " " + line.trim();
+      }
     }
+    if (currentKey === "name") name = currentValue.trim();
+    if (currentKey === "description") description = currentValue.trim();
   }
   return { name, description };
 }
@@ -309,14 +324,18 @@ export async function crawlGitLabRepo(
 function resolveToken(hub: SkillHubDoc): string | undefined {
   // First try the explicit credentials_ref
   if (hub.credentials_ref) {
-    if (!ENV_VAR_NAME_RE.test(hub.credentials_ref)) {
+    try {
+      const validated = validateCredentialsRef(hub.credentials_ref);
+      if (validated) {
+        const val = process.env[validated];
+        if (val) return val;
+      }
+    } catch {
       console.warn(
         `[HubCrawl] Invalid credentials_ref format: ${hub.credentials_ref}`,
       );
       return undefined;
     }
-    const val = process.env[hub.credentials_ref];
-    if (val) return val;
   }
 
   // Fall back to default token env vars
@@ -444,6 +463,7 @@ export async function getHubSkills(
     // (could be a transient API error with empty response)
   }
 
+  const hubLabels = hub.labels || [];
   return crawled.map((s) => ({
     id: `hub-${hub.id}-${s.id}`,
     name: s.name,
@@ -456,6 +476,7 @@ export async function getHubSkills(
       hub_location: hub.location,
       hub_type: hub.type,
       path: s.path,
+      tags: [...(Array.isArray(s.metadata?.tags) ? (s.metadata.tags as string[]) : []), ...hubLabels],
     },
   }));
 }
@@ -465,6 +486,7 @@ export async function getHubSkills(
 // ---------------------------------------------------------------------------
 
 function docToCatalogSkill(hub: SkillHubDoc) {
+  const hubLabels = hub.labels || [];
   return (doc: HubSkillDoc): CatalogSkill => ({
     id: `hub-${hub.id}-${doc.skill_id}`,
     name: doc.name,
@@ -477,6 +499,7 @@ function docToCatalogSkill(hub: SkillHubDoc) {
       hub_location: hub.location,
       hub_type: hub.type,
       path: doc.path,
+      tags: [...(Array.isArray(doc.metadata?.tags) ? (doc.metadata.tags as string[]) : []), ...hubLabels],
     },
   });
 }

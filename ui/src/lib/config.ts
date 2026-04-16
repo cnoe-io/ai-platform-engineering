@@ -144,6 +144,8 @@ export interface Config {
   ticketProvider: 'jira' | 'github' | null;
   /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
   userInfoToolEnabled: boolean;
+  /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
+  oidcRequiredGroup: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +215,7 @@ const DEFAULT_CONFIG: Config = {
   ticketEnabled: false,
   ticketProvider: null,
   userInfoToolEnabled: false,
+  oidcRequiredGroup: 'backstage-access',
 };
 
 // ---------------------------------------------------------------------------
@@ -367,6 +370,7 @@ export function getServerConfig(): Config {
     ticketEnabled,
     ticketProvider,
     userInfoToolEnabled,
+    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
   };
 }
 

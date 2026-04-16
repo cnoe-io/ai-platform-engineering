@@ -62,10 +62,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install AWS CLI v2 (architecture-aware) with retry logic
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+        AWS_URL="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"; \
     else \
-        curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+        AWS_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"; \
     fi && \
+    for i in 1 2 3 4 5; do \
+        curl -sL --connect-timeout 30 --max-time 300 --retry 3 --retry-all-errors --retry-delay 5 "$AWS_URL" -o "awscliv2.zip" && break; \
+        echo "Download attempt $i/5 failed, retrying..."; \
+        sleep $((i * 10)); \
+    done && \
+    [ -s awscliv2.zip ] || (echo "Failed to download AWS CLI after 5 attempts" && exit 1) && \
     unzip -q awscliv2.zip && \
     ./aws/install && \
     rm -rf awscliv2.zip aws
@@ -77,9 +83,9 @@ RUN ARCH=$(uname -m) && \
     else \
         KUBECTL_ARCH="amd64"; \
     fi && \
-    KUBECTL_VERSION=$(curl -sfL --retry 5 --retry-delay 3 https://dl.k8s.io/release/stable.txt) && \
+    KUBECTL_VERSION=$(curl -sfL --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 https://dl.k8s.io/release/stable.txt) && \
     if [ -z "$KUBECTL_VERSION" ]; then echo "Failed to fetch kubectl version"; exit 1; fi && \
-    curl -sfLO --retry 5 --retry-delay 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
+    curl -sfLO --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
     chmod +x kubectl && \
     mv kubectl /usr/local/bin/kubectl
 
@@ -90,7 +96,7 @@ RUN ARCH=$(uname -m) && \
     else \
         GH_ARCH="amd64"; \
     fi && \
-    GH_VERSION="2.63.2" && \
+    GH_VERSION="2.89.0" && \
     curl -sfL --retry 5 --retry-delay 3 "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" -o gh.tar.gz && \
     tar -xzf gh.tar.gz && \
     mv gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh /usr/local/bin/gh && \
@@ -104,7 +110,7 @@ RUN ARCH=$(uname -m) && \
         GLAB_ARCH="amd64"; \
     fi && \
     GLAB_VERSION="1.80.4" && \
-    curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GLAB_ARCH}.tar.gz" -o glab.tar.gz && \
+    curl -sfL --retry 5 --retry-delay 3 --connect-timeout 30 "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GLAB_ARCH}.tar.gz" -o glab.tar.gz && \
     tar -xzf glab.tar.gz && \
     mv bin/glab /usr/local/bin/glab && \
     rm -rf glab.tar.gz gh_${GLAB_VERSION}_linux_${GLAB_ARCH}
