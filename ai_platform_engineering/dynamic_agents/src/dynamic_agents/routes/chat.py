@@ -3,14 +3,13 @@
 import logging
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from dynamic_agents.auth.access import can_use_agent
-from dynamic_agents.auth.auth import get_current_user
+from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.log_config import conversation_id_var
-from dynamic_agents.models import ChatRequest, DynamicAgentConfig, UserContext
+from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.encoders import StreamEncoder, get_encoder
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -33,6 +32,7 @@ class ResumeStreamRequest(BaseModel):
     agent_id: str
     conversation_id: str
     form_data: str  # JSON string of form values, or rejection message
+    protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
 
 
@@ -45,6 +45,7 @@ async def _generate_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    client_context: ClientContext | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming.
 
@@ -67,6 +68,7 @@ async def _generate_sse_events(
             mcp_servers,
             session_id,
             user=user,
+            client_context=client_context,
         )
 
         # Stream response with trace_id for Langfuse tracing
@@ -82,16 +84,16 @@ async def _generate_sse_events(
 @router.post("/stream/start")
 async def chat_start_stream(
     request: ChatRequest,
-    protocol: str = Query(default="custom", pattern="^(custom|agui)$"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
     """Start streaming a chat response from a dynamic agent.
 
     Uses Server-Sent Events (SSE) for real-time streaming.
 
-    Query params:
-        protocol: "custom" (default, old SSE format) or "agui" (AG-UI protocol)
+    Body field ``protocol`` selects the wire format:
+        - "custom" (default): legacy SSE event types
+        - "agui": AG-UI protocol
 
     Events depend on the selected protocol. With protocol=custom:
     - content: Streaming text chunks
@@ -108,14 +110,10 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config
+    # Get agent config (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
     server_ids = list(agent.allowed_tools.keys())
@@ -126,11 +124,11 @@ async def chat_start_stream(
         f"agent='{agent.name}', user={user.email}, "
         f"provider={agent.model_provider}, model={agent.model_id}, "
         f"mcp_servers={len(mcp_servers)}, "
-        f"protocol={protocol}, "
+        f"protocol={request.protocol}, "
         f"trace_id={request.trace_id or 'auto'}"
     )
 
-    encoder = get_encoder(protocol)
+    encoder = get_encoder(request.protocol)
 
     return StreamingResponse(
         _generate_sse_events(
@@ -142,6 +140,7 @@ async def chat_start_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            client_context=request.client_context,
         ),
         media_type="text/event-stream",
         headers={
@@ -197,8 +196,7 @@ async def _generate_resume_sse_events(
 @router.post("/stream/resume")
 async def chat_resume_stream(
     request: ResumeStreamRequest,
-    protocol: str = Query(default="custom", pattern="^(custom|agui)$"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
     """Resume an interrupted stream after user provides form input.
@@ -207,22 +205,19 @@ async def chat_resume_stream(
     should be a JSON string of the form values, or a rejection message
     if the user dismissed the form.
 
-    Query params:
-        protocol: "custom" (default, old SSE format) or "agui" (AG-UI protocol)
+    Body field ``protocol`` selects the wire format:
+        - "custom" (default): legacy SSE event types
+        - "agui": AG-UI protocol
 
     Events depend on the selected protocol. See /stream/start for details.
     """
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config
+    # Get agent config (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
     server_ids = list(agent.allowed_tools.keys())
@@ -230,10 +225,10 @@ async def chat_resume_stream(
 
     logger.info(
         f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, "
-        f"protocol={protocol}, trace_id={request.trace_id or 'auto'}"
+        f"protocol={request.protocol}, trace_id={request.trace_id or 'auto'}"
     )
 
-    encoder = get_encoder(protocol)
+    encoder = get_encoder(request.protocol)
 
     return StreamingResponse(
         _generate_resume_sse_events(
@@ -258,7 +253,7 @@ async def chat_resume_stream(
 @router.post("/invoke")
 async def chat_invoke(
     request: ChatRequest,
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Non-streaming chat invocation (for simple integrations).
@@ -268,14 +263,10 @@ async def chat_invoke(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config
+    # Get agent config (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Get MCP servers for this agent
     server_ids = list(agent.allowed_tools.keys())
@@ -295,6 +286,7 @@ async def chat_invoke(
             mcp_servers,
             request.conversation_id,
             user=user,
+            client_context=request.client_context,
         )
 
         # Use custom encoder for invoke — we just need accumulated content
@@ -327,7 +319,7 @@ async def chat_invoke(
 @router.post("/restart-runtime")
 async def restart_runtime(
     request: RestartRuntimeRequest,
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Restart the agent runtime by invalidating the cache.
@@ -338,14 +330,10 @@ async def restart_runtime(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config to verify access
+    # Get agent config to verify it exists (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access - only users who can use the agent can restart it
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Invalidate the runtime cache
     cache = get_runtime_cache()
@@ -371,7 +359,7 @@ class CancelStreamRequest(BaseModel):
 @router.post("/stream/cancel")
 async def cancel_stream(
     request: CancelStreamRequest,
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Cancel an active streaming request.
@@ -387,14 +375,10 @@ async def cancel_stream(
         f"[cancel] Cancel request received: agent={request.agent_id}, conv={request.conversation_id}, user={user.email}"
     )
 
-    # Get agent config to verify access
+    # Get agent config to verify it exists (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Check access - only users who can use the agent can cancel it
-    if not can_use_agent(agent, user):
-        raise HTTPException(status_code=403, detail="Access denied")
 
     # Cancel the stream via the runtime cache
     cache = get_runtime_cache()

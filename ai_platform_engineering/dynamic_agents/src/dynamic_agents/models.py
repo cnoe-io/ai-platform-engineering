@@ -1,10 +1,13 @@
 """Pydantic models for Dynamic Agents service."""
 
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class TransportType(str, Enum):
@@ -31,15 +34,18 @@ class VisibilityType(str, Enum):
 class UserContext(BaseModel):
     """Authenticated user context.
 
-    Created from JWT claims during authentication and passed through
-    to services that need user information.
+    Only ``email`` is required.  Everything else is opaque — callers may
+    pass arbitrary fields (``is_admin``, ``groups``, ``can_view_admin``,
+    etc.) and they will be stored and accessible as attributes via
+    Pydantic's ``extra="allow"``.
+
+    The ``user_info`` tool dumps all fields so agents can see whatever
+    the gateway or auth layer chose to include.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     email: str
-    name: str | None = None
-    groups: list[str] = []
-    is_admin: bool = False
-    raw_claims: dict[str, Any] = {}
 
 
 # =============================================================================
@@ -175,13 +181,13 @@ class UserInfoToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
-class SleepToolConfig(BaseModel):
-    """Configuration for the sleep built-in tool."""
+class WaitToolConfig(BaseModel):
+    """Configuration for the wait built-in tool."""
 
     enabled: bool = Field(True, description="Whether the tool is enabled")
     max_seconds: int = Field(
         300,
-        description="Maximum sleep duration in seconds",
+        description="Maximum wait duration in seconds",
         ge=1,
         le=3600,
     )
@@ -193,8 +199,16 @@ class RequestUserInputToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
+class SelfIdentityToolConfig(BaseModel):
+    """Configuration for the self_identity built-in tool."""
+
+    enabled: bool = Field(True, description="Whether the tool is enabled")
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     fetch_url: FetchUrlToolConfig | None = Field(
         None,
@@ -208,14 +222,38 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the user_info tool (returns info about the current user)",
     )
-    sleep: SleepToolConfig | None = Field(
+    wait: WaitToolConfig | None = Field(
         None,
-        description="Configuration for the sleep tool (pauses execution)",
+        description="Configuration for the wait tool (pauses execution)",
     )
     request_user_input: RequestUserInputToolConfig | None = Field(
         None,
         description="Configuration for the request_user_input tool (requests structured input from user)",
     )
+    self_identity: SelfIdentityToolConfig | None = Field(
+        None,
+        alias="agent_info",
+        description="Configuration for the self_identity tool (returns this agent's identity)",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_sleep_to_wait(cls, data: Any) -> Any:
+        """Backward-compat: migrate legacy ``sleep`` field to ``wait``.
+
+        Existing MongoDB documents may still contain ``builtin_tools.sleep``
+        from before the rename.  This validator transparently migrates them
+        so the rest of the codebase only needs to know about ``wait``.
+        """
+        if isinstance(data, dict) and "sleep" in data:
+            if "wait" not in data or data["wait"] is None:
+                data["wait"] = data.pop("sleep")
+                logger.warning("Migrated deprecated 'builtin_tools.sleep' → 'wait'")
+            else:
+                # Both present — drop the legacy field, keep explicit 'wait'
+                data.pop("sleep")
+                logger.warning("Dropped deprecated 'builtin_tools.sleep' (explicit 'wait' already set)")
+        return data
 
 
 # =============================================================================
@@ -344,13 +382,28 @@ class DynamicAgentConfig(DynamicAgentConfigBase):
 # =============================================================================
 
 
+class ClientContext(BaseModel):
+    """Opaque client context passed through to system prompt rendering.
+
+    Only ``source`` is required. Clients send arbitrary extra fields
+    (e.g. overthink, channel_type) which agent system prompts can
+    reference via Jinja2 conditionals like ``{% if client_context.overthink %}``.
+    """
+
+    source: str = Field(..., description="Client identifier, e.g. 'slack', 'webui'")
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ChatRequest(BaseModel):
     """Request to chat with a dynamic agent."""
 
     message: str = Field(..., description="User message")
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
+    protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
+    client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
 
 
 # =============================================================================

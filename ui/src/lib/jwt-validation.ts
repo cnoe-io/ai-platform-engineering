@@ -4,6 +4,10 @@
  * Uses the same env vars as the Python backend:
  *   OIDC_ISSUER, OIDC_DISCOVERY_URL, OIDC_CLIENT_ID
  *
+ * Additional JWKS endpoints can be configured for service clients
+ * (e.g. Slack bot using a separate OIDC app for client credentials):
+ *   OIDC_ADDITIONAL_JWKS — comma-separated JWKS URLs
+ *
  * In dev mode (OIDC_ISSUER not set), validation is bypassed and a
  * fallback identity is returned.
  */
@@ -18,6 +22,9 @@ export interface JWTIdentity {
 
 let _cachedJWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
 let _cachedJWKSUri: string | null = null;
+
+// Cache for additional JWKS endpoints (keyed by URL)
+const _additionalJWKSCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 /**
  * Fetch the JWKS URI from OIDC discovery and cache the keyset.
@@ -49,12 +56,40 @@ async function getJWKS(): Promise<ReturnType<typeof createRemoteJWKSet>> {
 }
 
 /**
+ * Get cached JWKS keysets for additional JWKS URLs.
+ *
+ * Parses ``OIDC_ADDITIONAL_JWKS`` (comma-separated JWKS URLs) and returns
+ * a cached ``createRemoteJWKSet`` for each.  These are used as fallbacks
+ * when the primary OIDC JWKS doesn't contain a matching key — e.g. for
+ * service clients using a separate OIDC app for client credentials.
+ */
+function getAdditionalJWKSets(): ReturnType<typeof createRemoteJWKSet>[] {
+  const raw = process.env.OIDC_ADDITIONAL_JWKS;
+  if (!raw) return [];
+
+  const urls = raw.split(',').map((u) => u.trim()).filter(Boolean);
+  return urls.map((url) => {
+    let jwks = _additionalJWKSCache.get(url);
+    if (!jwks) {
+      jwks = createRemoteJWKSet(new URL(url));
+      _additionalJWKSCache.set(url, jwks);
+    }
+    return jwks;
+  });
+}
+
+/**
  * Validate a Bearer JWT token against the OIDC provider's JWKS.
  *
- * When `OIDC_ISSUER` is not set (dev mode), returns a fallback identity
- * without validation.
+ * Tries the primary OIDC JWKS first (with issuer and audience checks).
+ * If the token's signing key is not found in the primary JWKS, falls back
+ * to any additional JWKS endpoints configured via ``OIDC_ADDITIONAL_JWKS``
+ * (signature validation only — the trust anchor is the JWKS URL itself,
+ * configured by the admin).
  *
- * @throws Error if the token is invalid or expired
+ * When `OIDC_ISSUER` is not set (dev mode), throws an error.
+ *
+ * @throws Error if the token is invalid, expired, or no matching key is found
  */
 export async function validateBearerJWT(
   token: string,
@@ -68,12 +103,37 @@ export async function validateBearerJWT(
   const jwks = await getJWKS();
   const audience = process.env.OIDC_CLIENT_ID || undefined;
 
-  const { payload } = await jwtVerify(token, jwks, {
-    issuer,
-    audience,
-  });
+  try {
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer,
+      audience,
+    });
+    console.log(`[jwt] Validated via primary JWKS (iss=${issuer})`);
+    return extractIdentity(payload);
+  } catch (primaryError) {
+    // Only fall back to additional JWKS on key-not-found errors.
+    // Expiry, audience mismatch, etc. should fail immediately.
+    const message = primaryError instanceof Error ? primaryError.message : '';
+    if (!message.includes('no applicable key found')) {
+      throw primaryError;
+    }
 
-  return extractIdentity(payload);
+    // Try each additional JWKS (signature-only, no iss/aud checks)
+    const additionalSets = getAdditionalJWKSets();
+    const additionalUrls = (process.env.OIDC_ADDITIONAL_JWKS || '').split(',').map((u) => u.trim()).filter(Boolean);
+    for (let i = 0; i < additionalSets.length; i++) {
+      try {
+        const { payload } = await jwtVerify(token, additionalSets[i]);
+        console.log(`[jwt] Validated via additional JWKS (${additionalUrls[i]})`);
+        return extractIdentity(payload);
+      } catch {
+        // This keyset didn't match either — try the next one
+      }
+    }
+
+    // No keyset matched
+    throw primaryError;
+  }
 }
 
 /**
@@ -114,6 +174,7 @@ function extractIdentity(payload: JWTPayload): JWTIdentity {
 export function _resetJWKSCache(): void {
   _cachedJWKS = null;
   _cachedJWKSUri = null;
+  _additionalJWKSCache.clear();
 }
 
 // ============================================================================

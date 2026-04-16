@@ -2,9 +2,9 @@
 
 Produces **AG-UI protocol format** SSE frames. Composes a
 ``LangGraphStreamHelper`` for chunk parsing and namespace correlation.
-Owns AG-UI-specific state (``active_message_ids``) for
-TEXT_MESSAGE_START/END pairing. Emits CUSTOM(NAMESPACE_CONTEXT) for
-subagent events.
+Owns AG-UI-specific state (``_active_message_ids`` for
+TEXT_MESSAGE_START/END pairing, ``_last_emitted_namespace`` for
+change-based NAMESPACE_CONTEXT emission).
 
 Wire format examples::
 
@@ -78,11 +78,15 @@ class AGUIStreamEncoder(StreamEncoder):
     AG-UI-specific state:
     - ``_active_message_ids``: tracks open TEXT_MESSAGE per namespace key
       for proper START/END pairing.
+    - ``_last_emitted_namespace``: tracks the most recently emitted
+      NAMESPACE_CONTEXT to avoid redundant emissions and ensure correct
+      attribution when concurrent subagent events interleave.
     """
 
     def __init__(self) -> None:
         self._helper = LangGraphStreamHelper()
         self._active_message_ids: dict[str, str | None] = {}
+        self._last_emitted_namespace: tuple[str, ...] = ()
         self._run_id: str = ""
         self._thread_id: str = ""
 
@@ -213,6 +217,31 @@ class AGUIStreamEncoder(StreamEncoder):
     def get_accumulated_content(self) -> str:
         return self._helper.get_accumulated_content()
 
+    # ── Namespace tracking ────────────────────────────────
+
+    def _emit_namespace_if_changed(self, namespace: tuple[str, ...]) -> list[str]:
+        """Emit NAMESPACE_CONTEXT only when the namespace has changed.
+
+        Tracks ``_last_emitted_namespace`` to avoid redundant emissions.
+        This ensures correct attribution when concurrent subagent events
+        interleave on a single SSE connection — the client updates its
+        ``currentNamespace`` state from these events.
+        """
+        if namespace == self._last_emitted_namespace:
+            return []
+        self._last_emitted_namespace = namespace
+        return [
+            _sse_frame(
+                "CUSTOM",
+                {
+                    "type": "CUSTOM",
+                    "name": "NAMESPACE_CONTEXT",
+                    "value": {"namespace": list(namespace)},
+                    "timestamp": _ts(),
+                },
+            )
+        ]
+
     # ── Private: messages mode ────────────────────────────
 
     def _handle_messages(
@@ -250,18 +279,7 @@ class AGUIStreamEncoder(StreamEncoder):
         if self._active_message_ids.get(ns_key) is None:
             message_id = _new_id("msg-")
             self._active_message_ids[ns_key] = message_id
-            if namespace:
-                frames.append(
-                    _sse_frame(
-                        "CUSTOM",
-                        {
-                            "type": "CUSTOM",
-                            "name": "NAMESPACE_CONTEXT",
-                            "value": {"namespace": list(namespace)},
-                            "timestamp": _ts(),
-                        },
-                    )
-                )
+            frames.extend(self._emit_namespace_if_changed(namespace))
             frames.append(
                 _sse_frame(
                     "TEXT_MESSAGE_START",
@@ -275,6 +293,7 @@ class AGUIStreamEncoder(StreamEncoder):
             )
 
         message_id = self._active_message_ids[ns_key]  # type: ignore[assignment]
+        frames.extend(self._emit_namespace_if_changed(namespace))
         frames.append(
             _sse_frame(
                 "TEXT_MESSAGE_CONTENT",
@@ -340,18 +359,7 @@ class AGUIStreamEncoder(StreamEncoder):
                         args = tc_info["args"]
 
                         logger.debug(f"[sse:TOOL_CALL_START] {tool_name} id={tool_call_id[:8]}... ns={namespace}")
-                        if namespace:
-                            results.append(
-                                _sse_frame(
-                                    "CUSTOM",
-                                    {
-                                        "type": "CUSTOM",
-                                        "name": "NAMESPACE_CONTEXT",
-                                        "value": {"namespace": list(namespace)},
-                                        "timestamp": _ts(),
-                                    },
-                                )
-                            )
+                        results.extend(self._emit_namespace_if_changed(namespace))
                         results.append(
                             _sse_frame(
                                 "TOOL_CALL_START",
@@ -384,18 +392,7 @@ class AGUIStreamEncoder(StreamEncoder):
                         error = content
 
                     logger.debug(f"[sse:TOOL_CALL_END] id={tool_call_id[:8]}... ns={namespace} error={bool(error)}")
-                    if namespace:
-                        results.append(
-                            _sse_frame(
-                                "CUSTOM",
-                                {
-                                    "type": "CUSTOM",
-                                    "name": "NAMESPACE_CONTEXT",
-                                    "value": {"namespace": list(namespace)},
-                                    "timestamp": _ts(),
-                                },
-                            )
-                        )
+                    results.extend(self._emit_namespace_if_changed(namespace))
                     if error:
                         results.append(
                             _sse_frame(

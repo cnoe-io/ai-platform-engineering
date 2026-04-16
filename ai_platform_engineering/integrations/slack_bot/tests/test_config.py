@@ -70,46 +70,34 @@ C456:
     assert cfg.channels["C123"].other is not None
     assert cfg.channels["C123"].other.jira is None  # No jira config by default
 
-  def test_config_with_custom_prompt(self, monkeypatch):
+  def test_config_with_qanda_overthink(self, monkeypatch):
+    """Q&A config preserves overthink flag (prompt logic moved to agent config)."""
     monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
     monkeypatch.setenv(
       "CAIPE_BOT_CONFIG",
-      '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "Custom: {message_text}"}, "ai_alerts": {"enabled": "false"}, "other": {"jira": {"project_key": "TEST"}}}}',
+      '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "overthink": true}, "ai_alerts": {"enabled": "false"}, "other": {"jira": {"project_key": "TEST"}}}}',
     )
     cfg = Config.from_env()
-    cfg.apply_defaults_to_channels()
-    assert "C123" in cfg.channels
-    # Custom prompt should have style instruction appended
-    assert "Custom: {message_text}" in cfg.channels["C123"].qanda.custom_prompt
-    assert cfg.defaults.response_style_instruction in cfg.channels["C123"].qanda.custom_prompt
+    assert cfg.channels["C123"].qanda.overthink is True
 
-  def test_config_applies_defaults(self):
-    # Uses default from conftest - no custom prompt set
+  def test_config_loads_channels(self):
+    # Uses default from conftest
     cfg = Config.from_env()
-    cfg.apply_defaults_to_channels()
     assert "C123" in cfg.channels
-    # Verify explicit values
     assert cfg.channels["C123"].ai_enabled is True
     assert cfg.channels["C123"].qanda.enabled is False
     assert cfg.channels["C123"].ai_alerts.enabled is False
-    # Verify default prompt is applied (without response_style_instruction - only added to custom prompts)
-    assert cfg.channels["C123"].qanda.custom_prompt == cfg.defaults.default_qanda_prompt
 
   def test_config_preserves_explicit_values(self, monkeypatch):
     monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
     monkeypatch.setenv(
       "CAIPE_BOT_CONFIG",
-      '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true", "custom_prompt": "test"}, "ai_alerts": {"enabled": "false"}, "other": {"jira": {"project_key": "TEST"}}}}',
+      '{"C123": {"name": "#test-channel", "ai_enabled": "true", "qanda": {"enabled": "true"}, "ai_alerts": {"enabled": "false"}, "other": {"jira": {"project_key": "TEST"}}}}',
     )
     cfg = Config.from_env()
-    cfg.apply_defaults_to_channels()
     assert "C123" in cfg.channels
-    # Verify explicit values are preserved
     assert cfg.channels["C123"].ai_enabled is True
     assert cfg.channels["C123"].qanda.enabled is True
-    # Custom prompt should have style appended
-    assert "test" in cfg.channels["C123"].qanda.custom_prompt
-    assert cfg.defaults.response_style_instruction in cfg.channels["C123"].qanda.custom_prompt
 
   def test_config_include_bots(self, monkeypatch):
     monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
@@ -120,30 +108,6 @@ C456:
     cfg = Config.from_env()
     assert cfg.channels["C123"].qanda.include_bots.enabled is True
     assert cfg.channels["C123"].qanda.include_bots.bot_list == ["Bot1", "Bot2"]
-
-  def test_config_with_channel_mention_custom_prompt(self, monkeypatch):
-    monkeypatch.setenv(
-      "SLACK_INTEGRATION_BOT_CONFIG",
-      """
-C123:
-  name: "#test-channel"
-  ai_enabled: true
-  custom_prompt: "Channel prompt: {message_text}"
-  qanda:
-    enabled: false
-  ai_alerts:
-    enabled: false
-  default:
-    project_key: TEST
-""",
-    )
-    cfg = Config.from_env()
-    assert cfg.channels["C123"].custom_prompt == "Channel prompt: {message_text}"
-
-  def test_config_channel_mention_custom_prompt_defaults_to_none(self):
-    # Uses default from conftest - no custom_prompt set
-    cfg = Config.from_env()
-    assert cfg.channels["C123"].custom_prompt is None
 
   def test_config_mutual_exclusivity_validation(self, monkeypatch):
     # Both ai_alerts and qanda.include_bots enabled should raise error
