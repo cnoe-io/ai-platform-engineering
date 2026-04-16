@@ -8,5 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY config-bridge.py .
 COPY config.yaml.j2 .
 
+RUN mkdir -p /etc/agentgateway && chown nobody:nogroup /etc/agentgateway
+
 USER nobody
 CMD ["python", "config-bridge.py"]

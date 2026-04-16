@@ -2090,8 +2090,7 @@ services:
       KC_LOG_LEVEL: info
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
     volumes:
-      - keycloak-data:/opt/keycloak/data
-      - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json
+      - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
       - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
     ports:
       - "7080:7080"
@@ -2173,6 +2172,8 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+    profiles:
+      - rbac
     depends_on:
       keycloak:
         condition: service_healthy
@@ -2331,8 +2332,6 @@ volumes:
   langgraph_postgres_data:
     driver: local
   langgraph_mongodb_data:
-    driver: local
-  keycloak-data:
     driver: local
   ag_config:
     driver: local

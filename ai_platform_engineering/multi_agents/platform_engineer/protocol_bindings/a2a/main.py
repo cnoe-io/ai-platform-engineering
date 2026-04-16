@@ -219,6 +219,13 @@ elif A2A_AUTH_OAUTH2:
 else:
     logger.info("Using no authentication")
 
+# JWT user context middleware — extracts user identity from the Bearer token
+# and stores it in a per-request contextvar. Runs after auth so the token is
+# already validated. Active whenever a Bearer token is present (no extra flag).
+from ai_platform_engineering.utils.auth.jwt_user_context_middleware import JwtUserContextMiddleware
+app.add_middleware(JwtUserContextMiddleware)
+logger.info("JWT user context middleware enabled")
+
 # Add CORSMiddleware to allow requests from any origin
 app.add_middleware(
     CORSMiddleware,

@@ -267,6 +267,11 @@ def extract_groups_from_claims(claims: dict[str, Any], settings: Settings) -> li
         if value is not None:
             add_groups_from_value(value)
 
+    # Keycloak stores realm roles at realm_access.roles — always include these
+    realm_access = claims.get("realm_access")
+    if isinstance(realm_access, dict):
+        add_groups_from_value(realm_access.get("roles", []))
+
     return list(groups)
 
 

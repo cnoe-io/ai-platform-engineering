@@ -181,6 +181,10 @@ except Exception as _e:
 _seen_events: dict[str, float] = {}
 _SEEN_TTL = 30.0  # seconds
 
+# Rate-limit "account not linked" prompts — at most once per hour per user
+_linking_prompt_sent: dict[str, float] = {}
+_LINKING_PROMPT_COOLDOWN = float(os.environ.get("SLACK_LINKING_PROMPT_COOLDOWN", "3600"))
+
 @app.middleware
 def rbac_global_middleware(body, context, next, logger):
     # Deduplicate retried events
@@ -268,6 +272,12 @@ def rbac_global_middleware(body, context, next, logger):
     )
 
     if rbac_status == "unlinked":
+        import time as _time
+        now = _time.time()
+        last_sent = _linking_prompt_sent.get(slack_user_id, 0)
+        if now - last_sent < _LINKING_PROMPT_COOLDOWN:
+            logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
+            return
         linking_url = asyncio.run(generate_linking_url(slack_user_id))
         if channel:
             try:
@@ -279,6 +289,7 @@ def rbac_global_middleware(body, context, next, logger):
                         f"<{linking_url}|Click here to link your account> before using this feature."
                     ),
                 )
+                _linking_prompt_sent[slack_user_id] = now
             except Exception:
                 logger.warning("Could not send linking prompt to %s", slack_user_id)
         return

@@ -88,7 +88,7 @@ async function getAuthorizedRagHeaders(method: string): Promise<Record<string, s
   }
 
   await requireRbacPermission(
-    { accessToken: session.accessToken, sub: session.sub, org: session.org },
+    { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
     'rag',
     scopeForRagProxyMethod(method),
   );

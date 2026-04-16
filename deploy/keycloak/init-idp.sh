@@ -33,6 +33,7 @@ fi
 
 ALIAS="${IDP_ALIAS:-upstream-oidc}"
 DISPLAY="${IDP_DISPLAY_NAME:-Upstream OIDC}"
+SILENT_FLOW_ALIAS="caipe-silent-broker-login"
 
 # --- helper: extract a string field from JSON (no jq needed) ---
 json_field() {
@@ -119,6 +120,172 @@ else
   echo "[init-idp]   WARNING: default-roles-caipe role not found."
 fi
 
+# --- ensure chat_user is also in default-roles-caipe ---
+echo "[init-idp] Ensuring chat_user is in default-roles-caipe ..."
+if [ -n "${DEFAULT_ROLE_ID}" ]; then
+  COMPOSITES=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" 2>/dev/null || echo "[]")
+  if echo "${COMPOSITES}" | grep -q '"chat_user"'; then
+    echo "[init-idp]   chat_user already in default-roles-caipe."
+  else
+    CHAT_ROLE_ID=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
+      | grep -B1 '"chat_user"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    if [ -n "${CHAT_ROLE_ID}" ]; then
+      curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" \
+        -d "[{\"id\":\"${CHAT_ROLE_ID}\",\"name\":\"chat_user\"}]" && \
+        echo "[init-idp]   Added chat_user to default-roles-caipe." || \
+        echo "[init-idp]   WARNING: failed to add chat_user to default-roles-caipe."
+    else
+      echo "[init-idp]   WARNING: chat_user role not found in realm."
+    fi
+  fi
+fi
+
+# --- configure user profile: allow slack_user_id attribute ---
+# Keycloak 26+ silently drops custom attributes not in the user profile schema.
+# We add slack_user_id and enable unmanagedAttributePolicy=ADMIN_EDIT so that
+# the Admin API (used by identity linking and user management) can set attributes.
+echo "[init-idp] Configuring user profile for slack_user_id ..."
+PROFILE=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/users/profile" 2>/dev/null || echo "")
+
+if [ -n "${PROFILE}" ]; then
+  UPDATED_PROFILE=$(echo "${PROFILE}" | python3 -c "
+import sys, json
+try:
+    p = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+# Add slack_user_id if not already present
+names = [a['name'] for a in p.get('attributes', [])]
+if 'slack_user_id' not in names:
+    p.setdefault('attributes', []).append({
+        'name': 'slack_user_id',
+        'displayName': 'Slack User ID',
+        'permissions': {'view': ['admin'], 'edit': ['admin']},
+        'multivalued': False
+    })
+# Enable unmanaged attributes for admin
+p['unmanagedAttributePolicy'] = 'ADMIN_EDIT'
+json.dump(p, sys.stdout)
+" 2>/dev/null)
+
+  if [ -n "${UPDATED_PROFILE}" ]; then
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/users/profile" \
+      -d "${UPDATED_PROFILE}" && \
+      echo "[init-idp]   User profile updated (slack_user_id + unmanagedAttributePolicy=ADMIN_EDIT)." || \
+      echo "[init-idp]   WARNING: failed to update user profile."
+  else
+    echo "[init-idp]   WARNING: failed to parse user profile JSON (python3 required)."
+  fi
+else
+  echo "[init-idp]   WARNING: could not fetch user profile."
+fi
+
+# --- create silent broker login flow (auto-link by email, zero user prompts) ---
+# Uses two executions (both ALTERNATIVE):
+#   1. idp-create-user-if-unique  — creates a new local account when no match exists
+#   2. idp-auto-link              — silently links the brokered identity to the matching
+#                                   local account (matched by email) without showing any
+#                                   "Account already exists" or confirmation page.
+# trustEmail=true on the IdP (set below) is required for idp-auto-link to match by email.
+echo "[init-idp] Ensuring silent broker login flow '${SILENT_FLOW_ALIAS}' ..."
+
+ALL_FLOWS=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/authentication/flows" 2>/dev/null || echo "[]")
+
+SILENT_FLOW_ID=$(echo "${ALL_FLOWS}" | python3 -c "
+import sys, json
+try:
+    flows = json.load(sys.stdin)
+    for f in flows:
+        if f.get('alias') == '${SILENT_FLOW_ALIAS}':
+            print(f.get('id', ''))
+            break
+except Exception:
+    pass
+" 2>/dev/null)
+
+if [ -z "${SILENT_FLOW_ID}" ]; then
+  echo "[init-idp]   Creating flow '${SILENT_FLOW_ALIAS}' ..."
+  curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows" \
+    -d "{\"alias\":\"${SILENT_FLOW_ALIAS}\",\"description\":\"Silent broker login - auto-link or create without user prompts\",\"providerId\":\"basic-flow\",\"topLevel\":true,\"builtIn\":false}" \
+    && echo "[init-idp]   Flow created." \
+    || echo "[init-idp]   WARNING: failed to create silent broker flow."
+
+  SILENT_FLOW_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows" 2>/dev/null \
+    | python3 -c "
+import sys, json
+try:
+    flows = json.load(sys.stdin)
+    for f in flows:
+        if f.get('alias') == '${SILENT_FLOW_ALIAS}':
+            print(f.get('id', ''))
+            break
+except Exception:
+    pass
+" 2>/dev/null)
+fi
+
+if [ -n "${SILENT_FLOW_ID}" ]; then
+  # NOTE: Keycloak's executions/execution POST endpoint uses the flow ALIAS, not the ID.
+  FLOW_EXECS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions" 2>/dev/null || echo "[]")
+
+  if ! echo "${FLOW_EXECS}" | grep -q '"idp-create-user-if-unique"'; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions/execution" \
+      -d '{"provider":"idp-create-user-if-unique"}' \
+      && echo "[init-idp]   Added idp-create-user-if-unique." \
+      || echo "[init-idp]   WARNING: failed to add idp-create-user-if-unique."
+  else
+    echo "[init-idp]   idp-create-user-if-unique already present."
+  fi
+
+  if ! echo "${FLOW_EXECS}" | grep -q '"idp-auto-link"'; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions/execution" \
+      -d '{"provider":"idp-auto-link"}' \
+      && echo "[init-idp]   Added idp-auto-link." \
+      || echo "[init-idp]   WARNING: failed to add idp-auto-link."
+  else
+    echo "[init-idp]   idp-auto-link already present."
+  fi
+
+  # Set all executions to ALTERNATIVE (re-fetch after additions)
+  UPDATED_EXECS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions" 2>/dev/null || echo "[]")
+
+  echo "${UPDATED_EXECS}" | python3 -c "
+import sys, json
+try:
+    execs = json.load(sys.stdin)
+    for e in execs:
+        eid = e.get('id', '')
+        if eid:
+            print(eid)
+except Exception:
+    pass
+" 2>/dev/null | while read EXEC_ID; do
+    [ -z "${EXEC_ID}" ] && continue
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions" \
+      -d "{\"id\":\"${EXEC_ID}\",\"requirement\":\"ALTERNATIVE\"}" 2>/dev/null \
+      && echo "[init-idp]   Set execution ${EXEC_ID} to ALTERNATIVE." \
+      || echo "[init-idp]   WARNING: could not set requirement for ${EXEC_ID}."
+  done
+
+  echo "[init-idp]   Silent broker flow ready (ID: ${SILENT_FLOW_ID})."
+else
+  echo "[init-idp]   WARNING: silent broker flow ID not found — falling back to 'first broker login'."
+  SILENT_FLOW_ALIAS="first broker login"
+fi
+
 # --- create or update IdP ---
 IDP_JSON=$(cat <<ENDJSON
 {
@@ -129,7 +296,7 @@ IDP_JSON=$(cat <<ENDJSON
   "trustEmail": true,
   "storeToken": false,
   "addReadTokenRoleOnCreate": false,
-  "firstBrokerLoginFlowAlias": "first broker login",
+  "firstBrokerLoginFlowAlias": "${SILENT_FLOW_ALIAS}",
   "config": {
     "clientId": "${IDP_CLIENT_ID}",
     "clientSecret": "${IDP_CLIENT_SECRET}",
@@ -395,4 +562,39 @@ curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
   echo "[init-idp]   Realm profile updated." || \
   echo "[init-idp]   WARNING: could not update realm profile settings."
 
-echo "[init-idp] Done — IdP '${ALIAS}' is ready."
+# --- auto-redirect to the IdP (skip Keycloak login page) ---
+# Configures the "Identity Provider Redirector" execution in the browser
+# flow to default to this IdP.  Users can still bypass with ?kc_idp_hint=
+# or by navigating to the Keycloak login page directly.
+echo "[init-idp] Setting '${ALIAS}' as default IdP redirector in browser flow ..."
+BROWSER_EXECS=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/authentication/flows/browser/executions" 2>/dev/null || echo "[]")
+
+REDIR_ID=$(echo "${BROWSER_EXECS}" | grep -B2 '"identity-provider-redirector"' \
+  | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+
+if [ -n "${REDIR_ID}" ]; then
+  # Get existing authenticator config (if any)
+  REDIR_CONFIG_ID=$(echo "${BROWSER_EXECS}" | grep -A5 '"identity-provider-redirector"' \
+    | grep -o '"authenticationConfig" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+
+  if [ -n "${REDIR_CONFIG_ID}" ]; then
+    # Update existing config
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/config/${REDIR_CONFIG_ID}" \
+      -d "{\"id\":\"${REDIR_CONFIG_ID}\",\"alias\":\"${ALIAS}-redirector\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
+      echo "[init-idp]   Updated IdP redirector to default to '${ALIAS}'." || \
+      echo "[init-idp]   WARNING: failed to update IdP redirector config."
+  else
+    # Create new config for the execution
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/executions/${REDIR_ID}/config" \
+      -d "{\"alias\":\"${ALIAS}-redirector\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
+      echo "[init-idp]   Created IdP redirector defaulting to '${ALIAS}'." || \
+      echo "[init-idp]   WARNING: failed to create IdP redirector config."
+  fi
+else
+  echo "[init-idp]   WARNING: identity-provider-redirector execution not found in browser flow."
+fi
+
+echo "[init-idp] Done — IdP '${ALIAS}' is ready (auto-redirect enabled)."

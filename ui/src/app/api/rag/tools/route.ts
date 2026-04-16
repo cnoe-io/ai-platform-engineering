@@ -65,7 +65,7 @@ export async function GET() {
     }
 
     await requireRbacPermission(
-      { accessToken: session.accessToken, sub: session.sub, org: session.org },
+      { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
       "rag",
       "tool.view",
     );
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     }
 
     await requireRbacPermission(
-      { accessToken: session.accessToken, sub: session.sub, org: session.org },
+      { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
       "rag",
       "tool.create",
     );
