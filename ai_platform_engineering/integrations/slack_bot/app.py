@@ -42,6 +42,8 @@ if RBAC_ENABLED:
         generate_linking_url,
         auto_bootstrap_slack_user,
         SLACK_FORCE_LINK,
+        should_preauth_prompt,
+        mark_preauth_prompted,
     )
     from utils.channel_agent_mapper import resolve_channel_agent
     from utils.obo_exchange import impersonate_user, OboExchangeError
@@ -615,6 +617,52 @@ def handle_dm_message(event, say, client, context=None):
     if not message_text or not message_text.strip():
       say(text="Please include a question or message!", thread_ts=thread_ts)
       return
+
+    # 098 RBAC: Check if user needs pre-auth prompt on first message
+    if RBAC_ENABLED:
+      try:
+        should_prompt = asyncio.run(should_preauth_prompt(user_id))
+        if should_prompt:
+          linking_url = generate_linking_url(user_id)
+          asyncio.run(mark_preauth_prompted(user_id))
+
+          say(
+            blocks=[
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": f"Hi {user_name}! 👋\n\nBefore I can help you, I need to authenticate your account.",
+                },
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Authenticate Now"},
+                    "style": "primary",
+                    "url": linking_url,
+                  },
+                ],
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "This is a one-time setup. After authentication, I'll be able to answer your questions.",
+                  },
+                ],
+              },
+            ],
+            text=f"Hi {user_name}, please authenticate to proceed.",
+            thread_ts=thread_ts,
+          )
+          logger.info(f"[{thread_ts}] Sent pre-auth prompt to unlinked user {user_id}")
+          return
+      except Exception as e:
+        logger.warning(f"[{thread_ts}] Error checking preauth status: {e}")
 
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")

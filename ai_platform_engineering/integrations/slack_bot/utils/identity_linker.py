@@ -188,3 +188,57 @@ async def complete_linking(slack_user_id: str, keycloak_user_id: str) -> bool:
         keycloak_user_id,
     )
     return True
+
+
+async def mark_preauth_prompted(slack_user_id: str) -> None:
+    """Mark user as having received pre-auth prompt.
+
+    Stores a timestamp in Keycloak as a temporary attribute so we don't spam
+    the same user with multiple pre-auth prompts.
+    """
+    try:
+        # Query by slack_user_id to find any existing link (may not exist yet)
+        user = await get_user_by_attribute("slack_preauth_prompted", slack_user_id)
+        if user:
+            keycloak_user_id = user.get("id")
+        else:
+            # User not in system yet — store prompt flag for future linking
+            # This is handled by storing in temporary cache or messaging queue
+            logger.debug("User %s not yet in Keycloak, skipping preauth prompt flag", slack_user_id)
+            return
+
+        await set_user_attribute(
+            user_id=keycloak_user_id,
+            attr="slack_preauth_prompted_at",
+            value=str(int(time.time())),
+        )
+        logger.debug("Marked user %s as preauth prompted", slack_user_id)
+    except Exception as e:
+        logger.warning("Failed to mark preauth prompt for user %s: %s", slack_user_id, e)
+
+
+async def should_preauth_prompt(slack_user_id: str, prompt_ttl_seconds: int = 3600) -> bool:
+    """Check if user should receive pre-auth prompt.
+
+    Returns True if:
+    - User is not linked to Keycloak, AND
+    - We haven't already prompted them recently (within prompt_ttl_seconds)
+    """
+    # Check if already linked
+    keycloak_user_id = await resolve_slack_user(slack_user_id)
+    if keycloak_user_id is not None:
+        return False  # Already linked, no prompt needed
+
+    # Check if recently prompted
+    try:
+        user = await get_user_by_attribute("slack_preauth_prompted_at", slack_user_id)
+        if user:
+            prompted_at_str = user.get("attributes", {}).get("slack_preauth_prompted_at", ["0"])[0]
+            prompted_at = int(prompted_at_str)
+            if int(time.time()) - prompted_at < prompt_ttl_seconds:
+                logger.debug("User %s was recently prompted, skipping", slack_user_id)
+                return False
+    except Exception as e:
+        logger.debug("Error checking preauth prompt status: %s", e)
+
+    return True
