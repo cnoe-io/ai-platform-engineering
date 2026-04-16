@@ -199,14 +199,16 @@ class RequestUserInputToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
-class AgentInfoToolConfig(BaseModel):
-    """Configuration for the agent_info built-in tool."""
+class SelfIdentityToolConfig(BaseModel):
+    """Configuration for the self_identity built-in tool."""
 
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     fetch_url: FetchUrlToolConfig | None = Field(
         None,
@@ -228,9 +230,10 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the request_user_input tool (requests structured input from user)",
     )
-    agent_info: AgentInfoToolConfig | None = Field(
+    self_identity: SelfIdentityToolConfig | None = Field(
         None,
-        description="Configuration for the agent_info tool (returns information about this agent)",
+        alias="agent_info",
+        description="Configuration for the self_identity tool (returns this agent's identity)",
     )
 
     @model_validator(mode="before")

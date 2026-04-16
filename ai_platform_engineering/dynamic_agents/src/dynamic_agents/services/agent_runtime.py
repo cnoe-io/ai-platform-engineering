@@ -34,10 +34,10 @@ from dynamic_agents.models import (
     UserContext,
 )
 from dynamic_agents.services.builtin_tools import (
-    create_agent_info_tool,
     create_current_datetime_tool,
     create_fetch_url_tool,
     create_request_user_input_tool,
+    create_self_identity_tool,
     create_user_info_tool,
     create_wait_tool,
 )
@@ -333,12 +333,12 @@ class AgentRuntime:
             tools.append(create_request_user_input_tool())
             config_summary["request_user_input"] = {}
 
-        # agent_info tool (enabled by default)
-        agent_info_config = config.builtin_tools.agent_info
-        if agent_info_config and agent_info_config.enabled:
+        # self_identity tool (enabled by default)
+        self_identity_config = config.builtin_tools.self_identity
+        if self_identity_config and self_identity_config.enabled:
             gradient_theme = config.ui.gradient_theme if config.ui else None
             tools.append(
-                create_agent_info_tool(
+                create_self_identity_tool(
                     name=config.name,
                     description=config.description,
                     model_id=config.model_id,
@@ -346,7 +346,7 @@ class AgentRuntime:
                     gradient_theme=gradient_theme,
                 )
             )
-            config_summary["agent_info"] = {}
+            config_summary["self_identity"] = {}
 
         if tools:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")

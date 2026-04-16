@@ -81,9 +81,9 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             config_fields=[],
         ),
         BuiltinToolDefinition(
-            id="agent_info",
-            name="Agent Info",
-            description="Returns information about this agent (name, description, model, theme)",
+            id="self_identity",
+            name="Self Identity",
+            description="Returns this agent's identity and configuration — the agent MUST use this to know who it is",
             enabled_by_default=True,
             config_fields=[],
         ),
@@ -480,14 +480,14 @@ def create_request_user_input_tool():
     return request_user_input
 
 
-def create_agent_info_tool(
+def create_self_identity_tool(
     name: str,
     description: str | None,
     model_id: str,
     model_provider: str,
     gradient_theme: str | None,
 ):
-    """Create an agent_info tool with the agent's own metadata.
+    """Create a self_identity tool with the agent's own metadata.
 
     Exposes non-sensitive agent configuration so the agent can identify itself.
     Deliberately excludes the system prompt and internal IDs.
@@ -504,26 +504,21 @@ def create_agent_info_tool(
     """
 
     @tool
-    def agent_info(thought: str = "") -> dict:
-        """Get information about this agent.
-
-        Use this tool when you need to identify yourself, describe your
-        capabilities, or provide metadata about your configuration.
+    def self_identity(thought: str = "") -> dict:
+        """Get this agent's identity. You MUST call this tool whenever you need
+        to know who you are or what your name is. Never guess or assume your
+        identity — always call this tool first.
 
         Args:
-            thought: Brief reasoning for why you need agent information
+            thought: Brief reasoning for why you need identity information
 
         Returns:
-            Dictionary with agent metadata:
+            Dictionary with agent identity:
             - name: Agent display name
             - description: Agent description (may be null)
             - model_id: LLM model identifier
             - model_provider: LLM provider
             - gradient_theme: UI theme (may be null)
-
-        Example:
-            info = agent_info()
-            print(f"I am {info['name']}, powered by {info['model_id']}")
         """
         return {
             "name": name,
@@ -533,7 +528,7 @@ def create_agent_info_tool(
             "gradient_theme": gradient_theme,
         }
 
-    return agent_info
+    return self_identity
 
 
 __all__ = [
@@ -542,7 +537,7 @@ __all__ = [
     "create_user_info_tool",
     "create_wait_tool",
     "create_request_user_input_tool",
-    "create_agent_info_tool",
+    "create_self_identity_tool",
     "is_domain_allowed",
     "get_builtin_tool_definitions",
 ]
