@@ -159,6 +159,7 @@ class SSEClient:
       "Content-Type": "application/json",
       "Accept": "text/event-stream",
       "X-Client-Source": "slack-bot",
+      "User-Agent": "caipe-slack-bot/0.4.0",
     }
     if self.auth_client:
       token = self.auth_client.get_access_token()

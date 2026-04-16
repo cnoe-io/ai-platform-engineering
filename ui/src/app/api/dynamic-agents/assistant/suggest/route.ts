@@ -9,7 +9,7 @@
  * LLM proxy with no knowledge of agent fields.
  */
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   withAuth,
   withErrorHandler,
@@ -185,6 +185,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     // Forward to backend with X-User-Context auth (same as chat routes)
     const auth = await authenticateRequest(request);
+    if (auth instanceof NextResponse) return auth;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };

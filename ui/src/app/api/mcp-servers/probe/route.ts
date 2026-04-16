@@ -6,7 +6,7 @@
  * Auth is forwarded via X-User-Context header (same as chat routes).
  */
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
   withAuth,
@@ -54,6 +54,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     try {
       // Build headers with X-User-Context (same pattern as chat routes)
       const auth = await authenticateRequest(request);
+      if (auth instanceof NextResponse) return auth;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };

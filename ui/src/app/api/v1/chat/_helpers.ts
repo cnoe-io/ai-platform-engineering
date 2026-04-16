@@ -4,19 +4,21 @@
  * These routes are transparent proxies to the Dynamic Agents backend.
  * The gateway is the auth boundary:
  *
- * - **Authenticated callers** (UI browser): user is resolved from the
- *   NextAuth session cookie and injected as a trusted ``X-User-Context``
- *   header (base64-encoded JSON) on the proxied request.
+ * - **Session cookie** (UI browser): user is resolved from the NextAuth
+ *   session and injected as a trusted ``X-User-Context`` header
+ *   (base64-encoded JSON) on the proxied request.
  *
- * - **Unauthenticated callers** (Slack bot, test scripts): no session,
- *   no header.  DA falls back to a shared default service identity.
+ * - **Bearer token** (Slack bot, service clients): validated against the
+ *   OIDC provider's JWKS.  Identity extracted from JWT claims.
  *
- * Full RBAC is planned for 0.5.0.
+ * - **Unauthenticated** (SSO enabled): rejected with 401.
+ *
+ * - **Local dev** (SSO disabled): falls back to anonymous admin user.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import { getAuthenticatedUser } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -37,16 +39,33 @@ export interface AuthResult {
  * like ``user_info``.  No group arrays are sent (they were removed from
  * the session to keep cookie size under 4KB).
  *
- * If the caller is unauthenticated (e.g. Slack bot), returns an empty
- * result — DA will use its default internal user.
+ * Auth methods (tried in order):
+ *   1. Bearer token — validated against OIDC JWKS (for service clients
+ *      like the Slack bot using OAuth2 client credentials).
+ *   2. Session cookie — resolved via NextAuth (for browser UI).
+ *   3. Anonymous fallback — only when SSO is disabled (local dev).
+ *
+ * Returns a 401 NextResponse if no valid auth is found and SSO is enabled.
  */
 export async function authenticateRequest(
   request: NextRequest,
-): Promise<AuthResult> {
+): Promise<AuthResult | NextResponse> {
+  const method = request.method;
+  const path = request.nextUrl.pathname;
+  const clientSource = request.headers.get("X-Client-Source") ?? "browser";
+  const hasBearer = request.headers.has("Authorization");
+  const authMethod = hasBearer ? "bearer" : "session";
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? request.headers.get("x-real-ip")
+    ?? "unknown";
+  const ua = request.headers.get("user-agent") ?? "unknown";
+
   try {
-    const { user, session } = await getAuthenticatedUser(request, {
-      allowAnonymous: true,
-    });
+    const { user, session } = await getAuthFromBearerOrSession(request);
+
+    console.log(
+      `[gateway] ${method} ${path} — auth=${authMethod} user=${user.email} role=${user.role} client=${clientSource} ip=${ip} ua=${ua}`,
+    );
 
     // Build X-User-Context from pre-computed authorization flags.
     // DA doesn't parse these — they pass through via extra="allow"
@@ -67,9 +86,15 @@ export async function authenticateRequest(
 
     const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
     return { userContextHeader: encoded };
-  } catch {
-    // No session / unauthenticated — DA will use its default user
-    return {};
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} reason=${message}`,
+    );
+    return NextResponse.json(
+      { success: false, error: "Unauthorized" },
+      { status: 401 },
+    );
   }
 }
 
