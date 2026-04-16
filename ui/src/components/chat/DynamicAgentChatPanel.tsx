@@ -3,19 +3,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
-import { type SSEAgentEvent, type ToolStartEventData, type ToolEndEventData, isToolStartData, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import { createStreamAdapter, type StreamCallbacks } from "@/lib/streaming";
+import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
@@ -26,15 +21,15 @@ import { MetadataInputForm, type UserInputMetadata, type InputField } from "./Me
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
 import { getGradientStyle } from "@/lib/gradient-themes";
-import { InlineEventCard } from "./InlineEventCard";
-import { DynamicAgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
-import { useDynamicAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
+import { AgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
+import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
+import { MarkdownRenderer } from "@/components/shared/timeline";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
-interface DynamicAgentChatPanelProps {
+interface ChatPanelProps {
   endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
   conversationTitle?: string;
@@ -46,7 +41,7 @@ interface DynamicAgentChatPanelProps {
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, isLoadingMessages }: DynamicAgentChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, isLoadingMessages }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -101,11 +96,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     updateMessage,
     // appendToMessage, // Unused in filtered code? Let's check. Used in error handling.
     appendToMessage,
-    // addEventToMessage, // Unused?
-    // addA2AEvent, // Removed
-    // clearA2AEvents, // Removed
-    addSSEEvent,
-    clearSSEEvents,
+    addStreamEvent,
+    clearStreamEvents,
     setConversationStreaming,
     isConversationStreaming,
     cancelConversationRequest,
@@ -120,6 +112,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // Let's remove it for now to avoid errors, as Dynamic Agents rely on SSE resume, not task polling.
     evictOldMessageContent,
     loadMessagesFromServer,
+    saveMessagesToServer,
     updateConversationTitle,
   } = useChatStore();
 
@@ -175,7 +168,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
           setSubagentCache(cache);
         }
       } catch (err) {
-        console.warn("[DynamicAgentChatPanel] Failed to fetch agents for subagent lookup:", err);
+        console.warn("[ChatPanel] Failed to fetch agents for subagent lookup:", err);
       }
     };
 
@@ -246,12 +239,35 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   }, [conversation?.messages?.length, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
 
   // Auto-scroll during streaming only if user is near the bottom
-  // Depend on both message content AND sseEvents length since timeline renders from SSE events
+  // Depend on both message content AND streamEvents length since timeline renders from SSE events
   useEffect(() => {
     if (autoScrollEnabled && isThisConversationStreaming && !isUserScrolledUp) {
       scrollToBottom("instant");
     }
-  }, [conversation?.messages?.at(-1)?.content, conversation?.sseEvents?.length, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
+  }, [conversation?.messages?.at(-1)?.content, conversation?.streamEvents?.length, isThisConversationStreaming, isUserScrolledUp, scrollToBottom, autoScrollEnabled]);
+
+  // ResizeObserver-based auto-scroll: catches DOM changes from morphdom patches
+  // that happen asynchronously after React renders (marked parses async, then
+  // morphdom patches the DOM directly). Without this, scrollToBottom fires before
+  // the DOM height has actually grown.
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport || !autoScrollEnabled) return;
+
+    const observer = new ResizeObserver(() => {
+      if (isThisConversationStreaming && !isUserScrolledUp && messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: "instant", block: "end" });
+      }
+    });
+
+    // Observe the first child of the viewport (the content wrapper)
+    const content = viewport.firstElementChild;
+    if (content) {
+      observer.observe(content);
+    }
+
+    return () => observer.disconnect();
+  }, [isThisConversationStreaming, isUserScrolledUp, autoScrollEnabled]);
 
   // Reset scroll state and visible turns when conversation changes
   useEffect(() => {
@@ -330,7 +346,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
         }
       } catch (interruptError) {
         // Non-fatal: HITL state check failed
-        console.warn("[DynamicAgentChatPanel] Failed to check interrupt state:", interruptError);
+        console.warn("[ChatPanel] Failed to check interrupt state:", interruptError);
       }
     };
 
@@ -340,31 +356,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)
   // ═══════════════════════════════════════════════════════════════
-
-  // Detect file write events and trigger a fetch
-  useEffect(() => {
-    const events = conversation?.sseEvents || [];
-    const hasFileWriteEvent = events.some(
-      (e) =>
-        e.type === "tool_start" &&
-        isToolStartData(e.toolData) &&
-        FILE_TOOL_NAMES.includes(e.toolData.tool_name as typeof FILE_TOOL_NAMES[number])
-    );
-    if (hasFileWriteEvent) {
-      setFilesFetchKey((k) => k + 1);
-    }
-  }, [conversation?.sseEvents]);
-
-  // Detect write_todos tool events and trigger a fetch
-  useEffect(() => {
-    const events = conversation?.sseEvents || [];
-    const hasWriteTodosEvent = events.some(
-      (e) => e.type === "tool_start" && isToolStartData(e.toolData) && e.toolData.tool_name === TODO_TOOL_NAME
-    );
-    if (hasWriteTodosEvent) {
-      setTodosFetchKey((k) => k + 1);
-    }
-  }, [conversation?.sseEvents]);
 
   // Fetch files from API
   useEffect(() => {
@@ -540,8 +531,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setPendingUserInput(null);
   }, [activeConversationId]);
 
-  // Track last message events length to re-trigger restoration when events load
-  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.events?.length ?? 0;
+  // Track last message SSE events length to re-trigger restoration when events load
+  const lastMsgEventsLen = conversation?.messages?.[conversation.messages.length - 1]?.streamEvents?.length ?? 0;
 
   useEffect(() => {
     if (pendingUserInput || isThisConversationStreaming) return;
@@ -562,12 +553,12 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     if (dismissedInputForMessageRef.current.has(lastMsg.id)) return;
 
     // Check for SSE "input_required" events
-    // Note: Only sseEvents have the input_required type. Message events (A2A) don't.
-    const sseEventsFromConv = conversation.sseEvents || [];
+    // Note: Only streamEvents have the input_required type. Message events (A2A) don't.
+    const streamEventsFromConv = conversation.streamEvents || [];
     
     // Find the last input_required event
     // We reverse to find the most recent one
-    const inputEvent = [...sseEventsFromConv].reverse().find((e) => e.type === "input_required");
+    const inputEvent = [...streamEventsFromConv].reverse().find((e) => e.type === "input_required");
 
     if (inputEvent && inputEvent.inputRequiredData) {
        const { prompt, fields } = inputEvent.inputRequiredData;
@@ -605,13 +596,185 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, conversation?.messages?.length, conversation?.sseEvents?.length, lastMsgEventsLen, isThisConversationStreaming, agentId]);
+  }, [activeConversationId, conversation?.messages?.length, conversation?.streamEvents?.length, lastMsgEventsLen, isThisConversationStreaming, agentId]);
 
   const handleCopy = async (content: string, id: string) => {
     await navigator.clipboard.writeText(content);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // ═══════════════════════════════════════════════════════════════
+  // Streaming state & helpers
+  // ═══════════════════════════════════════════════════════════════
+  interface StreamLoopState {
+    accumulatedText: string;
+    rawStreamContent: string;
+    hitlFormRequested: boolean;
+    hasError: boolean;
+  }
+
+  // Get the protocol-agnostic adapter config
+  const agentProtocol = getConfig('agentProtocol');
+
+  /**
+   * Build StreamCallbacks that wire adapter events into the Zustand store,
+   * HITL form, and file/todo fetches. Used by both submitMessage and HITL resume.
+   */
+  const buildStreamCallbacks = useCallback((
+    convId: string,
+    assistantMsgId: string,
+    loopState: StreamLoopState,
+    toolCallIdToName: Map<string, string>,
+  ): StreamCallbacks => ({
+    onContent(text, namespace) {
+      loopState.accumulatedText += text;
+      loopState.rawStreamContent += text;
+
+      // Build a StreamEvent for the store (timeline rendering)
+      const streamEvent = createStreamEvent("content", { text, namespace });
+      addStreamEvent(streamEvent, convId);
+
+      // Update message content immediately for progressive rendering
+      updateMessage(convId, assistantMsgId, {
+        content: loopState.accumulatedText,
+        rawStreamContent: loopState.rawStreamContent,
+      });
+    },
+
+    onToolStart(toolCallId, toolName, args, namespace) {
+      toolCallIdToName.set(toolCallId, toolName);
+      const streamEvent = createStreamEvent("tool_start", {
+        tool_name: toolName,
+        tool_call_id: toolCallId,
+        args,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+    },
+
+    onToolEnd(toolCallId, toolName, error, namespace) {
+      const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
+      const streamEvent = createStreamEvent("tool_end", {
+        tool_call_id: toolCallId,
+        error,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+
+      // Trigger file/todo fetches when the relevant tool completes
+      if (resolvedName) {
+        if (FILE_TOOL_NAMES.includes(resolvedName as typeof FILE_TOOL_NAMES[number])) {
+          setFilesFetchKey((k) => k + 1);
+        } else if (resolvedName === TODO_TOOL_NAME) {
+          setTodosFetchKey((k) => k + 1);
+        }
+      }
+    },
+
+    onInputRequired(interruptId, prompt, fields, agent) {
+      loopState.hitlFormRequested = true;
+
+      const streamEvent = createStreamEvent("input_required", {
+        interrupt_id: interruptId,
+        prompt,
+        fields,
+        agent,
+        namespace: [],
+      });
+      addStreamEvent(streamEvent, convId);
+
+      const inputFields: InputField[] = fields.map(f => ({
+        field_name: f.field_name,
+        field_label: f.field_label,
+        field_description: f.field_description,
+        field_type: f.field_type,
+        field_values: f.field_values,
+        required: f.required,
+        default_value: f.default_value,
+        placeholder: f.placeholder,
+      }));
+
+      setPendingUserInput({
+        messageId: assistantMsgId,
+        metadata: {
+          user_input: true,
+          input_title: "Input Required",
+          input_description: prompt,
+          input_fields: inputFields,
+        },
+        contextId: convId,
+        isSSE: true,
+        agentId,
+      });
+
+      if (prompt) {
+        loopState.accumulatedText = prompt;
+        updateMessage(convId, assistantMsgId, { content: loopState.accumulatedText });
+      }
+    },
+
+    onWarning(message, namespace) {
+      const streamEvent = createStreamEvent("warning", {
+        message,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+    },
+
+    onDone() {
+      // Finalization handled after adapter.streamMessage resolves
+    },
+
+    onError(message) {
+      console.error("[DynamicAgent] Stream error event:", message);
+      loopState.hasError = true;
+    },
+  }), [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTodosFetchKey]);
+
+  /**
+   * Finalize a stream loop — copies conversation-level streamEvents to the
+   * message for persistence, determines turn status, and saves to MongoDB.
+   */
+  const finalizeStreamLoop = useCallback((
+    conversationId: string,
+    assistantMsgId: string,
+    state: StreamLoopState,
+  ) => {
+    // Check if the message was already finalized (e.g., by cancelConversationRequest)
+    const currentConv = useChatStore.getState().conversations.find((c: Conversation) => c.id === conversationId);
+    const currentMsg = currentConv?.messages.find((m: ChatMessageType) => m.id === assistantMsgId);
+    const wasAlreadyCancelled = currentMsg?.isFinal && currentMsg?.turnStatus === "interrupted";
+
+    // Copy conversation-level streamEvents to the message for persistence.
+    const turnStreamEvents = currentConv?.streamEvents || [];
+
+    if (wasAlreadyCancelled) {
+      saveMessagesToServer(conversationId).catch((err) => {
+        console.error('[DynamicAgent] Failed to save cancelled messages:', err);
+      });
+      return;
+    }
+
+    const isFinal = !state.hitlFormRequested;
+    const turnStatus: TurnStatus = state.hitlFormRequested
+      ? "waiting_for_input"
+      : state.hasError
+        ? "interrupted"
+        : "done";
+
+    updateMessage(conversationId, assistantMsgId, {
+      content: state.accumulatedText,
+      rawStreamContent: state.rawStreamContent,
+      isFinal,
+      turnStatus,
+      streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
+    });
+    setConversationStreaming(conversationId, null);
+    saveMessagesToServer(conversationId).catch((err) => {
+      console.error('[DynamicAgent] Failed to save messages:', err);
+    });
+  }, [updateMessage, setConversationStreaming, saveMessagesToServer]);
 
   // Core submit function that accepts a message directly
   const submitMessage = useCallback(async (messageToSend: string) => {
@@ -620,12 +783,11 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // Create conversation if needed
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = createConversation(agentId);
     }
 
     // Clear previous turn's events
-    console.log(`[SSE-DEBUG] 🧹 clearSSEEvents() called for conv=${convId} — starting new turn`);
-    clearSSEEvents(convId);
+    clearStreamEvents(convId);
 
     // Add user message - generate turnId for this request/response pair
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -640,185 +802,49 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     // Add assistant message placeholder with same turnId
     const assistantMsgId = addMessage(convId, { role: "assistant", content: "" }, turnId);
 
-    // Dynamic agent: use lightweight SSE client via proxy route
-    const dynClient = new DynamicAgentClient({
-      proxyUrl: "/api/dynamic-agents/chat",
+    // Create protocol-agnostic adapter
+    const adapter = createStreamAdapter({
+      protocol: agentProtocol as "custom" | "agui",
       accessToken,
     });
-    const abortFn = () => dynClient.abort();
-    const eventStream = dynClient.sendMessageStream(messageToSend, convId, agentId);
 
-    // ═══════════════════════════════════════════════════════════════
-    // AGENT-FORGE PATTERN: Use local variables for streaming state
-    // ═══════════════════════════════════════════════════════════════
-    let accumulatedText = ""; 
-    let rawStreamContent = ""; 
-    let eventCounter = 0;
-    let hitlFormRequested = false;
-    let hasError = false;
-    let lastUIUpdate = 0;
-    const UI_UPDATE_INTERVAL = 100; // Throttle UI updates to max 10/sec
-    const eventBuffer: SSEAgentEvent[] = [];
-
-    // Helper to add buffered event to the correct store
-    const flushEventBuffer = () => {
-      for (const bufferedEvent of eventBuffer) {
-        addSSEEvent(bufferedEvent, convId!);
-      }
-      eventBuffer.length = 0;
+    const loopState: StreamLoopState = {
+      accumulatedText: "",
+      rawStreamContent: "",
+      hitlFormRequested: false,
+      hasError: false,
     };
+    const toolCallIdToName = new Map<string, string>();
 
     // Mark this conversation as streaming
     setConversationStreaming(convId, {
       conversationId: convId,
       messageId: assistantMsgId,
-      client: { abort: abortFn } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
-      // For Dynamic Agents: enable backend cancellation
-      dynamicAgentClient: dynClient,
+      client: { abort: () => adapter.abort() } as any,
+      streamAdapter: adapter,
     });
 
     try {
-      // ═══════════════════════════════════════════════════════════════
-      // SSE STREAM LOOP
-      // ═══════════════════════════════════════════════════════════════
-      for await (const event of eventStream) {
-        eventCounter++;
-        const sseEvent = event as SSEAgentEvent;
+      const callbacks = buildStreamCallbacks(convId, assistantMsgId, loopState, toolCallIdToName);
 
-        // Normalize properties
-        const newContent = sseEvent.displayContent || sseEvent.content || "";
-        const eventType = sseEvent.type;
+      await adapter.streamMessage(
+        { message: messageToSend, conversationId: convId, agentId },
+        callbacks,
+      );
 
-        // Buffer event
-        eventBuffer.push(sseEvent);
-
-        // Flush buffer immediately for important events
-        const isImportantArtifact = 
-             sseEvent.type === "tool_start" ||
-             sseEvent.type === "tool_end" ||
-             sseEvent.type === "error";
-
-        if (isImportantArtifact && eventBuffer.length > 0) {
-          flushEventBuffer();
-        }
-
-        // ═══════════════════════════════════════════════════════════════
-        // DETECT USER INPUT FORM REQUEST (SSE)
-        // ═══════════════════════════════════════════════════════════════
-        if (sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
-          console.log(`[ChatPanel] 📝 SSE INPUT REQUIRED`, sseEvent.inputRequiredData);
-          const { prompt, fields } = sseEvent.inputRequiredData;
-          
-          const inputFields: InputField[] = fields.map(f => ({
-            field_name: f.field_name,
-            field_label: f.field_label,
-            field_description: f.field_description,
-            field_type: f.field_type,
-            field_values: f.field_values,
-            required: f.required,
-            default_value: f.default_value,
-            placeholder: f.placeholder,
-          }));
-
-          hitlFormRequested = true;
-          setPendingUserInput({
-            messageId: assistantMsgId,
-            metadata: {
-              user_input: true,
-              input_title: `Input Required`,
-              input_description: prompt,
-              input_fields: inputFields,
-            },
-            contextId: convId,
-            isSSE: true,
-            agentId: agentId,
-          });
-
-          // Update message content with the prompt
-          if (prompt) {
-            accumulatedText = prompt;
-            updateMessage(convId!, assistantMsgId, { content: accumulatedText });
-          }
-        }
-
-        // Skip events without content
-        if (!newContent) continue;
-
-        // ═══════════════════════════════════════════════════════════════
-        // ACCUMULATE CONTENT
-        // ═══════════════════════════════════════════════════════════════
-        if (eventType === "content") {
-          accumulatedText += newContent;
-          rawStreamContent += newContent;
-
-          // Throttle UI updates
-          const now = Date.now();
-          if (now - lastUIUpdate >= UI_UPDATE_INTERVAL) {
-            if (eventBuffer.length > 0) {
-              flushEventBuffer();
-            }
-            updateMessage(convId!, assistantMsgId, { content: accumulatedText, rawStreamContent });
-            lastUIUpdate = now;
-          }
-        }
-      }
-
-      // ═══════════════════════════════════════════════════════════════
-      // FINALIZE
-      // ═══════════════════════════════════════════════════════════════
-
-      // Flush any remaining buffered events
-      if (eventBuffer.length > 0) {
-        flushEventBuffer();
-      }
-
-      // Check if the message was already finalized (e.g., by cancelConversationRequest)
-      // If so, don't overwrite the turnStatus that was set there
-      const currentConv = useChatStore.getState().conversations.find((c: Conversation) => c.id === convId);
-      const currentMsg = currentConv?.messages.find((m: ChatMessageType) => m.id === assistantMsgId);
-      const wasAlreadyCancelled = currentMsg?.isFinal && currentMsg?.turnStatus === "interrupted";
-
-      // CRITICAL: Copy conversation-level sseEvents to the message for persistence.
-      // During streaming, events are collected at conversation.sseEvents. When we finalize,
-      // we must attach them to the message so historical messages render timelines correctly
-      // (without this, only the latest streaming message would show the timeline).
-      const turnSSEEvents = currentConv?.sseEvents || [];
-
-      if (wasAlreadyCancelled) {
-        // Message was cancelled by user - don't overwrite the interrupted status
-        // Also don't call setConversationStreaming(null) - cancelConversationRequest already did that
-        console.log("[DynamicAgent] Stream finalize skipped - message was already cancelled");
-      } else if (hitlFormRequested) {
-        updateMessage(convId!, assistantMsgId, { 
-          content: accumulatedText, 
-          rawStreamContent, 
-          isFinal: false,
-          turnStatus: "waiting_for_input" as TurnStatus,
-          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
-        });
-        setConversationStreaming(convId!, null);
-      } else {
-        // Stream ended - mark as final with accumulated content
-        updateMessage(convId!, assistantMsgId, { 
-          content: accumulatedText, 
-          rawStreamContent, 
-          isFinal: true,
-          turnStatus: "done" as TurnStatus,
-          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
-        });
-        setConversationStreaming(convId!, null);
-      }
+      // Finalize the stream
+      finalizeStreamLoop(convId, assistantMsgId, loopState);
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
       appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
-      // Set interrupted status on error
-      updateMessage(convId!, assistantMsgId, {
-        turnStatus: "interrupted" as TurnStatus,
-      });
+      updateMessage(convId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
       setConversationStreaming(convId, null);
+      saveMessagesToServer(convId).catch((err) => {
+        console.error('[DynamicAgent] Failed to save error messages:', err);
+      });
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, createConversation, clearSSEEvents, addMessage, appendToMessage, updateMessage, addSSEEvent, setConversationStreaming, session?.user]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -843,7 +869,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const handleSkillsCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = createConversation(agentId);
     }
 
     const turnId = `turn-${Date.now()}`;
@@ -895,7 +921,7 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const handleHelpCommand = useCallback(() => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = createConversation(agentId);
     }
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/help" }, turnId);
@@ -921,8 +947,8 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
   // Handle /clear command
   const handleClearCommand = useCallback(() => {
-    createConversation();
-  }, [createConversation]);
+    createConversation(agentId);
+  }, [createConversation, agentId]);
 
   // Unified slash command executor
   const executeSlashCommand = useCallback(async (commandId: string) => {
@@ -1025,8 +1051,6 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   const handleUserInputSubmitSSE = useCallback(async (formData: Record<string, string>) => {
     if (!pendingUserInput || !activeConversationId || !pendingUserInput.agentId) return;
 
-    console.log("[ChatPanel] 📝 SSE HITL form submitted:", formData);
-
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const selectionSummary = Object.entries(formData)
       .map(([key, value]) => `${key}: ${value}`)
@@ -1035,17 +1059,15 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
-    const agentId = pendingUserInput.agentId;
+    const resumeAgentId = pendingUserInput.agentId;
     setPendingUserInput(null);
 
     // Clear previous turn's events before starting resume stream
-    // (the previous message already has its sseEvents persisted)
-    console.log(`[SSE-DEBUG] 🧹 clearSSEEvents() called for conv=${activeConversationId} — starting HITL resume`);
-    clearSSEEvents(activeConversationId);
+    clearStreamEvents(activeConversationId);
 
-    // Create Dynamic Agent client for resume
-    const dynClient = new DynamicAgentClient({
-      proxyUrl: "/api/dynamic-agents/chat",
+    // Create protocol-agnostic adapter for resume
+    const adapter = createStreamAdapter({
+      protocol: agentProtocol as "custom" | "agui",
       accessToken,
     });
 
@@ -1055,118 +1077,42 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
       messageId: assistantMsgId,
-      client: { abort: () => dynClient.abort() } as ReturnType<typeof setConversationStreaming> extends void ? never : Parameters<typeof setConversationStreaming>[1] extends { client: infer C } ? C : never,
-      // For Dynamic Agents: enable backend cancellation
-      dynamicAgentClient: dynClient,
+      client: { abort: () => adapter.abort() } as any,
+      streamAdapter: adapter,
     });
 
-    let accumulatedText = "";
-    let rawStreamContent = "";
-    let hitlFormRequested = false;
-    let hasError = false;
+    const loopState: StreamLoopState = {
+      accumulatedText: "",
+      rawStreamContent: "",
+      hitlFormRequested: false,
+      hasError: false,
+    };
+    const toolCallIdToName = new Map<string, string>();
 
     try {
-      for await (const event of dynClient.resumeStream(activeConversationId, agentId, formDataJson)) {
-        const sseEvent = event as SSEAgentEvent;
+      const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
-        // Buffer event for store
-        addSSEEvent(sseEvent, activeConversationId);
+      await adapter.resumeStream(
+        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson },
+        callbacks,
+      );
 
-        // Handle input_required
-        if (sseEvent.type === "input_required" && sseEvent.inputRequiredData) {
-          console.log(`[ChatPanel] 📝 SSE Additional input required:`, sseEvent.inputRequiredData);
-          const { prompt, fields } = sseEvent.inputRequiredData;
-          
-          const inputFields: InputField[] = fields.map(f => ({
-            field_name: f.field_name,
-            field_label: f.field_label,
-            field_description: f.field_description,
-            field_type: f.field_type,
-            field_values: f.field_values,
-            required: f.required,
-            default_value: f.default_value,
-            placeholder: f.placeholder,
-          }));
+      // Finalize the stream
+      finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
 
-          hitlFormRequested = true;
-          setPendingUserInput({
-            messageId: assistantMsgId,
-            metadata: {
-              user_input: true,
-              input_title: `Input Required`,
-              input_description: prompt,
-              input_fields: inputFields,
-            },
-            contextId: activeConversationId,
-            isSSE: true,
-            agentId,
-          });
-
-          if (prompt) {
-            accumulatedText = prompt;
-            updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText });
-          }
-          break; // Stream pauses for user input
-        }
-
-        // Handle content tokens
-        if (sseEvent.type === "content" && sseEvent.content) {
-          accumulatedText += sseEvent.content;
-          rawStreamContent += sseEvent.content;
-          updateMessage(activeConversationId, assistantMsgId, { content: accumulatedText, rawStreamContent });
-        }
-
-        // Handle errors - break stream, error will be rendered inline via StreamingView
-        if (sseEvent.type === "error") {
-          console.error("[ChatPanel] SSE resume error event:", sseEvent.displayContent);
-          hasError = true;
-          break;
-        }
-      }
-
-      // Determine turn status based on stream outcome
-      let finalTurnStatus: TurnStatus = "done";
-      if (hitlFormRequested) {
-        finalTurnStatus = "waiting_for_input";
-      } else if (hasError) {
-        finalTurnStatus = "interrupted";
-      }
-
-      // CRITICAL: Copy conversation-level sseEvents to the message for persistence.
-      // (Same reason as in submitMessage - see comment there)
-      const currentConv = useChatStore.getState().conversations.find((c: Conversation) => c.id === activeConversationId);
-      const turnSSEEvents = currentConv?.sseEvents || [];
-
-      if (!hitlFormRequested) {
-        updateMessage(activeConversationId, assistantMsgId, {
-          content: accumulatedText,
-          rawStreamContent,
-          isFinal: true,
-          turnStatus: finalTurnStatus,
-          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
-        });
-      } else {
-        updateMessage(activeConversationId, assistantMsgId, {
-          content: accumulatedText,
-          rawStreamContent,
-          isFinal: false,
-          turnStatus: finalTurnStatus,
-          sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
-        });
-      }
-      setConversationStreaming(activeConversationId, null);
     } catch (error) {
-      console.error("[ChatPanel] SSE HITL resume error:", error);
+      console.error("[DynamicAgent] HITL resume error:", error);
       appendToMessage(activeConversationId, assistantMsgId,
         `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
-      // Set interrupted status on error
-      updateMessage(activeConversationId, assistantMsgId, {
-        turnStatus: "interrupted" as TurnStatus,
-      });
+      updateMessage(activeConversationId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
       setConversationStreaming(activeConversationId, null);
+      saveMessagesToServer(activeConversationId).catch((err) => {
+        console.error('[DynamicAgent] Failed to save HITL resume error messages:', err);
+      });
     }
-  }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
-      appendToMessage, addSSEEvent, setConversationStreaming]);
+  }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+      appendToMessage, setConversationStreaming, saveMessagesToServer,
+      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1420,24 +1366,24 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                         index === arr.length - 1;
 
                       // Get SSE events for this message turn:
-                      // - For completed messages: use msg.sseEvents (persisted with the message)
-                      // - For streaming (latest message): use conversation.sseEvents (live buffer)
-                      // - Fall back to timestamp-based filtering if msg.sseEvents is not available
+                      // - For completed messages: use msg.streamEvents (persisted with the message)
+                      // - For streaming (latest message): use conversation.streamEvents (live buffer)
+                      // - Fall back to timestamp-based filtering if msg.streamEvents is not available
                       const isStreaming = isLastAssistantMessage && isThisConversationStreaming;
-                      let turnEvents: SSEAgentEvent[];
+                      let turnEvents: StreamEvent[];
                       
                       if (msg.role !== "assistant") {
                         turnEvents = [];
                       } else if (isStreaming) {
                         // Streaming: use live buffer from conversation
-                        turnEvents = conversation?.sseEvents ?? [];
-                      } else if (msg.sseEvents && msg.sseEvents.length > 0) {
+                        turnEvents = conversation?.streamEvents ?? [];
+                      } else if (msg.streamEvents && msg.streamEvents.length > 0) {
                         // Completed message with persisted events
-                        turnEvents = msg.sseEvents;
+                        turnEvents = msg.streamEvents;
                       } else {
                         // Fall back to timestamp-based filtering (legacy/edge cases)
                         turnEvents = filterEventsForTurn(
-                          conversation?.sseEvents ?? [],
+                          conversation?.streamEvents ?? [],
                           msg,
                           allMessages,
                           allMessages.findIndex(m => m.id === msg.id)
@@ -1495,25 +1441,22 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
                     dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
                     // For SSE, send dismissal message to resume the agent
                     if (pendingUserInput.isSSE && pendingUserInput.agentId && activeConversationId) {
-                      const dynClient = new DynamicAgentClient({
-                        proxyUrl: "/api/dynamic-agents/chat",
+                      const dismissAdapter = createStreamAdapter({
+                        protocol: agentProtocol as "custom" | "agui",
                         accessToken,
                       });
                       // Fire-and-forget: resume with rejection message
-                      (async () => {
-                        try {
-                          const dismissalMessage = "User dismissed the input form without providing values.";
-                          for await (const _event of dynClient.resumeStream(
-                            activeConversationId,
-                            pendingUserInput.agentId!,
-                            dismissalMessage
-                          )) {
-                            // Consume events but don't display
-                          }
-                        } catch (err) {
-                          console.error("[ChatPanel] Error sending SSE form dismissal:", err);
-                        }
-                      })();
+                      const dismissalMessage = "User dismissed the input form without providing values.";
+                      dismissAdapter.resumeStream(
+                        {
+                          conversationId: activeConversationId,
+                          agentId: pendingUserInput.agentId,
+                          formData: dismissalMessage,
+                        },
+                        {}, // No callbacks — we don't render the response
+                      ).catch((err) => {
+                        console.error("[ChatPanel] Error sending SSE form dismissal:", err);
+                      });
                     }
                   }
                   setPendingUserInput(null);
@@ -1697,200 +1640,19 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Inline Event Types and Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface ToolCall {
-  id: string;
-  tool: string;
-  args?: Record<string, unknown>;
-  agent?: string;
-  status: "running" | "completed" | "failed";
-}
-
-interface SubagentCall {
-  id: string;
-  name: string;
-  purpose?: string;
-  parentAgent?: string;
-  status: "running" | "completed" | "failed";
-  /** tool_call_id used to match tool_end events back to this subagent */
-  toolCallId?: string;
-  /** MongoDB agent_id for looking up subagent config (avatar, display name, etc.) */
-  agentId?: string;
-}
-
-interface ErrorEvent {
-  id: string;
-  message: string;
-}
-
-interface WarningEvent {
-  id: string;
-  message: string;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stream Segments - Interleaved content and tool/subagent events
-// ─────────────────────────────────────────────────────────────────────────────
-
-type StreamSegment =
-  | { type: "content"; id: string; text: string }
-  | { type: "tool"; id: string; data: ToolCall }
-  | { type: "subagent"; id: string; data: SubagentCall }
-  | { type: "warning"; id: string; data: WarningEvent }
-  | { type: "error"; id: string; data: ErrorEvent };
-
-/**
- * Parse SSE events into ordered stream segments for interleaved rendering.
- * Segments maintain stream order: content → tool → content → tool etc.
- * 
- * Content chunks between events are grouped into single content segments.
- */
-function parseStreamSegments(events: SSEAgentEvent[], isStreaming: boolean): StreamSegment[] {
-  const segments: StreamSegment[] = [];
-  const toolsMap = new Map<string, ToolCall>();
-  const subagentsMap = new Map<string, SubagentCall>();
-  let contentBuffer = "";
-  let contentId = 0;
-
-  // Helper to flush accumulated content as a segment
-  const flushContent = () => {
-    if (contentBuffer.trim()) {
-      segments.push({
-        type: "content",
-        id: `content-${contentId++}`,
-        text: contentBuffer,
-      });
-      contentBuffer = "";
-    }
-  };
-
-  // Process events in order
-  events.forEach((event, idx) => {
-    switch (event.type) {
-      case "content":
-        // Accumulate content
-        if (event.content) {
-          contentBuffer += event.content;
-        }
-        break;
-
-      case "tool_start":
-        // Flush any pending content before the tool
-        flushContent();
-        if (event.toolData) {
-          const { tool_name, tool_call_id, args } = event.toolData as ToolStartEventData;
-          // Determine parent agent from namespace (empty = root agent)
-          const parentAgentId = event.namespace.length > 0 ? event.namespace[0] : undefined;
-          
-          // Check if this is a subagent invocation (task tool)
-          if (tool_name === "task") {
-            const subagent_type = args?.subagent_type as string || "unknown";
-            const purpose = args?.description as string || "";
-            const subagentId = `subagent-${tool_call_id}`;
-            const subagent: SubagentCall = {
-              id: subagentId,
-              name: subagent_type,
-              purpose,
-              parentAgent: parentAgentId,
-              status: "running",
-              toolCallId: tool_call_id,
-              // subagent_type IS the agent_id now (semantic slug)
-              agentId: subagent_type,
-            };
-            subagentsMap.set(tool_call_id, subagent);
-            segments.push({ type: "subagent", id: subagentId, data: subagent });
-          } else {
-            // Regular tool call
-            const tool: ToolCall = {
-              id: tool_call_id,
-              tool: tool_name,
-              args,
-              agent: parentAgentId,
-              status: "running",
-            };
-            toolsMap.set(tool_call_id, tool);
-            segments.push({ type: "tool", id: tool_call_id, data: tool });
-          }
-        }
-        break;
-
-      case "tool_end":
-        // Update tool or subagent status (segment already in array)
-        if (event.toolData) {
-          const { tool_call_id, error } = event.toolData as ToolEndEventData;
-          // Check if this is a subagent completion
-          const subagent = subagentsMap.get(tool_call_id);
-          if (subagent) {
-            subagent.status = error ? "failed" : "completed";
-          } else {
-            // Regular tool completion
-            const tool = toolsMap.get(tool_call_id);
-            if (tool) {
-              tool.status = error ? "failed" : "completed";
-            }
-          }
-        }
-        break;
-
-      case "warning":
-        flushContent();
-        segments.push({
-          type: "warning",
-          id: event.id || `warning-${idx}`,
-          data: {
-            id: event.id || `warning-${idx}`,
-            message: event.displayContent || event.warningData?.message || "A warning occurred",
-          },
-        });
-        break;
-
-      case "error":
-        flushContent();
-        segments.push({
-          type: "error",
-          id: event.id || `error-${idx}`,
-          data: {
-            id: event.id || `error-${idx}`,
-            message: event.displayContent || event.content || "An error occurred",
-          },
-        });
-        break;
-    }
-  });
-
-  // Flush any remaining content
-  flushContent();
-
-  // When not streaming, mark all tools/subagents as completed
-  if (!isStreaming) {
-    segments.forEach((seg) => {
-      if (seg.type === "tool") {
-        seg.data.status = "completed";
-      } else if (seg.type === "subagent") {
-        seg.data.status = "completed";
-      }
-    });
-  }
-
-  return segments;
-}
-
 /**
  * Filter SSE events for a specific message turn based on timestamps.
  * Returns events that occurred between this message and the next user message.
  * 
- * NOTE: This is a fallback for legacy messages. Prefer using msg.sseEvents directly
+ * NOTE: This is a fallback for legacy messages. Prefer using msg.streamEvents directly
  * for completed messages, as the message timestamp may be after all events finished.
  */
 function filterEventsForTurn(
-  sseEvents: SSEAgentEvent[],
+  streamEvents: StreamEvent[],
   message: ChatMessageType,
   allMessages: ChatMessageType[],
   messageIndex: number
-): SSEAgentEvent[] {
+): StreamEvent[] {
   if (message.role !== "assistant") return [];
   
   const msgTime = new Date(message.timestamp).getTime();
@@ -1906,7 +1668,7 @@ function filterEventsForTurn(
   
   // Filter events within this turn's time window
   // Events without timestamps are assumed to be from this turn if it's the latest
-  return sseEvents.filter(e => {
+  return streamEvents.filter(e => {
     if (!e.timestamp) {
       // For events without timestamps, include only if this is the latest assistant message
       return messageIndex === allMessages.length - 1 || 
@@ -1915,295 +1677,6 @@ function filterEventsForTurn(
     const eventTime = new Date(e.timestamp).getTime();
     return eventTime >= msgTime && eventTime < endTime;
   });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Typing Indicator - Pulsing dot with CSS animation for smooth 60fps
-// ─────────────────────────────────────────────────────────────────────────────
-
-function TypingIndicator() {
-  return (
-    <div className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-card/50 border border-border/50">
-      <span className="relative flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/60 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary/80" />
-      </span>
-      <span className="text-xs text-muted-foreground">Thinking...</span>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared Markdown Components - Used in both StreamingView and final message
-// ─────────────────────────────────────────────────────────────────────────────
-
-const markdownComponents = {
-  h1: ({ children }: { children?: React.ReactNode }) => (
-    <h1 className="text-xl font-bold text-foreground mb-3 mt-4 first:mt-0 pb-2 border-b border-border/50">
-      {children}
-    </h1>
-  ),
-  h2: ({ children }: { children?: React.ReactNode }) => (
-    <h2 className="text-lg font-semibold text-foreground mb-2 mt-4 first:mt-0">
-      {children}
-    </h2>
-  ),
-  h3: ({ children }: { children?: React.ReactNode }) => (
-    <h3 className="text-base font-semibold text-foreground mb-2 mt-3 first:mt-0">
-      {children}
-    </h3>
-  ),
-  p: ({ children }: { children?: React.ReactNode }) => (
-    <p className="text-sm leading-relaxed text-foreground/90 mb-2 last:mb-0">
-      {children}
-    </p>
-  ),
-  ul: ({ children }: { children?: React.ReactNode }) => (
-    <ul className="list-disc list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">
-      {children}
-    </ul>
-  ),
-  ol: ({ children }: { children?: React.ReactNode }) => (
-    <ol className="list-decimal list-outside ml-6 mb-2 space-y-1 text-sm text-foreground/90">
-      {children}
-    </ol>
-  ),
-  li: ({ children }: { children?: React.ReactNode }) => (
-    <li className="leading-relaxed">{children}</li>
-  ),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  code({ className, children, ...props }: any) {
-    const match = /language-(\w+)/.exec(className || "");
-    const codeContent = String(children).replace(/\n$/, "");
-    const hasNewlines = codeContent.includes("\n");
-    const isCodeBlock = match || hasNewlines || className;
-
-    if (!isCodeBlock) {
-      return (
-        <code
-          className="bg-muted/80 text-primary px-1.5 py-0.5 rounded text-[13px] font-mono break-all"
-          {...props}
-        >
-          {children}
-        </code>
-      );
-    }
-
-    const language = match ? match[1] : "";
-    const shellLanguages = ["bash", "sh", "shell", "zsh", "fish", "console", "terminal"];
-    const isShell = shellLanguages.includes(language.toLowerCase());
-    const shouldHighlight = match && language !== "text" && !isShell;
-
-    return (
-      <div className="my-4 rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] max-w-full">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border/20 bg-[#181825]">
-          <span className="text-xs text-zinc-500 font-mono uppercase tracking-wide">
-            {language || "plain text"}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-zinc-500 hover:text-zinc-300 hover:bg-transparent"
-            onClick={() => {
-              navigator.clipboard.writeText(codeContent);
-            }}
-            title="Copy code"
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-        {shouldHighlight ? (
-          <SyntaxHighlighter
-            style={oneDark}
-            language={language}
-            PreTag="div"
-            wrapLongLines
-            customStyle={{
-              margin: 0,
-              borderRadius: 0,
-              padding: "1rem 1.25rem",
-              fontSize: "13px",
-              lineHeight: "1.6",
-              background: "transparent",
-              wordBreak: "break-word",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {codeContent}
-          </SyntaxHighlighter>
-        ) : (
-          <pre className="p-4 overflow-x-auto max-w-full">
-            <code className="text-[13px] leading-relaxed font-mono whitespace-pre-wrap break-words">
-              {codeContent.split("\n").map((line, i) => {
-                const trimmed = line.trimStart();
-                const isComment = trimmed.startsWith("#") || trimmed.startsWith("//");
-                return (
-                  <span key={i}>
-                    {isComment ? (
-                      <span className="text-zinc-500 italic">{line}</span>
-                    ) : (
-                      <span className="text-zinc-300">{line}</span>
-                    )}
-                    {i < codeContent.split("\n").length - 1 ? "\n" : ""}
-                  </span>
-                );
-              })}
-            </code>
-          </pre>
-        )}
-      </div>
-    );
-  },
-  blockquote: ({ children }: { children?: React.ReactNode }) => (
-    <blockquote className="border-l-4 border-primary/50 pl-4 my-3 italic text-muted-foreground">
-      {children}
-    </blockquote>
-  ),
-  table: ({ children }: { children?: React.ReactNode }) => (
-    <div className="overflow-x-auto my-3 rounded-lg border border-border/50 w-full">
-      <table className="w-full text-sm">
-        {children}
-      </table>
-    </div>
-  ),
-  thead: ({ children }: { children?: React.ReactNode }) => (
-    <thead className="bg-muted/50">{children}</thead>
-  ),
-  th: ({ children }: { children?: React.ReactNode }) => (
-    <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border/50 break-words">
-      {children}
-    </th>
-  ),
-  td: ({ children }: { children?: React.ReactNode }) => (
-    <td className="px-3 py-2 border-b border-border/30 text-foreground/90 break-words align-top">
-      {children}
-    </td>
-  ),
-  tr: ({ children }: { children?: React.ReactNode }) => (
-    <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
-  ),
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-primary hover:text-primary/80 underline underline-offset-2 decoration-primary/50 hover:decoration-primary transition-colors"
-    >
-      {children}
-    </a>
-  ),
-  hr: () => (
-    <hr className="my-6 border-border/50" />
-  ),
-  strong: ({ children }: { children?: React.ReactNode }) => (
-    <strong className="font-semibold text-foreground">{children}</strong>
-  ),
-  em: ({ children }: { children?: React.ReactNode }) => (
-    <em className="italic text-foreground/90">{children}</em>
-  ),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// StreamingView Component - Shows inline events and streaming content
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface StreamingViewProps {
-  message: ChatMessageType;
-  isStreaming?: boolean;
-  turnEvents?: SSEAgentEvent[];
-}
-
-function StreamingView({ message, isStreaming = false, turnEvents = [] }: StreamingViewProps) {
-  // Parse events into ordered segments for interleaved rendering
-  const segments = useMemo(
-    () => parseStreamSegments(turnEvents, isStreaming),
-    [turnEvents, isStreaming]
-  );
-
-  // Check if we have any content or events
-  const hasContent = segments.some((s) => s.type === "content");
-  const hasEvents = segments.some(
-    (s) => s.type === "tool" || s.type === "subagent" || s.type === "warning" || s.type === "error"
-  );
-
-  return (
-    <div className="space-y-2">
-      {/* Show typing indicator when no content and no events yet */}
-      {!hasContent && !hasEvents && (
-        <TypingIndicator />
-      )}
-
-      {/* Render interleaved segments in stream order */}
-      {segments.map((segment) => {
-        switch (segment.type) {
-          case "content":
-            return (
-              <div
-                key={segment.id}
-                className="rounded-xl bg-card/50 border border-border/50 px-4 py-3"
-              >
-                <div
-                  className="prose-container overflow-hidden break-words"
-                  style={{ overflowWrap: "anywhere" }}
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                    components={markdownComponents}
-                  >
-                    {segment.text}
-                  </ReactMarkdown>
-                </div>
-              </div>
-            );
-
-          case "tool":
-            return (
-              <InlineEventCard
-                key={segment.id}
-                type="tool"
-                name={segment.data.tool}
-                status={segment.data.status}
-                args={segment.data.args}
-              />
-            );
-
-          case "subagent":
-            return (
-              <InlineEventCard
-                key={segment.id}
-                type="subagent"
-                name={segment.data.name}
-                status={segment.data.status}
-                purpose={segment.data.purpose}
-              />
-            );
-
-          case "warning":
-            return (
-              <InlineEventCard
-                key={segment.id}
-                type="warning"
-                name="Warning"
-                message={segment.data.message}
-              />
-            );
-
-          case "error":
-            return (
-              <InlineEventCard
-                key={segment.id}
-                type="error"
-                name="Error"
-                message={segment.data.message}
-              />
-            );
-
-          default:
-            return null;
-        }
-      })}
-    </div>
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2294,8 +1767,8 @@ interface ChatMessageProps {
   showTimestamp?: boolean;
   agentGradient?: string | null;
   agentName?: string;
-  turnEvents?: SSEAgentEvent[];
-  // Timeline props (for DynamicAgentTimeline)
+  turnEvents?: StreamEvent[];
+  // Timeline props (for AgentTimeline)
   timelineFiles?: string[];
   timelineTasks?: TaskItem[];
   onFileDownload?: (path: string) => void;
@@ -2338,17 +1811,12 @@ const ChatMessage = React.memo(function ChatMessage({
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isHovered, setIsHovered] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (isUser) return false;
-    return !isLatestAnswer && message.content && message.content.length > 300;
-  });
 
   const displayContent = message.content;
-  const collapsedPreview = message.content.slice(0, 300).trim();
 
   // Transform SSE events into grouped timeline data for assistant messages
   // Use turnStatus from message (defaults to "done" for backward compatibility)
-  const { data: timelineData } = useDynamicAgentTimeline(
+  const { data: timelineData } = useAgentTimeline(
     turnEvents, 
     isStreaming, 
     message.turnStatus
@@ -2436,47 +1904,74 @@ const ChatMessage = React.memo(function ChatMessage({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {!isStreaming && displayContent && displayContent.length > 300 && (
-                  <button
-                    onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    title={isCollapsed ? "Expand answer" : "Collapse answer"}
-                  >
-                    {isCollapsed ? (
-                      <>
-                        <ChevronDown className="h-3 w-3" />
-                        <span>Expand</span>
-                      </>
-                    ) : (
-                      <>
-                        <ChevronUp className="h-3 w-3" />
-                        <span>Collapse</span>
-                      </>
-                    )}
-                  </button>
-                )}
               </div>
             </>
           )}
         </div>
 
-        {isStreaming && message.role === "assistant" ? (
-          <DynamicAgentTimeline
-            data={timelineData}
-            files={isLatestAnswer ? timelineFiles : []}
-            tasks={isLatestAnswer ? timelineTasks : []}
-            isLatestMessage={isLatestAnswer}
-            onFileDownload={onFileDownload}
-            onFileDelete={onFileDelete}
-            isDownloadingFile={isDownloadingFile}
-            downloadingFilePath={downloadingFilePath}
-            isDeletingFile={isDeletingFile}
-            deletingFilePath={deletingFilePath}
-            getSubagentInfo={getSubagentInfo}
-          />
-        ) : !isUser && turnEvents.length > 0 ? (
-          // Completed assistant message with events - use interleaved view
+        {isUser ? (
+          // ── User message bubble ──
           <>
+            <div
+              className="rounded-xl rounded-tr-sm relative overflow-hidden inline-block bg-primary text-primary-foreground px-4 py-3 max-w-full selection:bg-primary-foreground selection:text-primary"
+            >
+              <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
+                <MarkdownRenderer content={message.content} variant="user" />
+              </div>
+            </div>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: isHovered ? 1 : 0.8 }}
+              className="flex items-center gap-1 mt-2 justify-end"
+            >
+              {onRetry && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                        onClick={onRetry}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Retry this prompt
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={() => onCopy(message.content, message.id)}
+                    >
+                      {isCopied ? (
+                        <Check className="h-3.5 w-3.5 text-green-400" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isCopied ? "Copied!" : "Copy message"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </motion.div>
+          </>
+        ) : (
+          // ── Assistant message ──
+          <>
+            {/* Recovery / interrupted banner */}
             {(isRecovering || message.isInterrupted) && (
               <motion.div
                 initial={{ opacity: 0, y: -5 }}
@@ -2516,196 +2011,36 @@ const ChatMessage = React.memo(function ChatMessage({
                 )}
               </motion.div>
             )}
-            <DynamicAgentTimeline
-              data={timelineData}
-              files={isLatestAnswer ? timelineFiles : []}
-              tasks={isLatestAnswer ? timelineTasks : []}
-              isLatestMessage={isLatestAnswer}
-              onFileDownload={onFileDownload}
-              onFileDelete={onFileDelete}
-              isDownloadingFile={isDownloadingFile}
-              downloadingFilePath={downloadingFilePath}
-              isDeletingFile={isDeletingFile}
-              deletingFilePath={deletingFilePath}
-              getSubagentInfo={getSubagentInfo}
-            />
-          </>
-        ) : (
-          <>
-            {/* Recovery/interrupted banner for assistant messages without events */}
-            {!isUser && (isRecovering || message.isInterrupted) && (
-              <motion.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-lg border mb-3",
-                  isRecovering
-                    ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
-                    : "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                )}
-              >
-                {isRecovering ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">Recovering interrupted task...</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Activity className="h-4 w-4 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">Response was interrupted</p>
-                    </div>
-                    {onRetry && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={onRetry}
-                        className="shrink-0 gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:text-amber-300"
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                        Retry
-                      </Button>
-                    )}
-                  </>
-                )}
-              </motion.div>
-            )}
 
-            <div
-              className={cn(
-                "rounded-xl relative overflow-hidden",
-                isUser
-                  ? "inline-block bg-primary text-primary-foreground px-4 py-3 rounded-tr-sm max-w-full selection:bg-primary-foreground selection:text-primary"
-                  : "bg-card/50 border border-border/50 px-4 py-3"
-              )}
-            >
-              {isUser ? (
-                <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                    components={{
-                      // Simplified markdown components for user messages
-                      p: ({ children }) => <p className="text-sm leading-relaxed mb-1.5 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ol>,
-                      li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                      em: ({ children }) => <em className="italic">{children}</em>,
-                      code: ({ children }) => <code className="bg-black/20 px-1 rounded font-mono text-xs">{children}</code>,
-                    }}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
-              ) : (
-                <div className="prose-container overflow-hidden break-words overflow-wrap-anywhere">
-                  {isCollapsed ? (
-                    <div className="space-y-2">
-                      <div className="text-sm text-foreground/90 whitespace-pre-wrap break-words">
-                        {collapsedPreview}
-                        {displayContent.length > 300 && "..."}
-                      </div>
-                      <button
-                        onClick={() => setIsCollapsed(false)}
-                        className="text-xs text-primary hover:text-primary/80 underline transition-colors"
-                      >
-                        Show full answer
-                      </button>
-                    </div>
-                  ) : (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm, remarkBreaks]}
-                      components={markdownComponents}
-                    >
-                      {displayContent || "..."}
-                    </ReactMarkdown>
-                  )}
-                </div>
-              )}
-            </div>
+            {/* Main content: timeline (streaming or completed with events) or fallback */}
+            {isStreaming || turnEvents.length > 0 ? (
+              <AgentTimeline
+                data={timelineData}
+                files={isLatestAnswer ? timelineFiles : []}
+                tasks={isLatestAnswer ? timelineTasks : []}
+                isLatestMessage={isLatestAnswer}
+                onFileDownload={onFileDownload}
+                onFileDelete={onFileDelete}
+                isDownloadingFile={isDownloadingFile}
+                downloadingFilePath={downloadingFilePath}
+                isDeletingFile={isDeletingFile}
+                deletingFilePath={deletingFilePath}
+                getSubagentInfo={getSubagentInfo}
+              />
+            ) : displayContent ? (
+              // Legacy fallback: completed message with no persisted events
+              <div className="rounded-xl bg-card/50 border border-border/50 px-4 py-3">
+                <MarkdownRenderer content={displayContent} />
+              </div>
+            ) : null}
 
-            {isUser && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: isHovered ? 1 : 0.8 }}
-                className="flex items-center gap-1 mt-2 justify-end"
-              >
-                {onRetry && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                          onClick={onRetry}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Retry this prompt
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                        onClick={() => onCopy(message.content, message.id)}
-                      >
-                        {isCopied ? (
-                          <Check className="h-3.5 w-3.5 text-green-400" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {isCopied ? "Copied!" : "Copy message"}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </motion.div>
-            )}
-
-            {!isUser && displayContent && (
+            {/* Action buttons (copy, retry, collapse) */}
+            {displayContent && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.8 }}
                 className="flex items-center gap-1 mt-2"
               >
-                {!isStreaming && displayContent && displayContent.length > 300 && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                          onClick={() => setIsCollapsed(!isCollapsed)}
-                        >
-                          {isCollapsed ? (
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          ) : (
-                            <ChevronUp className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {isCollapsed ? "Expand answer" : "Collapse answer"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-
                 {onRetry && (
                   <TooltipProvider>
                     <Tooltip>

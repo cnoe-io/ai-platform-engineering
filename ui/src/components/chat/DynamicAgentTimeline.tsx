@@ -12,23 +12,23 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  StreamingMarkdown,
+  MarkdownRenderer,
   CollapsibleSection,
   TaskList,
 } from "@/components/shared/timeline";
 import type { TaskItem } from "@/components/shared/timeline";
 import type {
-  DATimelineData,
-  DATimelineSegment,
-  DAToolSegment,
-  DAToolGroupSegment,
-  DASubagentSegment,
-  DAContentSegment,
-  DAWarningSegment,
-  DAErrorSegment,
-  DADoneSegment,
-  DAStatusSegment,
-  DAToolInfo,
+  TimelineData,
+  TimelineSegment,
+  ToolSegment,
+  ToolGroupSegment,
+  SubagentSegment,
+  ContentSegment,
+  WarningSegment,
+  ErrorSegment,
+  DoneSegment,
+  StatusSegment,
+  ToolInfo,
 } from "@/types/dynamic-agent-timeline";
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
@@ -42,7 +42,7 @@ import { getGradientStyle } from "@/lib/gradient-themes";
 /**
  * Check if any file-related tools were called in the segments (including nested subagents).
  */
-function hasFileToolsInSegments(segments: DATimelineSegment[]): boolean {
+function hasFileToolsInSegments(segments: TimelineSegment[]): boolean {
   for (const segment of segments) {
     if (segment.type === "tool" && isFileToolName(segment.data.name)) {
       return true;
@@ -62,7 +62,7 @@ function hasFileToolsInSegments(segments: DATimelineSegment[]): boolean {
 /**
  * Check if any todo-related tools were called in the segments (including nested subagents).
  */
-function hasTodoToolsInSegments(segments: DATimelineSegment[]): boolean {
+function hasTodoToolsInSegments(segments: TimelineSegment[]): boolean {
   for (const segment of segments) {
     if (segment.type === "tool" && isTodoToolName(segment.data.name)) {
       return true;
@@ -96,9 +96,9 @@ const SubagentLookupContext = createContext<SubagentLookupFn | undefined>(undefi
 // Props
 // ═══════════════════════════════════════════════════════════════
 
-interface DynamicAgentTimelineProps {
-  /** Interleaved timeline data from DATimelineManager */
-  data: DATimelineData;
+interface AgentTimelineProps {
+  /** Interleaved timeline data from TimelineManager */
+  data: TimelineData;
   /** Duration in seconds (for summary bar) */
   durationSec?: number;
 
@@ -129,7 +129,7 @@ interface DynamicAgentTimelineProps {
 // Main Component
 // ═══════════════════════════════════════════════════════════════
 
-export function DynamicAgentTimeline({
+export function AgentTimeline({
   data,
   durationSec,
   files,
@@ -142,7 +142,7 @@ export function DynamicAgentTimeline({
   downloadingFilePath,
   isDeletingFile,
   deletingFilePath,
-}: DynamicAgentTimelineProps) {
+}: AgentTimelineProps) {
   const { segments, finalAnswer, isStreaming, hasTools } = data;
 
   // Determine if turn has ended (not streaming and has final answer)
@@ -224,7 +224,7 @@ export function DynamicAgentTimeline({
   if (showStreamingContent) {
     return (
       <div className="animate-reveal-ltr bg-muted/30 border border-border/30 rounded-lg px-4 py-3">
-        <StreamingMarkdown
+        <MarkdownRenderer
           content={finalAnswer}
           isStreaming={true}
         />
@@ -237,7 +237,7 @@ export function DynamicAgentTimeline({
       <div className="space-y-3">
         {/* Summary bar - only shown when NOT streaming and has meaningful timeline segments */}
         {!isStreaming && hasMeaningfulSegments && (
-          <DATimelineSummary
+          <TimelineSummary
             expanded={machineryExpanded}
             onToggle={() => setMachineryExpanded(!machineryExpanded)}
             toolCount={toolCount}
@@ -263,7 +263,7 @@ export function DynamicAgentTimeline({
 
                 {/* Render interleaved segments in stream order */}
                 {groupedSegments.map((segment) => (
-                  <DASegmentRenderer
+                  <SegmentRenderer
                     key={segment.id}
                     segment={segment}
                     isStreaming={isStreaming}
@@ -274,7 +274,7 @@ export function DynamicAgentTimeline({
                 {showFinalAnswerInTimeline && (
                   <div className="relative pb-3">
                     <TimelineDot color="primary" />
-                    <StreamingMarkdown
+                    <MarkdownRenderer
                       content={finalAnswer}
                     />
                   </div>
@@ -286,12 +286,12 @@ export function DynamicAgentTimeline({
 
         {/* Tasks section */}
         {showTasksSection && (
-          <DATaskSection tasks={tasks} readonly={!isLatestMessage} turnEnded={turnEnded} isStreaming={isStreaming} />
+          <TaskSection tasks={tasks} readonly={!isLatestMessage} turnEnded={turnEnded} isStreaming={isStreaming} />
         )}
 
         {/* Files section */}
         {showFilesSection && (
-          <DAFileSection
+          <FileSection
             files={files}
             readonly={!isLatestMessage}
             turnEnded={turnEnded}
@@ -308,7 +308,7 @@ export function DynamicAgentTimeline({
         {/* Final answer - only shown after streaming completes */}
         {showFinalAnswerOutside && (
           <div className="animate-reveal-ltr bg-muted/30 border border-border/30 rounded-lg px-4 py-3">
-            <StreamingMarkdown
+            <MarkdownRenderer
               content={finalAnswer}
             />
           </div>
@@ -316,7 +316,7 @@ export function DynamicAgentTimeline({
 
         {/* Warnings & Errors summary (only when collapsed) */}
         {!machineryExpanded && hasWarningsOrErrors && (
-          <DAWarningsSummary warningCount={warningCount} errorCount={errorCount} />
+          <WarningsSummary warningCount={warningCount} errorCount={errorCount} />
         )}
       </div>
     </SubagentLookupContext.Provider>
@@ -348,12 +348,12 @@ function TimelineDot({ color, size = "md" }: { color: "amber" | "sky" | "muted" 
 // Segment Renderer (dispatches to appropriate component)
 // ═══════════════════════════════════════════════════════════════
 
-function DASegmentRenderer({
+function SegmentRenderer({
   segment,
   isStreaming,
   isNested = false,
 }: {
-  segment: DATimelineSegment;
+  segment: TimelineSegment;
   isStreaming: boolean;
   /** Whether this segment is inside a subagent (affects sizing) */
   isNested?: boolean;
@@ -393,28 +393,28 @@ function DASegmentRenderer({
     )}>
       <TimelineDot color={getDotColor()} size={isNested ? "sm" : "md"} />
       {segment.type === "content" && (
-        <DAContentSegmentView segment={segment} isStreaming={isStreaming} isNested={isNested} />
+        <ContentSegmentView segment={segment} isStreaming={isStreaming} isNested={isNested} />
       )}
       {segment.type === "tool" && (
-        <DAToolSegmentView segment={segment} isNested={isNested} />
+        <ToolSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "tool-group" && (
-        <DAToolGroupSegmentView segment={segment} isNested={isNested} />
+        <ToolGroupSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "subagent" && (
-        <DASubagentSegmentView segment={segment} isStreaming={isStreaming} />
+        <SubagentSegmentView segment={segment} isStreaming={isStreaming} />
       )}
       {segment.type === "warning" && (
-        <DAWarningSegmentView segment={segment} isNested={isNested} />
+        <WarningSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "error" && (
-        <DAErrorSegmentView segment={segment} isNested={isNested} />
+        <ErrorSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "status" && (
-        <DAStatusSegmentView segment={segment} isNested={isNested} />
+        <StatusSegmentView segment={segment} isNested={isNested} />
       )}
       {segment.type === "done" && (
-        <DADoneSegmentView segment={segment} isNested={isNested} />
+        <DoneSegmentView segment={segment} isNested={isNested} />
       )}
     </div>
   );
@@ -424,12 +424,12 @@ function DASegmentRenderer({
 // Content Segment
 // ═══════════════════════════════════════════════════════════════
 
-function DAContentSegmentView({
+function ContentSegmentView({
   segment,
   isStreaming,
   isNested = false,
 }: {
-  segment: DAContentSegment;
+  segment: ContentSegment;
   isStreaming: boolean;
   isNested?: boolean;
 }) {
@@ -444,7 +444,7 @@ function DAContentSegmentView({
   }
 
   return (
-    <StreamingMarkdown
+    <MarkdownRenderer
       content={segment.text}
     />
   );
@@ -454,7 +454,7 @@ function DAContentSegmentView({
 // Tool Segment
 // ═══════════════════════════════════════════════════════════════
 
-function DAToolSegmentView({ segment, isNested = false }: { segment: DAToolSegment; isNested?: boolean }) {
+function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; isNested?: boolean }) {
   const { data: tool } = segment;
   const thought = extractToolThought(tool.args);
   const argsPreview = formatToolArgsPreview(tool.args);
@@ -578,7 +578,7 @@ function formatToolArgsPreview(args?: Record<string, unknown>, maxLength = 80): 
 // Tool Group Segment (multiple consecutive tools) - A2A style
 // ═══════════════════════════════════════════════════════════════
 
-function DAToolGroupSegmentView({ segment, isNested = false }: { segment: DAToolGroupSegment; isNested?: boolean }) {
+function ToolGroupSegmentView({ segment, isNested = false }: { segment: ToolGroupSegment; isNested?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const { tools } = segment;
   const completedCount = tools.filter(t => t.status === "completed").length;
@@ -625,7 +625,7 @@ function DAToolGroupSegmentView({ segment, isNested = false }: { segment: DATool
         <div className="overflow-hidden">
           <div className={cn("space-y-1", isNested ? "px-1.5 pb-1.5" : "px-2 pb-2")}>
             {tools.map((tool) => (
-              <DAToolItemView key={tool.id} tool={tool} isNested={isNested} />
+              <ToolItemView key={tool.id} tool={tool} isNested={isNested} />
             ))}
           </div>
         </div>
@@ -635,7 +635,7 @@ function DAToolGroupSegmentView({ segment, isNested = false }: { segment: DATool
 }
 
 /** Single tool item within a group - with individual status background */
-function DAToolItemView({ tool, isNested = false }: { tool: DAToolInfo; isNested?: boolean }) {
+function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: boolean }) {
   const thought = extractToolThought(tool.args);
   const argsPreview = formatToolArgsPreview(tool.args);
   const isRunning = tool.status === "running";
@@ -708,11 +708,11 @@ function DAToolItemView({ tool, isNested = false }: { tool: DAToolInfo; isNested
 // Subagent Segment (with nested timeline)
 // ═══════════════════════════════════════════════════════════════
 
-function DASubagentSegmentView({
+function SubagentSegmentView({
   segment,
   isStreaming,
 }: {
-  segment: DASubagentSegment;
+  segment: SubagentSegment;
   isStreaming: boolean;
 }) {
   const { info, segments: nestedSegments } = segment;
@@ -781,7 +781,7 @@ function DASubagentSegmentView({
 
       {/* Nested segments (interleaved content + tools, grouped) */}
       {groupedNestedSegments.map((nestedSeg) => (
-        <DASegmentRenderer
+        <SegmentRenderer
           key={nestedSeg.id}
           segment={nestedSeg}
           isStreaming={isStreaming && isRunning}
@@ -807,7 +807,7 @@ function DASubagentSegmentView({
 // Warning Segment
 // ═══════════════════════════════════════════════════════════════
 
-function DAWarningSegmentView({ segment, isNested = false }: { segment: DAWarningSegment; isNested?: boolean }) {
+function WarningSegmentView({ segment, isNested = false }: { segment: WarningSegment; isNested?: boolean }) {
   return (
     <div className={cn(
       "flex items-start gap-1.5 text-amber-500 rounded-md bg-amber-500/10 border border-amber-500/25",
@@ -823,7 +823,7 @@ function DAWarningSegmentView({ segment, isNested = false }: { segment: DAWarnin
 // Error Segment
 // ═══════════════════════════════════════════════════════════════
 
-function DAErrorSegmentView({ segment, isNested = false }: { segment: DAErrorSegment; isNested?: boolean }) {
+function ErrorSegmentView({ segment, isNested = false }: { segment: ErrorSegment; isNested?: boolean }) {
   return (
     <div className={cn(
       "flex items-start gap-1.5 text-red-500 rounded-md bg-red-500/10 border border-red-500/25",
@@ -839,7 +839,7 @@ function DAErrorSegmentView({ segment, isNested = false }: { segment: DAErrorSeg
 // Status Segment (done, interrupted, waiting_for_input)
 // ═══════════════════════════════════════════════════════════════
 
-function DAStatusSegmentView({ segment, isNested = false }: { segment: DAStatusSegment; isNested?: boolean }) {
+function StatusSegmentView({ segment, isNested = false }: { segment: StatusSegment; isNested?: boolean }) {
   const { status, label } = segment;
   
   // Determine styling based on status
@@ -879,7 +879,7 @@ function DAStatusSegmentView({ segment, isNested = false }: { segment: DAStatusS
 // Done Segment (completion marker)
 // ═══════════════════════════════════════════════════════════════
 
-function DADoneSegmentView({ segment, isNested = false }: { segment: DADoneSegment; isNested?: boolean }) {
+function DoneSegmentView({ segment, isNested = false }: { segment: DoneSegment; isNested?: boolean }) {
   return (
     <div className={cn(
       "flex items-center gap-1.5 text-emerald-500",
@@ -895,7 +895,7 @@ function DADoneSegmentView({ segment, isNested = false }: { segment: DADoneSegme
 // Summary Bar
 // ═══════════════════════════════════════════════════════════════
 
-function DATimelineSummary({
+function TimelineSummary({
   expanded,
   onToggle,
   toolCount,
@@ -950,7 +950,7 @@ function DATimelineSummary({
 // Warnings Summary (shown when machinery is collapsed)
 // ═══════════════════════════════════════════════════════════════
 
-function DAWarningsSummary({
+function WarningsSummary({
   warningCount,
   errorCount,
 }: {
@@ -979,7 +979,7 @@ function DAWarningsSummary({
 // Task Section
 // ═══════════════════════════════════════════════════════════════
 
-function DATaskSection({
+function TaskSection({
   tasks,
   readonly,
   turnEnded = false,
@@ -1022,7 +1022,7 @@ function DATaskSection({
 // File Section
 // ═══════════════════════════════════════════════════════════════
 
-function DAFileSection({
+function FileSection({
   files,
   readonly,
   turnEnded = false,

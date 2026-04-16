@@ -15,6 +15,7 @@ import {
   requireRbacPermission,
 } from '@/lib/api-middleware';
 import type { Conversation, CreateConversationRequest } from '@/types/mongodb';
+import packageJson from '../../../../../package.json';
 
 // GET /api/chat/conversations
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -114,12 +115,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       _id: body.id || uuidv4(), // Use client-provided ID if given, otherwise generate
       title: body.title,
       owner_id: user.email,
-      agent_id: body.agent_id, // Dynamic agent ID; undefined = Platform Engineer
+      participants: body.participants || [],
       created_at: now,
       updated_at: now,
       metadata: {
-        agent_version: process.env.npm_package_version || '0.1.0',
-        model_used: 'gpt-4o',
+        client_type: 'ui',
+        ui_version: packageJson.version,
         total_messages: 0,
       },
       sharing: {

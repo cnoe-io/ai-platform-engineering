@@ -1,4 +1,3 @@
-const path = require('path')
 const nextJest = require('next/jest')
 
 const createJestConfig = nextJest({
@@ -11,8 +10,6 @@ const customJestConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testEnvironment: 'jest-environment-jsdom',
   moduleNameMapper: {
-    // Must precede ^@/(.*)$ so Jest does not resolve to the real cel-evaluator (cel-js).
-    '^@/lib/rbac/cel-evaluator$': path.resolve(__dirname, 'src/lib/rbac/cel-evaluator.jest.ts'),
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   collectCoverageFrom: [
@@ -25,8 +22,9 @@ const customJestConfig = {
     '<rootDir>/src/**/__tests__/**/*.{js,jsx,ts,tsx}',
     '<rootDir>/src/**/*.{spec,test}.{js,jsx,ts,tsx}',
   ],
+  // Transform ESM packages
   transformIgnorePatterns: [
-    'node_modules/(?!(uuid|@a2a-js|jose)/)',
+    'node_modules/(?!(uuid|@a2a-js|jose|marked|marked-shiki|morphdom|shiki|remend|dompurify|@shikijs)/)',
   ],
   // Prevent CI failure when workers do not exit gracefully (e.g. SkillsBuilderEditor async state)
   forceExit: true,
@@ -40,13 +38,8 @@ module.exports = async () => {
   const config = await baseConfig()
   // Replace next/jest's transformIgnorePatterns with ours so ESM packages (jose, uuid, etc.) are transformed
   config.transformIgnorePatterns = [
-    'node_modules/(?!(uuid|@a2a-js|jose|cel-js|chevrotain|lodash-es)/)',
+    'node_modules/(?!(uuid|@a2a-js|jose|marked|marked-shiki|morphdom|shiki|remend|dompurify|@shikijs)/)',
     '^.+\\.module\\.(css|sass|scss)$',
   ]
-  config.moduleNameMapper = {
-    '^cel-js$': path.resolve(__dirname, 'src/__mocks__/cel-js.ts'),
-    '^@/lib/rbac/cel-evaluator$': path.resolve(__dirname, 'src/lib/rbac/cel-evaluator.jest.ts'),
-    ...config.moduleNameMapper,
-  }
   return config
 }

@@ -58,16 +58,16 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             config_fields=[],
         ),
         BuiltinToolDefinition(
-            id="sleep",
-            name="Sleep",
+            id="wait",
+            name="Wait",
             description="Pauses execution for a specified duration",
             enabled_by_default=True,
             config_fields=[
                 BuiltinToolConfigField(
                     name="max_seconds",
                     type="number",
-                    label="Max Sleep Duration",
-                    description="Maximum allowed sleep duration in seconds (1-3600)",
+                    label="Max Wait Duration",
+                    description="Maximum allowed wait duration in seconds (1-3600)",
                     default=300,
                     required=False,
                 ),
@@ -77,6 +77,13 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             id="request_user_input",
             name="Request User Input",
             description="Requests structured input from the user via a form (HITL)",
+            enabled_by_default=True,
+            config_fields=[],
+        ),
+        BuiltinToolDefinition(
+            id="self_identity",
+            name="Self Identity",
+            description="Returns this agent's identity and configuration — the agent MUST use this to know who it is",
             enabled_by_default=True,
             config_fields=[],
         ),
@@ -185,6 +192,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
     @tool
     def fetch_url(
         url: str,
+        thought: str = "",
         format: Literal["text", "raw"] = "text",
         timeout: int = 30,
     ) -> str:
@@ -195,6 +203,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         Args:
             url: The URL to fetch (must be http:// or https://)
+            thought: Brief reasoning for why you're fetching this URL
             format: 'text' (extract readable content) or 'raw' (raw HTML)
             timeout: Request timeout in seconds (default: 30)
 
@@ -240,6 +249,7 @@ def create_current_datetime_tool():
 
     @tool
     def current_datetime(
+        thought: str = "",
         timezone_name: str = "UTC",
         format: str = "iso",
     ) -> str:
@@ -249,6 +259,7 @@ def create_current_datetime_tool():
         for scheduling, logging, or time-sensitive operations.
 
         Args:
+            thought: Brief reasoning for why you need the current time
             timezone_name: Timezone name (e.g., 'UTC', 'US/Eastern', 'Europe/London').
                          Defaults to 'UTC'.
             format: Output format - 'iso' (ISO 8601), 'human' (readable), or 'unix' (timestamp).
@@ -289,82 +300,89 @@ def create_current_datetime_tool():
 def create_user_info_tool(user: UserContext):
     """Create a user_info tool with the current user's information.
 
+    Returns all fields present on the ``UserContext`` instance, including
+    any opaque extra fields injected by the gateway (``is_admin``,
+    ``is_authorized``, ``can_view_admin``, etc.).  The tool output adapts
+    automatically when the gateway adds or removes fields — no code
+    changes needed here.
+
     Args:
-        user: User context containing email, name, and groups
+        user: User context (email required, everything else opaque).
 
     Returns:
         A LangChain tool that returns user information.
     """
 
+    # Snapshot once — UserContext is immutable for the lifetime of a request.
+    _user_data = user.model_dump(exclude={"raw_claims"})
+
     @tool
-    def user_info() -> dict:
+    def user_info(thought: str = "") -> dict:
         """Get information about the current user.
 
         Use this tool when you need to personalize responses, check user identity,
-        or access user group memberships for authorization decisions.
+        or access user metadata for authorization decisions.
+
+        Args:
+            thought: Brief reasoning for why you need user information
 
         Returns:
-            Dictionary with user information:
-            - email: User's email address
-            - name: User's display name (may be null)
-            - groups: List of group names the user belongs to
+            Dictionary with user information.  Always includes ``email``.
+            Other fields (``name``, ``is_admin``, ``groups``, etc.) depend
+            on how the user was authenticated.
 
         Example:
             info = user_info()
-            print(f"Hello, {info['name'] or info['email']}!")
+            print(f"Hello, {info.get('name') or info['email']}!")
         """
-        return {
-            "email": user.email,
-            "name": user.name,
-            "groups": user.groups,
-        }
+        return _user_data
 
     return user_info
 
 
-def create_sleep_tool(max_seconds: int = 300):
-    """Create a sleep tool with configurable max duration.
+def create_wait_tool(max_seconds: int = 300):
+    """Create a wait tool with configurable max duration.
 
     Args:
-        max_seconds: Maximum allowed sleep duration in seconds (default: 300)
+        max_seconds: Maximum allowed wait duration in seconds (default: 300)
 
     Returns:
         A LangChain tool that pauses execution.
     """
 
     @tool
-    def sleep(seconds: float) -> str:
+    def wait(seconds: float, thought: str = "") -> str:
         """Pause execution for a specified duration.
 
         Use this tool when you need to wait between operations, implement
         rate limiting, or add delays for timing-sensitive workflows.
 
         Args:
-            seconds: Duration to sleep in seconds. Must be positive and
+            seconds: Duration to wait in seconds. Must be positive and
                     not exceed the configured maximum.
+            thought: Brief reasoning for why you need to wait
 
         Returns:
-            Confirmation message with actual sleep duration.
+            Confirmation message with actual wait duration.
 
         Example:
-            sleep(5)  # Pause for 5 seconds
+            wait(5)  # Pause for 5 seconds
         """
         if seconds <= 0:
-            return "ERROR: Sleep duration must be positive"
+            return "ERROR: Wait duration must be positive"
 
         if seconds > max_seconds:
-            return f"ERROR: Sleep duration {seconds}s exceeds maximum allowed ({max_seconds}s)"
+            return f"ERROR: Wait duration {seconds}s exceeds maximum allowed ({max_seconds}s)"
 
         try:
-            # Use asyncio.sleep if we're in an async context, otherwise time.sleep
             import time
 
             time.sleep(seconds)
-            return f"Slept for {seconds} seconds"
+            return f"Waited for {seconds} seconds"
         except Exception as e:
-            return f"ERROR: Sleep failed: {e}"
+            return f"ERROR: Wait failed: {e}"
 
-    return sleep
+    return wait
 
 
 def create_request_user_input_tool():
@@ -386,6 +404,7 @@ def create_request_user_input_tool():
     def request_user_input(
         prompt: str,
         fields: list[dict],
+        thought: str = "",
     ) -> str:
         """Request structured input from the user via a form.
 
@@ -461,12 +480,64 @@ def create_request_user_input_tool():
     return request_user_input
 
 
+def create_self_identity_tool(
+    name: str,
+    description: str | None,
+    model_id: str,
+    model_provider: str,
+    gradient_theme: str | None,
+):
+    """Create a self_identity tool with the agent's own metadata.
+
+    Exposes non-sensitive agent configuration so the agent can identify itself.
+    Deliberately excludes the system prompt and internal IDs.
+
+    Args:
+        name: Agent display name.
+        description: Agent description.
+        model_id: LLM model identifier.
+        model_provider: LLM provider.
+        gradient_theme: UI gradient theme, or None.
+
+    Returns:
+        A LangChain tool that returns agent metadata.
+    """
+
+    @tool
+    def self_identity(thought: str = "") -> dict:
+        """Get this agent's identity. You MUST call this tool whenever you need
+        to know who you are or what your name is. Never guess or assume your
+        identity — always call this tool first.
+
+        Args:
+            thought: Brief reasoning for why you need identity information
+
+        Returns:
+            Dictionary with agent identity:
+            - name: Agent display name
+            - description: Agent description (may be null)
+            - model_id: LLM model identifier
+            - model_provider: LLM provider
+            - gradient_theme: UI theme (may be null)
+        """
+        return {
+            "name": name,
+            "description": description,
+            "model_id": model_id,
+            "model_provider": model_provider,
+            "gradient_theme": gradient_theme,
+        }
+
+    return self_identity
+
+
 __all__ = [
     "create_fetch_url_tool",
     "create_current_datetime_tool",
     "create_user_info_tool",
-    "create_sleep_tool",
+    "create_wait_tool",
     "create_request_user_input_tool",
+    "create_self_identity_tool",
     "is_domain_allowed",
     "get_builtin_tool_definitions",
 ]

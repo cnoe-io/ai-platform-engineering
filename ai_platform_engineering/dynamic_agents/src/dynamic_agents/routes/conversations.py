@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from dynamic_agents.auth.access import can_access_conversation
-from dynamic_agents.auth.auth import UserContext, get_current_user, require_admin
+from dynamic_agents.auth.auth import UserContext, get_user_context
 from dynamic_agents.models import ApiResponse
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -85,7 +85,7 @@ class FileContentResponse(BaseModel):
 async def get_conversation_messages(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ConversationMessagesResponse:
     """Get messages for a conversation from the LangGraph checkpointer.
@@ -251,7 +251,7 @@ class InterruptStateResponse(BaseModel):
 async def get_interrupt_state(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> InterruptStateResponse:
     """Get HITL interrupt state for a conversation (lightweight, no messages).
@@ -332,7 +332,7 @@ async def get_interrupt_state(
 async def get_conversation_todos(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ConversationTodosResponse:
     """Get todos for a conversation from the LangGraph checkpointer.
@@ -436,7 +436,7 @@ async def get_conversation_todos(
 async def get_conversation_files_list(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ConversationFilesListResponse:
     """Get list of file paths for a conversation from the LangGraph checkpointer.
@@ -529,7 +529,7 @@ async def get_conversation_file_content(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
     path: str = Query(..., description="File path to retrieve"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> FileContentResponse:
     """Get content of a single file from the LangGraph checkpointer.
@@ -619,7 +619,7 @@ async def delete_conversation_file(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
     path: str = Query(..., description="File path to delete"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ApiResponse:
     """Delete a file from the agent's in-memory filesystem.
@@ -704,7 +704,7 @@ async def delete_conversation_file(
 async def ensure_conversation_metadata(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Ensure conversation metadata exists in the conversations collection.
@@ -738,11 +738,11 @@ async def ensure_conversation_metadata(
                 "_id": conversation_id,
                 "title": f"Chat with {agent.name}",
                 "owner_id": user.email,
-                "agent_id": agent_id,
                 "created_at": now,
                 "metadata": {
+                    "client_type": "api",
                     "agent_name": agent.name,
-                    "agent_version": "1.0",
+                    "total_messages": 0,
                 },
                 "sharing": {
                     "is_public": False,
@@ -754,7 +754,10 @@ async def ensure_conversation_metadata(
                 "is_archived": False,
                 "is_pinned": False,
             },
-            "$set": {"updated_at": now},
+            "$set": {
+                "updated_at": now,
+                "agent_id": agent_id,
+            },
         },
         upsert=True,
     )
@@ -780,7 +783,7 @@ async def ensure_conversation_metadata(
 @router.post("/{conversation_id}/clear", response_model=ApiResponse)
 async def clear_conversation_checkpoints(
     conversation_id: str,
-    admin: UserContext = Depends(require_admin),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ApiResponse:
     """Clear checkpoint data for a conversation (admin only).
@@ -789,7 +792,11 @@ async def clear_conversation_checkpoints(
     but keeps the conversation metadata record.
 
     The action is logged for audit purposes.
+
+    Requires admin role (checked via X-User-Context from gateway).
     """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     if mongo._client is None:
         raise HTTPException(status_code=503, detail="Database not connected")
     db = mongo._db
@@ -811,7 +818,7 @@ async def clear_conversation_checkpoints(
 
     # Log the action for audit
     logger.info(
-        f"Admin {admin.email} cleared conversation {conversation_id}: "
+        f"Admin {user.email} cleared conversation {conversation_id}: "
         f"deleted {checkpoints_result.deleted_count} checkpoints, "
         f"{writes_result.deleted_count} writes"
     )

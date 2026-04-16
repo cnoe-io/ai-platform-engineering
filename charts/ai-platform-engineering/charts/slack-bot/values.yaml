@@ -15,12 +15,10 @@ serviceAccount:
 
 appName: "CAIPE"  # Display name used in Slack messages (maps to APP_NAME env var)
 
-# CAIPE supervisor URL — the bot connects to this endpoint via A2A protocol.
+# CAIPE API URL — the bot routes all requests through this gateway.
+# Points to the Next.js app which proxies to dynamic agents.
 # Required. Must be reachable from the bot pod.
-caipeUrl: "http://ai-platform-engineering-supervisor-agent:8000"
-
-# CAIPE UI URL — must be reachable from the bot pod.
-caipeUiUrl: "http://ai-platform-engineering-caipe-ui:3000"
+caipeApiUrl: "http://ai-platform-engineering-caipe-ui:3000"
 
 # Bot connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (incoming webhooks via SLACK_SIGNING_SECRET)
 botMode: "socket"

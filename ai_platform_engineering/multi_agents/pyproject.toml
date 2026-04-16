@@ -16,12 +16,12 @@ dependencies = [
     "uvicorn==0.34.3",
     "config==0.5.1",
     "langchain-core==1.2.28",
-    "langgraph==1.0.10",
-    "langgraph==1.0.10",
+    "langgraph==1.1.6",
     "langfuse==3.14.5",
 
     # Transport dependencies for agent connections
     "a2a-sdk (==0.3.0)",
+    "ag-ui-protocol==0.1.15",
     "agntcy-app-sdk==0.4.0",
     "cnoe-agent-utils==0.3.14",
 
