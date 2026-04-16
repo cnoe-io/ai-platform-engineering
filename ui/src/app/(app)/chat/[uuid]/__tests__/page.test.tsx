@@ -149,7 +149,7 @@ jest.mock("@/components/chat/ChatPanel", () => ({
 
 // Mock the new view components that replaced direct Sidebar/ChatPanel/ContextPanel usage
 // Note: Sidebar is now rendered by the layout, not these view components
-jest.mock("@/components/chat/SupervisorChatView", () => ({
+jest.mock("@/components/chat/PlatformEngineerChatView", () => ({
   SupervisorChatView: ({ conversationId }: { conversationId: string }) => (
     <div>
       <div data-testid="chat-panel">Chat: {conversationId}</div>
@@ -158,7 +158,7 @@ jest.mock("@/components/chat/SupervisorChatView", () => ({
   ),
 }));
 
-jest.mock("@/components/chat/ChatView", () => ({
+jest.mock("@/components/chat/DynamicAgentChatView", () => ({
   ChatView: ({ conversationId }: { conversationId: string }) => (
     <div>
       <div data-testid="chat-panel">Chat: {conversationId}</div>

@@ -201,7 +201,7 @@ jest.mock('@/components/ui/button', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { SupervisorChatPanel } from '../SupervisorChatPanel'
+import { SupervisorChatPanel } from '../ChatPanel'
 import type { ChatMessage } from '@/types/a2a'
 
 // ============================================================================

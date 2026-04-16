@@ -2,7 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { SupervisorChatPanel } from "@/components/chat/SupervisorChatPanel";
+import { SupervisorChatPanel } from "@/components/chat/ChatPanel";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 
 interface SupervisorChatViewProps {

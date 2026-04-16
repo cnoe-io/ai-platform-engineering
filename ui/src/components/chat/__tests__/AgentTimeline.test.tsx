@@ -65,7 +65,7 @@ jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
 // Imports
 // ============================================================================
 
-import { SupervisorTimeline } from '../SupervisorTimeline'
+import { SupervisorTimeline } from '../AgentTimeline'
 
 // ============================================================================
 // Helpers

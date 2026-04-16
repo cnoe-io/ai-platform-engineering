@@ -40,7 +40,7 @@ jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
 }));
 
-jest.mock('@/lib/supervisor-timeline-manager', () => ({
+jest.mock('@/lib/timeline-manager', () => ({
   SupervisorTimelineManager: {
     buildFromEvents: jest.fn().mockReturnValue([]),
   },
