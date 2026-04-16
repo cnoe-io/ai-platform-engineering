@@ -82,10 +82,12 @@ class DualAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 2. Fall back to OAuth2 JWT validation (UI OIDC flow)
-        #    Lazy import to avoid module-level env validation side effects.
-        from ai_platform_engineering.utils.auth.oauth2_middleware import verify_token
-
         try:
+            # Lazy import to avoid module-level env validation side effects.
+            from ai_platform_engineering.utils.auth.oauth2_middleware import (
+                verify_token,
+            )
+
             is_valid = verify_token(access_token)
             if is_valid:
                 logger.debug("Authenticated via OAuth2 JWT")
