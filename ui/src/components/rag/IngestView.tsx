@@ -1716,6 +1716,7 @@ export default function IngestView() {
                                 </Button>
                                 )}
                                 {canDelete && (
+                                <>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1736,6 +1737,7 @@ export default function IngestView() {
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
+                                </>
                                 )}
                               </div>
                               )}
