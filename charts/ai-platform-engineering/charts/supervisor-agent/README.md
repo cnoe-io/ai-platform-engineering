@@ -137,3 +137,4 @@ helm show values oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
 | tolerations | list | `[]` | Pod tolerations |
 | volumeMounts | list | `[]` | Extra volume mounts |
 | volumes | list | `[]` | Extra volumes |
+
