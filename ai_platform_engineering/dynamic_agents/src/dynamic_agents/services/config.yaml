@@ -39,66 +39,68 @@ models:
 # =============================================================================
 # Seed MCP Servers
 # =============================================================================
+# Note: Production cluster endpoints below are disabled for local dev.
+# Enable only for Kubernetes deployments where these services exist.
 
 mcp_servers:
   - description: ArgoCD application and deployment management
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-argocd-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: argocd
     name: ArgoCD
     transport: http
 
   - description: Backstage catalog and developer portal
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-backstage-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: backstage
     name: Backstage
     transport: http
 
   - description: Confluence wiki and documentation
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-confluence-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: confluence
     name: Confluence
     transport: http
 
   - description: Jira issue tracking and project management
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-jira-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: jira
     name: Jira
     transport: http
 
   - description: Network diagnostic tools (ping, traceroute, DNS lookup)
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-netutils-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: netutils
     name: Network Utilities
     transport: http
 
   - description: PagerDuty incident management
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-pagerduty-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: pagerduty
     name: PagerDuty
     transport: http
 
   - description: Slack messaging and collaboration
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-slack-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: slack
     name: Slack
     transport: http
 
   - description: Splunk log analysis and monitoring
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-splunk-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: splunk
     name: Splunk
     transport: http
 
   - description: Webex messaging and meetings
-    enabled: true
+    enabled: false
     endpoint: http://a-caipe-preview-argoapp-agent-webex-mcp.caipe-preview.svc.cluster.local:8000/mcp
     id: webex
     name: Webex
