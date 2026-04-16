@@ -93,6 +93,18 @@ webIngestor:
       memory: 1Gi
       ephemeral-storage: 1Gi
 
+  # Container-level security context for the web-ingestor sidecar
+  securityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 1001
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    seccompProfile:
+      type: RuntimeDefault
+
 serviceAccount:
   create: false
   name: ""
@@ -104,6 +116,28 @@ service:
   port: 9446
 
 resources: {}
+
+# Security contexts are set to satisfy the Kubernetes Pod Security Standards Baseline
+# profile (enforced) and meet all Restricted profile requirements except
+# readOnlyRootFilesystem, which is left false because the application may write to
+# /tmp at runtime. To enforce the policy at the namespace level:
+#   kubectl label namespace <ns> \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/audit=restricted
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault
 
 nodeSelector: {}
 
