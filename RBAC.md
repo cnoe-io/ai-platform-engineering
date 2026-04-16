@@ -2,34 +2,21 @@
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Slack User / Web UI                             │
-│                      (Channel / User / Message)                         │
-└────────────────────────────┬────────────────────────────────────────────┘
-                             │
-                ┌────────────▼─────────────┐
-                │   Keycloak Identity      │
-                │  • OIDC / Session Auth   │
-                │  • User Roles & Groups   │
-                │  • Token Storage         │
-                └────────────┬─────────────┘
-                             │
-        ┌────────────────────▼──────────────────────┐
-        │     Next.js Gateway (api-router)         │
-        │  ├─ Channel→Agent Mapper                 │
-        │  ├─ RBAC Enforcement                     │
-        │  ├─ Token Cache (5min TTL)               │
-        │  └─ OBO Token Exchange                   │
-        └─┬──────────────────┬──────────────────┬──┘
-          │                  │                  │
-    ┌─────▼──┐        ┌──────▼─────┐    ┌──────▼──────┐
-    │  MCP   │        │  MongoDB   │    │   Dynamic   │
-    │ Tools  │        │ (Config)   │    │   Agents    │
-    │• GitHub│        │• Mappings  │    │   (LangGraph)
-    │• Jira  │        │• Agents    │    │  + Tool RPC │
-    │• Other │        │• Roles     │    │             │
-    └────────┘        └────────────┘    └─────────────┘
+```mermaid
+graph TB
+    User["🧑 Slack User / Web UI<br/>(Channel / User / Message)"]
+    Keycloak["🔐 Keycloak Identity<br/>• OIDC / Session Auth<br/>• User Roles & Groups<br/>• Token Storage"]
+    Gateway["🚪 Next.js Gateway<br/>• Channel→Agent Mapper<br/>• RBAC Enforcement<br/>• Token Cache 5min TTL<br/>• OBO Token Exchange"]
+    MCP["🔧 MCP Tools<br/>• GitHub<br/>• Jira<br/>• ArgoCD<br/>• PagerDuty"]
+    MongoDB["📦 MongoDB<br/>• Mappings<br/>• Agents<br/>• Roles"]
+    DA["🤖 Dynamic Agents<br/>• LangGraph<br/>• Tool RPC<br/>• LLM Execution"]
+    
+    User --> Keycloak
+    Keycloak --> Gateway
+    Gateway --> MCP
+    Gateway --> MongoDB
+    Gateway --> DA
+    MCP -.-> DA
 ```
 
 ---
@@ -40,83 +27,76 @@
 
 ### Sequence Diagram: Message from Slack
 
-```
-Slack User          Slack Bot           Next.js             Keycloak          MongoDB          Agent
-   │                   │                 Gateway               │               │               │
-   │─ @mention ───────▶│                   │                   │               │               │
-   │  message          │                   │                   │               │               │
-   │                   │─ Receive Event ──▶│                   │               │               │
-   │                   │                   │                   │               │               │
-   │                   │                   │─ Lookup Channel ─────────────────▶│               │
-   │                   │                   │ #platform-incidents               │               │
-   │                   │                   │◀─ Return agent_id ────────────────│               │
-   │                   │                   │  (incident-handler)              │               │
-   │                   │                   │                   │               │               │
-   │                   │                   │─ Get User Roles ──▶│               │               │
-   │                   │                   │ (from OIDC token)  │               │               │
-   │                   │                   │◀─ Roles: [team_member:sre, admin] │               │
-   │                   │                   │                   │               │               │
-   │                   │                   │─ Check Agent Visibility ────────▶│               │
-   │                   │                   │ (visibility=team, shared_teams=[sre]) │           │
-   │                   │                   │◀─ RBAC: Allow (user has team role) │             │
-   │                   │                   │                   │               │               │
-   │                   │                   │─ Invoke Agent ────────────────────────────────▶│
-   │                   │                   │ (user context + message)          │               │
-   │                   │                   │                   │               │               │
-   │                   │                   │◀─ Agent Response ──────────────────────────────│
-   │                   │◀─ Return Response ─│                   │               │               │
-   │                   │                   │                   │               │               │
-   │◀─ Post to Slack ──│                   │                   │               │               │
+```mermaid
+sequenceDiagram
+    participant User as Slack User
+    participant Bot as Slack Bot
+    participant Gateway as Next.js Gateway
+    participant KC as Keycloak
+    participant DB as MongoDB
+    participant Agent as Dynamic Agent
+    
+    User->>Bot: @mention<br/>message
+    Bot->>Gateway: Receive Event
+    Gateway->>DB: Lookup Channel<br/>#platform-incidents
+    DB-->>Gateway: agent_id:<br/>incident-handler
+    Gateway->>KC: Get User Roles<br/>(from token)
+    KC-->>Gateway: [team_member:sre,<br/>admin]
+    Gateway->>DB: Check Agent Config<br/>(visibility + teams)
+    DB-->>Gateway: RBAC: Allow<br/>(user has role)
+    Gateway->>Agent: Invoke Agent<br/>(context + message)
+    Agent-->>Gateway: Response
+    Gateway->>Bot: Return Response
+    Bot->>User: Post to Slack
 ```
 
-### Authorization Decision Tree
+### RBAC Authorization Decision Tree
 
-```
-Slack Message Arrives
-    │
-    ├─ Get user from OIDC session
-    │
-    ├─ Look up channel→agent mapping
-    │  └─ Not found? Use default agent
-    │
-    ├─ Get agent config (visibility + shared_teams)
-    │
-    └─ RBAC Check:
-       │
-       ├─ visibility == "global"?
-       │  └─ ✅ Allow any user
-       │
-       ├─ visibility == "team"?
-       │  └─ Does user have team_member:{team} role?
-       │     ├─ ✅ Yes → Allow
-       │     └─ ❌ No → Deny
-       │
-       └─ visibility == "private"?
-          └─ Is user == agent owner?
-             ├─ ✅ Yes → Allow
-             └─ ❌ No → Deny
+```mermaid
+flowchart TD
+    A["Slack Message Arrives"] --> B["Get User from<br/>OIDC Session"]
+    B --> C["Look up<br/>Channel→Agent Mapping"]
+    C --> D{Found?}
+    D -->|No| E["Use Default Agent"]
+    D -->|Yes| F["Get Agent Config<br/>visibility + teams"]
+    E --> F
+    F --> G{Check Visibility}
+    
+    G -->|global| H["✅ Allow Any User"]
+    G -->|team| I{User has<br/>team_member role?}
+    G -->|private| J{User == Owner?}
+    
+    I -->|Yes| K["✅ Allow"]
+    I -->|No| L["❌ Deny Access"]
+    J -->|Yes| K
+    J -->|No| L
+    
+    H --> M["Invoke Agent"]
+    K --> M
+    L --> N["Error: Access Denied"]
 ```
 
 ### Auto-Bootstrap on First Message
 
-```
-User sends first message to Slack bot
-    │
-    ├─ Check: Is Slack identity linked to Keycloak account?
-    │
-    ├─ If SLACK_FORCE_LINK=true:
-    │  └─ Send manual link button (HMAC-signed URL)
-    │     └─ User clicks → UI links accounts
-    │
-    └─ If SLACK_FORCE_LINK=false (default):
-       │
-       ├─ Silent auto-bootstrap attempt:
-       │  ├─ Fetch Slack user email (users.info API)
-       │  ├─ Query Keycloak: Find user by exact email match
-       │  └─ If found: Store slack_user_id in Keycloak user attributes
-       │
-       └─ If email not found in Keycloak:
-          └─ Send manual link button as fallback
+```mermaid
+flowchart TD
+    A["User Sends<br/>First Message"] --> B{Slack ↔ Keycloak<br/>Linked?}
+    B -->|Yes| C["✅ Use Existing Link"]
+    B -->|No| D{SLACK_FORCE_LINK?}
+    
+    D -->|true| E["Send Manual Link<br/>HMAC-signed URL"]
+    D -->|false| F["Attempt Silent<br/>Auto-Bootstrap"]
+    
+    F --> G["Fetch Slack<br/>User Email"]
+    G --> H["Query Keycloak<br/>by Email"]
+    H --> I{Match Found?}
+    I -->|Yes| J["Store slack_user_id<br/>in Keycloak attrs"]
+    I -->|No| E
+    
+    E --> K["User Clicks Link<br/>→ UI Links Accounts"]
+    C --> L["✅ User Authenticated"]
+    J --> L
+    K --> L
 ```
 
 ---
@@ -125,67 +105,50 @@ User sends first message to Slack bot
 
 **Scenario:** User creates agent "DevOps Helper" with GitHub + Jira tools. Only "engineers" role can use it.
 
-### End-to-End Flow
+### Agent Creation Flow
 
-```
-User visits Agent Editor
-    │
-    ├─ Fill in agent config:
-    │  ├─ name, description, system_prompt
-    │  ├─ visibility: "team"
-    │  ├─ shared_with_teams: ["platform"]
-    │  └─ allowed_tools: {github: [...], jira: [...]}
-    │
-    └─ Click "Create Agent"
-       │
-       ├─ Next.js Gateway receives POST
-       │  └─ Check: Is user admin? (Keycloak roles)
-       │     ├─ ✅ Yes → Proceed
-       │     └─ ❌ No → Deny with "admin only"
-       │
-       ├─ Validate allowed_tools against MCP registry
-       │  └─ Check: Each tool exists in configured MCP servers
-       │     ├─ ✅ Yes → Proceed
-       │     └─ ❌ No → Reject with "tool not found"
-       │
-       ├─ Store agent config in MongoDB
-       │  ├─ visibility: "team"
-       │  ├─ shared_with_teams: ["platform"]
-       │  └─ created_by: user_id
-       │
-       └─ Notify user: Agent created ✅
+```mermaid
+sequenceDiagram
+    participant User as Web UI
+    participant Gateway as Next.js Gateway
+    participant KC as Keycloak
+    participant MCP as MCP Registry
+    participant DB as MongoDB
+    
+    User->>Gateway: POST /api/dynamic-agents<br/>{config}
+    Gateway->>KC: Check: Is user admin?
+    KC-->>Gateway: Roles: [admin, chat_user]
+    Note over Gateway: ✅ User is admin
+    Gateway->>MCP: Validate tools:<br/>github, jira
+    MCP-->>Gateway: ✅ Tools exist
+    Gateway->>DB: Store Agent Config<br/>visibility: team<br/>allowed_tools: {...}
+    DB-->>Gateway: ✅ Created
+    Gateway-->>User: Agent created
 ```
 
 ### Runtime: User Invokes Agent
 
-```
-User submits message to agent
-    │
-    ├─ Next.js Gateway receives chat request
-    │
-    ├─ Validate user's token
-    │  └─ Extract roles from Keycloak token
-    │
-    ├─ Fetch agent config from MongoDB
-    │  ├─ Check visibility:
-    │  │  ├─ team → Is user in shared_with_teams?
-    │  │  └─ private → Is user == owner?
-    │  └─ ✅ Access allowed
-    │
-    ├─ Extract allowed_tools for this agent
-    │  │  [github: [list_issues, get_pr], jira: [list_issues]]
-    │
-    ├─ Call Dynamic Agents service
-    │  ├─ Pass user context + message + tool restrictions
-    │  ├─ Agent initializes with tool whitelist
-    │  └─ Agent can ONLY call allowed tools
-    │
-    ├─ Agent runs LangGraph, calls MCP tools
-    │  ├─ Tool call: github.list_issues() → ✅ Allowed
-    │  ├─ Tool call: github.create_repo() → ❌ Denied (not in whitelist)
-    │  └─ Tool call: jira.list_issues() → ✅ Allowed
-    │
-    └─ Return response to user
+```mermaid
+flowchart TD
+    A["User Submits<br/>Message to Agent"] --> B["Next.js Gateway<br/>receives chat request"]
+    B --> C["Validate User Token<br/>(Keycloak)"]
+    C --> D["Fetch Agent Config<br/>from MongoDB"]
+    D --> E{Check Visibility}
+    E -->|global| F["✅ Access Allowed"]
+    E -->|team| G{User in<br/>teams?}
+    E -->|private| H{User == Owner?}
+    G -->|Yes| F
+    G -->|No| I["❌ Deny"]
+    H -->|Yes| F
+    H -->|No| I
+    F --> J["Extract allowed_tools<br/>for agent"]
+    J --> K["Call Dynamic Agents<br/>with tool whitelist"]
+    K --> L["Agent Runs LangGraph"]
+    L --> M{Tool Call?}
+    M -->|In Whitelist| N["✅ Execute"]
+    M -->|Not in Whitelist| O["❌ Block"]
+    N --> P["Return Response"]
+    O --> P
 ```
 
 ### Tool RBAC Configuration
@@ -216,129 +179,95 @@ agents:
 
 ### OBO (On-Behalf-Of) Token Exchange
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Login Phase                                                      │
-└─────────────────────────────────────────────────────────────────┘
-
-User authenticates → Keycloak OIDC → Issues access_token + refresh_token
-                                              │
-                                              ├─ access_token contains:
-                                              │  ├─ sub: user_id
-                                              │  ├─ roles: [admin, chat_user, team_member:sre]
-                                              │  └─ scope: openid profile email
-                                              │
-                                              └─ Refresh token stored for later use
-
-┌─────────────────────────────────────────────────────────────────┐
-│ Pre-Authorization Phase (setup)                                 │
-└─────────────────────────────────────────────────────────────────┘
-
-Admin stores external credentials in Keycloak user attributes:
-  user.attributes = {
-    github_token: "ghp_xxxxx",
-    jira_token: "JIRA_xxxxx",
-    refresh_github_token: 3600  # seconds until refresh
-  }
-
-┌─────────────────────────────────────────────────────────────────┐
-│ Runtime Phase: User invokes agent                               │
-└─────────────────────────────────────────────────────────────────┘
-
-1. User message arrives with their access_token (in Authorization header)
-   │
-2. Next.js Gateway validates token signature (Keycloak public key)
-   │
-3. Extract user_id from token
-   │
-4. Before calling agent:
-   │  ├─ Check token cache: Is github_token in memory?
-   │  │  ├─ ✅ Cache HIT (< 5min old) → Use cached token
-   │  │  └─ ❌ Cache MISS
-   │  │
-   │  └─ Fetch from Keycloak Admin API:
-   │     GET /admin/realms/caipe/users/{user_id}
-   │     └─ Response contains: github_token, jira_token, ...
-   │
-5. Update memory cache with fresh token + TTL=5min
-   │
-6. Pass github_token to agent runtime
-   │
-7. Agent calls: POST https://api.github.com/user/repos
-   │             Headers: Authorization: Bearer ghp_xxxxx
-   │
-8. GitHub API logs: Action performed by {user_email}, not by bot
-   │
-9. Audit trail shows user (not bot) made the change
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant KC as Keycloak
+    participant Cache as Token Cache
+    participant Gateway as Next.js Gateway
+    participant GitHub as GitHub API
+    
+    Note over User,KC: Login Phase
+    User->>KC: Authenticate (OIDC)
+    KC-->>User: access_token +<br/>refresh_token
+    
+    Note over KC,Cache: Pre-Auth Phase
+    KC->>KC: Store credentials in<br/>user.attributes:<br/>github_token, jira_token
+    
+    Note over User,GitHub: Runtime Phase
+    User->>Gateway: POST /api/chat<br/>Authorization: {token}
+    Gateway->>Cache: Check: github_token<br/>in cache?
+    alt Cache HIT
+        Cache-->>Gateway: Fresh token (< 5min)
+    else Cache MISS
+        Gateway->>KC: Admin API: GET user<br/>fetch github_token
+        KC-->>Gateway: github_token
+        Gateway->>Cache: Update cache<br/>TTL = 5min
+    end
+    Gateway->>GitHub: POST /user/repos<br/>Auth: Bearer github_token
+    GitHub-->>Gateway: 200 OK
+    GitHub->>GitHub: Audit Log:<br/>Action by {user_email}
+    Gateway-->>User: Response
 ```
 
 ### Token Refresh Logic
 
-```
-┌─ Token Cache Check ─┐
-│                     │
-│ Is token fresh?     │
-│ (age < 5 min)       │
-│                     │
-│  YES ──────────────────────────────┐
-│         Use cached token           │
-│                                    │
-│  NO                                │
-│   │                                │
-│   ├─ Fetch from Keycloak Admin API │
-│   │  GET /admin/realms/caipe/users/{id}
-│   │                                │
-│   ├─ Check expiry:                 │
-│   │  Is token expired?             │
-│   │                                │
-│   │  YES (expired):                │
-│   │   └─ Call Keycloak token endpoint
-│   │      POST /realms/caipe/protocol/openid-connect/token
-│   │      body: {
-│   │        grant_type: "refresh_token",
-│   │        client_id: "caipe-platform",
-│   │        refresh_token: "rt_xxxxx"
-│   │      }
-│   │      └─ Response: New access_token + refresh_token
-│   │
-│   │  NO (still valid):             │
-│   │   └─ Use current token         │
-│   │                                │
-│   └─ Update cache (TTL = 5min)     │
-│                                    │
-└────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["Before API Call"] --> B{Token in Cache?}
+    B -->|Yes| C{Age < 5min?}
+    C -->|Yes| D["✅ Use Cached Token"]
+    C -->|No| E["Fetch from KC"]
+    B -->|No| E
+    
+    E --> F["Check Expiry"]
+    F --> G{Token Expired?}
+    G -->|Yes| H["Refresh via<br/>Keycloak Token Endpoint"]
+    G -->|No| I["✅ Use Current Token"]
+    
+    H --> J["POST /protocol/openid-connect/token<br/>grant_type: refresh_token"]
+    J --> K["New access_token +<br/>refresh_token"]
+    K --> L["Update Cache<br/>TTL = 5min"]
+    L --> M["✅ Token Ready"]
+    
+    D --> M
+    I --> M
+    M --> N["Call GitHub API"]
 ```
 
 ### API Call Flow with User Credentials
 
-```
-User's Request
-    │
-    ├─ POST /api/chat
-    │  Headers: Authorization: Bearer {user's_access_token}
-    │  Body: { agent_id: "github-pr-reviewer", message: "review my PRs" }
-    │
-    ├─ Next.js Gateway:
-    │  ├─ Validate user's token signature
-    │  ├─ Extract user_id from token claims
-    │  └─ Look up user's github_token from Keycloak cache/API
-    │
-    ├─ Invoke Dynamic Agents:
-    │  └─ Pass: (user_id, github_token, message)
-    │
-    ├─ Agent runs LangGraph:
-    │  ├─ Tool: GitHub.list_pull_requests(repo, per_user=True)
-    │  │  └─ Uses: Authorization: Bearer {github_token}
-    │  │
-    │  └─ Tool: GitHub.create_review(pr_id, body)
-    │     └─ Uses: Authorization: Bearer {github_token}
-    │
-    ├─ GitHub API sees:
-    │  └─ "API call from token belonging to {user_email}"
-    │
-    └─ Response includes:
-       ├─ Pull requests reviewed
-       └─ Audit log shows: user_email performed action at {timestamp}
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Gateway as Next.js Gateway
+    participant KC as Keycloak (Admin)
+    participant DA as Dynamic Agents
+    participant GitHub as GitHub API
+    
+    User->>Gateway: POST /api/chat<br/>agent_id: github-pr-reviewer<br/>Auth: Bearer {user_token}
+    
+    Gateway->>Gateway: Validate token signature
+    Gateway->>Gateway: Extract user_id from claims
+    
+    Gateway->>KC: Look up user attrs<br/>github_token
+    KC-->>Gateway: github_token (from cache)
+    
+    Gateway->>DA: Invoke agent<br/>(user_id, github_token, message)
+    
+    DA->>DA: Initialize LangGraph
+    DA->>DA: Load allowed_tools whitelist
+    
+    DA->>GitHub: github.list_pull_requests()<br/>Auth: Bearer {github_token}
+    GitHub-->>DA: [PR list]
+    GitHub->>GitHub: Audit: Action by {user_email}
+    
+    DA->>GitHub: github.create_review(pr_id)<br/>Auth: Bearer {github_token}
+    GitHub-->>DA: Review created
+    GitHub->>GitHub: Audit: Action by {user_email}
+    
+    DA-->>Gateway: Response with results
+    Gateway-->>User: Show PRs + review status
 ```
 
 ---
