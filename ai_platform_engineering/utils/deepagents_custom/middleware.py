@@ -271,16 +271,33 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             try:
                 from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import is_rag_hard_stopped, is_rag_tool_capped  # noqa: PLC0415
                 from langgraph.config import get_config  # noqa: PLC0415
+
+                # Extract thread_id from LangGraph config to track RAG cap state per conversation
                 cfg = get_config()
                 thread_id = cfg.get("configurable", {}).get("thread_id", "__default__") if cfg else "__default__"
+
+                # Check if any RAG tool has exhausted its budget (hard-stop flag is set)
                 if is_rag_hard_stopped(thread_id):
                     rag_tool_names = {"fetch_document", "search"}
+                    # Filter to only RAG tool calls from this model invocation
                     rag_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] in rag_tool_names]
+                    # True if the model is ONLY calling RAG tools (no mixed tool calls)
                     all_calls_are_rag = rag_calls and len(rag_calls) == len(last_ai_msg.tool_calls)
+
+                    # Debug log: show which tools are capped to help diagnose RAG loop scenarios
+                    capped_tools = [tc["name"] for tc in rag_calls if is_rag_tool_capped(thread_id, tc["name"])]
+                    logger.debug(f"[DeterministicTaskMiddleware] RAG hard-stop active: all_calls_are_rag={all_calls_are_rag}, capped_tools={capped_tools}")
+
+                    # True if all RAG calls target tools with individually exhausted caps
+                    # (search capped but fetch_document not capped would return False here)
                     all_individually_capped = all_calls_are_rag and all(
                         is_rag_tool_capped(thread_id, tc["name"]) for tc in rag_calls
                     )
+
                     if all_individually_capped:
+                        # Model is stuck in an infinite loop trying to call a capped tool.
+                        # Inject a synthesis prompt to let the LLM work with what it already has,
+                        # then return to the model (NOT jump_to: "end") so it gets one more turn.
                         logger.info(
                             f"[DeterministicTaskMiddleware] RAG loop detected "
                             f"(caps exhausted, still calling {[tc['name'] for tc in rag_calls]}), "
@@ -294,9 +311,11 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             )
                             for tc in rag_calls
                         ]
+                        # Return tool responses WITHOUT jump_to so the LLM gets a turn to synthesize
                         return {"messages": tool_messages}
             except Exception as rag_err:
-                logger.debug(f"[DeterministicTaskMiddleware] RAG hard-stop check failed: {rag_err}")
+                # Log full traceback in case RAG checking is broken in a new way
+                logger.warning(f"[DeterministicTaskMiddleware] RAG hard-stop check failed: {rag_err}", exc_info=True)
             return None
 
         for tc in write_todos_calls:
