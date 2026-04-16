@@ -85,12 +85,18 @@ spec:
           kind: AgentgatewayBackend
 {{- /*
   AgentgatewayPolicy: created when policy.mcpAuthorization rules are defined.
-  Attaches to the HTTPRoute to enforce JWT-based access control and tool filtering.
+  Attaches to the target resource to enforce CEL-based tool access control.
+  Defaults to AgentgatewayBackend; override via policy.targetRef.group/kind.
+  See: https://agentgateway.dev/docs/kubernetes/main/mcp/tool-access/
 */ -}}
 {{- $policy := $agw.policy | default dict }}
 {{- $mcpAuthz := $policy.mcpAuthorization | default dict }}
 {{- $rules := $mcpAuthz.rules | default list }}
 {{- if $rules }}
+{{- $targetRef := $policy.targetRef | default dict }}
+{{- $targetGroup := $targetRef.group | default "agentgateway.dev" }}
+{{- $targetKind := $targetRef.kind | default "AgentgatewayBackend" }}
+{{- $targetName := $targetRef.name | default $backendName }}
 ---
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
@@ -98,9 +104,9 @@ metadata:
   name: {{ printf "%s-mcp-policy" $name }}
 spec:
   targetRefs:
-    - group: gateway.networking.k8s.io
-      kind: HTTPRoute
-      name: {{ $routeName }}
+    - group: {{ $targetGroup }}
+      kind: {{ $targetKind }}
+      name: {{ $targetName }}
   backend:
     mcp:
       authorization:
