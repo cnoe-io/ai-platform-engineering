@@ -1,0 +1,135 @@
+# CAIPE Seed Configuration
+# Loaded at UI startup via SEED_CONFIG_PATH=/app/config/seed-config.yaml
+# Defines available LLM models, MCP servers, and config-driven agents
+
+# =============================================================================
+# Available LLM Models
+# =============================================================================
+# Models available in the agent editor dropdown
+
+models:
+  # Anthropic Claude Models
+  - model_id: "claude-opus-4-7"
+    name: "Claude Opus 4.7"
+    provider: "anthropic-claude"
+    description: "Latest Claude Opus - highest capability"
+
+  - model_id: "claude-sonnet-4-6"
+    name: "Claude Sonnet 4.6"
+    provider: "anthropic-claude"
+    description: "High capability, balanced speed and reasoning"
+
+  - model_id: "claude-sonnet-4-20250514"
+    name: "Claude Sonnet 4"
+    provider: "anthropic-claude"
+    description: "Stable Claude Sonnet model"
+
+  - model_id: "claude-3-5-sonnet-20241022"
+    name: "Claude 3.5 Sonnet"
+    provider: "anthropic-claude"
+    description: "Excellent reasoning and code generation"
+
+  - model_id: "claude-3-5-haiku-20241022"
+    name: "Claude 3.5 Haiku"
+    provider: "anthropic-claude"
+    description: "Fast and efficient for simpler tasks"
+
+  - model_id: "claude-haiku-4-5-20251001-v1:0"
+    name: "Claude 4.5 Haiku (AWS Bedrock)"
+    provider: "aws-bedrock"
+    description: "Smaller, faster Claude 4.5 model via AWS"
+
+  - model_id: "claude-sonnet-4-5-20250929-v1:0"
+    name: "Claude 4.5 Sonnet (AWS Bedrock)"
+    provider: "aws-bedrock"
+    description: "Claude 4.5 Sonnet model via AWS Bedrock"
+
+  # OpenAI Models
+  - model_id: "gpt-4o"
+    name: "GPT-4o"
+    provider: "openai"
+    description: "OpenAI's most capable model"
+
+  - model_id: "gpt-4o-mini"
+    name: "GPT-4o Mini"
+    provider: "openai"
+    description: "Smaller, faster GPT-4o variant"
+
+  # Azure OpenAI
+  - model_id: "gpt-4o"
+    name: "GPT-4o (Azure)"
+    provider: "azure-openai"
+    description: "GPT-4o via Azure OpenAI"
+
+  # Google Gemini
+  - model_id: "gemini-2-0-flash"
+    name: "Gemini 2.0 Flash"
+    provider: "google-gemini"
+    description: "Google's latest fast and efficient model"
+
+  - model_id: "gemini-1-5-pro"
+    name: "Gemini 1.5 Pro"
+    provider: "google-gemini"
+    description: "Google's Gemini 1.5 Pro model"
+
+  # Groq
+  - model_id: "mixtral-8x7b-32768"
+    name: "Mixtral 8x7B (Groq)"
+    provider: "groq"
+    description: "Fast inference on Groq"
+
+  - model_id: "llama-3-1-70b-versatile"
+    name: "Llama 3.1 70B (Groq)"
+    provider: "groq"
+    description: "Llama 3.1 70B on Groq"
+
+# =============================================================================
+# Seed MCP Servers
+# =============================================================================
+# Config-driven MCP servers loaded at startup (cannot be edited/deleted via UI)
+
+mcp_servers: []
+
+# Examples (uncomment to enable):
+#
+# - id: "github"
+#   name: "GitHub"
+#   description: "GitHub operations via MCP"
+#   transport: "stdio"
+#   command: "uvx"
+#   args: ["mcp-server-github"]
+#   env:
+#     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+#   enabled: true
+#
+# - id: "argocd"
+#   name: "ArgoCD"
+#   description: "ArgoCD operations via MCP"
+#   transport: "http"
+#   endpoint: "http://mcp-argocd:8000/mcp"
+#   enabled: true
+
+# =============================================================================
+# Seed Agents
+# =============================================================================
+# Config-driven agents loaded at startup (cannot be edited/deleted via UI)
+
+agents: []
+
+# Examples (uncomment to enable):
+#
+# - id: "code-reviewer"
+#   name: "Code Reviewer"
+#   description: "Reviews code for best practices"
+#   system_prompt: |
+#     You are an expert code reviewer. When given code to review:
+#     1. Check for bugs and potential issues
+#     2. Suggest improvements for readability and maintainability
+#     3. Identify security concerns
+#     4. Recommend best practices
+#   model_id: "claude-sonnet-4-6"
+#   model_provider: "anthropic-claude"
+#   visibility: "global"
+#   allowed_tools:
+#     github: []
+#   enabled: true

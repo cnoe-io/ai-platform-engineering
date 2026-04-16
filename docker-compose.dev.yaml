@@ -1232,6 +1232,7 @@ services:
       # Seed config: loaded at Next.js startup via instrumentation.ts
       - SEED_CONFIG_PATH=/app/config/seed-config.yaml
     volumes:
+      - ./ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/config.yaml:/app/config/seed-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       caipe-supervisor:
