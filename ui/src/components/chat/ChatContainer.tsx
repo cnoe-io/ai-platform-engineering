@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { SupervisorChatView } from "@/components/chat/SupervisorChatView";
-import { ChatView } from "@/components/chat/ChatView";
+import { SupervisorChatView } from "@/components/chat/PlatformEngineerChatView";
+import { ChatView } from "@/components/chat/DynamicAgentChatView";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";

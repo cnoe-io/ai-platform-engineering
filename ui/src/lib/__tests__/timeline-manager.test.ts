@@ -3,7 +3,7 @@
  * thinking routing, and final answer handling.
  */
 
-import { SupervisorTimelineManager } from "../supervisor-timeline-manager";
+import { SupervisorTimelineManager } from "../timeline-manager";
 import type { PlanStep } from "@/types/a2a";
 import { EventType } from "@ag-ui/core";
 import type { BaseEvent } from "@ag-ui/core";

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { DynamicAgentContext } from "@/components/dynamic-agents/DynamicAgentContext";
 import type { SubAgentRef } from "@/types/dynamic-agent";
 

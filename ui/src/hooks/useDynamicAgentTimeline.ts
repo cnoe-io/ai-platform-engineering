@@ -10,8 +10,8 @@
  */
 
 import { useMemo, useRef } from "react";
-import { TimelineManager, createTimelineManager } from "@/lib/timeline-manager";
-import type { TimelineData, StatusType } from "@/types/timeline";
+import { TimelineManager, createTimelineManager } from "@/lib/da-timeline-manager";
+import type { TimelineData, StatusType } from "@/types/dynamic-agent-timeline";
 import type {
   StreamEvent,
   ToolStartEventData,
