@@ -43,72 +43,37 @@ models:
 # Enable only for Kubernetes deployments where these services exist.
 
 mcp_servers:
+  - description: GitHub repositories and pull requests
+    enabled: true
+    endpoint: ${GITHUB_MCP_URL:-http://localhost:8082}
+    id: github
+    name: GitHub
+    transport: http
+
   - description: ArgoCD application and deployment management
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-argocd-mcp.caipe-preview.svc.cluster.local:8000/mcp
+    enabled: true
+    endpoint: ${ARGOCD_MCP_URL:-http://localhost:18002/mcp}
     id: argocd
     name: ArgoCD
     transport: http
 
-  - description: Backstage catalog and developer portal
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-backstage-mcp.caipe-preview.svc.cluster.local:8000/mcp
-    id: backstage
-    name: Backstage
-    transport: http
-
-  - description: Confluence wiki and documentation
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-confluence-mcp.caipe-preview.svc.cluster.local:8000/mcp
-    id: confluence
-    name: Confluence
-    transport: http
-
   - description: Jira issue tracking and project management
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-jira-mcp.caipe-preview.svc.cluster.local:8000/mcp
+    enabled: true
+    endpoint: ${JIRA_MCP_URL:-http://localhost:18004/mcp}
     id: jira
     name: Jira
     transport: http
 
-  - description: Network diagnostic tools (ping, traceroute, DNS lookup)
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-netutils-mcp.caipe-preview.svc.cluster.local:8000/mcp
-    id: netutils
-    name: Network Utilities
-    transport: http
-
   - description: PagerDuty incident management
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-pagerduty-mcp.caipe-preview.svc.cluster.local:8000/mcp
+    enabled: true
+    endpoint: ${PAGERDUTY_MCP_URL:-http://localhost:18006/mcp}
     id: pagerduty
     name: PagerDuty
     transport: http
 
-  - description: Slack messaging and collaboration
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-slack-mcp.caipe-preview.svc.cluster.local:8000/mcp
-    id: slack
-    name: Slack
-    transport: http
-
-  - description: Splunk log analysis and monitoring
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-splunk-mcp.caipe-preview.svc.cluster.local:8000/mcp
-    id: splunk
-    name: Splunk
-    transport: http
-
-  - description: Webex messaging and meetings
-    enabled: false
-    endpoint: http://a-caipe-preview-argoapp-agent-webex-mcp.caipe-preview.svc.cluster.local:8000/mcp
-    id: webex
-    name: Webex
-    transport: http
-
   - description: Knowledge Base tools
     enabled: true
-    endpoint: ${RAG_SERVER_MCP_URL:-http://rag-server.caipe-preview.svc.cluster.local:9446/mcp}
+    endpoint: ${RAG_SERVER_MCP_URL:-http://localhost:9446/mcp}
     id: knowledge-base
     name: Knowledge Base
     transport: http
