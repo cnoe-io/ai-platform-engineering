@@ -283,7 +283,8 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                     if all_individually_capped:
                         logger.info(
                             f"[DeterministicTaskMiddleware] RAG loop detected "
-                            f"(caps exhausted, still calling {[tc['name'] for tc in rag_calls]}), terminating"
+                            f"(caps exhausted, still calling {[tc['name'] for tc in rag_calls]}), "
+                            f"allowing LLM one more turn to synthesize response"
                         )
                         tool_messages = [
                             ToolMessage(
