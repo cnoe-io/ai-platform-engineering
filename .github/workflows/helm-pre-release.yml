@@ -233,9 +233,8 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with pre-release version (do NOT touch appVersion - it controls image tags)
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
 
           # Update dependencies and package
           helm dependency update charts/rag-stack/
@@ -250,9 +249,8 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with pre-release version (do NOT touch appVersion - it controls image tags)
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
 
           # If rag-stack was also changed, update its dependency version
           if [[ "${{ steps.detect.outputs.rag-stack-changed }}" == "true" ]]; then
