@@ -204,7 +204,8 @@ async def get_conversation_messages(
         additional_kwargs = getattr(msg, "additional_kwargs", {})
         if "timestamp" in additional_kwargs:
             try:
-                timestamp = datetime.fromisoformat(additional_kwargs["timestamp"])
+                ts = datetime.fromisoformat(additional_kwargs["timestamp"])
+                timestamp = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
             except (ValueError, TypeError):
                 pass
 

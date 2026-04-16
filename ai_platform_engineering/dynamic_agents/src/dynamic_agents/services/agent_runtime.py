@@ -141,7 +141,7 @@ class AgentRuntime:
         self._user = user
         self._client_context = client_context
         self._graph = None
-        self._mongo_client = MongoClient(self.settings.mongodb_uri)
+        self._mongo_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
         self._checkpointer = MongoDBSaver(
             self._mongo_client,
