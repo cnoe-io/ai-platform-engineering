@@ -37,7 +37,12 @@ RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
 if RBAC_ENABLED:
     import asyncio
-    from utils.identity_linker import resolve_slack_user, generate_linking_url
+    from utils.identity_linker import (
+        resolve_slack_user,
+        generate_linking_url,
+        auto_bootstrap_slack_user,
+        SLACK_FORCE_LINK,
+    )
     from utils.channel_agent_mapper import resolve_channel_agent
     from utils.obo_exchange import impersonate_user, OboExchangeError
 
@@ -51,7 +56,10 @@ if RBAC_ENABLED:
         """
         keycloak_user_id = await resolve_slack_user(slack_user_id)
         if keycloak_user_id is None:
-            return "unlinked"
+            if not SLACK_FORCE_LINK:
+                keycloak_user_id = await auto_bootstrap_slack_user(slack_user_id)
+            if keycloak_user_id is None:
+                return "unlinked"
 
         context["keycloak_user_id"] = keycloak_user_id
 
@@ -346,16 +354,24 @@ def rbac_global_middleware(body, context, next, logger):
         if now - last_sent < _LINKING_PROMPT_COOLDOWN:
             logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
             return
-        linking_url = asyncio.run(generate_linking_url(slack_user_id))
         if channel:
             try:
+                if SLACK_FORCE_LINK:
+                    linking_url = asyncio.run(generate_linking_url(slack_user_id))
+                    text = (
+                        "Your Slack account is not linked to an enterprise identity. "
+                        f"<{linking_url}|Click here to link your account> before using this feature."
+                    )
+                else:
+                    text = (
+                        "Your Slack account could not be automatically linked. "
+                        "Make sure your Slack email matches your enterprise account, "
+                        "or contact your admin."
+                    )
                 context["client"].chat_postEphemeral(
                     channel=channel,
                     user=slack_user_id,
-                    text=(
-                        "Your Slack account is not linked to an enterprise identity. "
-                        f"<{linking_url}|Click here to link your account> before using this feature."
-                    ),
+                    text=text,
                 )
                 _linking_prompt_sent[slack_user_id] = now
             except Exception:

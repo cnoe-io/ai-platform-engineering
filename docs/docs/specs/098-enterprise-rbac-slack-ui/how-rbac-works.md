@@ -237,7 +237,19 @@ both:
 
 ### Account Linking (Slack)
 
-Slack users link their account via an HMAC-signed URL:
+There are two modes, controlled by `SLACK_FORCE_LINK`:
+
+**Auto-bootstrap (default, `SLACK_FORCE_LINK=false`):**
+
+On the user's first Slack message the bot:
+1. Calls Slack `users.info` → fetches `profile.email`
+2. Queries Keycloak Admin API for a user with that exact email
+3. If found: writes `slack_user_id` attribute → **linked silently, zero user action required**
+4. If not found (email mismatch or user not yet in Keycloak): falls back to the manual link prompt below
+
+**Explicit link (`SLACK_FORCE_LINK=true`):**
+
+Slack users link their account by clicking an HMAC-signed URL:
 
 ```
 /api/auth/slack-link?slack_user_id=U09TC6RR8KX&ts=1713196400&sig=<HMAC-SHA256>
@@ -245,8 +257,10 @@ Slack users link their account via an HMAC-signed URL:
 
 The HMAC signature uses `SLACK_LINK_HMAC_SECRET`, prevents forged links, and is
 time-bound (TTL enforced server-side). After OIDC login, the server writes
-`slack_user_id` to the Keycloak user via the Admin API. All future Slack messages from
-that user are automatically attributed to their Keycloak identity.
+`slack_user_id` to the Keycloak user via the Admin API.
+
+In both modes, once the link is established, all future Slack messages carry the user's
+Keycloak identity automatically — no repeated login.
 
 ---
 
@@ -779,10 +793,16 @@ OIDC_REQUIRED_ADMIN_GROUP=admin
 
 ### Slack Identity Linking
 
+**Auto mode (default):**
+1. Send any message to the bot
+2. Bot silently fetches your Slack email, matches it to your Keycloak account, links automatically
+3. Subsequent messages: OBO exchange happens automatically — zero user action required
+
+**Forced-link mode (`SLACK_FORCE_LINK=true`):**
 1. DM the Slack bot with any message
 2. If unlinked: one-time HMAC-signed link prompt (rate-limited by `SLACK_LINKING_PROMPT_COOLDOWN`)
-3. Click link → Duo SSO login → `slack_user_id` written to Keycloak via Admin API
-4. Subsequent messages: bot performs OBO exchange automatically — user never re-authenticates
+3. Click link → SSO login → `slack_user_id` written to Keycloak via Admin API
+4. Subsequent messages: OBO exchange happens automatically
 
 ---
 
@@ -857,7 +877,7 @@ No code changes required.
 | Dynamic agents agent-level authorization (CEL / visibility) | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/access.py` |
 | AgentGateway CEL policies | `deploy/agentgateway/config.yaml` |
 | Slack OBO token exchange (RFC 8693) | `ai_platform_engineering/integrations/slack_bot/utils/obo_exchange.py` |
-| Slack identity resolution & linking prompt | `ai_platform_engineering/integrations/slack_bot/utils/identity_linker.py` |
+| Slack identity auto-bootstrap + manual link | `ai_platform_engineering/integrations/slack_bot/utils/identity_linker.py` |
 | Slack account linking UI callback | `ui/src/app/api/auth/slack-link/route.ts` |
 | Slack channel → agent routing + RBAC | `ai_platform_engineering/integrations/slack_bot/utils/channel_agent_mapper.py` |
 | Admin UI: channel-to-agent mappings | `ui/src/components/admin/SlackChannelMappingTab.tsx` |
