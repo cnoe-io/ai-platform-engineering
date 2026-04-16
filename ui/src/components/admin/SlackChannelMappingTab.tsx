@@ -15,15 +15,16 @@ interface ChannelMapping {
   _id: string;
   slack_channel_id: string;
   channel_name: string;
-  team_id: string;
-  team_name?: string;
+  agent_id: string;
+  agent_name?: string;
   slack_workspace_id?: string;
   created_by?: string;
   created_at?: string;
   active: boolean;
+  stale_agent?: boolean;
 }
 
-interface TeamOption {
+interface AgentOption {
   _id: string;
   name: string;
 }
@@ -34,7 +35,7 @@ interface SlackChannelMappingTabProps {
 
 export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps) {
   const [mappings, setMappings] = useState<ChannelMapping[]>([]);
-  const [teams, setTeams] = useState<TeamOption[]>([]);
+  const [agents, setAgents] = useState<AgentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -42,28 +43,29 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
 
   const [newChannelId, setNewChannelId] = useState("");
   const [newChannelName, setNewChannelName] = useState("");
-  const [newTeamId, setNewTeamId] = useState("");
+  const [newAgentId, setNewAgentId] = useState("");
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [mapRes, teamRes] = await Promise.all([
+      const [mapRes, agentRes] = await Promise.all([
         fetch("/api/admin/slack/channel-mappings"),
-        fetch("/api/admin/teams"),
+        fetch("/api/dynamic-agents/available"),
       ]);
       const mapJson = await mapRes.json();
-      const teamJson = await teamRes.json();
+      const agentJson = await agentRes.json();
 
       if (!mapJson.success) throw new Error(mapJson.error || "Failed to load mappings");
       setMappings(mapJson.data?.items ?? mapJson.data ?? []);
 
-      if (teamJson.success) {
-        setTeams(
-          (teamJson.data?.teams ?? []).map((t: TeamOption) => ({
-            _id: t._id,
-            name: t.name,
+      if (agentJson.success) {
+        const agentList = Array.isArray(agentJson.data) ? agentJson.data : [];
+        setAgents(
+          agentList.map((a: AgentOption) => ({
+            _id: String(a._id),
+            name: String(a.name),
           }))
         );
       }
@@ -79,7 +81,7 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
   }, [load]);
 
   const handleCreate = async () => {
-    if (!newChannelId.trim() || !newTeamId) return;
+    if (!newChannelId.trim() || !newAgentId) return;
     setCreating(true);
     try {
       const res = await fetch("/api/admin/slack/channel-mappings", {
@@ -88,14 +90,14 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
         body: JSON.stringify({
           slack_channel_id: newChannelId.trim(),
           channel_name: newChannelName.trim() || newChannelId.trim(),
-          team_id: newTeamId,
+          agent_id: newAgentId,
         }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Create failed");
       setNewChannelId("");
       setNewChannelName("");
-      setNewTeamId("");
+      setNewAgentId("");
       setShowAdd(false);
       await load();
     } catch (e) {
@@ -106,7 +108,7 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
   };
 
   const handleRemove = async (id: string) => {
-    if (!confirm("Remove this channel-to-team mapping?")) return;
+    if (!confirm("Remove this channel-to-agent mapping?")) return;
     setBusyId(id);
     try {
       const res = await fetch(`/api/admin/slack/channel-mappings?id=${encodeURIComponent(id)}`, {
@@ -128,10 +130,10 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
         <div>
           <CardTitle className="flex items-center gap-2">
             <Layers className="h-5 w-5" />
-            Channel-to-team mappings
+            Channel-to-agent mappings
           </CardTitle>
           <CardDescription>
-            Map Slack channels to teams so the bot scopes requests to the correct team context
+            Map Slack channels to dynamic agents so the bot routes requests to the correct agent
           </CardDescription>
         </div>
         <div className="flex items-center gap-2">
@@ -179,16 +181,16 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground">Team</label>
+                <label className="text-xs font-medium text-muted-foreground">Dynamic Agent</label>
                 <select
-                  value={newTeamId}
-                  onChange={(e) => setNewTeamId(e.target.value)}
+                  value={newAgentId}
+                  onChange={(e) => setNewAgentId(e.target.value)}
                   className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
                 >
-                  <option value="">Select team...</option>
-                  {teams.map((t) => (
-                    <option key={t._id} value={t._id}>
-                      {t.name}
+                  <option value="">Select agent...</option>
+                  {agents.map((a) => (
+                    <option key={a._id} value={a._id}>
+                      {a.name}
                     </option>
                   ))}
                 </select>
@@ -200,7 +202,7 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
               </Button>
               <Button
                 size="sm"
-                disabled={!newChannelId.trim() || !newTeamId || creating}
+                disabled={!newChannelId.trim() || !newAgentId || creating}
                 onClick={handleCreate}
                 className="gap-1"
               >
@@ -224,7 +226,7 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
                 <tr className="border-b bg-muted/40 text-left text-xs font-medium text-muted-foreground">
                   <th className="p-3 whitespace-nowrap">Channel</th>
                   <th className="p-3 whitespace-nowrap">Channel ID</th>
-                  <th className="p-3 whitespace-nowrap">Team</th>
+                  <th className="p-3 whitespace-nowrap">Agent</th>
                   <th className="p-3 whitespace-nowrap">Created by</th>
                   <th className="p-3 whitespace-nowrap">Created</th>
                   <th className="p-3 whitespace-nowrap">Status</th>
@@ -238,9 +240,9 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
                     <td className="p-3 font-mono text-xs">{m.slack_channel_id}</td>
                     <td className="p-3">
                       <div className="flex items-center gap-1.5">
-                        {m.team_name || m.team_id}
-                        {!m.team_name && m.active && (
-                          <span title="Team may have been deleted">
+                        {m.agent_name || m.agent_id}
+                        {m.stale_agent && m.active && (
+                          <span title="Agent may have been deleted or disabled">
                             <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                           </span>
                         )}
@@ -282,7 +284,7 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
             </table>
             {mappings.length === 0 && (
               <p className="text-center text-sm text-muted-foreground py-8">
-                No channel-to-team mappings configured yet.
+                No channel-to-agent mappings configured yet.
               </p>
             )}
           </div>

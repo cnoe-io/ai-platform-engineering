@@ -621,6 +621,63 @@ sequenceDiagram
 
 ---
 
+## Channel → Dynamic Agent Routing
+
+> **Badge analogy:** Each Slack channel is a dedicated help-desk line. An admin assigns each
+> line a specific expert agent (like routing IT tickets to the right tier). When a user calls in,
+> the operator checks the channel's routing table, verifies the user has clearance for that agent,
+> then patches them through. The routing decision and access check happen *before* the message
+> reaches the agent.
+
+### How It Works
+
+Every Slack channel can be mapped to exactly one dynamic agent (1:1 mapping). When a message
+arrives, the Slack bot resolves the target agent:
+
+1. **Lookup**: query `channel_agent_mappings` in MongoDB by `slack_channel_id`
+2. **Existence check**: verify the mapped agent exists in `dynamic_agents` and `enabled = true`
+3. **RBAC check** (basic):
+   - `visibility = global` → allow any authenticated user
+   - `visibility = team` → require `team_member:<team>` Keycloak realm role for one of the agent's `shared_with_teams`
+   - `visibility = private` → deny (private agents are not appropriate for channel routing)
+4. **Route**: pass the resolved `agent_id` to the chat/stream call; fallback to YAML config default if no mapping exists
+
+### Admin UI
+
+Admins configure mappings in **CAIPE UI → Admin → Channel-to-agent mappings**.
+
+- Dropdown lists all dynamic agents visible to the admin
+- Upsert semantics: creating a new mapping for an already-mapped channel replaces the old mapping
+- Deactivating a mapping (soft delete) falls back to the YAML config default agent
+
+### Key Files
+
+| Layer | File |
+|-------|------|
+| MongoDB channel→agent mapping (read/write) | `ui/src/app/api/admin/slack/channel-mappings/route.ts` |
+| Admin UI tab | `ui/src/components/admin/SlackChannelMappingTab.tsx` |
+| Slack bot resolver + RBAC check | `ai_platform_engineering/integrations/slack_bot/utils/channel_agent_mapper.py` |
+| Slack bot integration point | `ai_platform_engineering/integrations/slack_bot/app.py` (`_rbac_enrich_context`, `_channel_agent_id_from_context`) |
+
+### MongoDB Collection: `channel_agent_mappings`
+
+```json
+{
+  "_id": ObjectId,
+  "slack_channel_id": "C0123456789",
+  "agent_id": "my-k8s-agent",
+  "channel_name": "#k8s-support",
+  "slack_workspace_id": "T0123456789",
+  "created_by": "admin@example.com",
+  "created_at": ISODate,
+  "active": true
+}
+```
+
+The `agent_id` field is the dynamic agent's slug (string `_id` in `dynamic_agents` collection).
+
+---
+
 ## End-to-End Request Flow
 
 ```
@@ -802,3 +859,6 @@ No code changes required.
 | Slack OBO token exchange (RFC 8693) | `ai_platform_engineering/integrations/slack_bot/utils/obo_exchange.py` |
 | Slack identity resolution & linking prompt | `ai_platform_engineering/integrations/slack_bot/utils/identity_linker.py` |
 | Slack account linking UI callback | `ui/src/app/api/auth/slack-link/route.ts` |
+| Slack channel → agent routing + RBAC | `ai_platform_engineering/integrations/slack_bot/utils/channel_agent_mapper.py` |
+| Admin UI: channel-to-agent mappings | `ui/src/components/admin/SlackChannelMappingTab.tsx` |
+| API: channel-to-agent mapping CRUD | `ui/src/app/api/admin/slack/channel-mappings/route.ts` |

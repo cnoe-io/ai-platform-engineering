@@ -38,26 +38,16 @@ RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 if RBAC_ENABLED:
     import asyncio
     from utils.identity_linker import resolve_slack_user, generate_linking_url
-    from utils.channel_team_mapper import resolve_effective_team_for_user
+    from utils.channel_agent_mapper import resolve_channel_agent
     from utils.obo_exchange import impersonate_user, OboExchangeError
 
-    CHANNEL_NOT_MAPPED_MESSAGE = (
-        "This channel hasn't been set up for CAIPE yet. "
-        "Ask your admin to add a channel-to-team mapping in the CAIPE Admin panel."
-    )
-
-    TEAM_ROLE_MISSING_MESSAGE = (
-        "You don't have access to CAIPE in this channel. "
-        "Ask your admin to add you to the team for this channel."
-    )
-
-    async def _rbac_enrich_context(body, slack_user_id, context, *, require_team: bool = True):
+    async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
         """Resolve identity and enrich Bolt context.
 
         Returns 'unlinked', ('deny', message), or 'ok'.
-        When *require_team* is False (e.g. @mentions), a missing channel-
-        to-team mapping is not a hard deny — the request proceeds without
-        team scope.
+        Sets context['channel_agent_id'] when a channel→agent mapping exists.
+        When *require_mapping* is False (e.g. @mentions), a missing mapping
+        is not a hard deny — the request proceeds using config/default agent.
         """
         keycloak_user_id = await resolve_slack_user(slack_user_id)
         if keycloak_user_id is None:
@@ -72,14 +62,21 @@ if RBAC_ENABLED:
         if channel_id:
             context["slack_channel_id"] = channel_id
 
-        eff = await resolve_effective_team_for_user(channel_id, keycloak_user_id)
-        if eff.team_id:
-            # Channel is mapped — trust the mapping, set team context
-            context["platform_team_id"] = eff.team_id
-        elif require_team:
-            return ("deny", eff.user_denial_message or CHANNEL_NOT_MAPPED_MESSAGE)
+        resolution = await resolve_channel_agent(channel_id, keycloak_user_id)
+        if resolution.agent_id:
+            context["channel_agent_id"] = resolution.agent_id
+            logger.info(
+                "Channel %s mapped to agent %s for user %s",
+                channel_id, resolution.agent_id, keycloak_user_id,
+            )
+        elif require_mapping:
+            return ("deny", resolution.user_denial_message or
+                    "This channel has no agent mapping. Ask your admin to configure one.")
         else:
-            logger.debug("No team for channel=%s user=%s — @mention, allowing", channel_id, slack_user_id)
+            logger.debug(
+                "No agent mapping for channel=%s user=%s — proceeding with default agent",
+                channel_id, slack_user_id,
+            )
 
         try:
             obo = await impersonate_user(keycloak_user_id)
@@ -95,12 +92,13 @@ else:
     logger.info("Slack RBAC enforcement disabled (set SLACK_RBAC_ENABLED=true to enable)")
 
 
-def _platform_team_id_from_context(context):
+def _channel_agent_id_from_context(context):
+    """Extract the channel→agent mapping agent_id from Bolt context."""
     if not RBAC_ENABLED or context is None:
         return None
     try:
-        tid = context.get("platform_team_id")
-        return tid if isinstance(tid, str) and tid else None
+        aid = context.get("channel_agent_id")
+        return aid if isinstance(aid, str) and aid else None
     except AttributeError:
         return None
 
@@ -170,8 +168,10 @@ for attempt in range(1, max_retries + 1):
       sys.exit(1)
 
 
-def _get_agent_id(channel_config=None) -> str:
-  """Resolve agent_id from channel config or global defaults."""
+def _get_agent_id(channel_config=None, mapped_agent_id: str | None = None) -> str:
+  """Resolve agent_id: DB mapping > channel config > global default."""
+  if mapped_agent_id:
+    return mapped_agent_id
   if channel_config and hasattr(channel_config, "agent_id") and channel_config.agent_id:
     return channel_config.agent_id
   if config.defaults.default_agent_id:
@@ -313,7 +313,7 @@ def rbac_global_middleware(body, context, next, logger):
     try:
         loop = asyncio.new_event_loop()
         rbac_status = loop.run_until_complete(
-            _rbac_enrich_context(body, slack_user_id, context, require_team=not is_mention)
+            _rbac_enrich_context(body, slack_user_id, context, require_mapping=not is_mention)
         )
     except Exception as exc:
         logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
@@ -426,7 +426,7 @@ def handle_mention(event, say, client, context=None):
     if event.get("thread_ts"):
       context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
 
-    agent_id = _get_agent_id(channel_config)
+    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
     is_humble_followup = session_manager.is_skipped(thread_ts)
@@ -528,7 +528,7 @@ def handle_qanda_message(event, say, client, context=None):
       return
 
     channel_config = config.channels[channel_id]
-    agent_id = _get_agent_id(channel_config)
+    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
     client_context = {
@@ -750,7 +750,7 @@ def handle_message_events(body, say, client, context=None):
     if not jira_config:
       raise ValueError(f"Channel {channel_id} is missing required 'other.jira' config")
 
-    agent_id = _get_agent_id(channel_config)
+    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
     esc_config = get_escalation_config(channel_config)
     ai.handle_ai_alert_processing(
       sse_client,
@@ -762,7 +762,6 @@ def handle_message_events(body, say, client, context=None):
       agent_id=agent_id,
       custom_prompt=channel_config.ai_alerts.custom_prompt,
       escalation_config=esc_config,
-      platform_team_id=_platform_team_id_from_context(context),
     )
 
 
