@@ -142,6 +142,8 @@ export interface Config {
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
   ticketProvider: 'jira' | 'github' | null;
+  /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
+  userInfoToolEnabled: boolean;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
 }
@@ -212,6 +214,7 @@ const DEFAULT_CONFIG: Config = {
   githubTicketLabel: 'caipe-reported',
   ticketEnabled: false,
   ticketProvider: null,
+  userInfoToolEnabled: false,
   oidcRequiredGroup: 'backstage-access',
 };
 
@@ -295,6 +298,7 @@ export function getServerConfig(): Config {
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -365,6 +369,7 @@ export function getServerConfig(): Config {
     githubTicketLabel,
     ticketEnabled,
     ticketProvider,
+    userInfoToolEnabled,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
   };
 }

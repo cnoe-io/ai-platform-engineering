@@ -233,9 +233,19 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with pre-release version
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
+
+          # Restore appVersion from main so image tags aren't overridden by RC bump
+          # Apply to ALL Chart.yaml files (parent + subcharts)
+          MAIN_APP_VERSION=$(git show origin/main:charts/rag-stack/Chart.yaml 2>/dev/null | grep "^appVersion:" | awk '{print $2}' | tr -d '"')
+          if [[ -n "$MAIN_APP_VERSION" ]]; then
+            echo "📌 Restoring appVersion to $MAIN_APP_VERSION in all charts/ Chart.yaml files"
+            find charts/ -name Chart.yaml -exec grep -l '^appVersion:' {} \; | while read f; do
+              sed -i "s/^appVersion:.*/appVersion: $MAIN_APP_VERSION/" "$f"
+              echo "  ✅ $f"
+            done
+          fi
 
           # Update dependencies and package
           helm dependency update charts/rag-stack/
@@ -250,9 +260,19 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with pre-release version
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
+
+          # Restore appVersion from main so image tags aren't overridden by RC bump
+          # Apply to ALL Chart.yaml files (parent + subcharts)
+          MAIN_APP_VERSION=$(git show origin/main:charts/ai-platform-engineering/Chart.yaml 2>/dev/null | grep "^appVersion:" | awk '{print $2}' | tr -d '"')
+          if [[ -n "$MAIN_APP_VERSION" ]]; then
+            echo "📌 Restoring appVersion to $MAIN_APP_VERSION in all charts/ Chart.yaml files"
+            find charts/ -name Chart.yaml -exec grep -l '^appVersion:' {} \; | while read f; do
+              sed -i "s/^appVersion:.*/appVersion: $MAIN_APP_VERSION/" "$f"
+              echo "  ✅ $f"
+            done
+          fi
 
           # If rag-stack was also changed, update its dependency version
           if [[ "${{ steps.detect.outputs.rag-stack-changed }}" == "true" ]]; then
