@@ -96,6 +96,14 @@ class TestCurlArgHandling:
         assert "PUT" in args
         assert result == '{"status":"ok"}'
 
+    def test_file_download_with_output_flag(self):
+        with patch("subprocess.run", return_value=self._make_completed_process(stdout="")) as mock_run:
+            result = curl.invoke({"command": "curl -sL -o /tmp/file.zip https://example.com/file.zip"})
+        args = mock_run.call_args[0][0]
+        assert "-o" in args
+        assert "/tmp/file.zip" in args
+        assert result == "Success (no output)"
+
     def test_invalid_shlex_returns_error(self):
         result = curl.invoke({"command": "curl 'unterminated"})
         assert result.startswith("ERROR:")
