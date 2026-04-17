@@ -2,40 +2,25 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-End-to-end unit tests for the Slack metadata leak fix in ai.py.
+End-to-end unit tests for Slack streaming behaviour in ai.py.
 
 Background
 ----------
-After the ToolStrategy change, the LLM packages the entire final answer as
-JSON tool-call arguments (_partial_json). No clean text tokens are emitted
-during streaming; only raw ResponseFormat metadata arrives via STREAMING_RESULT
-events. The Slack bot was forwarding every STREAMING_RESULT directly to the
-channel, so users saw raw internal output like:
+No-plan STREAMING_RESULT events are streamed live to Slack via appendStream,
+giving users real-time output.  FINAL_RESULT is not re-sent in stopStream
+when content was already streamed (already_streamed=True).
 
-    "Returning structured response: is_task_complete=True ... content='...'"
-
-Fix summary
------------
-* No-plan flows: buffer STREAMING_RESULT chunks silently; deliver only the
-  clean FINAL_RESULT (from the ResponseFormat tool) via stopStream.
-* Fallback: if FINAL_RESULT never arrives, use the buffered content so agents
-  that don't emit final_result artifacts continue to work.
-* Plan flows (streaming_final_answer latch): unaffected — last-step streaming
-  still works as before.
-* already_streamed is now True ONLY for plan flows (streaming_final_answer),
-  not for no-plan flows, ensuring FINAL_RESULT is always sent via stopStream
-  in the no-plan case.
+Plan flows use the streaming_final_answer latch for last-step streaming.
 
 These tests cover
 -----------------
-1. Raw ResponseFormat metadata is NEVER forwarded to Slack
-2. No-plan + FINAL_RESULT  → FINAL_RESULT in stopStream, nothing in appendStream
-3. No-plan + no FINAL_RESULT → buffered streaming used as fallback
+1. No-plan STREAMING_RESULT → streamed live via appendStream
+2. FINAL_RESULT not duplicated in stopStream when already streamed
+3. No-plan + no FINAL_RESULT → content delivered via appendStream
 4. No-plan + empty STREAMING_RESULT → nothing sent, no crash
 5. Plan flow regression → last-step streaming_final_answer still streams
 6. already_streamed logic change — plan already-streamed prevents duplicate post
-7. Multiple STREAMING_RESULT events with metadata interleaved with real content
-8. Bot user (U-prefix) + no-plan flow delivers FINAL_RESULT via postMessage
+7. Bot user (B-prefix) + no-plan flow delivers FINAL_RESULT via postMessage
 """
 
 from unittest.mock import Mock
@@ -135,58 +120,41 @@ def _run_stream(events, user_id="U123", **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# 1. Raw ResponseFormat metadata NEVER reaches Slack
+# 1. No-plan STREAMING_RESULT is streamed live
 # ---------------------------------------------------------------------------
 
-class TestRawMetadataBlockedFromSlack:
+class TestNoPlanStreamingResultDelivered:
 
-    RAW_METADATA_STRINGS = [
-        "Returning structured response: is_task_complete=True require_user_input=False",
-        "is_task_complete=True was_task_successful=True content='I searched the knowledge",
-        "[FINAL ANSWER]",
-        "ResponseFormat(content=",
-        "PlatformEngineerResponse(",
-    ]
-
-    def test_response_format_metadata_not_in_append_stream(self):
-        """
-        Raw ResponseFormat metadata in STREAMING_RESULT must never appear
-        in appendStream calls — these are internal strings, not user-facing content.
-        """
-        for raw_text in self.RAW_METADATA_STRINGS:
-            events = [
-                _task_event(),
-                _streaming_result(raw_text),
-                _final_result("Clean answer for the user."),
-            ]
-            mock_slack = _run_stream(events)
-            appended = _get_append_stream_markdown(mock_slack)
-            combined = "".join(appended)
-            assert raw_text not in combined, (
-                f"Raw metadata '{raw_text[:60]}' must not be forwarded to Slack via appendStream"
-            )
-
-    def test_response_format_metadata_not_in_stop_stream(self):
-        """
-        Raw metadata must not appear in stopStream either — only FINAL_RESULT text should.
-        """
-        raw = "Returning structured response: is_task_complete=True content='Private internal data'"
+    def test_streaming_result_appears_in_append_stream(self):
+        """No-plan STREAMING_RESULT content is streamed live via appendStream."""
         events = [
             _task_event(),
-            _streaming_result(raw),
+            _streaming_result("Here is the answer."),
+            _final_result("Here is the answer."),
+        ]
+        mock_slack = _run_stream(events)
+        appended = _get_append_stream_markdown(mock_slack)
+        combined = "".join(appended)
+        assert "Here is the answer" in combined, (
+            "No-plan STREAMING_RESULT should be streamed live via appendStream"
+        )
+
+    def test_final_result_not_duplicated_in_stop_stream_when_already_streamed(self):
+        """When STREAMING_RESULT was streamed live, FINAL_RESULT is not re-sent in stopStream."""
+        events = [
+            _task_event(),
+            _streaming_result("The answer is 42."),
             _final_result("The answer is 42."),
         ]
         mock_slack = _run_stream(events)
         stop_texts = _get_stop_stream_markdown(mock_slack)
         combined = "".join(stop_texts)
-        assert raw not in combined
-        assert "The answer is 42." in combined
+        assert "The answer is 42." not in combined, (
+            "FINAL_RESULT must not be re-sent in stopStream when already streamed"
+        )
 
-    def test_multiple_metadata_streaming_results_all_blocked(self):
-        """
-        Multiple STREAMING_RESULT events containing metadata fragments
-        (as emitted during tool-call JSON accumulation) are all blocked.
-        """
+    def test_multiple_streaming_results_all_delivered(self):
+        """Multiple STREAMING_RESULT events are all delivered via appendStream."""
         events = [
             _task_event(),
             _streaming_result('{"is_task_complete": true, "content": "'),
@@ -196,21 +164,19 @@ class TestRawMetadataBlockedFromSlack:
         ]
         mock_slack = _run_stream(events)
         appended = _get_append_stream_markdown(mock_slack)
-        assert len(appended) == 0, (
-            "No-plan STREAMING_RESULT (even partial JSON) must never appear in appendStream"
+        assert len(appended) > 0, (
+            "No-plan STREAMING_RESULT events should be streamed live"
         )
-        stop_texts = _get_stop_stream_markdown(mock_slack)
-        assert "User-visible clean answer." in "".join(stop_texts)
 
 
 # ---------------------------------------------------------------------------
-# 2. No-plan + FINAL_RESULT → delivered via stopStream only
+# 2. No-plan STREAMING_RESULT delivery and FINAL_RESULT handling
 # ---------------------------------------------------------------------------
 
 class TestNoPlanFinalResultDelivery:
 
-    def test_final_result_in_stop_stream_not_append_stream(self):
-        """No-plan flow: FINAL_RESULT goes to stopStream, never appendStream."""
+    def test_streaming_result_streamed_live_via_append_stream(self):
+        """No-plan flow: STREAMING_RESULT is streamed live via appendStream."""
         events = [
             _task_event(),
             _streaming_result("intermediate chunk"),
@@ -219,10 +185,8 @@ class TestNoPlanFinalResultDelivery:
         mock_slack = _run_stream(events)
 
         appended = _get_append_stream_markdown(mock_slack)
-        assert len(appended) == 0, "STREAMING_RESULT must not reach appendStream in no-plan flow"
-
-        stop_texts = _get_stop_stream_markdown(mock_slack)
-        assert "Here is your Jira summary." in "".join(stop_texts)
+        assert len(appended) > 0, "No-plan STREAMING_RESULT should be streamed live"
+        assert "intermediate chunk" in "".join(appended)
 
     def test_start_stream_called_when_final_result_delivered(self):
         """startStream is initiated before delivering FINAL_RESULT via stopStream."""
@@ -244,11 +208,8 @@ class TestNoPlanFinalResultDelivery:
         mock_slack = _run_stream(events)
         assert mock_slack.chat_stopStream.call_count == 1
 
-    def test_no_plan_streaming_result_only_no_final_result_uses_fallback(self):
-        """
-        No-plan flow with STREAMING_RESULT but no FINAL_RESULT:
-        buffered content is used as fallback so the user still gets a response.
-        """
+    def test_no_plan_streaming_result_only_no_final_result_streams_live(self):
+        """No-plan flow with STREAMING_RESULT but no FINAL_RESULT: content is streamed live."""
         events = [
             _task_event(),
             _streaming_result("Fallback answer part 1. "),
@@ -256,27 +217,23 @@ class TestNoPlanFinalResultDelivery:
         ]
         mock_slack = _run_stream(events)
 
-        # Nothing in appendStream
         appended = _get_append_stream_markdown(mock_slack)
-        assert len(appended) == 0
-
-        # Buffered content must appear in stopStream as fallback
-        stop_texts = _get_stop_stream_markdown(mock_slack)
-        combined = "".join(stop_texts)
+        assert len(appended) > 0, "No-plan STREAMING_RESULT should be streamed live"
+        combined = "".join(appended)
         assert "Fallback answer part 1." in combined
-        assert "Fallback answer part 2." in combined
 
-    def test_empty_streaming_result_no_crash_no_output(self):
-        """Empty STREAMING_RESULT events must not crash and produce no output."""
+    def test_empty_streaming_result_no_crash(self):
+        """Empty STREAMING_RESULT events must not crash."""
         events = [
             _task_event(),
             _streaming_result(""),
             _streaming_result("   "),
         ]
         mock_slack = _run_stream(events)
-        # No crash; nothing meaningful posted
+        # No crash; whitespace-only may be streamed but nothing meaningful
         appended = _get_append_stream_markdown(mock_slack)
-        assert len(appended) == 0
+        for text in appended:
+            assert text.strip() == "", f"Only whitespace expected, got: {text!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +245,7 @@ class TestNoPlanBackwardCompatibility:
     def test_agent_without_response_format_still_delivers_content(self):
         """
         Agents that emit STREAMING_RESULT but never FINAL_RESULT (legacy agents)
-        must still deliver their content via the buffered fallback path.
+        deliver content live via appendStream.
         """
         events = [
             _task_event(),
@@ -296,26 +253,30 @@ class TestNoPlanBackwardCompatibility:
         ]
         mock_slack = _run_stream(events)
 
-        stop_texts = _get_stop_stream_markdown(mock_slack)
-        combined = "".join(stop_texts)
+        appended = _get_append_stream_markdown(mock_slack)
+        combined = "".join(appended)
         assert "weather forecast" in combined or "sunny" in combined
 
-    def test_final_result_takes_priority_over_buffered_streaming(self):
+    def test_streaming_result_already_delivered_final_not_duplicated(self):
         """
-        When both FINAL_RESULT and buffered streaming content are present,
-        FINAL_RESULT must be used (it is always the cleaner user-facing answer).
+        When STREAMING_RESULT was streamed live, FINAL_RESULT is not re-posted
+        in stopStream (already_streamed prevents duplication).
         """
         events = [
             _task_event(),
-            _streaming_result("Raw intermediate text not meant for user"),
+            _streaming_result("Intermediate text streamed live"),
             _final_result("The clean final answer."),
         ]
         mock_slack = _run_stream(events)
 
+        # STREAMING_RESULT was delivered live
+        appended = _get_append_stream_markdown(mock_slack)
+        assert len(appended) > 0
+
+        # FINAL_RESULT not re-sent in stopStream since content was already streamed
         stop_texts = _get_stop_stream_markdown(mock_slack)
         combined = "".join(stop_texts)
-        assert "The clean final answer." in combined
-        assert "Raw intermediate text" not in combined
+        assert "The clean final answer." not in combined
 
 
 # ---------------------------------------------------------------------------
@@ -379,26 +340,28 @@ class TestPlanFlowStreamingRegression:
                 "streaming_final_answer already fired"
             )
 
-    def test_no_plan_flow_does_not_set_already_streamed_via_streamed_any_text(self):
+    def test_no_plan_flow_already_streamed_prevents_duplicate_in_stop(self):
         """
-        Regression: before the fix, no-plan flows set already_streamed=True via
-        streamed_any_text, causing FINAL_RESULT to be skipped entirely.
-        After the fix, already_streamed is only True for streaming_final_answer.
+        No-plan flow: STREAMING_RESULT sets already_streamed=True via
+        streamed_any_text, so FINAL_RESULT is not re-sent in stopStream.
+        Content was already delivered live via appendStream.
         """
         events = [
             _task_event(),
-            # STREAMING_RESULT would have set streamed_any_text before the fix,
-            # causing FINAL_RESULT to be silently dropped
             _streaming_result("Intermediate synthesis fragment"),
             _final_result("The actual answer the user should see."),
         ]
         mock_slack = _run_stream(events)
 
+        # Content was streamed live
+        appended = _get_append_stream_markdown(mock_slack)
+        assert len(appended) > 0, "STREAMING_RESULT should be streamed live"
+
+        # FINAL_RESULT not duplicated in stopStream
         stop_texts = _get_stop_stream_markdown(mock_slack)
         combined = "".join(stop_texts)
-        assert "The actual answer the user should see." in combined, (
-            "FINAL_RESULT must reach the user even when STREAMING_RESULT events "
-            "were emitted earlier in a no-plan flow"
+        assert "The actual answer the user should see." not in combined, (
+            "FINAL_RESULT must not be re-sent in stopStream when already streamed"
         )
 
 
@@ -474,17 +437,12 @@ class TestFullRealisticScenario:
     def test_realistic_rag_query_no_plan(self):
         """
         Realistic no-plan flow: RAG query with several streaming fragments
-        (as emitted by ToolStrategy JSON accumulation) followed by FINAL_RESULT.
-        User sees only the clean FINAL_RESULT.
+        followed by FINAL_RESULT. Content is streamed live via appendStream.
         """
         events = [
             _task_event(context_id="ctx-rag-1"),
-            # These mimic the _partial_json fragments that stream during tool-call accumulation
-            _streaming_result('{"is_task_complete": true, "require_user_input": false, "content": "'),
             _streaming_result("CAIPE is a Cloud AI Platform Engineering system that coordinates"),
             _streaming_result(" specialized sub-agents for platform engineering tasks."),
-            _streaming_result('"}'),
-            # Clean FINAL_RESULT from ResponseFormat tool
             _final_result(
                 "CAIPE is a Cloud AI Platform Engineering system that coordinates "
                 "specialized sub-agents for platform engineering tasks."
@@ -492,16 +450,10 @@ class TestFullRealisticScenario:
         ]
         mock_slack = _run_stream(events)
 
-        # Nothing raw in appendStream
         appended = _get_append_stream_markdown(mock_slack)
-        assert len(appended) == 0
-
-        # Clean answer in stopStream
-        stop_texts = _get_stop_stream_markdown(mock_slack)
-        combined = "".join(stop_texts)
+        assert len(appended) > 0, "No-plan STREAMING_RESULT should be streamed live"
+        combined = "".join(appended)
         assert "CAIPE is a Cloud AI Platform Engineering system" in combined
-        assert '{"is_task_complete"' not in combined
-        assert '"content":' not in combined
 
     def test_interrupted_session_new_query_delivers_correct_response(self):
         """
