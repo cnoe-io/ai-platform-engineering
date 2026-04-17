@@ -21,6 +21,7 @@ CURL_TIMEOUT = 300  # 5 minutes default
 def curl(
     command: str,
     timeout: int = CURL_TIMEOUT,
+    strip_html: bool = False,
 ) -> str:
     """
     Execute any curl command for HTTP requests.
@@ -28,6 +29,7 @@ def curl(
     Args:
         command: Curl command to run (e.g., "curl -s https://api.example.com/users")
         timeout: Command timeout in seconds (default: 300)
+        strip_html: If True, strip HTML tags and return plain text (useful for web pages)
 
     Returns:
         Command output as string. On error, returns "ERROR: <message>"
@@ -36,6 +38,7 @@ def curl(
         curl("curl -s https://api.example.com/users")
         curl("curl -sL https://example.com/redirect")
         curl("curl -s -X POST -H 'Content-Type: application/json' -d '{\"name\":\"test\"}' https://api.example.com/users")
+        curl("curl -s https://docs.example.com/guide", strip_html=True)
 
     Common Options:
         -s, --silent      Silent mode (no progress)
@@ -72,7 +75,20 @@ def curl(
         if result.returncode != 0:
             return f"ERROR: {output}" if output else "ERROR: Command failed"
 
-        return output if output else "Success (no output)"
+        if not output:
+            return "Success (no output)"
+
+        if strip_html:
+            try:
+                from bs4 import BeautifulSoup  # noqa: PLC0415
+                soup = BeautifulSoup(output, 'html.parser')
+                for tag in soup(["script", "style"]):
+                    tag.decompose()
+                return soup.get_text(separator='\n', strip=True)
+            except ImportError:
+                pass  # bs4 not available, return raw output
+
+        return output
 
     except subprocess.TimeoutExpired:
         return f"ERROR: Command timed out after {timeout} seconds"

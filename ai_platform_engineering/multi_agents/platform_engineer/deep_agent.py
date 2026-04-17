@@ -83,7 +83,6 @@ from ai_platform_engineering.multi_agents.platform_engineer.rag_prompts import g
 
 from ai_platform_engineering.multi_agents.tools import (
     curl,
-    fetch_url,
     get_current_date,
     jq,
     yq,
@@ -1377,7 +1376,6 @@ class PlatformEngineerDeepAgent:
         # Utility tools
         utility_tools = [
             curl,
-            fetch_url,
             get_current_date,
             jq,
             yq,
@@ -1518,7 +1516,7 @@ class PlatformEngineerDeepAgent:
         if USE_STRUCTURED_RESPONSE:
             system_prompt += (
                 "\n\n**Before invoking any tool, write one brief natural-language sentence describing what you are about to do.** "
-                "Describe the *intent* in plain English — NEVER mention internal tool names (search, fetch_document, fetch_url, write_todos, task, etc.). "
+                "Describe the *intent* in plain English — NEVER mention internal tool names (search, fetch_document, curl, write_todos, task, etc.). "
                 "For example: \"I'll search the knowledge base for information about X.\" or "
                 "\"Let me look up the full documentation for more details.\" or "
                 "\"I'll check with the GitHub agent for repository information.\"\n"

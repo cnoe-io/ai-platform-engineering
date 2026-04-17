@@ -57,7 +57,6 @@ logging.getLogger("langfuse.media").setLevel(logging.CRITICAL)
 # is sufficient for the client.
 _SUPPRESS_CONTENT_TOOLS: frozenset[str] = frozenset({
     "curl",
-    "fetch_url",
     "fetch_markdown",
     "wget",
 })
