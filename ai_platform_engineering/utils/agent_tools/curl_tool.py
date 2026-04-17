@@ -25,16 +25,30 @@ _BLOCKED_FLAGS: frozenset[str] = frozenset({
 
 
 def _validate_curl_args(args: list[str]) -> str | None:
-    """Return an error string if args contain blocked flags or non-HTTPS URLs."""
+    """Return a detailed user-facing message if args contain blocked flags or non-HTTPS URLs."""
     for token in args:
-        # Block dangerous flags (exact token match handles both "-o file" and "--output=file")
         flag = token.split("=")[0]
         if flag in _BLOCKED_FLAGS:
-            return f"ERROR: Flag '{flag}' is not allowed"
+            return (
+                f"The flag '{flag}' is not supported for security reasons.\n\n"
+                "**Blocked flags:**\n"
+                "- `-o` / `--output` — writing curl output directly to disk is not allowed; "
+                "use the response content in your next step instead\n"
+                "- `--config` / `-K` — loading curl config files from disk is not allowed\n\n"
+                "**Supported usage:** Pass headers (`-H`), request body (`-d`), HTTP method (`-X`), "
+                "and `https://` URLs directly in the command string."
+            )
 
-        # Block any non-HTTPS URL (anything containing a scheme)
         if "://" in token and not token.startswith("https://"):
-            return f"ERROR: Only https:// URLs are allowed (got '{token.split('?')[0]}')"
+            scheme = token.split("://")[0] + "://"
+            return (
+                f"The URL scheme '{scheme}' is not supported.\n\n"
+                "**Only `https://` URLs are allowed.** This tool does not support:\n"
+                "- `http://` — unencrypted HTTP\n"
+                "- `file://` — local filesystem access\n"
+                "- `ftp://`, `gopher://`, or other protocols\n\n"
+                f"Please use an `https://` endpoint instead of `{token.split('?')[0]}`."
+            )
 
     return None
 
