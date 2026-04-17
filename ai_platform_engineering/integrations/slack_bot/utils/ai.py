@@ -240,7 +240,7 @@ def stream_a2a_response(
         logger.warning(f"[{thread_ts}] Thread was deleted mid-processing — aborting response")
       elif "channel_type_not_supported" in err_str:
         can_stream = False
-        logger.warning(f"[{thread_ts}] Channel does not support streaming — falling back to block kit")
+        logger.warning(f"[{thread_ts}] Channel {channel_id} does not support streaming — falling back to block kit")
       else:
         logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
       return None
