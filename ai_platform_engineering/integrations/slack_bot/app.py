@@ -209,10 +209,14 @@ def handle_mention(event, say, client):
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
 
+    channel_info = utils.get_channel_context(client, channel_id, session_manager)
+
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
+      "channel_topic": channel_info.get("topic", ""),
+      "channel_purpose": channel_info.get("purpose", ""),
       "humble_followup": is_humble_followup,
     }
     if user_email:
@@ -284,6 +288,11 @@ def handle_mention(event, say, client):
 # =============================================================================
 def handle_qanda_message(event, say, client):
   try:
+    # Ignore system messages (channel_purpose, channel_topic, channel_join, etc.)
+    if event.get("subtype"):
+      logger.debug(f"Q&A ignoring system message subtype={event['subtype']} in {event.get('channel')}")
+      return
+
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
@@ -306,10 +315,14 @@ def handle_qanda_message(event, say, client):
     agent_id = _get_agent_id(channel_config)
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
+    channel_info = utils.get_channel_context(client, channel_id, session_manager)
+
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
+      "channel_topic": channel_info.get("topic", ""),
+      "channel_purpose": channel_info.get("purpose", ""),
       "overthink": channel_config.qanda.overthink,
     }
     if user_email:
@@ -383,6 +396,10 @@ def handle_dm_message(event, say, client):
       context_message = slack_context.build_thread_context(app, event.get("channel"), thread_ts, message_text, bot_user_id)
 
     agent_id = _get_agent_id_for_dm()
+    if not agent_id:
+      logger.error(f"[{thread_ts}] No agent_id configured for DMs — set SLACK_INTEGRATION_DM_AGENT_ID or SLACK_INTEGRATION_DEFAULT_AGENT_ID")
+      say(text="Sorry, DMs aren't configured yet — no agent ID is set. Please contact an admin.", thread_ts=thread_ts)
+      return
     conversation_id = thread_ts_to_conversation_id(thread_ts)
 
     client_context = {
@@ -790,10 +807,14 @@ def handle_caipe_retry(ack, body, client):
 
     retry_message = ai.RETRY_PROMPT_PREFIX + thread_context
 
+    channel_info = utils.get_channel_context(client, channel_id, session_manager)
+
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
+      "channel_topic": channel_info.get("topic", ""),
+      "channel_purpose": channel_info.get("purpose", ""),
     }
     if user_email:
       client_context["user_email"] = user_email
