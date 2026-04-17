@@ -297,7 +297,7 @@ def create_current_datetime_tool():
     return current_datetime
 
 
-def create_user_info_tool(user: UserContext):
+def create_user_info_tool(user: UserContext, client_context: dict | None = None):
     """Create a user_info tool with the current user's information.
 
     Returns all fields present on the ``UserContext`` instance, including
@@ -306,8 +306,13 @@ def create_user_info_tool(user: UserContext):
     automatically when the gateway adds or removes fields — no code
     changes needed here.
 
+    When ``client_context`` is provided, it is included under the
+    ``client_context`` key so the agent can see which client (Slack, web UI,
+    etc.) is being used and adapt its behavior accordingly.
+
     Args:
         user: User context (email required, everything else opaque).
+        client_context: Optional client context dict (source, channel_type, etc.).
 
     Returns:
         A LangChain tool that returns user information.
@@ -315,13 +320,16 @@ def create_user_info_tool(user: UserContext):
 
     # Snapshot once — UserContext is immutable for the lifetime of a request.
     _user_data = user.model_dump(exclude={"raw_claims"})
+    if client_context:
+        _user_data["client_context"] = client_context
 
     @tool
     def user_info(thought: str = "") -> dict:
-        """Get information about the current user.
+        """Get information about the current user and client context.
 
         Use this tool when you need to personalize responses, check user identity,
-        or access user metadata for authorization decisions.
+        access user metadata for authorization decisions, or determine which client
+        (e.g. Slack, web UI) the user is interacting from.
 
         Args:
             thought: Brief reasoning for why you need user information
@@ -329,11 +337,14 @@ def create_user_info_tool(user: UserContext):
         Returns:
             Dictionary with user information.  Always includes ``email``.
             Other fields (``name``, ``is_admin``, ``groups``, etc.) depend
-            on how the user was authenticated.
+            on how the user was authenticated.  May include ``client_context``
+            with the client source and metadata (e.g. ``source``, ``channel_type``,
+            ``overthink``).
 
         Example:
             info = user_info()
             print(f"Hello, {info.get('name') or info['email']}!")
+            source = info.get('client_context', {}).get('source', 'unknown')
         """
         return _user_data
 
