@@ -1,13 +1,33 @@
-## 0.3.5 (2026-04-17)
+## 0.3.6 (2026-04-17)
 
-## 0.3.4-rc.2 (2026-04-17)
+## 0.3.5-rc.4 (2026-04-17)
+
+### Feat
+
+- **auth**: add dual auth middleware for shared key + OAuth2 coexistence (#1229)
+
+## 0.3.5-rc.3 (2026-04-17)
+
+### Fix
+
+- **a2a**: isolate plan state per request to prevent cross-session leak (#1235)
+- **ui**: pin @testing-library/dom to exact version 10.4.1 (#1239)
+- **ui**: don't persist session-expired errors in chat history (#1236)
+
+## 0.3.5-rc.2 (2026-04-17)
+
+### Fix
+
+- **supervisor**: add defaults to ResponseFormat required bool fields (#1237)
+
+## 0.3.5-rc.1 (2026-04-17)
 
 ### Fix
 
 - **checkpointer**: strip ephemeral skills state from MongoDB checkpoint writes (#1234)
 - **setup-caipe**: resolve unbound variable errors with set -u (#1232)
 
-## 0.3.4-rc.1 (2026-04-16)
+## 0.3.4 (2026-04-16)
 
 ### Fix
 
