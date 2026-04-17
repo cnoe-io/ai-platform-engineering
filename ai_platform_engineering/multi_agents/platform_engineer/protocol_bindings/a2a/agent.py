@@ -51,17 +51,6 @@ logger = logging.getLogger(__name__)
 # base64 data URI.  Skill SKILL.md content triggers this harmlessly.
 logging.getLogger("langfuse.media").setLevel(logging.CRITICAL)
 
-# Tool names whose raw content must not be streamed to clients.
-# These tools return large payloads (HTML, JSON bodies, raw HTTP responses)
-# that are for LLM internal use only — the tool_call completion notification
-# is sufficient for the client.
-_SUPPRESS_CONTENT_TOOLS: frozenset[str] = frozenset({
-    "curl",
-    "fetch_markdown",
-    "wget",
-})
-
-
 @dataclass
 class PlanState:
     """Per-request execution plan tracking.
@@ -1627,8 +1616,8 @@ class AIPlatformEngineerA2ABinding:
                   # [{...}]" which doesn't match the UI regex.
                   if tool_name == "write_todos":
                       logging.debug("📋 Skipping write_todos ToolMessage for exec plan (handled by updates handler)")
-                  elif tool_name in rag_tool_names or tool_name in _SUPPRESS_CONTENT_TOOLS:
-                    # For RAG/HTTP tools, suppress raw content from stream (client uses tool_call notification)
+                  elif tool_name in rag_tool_names or tool_name == "curl":
+                    # For RAG tools and curl, suppress raw content from stream (client uses tool_call notification)
                       logging.debug(f"Suppressing tool content for {tool_name} (tool_call notification already sent)")
                   # Stream other tool content as a tool notification (not chat text)
                   # During self-service workflows, suppress intermediate tool output —
