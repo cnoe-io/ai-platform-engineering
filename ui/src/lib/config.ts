@@ -209,7 +209,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
-  agentProtocol: 'custom',
+  agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
   jiraTicketProject: null,

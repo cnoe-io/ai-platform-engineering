@@ -376,13 +376,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const fetchFiles = async () => {
       try {
+        // No Authorization header — session cookie handles auth for same-origin requests.
+        // Bearer tokens resolve email from JWT `sub` which may not match conversation owner_id.
         const response = await fetch(
           `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
         );
         if (response.ok) {
           const data = await response.json();
@@ -394,7 +391,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     };
 
     fetchFiles();
-  }, [conversationId, agentId, filesFetchKey, accessToken]);
+  }, [conversationId, agentId, filesFetchKey]);
 
   // Handle file download
   const handleTimelineFileDownload = useCallback(
@@ -407,11 +404,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       try {
         const response = await fetch(
           `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
         );
 
         if (response.ok) {
@@ -437,7 +429,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         setDownloadingFilePath(undefined);
       }
     },
-    [conversationId, agentId, accessToken, isDownloadingFile]
+    [conversationId, agentId, isDownloadingFile]
   );
 
   // Handle file delete
@@ -453,9 +445,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
           {
             method: "DELETE",
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
           }
         );
 
@@ -469,7 +458,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         setDeletingFilePath(undefined);
       }
     },
-    [conversationId, agentId, accessToken, isDeletingFile]
+    [conversationId, agentId, isDeletingFile]
   );
 
   // ═══════════════════════════════════════════════════════════════

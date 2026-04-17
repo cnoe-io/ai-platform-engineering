@@ -16,7 +16,7 @@ import {
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
-import { authenticateRequest } from "@/app/api/v1/chat/_helpers";
+import { authenticateRequest } from "@/lib/da-proxy";
 import { gradientThemes } from "@/lib/gradient-themes";
 
 const DYNAMIC_AGENTS_URL =
