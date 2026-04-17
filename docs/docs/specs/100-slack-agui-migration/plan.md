@@ -283,9 +283,9 @@ All handlers (`handle_mention`, `handle_dm_message`, `handle_qanda_message`, fee
 - `test_slack_formatter_plan.py` (Slack Block Kit formatting unchanged)
 - `test_thread_guard.py` (thread verification unchanged)
 
-### Phase 8: ClientContext + Jinja2 System Prompt Templating
+### ~~Phase 8: ClientContext + Jinja2 System Prompt Templating~~ ✅
 
-**Commits**: `feat(dynamic-agents): add ClientContext and Jinja2 system prompt rendering`, `refactor(slack-bot): remove hardcoded prompts, send ClientContext`
+~~**Commits**: `feat(dynamic-agents): add ClientContext and Jinja2 system prompt rendering`, `refactor(slack-bot): remove hardcoded prompts, send ClientContext`~~
 
 #### Goal
 
@@ -503,7 +503,7 @@ Currently prepended ad-hoc as `f"The user email is {user_email}\n\n{final_messag
 
 ## Future Work
 
-**Config Centralization (spec 101)**: The Slack bot currently loads channel configuration from the `SLACK_INTEGRATION_BOT_CONFIG` YAML env var at startup. The future direction is to centralize all configuration in the NextJS API server (backed by MongoDB), so the Slack bot fetches its config from `GET {CAIPE_UI_URL}/api/slack-bot/config` at startup and supports hot-reload. This is out of scope for 0.4.0 and will be specified separately. The `agent_id` field added to `ChannelConfig` in Phase 1 is the foundation that spec 101 will build on.
+~~**Config Centralization (spec 101)**: The Slack bot currently loads channel configuration from the `SLACK_INTEGRATION_BOT_CONFIG` YAML env var at startup. The future direction is to centralize all configuration in the NextJS API server (backed by MongoDB), so the Slack bot fetches its config from `GET {CAIPE_UI_URL}/api/slack-bot/config` at startup and supports hot-reload. This is out of scope for 0.4.0 and will be specified separately. The `agent_id` field added to `ChannelConfig` in Phase 1 is the foundation that spec 101 will build on.~~ (deferred to future release)
 
 **UI: Send ClientContext from web chat**: The web chat should send `ClientContext(source="webui")` in chat requests. Agent config editor could add a UI for previewing how system prompts render with different client contexts.
 
