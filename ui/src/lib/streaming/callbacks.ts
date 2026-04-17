@@ -71,12 +71,13 @@ export interface StreamCallbacks {
     namespace?: string[],
   ): void;
 
-  /** A tool invocation completed (with optional error) */
+  /** A tool invocation completed (with optional error and accumulated args) */
   onToolEnd?(
     toolCallId: string,
     toolName?: string,
     error?: string,
     namespace?: string[],
+    args?: string,
   ): void;
 
   /** Agent is requesting user input via a form (HITL) */

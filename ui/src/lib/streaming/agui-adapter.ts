@@ -60,6 +60,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
   // ── Protocol state (reset per stream) ──────────────────────
   private currentNamespace: string[] = [];
   private toolCallIdToName = new Map<string, string>();
+  private toolCallArgs = new Map<string, string>();
   private runId = "";
 
   constructor(accessToken?: string) {
@@ -136,6 +137,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
     // Reset protocol state for each stream
     this.currentNamespace = [];
     this.toolCallIdToName.clear();
+    this.toolCallArgs.clear();
     this.runId = "";
 
     if (this.abortController) {
@@ -248,19 +250,25 @@ export class AGUIStreamAdapter implements StreamAdapter {
         return false;
       }
 
-      case AGUI.TOOL_CALL_ARGS:
-        // Args arrive separately in AG-UI. Not needed for timeline rendering
-        // today. Could be surfaced via a future onToolArgs callback if needed.
+      case AGUI.TOOL_CALL_ARGS: {
+        const toolCallId = parsed.toolCallId as string;
+        const delta = (parsed.delta as string) || "";
+        const prev = this.toolCallArgs.get(toolCallId) || "";
+        this.toolCallArgs.set(toolCallId, prev + delta);
         return false;
+      }
 
       case AGUI.TOOL_CALL_END: {
         const toolCallId = parsed.toolCallId as string;
         const toolName = this.toolCallIdToName.get(toolCallId);
+        const accumulatedArgs = this.toolCallArgs.get(toolCallId);
+        this.toolCallArgs.delete(toolCallId);
         callbacks.onToolEnd?.(
           toolCallId,
           toolName,
           undefined, // no error — errors come via CUSTOM(TOOL_ERROR)
           this.currentNamespace,
+          accumulatedArgs,
         );
         return false;
       }

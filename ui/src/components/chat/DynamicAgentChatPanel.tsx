@@ -136,9 +136,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [isDeletingFile, setIsDeletingFile] = useState(false);
   const [deletingFilePath, setDeletingFilePath] = useState<string | undefined>();
   const [filesFetchKey, setFilesFetchKey] = useState(0);
-  const [todosFetchKey, setTodosFetchKey] = useState(0);
   const filesFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
-  const todosFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
 
   // ─── Subagent Info Cache (for timeline avatar gradients) ──────────
   const [subagentCache, setSubagentCache] = useState<Map<string, SubagentLookupInfo>>(new Map());
@@ -398,54 +396,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     fetchFiles();
   }, [conversationId, agentId, filesFetchKey, accessToken]);
 
-  // Fetch todos from API
-  useEffect(() => {
-    if (!conversationId || !agentId) {
-      setTimelineTasks([]);
-      todosFetchedForRef.current = null;
-      return;
-    }
-
-    const currentFetchState = { conversationId, agentId, fetchKey: todosFetchKey };
-    if (
-      todosFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
-      todosFetchedForRef.current?.agentId === currentFetchState.agentId &&
-      todosFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
-    ) {
-      return;
-    }
-    
-    todosFetchedForRef.current = currentFetchState;
-
-    const fetchTodos = async () => {
-      try {
-        const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const fetchedTodos: TaskItem[] = (data.todos || []).map(
-            (todo: { content?: string; status?: string }, idx: number) => ({
-              id: `todo-${idx}`,
-              content: todo.content || "",
-              status: (todo.status as "pending" | "in_progress" | "completed") || "pending",
-            })
-          );
-          setTimelineTasks(fetchedTodos);
-        }
-      } catch {
-        // Silently ignore fetch errors - todos are optional
-      }
-    };
-
-    fetchTodos();
-  }, [conversationId, agentId, todosFetchKey, accessToken]);
-
   // Handle file download
   const handleTimelineFileDownload = useCallback(
     async (path: string) => {
@@ -653,7 +603,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       addStreamEvent(streamEvent, convId);
     },
 
-    onToolEnd(toolCallId, toolName, error, namespace) {
+    onToolEnd(toolCallId, toolName, error, namespace, args) {
       const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
       const streamEvent = createStreamEvent("tool_end", {
         tool_call_id: toolCallId,
@@ -662,12 +612,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       });
       addStreamEvent(streamEvent, convId);
 
-      // Trigger file/todo fetches when the relevant tool completes
+      // Trigger file fetches when file tools complete
       if (resolvedName) {
         if (FILE_TOOL_NAMES.includes(resolvedName as typeof FILE_TOOL_NAMES[number])) {
           setFilesFetchKey((k) => k + 1);
-        } else if (resolvedName === TODO_TOOL_NAME) {
-          setTodosFetchKey((k) => k + 1);
+        } else if (resolvedName === TODO_TOOL_NAME && args) {
+          // Parse todos directly from write_todos tool args
+          try {
+            const parsed = JSON.parse(args);
+            const todos: TaskItem[] = (parsed.todos || []).map(
+              (todo: { content?: string; status?: string }, idx: number) => ({
+                id: `todo-${idx}`,
+                content: todo.content || "",
+                status: (todo.status as TaskItem["status"]) || "pending",
+              })
+            );
+            if (todos.length > 0) {
+              setTimelineTasks(todos);
+            }
+          } catch {
+            // Silently ignore parse errors — todos are optional
+          }
         }
       }
     },
@@ -730,7 +695,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       console.error("[DynamicAgent] Stream error event:", message);
       loopState.hasError = true;
     },
-  }), [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTodosFetchKey]);
+  }), [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTimelineTasks]);
 
   /**
    * Finalize a stream loop — copies conversation-level streamEvents to the
