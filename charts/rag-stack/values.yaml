@@ -5,6 +5,11 @@
 sunnyTesting: true
 
 global:
+  # -- Global image tag override. When set, overrides appVersion-based image tags for all rag-stack subcharts.
+  # Individual subchart image.tag values still take highest precedence.
+  image:
+    tag: ""
+
   rag:
     enableGraphRag: true
     ragServer:
