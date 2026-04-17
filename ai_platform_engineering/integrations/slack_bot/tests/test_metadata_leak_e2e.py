@@ -8,10 +8,19 @@ The Slack bot uses AG-UI streaming via SSEClient. These tests verify the
 streaming path behaves correctly for various event sequences.
 """
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+import pytest
 
 from ai_platform_engineering.integrations.slack_bot.utils.ai import stream_response
 from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, SSEEventType
+
+
+@pytest.fixture(autouse=True)
+def _disable_status_rate_limit():
+  """Disable status rate limiting in tests so all setStatus calls fire immediately."""
+  with patch("ai_platform_engineering.integrations.slack_bot.utils.ai._STATUS_RATE_LIMIT_SECS", 0):
+    yield
 
 
 def _mock_slack():
