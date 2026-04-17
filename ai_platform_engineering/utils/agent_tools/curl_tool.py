@@ -43,7 +43,7 @@ def curl(
     Execute any curl command for HTTP requests (https:// only).
 
     Use this for all HTTP operations: GET, POST, PUT, PATCH, DELETE, file downloads,
-    and fetching web page content. Replaces wget and fetch_markdown.
+    and fetching web page content.
 
     Args:
         command: Curl command to run (e.g., "curl -s https://api.example.com/users")
