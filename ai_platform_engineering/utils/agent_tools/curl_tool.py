@@ -19,7 +19,6 @@ CURL_TIMEOUT = 300  # 5 minutes default
 # Flags that write to disk or read curl config files — disallow to prevent
 # filesystem side-effects from LLM-generated commands.
 _BLOCKED_FLAGS: frozenset[str] = frozenset({
-    "-o", "--output",
     "--config", "-K",
 })
 
@@ -32,11 +31,9 @@ def _validate_curl_args(args: list[str]) -> str | None:
             return (
                 f"The flag '{flag}' is not supported for security reasons.\n\n"
                 "**Blocked flags:**\n"
-                "- `-o` / `--output` — writing curl output directly to disk is not allowed; "
-                "use the response content in your next step instead\n"
                 "- `--config` / `-K` — loading curl config files from disk is not allowed\n\n"
                 "**Supported usage:** Pass headers (`-H`), request body (`-d`), HTTP method (`-X`), "
-                "and `https://` URLs directly in the command string."
+                "output file (`-o`), and `https://` URLs directly in the command string."
             )
 
         if "://" in token and not token.startswith("https://"):
