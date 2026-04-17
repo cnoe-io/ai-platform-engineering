@@ -77,6 +77,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       conversation_id: params.conversationId,
       agent_id: params.agentId,
       protocol: "custom",
+      ...(params.clientContext && { client_context: params.clientContext }),
     });
 
     await this._stream(url, body, callbacks);
@@ -89,6 +90,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       form_data: params.formData,
       protocol: "custom",
+      ...(params.clientContext && { client_context: params.clientContext }),
     });
 
     await this._stream(url, body, callbacks);

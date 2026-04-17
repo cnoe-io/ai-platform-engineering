@@ -1,40 +1,81 @@
 /**
- * Shared helpers for unified streaming gateway routes.
+ * Shared helpers for all Dynamic Agents proxy routes.
  *
- * All streaming routes under /api/chat/conversations/[id]/stream/ proxy
- * requests to the appropriate backend based on the conversation's agent_id.
+ * Every request proxied to the DA backend must include an
+ * ``X-User-Context`` header (base64-encoded JSON) so DA knows who the
+ * caller is.  DA never validates JWTs directly — the Next.js gateway is
+ * the auth boundary.
  *
- * Current routing:
- *   - agent_id present → Dynamic Agents service (DYNAMIC_AGENTS_URL)
- *   - agent_id absent  → Supervisor (not yet implemented — Phase 4)
+ * Auth methods (tried in order):
+ *   1. Bearer token — validated against OIDC JWKS (service clients).
+ *   2. Session cookie — resolved via NextAuth (browser UI).
+ *   3. Anonymous fallback — only when SSO is disabled (local dev).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import { getAuthenticatedUser } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
 // ═══════════════════════════════════════════════════════════════
 
 export interface AuthResult {
-  accessToken?: string;
+  /** Base64-encoded JSON UserContext header, or undefined for anonymous */
+  userContextHeader?: string;
 }
 
 /**
- * Authenticate the request and extract the access token.
- * Returns a NextResponse error on failure, or AuthResult on success.
+ * Resolve user identity from the request (session cookie or Bearer token).
+ *
+ * If the caller is authenticated, builds a base64-encoded ``X-User-Context``
+ * header containing ``{ email, name, is_admin, is_authorized, can_view_admin,
+ * can_access_dynamic_agents }``.  These are pre-computed boolean flags —
+ * the DA backend treats them as opaque and passes them through to tools
+ * like ``user_info``.
+ *
+ * Returns a 401 NextResponse if no valid auth is found and SSO is enabled.
  */
 export async function authenticateRequest(
   request: NextRequest,
 ): Promise<AuthResult | NextResponse> {
+  const method = request.method;
+  const path = request.nextUrl.pathname;
+  const clientSource = request.headers.get("X-Client-Source") ?? "browser";
+  const hasBearer = request.headers.has("Authorization");
+  const authMethod = hasBearer ? "bearer" : "session";
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? request.headers.get("x-real-ip")
+    ?? "unknown";
+  const ua = request.headers.get("user-agent") ?? "unknown";
+
   try {
-    const { session } = await getAuthenticatedUser(request, {
-      allowAnonymous: !getServerConfig().ssoEnabled,
-    });
-    const accessToken = "accessToken" in session ? session.accessToken : undefined;
-    return { accessToken } as AuthResult;
-  } catch {
+    const { user, session } = await getAuthFromBearerOrSession(request);
+
+    console.log(
+      `[gateway] ${method} ${path} — auth=${authMethod} user=${user.email} role=${user.role} client=${clientSource} ip=${ip} ua=${ua}`,
+    );
+
+    // Build X-User-Context from pre-computed authorization flags.
+    // DA doesn't parse these — they pass through via extra="allow"
+    // on UserContext and are available to the user_info tool.
+    const s = session as Record<string, unknown>;
+    const userContext = {
+      email: user.email,
+      name: user.name ?? null,
+      is_admin: user.role === "admin",
+      is_authorized: (s?.isAuthorized as boolean) ?? true,
+      can_view_admin: (s?.canViewAdmin as boolean) ?? false,
+      can_access_dynamic_agents: (s?.canAccessDynamicAgents as boolean) ?? false,
+    };
+
+    const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
+    return { userContextHeader: encoded };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} reason=${message}`,
+    );
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 },
@@ -48,11 +89,10 @@ export async function authenticateRequest(
 
 export interface DynamicAgentsConfig {
   dynamicAgentsUrl: string;
-  agentProtocol: string;
 }
 
 /**
- * Validate that dynamic agents are enabled and return the URL + protocol.
+ * Validate that dynamic agents are enabled and return the URL.
  * Returns a NextResponse error on failure, or config on success.
  */
 export function getDynamicAgentsConfig(): DynamicAgentsConfig | NextResponse {
@@ -74,8 +114,30 @@ export function getDynamicAgentsConfig(): DynamicAgentsConfig | NextResponse {
 
   return {
     dynamicAgentsUrl: config.dynamicAgentsUrl,
-    agentProtocol: config.agentProtocol,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Backend headers builder
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Build headers for the proxied request to the DA backend.
+ *
+ * Always sets Content-Type.  Adds X-User-Context if the caller was
+ * authenticated (so DA knows who the user is).
+ */
+export function buildBackendHeaders(
+  contentType: string,
+  authResult: AuthResult,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": contentType,
+  };
+  if (authResult.userContextHeader) {
+    headers["X-User-Context"] = authResult.userContextHeader;
+  }
+  return headers;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -97,23 +159,18 @@ const SSE_RESPONSE_HEADERS = {
  * SSE response back to the client.
  *
  * @param backendUrl - Full URL to the backend streaming endpoint
- * @param body - JSON string body to forward
- * @param accessToken - Optional Bearer token
+ * @param body - JSON string body to forward (passed through as-is)
+ * @param authResult - Auth result containing optional X-User-Context header
  * @param logPrefix - Log prefix for error messages (e.g. "[stream/start]")
  */
 export async function proxySSEStream(
   backendUrl: string,
   body: string,
-  accessToken: string | undefined,
+  authResult: AuthResult,
   logPrefix: string,
 ): Promise<Response> {
-  const backendHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Accept": "text/event-stream",
-  };
-  if (accessToken) {
-    backendHeaders["Authorization"] = `Bearer ${accessToken}`;
-  }
+  const backendHeaders = buildBackendHeaders("application/json", authResult);
+  backendHeaders["Accept"] = "text/event-stream";
 
   try {
     const backendResponse = await fetch(backendUrl, {
@@ -174,28 +231,47 @@ export async function proxySSEStream(
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// JSON proxy helpers
+// ═══════════════════════════════════════════════════════════════
+
 /**
- * Proxy a JSON request to the Dynamic Agents backend (non-streaming).
- * Used for cancel.
+ * Proxy a JSON POST request to the Dynamic Agents backend (non-streaming).
+ * Used for cancel, invoke, clear, etc.
  */
 export async function proxyJSONRequest(
   backendUrl: string,
   body: string,
-  accessToken: string | undefined,
+  authResult: AuthResult,
   logPrefix: string,
 ): Promise<Response> {
-  const backendHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (accessToken) {
-    backendHeaders["Authorization"] = `Bearer ${accessToken}`;
-  }
+  return proxyRequest(backendUrl, "POST", authResult, logPrefix, body);
+}
+
+/**
+ * Proxy any HTTP method to the Dynamic Agents backend and return the
+ * JSON response.  Handles error mapping and connection failures.
+ *
+ * @param backendUrl - Full URL to the backend endpoint
+ * @param method - HTTP method (GET, POST, DELETE, etc.)
+ * @param authResult - Auth result containing optional X-User-Context header
+ * @param logPrefix - Log prefix for error messages
+ * @param body - Optional JSON string body (for POST/PUT/PATCH)
+ */
+export async function proxyRequest(
+  backendUrl: string,
+  method: string,
+  authResult: AuthResult,
+  logPrefix: string,
+  body?: string,
+): Promise<Response> {
+  const backendHeaders = buildBackendHeaders("application/json", authResult);
 
   try {
     const backendResponse = await fetch(backendUrl, {
-      method: "POST",
+      method,
       headers: backendHeaders,
-      body,
+      ...(body ? { body } : {}),
     });
 
     if (!backendResponse.ok) {

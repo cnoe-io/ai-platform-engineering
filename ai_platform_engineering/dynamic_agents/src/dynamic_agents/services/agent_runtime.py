@@ -87,8 +87,9 @@ class SystemPromptRenderError(Exception):
 def _render_system_prompt(
     template_str: str,
     client_context: ClientContext | None,
+    user: UserContext | None = None,
 ) -> str:
-    """Render a system prompt template with client context via Jinja2.
+    """Render a system prompt template with client and user context via Jinja2.
 
     Uses a restricted ``SandboxedEnvironment`` to prevent code execution
     in templates.  All built-in globals (``lipsum``, ``range``, ``cycler``,
@@ -97,11 +98,18 @@ def _render_system_prompt(
 
     ``ChainableUndefined`` ensures missing keys evaluate to falsy empty
     strings instead of raising errors — agent creators can safely write
-    ``{%% if client_context.overthink %%}`` without worrying about KeyError.
+    ``{%% if client_context.overthink %%}`` or ``{%% if user.is_admin %%}``
+    without worrying about KeyError.
+
+    Template variables:
+        - ``client_context``: dict with ``source`` and any extra client fields
+        - ``user``: dict with ``email`` and any extra auth fields (``name``,
+          ``is_admin``, ``groups``, etc.)
 
     Args:
         template_str: The system prompt, possibly containing Jinja2 syntax.
         client_context: ClientContext from ChatRequest, or None.
+        user: UserContext for the current user, or None.
 
     Returns:
         Rendered system prompt string.
@@ -111,9 +119,10 @@ def _render_system_prompt(
             attempts unsafe attribute access, or otherwise fails to render.
     """
     ctx = client_context.model_dump() if client_context else {}
+    user_ctx = user.model_dump(exclude={"raw_claims"}) if user else {}
     try:
         template = _jinja_env.from_string(template_str)
-        return template.render(client_context=ctx)
+        return template.render(client_context=ctx, user=user_ctx)
     except TemplateSyntaxError as exc:
         raise SystemPromptRenderError(f"Invalid system prompt template syntax: {exc}") from exc
     except SecurityError as exc:
@@ -213,7 +222,8 @@ class AgentRuntime:
                 )
 
         # 4 Add built-in tools based on agent config
-        builtin_tools = self._build_builtin_tools(self._user)
+        client_ctx = self._client_context.model_dump() if self._client_context else None
+        builtin_tools = self._build_builtin_tools(self._user, client_context=client_ctx)
         if builtin_tools:
             tools = tools + builtin_tools
 
@@ -224,7 +234,7 @@ class AgentRuntime:
 
         # 6. System prompt from agent config, rendered with client context
         try:
-            system_prompt = _render_system_prompt(self.config.system_prompt, self._client_context)
+            system_prompt = _render_system_prompt(self.config.system_prompt, self._client_context, self._user)
         except SystemPromptRenderError as exc:
             logger.error(f"Agent '{self.config.name}' failed to initialize: {exc}")
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
@@ -280,6 +290,7 @@ class AgentRuntime:
         self,
         user: UserContext | None = None,
         agent_config: DynamicAgentConfig | None = None,
+        client_context: dict | None = None,
     ) -> list:
         """Build list of built-in tools based on agent config.
 
@@ -287,6 +298,7 @@ class AgentRuntime:
             user: User context for tools that need user info
             agent_config: Agent config to use. Defaults to self.config (parent agent).
                           Pass subagent config to build tools for a subagent.
+            client_context: Optional client context dict for the user_info tool.
 
         Returns:
             List of LangChain tools to add to the agent.
@@ -315,7 +327,7 @@ class AgentRuntime:
         user_info_config = config.builtin_tools.user_info
         if user_info_config and user_info_config.enabled:
             if user:
-                tools.append(create_user_info_tool(user))
+                tools.append(create_user_info_tool(user, client_context=client_context))
                 config_summary["user_info"] = {"user": user.email}
             else:
                 logger.warning(f"Agent '{config.name}': user_info enabled but no user context available")
@@ -456,7 +468,8 @@ class AgentRuntime:
                 tools.extend(mcp_tools)
 
         # 2. Add built-in tools based on subagent's config
-        builtin_tools = self._build_builtin_tools(self._user, subagent_config)
+        client_ctx = self._client_context.model_dump() if self._client_context else None
+        builtin_tools = self._build_builtin_tools(self._user, subagent_config, client_context=client_ctx)
         if builtin_tools:
             tools.extend(builtin_tools)
 

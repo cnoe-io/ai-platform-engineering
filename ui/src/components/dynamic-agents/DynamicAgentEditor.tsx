@@ -206,11 +206,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
       import("@codemirror/lang-markdown"),
       import("@codemirror/language-data"),
       import("@codemirror/view"),
-    ]).then(([mdMod, langDataMod, viewMod]) => {
+      import("@/lib/codemirror/jinja2-highlight"),
+    ]).then(([mdMod, langDataMod, viewMod, jinja2Mod]) => {
       if (!cancelled) {
         setCmExtensions([
           mdMod.markdown({ codeLanguages: langDataMod.languages }),
           viewMod.EditorView.lineWrapping,
+          jinja2Mod.jinja2Highlight,
         ]);
       }
     });

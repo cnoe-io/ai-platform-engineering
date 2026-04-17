@@ -136,9 +136,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [isDeletingFile, setIsDeletingFile] = useState(false);
   const [deletingFilePath, setDeletingFilePath] = useState<string | undefined>();
   const [filesFetchKey, setFilesFetchKey] = useState(0);
-  const [todosFetchKey, setTodosFetchKey] = useState(0);
   const filesFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
-  const todosFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
 
   // ─── Subagent Info Cache (for timeline avatar gradients) ──────────
   const [subagentCache, setSubagentCache] = useState<Map<string, SubagentLookupInfo>>(new Map());
@@ -378,13 +376,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const fetchFiles = async () => {
       try {
+        // No Authorization header — session cookie handles auth for same-origin requests.
+        // Bearer tokens resolve email from JWT `sub` which may not match conversation owner_id.
         const response = await fetch(
           `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
         );
         if (response.ok) {
           const data = await response.json();
@@ -396,55 +391,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     };
 
     fetchFiles();
-  }, [conversationId, agentId, filesFetchKey, accessToken]);
-
-  // Fetch todos from API
-  useEffect(() => {
-    if (!conversationId || !agentId) {
-      setTimelineTasks([]);
-      todosFetchedForRef.current = null;
-      return;
-    }
-
-    const currentFetchState = { conversationId, agentId, fetchKey: todosFetchKey };
-    if (
-      todosFetchedForRef.current?.conversationId === currentFetchState.conversationId &&
-      todosFetchedForRef.current?.agentId === currentFetchState.agentId &&
-      todosFetchedForRef.current?.fetchKey === currentFetchState.fetchKey
-    ) {
-      return;
-    }
-    
-    todosFetchedForRef.current = currentFetchState;
-
-    const fetchTodos = async () => {
-      try {
-        const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/todos?agent_id=${encodeURIComponent(agentId)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const fetchedTodos: TaskItem[] = (data.todos || []).map(
-            (todo: { content?: string; status?: string }, idx: number) => ({
-              id: `todo-${idx}`,
-              content: todo.content || "",
-              status: (todo.status as "pending" | "in_progress" | "completed") || "pending",
-            })
-          );
-          setTimelineTasks(fetchedTodos);
-        }
-      } catch {
-        // Silently ignore fetch errors - todos are optional
-      }
-    };
-
-    fetchTodos();
-  }, [conversationId, agentId, todosFetchKey, accessToken]);
+  }, [conversationId, agentId, filesFetchKey]);
 
   // Handle file download
   const handleTimelineFileDownload = useCallback(
@@ -457,11 +404,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       try {
         const response = await fetch(
           `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
-          {
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-          }
         );
 
         if (response.ok) {
@@ -487,7 +429,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         setDownloadingFilePath(undefined);
       }
     },
-    [conversationId, agentId, accessToken, isDownloadingFile]
+    [conversationId, agentId, isDownloadingFile]
   );
 
   // Handle file delete
@@ -503,9 +445,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
           {
             method: "DELETE",
-            headers: {
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
           }
         );
 
@@ -519,7 +458,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         setDeletingFilePath(undefined);
       }
     },
-    [conversationId, agentId, accessToken, isDeletingFile]
+    [conversationId, agentId, isDeletingFile]
   );
 
   // ═══════════════════════════════════════════════════════════════
@@ -626,7 +565,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     assistantMsgId: string,
     loopState: StreamLoopState,
     toolCallIdToName: Map<string, string>,
-  ): StreamCallbacks => ({
+  ): StreamCallbacks => {
+    /** Parse todos from write_todos args (handles both object and JSON string). */
+    const parseTodosFromArgs = (args: unknown) => {
+      try {
+        const obj = typeof args === "string" ? JSON.parse(args) : args;
+        const todos: TaskItem[] = (obj?.todos || []).map(
+          (todo: { content?: string; status?: string }, idx: number) => ({
+            id: `todo-${idx}`,
+            content: todo.content || "",
+            status: (todo.status as TaskItem["status"]) || "pending",
+          })
+        );
+        if (todos.length > 0) {
+          setTimelineTasks(todos);
+        }
+      } catch {
+        // Silently ignore parse errors — todos are optional
+      }
+    };
+
+    return {
     onContent(text, namespace) {
       loopState.accumulatedText += text;
       loopState.rawStreamContent += text;
@@ -651,9 +610,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         namespace: namespace ?? [],
       });
       addStreamEvent(streamEvent, convId);
+
+      // Custom protocol: write_todos args arrive in tool_start (already parsed)
+      if (toolName === TODO_TOOL_NAME && args) {
+        parseTodosFromArgs(args);
+      }
     },
 
-    onToolEnd(toolCallId, toolName, error, namespace) {
+    onToolEnd(toolCallId, toolName, error, namespace, args) {
       const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
       const streamEvent = createStreamEvent("tool_end", {
         tool_call_id: toolCallId,
@@ -662,12 +626,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       });
       addStreamEvent(streamEvent, convId);
 
-      // Trigger file/todo fetches when the relevant tool completes
+      // Trigger file fetches when file tools complete
       if (resolvedName) {
         if (FILE_TOOL_NAMES.includes(resolvedName as typeof FILE_TOOL_NAMES[number])) {
           setFilesFetchKey((k) => k + 1);
-        } else if (resolvedName === TODO_TOOL_NAME) {
-          setTodosFetchKey((k) => k + 1);
+        } else if (resolvedName === TODO_TOOL_NAME && args) {
+          // AG-UI protocol: write_todos args accumulated from TOOL_CALL_ARGS (string)
+          parseTodosFromArgs(args);
         }
       }
     },
@@ -730,7 +695,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       console.error("[DynamicAgent] Stream error event:", message);
       loopState.hasError = true;
     },
-  }), [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTodosFetchKey]);
+  }; }, [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTimelineTasks]);
 
   /**
    * Finalize a stream loop — copies conversation-level streamEvents to the
@@ -786,7 +751,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       convId = createConversation(agentId);
     }
 
-    // Clear previous turn's events
+    // Build client context for system prompt rendering and user_info tool
+    const conv = getActiveConversation();
+    const clientContext: Record<string, unknown> = {
+      source: "webui",
+      ...(conv?.sharing && { chat_sharing: conv.sharing }),
+    };
     clearStreamEvents(convId);
 
     // Add user message - generate turnId for this request/response pair
@@ -828,7 +798,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const callbacks = buildStreamCallbacks(convId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.streamMessage(
-        { message: messageToSend, conversationId: convId, agentId },
+        { message: messageToSend, conversationId: convId, agentId, clientContext },
         callbacks,
       );
 
@@ -1071,6 +1041,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       accessToken,
     });
 
+    // Build client context for system prompt rendering and user_info tool
+    const conv = getActiveConversation();
+    const clientContext: Record<string, unknown> = {
+      source: "webui",
+      ...(conv?.sharing && { chat_sharing: conv.sharing }),
+    };
+
     // Send form data as JSON string
     const formDataJson = JSON.stringify(formData);
 
@@ -1093,7 +1070,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson },
+        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson, clientContext },
         callbacks,
       );
 

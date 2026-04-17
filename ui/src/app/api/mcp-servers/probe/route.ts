@@ -15,7 +15,7 @@ import {
   ApiError,
   requireAdmin,
 } from "@/lib/api-middleware";
-import { authenticateRequest } from "@/app/api/v1/chat/_helpers";
+import { authenticateRequest } from "@/lib/da-proxy";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
