@@ -221,15 +221,23 @@ def stream_a2a_response(
   needs_separator = False  # insert \n\n before next streamed markdown (after tool_end)
   _stream_text_started = False  # True after the first text chunk is sent to StreamBuffer
 
+  _loading_messages = [
+    "is thinking...",
+    "Convincing the AI to stop overthinking...",
+    "is resorting to some magic",
+  ]
+
   def _set_typing_status(status_text, loading_messages=None):
     """Set the typing indicator status (best-effort, non-blocking).
 
     IMPORTANT: Only call this BEFORE startStream. Calling setStatus after
     startStream creates a second message in the thread.
-    Only works for streamable users (U/W prefix), not bot users (B prefix).
+    Only works for human users (U/W prefix) — bot users don't get typed indicators.
     """
     if not can_stream or overthink_mode:
       return
+    if not _is_human_user:
+      return  # setStatus only works in human user threads
     if stream_ts:
       return  # Stream is open — setStatus would create a second message
     try:
@@ -278,7 +286,7 @@ def stream_a2a_response(
     if can_stream:
       # Show the animated typing indicator while we wait for content.
       # The stream itself is deferred until we have something to show.
-      _set_typing_status("is thinking...")
+      _set_typing_status("is thinking...", loading_messages=_loading_messages)
     else:
       # Non-streaming fallback: post a "working..." message + throttler
       initial_blocks = [

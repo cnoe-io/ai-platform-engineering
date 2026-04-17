@@ -408,12 +408,12 @@ class TestPlanFlowStreamingRegression:
 
 class TestBotUserNoPlanFlow:
     """
-    Bot users (B-prefix) receive responses via chat_postMessage instead of
-    the streaming API. The metadata-leak fix must not break this path.
+    Bot users (B-prefix) use the streaming API (without plan-mode params).
+    The metadata-leak fix must not break this path.
     """
 
-    def test_bot_user_receives_final_result_via_post_message(self):
-        """Bot user no-plan flow delivers FINAL_RESULT via postMessage."""
+    def test_bot_user_receives_final_result_via_stop_stream(self):
+        """Bot user no-plan flow delivers FINAL_RESULT via stopStream."""
         events = [
             _task_event(),
             _streaming_result("Internal metadata fragment"),
@@ -430,14 +430,19 @@ class TestBotUserNoPlanFlow:
             thread_ts="t1",
             message_text="query",
             team_id="T1",
-            user_id="B123",  # Bot user → postMessage path
+            user_id="B123",  # Bot user → streams without plan-mode params
         )
 
-        # At least one postMessage was made
-        assert mock_slack.chat_postMessage.call_count >= 1
+        # Bot users now use streaming API
+        mock_slack.chat_startStream.assert_called_once()
+        mock_slack.chat_stopStream.assert_called_once()
 
-    def test_bot_user_metadata_not_in_post_message(self):
-        """Bot user: raw ResponseFormat metadata must not appear in chat_postMessage."""
+        # FINAL_RESULT must be delivered via stopStream
+        stop_texts = _get_stop_stream_markdown(mock_slack)
+        assert "Bot answer: here is what I found." in "".join(stop_texts)
+
+    def test_bot_user_metadata_not_in_stop_stream(self):
+        """Bot user: raw ResponseFormat metadata must not appear in stopStream."""
         raw_meta = "Returning structured response: is_task_complete=True content='private'"
         events = [
             _task_event(),
@@ -458,11 +463,12 @@ class TestBotUserNoPlanFlow:
             user_id="B123",
         )
 
-        for post_call in mock_slack.chat_postMessage.call_args_list:
-            text = str(post_call)
-            assert raw_meta not in text, (
-                "Raw ResponseFormat metadata must never appear in chat_postMessage"
-            )
+        stop_texts = _get_stop_stream_markdown(mock_slack)
+        combined = "".join(stop_texts)
+        assert raw_meta not in combined, (
+            "Raw ResponseFormat metadata must never appear in stopStream"
+        )
+        assert "Clean bot answer." in combined
 
 
 # ---------------------------------------------------------------------------

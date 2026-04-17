@@ -167,7 +167,7 @@ class TestLazyStreamAndSetStatus:
 
 
 class TestBotUserNoSetStatus:
-    """Bot users (user_id starts with 'B') should never get setStatus calls."""
+    """Bot users (user_id starts with 'B') stream but never get setStatus calls."""
 
     def test_no_set_status_for_bot_user(self):
         events = [
@@ -189,9 +189,13 @@ class TestBotUserNoSetStatus:
             user_id="B123",
         )
 
+        # Bot users never get a typing indicator
         mock_slack.assistant_threads_setStatus.assert_not_called()
-        # Bot users don't use streaming API
-        mock_slack.chat_startStream.assert_not_called()
+        # Bot users DO use the streaming API (without plan-mode params)
+        mock_slack.chat_startStream.assert_called_once()
+        start_kwargs = mock_slack.chat_startStream.call_args.kwargs
+        assert "recipient_user_id" not in start_kwargs
+        assert "task_display_mode" not in start_kwargs
 
 
 class TestLastStepStreamedAsMarkdown:
