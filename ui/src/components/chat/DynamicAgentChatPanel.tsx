@@ -576,7 +576,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     assistantMsgId: string,
     loopState: StreamLoopState,
     toolCallIdToName: Map<string, string>,
-  ): StreamCallbacks => ({
+  ): StreamCallbacks => {
+    /** Parse todos from write_todos args (handles both object and JSON string). */
+    const parseTodosFromArgs = (args: unknown) => {
+      try {
+        const obj = typeof args === "string" ? JSON.parse(args) : args;
+        const todos: TaskItem[] = (obj?.todos || []).map(
+          (todo: { content?: string; status?: string }, idx: number) => ({
+            id: `todo-${idx}`,
+            content: todo.content || "",
+            status: (todo.status as TaskItem["status"]) || "pending",
+          })
+        );
+        if (todos.length > 0) {
+          setTimelineTasks(todos);
+        }
+      } catch {
+        // Silently ignore parse errors — todos are optional
+      }
+    };
+
+    return {
     onContent(text, namespace) {
       loopState.accumulatedText += text;
       loopState.rawStreamContent += text;
@@ -601,6 +621,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         namespace: namespace ?? [],
       });
       addStreamEvent(streamEvent, convId);
+
+      // Custom protocol: write_todos args arrive in tool_start (already parsed)
+      if (toolName === TODO_TOOL_NAME && args) {
+        parseTodosFromArgs(args);
+      }
     },
 
     onToolEnd(toolCallId, toolName, error, namespace, args) {
@@ -617,22 +642,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (FILE_TOOL_NAMES.includes(resolvedName as typeof FILE_TOOL_NAMES[number])) {
           setFilesFetchKey((k) => k + 1);
         } else if (resolvedName === TODO_TOOL_NAME && args) {
-          // Parse todos directly from write_todos tool args
-          try {
-            const parsed = JSON.parse(args);
-            const todos: TaskItem[] = (parsed.todos || []).map(
-              (todo: { content?: string; status?: string }, idx: number) => ({
-                id: `todo-${idx}`,
-                content: todo.content || "",
-                status: (todo.status as TaskItem["status"]) || "pending",
-              })
-            );
-            if (todos.length > 0) {
-              setTimelineTasks(todos);
-            }
-          } catch {
-            // Silently ignore parse errors — todos are optional
-          }
+          // AG-UI protocol: write_todos args accumulated from TOOL_CALL_ARGS (string)
+          parseTodosFromArgs(args);
         }
       }
     },
@@ -695,7 +706,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       console.error("[DynamicAgent] Stream error event:", message);
       loopState.hasError = true;
     },
-  }), [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTimelineTasks]);
+  }; }, [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTimelineTasks]);
 
   /**
    * Finalize a stream loop — copies conversation-level streamEvents to the
