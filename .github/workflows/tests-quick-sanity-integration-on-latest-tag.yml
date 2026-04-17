@@ -2,9 +2,6 @@ name: "[Tests][Release Tag] Quick Sanity Integration"
 description: "Deploy a release-tag Helm chart via setup-caipe.sh into Kind and run sanity tests"
 
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       chart_version:
