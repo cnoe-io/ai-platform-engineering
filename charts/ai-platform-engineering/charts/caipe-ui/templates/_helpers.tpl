@@ -79,5 +79,5 @@ Determine if ingress is enabled - global takes precedence
 {{- end }}
 
 {{- define "caipe-ui.appVersion" -}}
-{{- dig "global" "image" "tag" "" .Values | default .Chart.AppVersion -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}

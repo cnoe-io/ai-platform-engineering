@@ -125,5 +125,5 @@ In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml i
 {{- end -}}
 
 {{- define "ai-platform-engineering.appVersion" -}}
-{{- dig "global" "image" "tag" "" .Values | default .Chart.AppVersion -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}

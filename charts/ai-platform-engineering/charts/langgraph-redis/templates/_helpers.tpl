@@ -60,5 +60,5 @@ Create the name of the service account to use
 {{- end }}
 
 {{- define "langgraph-redis.appVersion" -}}
-{{- dig "global" "image" "tag" "" .Values | default .Chart.AppVersion -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}

@@ -358,5 +358,5 @@ e.g., "agent-argocd" -> "argocd"
 {{- end }}
 
 {{- define "agent.appVersion" -}}
-{{- dig "global" "image" "tag" "" .Values | default .Chart.AppVersion -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}
