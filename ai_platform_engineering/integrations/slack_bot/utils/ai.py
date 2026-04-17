@@ -13,6 +13,8 @@ This module handles all interactions with dynamic agents via AG-UI protocol:
 
 import json
 import os
+import re
+import threading
 import time
 
 from loguru import logger
@@ -57,6 +59,17 @@ _INITIAL_LOADING_MESSAGES = ([m.strip() for m in _raw_loading.split(",") if m.st
 _STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "😅 not sure about this")
 _STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "🙋 letting the team handle this")
 _STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "😕 something went wrong")
+_OVERTHINK_STATUS_DISPLAY_SECS = int(os.environ.get("SLACK_OVERTHINK_STATUS_DISPLAY_SECS", "7"))
+
+# Overthink-mode keepalive: cycle these messages when no SSE events arrive.
+_OVERTHINK_KEEPALIVE_INTERVAL = 60  # seconds between keepalive messages
+_OVERTHINK_KEEPALIVE_MESSAGES = [
+  "👀 still working on it...",
+  "😳 taking longer than expected...",
+  "😅 really overthinking this...",
+]
+_STATUS_OVERTHINK_WRITE_TODOS = "📋 checking notes..."
+_STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
 
 def _parse_write_todos_args(raw_args_json: str) -> list[dict] | None:
@@ -289,13 +302,49 @@ def stream_response(
   # raw tool names. Thinking text and tool thoughts attach to the active todo.
   todo_items = []  # latest todo list from the API
   active_todo_id = None  # id of the currently in_progress todo
-  todo_details = {}  # todo_id -> details text (thinking)
-  todo_outputs = {}  # todo_id -> output text (tool thought)
   has_todos = False  # True once we've seen any todos
 
   # Subagent context: non-empty when events come from a subagent.
   # Text from subagents is suppressed — only the main agent's text is shown.
   in_subagent = False
+
+  # Overthink keepalive: self-rescheduling timer that cycles status messages
+  # when no SSE events arrive, preventing the typing indicator from expiring.
+  _keepalive_timer: threading.Timer | None = None
+  _keepalive_index = 0
+
+  def _fire_keepalive():
+    """Called by the timer when no events arrive within the interval."""
+    nonlocal _keepalive_index
+    msg = _OVERTHINK_KEEPALIVE_MESSAGES[_keepalive_index % len(_OVERTHINK_KEEPALIVE_MESSAGES)]
+    _keepalive_index += 1
+    _set_typing_status(msg)
+    _schedule_keepalive()
+
+  def _schedule_keepalive():
+    """(Re)start the keepalive timer. Cancels any pending timer first."""
+    nonlocal _keepalive_timer
+    _cancel_keepalive()
+    if not overthink_mode:
+      return
+    _keepalive_timer = threading.Timer(_OVERTHINK_KEEPALIVE_INTERVAL, _fire_keepalive)
+    _keepalive_timer.daemon = True
+    _keepalive_timer.start()
+
+  def _cancel_keepalive():
+    """Cancel any pending keepalive timer."""
+    nonlocal _keepalive_timer
+    if _keepalive_timer:
+      _keepalive_timer.cancel()
+      _keepalive_timer = None
+
+  def _cancel_pending_status():
+    """Cancel any rate-limited pending status timer."""
+    nonlocal _pending_status_timer, _pending_status
+    if _pending_status_timer:
+      _pending_status_timer.cancel()
+      _pending_status_timer = None
+    _pending_status = None
 
   def _update_and_emit_todos(todos: list):
     """Update todo state from the given list and emit plan_update + task_update chunks.
@@ -343,38 +392,34 @@ def stream_response(
       chunks = []
       if plan_title:
         chunks.append(slack_formatter.build_plan_update(plan_title))
-      chunks.extend(slack_formatter.build_todo_task_updates(todos, todo_details, todo_outputs))
+      chunks.extend(slack_formatter.build_todo_task_updates(todos))
       logger.debug(f"[{thread_ts}] SLACK appendStream todos: {len(chunks)} chunks: {chunks}")
       slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
     except Exception as e:
       logger.warning(f"[{thread_ts}] SLACK appendStream todos FAILED: {e}")
 
-  def _emit_active_todo_update():
-    """Re-emit the active todo's task_update with current details/output."""
-    if not has_todos or active_todo_id is None or not stream_ts:
-      return
-    active_todo = None
-    for t in todo_items:
-      if t.get("id") == active_todo_id:
-        active_todo = t
-        break
-    if not active_todo:
-      return
-    try:
-      chunk = slack_formatter.build_single_task_update(
-        step_id=f"todo_{active_todo_id}",
-        title=active_todo.get("content", ""),
-        status=active_todo.get("status", "in_progress"),
-        details=todo_details.get(active_todo_id),
-        output=todo_outputs.get(active_todo_id),
-      )
-      logger.debug(f"[{thread_ts}] SLACK appendStream active todo update: {chunk}")
-      slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-    except Exception as e:
-      logger.warning(f"[{thread_ts}] SLACK appendStream todo update FAILED: {e}")
+  # Status rate limiting: at most one setStatus call per _STATUS_RATE_LIMIT_SECS.
+  # If a new status arrives within the cooldown, it's queued as pending
+  # and dispatched by a timer when the cooldown expires.
+  _last_status_time = 0.0
+  _pending_status: tuple | None = None  # (status_text, loading_messages)
+  _pending_status_timer: threading.Timer | None = None
+
+  def _flush_pending_status():
+    """Dispatch the pending status after the rate-limit cooldown."""
+    nonlocal _pending_status, _pending_status_timer
+    _pending_status_timer = None
+    if _pending_status:
+      text, msgs = _pending_status
+      _pending_status = None
+      _set_typing_status(text, msgs)
 
   def _set_typing_status(status_text, loading_messages=None):
     """Set the typing indicator status (best-effort, non-blocking).
+
+    Rate-limited to one call per second. If called more frequently, the
+    latest status is queued and dispatched when the cooldown expires.
+    Empty status (clear) is always sent immediately.
 
     Truncates to _STATUS_MAX_LEN (Slack hard limit) with trailing "..."
     when the text is too long.  ``loading_messages`` can be a list (passed
@@ -384,12 +429,33 @@ def stream_response(
     startStream creates a second message in the thread.
     Only works for streamable users (U/W prefix), not bot users (B prefix).
     """
+    nonlocal _last_status_time, _pending_status, _pending_status_timer
     if not can_stream:
       return
     if status_text and len(status_text) > _STATUS_MAX_LEN:
       status_text = status_text[: _STATUS_MAX_LEN - 3] + "..."
     if loading_messages is None:
       loading_messages = [status_text] if status_text else [_STATUS_PREFIX.rstrip()]
+
+    # Empty status (clear) always sends immediately
+    now = time.monotonic()
+    if status_text and (now - _last_status_time) < _STATUS_RATE_LIMIT_SECS:
+      # Within cooldown — queue as pending
+      _pending_status = (status_text, loading_messages)
+      if not _pending_status_timer:
+        delay = _STATUS_RATE_LIMIT_SECS - (now - _last_status_time)
+        _pending_status_timer = threading.Timer(delay, _flush_pending_status)
+        _pending_status_timer.daemon = True
+        _pending_status_timer.start()
+      return
+
+    # Cancel any pending timer since we're sending now
+    if _pending_status_timer:
+      _pending_status_timer.cancel()
+      _pending_status_timer = None
+    _pending_status = None
+    _last_status_time = now
+
     try:
       kwargs = dict(
         channel_id=channel_id,
@@ -474,6 +540,9 @@ def stream_response(
         logger.info(f"[{thread_ts}] Thread deleted — stopping stream processing")
         break
 
+      # Reset keepalive timer on every event (overthink mode only).
+      _schedule_keepalive()
+
       # --- RUN_STARTED ---
       if event.type == SSEEventType.RUN_STARTED:
         if event.run_id:
@@ -489,6 +558,10 @@ def stream_response(
       # --- TEXT_MESSAGE_CONTENT ---
       elif event.type == SSEEventType.TEXT_MESSAGE_CONTENT:
         if in_subagent:
+          # Don't accumulate as final answer, but update typing status
+          # so the user sees subagent thinking in the typing indicator.
+          if not stream_ts and event.delta:
+            typing_text_buf.append(event.delta)
           continue
         if event.delta:
           accumulated_text.append(event.delta)
@@ -513,11 +586,9 @@ def stream_response(
             pending_thinking.append(event.delta)
 
             if has_todos and active_todo_id is not None:
-              # Todo-aware mode: attach thinking to the active todo's details
-              thinking_text = "".join(pending_thinking).strip()
-              if thinking_text:
-                todo_details[active_todo_id] = thinking_text[:_MAX_DETAILS_LEN]
-                _emit_active_todo_update()
+              # Todo-aware mode: thinking text is NOT sent to the plan card.
+              # It only feeds the typing indicator (pre-stream).
+              pass
 
             # Accumulate text for typing indicator — status is updated
             # on TEXT_MESSAGE_END (not on every chunk) to avoid flicker.
@@ -551,16 +622,20 @@ def stream_response(
           tool_args_buffer[event.tool_call_id] = ""
         logger.info(f"[{thread_ts}] Tool started: {tool_name}")
 
-        # Consume pending thinking text
-        thinking_text = "".join(pending_thinking).strip()
-        pending_thinking.clear()
+        # Overthink mode: flash a status for write_todos so the user
+        # sees the bot is planning, even though there's no stream.
+        if overthink_mode and tool_name == "write_todos":
+          _set_typing_status(_STATUS_OVERTHINK_WRITE_TODOS)
+
+        # Consume pending thinking text — logged but not sent to Slack plan card
+        if pending_thinking:
+          thinking_text = "".join(pending_thinking).strip()
+          if thinking_text:
+            logger.debug(f"[{thread_ts}] Thinking before {tool_name}: {thinking_text[:300]}")
+          pending_thinking.clear()
 
         if has_todos or tool_name == "write_todos":
           # Todo-aware mode (or write_todos itself): open stream for todo cards.
-          # Attach thinking to the active todo's details if available.
-          if thinking_text and active_todo_id is not None:
-            todo_details[active_todo_id] = thinking_text[:_MAX_DETAILS_LEN]
-            _emit_active_todo_update()
           _start_stream_if_needed()
 
       # --- TOOL_CALL_ARGS ---
@@ -591,6 +666,8 @@ def stream_response(
         if tool_call_id and tool_call_id in tool_args_buffer:
           raw_args = tool_args_buffer.pop(tool_call_id, "")
         tool_thought = _extract_tool_thought(raw_args) if display_name != "write_todos" else None
+        if tool_thought:
+          logger.debug(f"[{thread_ts}] Tool thought ({display_name}): {tool_thought}")
 
         if display_name == "write_todos":
           # Parse todos directly from the tool's args — the checkpoint is not
@@ -603,11 +680,8 @@ def stream_response(
           else:
             logger.warning(f"[{thread_ts}] write_todos completed but could not parse todos from args")
         elif has_todos:
-          # Todo-aware mode: attach tool thought to active todo's output.
-          # Skip subagent tools — their args are instructions, not thoughts.
-          if display_name != "task" and tool_thought and active_todo_id is not None:
-            todo_outputs[active_todo_id] = tool_thought
-            _emit_active_todo_update()
+          # Todo-aware mode: no output sent to plan card — keep it clean.
+          pass
         # No raw tool cards in the else case — task cards are only for todos.
         if not stream_ts:
           if tool_thought:
@@ -638,18 +712,8 @@ def stream_response(
           tool_error = (event.value or {}).get("error", "unknown error")
           tool_id = (event.value or {}).get("tool_call_id")
           logger.warning(f"[{thread_ts}] Tool error (call={tool_id}): {tool_error}")
-          # Mark tool as failed in UI if we have the ID
-          if stream_ts and tool_id and tool_id in active_tools:
-            tool_name = active_tools.pop(tool_id, "unknown")
-            try:
-              chunk = slack_formatter.build_single_task_update(
-                step_id=tool_id,
-                title=tool_name,
-                status="failed",
-              )
-              slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=[chunk])
-            except Exception as e:
-              logger.warning(f"[{thread_ts}] SLACK appendStream tool error FAILED: {e}")
+          # Tool errors are logged but not streamed to Slack — the agent
+          # recovers or RUN_ERROR fires for drastic failures.
         else:
           logger.debug(f"[{thread_ts}] CUSTOM event: name={event.name}")
 
@@ -712,7 +776,7 @@ def stream_response(
         if overthink_mode:
           logger.info(f"[{thread_ts}] Overthink: suppressing error, flashing status")
           _set_typing_status(_STATUS_ERROR)
-          time.sleep(2)
+          time.sleep(_OVERTHINK_STATUS_DISPLAY_SECS)
           _set_typing_status("")
           return {"skipped": True, "reason": "error"}
 
@@ -752,6 +816,8 @@ def stream_response(
         logger.debug(f"[{thread_ts}] RAW event (ignored)")
 
     # --- Finalization ---
+    _cancel_keepalive()
+    _cancel_pending_status()
     # When tool calls interleaved with text messages, accumulated_text
     # contains ALL text (thinking + final answer concatenated).  Only the
     # last text segment — still sitting in pending_thinking — is the real
@@ -774,12 +840,15 @@ def stream_response(
           _set_typing_status(_STATUS_SKIP_DEFER)
         elif reason == "low_confidence":
           _set_typing_status(_STATUS_SKIP_LOW_CONFIDENCE)
-        time.sleep(2)
+        time.sleep(_OVERTHINK_STATUS_DISPLAY_SECS)
         _set_typing_status("")
         return skip_result
-      if "[CONFIDENCE: HIGH]" in final_text:
-        final_text = final_text.replace("[CONFIDENCE: HIGH]", "").rstrip()
-        logger.info(f"[{thread_ts}] Stripped [CONFIDENCE: HIGH] marker from response")
+      # Strip confidence markers before posting (safety net — _post_final_response
+      # and stopStream also strip, but this catches the log message too).
+      cleaned = _strip_confidence_markers(final_text)
+      if cleaned != final_text:
+        logger.info(f"[{thread_ts}] Stripped confidence markers from overthink response")
+        final_text = cleaned
 
     # Default fallback
     if not final_text:
@@ -813,7 +882,7 @@ def stream_response(
       # Build stop call
       stop_chunks = []
       if not streamed_any_text and final_text:
-        stop_chunks.append({"type": "markdown_text", "text": final_text})
+        stop_chunks.append({"type": "markdown_text", "text": _strip_confidence_markers(final_text)})
 
       stop_blocks = _build_stream_final_blocks(
         channel_id,
@@ -886,13 +955,15 @@ def stream_response(
       )
 
   except Exception as e:
+    _cancel_keepalive()
+    _cancel_pending_status()
     logger.exception(f"[{thread_ts}] Error during streaming: {e}")
 
     # Overthink mode: don't stream errors — flash a casual status and bail
     if overthink_mode:
       logger.info(f"[{thread_ts}] Overthink: suppressing exception, flashing status")
       _set_typing_status(_STATUS_ERROR)
-      time.sleep(2)
+      time.sleep(_OVERTHINK_STATUS_DISPLAY_SECS)
       _set_typing_status("")
       return {"skipped": True, "reason": "error"}
 
@@ -1032,6 +1103,16 @@ def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
   return None
 
 
+# Regex matching all confidence/control markers: [CONFIDENCE: HIGH], [LOW_CONFIDENCE], [DEFER], etc.
+_CONFIDENCE_MARKER_RE = re.compile(r"\[(?:CONFIDENCE:\s*\w+|LOW_CONFIDENCE|DEFER)\]")
+
+
+def _strip_confidence_markers(text: str) -> str:
+  """Remove all confidence/control markers from text before posting to Slack."""
+  stripped = _CONFIDENCE_MARKER_RE.sub("", text).strip()
+  return stripped
+
+
 def _post_final_response(
   slack_client,
   channel_id,
@@ -1043,27 +1124,21 @@ def _post_final_response(
   escalation_config=None,
 ):
   """Post final response as a regular message (fallback for bot messages)."""
+  final_text = _strip_confidence_markers(final_text)
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
-  final_blocks = []
-  for chunk in text_chunks:
-    final_blocks.append(
-      {
-        "type": "markdown",
-        "text": chunk,
-      }
-    )
+  content_blocks = [{"type": "markdown", "text": chunk} for chunk in text_chunks]
 
-  final_blocks.extend(
-    _build_stream_final_blocks(
-      channel_id,
-      thread_ts,
-      original_ts,
-      triggered_by_user_id=triggered_by_user_id,
-      additional_footer=additional_footer,
-      escalation_config=escalation_config,
-    )
+  footer_blocks = _build_stream_final_blocks(
+    channel_id,
+    thread_ts,
+    original_ts,
+    triggered_by_user_id=triggered_by_user_id,
+    additional_footer=additional_footer,
+    escalation_config=escalation_config,
   )
+
+  final_blocks = slack_formatter.enforce_block_limit(content_blocks, footer_blocks)
 
   slack_client.chat_postMessage(
     channel=channel_id,
