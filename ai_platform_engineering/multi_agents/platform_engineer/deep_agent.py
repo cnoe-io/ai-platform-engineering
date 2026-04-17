@@ -82,6 +82,7 @@ from ai_platform_engineering.utils.prompt_config import (
 from ai_platform_engineering.multi_agents.platform_engineer.rag_prompts import get_rag_instructions
 
 from ai_platform_engineering.multi_agents.tools import (
+    curl,
     fetch_url,
     get_current_date,
     jq,
@@ -1375,6 +1376,7 @@ class PlatformEngineerDeepAgent:
 
         # Utility tools
         utility_tools = [
+            curl,
             fetch_url,
             get_current_date,
             jq,
