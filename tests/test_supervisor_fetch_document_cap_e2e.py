@@ -358,20 +358,12 @@ class TestCounterPersistenceAcrossGraphRebuilds:
 
 # ---------------------------------------------------------------------------
 # ResponseFormat default-field regression tests
-# Reproduces the "bails after 1 step, 5 retries" bug from caipe-prod logs.
-# The bug: Metadata.user_input and PlatformEngineerResponse bool flags were
-# required with no defaults → Pydantic raised ValidationError → ModelRetryMiddleware
-# retried 5× → bailed with on_failure="continue" → no response emitted.
 # ---------------------------------------------------------------------------
 
 class TestResponseFormatDefaults:
 
     def test_platform_engineer_response_content_only_parses(self):
-        """PlatformEngineerResponse with only content parses without ValidationError.
-
-        This is the exact payload shape a model produces after a read-only task
-        like 'fetch doc + present documentation' — booleans omitted.
-        """
+        """PlatformEngineerResponse with only content parses without ValidationError."""
         from ai_platform_engineering.multi_agents.platform_engineer.response_format import (
             PlatformEngineerResponse,
         )
@@ -387,11 +379,7 @@ class TestResponseFormatDefaults:
         assert response.metadata is None
 
     def test_metadata_without_user_input_field_parses(self):
-        """Metadata omitting user_input still parses (defaults to False).
-
-        This is the other failure path: model includes metadata block but
-        omits user_input → previously crashed Pydantic validation.
-        """
+        """Metadata omitting user_input still parses (defaults to False)."""
         from ai_platform_engineering.multi_agents.platform_engineer.response_format import (
             PlatformEngineerResponse,
         )
@@ -416,3 +404,57 @@ class TestResponseFormatDefaults:
         assert r.is_task_complete is True
         assert r.require_user_input is False
         assert r.was_task_successful is True
+
+
+# ---------------------------------------------------------------------------
+# E2E: curl tool wired into supervisor utility_tools
+# ---------------------------------------------------------------------------
+
+class TestCurlToolInSupervisor:
+
+    def test_curl_present_in_supervisor_tools(self):
+        """curl is in the tools list passed to create_deep_agent after _build_graph()."""
+        with _make_mas_with_rag_tools([]) as (mas, mock_create_graph):
+            mas._build_graph()
+
+        tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
+        tool_names = {t.name for t in tools}
+        assert "curl" in tool_names
+
+    def test_fetch_url_not_in_supervisor_tools(self):
+        """fetch_url has been replaced by curl and must not appear in utility_tools."""
+        with _make_mas_with_rag_tools([]) as (mas, mock_create_graph):
+            mas._build_graph()
+
+        tools = _get_tools_passed_to_create_deep_agent(mock_create_graph)
+        tool_names = {t.name for t in tools}
+        assert "fetch_url" not in tool_names
+
+    def test_curl_tool_has_strip_html_param(self):
+        """curl tool exposes strip_html parameter."""
+        import inspect
+        from ai_platform_engineering.multi_agents.tools import curl
+        sig = inspect.signature(curl.func if hasattr(curl, "func") else curl)
+        assert "strip_html" in sig.parameters
+
+    def test_curl_tool_has_timeout_param(self):
+        """curl tool exposes timeout parameter."""
+        import inspect
+        from ai_platform_engineering.multi_agents.tools import curl
+        sig = inspect.signature(curl.func if hasattr(curl, "func") else curl)
+        assert "timeout" in sig.parameters
+
+    def test_curl_rejects_http_url_with_informative_message(self):
+        """curl returns a user-facing message (not an exception) for http:// URLs."""
+        from ai_platform_engineering.multi_agents.tools import curl
+        result = curl.invoke({"command": "curl -s http://internal.example.com/api"})
+        assert isinstance(result, str)
+        assert "http://" in result
+        assert "https://" in result
+
+    def test_curl_rejects_file_url_with_informative_message(self):
+        """curl returns a user-facing message for file:// URLs."""
+        from ai_platform_engineering.multi_agents.tools import curl
+        result = curl.invoke({"command": "curl file:///etc/passwd"})
+        assert isinstance(result, str)
+        assert "file://" in result
