@@ -92,10 +92,9 @@ class TestGetFinalText(unittest.TestCase):
         out = _get_final_text(None, None, "Message", [], "ts1")
         self.assertEqual(out, "Message")
 
-    def test_empty_returns_none(self) -> None:
-        # No extractable user content: implementation uses the default placeholder string.
+    def test_empty_returns_default(self) -> None:
         out = _get_final_text(None, None, None, [], "ts1")
-        self.assertEqual(out, "I've completed your request.")
+        self.assertEqual(out, "Oops, something went wrong :(.")
 
 
 if __name__ == "__main__":
