@@ -41,7 +41,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "caipe-ui.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.image.command }}
           command:
