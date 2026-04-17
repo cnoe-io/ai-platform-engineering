@@ -16,7 +16,7 @@ dependencies = [
     "fastapi[standard]==0.121.2",
     "kubernetes==35.0.0",
     "langchain==1.0.7",
-    "langchain-text-splitters==1.0.0",
+    "langchain-text-splitters==1.1.2",
     "lxml==6.0.2",
     "pyjwt==2.12.0",
     "python-dotenv==1.2.1",

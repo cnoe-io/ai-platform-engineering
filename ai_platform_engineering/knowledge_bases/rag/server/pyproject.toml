@@ -12,7 +12,7 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     # LangChain ecosystem (versions must align with common's langchain-openai)
     "langchain==1.0.8",
-    "langchain-core==1.2.28",
+    "langchain-core==1.2.31",
     "langchain-community==0.4.1",
     "langchain-milvus==0.3.0",
     # Vector DB
@@ -34,7 +34,7 @@ dependencies = [
     "lxml==6.0.2",
     "pyyaml==6.0.3",
     # Auth & utils
-    "openai==2.19.0",
+    "openai==2.32.0",
     "python-dotenv==1.1.1",
     "PyJWT[crypto]==2.12.1",
     "click==8.3.0",
