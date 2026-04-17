@@ -185,6 +185,27 @@ start_rag_prompt: |
   - Always provide a helpful, detailed answer regardless of search results
 
 # ============================================================================
+# Tool Arbitration Prompt (knowledge base vs curl)
+# ============================================================================
+tool_arbitration_prompt: |
+  ### Knowledge Base vs curl — When to Use Which:
+
+  **Always use the knowledge base first (search + fetch_document) when:**
+  - Looking up documentation, runbooks, procedures, or configuration guides
+  - Finding information about internal systems, infrastructure, or teams
+  - Answering "how to", "what is", or "explain" questions
+  - The answer is likely already captured in wikis, Confluence, Slack/Webex threads, or graph entities
+
+  **Use curl only when:**
+  - Making state-changing API calls (PUT, POST, PATCH, DELETE) that modify live systems
+  - Fetching truly live/real-time data from an external API that is not in the knowledge base
+  - The knowledge base has returned no useful results after 3+ attempts AND the information is by nature live (e.g., current pipeline status from an external API with no dedicated sub-agent)
+
+  **Never use curl as a substitute for a knowledge base search.**
+  If the question is "how do I…" or "what is…", search the knowledge base first.
+  curl is for *execution and live data*, not discovery.
+
+# ============================================================================
 # Fallback message when RAG is not available
 # ============================================================================
 rag_not_available_message: "RAG tools are not available"
