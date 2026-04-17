@@ -5,6 +5,39 @@
    assistantMarkdownComponents and thinkingMarkdownComponents.
    ═══════════════════════════════════════════════════════════════ */
 
+/* ─── Streaming cursor — blinking caret at end of content ────── */
+
+@keyframes md-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-markdown.md-streaming > :last-child::after {
+  content: "▍";
+  display: inline;
+  color: hsl(var(--primary) / 0.7);
+  animation: md-cursor-blink 1s step-end infinite;
+  margin-left: 1px;
+  font-weight: 400;
+}
+
+/* ─── Streaming fade-in animation for new block elements ─────── */
+
+@keyframes md-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.streaming-markdown .md-stream-in {
+  animation: md-fade-in 200ms ease-out both;
+}
+
 /* ─── Final variant (full prose) ────────────────────────────── */
 
 .streaming-markdown.md-final {
