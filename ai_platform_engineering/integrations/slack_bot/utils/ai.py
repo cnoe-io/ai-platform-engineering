@@ -201,8 +201,9 @@ def stream_a2a_response(
   """
   from .hitl_handler import parse_form_data, format_hitl_form_blocks
 
-  # Streaming requires a valid user_id (starts with U or W), bot_ids (B) don't work
-  can_stream = user_id and user_id[0] in ("U", "W")
+  # Streaming is available for all messages; human user_id enables recipient/plan mode
+  _is_human_user = user_id and user_id[0] in ("U", "W")
+  can_stream = True
 
   # In overthink mode, process silently - don't show "working" message
   # Only post if we have a confident response
@@ -220,13 +221,6 @@ def stream_a2a_response(
   needs_separator = False  # insert \n\n before next streamed markdown (after tool_end)
   _stream_text_started = False  # True after the first text chunk is sent to StreamBuffer
 
-  # Loading messages shown in the animated typing indicator before stream starts
-  _loading_messages = [
-    "is thinking...",
-    "Convincing the AI to stop overthinking...",
-    "is resorting to some magic",
-  ]
-
   def _set_typing_status(status_text, loading_messages=None):
     """Set the typing indicator status (best-effort, non-blocking).
 
@@ -236,6 +230,8 @@ def stream_a2a_response(
     """
     if not can_stream or overthink_mode:
       return
+    if stream_ts:
+      return  # Stream is open — setStatus would create a second message
     try:
       kwargs = dict(
         channel_id=channel_id,
@@ -259,18 +255,16 @@ def stream_a2a_response(
     if not can_stream or overthink_mode:
       return None
     try:
-      start_response = slack_client.chat_startStream(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        recipient_team_id=team_id,
-        recipient_user_id=user_id,
-        task_display_mode="plan",
-      )
+      _set_typing_status("")  # Clear typing indicator before stream_ts is set
+      kwargs = dict(channel=channel_id, thread_ts=thread_ts)
+      if _is_human_user:
+        kwargs["recipient_team_id"] = team_id
+        kwargs["recipient_user_id"] = user_id
+        kwargs["task_display_mode"] = "plan"
+      start_response = slack_client.chat_startStream(**kwargs)
       stream_ts = start_response["ts"]
       stream_buf = StreamBuffer(slack_client, channel_id, stream_ts)
       logger.info(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
-      # Clear the typing status now that the stream message is visible
-      _set_typing_status("")
       return stream_ts
     except Exception as e:
       if "invalid_thread_ts" in str(e) or "thread_not_found" in str(e):
@@ -284,7 +278,7 @@ def stream_a2a_response(
     if can_stream:
       # Show the animated typing indicator while we wait for content.
       # The stream itself is deferred until we have something to show.
-      _set_typing_status("is thinking...", loading_messages=_loading_messages)
+      _set_typing_status("is thinking...")
     else:
       # Non-streaming fallback: post a "working..." message + throttler
       initial_blocks = [
@@ -596,10 +590,6 @@ def stream_a2a_response(
           tool_id = parsed.tool_notification.tool_id
           current_tool = tool_name or tool_id or None
           logger.info(f"[{thread_ts}] Tool started: {current_tool or '(unknown)'}")
-          # Open the stream on first tool call so the user sees progress immediately.
-          # Without this, RAG queries (no sub-agents) are silent for 30-60s while
-          # search/fetch_document run, because STREAMING_RESULT only arrives at the end.
-          _start_stream_if_needed()
           # Show "composing answer" as typing status to bridge the gap
           # between tool completion and first streaming token (~15s).
           if current_tool == "composing_answer":
