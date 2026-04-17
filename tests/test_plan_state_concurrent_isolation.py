@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import AIMessage
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
-    PlanState,
     AIPlatformEngineerA2ABinding,
 )
 
