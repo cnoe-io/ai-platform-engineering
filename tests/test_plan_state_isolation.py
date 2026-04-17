@@ -11,7 +11,6 @@ Usage:
 """
 
 import pytest
-from dataclasses import fields
 
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
     PlanState,
