@@ -8,13 +8,12 @@
 search_tool_prompt: |
   ### Search Tool Usage:
 
-  **Search Modes:**
-  - **Semantic (default, `keyword_search=False`)**: Use FULL SENTENCES for natural language
+  **Query Phrasing:**
+  - **Semantic queries** — use FULL SENTENCES for natural language concepts
     - ✅ Good: "What is the nexus deployment process?"
     - ❌ Bad: "nexus deployment"
-  - **Keyword (`keyword_search=True`)**: Use SPECIFIC KEYWORDS or exact terms
+  - **Keyword queries** — use SPECIFIC KEYWORDS or exact terms for error codes, exact names, IPs
     - ✅ Good: "ERROR-404", "S3BucketEncryptionDisabled"
-    - Use for error codes, exact names, IP addresses, technical identifiers
 
   **Search Returns:**
   The search automatically returns BOTH types in a dictionary:
@@ -47,7 +46,7 @@ search_tool_prompt: |
 
   **BE PERSISTENT - Minimum 3 approaches:**
   - Vary search terms: synonyms ("kubernetes"↔"k8s", "deploy"↔"deployment"), abbreviations ("CI/CD"↔"continuous integration"), broader/narrower ("errors"→"HTTP errors"→"404 errors")
-  - Toggle semantic/keyword modes - if sentences don't work, try keyword search for: error codes ("ERROR-404"), IPs ("10.0.1.5"), exact names ("prod-deployment-abc"), stack traces
+  - Vary query phrasing - if sentences don't work, try short keywords for: error codes ("ERROR-404"), IPs ("10.0.1.5"), exact names ("prod-deployment-abc"), stack traces
   - Try different datasource filters
 
 # ============================================================================
