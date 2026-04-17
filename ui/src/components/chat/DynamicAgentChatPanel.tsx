@@ -811,7 +811,9 @@ export function DynamicAgentChatPanel({ endpoint, conversationId, conversationTi
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
-      appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
+      }
       // Set interrupted status on error
       updateMessage(convId!, assistantMsgId, {
         turnStatus: "interrupted" as TurnStatus,

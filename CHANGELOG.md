@@ -1,14 +1,25 @@
-## 0.3.3 (2026-04-15)
+## 0.3.5 (2026-04-17)
 
-## 0.3.2-rc.2 (2026-04-15)
+## 0.3.4-rc.2 (2026-04-17)
+
+### Fix
+
+- **checkpointer**: strip ephemeral skills state from MongoDB checkpoint writes (#1234)
+- **setup-caipe**: resolve unbound variable errors with set -u (#1232)
+
+## 0.3.4-rc.1 (2026-04-16)
+
+### Fix
+
+- **middleware**: allow LLM to synthesize after RAG cap exhaustion (#1231)
+
+## 0.3.3 (2026-04-15)
 
 ### Fix
 
 - **ci**: bump Go 1.25→1.26 and langgraph 1.0.10→1.1.6 (#1222)
 
-## 0.3.2-rc.1 (2026-04-15)
-
-## 0.3.1-rc.2 (2026-04-15)
+## 0.3.2 (2026-04-15)
 
 ### Feat
 
@@ -19,29 +30,7 @@
 - **setup**: guard ConfigMap patches and enable ip_forward at runtime (#1221)
 - **ci**: add contents:write permission to notify-release jobs (#1219)
 
-## 0.3.1-rc.1 (2026-04-15)
-
-## 0.3.0-rc.8 (2026-04-15)
-
-## 0.3.0-rc.7 (2026-04-15)
-
-### Fix
-
-- **slack-bot,supervisor**: streaming newlines, msg_too_long resilience, A2A skills injection (#1218)
-
-### Refactor
-
-- **ui**: simplify skills gallery and remove unused types
-
-## 0.3.0-rc.6 (2026-04-14)
-
-## 0.3.0-rc.5 (2026-04-14)
-
-### Fix
-
-- **rag**: rename ExampleEntityMatch to ExampleStructuredEntityMatch in common models (#1200)
-
-## 0.3.0-rc.4 (2026-04-14)
+## 0.3.1 (2026-04-15)
 
 ### Feat
 
@@ -49,16 +38,40 @@
 
 ### Fix
 
+- **slack-bot,supervisor**: streaming newlines, msg_too_long resilience, A2A skills injection (#1218)
+- **rag**: rename ExampleEntityMatch to ExampleStructuredEntityMatch in common models (#1200)
 - **streaming**: restore 0.2.41 streaming UX with marker gate fixes and middleware toggles (#1210)
 - **ui**: auth hardening + credentials_ref env var validation (#1211)
 
-## 0.3.0-rc.3 (2026-04-13)
+### Refactor
 
-## 0.2.43-rc.40 (2026-04-13)
+- **ui**: simplify skills gallery and remove unused types
+
+## 0.3.0 (2026-04-13)
 
 ### Feat
 
 - **ui**: add /auth/reauth-complete page for new-tab OIDC re-auth flow
+- **ci**: add weekly security CVE tracking issue workflow (#1191)
+- **ui**: upgrade UI dependencies and components for v0.2.0 (#1171)
+- **github-mcp**: add template support to create_repository tool (#1155)
+- Default enable metrics endpoints (#1064)
+- **dynamic-agents**: add ModelRetryMiddleware to dynamic agent runtime
+- **supervisor**: add ModelRetryMiddleware, gate GitHub MCP tools, bump cnoe-agent-utils
+- **ui**: add AI suggest buttons, CodeMirror editor, and markdown preview to custom agent builder
+- **ui**: add AI suggest proxy route for custom agent builder
+- **dynamic-agents**: add generic AI assistant suggest endpoint
+- **rag**: add multi-org support to GitHub ingestor
+- **rag**: add multi-account support to AWS ingestor
+- **rag**: auto-track document_count in Client.ingest_documents
+- **ui**: add filter chip UI to MCPToolsView
+- **ui**: add custom metadata filter support in SearchView
+- **rag**: add nested metadata filtering support
+- **slack-bot**: add escalation workflows, fix feedback/streaming bugs (#1123)
+- **dynamic-agents**: add OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP env var
+- **security**: Grype Scan — rename, add container scanning for all 35 images, block on critical (#1126)
+- **db**: auto-migrate web feedback on app startup (#1109)
+- **admin**: enhanced platform statistics with Slack integration and unified filters (#1094)
 
 ### Fix
 
@@ -70,198 +83,39 @@
 - **deps**: upgrade langgraph 1.0.10 to 1.1.6 in all agents and utils
 - **ui**: remove unused RefreshCw import and unused result variable
 - **ui**: remove debug auth routes and harden token expiry guard
-
-## 0.2.43-rc.39 (2026-04-12)
-
-### Fix
-
 - **docker**: force HTTP/1.1 for kubectl downloads to avoid HTTP/2 errors (#1197)
-
-## 0.2.43-rc.38 (2026-04-12)
-
-### Fix
-
 - **docker**: add retry flags to glab curl download in Dockerfile.a2a (#1194)
-
-## 0.2.43-rc.37 (2026-04-12)
-
-### Feat
-
-- **ci**: add weekly security CVE tracking issue workflow (#1191)
-
-### Fix
-
 - **supervisor**: replace RemoveMessage with synthetic ToolMessage for orphaned tool calls (#1195)
 - **rag**: rename fetch_datasources_and_entity_types to list_datasources_and_entity_types in prompt (#1070)
 - **docs**: replace broken relative spec link with GitHub URL (#1190)
 - **docs**: escape angle bracket in plan.md to fix MDX build failure (#1189)
-
-## 0.2.43-rc.36 (2026-04-12)
-
-### Fix
-
 - **deps**: fix 31 Dependabot alerts — protobuf, starlette, urllib3, transformers, ecdsa (#1183)
-
-## 0.2.43-rc.35 (2026-04-12)
-
-### Fix
-
 - **deps**: upgrade langchain-core/langgraph/go-stdlib — post-1179 security scan alerts (#1182)
-
-## 0.2.43-rc.34 (2026-04-12)
-
-### Fix
-
 - **deps**: bump gh CLI version from 2.63.2 to 2.89.0 in Dockerfile.a2a (#1181)
-
-## 0.2.43-rc.33 (2026-04-12)
-
-### Fix
-
 - **deps**: upgrade fastmcp, starlette, fastapi, scrapy, tj-actions — HIGH security alerts (#1180)
-
-## 0.2.43-rc.32 (2026-04-12)
-
-### Fix
-
 - **supervisor**: exclude format_markdown tool in structured response mode (#1074)
 - **ui**: deduplicate package-lock.json via npm install (#1177)
-
-## 0.2.43-rc.31 (2026-04-12)
-
-### Fix
-
 - **deps**: upgrade vulnerable dependencies — pypdf, langgraph, uv, webpack-dev-server, github-mcp-server (#1179)
-
-## 0.2.43-rc.30 (2026-04-12)
-
-### Fix
-
 - **aws**: omit --profile flag when no AWS_ACCOUNT_LIST profiles are configured (#1071)
-
-## 0.2.43-rc.29 (2026-04-12)
-
-### Fix
-
 - **deps**: upgrade langgraph 1.0.9→1.1.6 and langchain 1.2.6→1.2.15 to fix ImportError in CI (#1178)
-
-## 0.2.43-rc.28 (2026-04-10)
-
-### Fix
-
 - **deps**: regenerate uv.lock to fix locked sync in Docker build (#1175)
 - **setup**: production setup fixes — MetalLB, Docker FORWARD, Duo SSO (#1101)
-
-## 0.2.43-rc.27 (2026-04-10)
-
-## 0.2.43-rc.26 (2026-04-10)
-
-### Fix
-
 - **deps**: upgrade vulnerable dependencies across all agents and subpackages (#1173)
-
-## 0.2.43-rc.25 (2026-04-10)
-
-### Feat
-
-- **ui**: upgrade UI dependencies and components for v0.2.0 (#1171)
-
-### Fix
-
 - **supervisor**: unify single/distributed binding, streaming conformance, RAG caps (#1151)
 - **ci**: sync appVersion with chart version bump (#1174)
 - **ci**: pin action refs in sync-release-branches to fix workflow file issue (#1163)
-
-## 0.2.43-rc.24 (2026-04-10)
-
-### Fix
-
 - **ui**: guard login for chat urls (#1158)
-
-## 0.2.43-rc.23 (2026-04-10)
-
-### Fix
-
 - **slack-bot**: add missing default field in test_config_loaded_from_file_path (#1165)
-
-## 0.2.43-rc.21 (2026-04-10)
-
-### Fix
-
 - **github-mcp**: bump Go builder image to 1.25-alpine (#1170)
-
-## 0.2.43-rc.22 (2026-04-10)
-
-### Fix
-
 - OIDC group display, task builder tools, and supervisor response format (#1140)
-
-## 0.3.0-rc.2 (2026-04-09)
-
-### Fix
-
 - code scanning alert no. 1832: Artifact poisoning (#1159)
-
-## 0.2.43-rc.20 (2026-04-09)
-
-### Feat
-
-- **github-mcp**: add template support to create_repository tool (#1155)
-
-## 0.2.43-rc.19 (2026-04-09)
-
-### Fix
-
 - **slack-bot**: mount botConfig as file, add PDB and maxUnavailable=0 (#1154)
-
-## 0.2.43-rc.18 (2026-04-09)
-
-### Feat
-
-- Default enable metrics endpoints (#1064)
-
-## 0.2.43-rc.17 (2026-04-09)
-
-### Fix
-
 - **ci**: do not prebuild rag on .github file changes
 - **ci**: prebuild supervisor when only subagent changes if single-node
 - **ci**: use single-node syntax match for prebuilds w/o -
 - **aigateway**: update multiple llm providers in a batch and use lock to fix race condition
 - **ui**: fix conversations tab pagination and search
-
-## 0.2.43-rc.16 (2026-04-07)
-
-### Feat
-
-- **dynamic-agents**: add ModelRetryMiddleware to dynamic agent runtime
-- **supervisor**: add ModelRetryMiddleware, gate GitHub MCP tools, bump cnoe-agent-utils
-
-## 0.2.43-rc.15 (2026-04-07)
-
-### Feat
-
-- **ui**: add AI suggest buttons, CodeMirror editor, and markdown preview to custom agent builder
-- **ui**: add AI suggest proxy route for custom agent builder
-- **dynamic-agents**: add generic AI assistant suggest endpoint
-
-### Fix
-
 - **ui**: fix team-shared agents missing from new chat list and prevent header tab wrapping
-
-## 0.2.43-rc.14 (2026-04-07)
-
-### Feat
-
-- **rag**: add multi-org support to GitHub ingestor
-- **rag**: add multi-account support to AWS ingestor
-- **rag**: auto-track document_count in Client.ingest_documents
-- **ui**: add filter chip UI to MCPToolsView
-- **ui**: add custom metadata filter support in SearchView
-- **rag**: add nested metadata filtering support
-
-### Fix
-
 - **ui**: update AgentTimeline test to match removed streaming cursor
 - **dynamic-agents**: redact internal error details from /invoke response
 - **dynamic-agents**: handle MCP tool errors gracefully and surface in UI
@@ -273,80 +127,13 @@
 - **rag**: read reload_interval from top-level field instead of metadata
 - **ui**: widen filter key and value inputs in SearchView
 - **ui**: show reload interval for all datasources with reload_interval
-
-### Refactor
-
-- **rag**: rename graph entity to structured entity
-
-## 0.2.43-rc.13 (2026-04-06)
-
-### Feat
-
-- **slack-bot**: add escalation workflows, fix feedback/streaming bugs (#1123)
-
-## 0.2.43-rc.12 (2026-04-06)
-
-### Fix
-
 - **deps**: pin langchain-core==1.2.26 to fix CVE-2025-68664 (#1125)
-
-## 0.2.43-rc.11 (2026-04-06)
-
-## 0.2.43-rc.10 (2026-04-06)
-
-## 0.2.43-rc.9 (2026-04-06)
-
-### Fix
-
 - **dev**: local dev no-SSO mode, Jira ADF descriptions, Docker networking (#1129)
-
-## 0.2.43-rc.8 (2026-04-06)
-
-### Feat
-
-- **dynamic-agents**: add OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP env var
-
-## 0.2.43-rc.7 (2026-04-06)
-
-### Feat
-
-- **security**: Grype Scan — rename, add container scanning for all 35 images, block on critical (#1126)
-
-### Refactor
-
-- consolidate A2A server into shared abstraction (#1116)
-
-## 0.2.43-rc.6 (2026-04-04)
-
-### Fix
-
 - **mcp**: move host/port from FastMCP() constructor to mcp.run()
 - **dev**: replace caipe-supervisor profile with caipe-supervisor-distributed
 - **dev**: add caipe-supervisor-distributed profile alias and optional slack-bot deps
 - **dev**: add caipe-supervisor-all-in-one service for single-node mode
-
-## 0.2.43-rc.5 (2026-04-03)
-
-## 0.2.43-rc.4 (2026-04-02)
-
-### Feat
-
-- **db**: auto-migrate web feedback on app startup (#1109)
-
-### Fix
-
 - **deps**: upgrade nltk==3.9.4, fastmcp==3.2.0, mcp==1.26.0 for critical CVEs (#1103)
-
-## 0.2.43-rc.3 (2026-04-02)
-
-### Feat
-
-- **admin**: enhanced platform statistics with Slack integration and unified filters (#1094)
-
-## 0.2.43-rc.2 (2026-04-02)
-
-### Fix
-
 - **subagent**: raise truncation limit to let eviction system work
 - **subagent**: truncate all string elements in tuple returns
 - **subagent**: truncate content inside (content, artifact) tuples
@@ -355,103 +142,27 @@
 
 ### Refactor
 
+- **rag**: rename graph entity to structured entity
+- consolidate A2A server into shared abstraction (#1116)
 - **subagent**: make _truncate_any shape-agnostic
 
-## 0.2.43-rc.1 (2026-04-02)
+## 0.2.43 (2026-04-02)
 
 ### Feat
 
 - add Grype container scan on version tag push (#1084)
-
-## 0.2.42-rc.14 (2026-04-02)
-
-## 0.2.42-rc.13 (2026-04-02)
-
-### Fix
-
-- **rag**: restore per-result fetch_document markers + raise cap to 10 + 49 tests (#1069)
-
-## 0.2.42-rc.12 (2026-04-01)
-
-### Feat
-
 - **github**: deploy GitHub MCP server as separate HTTP pod (#1077)
 - create snyk-container.yml
-
-### Fix
-
-- pin all GitHub Actions to immutable commit SHAs (#1082)
-- use workflow_run to post coverage comments from fork PRs (#1081)
-
-## 0.2.42-rc.11 (2026-04-01)
-
-### Feat
-
 - **backstage-ingestor**: add BACKSTAGE_AUTH_MODE for multi-mode auth
-
-## 0.2.42-rc.10 (2026-03-31)
-
-### Feat
-
 - **ui**: add data freshness visibility and cleanup controls
 - **rag**: add safe bulk cleanup with failed job protection
 - **rag**: update all ingestors to use get_fresh_until()
 - **rag**: add fresh_until calculation and reload_interval field
-
-### Fix
-
-- **ui**: add formatRelativeTimeCompact to test mocks
-- **rag**: remove unused DEFAULT_RELOAD_INTERVAL import
-
-### Refactor
-
-- **ui**: use shared formatRelativeTimeCompact utility
-
-## 0.2.42-rc.9 (2026-03-31)
-
-### Feat
-
 - **supervisor**: add tool error resilience, workflow introspection, and form pre-population (#1062)
-
-## 0.2.42-rc.8 (2026-03-27)
-
-### Feat
-
 - **rag**: improve MCP search tools and UI
-
-### Fix
-
-- **rag**: remove unused pytest import
-
-### Refactor
-
-- **rag**: standardize ruff formatting to 2-space indentation
-
-## 0.2.42-rc.7 (2026-03-26)
-
-### Feat
-
 - **aws**: add AWS CLI and kubectl tools to single-node AWS subagent
 - **helm**: propagate global.checkpointPersistence to all agent subcharts (#1023)
-
-### Fix
-
-- **single-node**: use built-in system prompts for all subagents
-
-### Refactor
-
-- **aws**: remove dynamic args schema — profiles covered by system prompt
-
-## 0.2.42-rc.6 (2026-03-25)
-
-### Feat
-
 - **skills**: skills middleware integration with gateway API (#1024)
-
-## 0.2.42-rc.5 (2026-03-25)
-
-### Feat
-
 - **dynamic-agents**: add LOG_LEVEL env var and reduce log verbosity
 - **dynamic-agents**: add backend cancellation for stop button
 - **dynamic-agents**: add progressive turn loading and chat download
@@ -459,9 +170,18 @@
 - **dynamic-agents**: add namespace correlation for subagent SSE events
 - **ui**: redesign inline event cards with interleaved rendering
 - **ui**: show tool/subagent calls inline in chat panel
+- **slack**: replace custom MCP with korotovsky/slack-mcp-server v1.2.3 (#1036)
+- **victorops**: multi-org support via VICTOROPS_ORGS env var
 
 ### Fix
 
+- **rag**: restore per-result fetch_document markers + raise cap to 10 + 49 tests (#1069)
+- pin all GitHub Actions to immutable commit SHAs (#1082)
+- use workflow_run to post coverage comments from fork PRs (#1081)
+- **ui**: add formatRelativeTimeCompact to test mocks
+- **rag**: remove unused DEFAULT_RELOAD_INTERVAL import
+- **rag**: remove unused pytest import
+- **single-node**: use built-in system prompts for all subagents
 - restore streaming cursor and remove unused variable
 - **dynamic-agents**: clear sseEvents before HITL resume stream
 - **dynamic-agents**: persist sseEvents to messages and auto-collapse sections
@@ -480,26 +200,15 @@
 
 ### Refactor
 
+- **ui**: use shared formatRelativeTimeCompact utility
+- **rag**: standardize ruff formatting to 2-space indentation
+- **aws**: remove dynamic args schema — profiles covered by system prompt
 - **dynamic-agents**: simplify agent panel and collapse by default
 - **dynamic-agents**: unify DA history loading with standard chat
 - **ui**: unify streaming/final markdown rendering in chat
 - **dynamic-agents**: remove final_result event and runtimeStatus
 
-## 0.2.42-rc.4 (2026-03-25)
-
-### Feat
-
-- **slack**: replace custom MCP with korotovsky/slack-mcp-server v1.2.3 (#1036)
-
-## 0.2.42-rc.3 (2026-03-24)
-
-### Feat
-
-- **victorops**: multi-org support via VICTOROPS_ORGS env var
-
-## 0.2.42-rc.2 (2026-03-24)
-
-## 0.2.42-rc.1 (2026-03-24)
+## 0.2.42 (2026-03-24)
 
 ### Feat
 

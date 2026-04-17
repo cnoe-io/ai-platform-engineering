@@ -354,3 +354,65 @@ class TestCounterPersistenceAcrossGraphRebuilds:
                 assert caps == 1, f"User {uid}: expected 1 cap, got {caps}"
 
         asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# ResponseFormat default-field regression tests
+# Reproduces the "bails after 1 step, 5 retries" bug from caipe-prod logs.
+# The bug: Metadata.user_input and PlatformEngineerResponse bool flags were
+# required with no defaults → Pydantic raised ValidationError → ModelRetryMiddleware
+# retried 5× → bailed with on_failure="continue" → no response emitted.
+# ---------------------------------------------------------------------------
+
+class TestResponseFormatDefaults:
+
+    def test_platform_engineer_response_content_only_parses(self):
+        """PlatformEngineerResponse with only content parses without ValidationError.
+
+        This is the exact payload shape a model produces after a read-only task
+        like 'fetch doc + present documentation' — booleans omitted.
+        """
+        from ai_platform_engineering.multi_agents.platform_engineer.response_format import (
+            PlatformEngineerResponse,
+        )
+        import json
+
+        payload = json.dumps({"content": "Here is the Claude Code setup documentation."})
+        response = PlatformEngineerResponse.model_validate_json(payload)
+
+        assert response.content == "Here is the Claude Code setup documentation."
+        assert response.is_task_complete is True
+        assert response.require_user_input is False
+        assert response.was_task_successful is True
+        assert response.metadata is None
+
+    def test_metadata_without_user_input_field_parses(self):
+        """Metadata omitting user_input still parses (defaults to False).
+
+        This is the other failure path: model includes metadata block but
+        omits user_input → previously crashed Pydantic validation.
+        """
+        from ai_platform_engineering.multi_agents.platform_engineer.response_format import (
+            PlatformEngineerResponse,
+        )
+        import json
+
+        payload = json.dumps({
+            "content": "Task complete.",
+            "metadata": {"input_fields": None},
+        })
+        response = PlatformEngineerResponse.model_validate_json(payload)
+
+        assert response.metadata is not None
+        assert response.metadata.user_input is False
+
+    def test_fully_omitted_booleans_all_default_correctly(self):
+        """All three bool fields default to their sensible values when omitted."""
+        from ai_platform_engineering.multi_agents.platform_engineer.response_format import (
+            PlatformEngineerResponse,
+        )
+
+        r = PlatformEngineerResponse(content="Done.")
+        assert r.is_task_complete is True
+        assert r.require_user_input is False
+        assert r.was_task_successful is True
