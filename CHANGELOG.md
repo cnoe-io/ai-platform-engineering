@@ -1,26 +1,44 @@
-## 0.3.6 (2026-04-17)
+## 0.3.7 (2026-04-17)
 
-## 0.3.5-rc.4 (2026-04-17)
+## 0.3.6-rc.3 (2026-04-17)
+
+### Fix
+
+- **slack-bot**: remove verbose per-event A2A debug logging
+- **slack**: include channel_id in streaming fallback log message
+- **slack**: disable streaming on channel_type_not_supported to avoid repeated failures
+- **slack**: restore v0.2.41 streaming UX and suppress duplicate sub-agent output
+- **slack**: include channel_id in streaming fallback log message
+- **slack**: disable streaming on channel_type_not_supported to avoid repeated failures
+- **slack**: restore v0.2.41 streaming UX and suppress duplicate sub-agent output
+
+## 0.3.6-rc.2 (2026-04-17)
+
+### Feat
+
+- **helm**: allow easy single var override of appVersion for image tag
+- **helm**: allow custom ingress path for supervisor ingress
+
+### Fix
+
+- **slack-bot**: remove nonexistent keyword_search param from RAG prompts (SDPL-1601)
+- **helm**: do not neglect precious rag
+- **helm**: no dig man
+
+## 0.3.6-rc.1 (2026-04-17)
 
 ### Feat
 
 - **auth**: add dual auth middleware for shared key + OAuth2 coexistence (#1229)
-
-## 0.3.5-rc.3 (2026-04-17)
 
 ### Fix
 
 - **a2a**: isolate plan state per request to prevent cross-session leak (#1235)
 - **ui**: pin @testing-library/dom to exact version 10.4.1 (#1239)
 - **ui**: don't persist session-expired errors in chat history (#1236)
-
-## 0.3.5-rc.2 (2026-04-17)
-
-### Fix
-
 - **supervisor**: add defaults to ResponseFormat required bool fields (#1237)
 
-## 0.3.5-rc.1 (2026-04-17)
+## 0.3.5 (2026-04-17)
 
 ### Fix
 
