@@ -16,26 +16,9 @@ from langchain_core.tools import tool
 
 CURL_TIMEOUT = 300  # 5 minutes default
 
-# Flags that write to disk or read curl config files — disallow to prevent
-# filesystem side-effects from LLM-generated commands.
-_BLOCKED_FLAGS: frozenset[str] = frozenset({
-    "--config", "-K",
-})
-
-
 def _validate_curl_args(args: list[str]) -> str | None:
-    """Return a detailed user-facing message if args contain blocked flags or non-HTTPS URLs."""
+    """Return a detailed user-facing message if args contain non-HTTPS URLs."""
     for token in args:
-        flag = token.split("=")[0]
-        if flag in _BLOCKED_FLAGS:
-            return (
-                f"The flag '{flag}' is not supported for security reasons.\n\n"
-                "**Blocked flags:**\n"
-                "- `--config` / `-K` — loading curl config files from disk is not allowed\n\n"
-                "**Supported usage:** Pass headers (`-H`), request body (`-d`), HTTP method (`-X`), "
-                "output file (`-o`), and `https://` URLs directly in the command string."
-            )
-
         if "://" in token and not token.startswith("https://"):
             scheme = token.split("://")[0] + "://"
             return (
