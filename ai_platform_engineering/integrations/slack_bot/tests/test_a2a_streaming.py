@@ -84,7 +84,7 @@ class TestA2AStreamingCollection:
 
         assert final_result_text is not None, "Should have captured final_result_text"
         assert "Vault" in final_text, "Response should contain expected content about Vault"
-        assert final_text != "I've completed your request."
+        assert final_text != "Oops, something went wrong :(."
 
     def test_jira_ticket_creation_extracts_complete_result(self):
         """
@@ -108,4 +108,4 @@ class TestA2AStreamingCollection:
         assert final_result_text is None, "This fixture should not have a final_result"
         assert len(last_artifacts) > 0, "Should have collected complete_result as an artifact"
         assert "TEST-1234" in final_text, "Response should contain the Jira ticket ID"
-        assert final_text != "I've completed your request."
+        assert final_text != "Oops, something went wrong :(."

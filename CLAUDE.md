@@ -103,6 +103,16 @@ PYTHONPATH=. uv run pytest tests/<test_file>.py -v
 PYTHONPATH=. uv run pytest tests/<test_file>.py::<TestClass> -v
 ```
 
+## Container & Helm Security Standards
+
+These standards apply to every new agent Dockerfile and every new Helm chart subchart.
+
+### Dockerfiles
+
+All agent and MCP server images should run as a non-root user at **UID 1001 / GID 1001**.
+
+If a Dockerfile does not have a `USER` directive, `runAsNonRoot: true` in the Helm chart will cause the pod to fail at startup. Check `docker inspect <image> --format '{{.Config.User}}'` to confirm before setting that value in a chart.
+
 ## Reusable Skills
 
 The `skills/` directory contains reusable tools organized by category:
