@@ -1,10 +1,12 @@
 {{- /*
   Effective VPA config: local values take precedence over global defaults.
   global.vpa.enabled=true activates VPA on all agents; per-agent vpa.enabled=false opts out.
+  In single-node mode the agent Deployment does not exist, so no VPA is rendered.
+  MCP containers in single-node mode are covered by single-node-mcp-vpa.yaml in the parent chart.
 */ -}}
 {{- $globalVpa := dig "vpa" dict .Values.global }}
 {{- $vpaEnabled := or .Values.vpa.enabled (and $globalVpa $globalVpa.enabled) }}
-{{- if $vpaEnabled }}
+{{- if and $vpaEnabled (or (ne .Values.global.deploymentMode "single-node") .Values.remoteAgent) }}
 {{- if .Values.autoscaling.enabled }}
 {{- fail "vpa.enabled and autoscaling.enabled cannot both be true - VPA conflicts with HPA on both CPU-based and memory-based scaling" }}
 {{- end }}
@@ -26,6 +28,7 @@ spec:
     containerPolicies:
       - containerName: {{ .Chart.Name }}
         controlledResources: {{ $vpa.controlledResources | toJson }}
+        controlledValues: {{ $vpa.controlledValues | quote }}
         {{- with $vpa.minAllowed }}
         minAllowed:
           {{- toYaml . | nindent 10 }}
@@ -34,16 +37,4 @@ spec:
         maxAllowed:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-      {{- if eq .Values.mcp.mode "http" }}
-      - containerName: mcp
-        controlledResources: {{ $vpa.controlledResources | toJson }}
-        {{- with $vpa.minAllowed }}
-        minAllowed:
-          {{- toYaml . | nindent 10 }}
-        {{- end }}
-        {{- with $vpa.maxAllowed }}
-        maxAllowed:
-          {{- toYaml . | nindent 10 }}
-        {{- end }}
-      {{- end }}
 {{- end }}

@@ -66,6 +66,7 @@ global:
     # Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters.
     updateMode: "InPlaceOrRecreate"
     controlledResources: ["cpu", "memory"]
+    controlledValues: "RequestsAndLimits"
     minAllowed:
       cpu: 50m
       memory: 128Mi
@@ -73,8 +74,10 @@ global:
     #   cpu: 2
     #   memory: 2Gi
 
-  # Default VPA config for MCP containers in single-node mode.
-  # In multi-node mode, mcp.vpa in each agent subchart's values.yaml applies instead.
+  # VPA config for MCP containers in single-node mode, where each MCP server
+  # runs as a standalone Deployment and gets its own VPA resource.
+  # In multi-node mode, MCP runs as a sidecar and its VPA containerPolicy is
+  # governed by global.vpa (or per-agent vpa) instead.
   # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
   #   agent-github:
   #     mcp:
@@ -90,6 +93,7 @@ global:
       # Use "InPlaceOrRecreate" (Kubernetes 1.29+) or "Recreate" to apply automatically.
       updateMode: "InPlaceOrRecreate"
       controlledResources: ["cpu", "memory"]
+      controlledValues: "RequestsAndLimits"
       minAllowed:
         cpu: 50m
         memory: 128Mi

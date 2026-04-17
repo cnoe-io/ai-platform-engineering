@@ -131,6 +131,7 @@ vpa:
   # Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters.
   updateMode: "InPlaceOrRecreate"
   controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
   minAllowed:
     cpu: 50m
     memory: 128Mi

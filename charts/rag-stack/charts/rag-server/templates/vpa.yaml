@@ -1,25 +1,22 @@
 {{- /*
   Effective VPA config: local values take precedence over global defaults.
-  global.vpa.enabled=true activates VPA on all agents; local vpa.enabled=false opts out.
+  global.vpa.enabled=true activates VPA; local vpa.enabled=true enables it independently.
 */ -}}
 {{- $globalVpa := dig "vpa" dict .Values.global }}
 {{- $vpaEnabled := or .Values.vpa.enabled (and $globalVpa $globalVpa.enabled) }}
 {{- if $vpaEnabled }}
-{{- if .Values.autoscaling.enabled }}
-{{- fail "vpa.enabled and autoscaling.enabled cannot both be true - VPA conflicts with HPA on both CPU-based and memory-based scaling" }}
-{{- end }}
 {{- $vpa := mergeOverwrite (deepCopy $globalVpa) .Values.vpa }}
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: {{ include "supervisorAgent.fullname" . }}
+  name: {{ include "rag-server.fullname" . }}
   labels:
-    {{- include "supervisorAgent.labels" . | nindent 4 }}
+    {{- include "rag-server.labels" . | nindent 4 }}
 spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "supervisorAgent.fullname" . }}
+    name: {{ include "rag-server.fullname" . }}
   updatePolicy:
     updateMode: {{ $vpa.updateMode | quote }}
   resourcePolicy:

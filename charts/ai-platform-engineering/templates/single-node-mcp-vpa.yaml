@@ -35,6 +35,7 @@ spec:
     containerPolicies:
       - containerName: mcp
         controlledResources: {{ $vpa.controlledResources | toJson }}
+        controlledValues: {{ $vpa.controlledValues | quote }}
         {{- with $vpa.minAllowed }}
         minAllowed:
           {{- toYaml . | nindent 10 }}

@@ -1,25 +1,23 @@
 {{- /*
   Effective VPA config: local values take precedence over global defaults.
-  global.vpa.enabled=true activates VPA on all agents; local vpa.enabled=false opts out.
+  global.vpa.enabled=true activates VPA; local vpa.enabled=true enables it independently.
+  Targets the StatefulSet (not a Deployment) since MongoDB runs as a StatefulSet.
 */ -}}
 {{- $globalVpa := dig "vpa" dict .Values.global }}
 {{- $vpaEnabled := or .Values.vpa.enabled (and $globalVpa $globalVpa.enabled) }}
 {{- if $vpaEnabled }}
-{{- if .Values.autoscaling.enabled }}
-{{- fail "vpa.enabled and autoscaling.enabled cannot both be true - VPA conflicts with HPA on both CPU-based and memory-based scaling" }}
-{{- end }}
 {{- $vpa := mergeOverwrite (deepCopy $globalVpa) .Values.vpa }}
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: {{ include "supervisorAgent.fullname" . }}
+  name: {{ include "mongodb.fullname" . }}
   labels:
-    {{- include "supervisorAgent.labels" . | nindent 4 }}
+    {{- include "mongodb.labels" . | nindent 4 }}
 spec:
   targetRef:
     apiVersion: apps/v1
-    kind: Deployment
-    name: {{ include "supervisorAgent.fullname" . }}
+    kind: StatefulSet
+    name: {{ include "mongodb.fullname" . }}
   updatePolicy:
     updateMode: {{ $vpa.updateMode | quote }}
   resourcePolicy:

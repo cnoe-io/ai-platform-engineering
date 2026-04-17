@@ -123,6 +123,8 @@ vpa:
   updateMode: "InPlaceOrRecreate"
   # -- Resources VPA should observe and recommend for
   controlledResources: ["cpu", "memory"]
+  # -- Whether VPA controls Requests only or RequestsAndLimits
+  controlledValues: "RequestsAndLimits"
   # -- Minimum bounds VPA will recommend
   minAllowed:
     cpu: 50m

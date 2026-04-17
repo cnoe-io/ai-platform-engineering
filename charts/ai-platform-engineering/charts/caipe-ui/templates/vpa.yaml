@@ -1,6 +1,6 @@
 {{- /*
   Effective VPA config: local values take precedence over global defaults.
-  global.vpa.enabled=true activates VPA on all agents; local vpa.enabled=false opts out.
+  global.vpa.enabled=true activates VPA; local vpa.enabled=true enables it independently.
 */ -}}
 {{- $globalVpa := dig "vpa" dict .Values.global }}
 {{- $vpaEnabled := or .Values.vpa.enabled (and $globalVpa $globalVpa.enabled) }}
@@ -12,14 +12,14 @@
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: {{ include "supervisorAgent.fullname" . }}
+  name: {{ include "caipe-ui.fullname" . }}
   labels:
-    {{- include "supervisorAgent.labels" . | nindent 4 }}
+    {{- include "caipe-ui.labels" . | nindent 4 }}
 spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "supervisorAgent.fullname" . }}
+    name: {{ include "caipe-ui.fullname" . }}
   updatePolicy:
     updateMode: {{ $vpa.updateMode | quote }}
   resourcePolicy:
