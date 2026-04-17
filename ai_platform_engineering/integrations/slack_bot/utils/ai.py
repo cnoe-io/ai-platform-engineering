@@ -212,7 +212,7 @@ def stream_a2a_response(
 
   def _start_stream_if_needed():
     """Lazily start the Slack stream on first real content. Returns stream_ts or None."""
-    nonlocal stream_ts, stream_buf, thread_deleted
+    nonlocal stream_ts, stream_buf, thread_deleted, can_stream
     if thread_deleted:
       return None
     if stream_ts:
@@ -234,9 +234,13 @@ def stream_a2a_response(
       _set_typing_status("")
       return stream_ts
     except Exception as e:
-      if "invalid_thread_ts" in str(e) or "thread_not_found" in str(e):
+      err_str = str(e)
+      if "invalid_thread_ts" in err_str or "thread_not_found" in err_str:
         thread_deleted = True
         logger.warning(f"[{thread_ts}] Thread was deleted mid-processing — aborting response")
+      elif "channel_type_not_supported" in err_str:
+        can_stream = False
+        logger.warning(f"[{thread_ts}] Channel does not support streaming — falling back to block kit")
       else:
         logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
       return None
