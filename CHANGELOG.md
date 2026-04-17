@@ -1,6 +1,27 @@
-## 0.3.7 (2026-04-17)
+## 0.3.8 (2026-04-17)
 
-## 0.3.6-rc.3 (2026-04-17)
+### Feat
+
+- **helm**: Enable Vertical Pod Autoscaling across all charts (#1224)
+
+## 0.3.7-rc.3 (2026-04-17)
+
+### Fix
+
+- **supervisor**: add curl tool for PUT/POST support and web fetching (#1242)
+
+## 0.3.7-rc.2 (2026-04-17)
+
+### Fix
+
+- **Dockerfile**: Standardise non-root user configuration (#1246)
+
+## 0.3.7-rc.1 (2026-04-17)
+
+### Feat
+
+- **helm**: allow easy single var override of appVersion for image tag
+- **helm**: allow custom ingress path for supervisor ingress
 
 ### Fix
 
@@ -11,21 +32,11 @@
 - **slack**: include channel_id in streaming fallback log message
 - **slack**: disable streaming on channel_type_not_supported to avoid repeated failures
 - **slack**: restore v0.2.41 streaming UX and suppress duplicate sub-agent output
-
-## 0.3.6-rc.2 (2026-04-17)
-
-### Feat
-
-- **helm**: allow easy single var override of appVersion for image tag
-- **helm**: allow custom ingress path for supervisor ingress
-
-### Fix
-
 - **slack-bot**: remove nonexistent keyword_search param from RAG prompts (SDPL-1601)
 - **helm**: do not neglect precious rag
 - **helm**: no dig man
 
-## 0.3.6-rc.1 (2026-04-17)
+## 0.3.6 (2026-04-17)
 
 ### Feat
 
