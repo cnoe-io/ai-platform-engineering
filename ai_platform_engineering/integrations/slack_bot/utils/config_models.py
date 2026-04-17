@@ -197,4 +197,9 @@ class Config(BaseModel):
 
     silence_env = os.environ.get("SLACK_INTEGRATION_SILENCE_ENV", "false").lower() == "true"
 
-    return cls(channels=channels, silence_env=silence_env)
+    defaults = GlobalDefaults(
+      default_agent_id=os.environ.get("SLACK_INTEGRATION_DEFAULT_AGENT_ID"),
+      dm_agent_id=os.environ.get("SLACK_INTEGRATION_DM_AGENT_ID"),
+    )
+
+    return cls(channels=channels, defaults=defaults, silence_env=silence_env)

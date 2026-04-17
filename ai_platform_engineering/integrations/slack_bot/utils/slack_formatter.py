@@ -59,15 +59,11 @@ def build_plan_update(title: str) -> Dict[str, Any]:
 
 def build_todo_task_updates(
   todos: List[Dict[str, Any]],
-  todo_details: Optional[Dict[int, str]] = None,
-  todo_outputs: Optional[Dict[int, str]] = None,
 ) -> List[Dict[str, Any]]:
   """Convert backend todo items to Slack task_update chunks.
 
   Args:
       todos: List of todo dicts with 'id', 'content', 'status'.
-      todo_details: Optional map of todo id -> details text (thinking).
-      todo_outputs: Optional map of todo id -> output text (tool thought).
   """
   chunks = []
   for todo in todos:
@@ -76,8 +72,6 @@ def build_todo_task_updates(
       step_id=f"todo_{todo_id}",
       title=todo.get("content", ""),
       status=todo.get("status", "pending"),
-      details=(todo_details or {}).get(todo_id),
-      output=(todo_outputs or {}).get(todo_id),
     )
     chunks.append(chunk)
   return chunks
@@ -123,6 +117,46 @@ def split_text_into_blocks(text: str, max_length: int = 3000) -> List[str]:
     chunks.append(current_chunk.strip())
 
   return chunks
+
+
+SLACK_MAX_BLOCKS = 50
+
+_TRUNCATION_BLOCK: Dict[str, Any] = {
+  "type": "context",
+  "elements": [
+    {
+      "type": "mrkdwn",
+      "text": "_Response truncated — exceeded Slack's 50-block limit._",
+    }
+  ],
+}
+
+
+def enforce_block_limit(
+  content_blocks: List[Dict[str, Any]],
+  footer_blocks: List[Dict[str, Any]],
+  max_blocks: int = SLACK_MAX_BLOCKS,
+) -> List[Dict[str, Any]]:
+  """Enforce Slack's block limit by truncating content blocks if necessary.
+
+  Keeps all footer_blocks intact. If the total exceeds max_blocks, content
+  is truncated and a notice block is inserted before the footer.
+
+  Args:
+      content_blocks: Main body blocks (markdown text, sections, etc.).
+      footer_blocks: Trailing blocks (feedback, attribution) — never truncated.
+      max_blocks: Slack's hard limit (default 50).
+  """
+  total = len(content_blocks) + len(footer_blocks)
+  if total <= max_blocks:
+    return content_blocks + footer_blocks
+
+  # Reserve space for footer + 1 truncation notice
+  max_content = max_blocks - len(footer_blocks) - 1
+  if max_content < 1:
+    max_content = 1
+
+  return content_blocks[:max_content] + [_TRUNCATION_BLOCK] + footer_blocks
 
 
 def format_error_message(error_message: str) -> List[Dict[str, Any]]:
