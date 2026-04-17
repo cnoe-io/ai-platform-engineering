@@ -752,12 +752,6 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         if not content:
             return
 
-        # NOTE: We no longer block streaming after sub-agent completion.
-        # For multi-agent scenarios, the supervisor needs to synthesize results
-        # from all sub-agents, so we must continue accumulating content.
-        # The _get_final_content() method handles choosing the right content
-        # based on whether it's a single-agent or multi-agent scenario.
-
         is_tool_notification = self._is_tool_notification(content, event)
 
         # Also detect agent from event metadata if provided
@@ -766,6 +760,18 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         # Accumulate non-notification content (unless DataPart already received)
         if not is_tool_notification and not state.sub_agent_datapart:
             state.supervisor_content.append(content)
+
+        # After a single sub-agent sends complete_result, the supervisor
+        # re-streams that same content as its "synthesis".  Suppress the
+        # duplicate streaming artifacts — accumulate silently so
+        # _get_final_content() still has the text, but don't forward.
+        # Multi-agent flows (2+ sub-agents) still need the synthesis.
+        if not is_tool_notification and state.sub_agents_completed == 1:
+            logger.debug(
+                f"Suppressing duplicate streaming chunk after "
+                f"sub-agent completion ({len(content)} chars)"
+            )
+            return
 
         # Create artifact
         if is_tool_notification:
