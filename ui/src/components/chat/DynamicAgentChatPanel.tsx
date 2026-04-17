@@ -786,7 +786,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       convId = createConversation(agentId);
     }
 
-    // Clear previous turn's events
+    // Build client context for system prompt rendering and user_info tool
+    const conv = getActiveConversation();
+    const clientContext: Record<string, unknown> = {
+      source: "webui",
+      ...(conv?.sharing && { chat_sharing: conv.sharing }),
+    };
     clearStreamEvents(convId);
 
     // Add user message - generate turnId for this request/response pair
@@ -828,7 +833,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const callbacks = buildStreamCallbacks(convId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.streamMessage(
-        { message: messageToSend, conversationId: convId, agentId },
+        { message: messageToSend, conversationId: convId, agentId, clientContext },
         callbacks,
       );
 
@@ -1071,6 +1076,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       accessToken,
     });
 
+    // Build client context for system prompt rendering and user_info tool
+    const conv = getActiveConversation();
+    const clientContext: Record<string, unknown> = {
+      source: "webui",
+      ...(conv?.sharing && { chat_sharing: conv.sharing }),
+    };
+
     // Send form data as JSON string
     const formDataJson = JSON.stringify(formData);
 
@@ -1093,7 +1105,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson },
+        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson, clientContext },
         callbacks,
       );
 

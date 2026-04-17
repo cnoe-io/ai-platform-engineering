@@ -51,6 +51,8 @@ export interface StreamParams {
   source?: string;
   /** Additional properties forwarded to the backend */
   forwardedProps?: Record<string, unknown>;
+  /** Opaque client context passed to the backend for system prompt rendering */
+  clientContext?: Record<string, unknown>;
 }
 
 // ═══════════════════════════════════════════════════════════════

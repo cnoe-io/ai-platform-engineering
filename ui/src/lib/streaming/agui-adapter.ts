@@ -111,6 +111,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       conversation_id: params.conversationId,
       agent_id: params.agentId,
       protocol: "agui",
+      ...(params.clientContext && { client_context: params.clientContext }),
     });
 
     await this._stream(url, body, callbacks);
@@ -123,6 +124,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       form_data: params.formData,
       protocol: "agui",
+      ...(params.clientContext && { client_context: params.clientContext }),
     });
 
     await this._stream(url, body, callbacks);
