@@ -221,3 +221,7 @@ Determine if metrics are enabled - global takes precedence
     {{- end -}}
     {{- $enabled -}}
 {{- end -}}
+
+{{- define "supervisorAgent.appVersion" -}}
+{{- dig "global" "image" "tag" "" .Values | default .Chart.AppVersion -}}
+{{- end -}}

@@ -123,3 +123,7 @@ In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml i
 {{- .Values.global.enabledSubAgents | default dict | toYaml -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "ai-platform-engineering.appVersion" -}}
+{{- dig "global" "image" "tag" "" .Values | default .Chart.AppVersion -}}
+{{- end -}}

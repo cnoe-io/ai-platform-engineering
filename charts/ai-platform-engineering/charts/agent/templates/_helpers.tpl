@@ -356,3 +356,7 @@ e.g., "agent-argocd" -> "argocd"
 {{- $name := include "agent.name" . -}}
 {{- $name | trimPrefix "agent-" -}}
 {{- end }}
+
+{{- define "agent.appVersion" -}}
+{{- dig "global" "image" "tag" "" .Values | default .Chart.AppVersion -}}
+{{- end -}}
