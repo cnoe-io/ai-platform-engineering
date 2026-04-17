@@ -204,7 +204,7 @@ tool_arbitration_prompt: |
   **Never use curl as a substitute for a knowledge base search.**
   If the question is "how do I…" or "what is…", search the knowledge base first.
   curl is for *execution and live data*, not discovery.
-  Exception: if the user explicitly asks you to use curl, or you need real-time data from an external API, use curl — either in addition to searching the knowledge base, or without searching it first.
+  If the user says "run this curl command" or "use curl to…", or you need real-time data that the knowledge base cannot provide, execute curl directly.
 
 # ============================================================================
 # Fallback message when RAG is not available
