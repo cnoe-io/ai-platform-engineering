@@ -2,8 +2,8 @@ apiVersion: v2
 name: rag-stack
 description: A complete RAG stack including server, agents, Redis, Neo4j and Milvus
 type: application
-version: 0.3.6 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-appVersion: 0.3.6 # Do NOT modify. It will be updated automatically using the release workflow
+version: 0.3.6-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+appVersion: 0.3.6-rc.1 # Do NOT modify. It will be updated automatically using the release workflow
 dependencies:
   - name: rag-server
     version: 0.3.6-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
