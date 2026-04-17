@@ -42,26 +42,43 @@ def curl(
     """
     Execute any curl command for HTTP requests (https:// only).
 
+    Use this for all HTTP operations: GET, POST, PUT, PATCH, DELETE, file downloads,
+    and fetching web page content. Replaces wget and fetch_markdown.
+
     Args:
         command: Curl command to run (e.g., "curl -s https://api.example.com/users")
         timeout: Command timeout in seconds (default: 300)
-        strip_html: If True, strip HTML tags and return plain text (useful for web pages)
+        strip_html: If True, strip HTML tags and return plain text (useful for reading web pages)
 
     Returns:
         Command output as string. On error, returns "ERROR: <message>"
 
     Examples:
+        # GET request
         curl("curl -s https://api.example.com/users")
+
+        # PUT request with JSON body
+        curl("curl -s -X PUT https://api.example.com/resource -H 'Content-Type: application/json' -d '{\"status\":\"done\"}'")
+
+        # POST with auth header
+        curl("curl -s -X POST https://api.example.com/items -H 'Authorization: Bearer TOKEN' -d '{\"name\":\"test\"}'")
+
+        # Download a file (wget equivalent)
+        curl("curl -sL -o /tmp/file.zip https://example.com/file.zip")
+
+        # Read a web page as plain text (fetch_markdown equivalent)
+        curl("curl -sL https://docs.example.com/guide", strip_html=True)
+
+        # Follow redirects
         curl("curl -sL https://example.com/redirect")
-        curl("curl -s -X POST -H 'Content-Type: application/json' -d '{\"name\":\"test\"}' https://api.example.com/users")
-        curl("curl -s https://docs.example.com/guide", strip_html=True)
 
     Common Options:
-        -s, --silent      Silent mode (no progress)
+        -s, --silent      Silent mode (no progress bar)
         -L, --location    Follow redirects
-        -X, --request     HTTP method (GET, POST, PUT, DELETE, etc.)
-        -H, --header      Add header
-        -d, --data        POST data
+        -X, --request     HTTP method (GET, POST, PUT, PATCH, DELETE)
+        -H, --header      Add request header
+        -d, --data        Request body
+        -o, --output      Save response to file (wget-style download)
     """
     try:
         args = shlex.split(command)
