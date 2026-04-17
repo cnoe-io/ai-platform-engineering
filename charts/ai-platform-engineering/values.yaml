@@ -25,6 +25,12 @@ tags:
 
 # Global configuration shared across all subcharts
 global:
+  # -- Global image tag override. When set, overrides the default appVersion-based
+  # image tag for ALL subcharts (supervisor, agents, UI, etc.) in a single place.
+  # Individual subchart `image.tag` values still take highest precedence.
+  image:
+    tag: ""
+
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
 

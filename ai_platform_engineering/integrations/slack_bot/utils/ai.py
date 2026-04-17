@@ -298,30 +298,30 @@ def stream_a2a_response(
 
       parsed = parse_event(event_data)
 
-      # Log every A2A event for diagnostics
-      _artifact_name = parsed.artifact_name or ""
-      _text_len = len(parsed.text_content) if parsed.text_content else 0
-      _extra = ""
-      if parsed.plan_data:
-        _statuses = [f"{s.get('step_id', '?')[:8]}:{s.get('status', '?')}" for s in parsed.plan_data.get("steps", [])]
-        _extra = f" steps=[{', '.join(_statuses)}]"
-      elif parsed.tool_notification:
-        _extra = f" tool={parsed.tool_notification.tool_name} status={parsed.tool_notification.status}"
-      elif _text_len:
-        _preview = (parsed.text_content or "")[:100].replace("\n", "\\n")
-        _extra = f" preview={_preview!r}"
-      _meta_flags = ""
-      if parsed.artifact:
-        _ameta = parsed.artifact.get("metadata", {})
-        if _ameta.get("is_final_answer"):
-          _meta_flags += " is_final_answer=True"
-        if _ameta.get("is_narration"):
-          _meta_flags += " is_narration=True"
-      logger.info(
-        f"[{thread_ts}] A2A event: "
-        f"type={parsed.event_type.value} artifact={_artifact_name!r} "
-        f"text_len={_text_len} append={parsed.should_append}{_meta_flags}{_extra}"
-      )
+      # # Debug: uncomment to log every A2A event for diagnostics
+      # _artifact_name = parsed.artifact_name or ""
+      # _text_len = len(parsed.text_content) if parsed.text_content else 0
+      # _extra = ""
+      # if parsed.plan_data:
+      #   _statuses = [f"{s.get('step_id', '?')[:8]}:{s.get('status', '?')}" for s in parsed.plan_data.get("steps", [])]
+      #   _extra = f" steps=[{', '.join(_statuses)}]"
+      # elif parsed.tool_notification:
+      #   _extra = f" tool={parsed.tool_notification.tool_name} status={parsed.tool_notification.status}"
+      # elif _text_len:
+      #   _preview = (parsed.text_content or "")[:100].replace("\n", "\\n")
+      #   _extra = f" preview={_preview!r}"
+      # _meta_flags = ""
+      # if parsed.artifact:
+      #   _ameta = parsed.artifact.get("metadata", {})
+      #   if _ameta.get("is_final_answer"):
+      #     _meta_flags += " is_final_answer=True"
+      #   if _ameta.get("is_narration"):
+      #     _meta_flags += " is_narration=True"
+      # logger.info(
+      #   f"[{thread_ts}] A2A event: "
+      #   f"type={parsed.event_type.value} artifact={_artifact_name!r} "
+      #   f"text_len={_text_len} append={parsed.should_append}{_meta_flags}{_extra}"
+      # )
 
       if parsed.event_type == EventType.TASK:
         if parsed.context_id and is_new_context and session_manager:
