@@ -16,6 +16,28 @@ from langchain_core.tools import tool
 
 CURL_TIMEOUT = 300  # 5 minutes default
 
+# Flags that write to disk or read curl config files — disallow to prevent
+# filesystem side-effects from LLM-generated commands.
+_BLOCKED_FLAGS: frozenset[str] = frozenset({
+    "-o", "--output",
+    "--config", "-K",
+})
+
+
+def _validate_curl_args(args: list[str]) -> str | None:
+    """Return an error string if args contain blocked flags or non-HTTPS URLs."""
+    for token in args:
+        # Block dangerous flags (exact token match handles both "-o file" and "--output=file")
+        flag = token.split("=")[0]
+        if flag in _BLOCKED_FLAGS:
+            return f"ERROR: Flag '{flag}' is not allowed"
+
+        # Block any non-HTTPS URL (anything containing a scheme)
+        if "://" in token and not token.startswith("https://"):
+            return f"ERROR: Only https:// URLs are allowed (got '{token.split('?')[0]}')"
+
+    return None
+
 
 @tool
 def curl(
@@ -24,7 +46,7 @@ def curl(
     strip_html: bool = False,
 ) -> str:
     """
-    Execute any curl command for HTTP requests.
+    Execute any curl command for HTTP requests (https:// only).
 
     Args:
         command: Curl command to run (e.g., "curl -s https://api.example.com/users")
@@ -46,7 +68,6 @@ def curl(
         -X, --request     HTTP method (GET, POST, PUT, DELETE, etc.)
         -H, --header      Add header
         -d, --data        POST data
-        -o, --output      Write output to file
     """
     try:
         args = shlex.split(command)
@@ -56,6 +77,10 @@ def curl(
     # Ensure command starts with 'curl'
     if not args or args[0] != 'curl':
         args = ['curl'] + args
+
+    error = _validate_curl_args(args[1:])
+    if error:
+        return error
 
     try:
         result = subprocess.run(
