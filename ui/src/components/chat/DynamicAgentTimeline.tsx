@@ -276,6 +276,7 @@ export function AgentTimeline({
                     <TimelineDot color="primary" />
                     <MarkdownRenderer
                       content={finalAnswer}
+                      isStreaming={true}
                     />
                   </div>
                 )}
