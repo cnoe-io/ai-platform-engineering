@@ -24,6 +24,7 @@ jobs:
       github.event.action != 'closed'
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
+      a2a_build_args: ${{ steps.read-config.outputs.a2a_build_args }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -36,6 +37,8 @@ jobs:
         run: |
           ALL_AGENTS=$(jq -c '.a2a_agents' .github/agents.json)
           echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
+          A2A_BUILD_ARGS=$(jq -c '.a2a_build_args // {}' .github/agents.json)
+          echo "a2a_build_args=$A2A_BUILD_ARGS" >> $GITHUB_OUTPUT
 
   determine-agents:
     runs-on: ubuntu-latest
@@ -107,7 +110,7 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    needs: determine-agents
+    needs: [determine-agents, load-config]
     if: |
       needs.determine-agents.outputs.should_build == 'true' &&
       startsWith(github.head_ref, 'prebuild/') &&
@@ -190,6 +193,19 @@ jobs:
             echo "name=${{ matrix.agent }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Resolve per-agent build args
+        id: agent_build_args
+        env:
+          A2A_BUILD_ARGS: ${{ needs.load-config.outputs.a2a_build_args }}
+          AGENT: ${{ matrix.agent }}
+        run: |
+          EXTRA=$(jq -r --arg a "$AGENT" '.[$a] // {} | to_entries | map("\(.key)=\(.value)") | .[]' <<< "$A2A_BUILD_ARGS")
+          {
+            echo 'extra<<EOF'
+            echo "$EXTRA"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and Push A2A Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
@@ -201,6 +217,7 @@ jobs:
           build-args: |
             AGENT_NAME=${{ matrix.agent }}
             AGENT_PACKAGE=${{ steps.agent_package.outputs.name }}
+            ${{ steps.agent_build_args.outputs.extra }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
