@@ -480,7 +480,7 @@ async def scan_skill_content(
             "scan_status": "unscanned",
             "max_severity": None,
             "exit_code": None,
-            "summary": f"Scanner error: {e}",
+            "summary": "Scanner error occurred",
         }
     finally:
         if tmp_root and tmp_root.exists():

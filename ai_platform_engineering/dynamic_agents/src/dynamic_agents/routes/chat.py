@@ -99,9 +99,9 @@ async def _generate_sse_events(
         # Send done event
         yield "event: done\ndata: {}\n\n"
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        error_data = json.dumps({"error": str(e)})
+        error_data = json.dumps({"error": "An internal error occurred"})
         yield f"event: error\ndata: {error_data}\n\n"
 
 
@@ -219,9 +219,9 @@ async def _generate_resume_sse_events(
         # Send done event
         yield "event: done\ndata: {}\n\n"
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
-        error_data = json.dumps({"error": str(e)})
+        error_data = json.dumps({"error": "An internal error occurred"})
         yield f"event: error\ndata: {error_data}\n\n"
 
 

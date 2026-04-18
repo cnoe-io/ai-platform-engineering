@@ -64,7 +64,7 @@ if ALLOW_TRUSTED_NETWORK and TRUSTED_NETWORK_CIDRS_STR:
       try:
         TRUSTED_NETWORK_CIDRS.append(ipaddress.ip_network(cidr_str))
       except ValueError as e:
-        logger.error(f"Invalid CIDR in TRUSTED_NETWORK_CIDRS: '{cidr_str}' - {e}")
+        logger.error("Invalid CIDR in TRUSTED_NETWORK_CIDRS: [redacted] - %s", type(e).__name__)
 
 # Group claim configuration (matches UI configuration)
 OIDC_GROUP_CLAIM = os.getenv("OIDC_GROUP_CLAIM", "")
@@ -81,8 +81,8 @@ if RBAC_CLIENT_CREDENTIALS_ROLE not in VALID_ROLES:
   raise ValueError(f"Invalid RBAC_CLIENT_CREDENTIALS_ROLE: '{RBAC_CLIENT_CREDENTIALS_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
 
 if TRUSTED_NETWORK_DEFAULT_ROLE not in VALID_ROLES:
-  logger.error(f"Invalid TRUSTED_NETWORK_DEFAULT_ROLE: '{TRUSTED_NETWORK_DEFAULT_ROLE}'. Must be one of: {VALID_ROLES}")
-  raise ValueError(f"Invalid TRUSTED_NETWORK_DEFAULT_ROLE: '{TRUSTED_NETWORK_DEFAULT_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
+  logger.error("Invalid TRUSTED_NETWORK_DEFAULT_ROLE: [redacted]. Must be one of: %s", VALID_ROLES)
+  raise ValueError(f"Invalid TRUSTED_NETWORK_DEFAULT_ROLE. Valid values are: {', '.join(VALID_ROLES)}")
 
 logger.info("RBAC Configuration:")
 logger.info(f"  RBAC_READONLY_GROUPS: {[g for g in RBAC_READONLY_GROUPS if g.strip()]}")
@@ -90,11 +90,11 @@ logger.info(f"  RBAC_INGESTONLY_GROUPS: {[g for g in RBAC_INGESTONLY_GROUPS if g
 logger.info(f"  RBAC_ADMIN_GROUPS: {[g for g in RBAC_ADMIN_GROUPS if g.strip()]}")
 logger.info(f"  RBAC_DEFAULT_AUTHENTICATED_ROLE: {RBAC_DEFAULT_AUTHENTICATED_ROLE}")
 logger.info(f"  RBAC_CLIENT_CREDENTIALS_ROLE: {RBAC_CLIENT_CREDENTIALS_ROLE}")
-logger.info(f"  ALLOW_TRUSTED_NETWORK: {ALLOW_TRUSTED_NETWORK}")
+logger.info("  ALLOW_TRUSTED_NETWORK: %s", "enabled" if ALLOW_TRUSTED_NETWORK else "disabled")
 if ALLOW_TRUSTED_NETWORK:
-  logger.info(f"  TRUSTED_NETWORK_CIDRS: {[str(cidr) for cidr in TRUSTED_NETWORK_CIDRS]}")
-  logger.info(f"  TRUSTED_NETWORK_TOKEN: {'(set)' if TRUSTED_NETWORK_TOKEN else '(not set)'}")
-  logger.info(f"  TRUSTED_NETWORK_DEFAULT_ROLE: {TRUSTED_NETWORK_DEFAULT_ROLE}")
+  logger.info("  TRUSTED_NETWORK_CIDRS: %d ranges configured", len(TRUSTED_NETWORK_CIDRS))
+  logger.info("  TRUSTED_NETWORK_TOKEN: %s", "(set)" if TRUSTED_NETWORK_TOKEN else "(not set)")
+  logger.info("  TRUSTED_NETWORK_DEFAULT_ROLE: [configured]")
 logger.info(f"  OIDC_GROUP_CLAIM: {OIDC_GROUP_CLAIM if OIDC_GROUP_CLAIM else '(auto-detect)'}")
 
 # ============================================================================
@@ -508,7 +508,7 @@ def is_trusted_request(request: Request) -> bool:
         client_ip = ipaddress.ip_address(raw_ip)
         for cidr in TRUSTED_NETWORK_CIDRS:
           if client_ip in cidr:
-            logger.debug(f"Request from trusted network: {client_ip} in {cidr}")
+            logger.debug("Trusted network access granted via CIDR match")
             return True
       except ValueError as e:
         logger.warning(f"Invalid client IP address: {raw_ip} - {e}")
@@ -709,10 +709,10 @@ async def require_authenticated_user(request: Request, auth_manager: AuthManager
     ingestor_name = request.headers.get("X-Ingestor-Name")
 
     if ingestor_type and ingestor_name:
-      logger.info(f"Trusted network request from {request.client.host if request.client else 'unknown'}: ingestor_type={ingestor_type}, ingestor_name={ingestor_name}, role={TRUSTED_NETWORK_DEFAULT_ROLE}")
+      logger.info("Trusted network request: ingestor_type=%s, ingestor_name=%s", ingestor_type, ingestor_name)
       email = f"trusted:{ingestor_type}:{ingestor_name}"
     else:
-      logger.info(f"Trusted network request from {request.client.host if request.client else 'unknown'}, role={TRUSTED_NETWORK_DEFAULT_ROLE}")
+      logger.info("Trusted network request (anonymous)")
       email = "trusted-network"
 
     return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)
@@ -762,10 +762,10 @@ async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = De
     ingestor_name = request.headers.get("X-Ingestor-Name")
 
     if ingestor_type and ingestor_name:
-      logger.info(f"Trusted network request from {request.client.host if request.client else 'unknown'}: ingestor_type={ingestor_type}, ingestor_name={ingestor_name}, role={TRUSTED_NETWORK_DEFAULT_ROLE}")
+      logger.info("Trusted network request: ingestor_type=%s, ingestor_name=%s", ingestor_type, ingestor_name)
       email = f"trusted:{ingestor_type}:{ingestor_name}"
     else:
-      logger.info(f"Trusted network request from {request.client.host if request.client else 'unknown'}, role={TRUSTED_NETWORK_DEFAULT_ROLE}")
+      logger.info("Trusted network request (anonymous)")
       email = "trusted-network"
 
     return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)

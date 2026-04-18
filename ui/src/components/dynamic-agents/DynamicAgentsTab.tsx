@@ -23,6 +23,7 @@ import {
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 import { getGradientStyle } from "@/lib/gradient-themes";
+import { toYaml } from "@/lib/yaml-serializer";
 
 export function DynamicAgentsTab() {
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
@@ -109,48 +110,6 @@ export function DynamicAgentsTab() {
       subagents: agent.subagents?.length ? agent.subagents : undefined,
       ui: agent.ui?.gradient_theme ? agent.ui : undefined,
       enabled: agent.enabled,
-    };
-
-    // Simple YAML serializer for clean output
-    const toYaml = (obj: Record<string, unknown>, indent = 0): string => {
-      const spaces = "  ".repeat(indent);
-      let yaml = "";
-
-      for (const [key, value] of Object.entries(obj)) {
-        if (value === undefined || value === null) continue;
-
-        if (typeof value === "string") {
-          // Multi-line strings use literal block scalar
-          if (value.includes("\n")) {
-            yaml += `${spaces}${key}: |\n`;
-            value.split("\n").forEach((line) => {
-              yaml += `${spaces}  ${line}\n`;
-            });
-          } else {
-            // Quote strings that need it
-            const needsQuotes = /[:#\[\]{}|>!&*?'"]/.test(value) || value === "";
-            yaml += `${spaces}${key}: ${needsQuotes ? `"${value.replace(/"/g, '\\"')}"` : value}\n`;
-          }
-        } else if (typeof value === "number" || typeof value === "boolean") {
-          yaml += `${spaces}${key}: ${value}\n`;
-        } else if (Array.isArray(value)) {
-          if (value.length === 0) continue;
-          yaml += `${spaces}${key}:\n`;
-          value.forEach((item) => {
-            if (typeof item === "object" && item !== null) {
-              yaml += `${spaces}  -\n`;
-              yaml += toYaml(item as Record<string, unknown>, indent + 2);
-            } else {
-              yaml += `${spaces}  - ${item}\n`;
-            }
-          });
-        } else if (typeof value === "object") {
-          yaml += `${spaces}${key}:\n`;
-          yaml += toYaml(value as Record<string, unknown>, indent + 1);
-        }
-      }
-
-      return yaml;
     };
 
     const yamlContent = toYaml(exportConfig);
