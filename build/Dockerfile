@@ -48,7 +48,8 @@ RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
 RUN for i in 1 2 3; do \
         apk add --no-cache python-3.13 git wget curl grep unzip bash shadow && break; \
         [ $i -lt 3 ] && sleep $((i * 10)); \
-    done
+    done && \
+    apk upgrade --no-cache
 
 # Use the official uv binary (astral-sh) — the Wolfi apk uv package bundles
 # outdated Rust crates (rand, rustls-webpki) with known CVEs.

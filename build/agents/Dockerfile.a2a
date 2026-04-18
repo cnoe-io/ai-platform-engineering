@@ -85,7 +85,8 @@ RUN for i in 1 2 3; do \
     done && \
     if [ "$INSTALL_AWS_CLI" = "true" ]; then \
         for i in 1 2 3; do apk add --no-cache unzip bash && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
-    fi
+    fi && \
+    apk upgrade --no-cache
 
 # The builder stage uses python:3.13-slim which places Python at
 # /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13.
