@@ -1,5 +1,5 @@
 # ---------- Stage 0: Go toolchain (for github-mcp-server STDIO) ----------
-FROM golang:1.26-bookworm AS golang
+FROM golang:1.26.2-bookworm AS golang
 
 # ---------- Stage 1: Build dependencies ----------
 FROM python:3.13-slim AS builder

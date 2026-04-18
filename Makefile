@@ -24,7 +24,8 @@ APP_NAME ?= ai-platform-engineering
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
 	check-helm-docs helm-docs check-yq docs-helm-charts docs-helm-validate \
-	scan-images scan-image
+	scan-images scan-image \
+	ui
 
 .DEFAULT_GOAL := run
 
@@ -157,6 +158,8 @@ run-a2a-client-local: setup-venv ## Run agent-chat-cli from local source
 	cd agent-chat-cli && A2A_HOST=$$HOST A2A_PORT=$$PORT uv run python -m agent_chat_cli a2a
 
 ## ========== CAIPE UI ==========
+
+ui: caipe-ui ## Alias for caipe-ui
 
 caipe-ui: caipe-ui-install caipe-ui-dev ## Build and run the CAIPE UI (install + dev server)
 
