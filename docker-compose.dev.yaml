@@ -293,24 +293,23 @@ services:
   ####################################################################################################
   #                                         Sub-Agents                                               #
   ####################################################################################################
-  # Shared Dockerfile.a2a no longer installs aws-cli / kubectl / gh / glab by default
-  # to keep agent images small and free of transitive CVEs (e.g. Python bundled
-  # inside aws-cli). Agents that need one of those CLIs opt in by passing build
-  # args here, for example:
-  #     args:
-  #       - AGENT_NAME=myagent
-  #       - INSTALL_AWS_CLI=true
-  #       - INSTALL_KUBECTL=true
-  # (valid flags: INSTALL_AWS_CLI, INSTALL_KUBECTL, INSTALL_GH_CLI, INSTALL_GLAB_CLI)
-  # Or use a per-agent Dockerfile under ai_platform_engineering/agents/<name>/build/
-  # (as agent-aws does below) — CI prefers that file when present.
+  # Shared Dockerfile.a2a / Dockerfile.mcp no longer install aws-cli / kubectl /
+  # gh / glab by default to keep agent images small and free of transitive CVEs
+  # (e.g. Python bundled inside aws-cli). Per-agent opt-ins live in
+  # .github/agents.json under `agent_build_args` for CI; each service below
+  # mirrors the same flags in its `args:` block so `docker compose build`
+  # produces the same image. Valid flags: INSTALL_AWS_CLI, INSTALL_KUBECTL,
+  # INSTALL_GH_CLI, INSTALL_GLAB_CLI — all default to false.
   #
-  # AWS Agent — builds from its dedicated Dockerfile so aws-cli is installed and
-  # the awslabs.* MCP servers are pre-cached in the image.
+  # AWS Agent
   agent-aws:
     build:
       context: .
-      dockerfile: ai_platform_engineering/agents/aws/build/Dockerfile.a2a
+      dockerfile: build/agents/Dockerfile.a2a
+      args:
+        - AGENT_NAME=aws
+        - INSTALL_AWS_CLI=true
+        - INSTALL_KUBECTL=true
     image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-localtag}
     container_name: agent-aws
     volumes:
