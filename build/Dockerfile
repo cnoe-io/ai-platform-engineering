@@ -1,11 +1,12 @@
 # ---------- Stage 0: Go toolchain (for github-mcp-server STDIO) ----------
-FROM golang:1.24-bookworm AS golang
+FROM golang:1.26-bookworm AS golang
 
 # ---------- Stage 1: Build dependencies ----------
 FROM python:3.13-slim AS builder
 
 # Install system dependencies and uv in one layer
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     gcc \
     git \
     && pip install uv \
@@ -40,7 +41,8 @@ RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bed
 FROM python:3.13-slim
 
 # Install only runtime dependencies (including uv for MCP STDIO subprocess execution)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     git \
     wget \
     curl \
@@ -76,7 +78,7 @@ RUN ARCH=$(uname -m) && \
 
 # Terraform CLI — used by terraform_fmt tool for HCL formatting in self-service tasks
 RUN ARCH=$(dpkg --print-architecture) \
-    && wget -q "https://releases.hashicorp.com/terraform/1.11.2/terraform_1.11.2_linux_${ARCH}.zip" -O /tmp/terraform.zip \
+    && wget -q "https://releases.hashicorp.com/terraform/1.14.8/terraform_1.14.8_linux_${ARCH}.zip" -O /tmp/terraform.zip \
     && unzip -o /tmp/terraform.zip -d /usr/local/bin/ \
     && rm /tmp/terraform.zip \
     && chmod +x /usr/local/bin/terraform
@@ -84,10 +86,10 @@ RUN ARCH=$(dpkg --print-architecture) \
 # GitHub CLI — used by gh_cli_execute tool in single-node GitHub subagent
 RUN ARCH=$(dpkg --print-architecture) \
     && curl -sfL --retry 5 --retry-delay 3 \
-       "https://github.com/cli/cli/releases/download/v2.89.0/gh_2.89.0_linux_${ARCH}.tar.gz" \
+       "https://github.com/cli/cli/releases/download/v2.90.0/gh_2.90.0_linux_${ARCH}.tar.gz" \
        -o /tmp/gh.tar.gz \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
-    && mv /tmp/gh_2.89.0_linux_${ARCH}/bin/gh /usr/local/bin/gh \
+    && mv /tmp/gh_2.90.0_linux_${ARCH}/bin/gh /usr/local/bin/gh \
     && chmod +x /usr/local/bin/gh \
     && rm -rf /tmp/gh.tar.gz /tmp/gh_*
 
