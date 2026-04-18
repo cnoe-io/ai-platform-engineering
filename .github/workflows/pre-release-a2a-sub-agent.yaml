@@ -24,7 +24,7 @@ jobs:
       github.event.action != 'closed'
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
-      a2a_build_args: ${{ steps.read-config.outputs.a2a_build_args }}
+      agent_build_args: ${{ steps.read-config.outputs.agent_build_args }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -37,8 +37,8 @@ jobs:
         run: |
           ALL_AGENTS=$(jq -c '.a2a_agents' .github/agents.json)
           echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
-          A2A_BUILD_ARGS=$(jq -c '.a2a_build_args // {}' .github/agents.json)
-          echo "a2a_build_args=$A2A_BUILD_ARGS" >> $GITHUB_OUTPUT
+          AGENT_BUILD_ARGS=$(jq -c '.agent_build_args // {}' .github/agents.json)
+          echo "agent_build_args=$AGENT_BUILD_ARGS" >> $GITHUB_OUTPUT
 
   determine-agents:
     runs-on: ubuntu-latest
@@ -196,10 +196,10 @@ jobs:
       - name: Resolve per-agent build args
         id: agent_build_args
         env:
-          A2A_BUILD_ARGS: ${{ needs.load-config.outputs.a2a_build_args }}
+          AGENT_BUILD_ARGS: ${{ needs.load-config.outputs.agent_build_args }}
           AGENT: ${{ matrix.agent }}
         run: |
-          EXTRA=$(jq -r --arg a "$AGENT" '.[$a] // {} | to_entries | map("\(.key)=\(.value)") | .[]' <<< "$A2A_BUILD_ARGS")
+          EXTRA=$(jq -r --arg a "$AGENT" '.[$a] // {} | to_entries | map("\(.key)=\(.value)") | .[]' <<< "$AGENT_BUILD_ARGS")
           {
             echo 'extra<<EOF'
             echo "$EXTRA"
