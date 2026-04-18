@@ -76,4 +76,4 @@ markers = [
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0", "starlette==0.50.0", "langchain-core>=1.2.22", "langgraph>=1.0.10", "langgraph-checkpoint>=4.0.0"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2", "starlette==0.50.0", "langchain-core>=1.2.22", "langgraph>=1.0.10", "langgraph-checkpoint>=4.0.0"]
