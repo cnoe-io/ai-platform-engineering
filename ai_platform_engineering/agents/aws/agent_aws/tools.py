@@ -838,7 +838,7 @@ class EKSKubectlTool(BaseTool):
         # Block secret-fetching commands before execution
         is_valid, error_msg = self._validate_kubectl_command(kubectl_command)
         if not is_valid:
-            logger.warning(f"kubectl command blocked: {kubectl_command!r} — {error_msg}")
+            logger.warning("kubectl command blocked — %s", error_msg)
             return f"❌ Command blocked: {error_msg}"
 
         logger.info(f"🔧 EKS Kubectl: cluster={cluster_name}, profile={profile}, command='{kubectl_command}'")
