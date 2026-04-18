@@ -15,7 +15,7 @@ FROM cgr.dev/chainguard/wolfi-base
 
 # Override APK repo to public Wolfi OS packages (no auth required).
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
-    apk add --no-cache ca-certificates wget shadow && \
+    for i in 1 2 3; do apk add --no-cache ca-certificates wget shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
     groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
 COPY --from=builder /github-mcp-server /github-mcp-server

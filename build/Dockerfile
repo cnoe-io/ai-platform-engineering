@@ -44,18 +44,15 @@ FROM cgr.dev/chainguard/wolfi-base
 # Override APK repo to public Wolfi OS packages (no auth required).
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
 
-# Install runtime dependencies. uv via apk avoids pip+Debian runtime CVEs.
-# shadow provides groupadd/useradd.
-RUN apk add --no-cache \
-    python-3.13 \
-    git \
-    wget \
-    curl \
-    grep \
-    unzip \
-    bash \
-    uv \
-    shadow
+# Install runtime dependencies. shadow provides groupadd/useradd.
+RUN for i in 1 2 3; do \
+        apk add --no-cache python-3.13 git wget curl grep unzip bash shadow && break; \
+        [ $i -lt 3 ] && sleep $((i * 10)); \
+    done
+
+# Use the official uv binary (astral-sh) — the Wolfi apk uv package bundles
+# outdated Rust crates (rand, rustls-webpki) with known CVEs.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # The builder stage uses python:3.13-slim which places Python at
 # /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13.
