@@ -27,6 +27,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 
 from .jwks_cache import JwksCache
+from .token_context import current_bearer_token
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,7 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
                 logger.error("MCP auth dispatch error: %s", exc, exc_info=True)
                 return self._forbidden(f"Authentication failed: {exc}", request)
 
+        current_bearer_token.set(token)
         return await call_next(request)
 
     def _unauthorized(self, reason: str, request: Request):

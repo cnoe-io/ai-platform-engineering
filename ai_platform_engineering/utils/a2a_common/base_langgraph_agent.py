@@ -11,7 +11,7 @@ import ssl
 import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
 import httpx
 
@@ -210,18 +210,21 @@ Use this as the reference point for all date calculations. When users say "today
         """
         return None
 
-    def _build_httpx_client_factory(self) -> Optional[Callable]:
+    def _build_httpx_client_factory(self) -> Callable:
         """
-        Build an httpx.AsyncClient factory with corporate CA cert support.
+        Build an httpx.AsyncClient factory that injects the per-request bearer
+        token and handles custom CA bundles / SSL_VERIFY=false.
 
-        Checks for CA bundle paths via environment variables (CUSTOM_CA_BUNDLE,
-        REQUESTS_CA_BUNDLE, SSL_CERT_FILE) or the SSL_VERIFY=false flag to
-        handle TLS interception (e.g. Cisco Secure Access / Umbrella).
+        The factory is called by langchain-mcp-adapters for each MCP HTTP
+        connection.  It merges the validated bearer token stored in
+        current_bearer_token (set by the incoming A2A auth middleware) into the
+        Authorization header so the token is forwarded per-request without
+        requiring any changes to the agent's call signature.
 
-        Returns:
-            A callable factory for httpx.AsyncClient, or None if no custom
-            SSL configuration is needed.
+        Always returns a factory (never None).
         """
+        from ai_platform_engineering.utils.auth.token_context import current_bearer_token
+
         ca_bundle = (
             os.getenv("CUSTOM_CA_BUNDLE")
             or os.getenv("REQUESTS_CA_BUNDLE")
@@ -231,43 +234,33 @@ Use this as the reference point for all date calculations. When users say "today
 
         if ca_bundle and os.path.exists(ca_bundle):
             logger.info(f"Using custom CA bundle for MCP HTTP transport: {ca_bundle}")
-
-            def _factory(
-                headers: dict[str, str] | None = None,
-                timeout: httpx.Timeout | None = None,
-                auth: httpx.Auth | None = None,
-            ) -> httpx.AsyncClient:
-                ctx = ssl.create_default_context(cafile=ca_bundle)
-                return httpx.AsyncClient(
-                    headers=headers,
-                    timeout=timeout or httpx.Timeout(30.0),
-                    auth=auth,
-                    verify=ctx,
-                )
-
-            return _factory
-
-        if ssl_verify == "false":
+            verify: Any = ssl.create_default_context(cafile=ca_bundle)
+        elif ssl_verify == "false":
             logger.warning(
                 "SSL_VERIFY=false: disabling TLS verification for MCP HTTP transport. "
                 "This is insecure and should only be used for development."
             )
+            verify = False
+        else:
+            verify = True
 
-            def _insecure_factory(
-                headers: dict[str, str] | None = None,
-                timeout: httpx.Timeout | None = None,
-                auth: httpx.Auth | None = None,
-            ) -> httpx.AsyncClient:
-                return httpx.AsyncClient(
-                    headers=headers,
-                    timeout=timeout or httpx.Timeout(30.0),
-                    auth=auth,
-                    verify=False,
-                )
+        def _factory(
+            headers: dict[str, str] | None = None,
+            timeout: httpx.Timeout | None = None,
+            auth: httpx.Auth | None = None,
+        ) -> httpx.AsyncClient:
+            merged = dict(headers or {})
+            token = current_bearer_token.get()
+            if token:
+                merged["Authorization"] = f"Bearer {token}"
+            return httpx.AsyncClient(
+                headers=merged,
+                timeout=timeout or httpx.Timeout(30.0),
+                auth=auth,
+                verify=verify,
+            )
 
-            return _insecure_factory
-
-        return None
+        return _factory
 
     @abstractmethod
     def get_tool_working_message(self) -> str:
@@ -367,14 +360,12 @@ Use this as the reference point for all date calculations. When users say "today
         elif is_http_mode(mcp_mode):
             logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
             mcp_url = resolve_mcp_url(agent_name)
-            user_jwt = "TBD_USER_JWT"
+            httpx_factory = self._build_httpx_client_factory()
             client = MultiServerMCPClient({
                 agent_name: {
                     "transport": "streamable_http",
                     "url": mcp_url,
-                    "headers": {
-                        "Authorization": f"Bearer {user_jwt}",
-                    },
+                    "httpx_client_factory": httpx_factory,
                 }
             })
         else:
@@ -995,19 +986,11 @@ Use this as the reference point for all date calculations. When users say "today
                 client = MultiServerMCPClient({agent_name: connection_config})
             else:
                 mcp_url = resolve_mcp_url(agent_name)
-
-                # TBD: Handle user authentication
-                user_jwt = "TBD_USER_JWT"
-
                 connection_config = {
                     "transport": "streamable_http",
                     "url": mcp_url,
-                    "headers": {
-                        "Authorization": f"Bearer {user_jwt}",
-                    },
+                    "httpx_client_factory": httpx_factory,
                 }
-                if httpx_factory:
-                    connection_config["httpx_client_factory"] = httpx_factory
                 client = MultiServerMCPClient({agent_name: connection_config})
         else:
             logging.info(f"{agent_name}: Using STDIO transport for MCP client")
