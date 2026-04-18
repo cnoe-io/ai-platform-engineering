@@ -47,7 +47,8 @@ RUN if [ -z "$AGENT_NAME" ]; then \
 
 # Install only runtime dependencies
 # Note: curl and unzip are needed for AWS CLI installation, jq for JSON processing
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     jq \
@@ -96,7 +97,7 @@ RUN ARCH=$(uname -m) && \
     else \
         GH_ARCH="amd64"; \
     fi && \
-    GH_VERSION="2.89.0" && \
+    GH_VERSION="2.90.0" && \
     curl -sfL --retry 5 --retry-delay 3 "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" -o gh.tar.gz && \
     tar -xzf gh.tar.gz && \
     mv gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh /usr/local/bin/gh && \
@@ -109,7 +110,7 @@ RUN ARCH=$(uname -m) && \
     else \
         GLAB_ARCH="amd64"; \
     fi && \
-    GLAB_VERSION="1.80.4" && \
+    GLAB_VERSION="1.92.1" && \
     curl -sfL --retry 5 --retry-delay 3 --connect-timeout 30 "https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads/glab_${GLAB_VERSION}_linux_${GLAB_ARCH}.tar.gz" -o glab.tar.gz && \
     tar -xzf glab.tar.gz && \
     mv bin/glab /usr/local/bin/glab && \
@@ -122,7 +123,7 @@ RUN ARCH=$(uname -m) && \
     else \
         YQ_ARCH="amd64"; \
     fi && \
-    YQ_VERSION="v4.44.1" && \
+    YQ_VERSION="v4.53.2" && \
     curl -sfL --retry 5 --retry-delay 3 "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" -o /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq
 
