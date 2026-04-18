@@ -4,7 +4,10 @@ FROM cgr.dev/chainguard/wolfi-base
 # Override APK repo to public Wolfi OS packages (no auth required).
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
 
-RUN apk add --no-cache python-3.13 uv shadow
+RUN for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done
+
+# Use the official uv binary — Wolfi apk uv bundles outdated Rust crates with CVEs.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Wolfi puts Python at /usr/bin/python3.13; keep venv symlinks consistent.
 RUN mkdir -p /usr/local/bin \

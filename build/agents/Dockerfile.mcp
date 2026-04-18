@@ -43,21 +43,14 @@ RUN if [ -z "$AGENT_NAME" ]; then \
 ARG INSTALL_NETUTILS=false
 
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
-    apk add --no-cache python-3.13 shadow && \
+    for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
     if [ "$INSTALL_NETUTILS" = "true" ]; then \
-        apk add --no-cache \
-            bind-tools \
-            iputils \
-            whois \
-            curl \
-            iproute2 \
-            net-tools \
-            dnsmasq \
-            mtr \
-            nmap \
-            net-snmp \
-            openssl \
-            tcpdump; \
+        for i in 1 2 3; do \
+            apk add --no-cache \
+                bind-tools iputils whois curl iproute2 net-tools \
+                dnsmasq mtr nmap net-snmp openssl tcpdump && break; \
+            [ $i -lt 3 ] && sleep $((i * 10)); \
+        done; \
     fi
 
 # The builder stage uses python:3.13-slim which places Python at
