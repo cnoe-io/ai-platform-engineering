@@ -4,10 +4,8 @@
 
 """Unit tests for skill_scanner_runner path validation."""
 
-import pytest
 from ai_platform_engineering.skills_middleware.skill_scanner_runner import (
     write_single_skill_to_temp_tree,
-    write_skills_to_temp_tree,
 )
 
 

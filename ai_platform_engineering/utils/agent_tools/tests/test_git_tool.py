@@ -4,7 +4,6 @@
 
 """Unit tests for _detect_git_provider — URL hostname-based detection."""
 
-import pytest
 from unittest.mock import patch
 from ai_platform_engineering.utils.agent_tools.git_tool import _detect_git_provider
 

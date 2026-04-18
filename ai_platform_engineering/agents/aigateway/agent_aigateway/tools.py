@@ -1077,7 +1077,7 @@ async def rotate_llm_api_key(user_email: str, requesting_user_email: str) -> str
 
     if key_response.get("error"):
       error_msg = key_response.get("message", key_response.get("error", "Unknown error"))
-      logger.error("Failed to generate new key during rotation: %s", error_msg)
+      logger.error("Failed to generate new key during rotation")
       return (
         f"Failed to rotate LLM key for {user_email}. The old key was deleted but "
         f"a new key could not be generated. Please contact your administrator. "

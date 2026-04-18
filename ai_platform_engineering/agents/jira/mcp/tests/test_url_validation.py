@@ -4,7 +4,6 @@
 
 """Tests for Jira MCP URL hostname validation (example.com placeholder detection)."""
 
-import pytest
 from unittest.mock import patch
 
 
@@ -62,7 +61,7 @@ class TestJiraSearchURLValidation:
             assert "Error" in result or "Invalid" in result
 
     def test_real_url_passes_validation_stage(self):
-        from unittest.mock import patch, AsyncMock
+        from unittest.mock import patch
         with patch.dict("os.environ", self._env_with_url("https://mycompany.atlassian.net")):
             with patch("mcp_jira.api.client.validate_prerequisites", return_value=(True, {})):
                 with patch("mcp_jira.api.client.make_api_request", return_value=(True, {"issues": [], "total": 0})):

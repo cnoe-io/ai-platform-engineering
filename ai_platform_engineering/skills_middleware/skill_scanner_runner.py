@@ -115,13 +115,14 @@ def severity_meets_threshold(max_severity: str | None, threshold: str) -> bool:
 
 def write_single_skill_to_temp_tree(name: str, content: str) -> Path:
     """Materialize one skill body as ``<tmp>/<name>/SKILL.md`` for scanning."""
+    import os
     import re
 
     root = Path(tempfile.mkdtemp(prefix="config-scan-")).resolve()
     safe = re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-") or "skill"
-    d = (root / safe).resolve()
-    if not d.is_relative_to(root):
-        raise ValueError("Invalid skill name")
+    # os.path.basename strips any residual path separators (CodeQL path sanitizer)
+    safe = os.path.basename(safe) or "skill"
+    d = root / safe
     d.mkdir(parents=True, exist_ok=True)
     (d / "SKILL.md").write_text(content, encoding="utf-8")
     return root
