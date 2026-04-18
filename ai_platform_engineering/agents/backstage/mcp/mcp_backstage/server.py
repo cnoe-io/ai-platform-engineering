@@ -34,6 +34,9 @@ def main():
   # Get host and port for server
   MCP_HOST = os.getenv("MCP_HOST", "localhost")
   MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
+  MCP_AUTH_TOKEN = os.getenv("MCP_AUTH_TOKEN")
+  MCP_ALLOW_REMOTE = os.getenv("MCP_ALLOW_REMOTE", "false").lower() == "true"
+  LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
   logging.info(f"Starting MCP server in {MCP_MODE} mode on {MCP_HOST}:{MCP_PORT}")
 
@@ -59,6 +62,10 @@ def main():
 
   # Run the MCP server
   if MCP_MODE.lower() in ["sse", "http"]:
+    if not MCP_AUTH_TOKEN:
+      raise RuntimeError("MCP_AUTH_TOKEN must be set when using HTTP/SSE transport")
+    if MCP_HOST not in LOOPBACK_HOSTS and not MCP_ALLOW_REMOTE:
+      raise RuntimeError("MCP_HOST must be loopback unless MCP_ALLOW_REMOTE=true is explicitly set")
     mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
   else:
     mcp.run(transport=MCP_MODE.lower())
