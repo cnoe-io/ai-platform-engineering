@@ -7,6 +7,8 @@ from typing import Literal
 
 import click
 from mcp.server.fastmcp.server import FastMCP
+from starlette.middleware import Middleware
+from mcp_agent_auth.middleware import MCPAuthMiddleware
 
 from .mcp_server import register_tools
 
@@ -25,8 +27,9 @@ LogLevel = Literal["WARNING", "INFO", "DEBUG"]
 @click.option(
     "--auth-token",
     envvar="WEBEX_TOKEN",
-    required=True,
-    help="Webex bot token",
+    required=False,
+    default=None,
+    help="Webex bot token (optional in HTTP mode; supplied via Authorization: Bearer header)",
 )
 @click.option(
     "--port", default=8000, help="Port to listen on for SSE/HTTP", envvar="MCP_PORT"
@@ -102,8 +105,11 @@ def main(
     logger.info("✅ Tools registered successfully")
 
     logger.info(f"🎯 Starting server on {host}:{port} with transport {selected_transport}")
-    # Run server with selected transport
-    server.run(transport=selected_transport)
+    # Run server with selected transport; inject auth middleware in HTTP mode.
+    if selected_transport == "streamable-http":
+        server.run(transport=selected_transport, middleware=[Middleware(MCPAuthMiddleware)])
+    else:
+        server.run(transport=selected_transport)
 
 
 if __name__ == "__main__":
