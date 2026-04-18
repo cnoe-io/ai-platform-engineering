@@ -18,11 +18,23 @@
     "webex",
     "weather"
   ],
-  "_agent_build_args_comment": "Per-agent opt-in build args for build/agents/Dockerfile.a2a. Valid keys: INSTALL_AWS_CLI, INSTALL_KUBECTL, INSTALL_GH_CLI, INSTALL_GLAB_CLI. Agents with their own per-agent Dockerfile (e.g. aws) do NOT need entries here — the CI workflow uses their per-agent Dockerfile and ignores this map for them. Add an entry only when the agent genuinely invokes the CLI at runtime.",
+  "_agent_build_args_comment": "Per-agent opt-in build args for build/agents/Dockerfile.a2a. Valid keys: INSTALL_AWS_CLI, INSTALL_KUBECTL, INSTALL_GH_CLI, INSTALL_GLAB_CLI. Add an entry only when the agent genuinely invokes the CLI at runtime.",
   "agent_build_args": {
     "aws": {
       "INSTALL_AWS_CLI": "true",
       "INSTALL_KUBECTL": "true"
+    },
+    "github": {
+      "INSTALL_GH_CLI": "true"
+    },
+    "gitlab": {
+      "INSTALL_GLAB_CLI": "true"
+    }
+  },
+  "_mcp_build_args_comment": "Per-agent opt-in build args for build/agents/Dockerfile.mcp. Valid keys: INSTALL_NETUTILS. Add an entry only when the MCP agent genuinely invokes network diagnostic tools at runtime.",
+  "mcp_build_args": {
+    "netutils": {
+      "INSTALL_NETUTILS": "true"
     }
   },
   "mcp_agents": [

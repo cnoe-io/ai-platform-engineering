@@ -3,6 +3,7 @@ FROM python:3.13-slim AS builder
 
 ARG AGENT_NAME
 ARG AGENT_PACKAGE
+ARG INSTALL_AWS_CLI=false
 
 RUN if [ -z "$AGENT_NAME" ]; then \
     echo "Error: AGENT_NAME build argument is required but not set."; \
@@ -34,8 +35,23 @@ RUN [ ! -f "README.md" ] && echo "# README" > README.md || true
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
 
+# Pre-cache AWS MCP servers so they don't download on first agent startup.
+# Runs only when INSTALL_AWS_CLI=true (i.e. the aws agent).
+RUN mkdir -p /tmp/uv-cache && \
+    if [ "$INSTALL_AWS_CLI" = "true" ]; then \
+        uvx awslabs.eks-mcp-server@0.1.15 --help > /dev/null 2>&1 || true && \
+        uvx awslabs.ecs-mcp-server@latest --help > /dev/null 2>&1 || true && \
+        uvx awslabs.iam-mcp-server@latest --help > /dev/null 2>&1 || true && \
+        uvx awslabs.cost-explorer-mcp-server@latest --help > /dev/null 2>&1 || true && \
+        uvx awslabs.cloudtrail-mcp-server@latest --help > /dev/null 2>&1 || true && \
+        uvx awslabs.cloudwatch-mcp-server@latest --help > /dev/null 2>&1 || true && \
+        cp -r /root/.cache/uv /tmp/uv-cache 2>/dev/null || true; \
+    fi
+
 # ---------- Stage 2: Final runtime image ----------
-FROM python:3.13-slim
+# Wolfi (Chainguard) base: 0 CVEs, continuously patched packages, replaces
+# python:3.13-slim to eliminate the ~300 Debian system-package CVEs per image.
+FROM cgr.dev/chainguard/wolfi-base
 
 ARG AGENT_NAME
 ARG AGENT_PACKAGE
@@ -55,11 +71,16 @@ RUN if [ -z "$AGENT_NAME" ]; then \
     exit 1; \
     fi
 
-# Base runtime dependencies (jq for JSON, curl/wget for downloads, node/npm for
-# stdio MCP servers, git for package installs). `unzip` is pulled in only when
-# INSTALL_AWS_CLI=true since aws-cli is the only component that needs it.
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends \
+# Override APK repo to public Wolfi OS packages (no auth required).
+# cgr.dev/chainguard/wolfi-base defaults to apk.cgr.dev/chainguard which
+# requires Chainguard credentials; packages.wolfi.dev/os is free and public.
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+
+# Base runtime dependencies via apk (Wolfi packages are continuously patched so
+# no explicit upgrade step is needed). `shadow` provides useradd/groupadd.
+# `unzip` and `bash` are pulled in only when INSTALL_AWS_CLI=true.
+RUN apk add --no-cache \
+    python-3.13 \
     curl \
     jq \
     nodejs \
@@ -67,11 +88,18 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     git \
     wget \
     grep \
+    shadow \
     && if [ "$INSTALL_AWS_CLI" = "true" ]; then \
-        apt-get install -y --no-install-recommends unzip; \
-    fi \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+        apk add --no-cache unzip bash; \
+    fi
+
+# The builder stage uses python:3.13-slim which places Python at
+# /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13.
+# These symlinks keep the venv's internal python symlinks from breaking.
+RUN mkdir -p /usr/local/bin \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
 
 # Install AWS CLI v2 (opt-in: --build-arg INSTALL_AWS_CLI=true)
 RUN if [ "$INSTALL_AWS_CLI" = "true" ]; then \
@@ -147,7 +175,12 @@ RUN ARCH=$(uname -m) && \
         YQ_ARCH="amd64"; \
     fi && \
     YQ_VERSION="v4.53.2" && \
-    curl -sfL --retry 5 --retry-delay 3 "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" -o /usr/local/bin/yq && \
+    curl -sfL --retry 5 --retry-delay 5 --retry-all-errors \
+        "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}.tar.gz" \
+        -o /tmp/yq.tar.gz && \
+    tar -xzf /tmp/yq.tar.gz "./yq_linux_${YQ_ARCH}" && \
+    mv "yq_linux_${YQ_ARCH}" /usr/local/bin/yq && \
+    rm /tmp/yq.tar.gz && \
     chmod +x /usr/local/bin/yq
 
 # Create appuser in final image
@@ -166,6 +199,9 @@ ENV AGENT_PACKAGE_NAME=${AGENT_PACKAGE:-${AGENT_NAME}} \
 
 # Copy venv & code from builder (maintain directory structure)
 COPY --from=builder --chown=appuser:appuser /app /app
+
+# Copy pre-cached AWS MCP servers (empty dir for non-aws agents, populated for aws)
+COPY --from=builder --chown=appuser:appuser /tmp/uv-cache /home/appuser/.cache/uv
 
 USER appuser
 
