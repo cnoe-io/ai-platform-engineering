@@ -504,7 +504,8 @@ services:
       - MAX_REQUESTS_PER_MINUTE=${GITLAB_MCP_MAX_REQUESTS_PER_MINUTE:-60}
       - USE_PIPELINE=true
       - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
-      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_TOKEN}
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN}}
+ 
       # Option 1: Simple read-only mode (blocks all write operations)
       - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
       # Option 2: Fine-grained control via regex (see examples in comments above)
