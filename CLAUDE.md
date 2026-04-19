@@ -141,6 +141,8 @@ See [skills/README.md](./skills/README.md) for full documentation.
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)
+- Python 3.13 + FastMCP 3.2.3, Starlette (transitive via FastMCP), PyJWT, requests (101-mcp-auth-caller-key)
+- N/A (middleware is stateless; JwksCache is in-process memory) (101-mcp-auth-caller-key)
 
 ## Recent Changes
 - 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router

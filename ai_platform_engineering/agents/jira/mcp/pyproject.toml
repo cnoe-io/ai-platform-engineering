@@ -8,15 +8,19 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "httpx==0.28.1",
-  "python-dotenv==1.2.1",
-  "pydantic==2.12.5",
-  "mcp==1.26.0",
   "fastmcp==3.2.3",
-  "python-dateutil==2.9.0.post0",
+  "httpx==0.28.1",
   "keyring==25.6.0",
+  "mcp==1.26.0",
+  "mcp-agent-auth",
+  "pydantic==2.12.5",
+  "python-dateutil==2.9.0.post0",
+  "python-dotenv==1.2.1",
   "typing-extensions==4.15.0",
 ]
+
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
 
 [dependency-groups]
 dev = [
