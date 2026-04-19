@@ -1616,8 +1616,8 @@ class AIPlatformEngineerA2ABinding:
                   # [{...}]" which doesn't match the UI regex.
                   if tool_name == "write_todos":
                       logging.debug("📋 Skipping write_todos ToolMessage for exec plan (handled by updates handler)")
-                  elif tool_name in rag_tool_names or tool_name == "curl":
-                    # For RAG tools and curl, suppress raw content from stream (client uses tool_call notification)
+                  elif tool_name in rag_tool_names:
+                      # For RAG tools, suppress raw content from stream (client uses tool_call notification)
                       logging.debug(f"Suppressing tool content for {tool_name} (tool_call notification already sent)")
                   # Stream other tool content as a tool notification (not chat text)
                   # During self-service workflows, suppress intermediate tool output —
