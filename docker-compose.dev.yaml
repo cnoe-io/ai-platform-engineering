@@ -293,6 +293,14 @@ services:
   ####################################################################################################
   #                                         Sub-Agents                                               #
   ####################################################################################################
+  # Shared Dockerfile.a2a / Dockerfile.mcp no longer install aws-cli / kubectl /
+  # gh / glab by default to keep agent images small and free of transitive CVEs
+  # (e.g. Python bundled inside aws-cli). Per-agent opt-ins live in
+  # .github/agents.json under `agent_build_args` for CI; each service below
+  # mirrors the same flags in its `args:` block so `docker compose build`
+  # produces the same image. Valid flags: INSTALL_AWS_CLI, INSTALL_KUBECTL,
+  # INSTALL_GH_CLI, INSTALL_GLAB_CLI — all default to false.
+  #
   # AWS Agent
   agent-aws:
     build:
@@ -300,6 +308,8 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=aws
+        - INSTALL_AWS_CLI=true
+        - INSTALL_KUBECTL=true
     image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-localtag}
     container_name: agent-aws
     volumes:
@@ -391,6 +401,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=github
+        - INSTALL_GH_CLI=true
     image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-localtag}
     container_name: agent-github
     volumes:
@@ -429,6 +440,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=gitlab # key for tracing
+        - INSTALL_GLAB_CLI=true
     image: ghcr.io/cnoe-io/agent-gitlab:${IMAGE_TAG:-localtag}
     container_name: agent-gitlab
     volumes:
@@ -492,7 +504,8 @@ services:
       - MAX_REQUESTS_PER_MINUTE=${GITLAB_MCP_MAX_REQUESTS_PER_MINUTE:-60}
       - USE_PIPELINE=true
       - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
-      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_TOKEN}
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN}}
+ 
       # Option 1: Simple read-only mode (blocks all write operations)
       - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
       # Option 2: Fine-grained control via regex (see examples in comments above)
@@ -1084,9 +1097,10 @@ services:
   mcp-netutils:
     build:
       context: .
-      dockerfile: ai_platform_engineering/agents/netutils/build/Dockerfile.mcp
+      dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=netutils
+        - INSTALL_NETUTILS=true
     image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
     container_name: mcp-netutils
     env_file: [.env]
@@ -1372,7 +1386,7 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
+    depends_on: [rag_server, neo4j, rag-redis]
     profiles:
       - graph_rag
 
