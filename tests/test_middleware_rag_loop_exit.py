@@ -56,8 +56,9 @@ def _patch_config(thread_id: str = "test-thread"):
 class TestMiddlewareRagLoopExit:
 
     def test_terminates_when_all_rag_calls_capped(self):
-        """When both search and fetch_document are capped and the model
-        still calls them, after_model should inject ToolMessages and jump_to='end'."""
+        """When both search and fetch_document are capped and the model still calls them,
+        after_model should inject synthesis ToolMessages WITHOUT jump_to='end' so the LLM
+        gets one turn to produce a real answer. See PR #1231 (SDPL-1601)."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _record_rag_cap_hit
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
@@ -80,8 +81,8 @@ class TestMiddlewareRagLoopExit:
         ):
             result = middleware.after_model(state)
 
-        assert result is not None, "Expected middleware to terminate graph"
-        assert result["jump_to"] == "end"
+        assert result is not None, "Expected middleware to inject synthesis messages"
+        assert "jump_to" not in result, "Must NOT jump_to end — LLM needs a turn to synthesize"
         assert len(result["messages"]) == 2
         assert all(isinstance(m, ToolMessage) for m in result["messages"])
 
@@ -157,7 +158,7 @@ class TestMiddlewareRagLoopExit:
 
     def test_terminates_with_only_search_capped_and_only_search_called(self):
         """When only search is capped and model calls ONLY search,
-        middleware should terminate."""
+        middleware should inject synthesis messages WITHOUT jump_to='end'."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _record_rag_cap_hit
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
@@ -180,7 +181,7 @@ class TestMiddlewareRagLoopExit:
             result = middleware.after_model(state)
 
         assert result is not None
-        assert result["jump_to"] == "end"
+        assert "jump_to" not in result, "Must NOT jump_to end — LLM needs a turn to synthesize"
         assert len(result["messages"]) == 2
 
     def test_tool_messages_have_correct_ids(self):
