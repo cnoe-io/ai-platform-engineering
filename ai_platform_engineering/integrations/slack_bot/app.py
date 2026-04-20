@@ -31,6 +31,13 @@ from utils.config_models import get_escalation_config
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
+_WORKSPACE_URL = os.environ.get("SLACK_WORKSPACE_URL", "").rstrip("/")
+
+
+def _msg_link(channel_id: str, ts: str) -> str:
+  if not _WORKSPACE_URL or not ts:
+    return ""
+  return f" {_WORKSPACE_URL}/archives/{channel_id}/p{ts.replace('.', '')}"
 
 AUTH_ENABLED = os.environ.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
 
@@ -215,7 +222,7 @@ def handle_mention(event, say, client):
 
     user_name, user_email = utils.get_message_author_info(event, client)
 
-    logger.info(f"[{thread_ts}] CAIPE was invoked by User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Thread: {thread_ts}")
+    logger.info(f"[{thread_ts}] CAIPE was invoked by User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Thread: {thread_ts}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text:
       say(text="Please include a question or message!", thread_ts=thread_ts)
@@ -363,7 +370,7 @@ def handle_qanda_message(event, say, client):
 
     user_name, user_email = utils.get_message_author_info(event, client)
 
-    logger.info(f"[{thread_ts}] Q&A MODE - User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Question: {message_text}")
+    logger.info(f"[{thread_ts}] Q&A MODE - User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Question: {message_text}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text.strip():
       return
@@ -453,7 +460,7 @@ def handle_dm_message(event, say, client):
 
     user_name, user_email = utils.get_message_author_info(event, client)
 
-    logger.info(f"[{thread_ts}] DM from User: {user_name} ({user_id}), Email: {user_email}, Message: {message_text}")
+    logger.info(f"[{thread_ts}] DM from User: {user_name} ({user_id}), Email: {user_email}, Message: {message_text}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text or not message_text.strip():
       say(text="Please include a question or message!", thread_ts=thread_ts)
@@ -638,7 +645,7 @@ def handle_message_events(body, say, client):
   channel_config = config.channels[channel_id]
   if channel_config.ai_alerts.enabled:
     alert_ts = event.get("ts", "unknown")
-    logger.info(f"[{alert_ts}] Routing alert from {bot_username} to AI processing")
+    logger.info(f"[{alert_ts}] Routing alert from {bot_username} (bot_id={bot_id}) to AI processing, Channel: {channel_id}{_msg_link(channel_id, alert_ts)}")
     jira_config = channel_config.other.jira
     if not jira_config:
       raise ValueError(f"Channel {channel_id} is missing required 'other.jira' config")

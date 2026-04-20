@@ -34,7 +34,8 @@ RUN if [ -z "$AGENT_NAME" ]; then \
     fi
 
 # Install network diagnostic and Cisco-centric tools required by MCP tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     dnsutils \
     iputils-ping \
     traceroute \

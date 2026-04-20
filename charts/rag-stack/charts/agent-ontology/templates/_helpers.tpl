@@ -237,3 +237,7 @@ Get Neo4j password
     {{- end -}}
     {{- $password -}}
 {{- end -}}
+
+{{- define "agent.appVersion" -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
+{{- end -}}

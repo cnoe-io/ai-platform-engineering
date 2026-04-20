@@ -2,6 +2,13 @@ FROM python:3.13-slim-trixie
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+# Patch system packages to address CVEs
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r -g 1001 appuser && useradd -r -g appuser -u 1001 -m appuser
+
 WORKDIR /app
 
 COPY ai_platform_engineering/integrations/slack_bot/ /app/
@@ -11,5 +18,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     UV_PROJECT_ENVIRONMENT="/app/.venv"
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
 
 CMD ["python", "-m", "app"]

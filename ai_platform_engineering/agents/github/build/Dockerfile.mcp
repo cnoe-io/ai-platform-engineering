@@ -12,12 +12,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
 # ---------- Stage 2: Minimal runtime ----------
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates wget && \
-    adduser -D -u 10001 nonroot
+RUN apk upgrade --no-cache && \
+    apk add --no-cache ca-certificates wget && \
+    adduser -D -u 1001 appuser
 
 COPY --from=builder /github-mcp-server /github-mcp-server
 
-USER nonroot
+USER appuser
 
 EXPOSE 8000
 

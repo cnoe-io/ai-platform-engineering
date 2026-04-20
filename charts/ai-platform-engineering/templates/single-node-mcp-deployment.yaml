@@ -41,7 +41,7 @@ spec:
     spec:
       containers:
         - name: mcp
-          image: "{{ $mcpImageRepo }}:{{ $mcpImage.tag | default $.Chart.AppVersion }}"
+          image: "{{ $mcpImageRepo }}:{{ $mcpImage.tag | default (include "ai-platform-engineering.appVersion" $) }}"
           imagePullPolicy: {{ $mcpImage.pullPolicy | default "Always" }}
           ports:
             - name: http

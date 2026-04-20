@@ -352,6 +352,19 @@ tolerations: []
 # Affinity
 affinity: {}
 
+# VPA configuration. Requires VPA to be installed in the cluster.
+# Creates one VPA per ingestor Deployment. Applies the same config to all ingestors.
+# Inherits global.vpa defaults; override any field here to customise for rag-ingestors.
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}
+
 # Image pull secrets
 imagePullSecrets: []
 

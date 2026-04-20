@@ -148,4 +148,11 @@ helm show values oci://ghcr.io/cnoe-io/charts/agent --version 0.2.38
 | tolerations | list | `[]` |  |
 | volumeMounts | list | `[]` |  |
 | volumes | list | `[]` |  |
+| vpa.controlledResources[0] | string | `"cpu"` |  |
+| vpa.controlledResources[1] | string | `"memory"` |  |
+| vpa.enabled | bool | `false` |  |
+| vpa.maxAllowed | object | `{}` |  |
+| vpa.minAllowed.cpu | string | `"50m"` |  |
+| vpa.minAllowed.memory | string | `"128Mi"` |  |
+| vpa.updateMode | string | `"InPlaceOrRecreate"` |  |
 

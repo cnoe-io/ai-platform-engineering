@@ -807,8 +807,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
-      appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
-      updateMessage(convId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
+      }
+      // Set interrupted status on error
+      updateMessage(convId!, assistantMsgId, {
+        turnStatus: "interrupted" as TurnStatus,
+      });
       setConversationStreaming(convId, null);
       saveMessagesToServer(convId).catch((err) => {
         console.error('[DynamicAgent] Failed to save error messages:', err);

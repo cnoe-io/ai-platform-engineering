@@ -26,7 +26,7 @@ spec:
       serviceAccountName: {{ include "slack-bot.serviceAccountName" . }}
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "slack-bot.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: APP_NAME
