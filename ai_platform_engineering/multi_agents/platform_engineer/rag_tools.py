@@ -74,7 +74,16 @@ class _CapCounterMixin:
     return config.get("configurable", {}).get("thread_id", "__default__") if config else "__default__"
 
   def _check_and_increment(self, thread_id: str, max_calls: int) -> int | None:
-    """Check counter and increment if under cap. Returns None if OK, or the count if capped."""
+    """Check counter and increment if under cap. Returns None if OK, or the count if capped.
+
+    Known limitation: when the model emits N parallel tool calls in a single turn, LangGraph
+    dispatches them as concurrent async tasks. get_config() may return a different LangGraph
+    context (and thus a different thread_id) for each parallel execution, causing each call to
+    be counted in its own bucket — so all N bypass the cap. Even when thread_ids match, a burst
+    of N simultaneous calls can all read count=0 before any increment lands if the event loop
+    yields between the lock acquire and the await in _arun. A proper fix would require
+    per-thread_id semaphores or pre-decrementing a reservation before the await. Tracking: TODO.
+    """
     with self._global_lock:
       self._cleanup_stale()
       count = self._global_counts.get(thread_id, 0)
@@ -213,9 +222,10 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
       logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "search")
       return (
-        f"[Search complete] You have performed {self.max_calls} searches which is the maximum allowed. "
-        "All relevant results have been collected. Do NOT call search or fetch_document again. "
-        "You MUST now synthesize your final answer using ONLY the information already retrieved above."
+        f"[SEARCH LIMIT REACHED] You have reached the maximum of {self.max_calls} searches. "
+        "Search is now disabled — do not call search or fetch_document again. "
+        "You MUST synthesize and write your final answer right now using only what you have already retrieved. "
+        "Do not call any more tools."
       )
 
     # Cap per-call results to prevent context window flooding.

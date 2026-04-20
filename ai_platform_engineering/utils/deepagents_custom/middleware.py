@@ -305,13 +305,20 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                         )
                         tool_messages = [
                             ToolMessage(
-                                content="RAG budget exhausted. Synthesize your answer from what was already retrieved.",
+                                content=(
+                                    "[SEARCH LIMIT REACHED] Search is now disabled. "
+                                    "You MUST stop calling search or fetch_document immediately. "
+                                    "Write your final answer right now using only what you have already retrieved. "
+                                    "Do not call any more tools."
+                                ),
                                 tool_call_id=tc["id"],
                                 name=tc["name"],
                             )
                             for tc in rag_calls
                         ]
-                        # Return tool responses WITHOUT jump_to so the LLM gets a turn to synthesize
+                        # Return tool responses WITHOUT jump_to so the LLM gets a turn to synthesize.
+                        # Do NOT add jump_to="end" here — that skips the LLM turn and produces an
+                        # empty response. See PR #1231 (SDPL-1601) for the history on this.
                         return {"messages": tool_messages}
             except Exception as rag_err:
                 # Log full traceback in case RAG checking is broken in a new way
