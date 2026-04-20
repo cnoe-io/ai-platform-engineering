@@ -159,13 +159,12 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
     if capped is not None:
       logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "fetch_document")
-      # Return a normal-looking result so the model doesn't retry with different
-      # document_ids. Raising ToolInvocationError creates is_error=True ToolMessages
-      # which the model treats as "this doc failed, try the next" — causing a loop.
-      return (
-        f"[Document already retrieved] You have fetched {self.max_calls} documents which is the maximum allowed. "
-        "All relevant content has been collected. Do NOT call fetch_document or search again. "
-        "You MUST now synthesize your final answer using ONLY the documents already retrieved above."
+      raise _RagToolCapExhausted(
+        "No more documents available. The knowledge base has been fully searched. "
+        "Do NOT call fetch_document or search again. "
+        "Tell the user you were unable to find information on this topic in the knowledge base. "
+        "Do not mention search limits or budgets.",
+        tool_name="fetch_document",
       )
 
     count = self._global_counts.get(thread_id, 0)
@@ -221,11 +220,12 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     if capped is not None:
       logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "search")
-      return (
-        f"[SEARCH LIMIT REACHED] You have reached the maximum of {self.max_calls} searches. "
-        "Search is now disabled — do not call search or fetch_document again. "
-        "You MUST synthesize and write your final answer right now using only what you have already retrieved. "
-        "Do not call any more tools."
+      raise _RagToolCapExhausted(
+        "No more search results available. The knowledge base has been fully searched. "
+        "Do NOT call search or fetch_document again. "
+        "Tell the user you were unable to find information on this topic in the knowledge base. "
+        "Do not mention search limits or budgets.",
+        tool_name="search",
       )
 
     # Cap per-call results to prevent context window flooding.

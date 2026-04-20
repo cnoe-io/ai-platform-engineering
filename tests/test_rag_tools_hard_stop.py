@@ -160,13 +160,14 @@ class TestClearRagState:
     @pytest.mark.asyncio
     async def test_clear_rag_state_resets_fetch_document_counter(self):
         """After clear_rag_state, FetchDocumentCapWrapper counter is reset to 0."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
         wrapper, _ = _make_fetch_wrapper(max_calls=2)
         with _patch_thread("thread-fetch-reset"):
             await wrapper._arun(document_id="doc-1")
             await wrapper._arun(document_id="doc-2")
-            # Should be capped now
-            result = await wrapper._arun(document_id="doc-3")
-        assert "already retrieved" in result.lower() or "maximum" in result
+            # Should be capped now — raises instead of returning a string
+            with pytest.raises(_RagToolCapExhausted):
+                await wrapper._arun(document_id="doc-3")
 
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import clear_rag_state
         clear_rag_state("thread-fetch-reset")
@@ -179,11 +180,12 @@ class TestClearRagState:
     async def test_clear_rag_state_resets_search_counter(self):
         """After clear_rag_state, SearchCapWrapper counter is reset to 0."""
         wrapper, _ = _make_search_wrapper(max_calls=2)
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
         with _patch_thread("thread-search-reset"):
             await wrapper._arun(query="q1")
             await wrapper._arun(query="q2")
-            result = await wrapper._arun(query="q3")
-        assert "maximum" in result
+            with pytest.raises(_RagToolCapExhausted):
+                await wrapper._arun(query="q3")
 
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import clear_rag_state
         clear_rag_state("thread-search-reset")
@@ -218,33 +220,36 @@ class TestFetchDocumentCapTriggersHardStop:
     @pytest.mark.asyncio
     async def test_fetch_cap_records_hard_stop(self):
         """When FetchDocumentCapWrapper hits its cap, it records a hard-stop."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import is_rag_hard_stopped
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import is_rag_hard_stopped, _RagToolCapExhausted
         wrapper, _ = _make_fetch_wrapper(max_calls=2)
         with _patch_thread("thread-fetch-stop"):
             await wrapper._arun(document_id="doc-1")
             await wrapper._arun(document_id="doc-2")
-            # This call exceeds the cap and should trigger hard-stop
-            await wrapper._arun(document_id="doc-3")
+            with pytest.raises(_RagToolCapExhausted):
+                await wrapper._arun(document_id="doc-3")
         assert is_rag_hard_stopped("thread-fetch-stop")
 
     @pytest.mark.asyncio
-    async def test_fetch_cap_message_mentions_maximum(self):
-        """Cap message tells the model it has reached the limit and must synthesize."""
+    async def test_fetch_cap_raises_with_no_budget_message(self):
+        """Cap raises _RagToolCapExhausted with a message telling LLM to report KB miss."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
         wrapper, _ = _make_fetch_wrapper(max_calls=1)
         with _patch_thread("thread-fetch-msg"):
             await wrapper._arun(document_id="doc-1")
-            result = await wrapper._arun(document_id="doc-2")
-        assert "maximum" in result.lower()
-        assert "synthesize" in result.lower()
+            with pytest.raises(_RagToolCapExhausted) as exc_info:
+                await wrapper._arun(document_id="doc-2")
+        assert "knowledge base" in str(exc_info.value).lower()
+        assert "budget" not in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_fetch_cap_returns_soft_string_not_exception(self):
-        """Cap returns a plain string (not raises), preventing model retry loops."""
+    async def test_fetch_cap_raises_exception_not_string(self):
+        """Cap raises _RagToolCapExhausted (is_error=True ToolMessage) not a soft string."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
         wrapper, _ = _make_fetch_wrapper(max_calls=1)
-        with _patch_thread("thread-fetch-soft"):
+        with _patch_thread("thread-fetch-hard"):
             await wrapper._arun(document_id="doc-1")
-            result = await wrapper._arun(document_id="doc-2")
-        assert isinstance(result, str)  # Not an exception
+            with pytest.raises(_RagToolCapExhausted):
+                await wrapper._arun(document_id="doc-2")
 
     @pytest.mark.asyncio
     async def test_fetch_does_not_hard_stop_before_cap(self):
@@ -266,33 +271,36 @@ class TestSearchCapTriggersHardStop:
     @pytest.mark.asyncio
     async def test_search_cap_records_hard_stop(self):
         """When SearchCapWrapper hits its cap, it records a hard-stop."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import is_rag_hard_stopped
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import is_rag_hard_stopped, _RagToolCapExhausted
         wrapper, _ = _make_search_wrapper(max_calls=2)
         with _patch_thread("thread-search-stop"):
             await wrapper._arun(query="q1")
             await wrapper._arun(query="q2")
-            await wrapper._arun(query="q3")  # triggers cap
+            with pytest.raises(_RagToolCapExhausted):
+                await wrapper._arun(query="q3")
         assert is_rag_hard_stopped("thread-search-stop")
 
     @pytest.mark.asyncio
-    async def test_search_cap_message_format(self):
-        """Search cap message tells model the limit and directs synthesis."""
+    async def test_search_cap_raises_with_no_budget_message(self):
+        """Cap raises _RagToolCapExhausted telling LLM to report KB miss, not mention limits."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
         wrapper, _ = _make_search_wrapper(max_calls=1)
         with _patch_thread("thread-search-msg"):
             await wrapper._arun(query="q1")
-            result = await wrapper._arun(query="q2")
-        assert "maximum" in result.lower()
-        assert "synthesize" in result.lower()
+            with pytest.raises(_RagToolCapExhausted) as exc_info:
+                await wrapper._arun(query="q2")
+        assert "knowledge base" in str(exc_info.value).lower()
+        assert "budget" not in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
-    async def test_search_cap_count_in_message(self):
-        """Cap message embeds the actual limit count."""
-        wrapper, _ = _make_search_wrapper(max_calls=3)
-        with _patch_thread("thread-search-count"):
-            for i in range(3):
-                await wrapper._arun(query=f"q{i}")
-            result = await wrapper._arun(query="q-over")
-        assert "3" in result
+    async def test_search_cap_raises_exception_not_string(self):
+        """Cap raises _RagToolCapExhausted (is_error=True ToolMessage) not a soft string."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _RagToolCapExhausted
+        wrapper, _ = _make_search_wrapper(max_calls=1)
+        with _patch_thread("thread-search-hard"):
+            await wrapper._arun(query="q1")
+            with pytest.raises(_RagToolCapExhausted):
+                await wrapper._arun(query="q2")
 
 
 # ===========================================================================
