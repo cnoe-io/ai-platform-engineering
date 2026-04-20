@@ -112,6 +112,11 @@ jest.mock('remark-gfm', () => () => {})
 jest.mock('react-syntax-highlighter', () => ({
   Prism: ({ children }: any) => <pre>{children}</pre>,
 }))
+
+// Mock MarkdownRenderer to avoid shiki ESM resolution issues in Jest
+jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
+}))
 jest.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({ oneDark: {} }))
 jest.mock('react-textarea-autosize', () =>
   React.forwardRef((props: any, ref: any) => <textarea ref={ref} {...props} />)
@@ -158,7 +163,7 @@ jest.mock('@/components/ui/button', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { ChatPanel } from '../ChatPanel'
+import { SupervisorChatPanel as ChatPanel } from '../ChatPanel'
 import { A2ASDKClient } from '@/lib/a2a-sdk-client'
 
 // ============================================================================
