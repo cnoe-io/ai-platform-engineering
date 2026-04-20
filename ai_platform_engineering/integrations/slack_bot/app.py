@@ -32,8 +32,10 @@ from utils.config_models import get_escalation_config
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 
-# Initialize OAuth2 auth client if enabled
 AUTH_ENABLED = os.environ.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
+
+SLACK_WORKSPACE_URL = os.environ.get("SLACK_WORKSPACE_URL", "")
+logger.info("SLACK_WORKSPACE_URL={}", SLACK_WORKSPACE_URL or "(not set)")
 
 auth_client = None
 if AUTH_ENABLED:
@@ -122,6 +124,7 @@ def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = ""
       "thread_ts": thread_ts,
       "channel_id": channel_id,
       **({"channel_name": channel_name} if channel_name else {}),
+      **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
     },
   )
   return conv_result["conversation_id"]
@@ -221,13 +224,11 @@ def handle_mention(event, say, client):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
-    context_message = message_text
-    if event.get("thread_ts"):
-      context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
-
     agent_id = _get_agent_id(channel_config)
 
-    # Create or retrieve conversation via shared API (server owns ID generation)
+    # Create or retrieve conversation via shared API (server owns ID generation).
+    # Must happen BEFORE context building so we can use `created` to decide
+    # full vs delta thread context.
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
       agent_id=agent_id,
@@ -237,9 +238,21 @@ def handle_mention(event, say, client):
         "thread_ts": thread_ts,
         "channel_id": channel_id,
         "channel_name": channel_config.name,
+        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
       },
     )
     conversation_id = conv_result["conversation_id"]
+    conv_created = conv_result["created"]
+    conv_metadata = conv_result.get("metadata", {})
+
+    # Build thread context: full on first interaction, delta on follow-ups
+    context_message = message_text
+    if event.get("thread_ts"):
+      if conv_created:
+        context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
+      else:
+        since_ts = conv_metadata.get("last_processed_ts", thread_ts)
+        context_message = slack_context.build_delta_context(app, channel_id, thread_ts, message_text, bot_user_id, since_ts=since_ts)
 
     is_humble_followup = session_manager.is_skipped(thread_ts)
     if is_humble_followup:
@@ -308,6 +321,13 @@ def handle_mention(event, say, client):
 
     logger.info(f"[{thread_ts}] Completed CAIPE request for {user_name}")
 
+    # Record the timestamp of the last processed message so subsequent
+    # interactions can fetch only the delta.
+    try:
+      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
+
   except Exception as e:
     logger.exception(f"Error handling CAIPE mention: {e}")
     try:
@@ -361,6 +381,7 @@ def handle_qanda_message(event, say, client):
         "thread_ts": thread_ts,
         "channel_id": channel_id,
         "channel_name": channel_config.name,
+        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
       },
     )
     conversation_id = conv_result["conversation_id"]
@@ -441,17 +462,15 @@ def handle_dm_message(event, say, client):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
-    context_message = message_text
-    if event.get("thread_ts"):
-      context_message = slack_context.build_thread_context(app, event.get("channel"), thread_ts, message_text, bot_user_id)
-
     agent_id = _get_agent_id_for_dm()
     if not agent_id:
       logger.error(f"[{thread_ts}] No agent_id configured for DMs — set SLACK_INTEGRATION_DM_AGENT_ID or SLACK_INTEGRATION_DEFAULT_AGENT_ID")
       say(text="Sorry, DMs aren't configured yet — no agent ID is set. Please contact an admin.", thread_ts=thread_ts)
       return
 
-    # Create or retrieve conversation via shared API (server owns ID generation)
+    # Create or retrieve conversation via shared API (server owns ID generation).
+    # Must happen BEFORE context building so we can use `created` to decide
+    # full vs delta thread context.
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack DM",
       agent_id=agent_id,
@@ -461,9 +480,21 @@ def handle_dm_message(event, say, client):
         "thread_ts": thread_ts,
         "channel_id": channel_id,
         "channel_type": "dm",
+        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
       },
     )
     conversation_id = conv_result["conversation_id"]
+    conv_created = conv_result["created"]
+    conv_metadata = conv_result.get("metadata", {})
+
+    # Build thread context: full on first interaction, delta on follow-ups
+    context_message = message_text
+    if event.get("thread_ts"):
+      if conv_created:
+        context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
+      else:
+        since_ts = conv_metadata.get("last_processed_ts", thread_ts)
+        context_message = slack_context.build_delta_context(app, channel_id, thread_ts, message_text, bot_user_id, since_ts=since_ts)
 
     client_context = {
       "source": "slack",
@@ -518,6 +549,13 @@ def handle_dm_message(event, say, client):
       )
 
     logger.info(f"[{thread_ts}] Completed DM request for {user_name}")
+
+    # Record the timestamp of the last processed message so subsequent
+    # interactions can fetch only the delta.
+    try:
+      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
 
   except Exception as e:
     logger.exception(f"Error handling DM message: {e}")

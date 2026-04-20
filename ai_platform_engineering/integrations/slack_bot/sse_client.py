@@ -248,7 +248,46 @@ class SSEClient:
       created,
     )
 
-    return {"conversation_id": conversation_id, "created": created}
+    return {
+      "conversation_id": conversation_id,
+      "created": created,
+      "metadata": conversation.get("metadata", {}),
+    }
+
+  def update_conversation_metadata(
+    self,
+    conversation_id: str,
+    metadata: Dict[str, Any],
+  ) -> None:
+    """Merge keys into an existing conversation's metadata.
+
+    Calls ``PATCH /api/chat/conversations/{id}/metadata``.  Only the
+    ``metadata`` field is updated — no other conversation fields are
+    touched.
+
+    Args:
+        conversation_id: UUID of the conversation to update.
+        metadata: Dict of keys to shallow-merge into existing metadata.
+
+    Raises:
+        Exception: On HTTP errors.
+    """
+    url = f"{self.base_url}/api/chat/conversations/{conversation_id}/metadata"
+    headers = self._get_headers()
+    headers["Accept"] = "application/json"
+
+    with httpx.Client(timeout=30) as client:
+      response = client.patch(url, json={"metadata": metadata}, headers=headers)
+
+    if response.status_code not in (200, 204):
+      logger.error(
+        "Failed to update conversation metadata: status={} body={}",
+        response.status_code,
+        response.text[:500],
+      )
+      raise Exception(f"Failed to update conversation metadata: HTTP {response.status_code}")
+
+    logger.debug("Updated metadata for conversation {}: {}", conversation_id, metadata)
 
   def stream_chat(
     self,

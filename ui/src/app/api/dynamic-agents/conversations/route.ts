@@ -119,6 +119,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
                 checkpoint_count: 1,
                 client_type: 1,
                 idempotency_key: 1,
+                metadata: 1,
                 is_archived: 1,
                 deleted_at: 1,
               },

@@ -283,6 +283,10 @@ export interface UpdateConversationRequest {
   is_pinned?: boolean;
 }
 
+export interface PatchConversationMetadataRequest {
+  metadata: Record<string, unknown>;
+}
+
 export interface ShareConversationRequest {
   user_emails?: string[];
   team_ids?: string[];

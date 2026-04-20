@@ -28,6 +28,7 @@ import {
   Hash,
   Globe,
   Copy,
+  ExternalLink,
 } from "lucide-react";
 import { getGradientStyle } from "@/lib/gradient-themes";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
@@ -42,6 +43,13 @@ interface ConversationItem {
   checkpoint_count: number;
   client_type?: string;
   idempotency_key?: string;
+  metadata?: {
+    thread_ts?: string;
+    channel_id?: string;
+    channel_name?: string;
+    workspace_url?: string;
+    [key: string]: unknown;
+  };
   is_archived: boolean;
   deleted_at: string | null;
 }
@@ -201,6 +209,13 @@ export function ConversationsTab() {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const buildSlackPermalink = (conv: ConversationItem): string | null => {
+    const meta = conv.metadata;
+    if (!meta?.workspace_url || !meta?.channel_id || !meta?.thread_ts) return null;
+    const tsClean = meta.thread_ts.replace(".", "");
+    return `${meta.workspace_url}/archives/${meta.channel_id}/p${tsClean}`;
   };
 
   return (
@@ -512,6 +527,25 @@ export function ConversationsTab() {
                     {selectedConversation.client_type === "slack" ? "Slack" : "Web"}
                   </Badge>
                 </div>
+
+                {/* Slack permalink (for Slack conversations) */}
+                {(() => {
+                  const permalink = buildSlackPermalink(selectedConversation);
+                  return permalink ? (
+                    <div className="flex items-center gap-2">
+                      <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                      <a
+                        href={permalink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        View Slack thread
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  ) : null;
+                })()}
 
                 {/* ID */}
                 <div className="flex items-start gap-2">

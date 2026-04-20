@@ -1275,6 +1275,7 @@ def handle_ai_alert_processing(
       "thread_ts": thread_ts,
       "channel_id": channel_id,
       "alert_bot": bot_username,
+      **({"workspace_url": os.environ.get("SLACK_WORKSPACE_URL", "")} if os.environ.get("SLACK_WORKSPACE_URL") else {}),
     },
   )
   conversation_id = conv_result["conversation_id"]
