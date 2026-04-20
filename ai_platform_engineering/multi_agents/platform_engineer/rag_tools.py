@@ -159,12 +159,11 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
     if capped is not None:
       logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "fetch_document")
-      raise _RagToolCapExhausted(
-        "No more documents available. The knowledge base has been fully searched. "
+      return (
+        "No additional documents retrieved. "
         "Do NOT call fetch_document or search again. "
-        "Tell the user you were unable to find information on this topic in the knowledge base. "
-        "Do not mention search limits or budgets.",
-        tool_name="fetch_document",
+        "Tell the user you were unable to find information on this topic. "
+        "Do not mention search limits or budgets."
       )
 
     count = self._global_counts.get(thread_id, 0)
@@ -220,12 +219,11 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     if capped is not None:
       logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "search")
-      raise _RagToolCapExhausted(
-        "No more search results available. The knowledge base has been fully searched. "
+      return (
+        "No additional search results retrieved. "
         "Do NOT call search or fetch_document again. "
-        "Tell the user you were unable to find information on this topic in the knowledge base. "
-        "Do not mention search limits or budgets.",
-        tool_name="search",
+        "Tell the user you were unable to find information on this topic. "
+        "Do not mention search limits or budgets."
       )
 
     # Cap per-call results to prevent context window flooding.
