@@ -2,7 +2,7 @@
  * Unit tests for ticket-client.ts
  *
  * Tests:
- * - createTicketViaAgent calls A2ASDKClient with correct prompt
+ * - createTicketViaAgent calls SSEClient with correct prompt
  * - Jira ticket result extraction from agent response
  * - GitHub issue result extraction from agent response
  * - Error handling when agent fails
@@ -21,7 +21,6 @@ let mockProject: string | null = "OPENSD";
 let mockLabel: string = "caipe-reported";
 let mockGithubRepo: string | null = "org/repo";
 let mockGithubLabel: string = "caipe-reported";
-let mockCaipeUrl = "http://localhost:8000";
 
 jest.mock("@/lib/config", () => ({
   getConfig: (key: string) => {
@@ -36,34 +35,49 @@ jest.mock("@/lib/config", () => ({
         return mockGithubRepo;
       case "githubTicketLabel":
         return mockGithubLabel;
-      case "caipeUrl":
-        return mockCaipeUrl;
       default:
         return null;
     }
   },
 }));
 
+let mockOnEvent: ((event: any) => void) | null = null;
+const mockSendMessage = jest.fn().mockResolvedValue(undefined);
 const mockAbort = jest.fn();
-let mockStreamEvents: any[] = [];
 
-jest.mock("@/lib/a2a-sdk-client", () => ({
-  A2ASDKClient: jest.fn().mockImplementation(() => ({
-    sendMessageStream: jest.fn(function* () {
-      for (const event of mockStreamEvents) {
-        yield event;
-      }
-    }),
-    abort: mockAbort,
-  })),
+jest.mock("@/lib/sse-streaming-client", () => ({
+  SSEClient: jest.fn().mockImplementation((config: any) => {
+    mockOnEvent = config.onEvent ?? null;
+    return {
+      sendMessage: mockSendMessage,
+      abort: mockAbort,
+    };
+  }),
 }));
 
 // ============================================================================
-// Imports
+// Helpers
+// ============================================================================
+
+/**
+ * Set up mockSendMessage to fire SSE events synchronously then resolve.
+ */
+function mockSSEEvents(events: Array<{ type: string; text?: string; turn_id?: string; message?: string }>) {
+  mockSendMessage.mockImplementation(async () => {
+    if (mockOnEvent) {
+      for (const ev of events) {
+        mockOnEvent(ev);
+      }
+    }
+  });
+}
+
+// ============================================================================
+// Imports — after mocks
 // ============================================================================
 
 import { createTicketViaAgent } from "../ticket-client";
-import { A2ASDKClient } from "@/lib/a2a-sdk-client";
+import { SSEClient } from "@/lib/sse-streaming-client";
 
 // ============================================================================
 // Tests
@@ -72,12 +86,14 @@ import { A2ASDKClient } from "@/lib/a2a-sdk-client";
 describe("createTicketViaAgent", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockOnEvent = null;
     mockProvider = "jira";
     mockProject = "OPENSD";
     mockLabel = "caipe-reported";
     mockGithubRepo = "org/repo";
     mockGithubLabel = "caipe-reported";
-    mockStreamEvents = [];
+    // Default: no events
+    mockSSEEvents([]);
   });
 
   it("throws when provider is not configured", async () => {
@@ -109,9 +125,7 @@ describe("createTicketViaAgent", () => {
     ).rejects.toThrow("Ticket provider is not configured");
   });
 
-  it("creates A2ASDKClient with correct config", async () => {
-    mockStreamEvents = [];
-
+  it("creates SSEClient with correct endpoint and accessToken", async () => {
     await createTicketViaAgent({
       request: {
         description: "something broke",
@@ -121,24 +135,38 @@ describe("createTicketViaAgent", () => {
       accessToken: "tok-123",
     });
 
-    expect(A2ASDKClient).toHaveBeenCalledWith({
-      endpoint: "http://localhost:8000",
-      accessToken: "tok-123",
-      userEmail: "user@test.com",
-    });
+    expect(SSEClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "/api/chat/stream",
+        accessToken: "tok-123",
+      })
+    );
   });
 
-  it("extracts Jira ticket from final_result", async () => {
-    mockStreamEvents = [
-      {
-        type: "artifact",
-        artifactName: "final_result",
-        displayContent:
-          "Created Jira issue OPENSD-456. View at https://jira.example.com/browse/OPENSD-456",
-        isFinal: true,
-        contextId: "ctx-1",
+  it("calls sendMessage with prompt containing user description", async () => {
+    await createTicketViaAgent({
+      request: {
+        description: "something broke",
+        userEmail: "user@test.com",
+        contextUrl: "http://localhost/chat/abc",
       },
-    ];
+      accessToken: "tok-123",
+    });
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("something broke"),
+        user_email: "user@test.com",
+        source: "web",
+      })
+    );
+  });
+
+  it("extracts Jira ticket from content events", async () => {
+    mockSSEEvents([
+      { type: "content", text: "Created Jira issue OPENSD-456. View at https://jira.example.com/browse/OPENSD-456" },
+      { type: "done" },
+    ]);
 
     const result = await createTicketViaAgent({
       request: {
@@ -155,17 +183,12 @@ describe("createTicketViaAgent", () => {
     });
   });
 
-  it("extracts GitHub issue from final_result", async () => {
+  it("extracts GitHub issue from content events", async () => {
     mockProvider = "github";
-    mockStreamEvents = [
-      {
-        type: "artifact",
-        artifactName: "final_result",
-        displayContent:
-          "Created issue #42 at https://github.com/org/repo/issues/42",
-        isFinal: true,
-      },
-    ];
+    mockSSEEvents([
+      { type: "content", text: "Created issue #42 at https://github.com/org/repo/issues/42" },
+      { type: "done" },
+    ]);
 
     const result = await createTicketViaAgent({
       request: {
@@ -183,13 +206,7 @@ describe("createTicketViaAgent", () => {
   });
 
   it("returns null when no final content", async () => {
-    mockStreamEvents = [
-      {
-        type: "status",
-        artifactName: "tool_notification_start",
-        displayContent: "Starting...",
-      },
-    ];
+    mockSSEEvents([{ type: "done" }]);
 
     const result = await createTicketViaAgent({
       request: {
@@ -203,19 +220,10 @@ describe("createTicketViaAgent", () => {
   });
 
   it("fires onEvent callback for each event", async () => {
-    mockStreamEvents = [
-      {
-        type: "status",
-        artifactName: "tool_notification_start",
-        displayContent: "Starting...",
-      },
-      {
-        type: "artifact",
-        artifactName: "final_result",
-        displayContent: "OPENSD-789",
-        isFinal: true,
-      },
-    ];
+    mockSSEEvents([
+      { type: "content", text: "Working on it..." },
+      { type: "done" },
+    ]);
 
     const onEvent = jest.fn();
 
@@ -229,20 +237,17 @@ describe("createTicketViaAgent", () => {
     });
 
     expect(onEvent).toHaveBeenCalledTimes(2);
-    expect(onEvent.mock.calls[0][1]).toContain("tool_notification_start");
-    expect(onEvent.mock.calls[1][1]).toContain("final_result");
-    expect(onEvent.mock.calls[1][1]).toContain("[final]");
+    // First arg is the event, second is the log line string
+    expect(onEvent.mock.calls[0][0]).toMatchObject({ type: "content" });
+    expect(onEvent.mock.calls[0][1]).toContain("content");
+    expect(onEvent.mock.calls[1][0]).toMatchObject({ type: "done" });
   });
 
   it("fires onResult callback when ticket is extracted", async () => {
-    mockStreamEvents = [
-      {
-        type: "artifact",
-        artifactName: "final_result",
-        displayContent: "Created OPENSD-101",
-        isFinal: true,
-      },
-    ];
+    mockSSEEvents([
+      { type: "content", text: "Created OPENSD-101" },
+      { type: "done" },
+    ]);
 
     const onResult = jest.fn();
 
@@ -261,14 +266,6 @@ describe("createTicketViaAgent", () => {
   });
 
   it("includes feedback context in prompt", async () => {
-    mockStreamEvents = [];
-
-    const mockSendMessageStream = jest.fn(function* () {});
-    (A2ASDKClient as jest.Mock).mockImplementation(() => ({
-      sendMessageStream: mockSendMessageStream,
-      abort: mockAbort,
-    }));
-
     await createTicketViaAgent({
       request: {
         description: "Inaccurate: it was wrong",
@@ -282,23 +279,16 @@ describe("createTicketViaAgent", () => {
       },
     });
 
-    const prompt = mockSendMessageStream.mock.calls[0][0];
-    expect(prompt).toContain("Jira issue in project OPENSD");
-    expect(prompt).toContain("Feedback Type: dislike");
-    expect(prompt).toContain("Feedback Reason: Inaccurate");
-    expect(prompt).toContain("Additional Feedback: Response was wrong");
-    expect(prompt).toContain(`"caipe-reported"`);
+    const callArg = mockSendMessage.mock.calls[0][0];
+    expect(callArg.message).toContain("Jira issue in project OPENSD");
+    expect(callArg.message).toContain("Feedback Type: dislike");
+    expect(callArg.message).toContain("Feedback Reason: Inaccurate");
+    expect(callArg.message).toContain("Additional Feedback: Response was wrong");
+    expect(callArg.message).toContain(`"caipe-reported"`);
   });
 
   it("includes custom label in prompt", async () => {
     mockLabel = "my-custom-label";
-    mockStreamEvents = [];
-
-    const mockSendMessageStream = jest.fn(function* () {});
-    (A2ASDKClient as jest.Mock).mockImplementation(() => ({
-      sendMessageStream: mockSendMessageStream,
-      abort: mockAbort,
-    }));
 
     await createTicketViaAgent({
       request: {
@@ -308,19 +298,12 @@ describe("createTicketViaAgent", () => {
       },
     });
 
-    const prompt = mockSendMessageStream.mock.calls[0][0];
-    expect(prompt).toContain(`"my-custom-label"`);
+    const callArg = mockSendMessage.mock.calls[0][0];
+    expect(callArg.message).toContain(`"my-custom-label"`);
   });
 
   it("uses GitHub target when provider is github", async () => {
     mockProvider = "github";
-    mockStreamEvents = [];
-
-    const mockSendMessageStream = jest.fn(function* () {});
-    (A2ASDKClient as jest.Mock).mockImplementation(() => ({
-      sendMessageStream: mockSendMessageStream,
-      abort: mockAbort,
-    }));
 
     await createTicketViaAgent({
       request: {
@@ -330,26 +313,15 @@ describe("createTicketViaAgent", () => {
       },
     });
 
-    const prompt = mockSendMessageStream.mock.calls[0][0];
-    expect(prompt).toContain("GitHub issue in repository org/repo");
+    const callArg = mockSendMessage.mock.calls[0][0];
+    expect(callArg.message).toContain("GitHub issue in repository org/repo");
   });
 
   it("extracts Jira key without URL", async () => {
-    const events = [
-      {
-        type: "artifact",
-        artifactName: "final_result",
-        displayContent: "Created issue OPENSD-999 successfully.",
-        isFinal: true,
-      },
-    ];
-
-    (A2ASDKClient as jest.Mock).mockImplementation(() => ({
-      sendMessageStream: jest.fn(function* () {
-        for (const e of events) yield e;
-      }),
-      abort: mockAbort,
-    }));
+    mockSSEEvents([
+      { type: "content", text: "Created issue OPENSD-999 successfully." },
+      { type: "done" },
+    ]);
 
     const result = await createTicketViaAgent({
       request: {
@@ -362,6 +334,28 @@ describe("createTicketViaAgent", () => {
     expect(result).toEqual({
       id: "OPENSD-999",
       url: "",
+      provider: "jira",
+    });
+  });
+
+  it("accumulates multiple content chunks before extracting result", async () => {
+    mockSSEEvents([
+      { type: "content", text: "Working on creating the issue..." },
+      { type: "content", text: " Created OPENSD-200 at https://jira.example.com/browse/OPENSD-200" },
+      { type: "done" },
+    ]);
+
+    const result = await createTicketViaAgent({
+      request: {
+        description: "multi-chunk test",
+        userEmail: "u@e.com",
+        contextUrl: "http://localhost/chat/1",
+      },
+    });
+
+    expect(result).toEqual({
+      id: "OPENSD-200",
+      url: "https://jira.example.com/browse/OPENSD-200",
       provider: "jira",
     });
   });

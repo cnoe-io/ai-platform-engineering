@@ -65,6 +65,10 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if .Values.seedConfig.enabled }}
+            - name: SEED_CONFIG_PATH
+              value: "/etc/caipe-ui/seed-config.yaml"
+            {{- end }}
           envFrom:
             # Mount ConfigMap as environment variables (non-sensitive config)
             - configMapRef:
@@ -99,6 +103,11 @@ spec:
             - name: task-config
               mountPath: /app/config/task-config
               readOnly: true
+            {{- if .Values.seedConfig.enabled }}
+            - name: seed-config
+              mountPath: /etc/caipe-ui
+              readOnly: true
+            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -111,6 +120,11 @@ spec:
           configMap:
             name: task-config
             optional: true
+        {{- if .Values.seedConfig.enabled }}
+        - name: seed-config
+          configMap:
+            name: {{ include "caipe-ui.fullname" . }}-seed
+        {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

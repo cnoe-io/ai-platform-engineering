@@ -82,7 +82,7 @@ export async function GET(
     }
 
     await requireRbacPermission(
-      { accessToken: session.accessToken, sub: session.sub, org: session.org },
+      { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
       "rag",
       "tool.view",
     );
@@ -112,7 +112,7 @@ export async function PUT(
     }
 
     await requireRbacPermission(
-      { accessToken: session.accessToken, sub: session.sub, org: session.org },
+      { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
       "rag",
       "tool.update",
     );
@@ -178,7 +178,7 @@ export async function DELETE(
     }
 
     await requireRbacPermission(
-      { accessToken: session.accessToken, sub: session.sub, org: session.org },
+      { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
       "rag",
       "tool.delete",
     );

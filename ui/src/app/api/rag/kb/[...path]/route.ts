@@ -75,7 +75,7 @@ async function proxyToRag(
 
   const scope = scopeForMethod(method);
   await requireRbacPermission(
-    { accessToken: session.accessToken, sub: session.sub, org: session.org },
+    { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
     "rag",
     scope,
   );

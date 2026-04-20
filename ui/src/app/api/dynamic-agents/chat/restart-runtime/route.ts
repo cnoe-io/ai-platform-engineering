@@ -6,7 +6,7 @@
  * come back online after being unavailable.
  *
  * POST /api/dynamic-agents/chat/restart-runtime
- * Body: { agent_id, session_id }
+ * Body: { agent_id, conversation_id }
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // Parse the request body
-  let body: { agent_id: string; session_id: string };
+  let body: { agent_id: string; conversation_id: string };
   try {
     body = await request.json();
   } catch {
@@ -54,9 +54,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  if (!body.agent_id || !body.session_id) {
+  if (!body.agent_id || !body.conversation_id) {
     return NextResponse.json(
-      { success: false, error: "Missing required fields: agent_id, session_id" },
+      { success: false, error: "Missing required fields: agent_id, conversation_id" },
       { status: 400 }
     );
   }

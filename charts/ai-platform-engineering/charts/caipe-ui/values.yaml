@@ -200,6 +200,9 @@ config:
   # GITHUB_TICKET_ENABLED: "true"
   # GITHUB_TICKET_REPO: "org/repo"
   # GITHUB_TICKET_LABEL: "caipe-reported"
+  # Server-side user identity via JWT — same flag as backend.
+  # When true, the UI stops prefixing messages with "by user: email".
+  ENABLE_USER_INFO_TOOL: "false"
 
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).
@@ -249,3 +252,54 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/caipe-ui
     #     property: OIDC_CLIENT_SECRET
+
+# Seed configuration for MCP servers and agents
+# These are loaded at startup and marked as config_driven (cannot be edited via UI)
+# Environment variables in values support ${VAR_NAME} and ${VAR_NAME:-default} syntax
+seedConfig:
+  # Enable seed config ConfigMap creation and mounting
+  enabled: false
+
+  # Available LLM models for the model selector
+  models: []
+  # Example:
+  # - model_id: "claude-sonnet-4-20250514"
+  #   name: "Claude Sonnet 4"
+  #   provider: "anthropic-claude"
+  #   description: "Latest Claude Sonnet model"
+
+  # MCP server configurations
+  # Transport types: stdio, sse, http
+  mcp_servers: []
+  # Example for HTTP MCP server (Streamable HTTP):
+  # - id: "argocd"
+  #   name: "ArgoCD"
+  #   description: "ArgoCD operations via MCP"
+  #   transport: "http"
+  #   endpoint: "http://agent-argocd-mcp:8000/mcp"
+  #   enabled: true
+  #
+  # Example for stdio MCP server:
+  # - id: "github"
+  #   name: "GitHub"
+  #   transport: "stdio"
+  #   command: "uvx"
+  #   args: ["mcp-server-github"]
+  #   env:
+  #     GITHUB_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+  #   enabled: true
+
+  # Agent configurations
+  agents: []
+  # Example:
+  # - id: "code-reviewer"
+  #   name: "Code Reviewer"
+  #   description: "Reviews code for best practices"
+  #   system_prompt: |
+  #     You are an expert code reviewer...
+  #   model_id: "claude-sonnet-4-20250514"
+  #   model_provider: "anthropic-claude"
+  #   visibility: "global"
+  #   allowed_tools:
+  #     github: []
+  #   enabled: true

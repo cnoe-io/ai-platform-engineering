@@ -1772,7 +1772,7 @@ function AdminPage() {
                     <MultiSelect
                       options={[
                         ...teams.map((t) => `team:${t.name}`),
-                        ...users.map((u) => u.email),
+                        ...feedbackUsers,
                       ]}
                       selected={userFilter}
                       onChange={(selected) => {

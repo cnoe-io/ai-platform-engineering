@@ -134,6 +134,10 @@
 - Q: What depth of information should the user system menu show about the user's own RBAC posture? → A: **Full RBAC posture (Option B)** — Keycloak realm roles, CAIPE team memberships, per-KB roles (`kb_reader:X`, `kb_ingestor:X`, `kb_admin:X`), per-agent roles (`agent_user:X`, `agent_admin:X`), and identity provider source. Mirrors the admin user detail view (**FR-033**) as a read-only self-service panel.
 - Q: Should the 70% coverage target be enforced as a CI gate? → A: **No new CI gate.** Focus on improving test quality and coverage to reach 70%. The UI already has `make caipe-ui-tests` (`npm test`) as a pass/fail gate. No additional `coverageThreshold` or `--cov-fail-under` enforcement is required — the goal is test improvement, not gating.
 
+### Session 2026-04-15 (Policy Engine Evaluation)
+
+- Q: Should 098 reconsider the CEL mandate (FR-029) in favor of OpenFGA (Zanzibar-style ReBAC) for policy evaluation? → A: **Defer evaluation.** Keep CEL for 098; add OpenFGA to the roadmap for evaluation in a future release. CEL is already embedded in 4 services (`cel-python`, `cel-js`), has zero infrastructure overhead, sub-millisecond latency, and aligns natively with Agent Gateway. CAIPE's current RBAC model is attribute-based (roles/teams from JWT claims) with shallow relationship depth (user→team→KB at most two hops), which is CEL's sweet spot. OpenFGA's strength — deep relationship graphs (Zanzibar-style ReBAC) — adds a centralized stateful service (Postgres + OpenFGA server) for relationship depth CAIPE does not currently require. Agent Gateway will continue using CEL regardless, so adopting OpenFGA would mean running two policy systems side by side. **FR-029 (CEL mandate) remains unchanged.** OpenFGA should be revisited if the permission model evolves toward deeper resource hierarchies in a future release.
+
 ## Related work
 
 | Spec | Focus | How it pairs with 098 |

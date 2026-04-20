@@ -12,6 +12,10 @@ import requests
 from typing import Optional
 from loguru import logger
 
+try:
+  from sse_client import thread_ts_to_conversation_id  # type: ignore[import]
+except ImportError:
+  from ..sse_client import thread_ts_to_conversation_id
 from .session_manager import SessionManager
 from .config_models import Config
 
@@ -52,8 +56,8 @@ def submit_feedback_score(
 
   The API handles both Langfuse scoring and MongoDB writes.
   """
-  trace_id = session_manager.get_trace_id(thread_ts)
-  context_id = session_manager.get_context_id(thread_ts)
+  trace_id = None  # Trace ID tracking removed in AG-UI migration
+  context_id = thread_ts_to_conversation_id(thread_ts)
 
   # Resolve user email from Slack
   user_email = None
@@ -108,7 +112,7 @@ def submit_feedback_score(
     payload["userEmail"] = user_email
 
   # Call the unified feedback API
-  feedback_api_url = os.environ.get("CAIPE_UI_URL", "http://localhost:3000")
+  feedback_api_url = os.environ.get("CAIPE_API_URL", "http://localhost:3000")
   url = f"{feedback_api_url.rstrip('/')}/api/feedback"
 
   try:

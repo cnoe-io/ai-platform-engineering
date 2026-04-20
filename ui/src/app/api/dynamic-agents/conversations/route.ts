@@ -4,7 +4,7 @@
  * GET /api/dynamic-agents/conversations?page=1&limit=20
  *
  * This queries the conversations collection directly for admin management.
- * Only returns conversations that have an agent_id (Dynamic Agent conversations).
+ * Only returns conversations that have an agent participant (Dynamic Agent conversations).
  */
 
 import { NextRequest } from "next/server";
@@ -43,9 +43,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const search = url.searchParams.get("search")?.trim();
     const agentId = url.searchParams.get("agent_id")?.trim();
 
-    // Build match stage - only Dynamic Agent conversations (have non-empty agent_id)
+    // Build match stage — only conversations with at least one agent participant
     const matchStage: Record<string, unknown> = {
-      agent_id: { $exists: true, $nin: [null, ""] },
+      "participants": { $elemMatch: { type: "agent" } },
     };
 
     // General search across multiple fields (id, title, owner_id)
@@ -58,7 +58,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     if (agentId) {
-      matchStage.agent_id = agentId;
+      matchStage["participants"] = { $elemMatch: { type: "agent", id: agentId } };
     }
 
     const conversations = await getCollection<Conversation>("conversations");
@@ -90,6 +90,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
               $addFields: {
                 checkpoint_count: {
                   $ifNull: [{ $arrayElemAt: ["$_checkpoints.count", 0] }, 0],
+                },
+                // Project a derived agent_id for backward compat with the admin UI
+                agent_id: {
+                  $let: {
+                    vars: {
+                      agentParticipant: {
+                        $arrayElemAt: [
+                          { $filter: { input: "$participants", as: "p", cond: { $eq: ["$$p.type", "agent"] } } },
+                          0,
+                        ],
+                      },
+                    },
+                    in: "$$agentParticipant.id",
+                  },
                 },
               },
             },

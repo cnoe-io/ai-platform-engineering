@@ -160,6 +160,29 @@ async def remove_user_attribute(
         logger.info("Removed attribute %s from user %s", attr, user_id)
 
 
+async def get_user_by_email(
+    email: str,
+    config: KeycloakAdminConfig | None = None,
+) -> Optional[dict[str, Any]]:
+    """Find a Keycloak user by exact email match.
+
+    Returns the first matching user dict, or ``None`` if not found.
+    """
+    cfg = config or _default_config
+    token = await _get_admin_token(cfg)
+    url = f"{cfg.server_url}/admin/realms/{cfg.realm}/users"
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            url,
+            params={"email": email, "exact": "true", "max": 1},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp.raise_for_status()
+        users = resp.json()
+        return users[0] if users else None
+
+
 async def fetch_user_realm_role_names(
     user_id: str,
     config: KeycloakAdminConfig | None = None,

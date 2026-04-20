@@ -105,7 +105,7 @@ function makeConversation(overrides: any = {}) {
     is_archived: false,
     is_pinned: false,
     deleted_at: null,
-    metadata: { agent_version: '0.1.0', model_used: 'gpt-4o', total_messages: 2 },
+    metadata: { client_type: 'ui', total_messages: 2 },
     sharing: { is_public: false, shared_with: [], shared_with_teams: [], share_link_enabled: false },
     tags: [],
     ...overrides,

@@ -129,7 +129,7 @@ function makeConversation(overrides: Record<string, any> = {}) {
     owner_id: OWNER_EMAIL,
     created_at: new Date(),
     updated_at: new Date(),
-    metadata: { agent_version: '0.1.0', model_used: 'gpt-4o', total_messages: 0 },
+    metadata: { client_type: 'ui', ui_version: '0.2.0', total_messages: 0 },
     sharing: {
       is_public: false,
       shared_with: [],

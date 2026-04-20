@@ -17,10 +17,10 @@ import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
 import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType, A2AEvent, TimelineSegment, PlanStep } from "@/types/a2a";
+import { ChatMessage as ChatMessageType, A2AEvent, SupervisorTimelineSegment, PlanStep } from "@/types/a2a";
 import { parsePlanStepsFromData, parseToolFromArtifact } from "@/lib/timeline-parsers";
-import { TimelineManager } from "@/lib/timeline-manager";
-import { AgentTimeline } from "./AgentTimeline";
+import { SupervisorTimelineManager } from "@/lib/timeline-manager";
+import { SupervisorTimeline } from "./AgentTimeline";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
@@ -32,7 +32,7 @@ import { useSlashCommands } from "./useSlashCommands";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
-interface ChatPanelProps {
+interface SupervisorChatPanelProps {
   endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
   conversationTitle?: string;
@@ -44,7 +44,7 @@ interface ChatPanelProps {
   selectedAgentId?: string;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, selectedAgentId }: ChatPanelProps) {
+export function SupervisorChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, selectedAgentId }: SupervisorChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -450,7 +450,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     };
 
     // Timeline manager - encapsulates segment mutation logic
-    const timeline = new TimelineManager();
+    const timeline = new SupervisorTimelineManager();
     const streamStartTime = Date.now();
 
     // Mark this conversation as streaming
@@ -543,11 +543,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           flushEventBuffer();
           // Log store state right after flush
           const storeConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
-          console.log(`[Agent-DEBUG] 📊 POST-FLUSH store event count: ${isDynamicAgent ? storeConv?.sseEvents?.length ?? 0 : storeConv?.a2aEvents?.length ?? 0}`);
+          console.log(`[Agent-DEBUG] POST-FLUSH store event count: ${isDynamicAgent ? storeConv?.streamEvents?.length ?? 0 : storeConv?.a2aEvents?.length ?? 0}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // BUILD TIMELINE SEGMENTS (via TimelineManager)
+        // BUILD TIMELINE SEGMENTS (via SupervisorTimelineManager)
         // ═══════════════════════════════════════════════════════════════
         if (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update") {
           const rawArtifact = (event.raw as any)?.artifact;
@@ -1132,7 +1132,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let hasReceivedCompleteResult = false;
 
     // Timeline manager — seed with previous message's plan for continuity
-    const timeline = new TimelineManager();
+    const timeline = new SupervisorTimelineManager();
     const prevMsg = useChatStore.getState().conversations
       .find((c) => c.id === activeConversationId)?.messages
       .find((m) => m.id === prevMessageId);
@@ -1246,7 +1246,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (!newContent) continue;
 
         // Skip tool notifications and execution plans from chat text —
-        // they are shown in the timeline via TimelineManager
+        // they are shown in the timeline via SupervisorTimelineManager
         const isToolOrPlanArtifact =
           artifactName === "tool_notification_start" ||
           artifactName === "tool_notification_end" ||
@@ -1348,7 +1348,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let hitlFormRequested = false;
 
     // Timeline manager — seed with previous message's plan for continuity
-    const timeline = new TimelineManager();
+    const timeline = new SupervisorTimelineManager();
     const prevMsgSSE = useChatStore.getState().conversations
       .find((c) => c.id === activeConversationId)?.messages
       .find((m) => m.id === prevMessageId);
@@ -2227,7 +2227,7 @@ const ChatMessage = React.memo(function ChatMessage({
 
   // When the timeline has a final_answer segment, it renders the answer itself —
   // skip the separate markdown card for assistant messages to avoid duplication.
-  const timelineHasFinalAnswer = !isUser && message.timelineSegments?.some((s: TimelineSegment) => s.type === "final_answer");
+  const timelineHasFinalAnswer = !isUser && message.timelineSegments?.some((s: SupervisorTimelineSegment) => s.type === "final_answer");
 
   return (
     <motion.div
@@ -2333,11 +2333,11 @@ const ChatMessage = React.memo(function ChatMessage({
         </div>
 
         {/* ═══════════════════════════════════════════════════════════
-            SINGLE AgentTimeline INSTANCE — persists across streaming→post-stream
+            SINGLE SupervisorTimeline INSTANCE — persists across streaming→post-stream
             so the collapse useEffect (true→false transition) fires correctly.
             ═══════════════════════════════════════════════════════════ */}
         {message.role === "assistant" && message.timelineSegments && message.timelineSegments.length > 0 ? (
-          <AgentTimeline
+          <SupervisorTimeline
             segments={message.timelineSegments}
             isStreaming={isStreaming}
             isCollapsed={isCollapsed}
@@ -2564,7 +2564,7 @@ const ChatMessage = React.memo(function ChatMessage({
         )}
 
         {/* Actions for assistant messages — outside the ternary so they render
-            whether the final answer comes from AgentTimeline or the markdown card */}
+            whether the final answer comes from SupervisorTimeline or the markdown card */}
         {!isUser && displayContent && (
           <motion.div
             initial={{ opacity: 0 }}

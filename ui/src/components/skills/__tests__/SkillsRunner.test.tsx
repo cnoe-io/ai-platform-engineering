@@ -64,15 +64,9 @@ jest.mock("@/components/ui/caipe-spinner", () => ({
   CAIPESpinner: ({ message }: any) => <div data-testid="spinner">{message}</div>,
 }));
 
-jest.mock("@/lib/a2a-sdk-client", () => ({
-  A2ASDKClient: jest.fn().mockImplementation(() => ({
-    sendMessageStream: jest.fn().mockReturnValue({
-      [Symbol.asyncIterator]() {
-        return {
-          next: jest.fn().mockResolvedValue({ done: true, value: undefined }),
-        };
-      },
-    }),
+jest.mock("@/lib/sse-streaming-client", () => ({
+  SSEClient: jest.fn().mockImplementation(() => ({
+    sendMessage: jest.fn().mockResolvedValue(undefined),
     abort: jest.fn(),
   })),
 }));

@@ -252,6 +252,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'feedback', { channel_name: 1, created_at: -1 }),
     safeCreateIndex(db, 'feedback', { trace_id: 1 }),
 
+    // Turns collection (per-turn persistence decoupled from messages)
+    safeCreateIndex(db, 'turns', { conversation_id: 1, client_type: 1, turn_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'turns', { conversation_id: 1, client_type: 1, created_at: 1 }),
+
     // Slack metadata on conversations (for stats queries filtering by source)
     safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),

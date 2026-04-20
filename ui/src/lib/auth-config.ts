@@ -817,7 +817,7 @@ export const authOptions: NextAuthOptions = {
       },
     },
   },
-  debug: process.env.NODE_ENV === "development",
+  debug: process.env.NEXTAUTH_DEBUG === "true",
   // Disable NextAuth's internal logging persistence to prevent SST file errors
   logger: {
     error(code, metadata) {

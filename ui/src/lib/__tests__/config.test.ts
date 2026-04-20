@@ -136,6 +136,7 @@ describe('getServerConfig', () => {
     it('should have exactly the expected Config keys (no extras)', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
+        'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
         'ragEnabled', 'mongodbEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
@@ -151,6 +152,7 @@ describe('getServerConfig', () => {
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
         'oidcRequiredGroup',
+        'userInfoToolEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -908,6 +910,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const script = getClientConfigScript();
     const parsed = JSON.parse(script);
     const expectedKeys: (keyof Config)[] = [
+      'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
       'ragEnabled', 'mongodbEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
@@ -922,7 +925,11 @@ describe('getClientConfigScript (XSS safety)', () => {
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
+<<<<<<< HEAD
       'oidcRequiredGroup',
+=======
+      'userInfoToolEnabled',
+>>>>>>> 7982deba (fix(ui): fix ui test)
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

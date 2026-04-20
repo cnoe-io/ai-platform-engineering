@@ -1229,7 +1229,10 @@ services:
       # 098 Slack identity linking HMAC secret (shared with slack-bot)
       - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      # Seed config: loaded at Next.js startup via instrumentation.ts
+      - SEED_CONFIG_PATH=/app/config/seed-config.yaml
     volumes:
+      - ./ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/config.yaml:/app/config/seed-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       caipe-supervisor:
@@ -1247,7 +1250,6 @@ services:
   # Configuration:
   #   - Requires MongoDB for agent/MCP server configuration storage
   #   - Supports OIDC authentication (same config as CAIPE UI)
-  #   - MCP servers can be configured via UI or seed config
   #
   # Ports:
   #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
@@ -1289,12 +1291,9 @@ services:
       # CORS_ORIGINS: must be a JSON array (bare "*" from prod default is not valid JSON for list[str])
       # To restrict origins, set DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]' in .env
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
-      # Seed config: use the volume-mounted source config so changes take effect
-      # without rebuilding the image (Python imports config.yaml from site-packages by
-      # default, which is frozen at image-build time)
-      - SEED_CONFIG_PATH=/app/dynamic_agents/src/dynamic_agents/services/config.yaml
-      # Agent Gateway (FR-038f) — MCP routing through AG for dynamic agents
+      # Agent Gateway — MCP routing through AG for dynamic agents
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
+
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
@@ -2029,10 +2028,9 @@ services:
       - SLACK_INTEGRATION_AUTH_CLIENT_SECRET=${SLACK_INTEGRATION_AUTH_CLIENT_SECRET:-}
       - SLACK_INTEGRATION_AUTH_SCOPE=${SLACK_INTEGRATION_AUTH_SCOPE:-}
       - SLACK_INTEGRATION_AUTH_AUDIENCE=${SLACK_INTEGRATION_AUTH_AUDIENCE:-}
-      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
       - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
       - MONGODB_DATABASE=caipe
-      - CAIPE_UI_URL=${CAIPE_UI_URL:-http://caipe-ui:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
       # 098 Enterprise RBAC (requires --profile rbac)
       - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-true}
@@ -2045,7 +2043,7 @@ services:
       - SLACK_LINKING_BASE_URL=${SLACK_LINKING_BASE_URL:-http://localhost:3000}
       - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
     depends_on:
-      caipe-supervisor:
+      caipe-ui:
         condition: service_started
         required: false
       caipe-mongodb:
@@ -2090,8 +2088,7 @@ services:
       KC_LOG_LEVEL: info
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
     volumes:
-      - keycloak-data:/opt/keycloak/data
-      - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json
+      - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
       - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
     ports:
       - "7080:7080"
@@ -2173,6 +2170,8 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+    profiles:
+      - rbac
     depends_on:
       keycloak:
         condition: service_healthy
@@ -2331,8 +2330,6 @@ volumes:
   langgraph_postgres_data:
     driver: local
   langgraph_mongodb_data:
-    driver: local
-  keycloak-data:
     driver: local
   ag_config:
     driver: local

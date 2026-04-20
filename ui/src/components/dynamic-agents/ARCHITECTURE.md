@@ -65,7 +65,7 @@ These two systems are **intentionally separate** to maintain clean type boundari
 | `sse-types.ts` | Type definitions for SSE events and conversion functions |
 | `DynamicAgentContext.tsx` | UI panel for displaying SSE events (subagents, tools, execution plans) |
 | `DynamicAgentEditor.tsx` | Editor for creating/editing dynamic agent definitions |
-| `DynamicAgentChatView.tsx` | Chat view wrapper for dynamic agents |
+| `ChatView.tsx` (moved to `chat/`) | Chat view wrapper for dynamic agents |
 | `DynamicAgentsTab.tsx` | Tab component listing available dynamic agents |
 
 ### A2A (separate locations)

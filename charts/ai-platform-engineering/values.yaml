@@ -178,6 +178,8 @@ supervisor-agent:
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
     TASK_CONFIG_PATH: "/app/task_config.yaml"
     POLICY_FILE_PATH: "/app/policy.lp"
+    ENABLE_USER_INFO_TOOL: "false"   # Capture user identity from JWT; enables user_info tool and JWT context middleware
+    FORWARD_JWT_TO_MCP: "false"      # Forward the user JWT as Bearer token to HTTP/streamable-HTTP MCP connections (requires ENABLE_USER_INFO_TOOL=true). Also used by sub-agents via base_langgraph_agent.
     # Self-service workflow env vars — referenced as ${VAR_NAME} in task_config.yaml prompts.
     # Set these per environment so system workflows can resolve repo references at runtime.
     # JARVIS_WORKFLOWS_REPO: "org/jarvis-workflows"      # Templates repo (safe-settings, terraform, etc.)
@@ -722,11 +724,10 @@ slack-bot:
   botMode: "socket"
 
   # Environment variables passed to the bot container
-  env:
-    CAIPE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+  env: {}
 
-  # CAIPE UI URL — must be reachable from the bot pod.
-  caipeUiUrl: "http://ai-platform-engineering-caipe-ui:3000"
+  # CAIPE API URL — the bot routes all requests through this gateway.
+  caipeApiUrl: "http://ai-platform-engineering-caipe-ui:3000"
 
   # Reference to a Kubernetes Secret containing Slack tokens:
   #   SLACK_BOT_TOKEN (xoxb-...), SLACK_APP_TOKEN (xapp-...), SLACK_SIGNING_SECRET

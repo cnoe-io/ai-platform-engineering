@@ -9,13 +9,14 @@
  * LLM proxy with no knowledge of agent fields.
  */
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
+import { authenticateRequest } from "@/app/api/v1/chat/_helpers";
 import { gradientThemes } from "@/lib/gradient-themes";
 
 const DYNAMIC_AGENTS_URL =
@@ -182,12 +183,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Build prompts from templates
     const { system_prompt, user_message } = buildPrompts(body);
 
-    // Forward to backend
-    const headers: HeadersInit = {
+    // Forward to backend with X-User-Context auth (same as chat routes)
+    const auth = await authenticateRequest(request);
+    if (auth instanceof NextResponse) return auth;
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (session.accessToken) {
-      headers["Authorization"] = `Bearer ${session.accessToken}`;
+    if (auth.userContextHeader) {
+      headers["X-User-Context"] = auth.userContextHeader;
     }
 
     const response = await fetch(

@@ -118,6 +118,27 @@ python skills/persistence/test_langgraph_persistence.py mongodb
 
 See [skills/README.md](./skills/README.md) for full documentation.
 
+## RBAC Living Documentation Rule
+
+**Whenever you make any change to the RBAC system, you MUST update `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` in the same session.**
+
+This file is the canonical plain-language reference for junior engineers. Keep it in sync with code reality.
+
+Changes that require a docs update include (but are not limited to):
+
+| Change type | What to update in how-rbac-works.md |
+|-------------|--------------------------------------|
+| New role or permission | Role table in Component 1 (Keycloak) section |
+| New env var on any service | Env var table for that component |
+| New middleware or auth layer | Add/update the relevant component section + flow diagram |
+| New service added to the stack | Add a new Component section + update the big-picture diagram |
+| Auth flow change (e.g. Keycloak flows, OBO) | Update the sequence diagram and flow description |
+| New file added to auth path | Add it to the File Map table at the bottom |
+| Keycloak `init-idp.sh` behaviour change | Update Component 1 or the OBO section as applicable |
+| Dynamic agents auth change | Update Component 5 |
+
+The file map table at the bottom of `how-rbac-works.md` must always reflect where every auth-relevant file lives.
+
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)

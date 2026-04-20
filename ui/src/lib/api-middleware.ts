@@ -302,7 +302,8 @@ function hasRoleFallback(
   const requiredRole = RESOURCE_ROLE_FALLBACK[resource];
   if (!requiredRole) return false;
 
-  if (requiredRole === 'admin' && isBootstrapAdmin(email)) return true;
+  // Bootstrap admins have full access to all resources
+  if (isBootstrapAdmin(email)) return true;
 
   try {
     const payload = decodeJwtPayloadForAuth(accessToken);
