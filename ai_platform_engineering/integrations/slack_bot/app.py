@@ -24,7 +24,7 @@ from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 
-from sse_client import SSEClient, thread_ts_to_conversation_id
+from sse_client import SSEClient
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.config_models import get_escalation_config
@@ -101,6 +101,30 @@ def _get_agent_id_for_dm() -> str:
     return config.defaults.default_agent_id
   logger.warning("No agent_id configured for DMs — using empty string")
   return ""
+
+
+def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = "", owner_id: str = "") -> str:
+  """Resolve a Slack thread to its server-side conversation_id via idempotency_key lookup.
+
+  Calls create_conversation with the thread_ts as idempotency_key. If the
+  conversation already exists the server returns it (created=false); otherwise
+  a new one is created. This ensures all handlers in a thread share the same
+  conversation_id used by UI and LangGraph checkpoints.
+  """
+  channel_config = config.channels.get(channel_id)
+  channel_name = channel_config.name if channel_config else None
+  conv_result = sse_client.create_conversation(
+    title="Slack Thread",
+    agent_id=agent_id,
+    owner_id=owner_id or None,
+    idempotency_key=thread_ts,
+    metadata={
+      "thread_ts": thread_ts,
+      "channel_id": channel_id,
+      **({"channel_name": channel_name} if channel_name else {}),
+    },
+  )
+  return conv_result["conversation_id"]
 
 
 def _call_ai(
@@ -202,7 +226,20 @@ def handle_mention(event, say, client):
       context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
 
     agent_id = _get_agent_id(channel_config)
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
+
+    # Create or retrieve conversation via shared API (server owns ID generation)
+    conv_result = sse_client.create_conversation(
+      title=message_text[:50].strip() or "Slack Thread",
+      agent_id=agent_id,
+      owner_id=user_email or user_id,
+      idempotency_key=thread_ts,
+      metadata={
+        "thread_ts": thread_ts,
+        "channel_id": channel_id,
+        "channel_name": channel_config.name,
+      },
+    )
+    conversation_id = conv_result["conversation_id"]
 
     is_humble_followup = session_manager.is_skipped(thread_ts)
     if is_humble_followup:
@@ -313,7 +350,20 @@ def handle_qanda_message(event, say, client):
 
     channel_config = config.channels[channel_id]
     agent_id = _get_agent_id(channel_config)
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
+
+    # Create or retrieve conversation via shared API (server owns ID generation)
+    conv_result = sse_client.create_conversation(
+      title=message_text[:50].strip() or "Slack Q&A",
+      agent_id=agent_id,
+      owner_id=user_email or user_id,
+      idempotency_key=thread_ts,
+      metadata={
+        "thread_ts": thread_ts,
+        "channel_id": channel_id,
+        "channel_name": channel_config.name,
+      },
+    )
+    conversation_id = conv_result["conversation_id"]
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
@@ -400,7 +450,20 @@ def handle_dm_message(event, say, client):
       logger.error(f"[{thread_ts}] No agent_id configured for DMs — set SLACK_INTEGRATION_DM_AGENT_ID or SLACK_INTEGRATION_DEFAULT_AGENT_ID")
       say(text="Sorry, DMs aren't configured yet — no agent ID is set. Please contact an admin.", thread_ts=thread_ts)
       return
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
+
+    # Create or retrieve conversation via shared API (server owns ID generation)
+    conv_result = sse_client.create_conversation(
+      title=message_text[:50].strip() or "Slack DM",
+      agent_id=agent_id,
+      owner_id=user_email or user_id,
+      idempotency_key=thread_ts,
+      metadata={
+        "thread_ts": thread_ts,
+        "channel_id": channel_id,
+        "channel_type": "dm",
+      },
+    )
+    conversation_id = conv_result["conversation_id"]
 
     client_context = {
       "source": "slack",
@@ -620,6 +683,7 @@ def handle_caipe_feedback(ack, body, client):
     is_positive = feedback_type == "positive"
 
     feedback_value = "thumbs_up" if is_positive else "thumbs_down"
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -628,6 +692,7 @@ def handle_caipe_feedback(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
@@ -681,6 +746,9 @@ def handle_feedback_more_detail(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
+    agent_id = _get_agent_id(config.channels.get(channel_id))
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -689,13 +757,12 @@ def handle_feedback_more_detail(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
     client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for more detail...")
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
@@ -730,6 +797,9 @@ def handle_feedback_less_verbose(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
+    agent_id = _get_agent_id(config.channels.get(channel_id))
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -738,13 +808,12 @@ def handle_feedback_less_verbose(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
     client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for a more concise response...")
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
@@ -779,6 +848,14 @@ def handle_caipe_retry(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
+    if not utils.check_has_jira_info(channel_id):
+      return
+
+    channel_config = config.channels[channel_id]
+    agent_id = _get_agent_id(channel_config)
+    # Resolve server-side conversation_id for this thread
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -787,6 +864,7 @@ def handle_caipe_retry(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
@@ -796,14 +874,6 @@ def handle_caipe_retry(ack, body, client):
     bot_user_id = bot_info.get("user_id")
 
     thread_context = slack_context.build_thread_context(app, channel_id, thread_ts, "", bot_user_id)
-
-    if not utils.check_has_jira_info(channel_id):
-      return
-
-    channel_config = config.channels[channel_id]
-    agent_id = _get_agent_id(channel_config)
-    # Use a new conversation_id for retries to avoid LangGraph state conflicts
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
 
     retry_message = ai.RETRY_PROMPT_PREFIX + thread_context
 
@@ -865,6 +935,7 @@ def handle_escalation_get_help(ack, body, client):
     session_manager.set_escalated(thread_ts)
 
     # Track escalation in feedback
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -873,6 +944,7 @@ def handle_escalation_get_help(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
     )
 
     client.chat_postEphemeral(
@@ -936,6 +1008,7 @@ def handle_delete_message(ack, body, client):
       logger.warning(f"[{thread_ts}] Unauthorized delete attempt by <@{user_id}>")
       return
 
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -944,6 +1017,7 @@ def handle_delete_message(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
     )
 
     client.chat_delete(channel=channel_id, ts=message_ts)
@@ -1020,6 +1094,9 @@ def handle_wrong_answer_submission(ack, body, client, view):
     if not correction_text:
       return
 
+    agent_id = _get_agent_id(config.channels.get(channel_id))
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -1028,6 +1105,7 @@ def handle_wrong_answer_submission(ack, body, client, view):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       comment=correction_text,
       message_ts=message_ts,
     )
@@ -1039,8 +1117,6 @@ def handle_wrong_answer_submission(ack, body, client, view):
       text=f"Got it! Asking {APP_NAME} to correct the response based on your feedback...",
     )
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
     correction_prompt = f'The user indicated your previous response was incorrect and provided the following IMPORTANT context: "{correction_text}"\n\nPlease carefully review this feedback and provide a corrected response.'
 
     # Get escalation config for this channel
