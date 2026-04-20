@@ -13,6 +13,20 @@ Modes:
   --from-json FILE    Load interactions from a previously dumped JSON file instead of hitting Slack
   (default)           Fetch from Slack and write directly to MongoDB
 
+Incremental mode:
+  --incremental       When used with --dump-json, only fetch threads newer than the latest
+                      thread_ts already in the file, then merge them in. Enables a
+                      "bulk dump now, top-up at cutover" workflow:
+
+                        # Step 1: Full dump (run days/weeks before cutover)
+                        python backfill_slack_interactions.py --dump-json data/slack_interactions.json
+
+                        # Step 2: Top-up at cutover (only fetches threads since Step 1)
+                        python backfill_slack_interactions.py --dump-json data/slack_interactions.json --incremental
+
+                        # Step 3: Load the merged file into MongoDB
+                        python backfill_slack_interactions.py --from-json data/slack_interactions.json
+
 Required env vars (when fetching from Slack):
   SLACK_BOT_TOKEN       xoxb-...
   FORGE_BOT_USER_ID     Bot's Slack user ID (obtain via `slack auth.test`)
@@ -48,6 +62,12 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 
+def log(msg: str) -> None:
+    """Print a timestamped log line."""
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
+
+
 def get_env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
@@ -60,19 +80,21 @@ def get_required_env(name: str) -> str:
     return val
 
 
-def slack_call_with_retry(func, *args, max_retries=5, **kwargs):
-    """Call a Slack API method with automatic rate-limit retry."""
-    for attempt in range(max_retries):
+RETRY_DELAYS = [1, 2, 3, 6, 10, 10, 10, 10]  # 8 attempts
+
+
+def slack_call_with_retry(func, *args, **kwargs):
+    """Call a Slack API method with staged retry delays (ignores Retry-After header)."""
+    for attempt, delay in enumerate(RETRY_DELAYS, 1):
         try:
             return func(*args, **kwargs)
         except SlackApiError as e:
             if e.response.get("error") == "ratelimited":
-                retry_after = int(e.response.headers.get("Retry-After", 10))
-                print(f"  Rate limited, waiting {retry_after}s (attempt {attempt + 1}/{max_retries})...")
-                time.sleep(retry_after)
+                log(f"  Rate limited, waiting {delay}s (attempt {attempt}/{len(RETRY_DELAYS)})...")
+                time.sleep(delay)
             else:
                 raise
-    raise RuntimeError(f"Rate limited {max_retries} times, giving up")
+    raise RuntimeError(f"Rate limited {len(RETRY_DELAYS)} times, giving up")
 
 
 def fetch_channel_history(client: WebClient, channel_id: str, oldest: float):
@@ -90,7 +112,7 @@ def fetch_channel_history(client: WebClient, channel_id: str, oldest: float):
                 break
             time.sleep(1.2)
         except SlackApiError as e:
-            print(f"  Error fetching history for {channel_id}: {e}")
+            log(f"  Error fetching history for {channel_id}: {e}")
             break
 
 
@@ -103,7 +125,7 @@ def fetch_thread_replies(client: WebClient, channel_id: str, thread_ts: str):
         )
         return resp.get("messages", [])
     except (SlackApiError, RuntimeError) as e:
-        print(f"  Error fetching replies for {thread_ts}: {e}")
+        log(f"  Error fetching replies for {thread_ts}: {e}")
         return []
 
 
@@ -140,7 +162,7 @@ def resolve_user_profile(client: WebClient, user_id: str, cache: dict) -> dict:
         profile["name"] = p.get("real_name") or p.get("display_name") or user.get("real_name")
         time.sleep(0.6)
     except (SlackApiError, RuntimeError) as e:
-        print(f"  Warning: could not resolve user {user_id}: {e}")
+        log(f"  Warning: could not resolve user {user_id}: {e}")
 
     cache[user_id] = profile
     return profile
@@ -150,12 +172,23 @@ def process_channel(client: WebClient, channel_id: str, channel_name: str,
                     bot_user_id: str, oldest: float, user_cache: dict) -> list[dict]:
     """Process a single channel and return interaction docs."""
     docs = []
+    threads_seen = 0
+    threads_skipped_no_bot = 0
     threads_checked = 0
 
     for msg in fetch_channel_history(client, channel_id, oldest):
         thread_ts = msg.get("ts")
         reply_count = msg.get("reply_count", 0)
         if reply_count == 0:
+            continue
+
+        threads_seen += 1
+
+        # Fast path: skip threads where the bot isn't in reply_users
+        # reply_users is returned by conversations.history and avoids a full replies fetch
+        reply_users = msg.get("reply_users", [])
+        if reply_users and bot_user_id not in reply_users:
+            threads_skipped_no_bot += 1
             continue
 
         threads_checked += 1
@@ -185,21 +218,14 @@ def process_channel(client: WebClient, channel_id: str, channel_name: str,
         interaction_type = "dm" if is_dm else ("mention" if has_mention else "qanda")
 
         # Collect individual Forge-involved messages (bot + original asker only)
-        # Each entry has a timestamp and role so we can write per-message docs
         forge_messages = []
         for r in replies:
             r_user = r.get("user")
             r_ts = r.get("ts")
             if r_user == bot_user_id:
-                forge_messages.append({
-                    "ts": r_ts,
-                    "role": "assistant",
-                })
+                forge_messages.append({"ts": r_ts, "role": "assistant"})
             elif r_user == original_user:
-                forge_messages.append({
-                    "ts": r_ts,
-                    "role": "user",
-                })
+                forge_messages.append({"ts": r_ts, "role": "user"})
 
         doc = {
             "thread_ts": thread_ts,
@@ -220,10 +246,60 @@ def process_channel(client: WebClient, channel_id: str, channel_name: str,
         }
         docs.append(doc)
 
-    if threads_checked > 0:
-        print(f"  Checked {threads_checked} threads, {len(docs)} had bot replies")
+    if threads_seen > 0:
+        log(f"  {threads_seen} threaded msgs: {threads_skipped_no_bot} skipped (no bot in reply_users), "
+            f"{threads_checked} fetched → {len(docs)} interactions")
+    else:
+        log("  No threaded messages found")
 
     return docs
+
+
+def get_latest_thread_ts(docs: list[dict]) -> float | None:
+    """Return the latest thread_ts (as float) from a list of interaction docs."""
+    timestamps = []
+    for d in docs:
+        ts = d.get("thread_ts")
+        if ts:
+            try:
+                timestamps.append(float(ts))
+            except (ValueError, TypeError):
+                pass
+    return max(timestamps) if timestamps else None
+
+
+def load_json_file(path: Path) -> tuple[list[dict], dict]:
+    """Load a dump file. Returns (docs, metadata).
+
+    The dump format is either:
+      - Legacy: a plain JSON array of interaction docs
+      - New: {"_meta": {...}, "interactions": [...]}
+    """
+    with open(path) as f:
+        raw = json.load(f)
+    if isinstance(raw, list):
+        return raw, {}
+    return raw.get("interactions", []), raw.get("_meta", {})
+
+
+def save_json_file(path: Path, docs: list[dict], meta: dict) -> None:
+    """Save interaction docs + metadata to a dump file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"_meta": meta, "interactions": docs}, f, indent=2, default=str)
+
+
+def checkpoint(outpath: Path, docs: list[dict], existing_meta: dict) -> None:
+    """Write current docs to disk so progress is preserved if the process dies."""
+    latest_ts = get_latest_thread_ts(docs)
+    meta = {
+        **existing_meta,
+        "latest_thread_ts": latest_ts,
+        "total_interactions": len(docs),
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "checkpoint": True,
+    }
+    save_json_file(outpath, docs, meta)
 
 
 def main():
@@ -232,22 +308,56 @@ def main():
     parser.add_argument("--dump-json", metavar="FILE", help="Fetch from Slack and save to JSON file")
     parser.add_argument("--from-json", metavar="FILE", help="Load from a previously dumped JSON file")
     parser.add_argument("--channels", help="Comma-separated channel IDs to backfill (default: all bot channels)")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help=(
+            "When used with --dump-json: only fetch threads newer than the latest thread_ts "
+            "already in the file, then merge. Requires the file to exist from a prior dump."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.incremental and not args.dump_json:
+        print("ERROR: --incremental requires --dump-json", file=sys.stderr)
+        sys.exit(1)
 
     # --- Mode: Load from JSON ---
     if args.from_json:
-        print(f"Loading interactions from {args.from_json}...")
-        with open(args.from_json) as f:
-            all_docs = json.load(f)
-        print(f"Loaded {len(all_docs)} interactions from file")
+        log(f"Loading interactions from {args.from_json}...")
+        all_docs, _ = load_json_file(Path(args.from_json))
+        log(f"Loaded {len(all_docs)} interactions from file")
     else:
         # --- Fetch from Slack ---
+        outpath = Path(args.dump_json) if args.dump_json else None
+
+        existing_docs: list[dict] = []
+        existing_meta: dict = {}
+        oldest: float | None = None
+
+        if args.incremental:
+            if not outpath or not outpath.exists():
+                print(f"ERROR: --incremental specified but {outpath} does not exist. Run a full dump first.", file=sys.stderr)
+                sys.exit(1)
+            existing_docs, existing_meta = load_json_file(outpath)
+            latest_ts = existing_meta.get("latest_thread_ts") or get_latest_thread_ts(existing_docs)
+            if latest_ts is None:
+                log("WARNING: could not determine latest thread_ts — falling back to BACKFILL_DAYS")
+            else:
+                oldest = float(latest_ts)
+                dt = datetime.fromtimestamp(oldest, tz=timezone.utc)
+                log(f"Incremental mode: fetching threads newer than {dt.isoformat()} (thread_ts={oldest})")
+
         slack_token = get_required_env("SLACK_BOT_TOKEN")
         bot_user_id = get_required_env("FORGE_BOT_USER_ID")
-        backfill_days = int(get_env("BACKFILL_DAYS", "90"))
+
+        if oldest is None:
+            backfill_days = int(get_env("BACKFILL_DAYS", "90"))
+            oldest = (datetime.now(timezone.utc) - timedelta(days=backfill_days)).timestamp()
+            dt = datetime.fromtimestamp(oldest, tz=timezone.utc)
+            log(f"Lookback: {backfill_days} days (since {dt.strftime('%Y-%m-%d')})")
 
         slack_client = WebClient(token=slack_token)
-        oldest = (datetime.now(timezone.utc) - timedelta(days=backfill_days)).timestamp()
 
         # Determine channels to crawl
         if args.channels:
@@ -260,30 +370,51 @@ def main():
                 except (SlackApiError, RuntimeError):
                     channels.append({"id": cid, "name": cid})
         else:
-            print("Discovering channels the bot is a member of...")
+            log("Discovering channels the bot is a member of...")
             channels = get_bot_channels(slack_client)
 
-        print(f"Backfilling {len(channels)} channels, lookback={backfill_days} days\n")
+        log(f"Found {len(channels)} channels to backfill\n")
 
-        user_cache = {}  # Slack user ID → {email, name, slack_user_id}
-        all_docs = []
+        # Start from existing docs if resuming (incremental or checkpoint recovery)
+        existing_keys = {(d["thread_ts"], d["channel_id"]) for d in existing_docs}
+        accumulated_docs = list(existing_docs)
+
+        user_cache: dict = {}
+        new_interactions = 0
+
         for i, ch in enumerate(channels, 1):
-            print(f"[{i}/{len(channels)}] #{ch['name']} ({ch['id']})...")
+            log(f"[{i}/{len(channels)}] #{ch['name']} ({ch['id']})")
             docs = process_channel(slack_client, ch["id"], ch["name"], bot_user_id, oldest, user_cache)
-            all_docs.extend(docs)
 
-        print(f"\nResolved {len(user_cache)} unique user profiles")
+            # Dedup against existing before accumulating
+            new_docs = [d for d in docs if (d["thread_ts"], d["channel_id"]) not in existing_keys]
+            for d in new_docs:
+                existing_keys.add((d["thread_ts"], d["channel_id"]))
+            accumulated_docs.extend(new_docs)
+            new_interactions += len(new_docs)
 
-        print(f"\nTotal interactions found: {len(all_docs)}")
+            # Checkpoint after every channel
+            if outpath:
+                checkpoint(outpath, accumulated_docs, existing_meta)
+                log(f"  Checkpoint saved ({len(accumulated_docs)} total, {new_interactions} new so far)")
 
-    # --- Mode: Dump to JSON ---
-    if args.dump_json:
-        outpath = Path(args.dump_json)
-        outpath.parent.mkdir(parents=True, exist_ok=True)
-        with open(outpath, "w") as f:
-            json.dump(all_docs, f, indent=2, default=str)
-        print(f"Saved to {outpath}")
-        return
+        log(f"\nResolved {len(user_cache)} unique user profiles")
+        log(f"New interactions this run: {new_interactions}")
+        all_docs = accumulated_docs
+
+        log(f"Total interactions: {len(all_docs)}")
+
+        # --- Final save (clears checkpoint flag) ---
+        if args.dump_json:
+            latest_ts = get_latest_thread_ts(all_docs)
+            meta = {
+                "latest_thread_ts": latest_ts,
+                "total_interactions": len(all_docs),
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+            }
+            save_json_file(outpath, all_docs, meta)
+            log(f"Saved to {outpath} (latest_thread_ts: {latest_ts})")
+            return
 
     # --- Dry run: print summary ---
     if args.dry_run:
@@ -291,23 +422,18 @@ def main():
         types = Counter(d["interaction_type"] for d in all_docs)
         escalated = sum(1 for d in all_docs if d["escalated"])
         resolved = len(all_docs) - escalated
-        channels = Counter(d["channel_name"] or "unknown" for d in all_docs)
+        channels_counter = Counter(d["channel_name"] or "unknown" for d in all_docs)
 
         print(f"\nInteraction types: {dict(types)}")
         print(f"Escalated: {escalated}, Resolved (no escalation): {resolved}")
         if all_docs:
             print(f"Resolution rate: {resolved / len(all_docs) * 100:.1f}%")
         print("\nTop channels:")
-        for ch, count in channels.most_common(20):
+        for ch, count in channels_counter.most_common(20):
             print(f"  #{ch}: {count}")
         return
 
     # --- Write to MongoDB ---
-    # Populates 3 collections:
-    #   conversations  — one doc per Slack thread (source: "slack") with embedded slack_meta
-    #   users          — one doc per unique Slack user, powers user counts / DAU / MAU
-    #   messages       — one lightweight doc per thread (role: "assistant", metadata.source: "slack")
-    #                    so that the Message Activity chart picks up Slack data
     from pymongo import MongoClient
 
     mongodb_uri = get_required_env("MONGODB_URI")
@@ -329,19 +455,17 @@ def main():
         channel_id = doc["channel_id"]
         channel_name = doc.get("channel_name") or channel_id
         user_id = doc["user_id"]
-        user_email = doc.get("user_email") or user_id  # fall back to Slack ID if no email
+        user_email = doc.get("user_email") or user_id
         user_name = doc.get("user_name") or user_id
         conv_id = f"slack-{thread_ts}"
 
-        # Parse timestamp
         ts = doc["timestamp"]
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts)
 
-        # --- conversations collection (with embedded slack_meta) ---
         conv_doc = {
             "_id": conv_id,
-            "title": f"#{channel_name} thread",
+            "title": f"{channel_name} thread",
             "owner_id": user_email,
             "source": "slack",
             "channel_id": channel_id,
@@ -381,9 +505,6 @@ def main():
         else:
             conv_skipped += 1
 
-        # --- users collection ---
-        # Use email as the canonical key. If the user later logs in via the UI,
-        # the UI's auth flow will update their name (it won't be $setOnInsert).
         if user_email not in users_seen:
             users_seen.add(user_email)
             users_coll.update_one(
@@ -397,14 +518,11 @@ def main():
                         "slack_user_id": user_id,
                         "created_at": ts,
                     },
-                    "$max": {"last_login": ts},  # keep the latest timestamp
+                    "$max": {"last_login": ts},
                 },
                 upsert=True,
             )
 
-        # --- messages collection (one per Forge-involved message in thread) ---
-        # Powers the Message Activity chart and Top Agents stats.
-        # Each message gets its own doc with the Slack reply timestamp.
         for fm in doc.get("forge_messages", []):
             fm_ts = fm.get("ts", thread_ts)
             msg_created = datetime.fromtimestamp(float(fm_ts), tz=timezone.utc)
@@ -416,9 +534,7 @@ def main():
                 "owner_id": user_email,
                 "role": fm.get("role", "assistant"),
                 "content": None,
-                "metadata": {
-                    "source": "slack",
-                },
+                "metadata": {"source": "slack"},
                 "created_at": msg_created,
                 "updated_at": msg_created,
             }
@@ -431,10 +547,10 @@ def main():
             if result.upserted_id:
                 msg_inserted += 1
 
-    print("Done.")
-    print(f"  conversations: {conv_inserted} inserted, {conv_skipped} skipped")
-    print(f"  messages: {msg_inserted} inserted")
-    print(f"  users: {len(users_seen)} upserted")
+    log("Done.")
+    log(f"  conversations: {conv_inserted} inserted, {conv_skipped} skipped")
+    log(f"  messages: {msg_inserted} inserted")
+    log(f"  users: {len(users_seen)} upserted")
     mongo_client.close()
 
 

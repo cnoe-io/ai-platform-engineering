@@ -80,6 +80,7 @@ function createMockCollection() {
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     countDocuments: jest.fn().mockResolvedValue(0),
+    distinct: jest.fn().mockResolvedValue([]),
     aggregate: jest.fn().mockReturnValue({
       toArray: jest.fn().mockResolvedValue([]),
     }),
