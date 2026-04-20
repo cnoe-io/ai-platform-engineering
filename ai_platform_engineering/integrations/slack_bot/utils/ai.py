@@ -20,9 +20,9 @@ import time
 from loguru import logger
 
 try:
-  from sse_client import SSEClient, SSEEventType, thread_ts_to_conversation_id  # type: ignore[import]
+  from sse_client import SSEClient, SSEEventType  # type: ignore[import]
 except ImportError:
-  from ..sse_client import SSEClient, SSEEventType, thread_ts_to_conversation_id
+  from ..sse_client import SSEClient, SSEEventType
 from . import slack_formatter
 from . import utils as _utils
 from .config import config
@@ -1266,7 +1266,19 @@ def handle_ai_alert_processing(
     logger.info(f"[{thread_ts}] Silencing AI alert processing")
     return "Silenced"
 
-  conversation_id = thread_ts_to_conversation_id(thread_ts)
+  # Resolve conversation_id via idempotency_key (thread_ts) — creates if first call
+  conv_result = sse_client.create_conversation(
+    title=f"Alert: {bot_username}"[:50],
+    agent_id=agent_id,
+    idempotency_key=thread_ts,
+    metadata={
+      "thread_ts": thread_ts,
+      "channel_id": channel_id,
+      "alert_bot": bot_username,
+      **({"workspace_url": os.environ.get("SLACK_WORKSPACE_URL", "")} if os.environ.get("SLACK_WORKSPACE_URL") else {}),
+    },
+  )
+  conversation_id = conv_result["conversation_id"]
 
   result = stream_response(
     sse_client=sse_client,

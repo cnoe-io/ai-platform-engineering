@@ -363,7 +363,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
     // Create conversation if needed
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
 
     // Clear previous turn's events (tasks, tool completions, stream events)
@@ -891,7 +891,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
   const handleSkillsCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
 
     // Add user message showing the command
@@ -942,10 +942,10 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
   }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
 
   // Handle /help command: show available commands in chat
-  const handleHelpCommand = useCallback(() => {
+  const handleHelpCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/help" }, turnId);
