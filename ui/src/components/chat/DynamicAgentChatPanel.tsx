@@ -748,7 +748,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Create conversation if needed
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation(agentId);
+      convId = await createConversation(agentId);
     }
 
     // Build client context for system prompt rendering and user_info tool
@@ -839,7 +839,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const handleSkillsCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation(agentId);
+      convId = await createConversation(agentId);
     }
 
     const turnId = `turn-${Date.now()}`;
@@ -888,10 +888,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
 
   // Handle /help command: show available commands in chat
-  const handleHelpCommand = useCallback(() => {
+  const handleHelpCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation(agentId);
+      convId = await createConversation(agentId);
     }
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/help" }, turnId);
@@ -916,8 +916,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
 
   // Handle /clear command
-  const handleClearCommand = useCallback(() => {
-    createConversation(agentId);
+  const handleClearCommand = useCallback(async () => {
+    await createConversation(agentId);
   }, [createConversation, agentId]);
 
   // Unified slash command executor

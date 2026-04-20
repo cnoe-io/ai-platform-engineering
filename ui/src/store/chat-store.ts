@@ -35,7 +35,7 @@ interface ChatState {
   inputRequiredConversations: Set<string>;
 
   // Actions
-  createConversation: (agentId?: string) => string;
+  createConversation: (agentId?: string) => Promise<string>;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
@@ -253,41 +253,40 @@ const storeImplementation = (set: any, get: any) => ({
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
 
-      createConversation: (agentId?: string) => {
-        const id = generateId();
+      createConversation: async (agentId?: string) => {
+        const storageMode = getStorageMode();
+
+        let id: string;
+
+        if (storageMode === 'mongodb') {
+          // MongoDB mode: server owns ID generation
+          const result = await apiClient.createConversation({
+            title: 'New Conversation',
+            client_type: 'webui',
+            agent_id: agentId,
+          });
+          id = result.conversation._id;
+        } else {
+          // localStorage mode: generate locally
+          id = generateId();
+        }
+
         const newConversation: Conversation = {
           id,
           title: "New Conversation",
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          a2aEvents: [], // Initialize with empty events
-          streamEvents: [], // Initialize with empty stream events for Dynamic Agents
+          a2aEvents: [],
+          streamEvents: [],
           participants: buildParticipants(agentId),
         };
 
-        const storageMode = getStorageMode();
-
-        // In MongoDB mode: create on server first
-        // In localStorage mode: create locally
-        if (storageMode === 'mongodb') {
-          // MongoDB mode: Create on server with the same ID used locally
-          apiClient.createConversation({
-            id,
-            title: newConversation.title,
-            participants: buildParticipants(agentId),
-          }).then(() => {
-            console.log('[ChatStore] Created conversation in MongoDB:', id);
-          }).catch((error) => {
-            console.error('[ChatStore] Failed to create conversation in MongoDB:', error);
-          });
-        }
-
-        // Update local state (in localStorage mode, this persists via Zustand)
+        // Update local state
         set((state: ChatState) => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
-          a2aEvents: [], // Clear global events for new conversation
+          a2aEvents: [],
         }));
 
         return id;
