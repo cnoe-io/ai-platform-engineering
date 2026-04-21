@@ -575,7 +575,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <fieldset disabled={readOnly} className={readOnly ? "opacity-70" : ""}>          {/* Step Indicator */}
+          {/* Step Indicator */}
           <StepIndicator 
             steps={STEPS} 
             currentStep={activeStep} 
@@ -587,6 +587,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             <h3 className="font-medium">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
             <p className="text-sm text-muted-foreground">{currentStepConfig?.hint}</p>
           </div>
+
+          <fieldset disabled={readOnly} className={readOnly ? "opacity-70 space-y-4" : "space-y-4"}>
 
           {/* Basic Info Step */}
           {activeStep === "basic" && (
@@ -1114,6 +1116,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
+          </fieldset>
 
           {/* Step Navigation - Right aligned */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t">
@@ -1138,7 +1141,6 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           </div>
-          </fieldset>
         </form>
       </CardContent>
 
