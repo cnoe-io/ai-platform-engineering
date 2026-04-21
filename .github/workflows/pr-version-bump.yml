@@ -138,14 +138,14 @@ jobs:
 
           echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
 
-  # Call pre-release workflow for eligible PRs
-  helm-pre-release:
-    name: Publish Pre-release Helm Charts
+  # Call prebuild workflow for eligible PRs
+  helm-prebuild:
+    name: Publish Prebuild Helm Charts
     needs: version-bump
     if: |
       needs.version-bump.outputs.should_prerelease == 'true' &&
       needs.version-bump.outputs.new_commit != 'true'
-    uses: ./.github/workflows/helm-pre-release.yml
+    uses: ./.github/workflows/helm-prebuild.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}
       new_commit: ${{ needs.version-bump.outputs.new_commit == 'true' }}

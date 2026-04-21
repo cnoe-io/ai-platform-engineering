@@ -1,7 +1,7 @@
 name: "[Release] Helm RC for Release Branches"
 description: "Publish Helm RC charts when charts change on a release/* branch"
 
-# Mirrors helm-rc-version-bump.yml + helm-pre-release.yml but for release/* branches.
+# Mirrors helm-rc-version-bump.yml + helm-prebuild.yml but for release/* branches.
 #
 # Key differences from the prebuild pipeline:
 #  - Chart version derived from branch name — never auto-bumped or committed back

@@ -1,4 +1,4 @@
-name: "[Pre-Release][A2A] CAIPE RAG Build and Push"
+name: "[Prebuild][A2A] CAIPE RAG Build and Push"
 description: "Build and push CAIPE RAG Docker image"
 
 on:

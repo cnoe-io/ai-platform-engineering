@@ -1,12 +1,12 @@
-name: "[Pre-Release] Helm Chart"
-description: "Publish pre-release Helm charts"
+name: "[Prebuild] Helm Chart"
+description: "Publish prebuild Helm charts"
 
 on:
   # Called directly from helm-rc-version-bump workflow
   workflow_call:
     inputs:
       pr_number:
-        description: 'PR number to publish pre-release for'
+        description: 'PR number to publish prebuild for'
         required: true
         type: number
       new_commit:
@@ -22,8 +22,8 @@ permissions:
   actions: read
 
 jobs:
-  publish-pre-release:
-    name: Publish Pre-release Helm Chart
+  publish-prebuild:
+    name: Publish Prebuild Helm Chart
     runs-on: ubuntu-latest
     # Skip if a new commit was made (will re-run on next trigger)
     if: ${{ !inputs.new_commit }}
@@ -116,10 +116,10 @@ jobs:
           done
 
           if [[ "$NEEDS_BUMP" == "true" ]]; then
-            echo "⏳ Skipping pre-release - waiting for helm-rc-version-bump to complete"
+            echo "⏳ Skipping prebuild - waiting for helm-rc-version-bump to complete"
             echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "✅ All chart versions bumped, proceeding with pre-release"
+            echo "✅ All chart versions bumped, proceeding with prebuild"
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
@@ -156,7 +156,7 @@ jobs:
               RAG_STACK_CHANGED=true
               echo "✅ rag-stack chart has substantive changes"
             else
-              echo "ℹ️  rag-stack only has Chart.lock changes, skipping pre-release"
+              echo "ℹ️  rag-stack only has Chart.lock changes, skipping prebuild"
             fi
           fi
 
@@ -167,14 +167,14 @@ jobs:
               AI_PLATFORM_CHANGED=true
               echo "✅ ai-platform-engineering chart has substantive changes"
             else
-              echo "ℹ️  ai-platform-engineering only has Chart.lock changes, skipping pre-release"
+              echo "ℹ️  ai-platform-engineering only has Chart.lock changes, skipping prebuild"
             fi
           fi
 
           echo "rag-stack-changed=$RAG_STACK_CHANGED" >> $GITHUB_OUTPUT
           echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> $GITHUB_OUTPUT
 
-      - name: 🏷️ Generate Pre-release Versions
+      - name: 🏷️ Generate Prebuild Versions
         if: steps.version-check.outputs.skip != 'true'
         id: version
         run: |
@@ -233,7 +233,7 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with prebuild version and matching appVersion
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
 
@@ -250,7 +250,7 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with prebuild version and matching appVersion
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
 
@@ -289,7 +289,7 @@ jobs:
 
           echo "✅ ai-platform-engineering packaged successfully with all dependencies"
 
-      - name: 🚀 Push Pre-release Charts to GHCR
+      - name: 🚀 Push Prebuild Charts to GHCR
         if: steps.version-check.outputs.skip != 'true'
         run: |
           REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/prebuild-helm-charts"
@@ -319,7 +319,7 @@ jobs:
             const isFork = headRepo !== '${{ github.repository }}';
             const prNumber = parseInt('${{ steps.bump-status.outputs.pr_number }}');
 
-            let body = `## 📦 Pre-release Helm Charts Published\n\n`;
+            let body = `## 📦 Prebuild Helm Charts Published\n\n`;
 
             if (isFork) {
               body += `> 🔀 **Fork PR** - Published via \`helm-prerelease\` label\n\n`;
@@ -349,10 +349,10 @@ jobs:
             const isBranchTrigger = headRef.startsWith('prebuild/');
             const isLabelTrigger = !isBranchTrigger;
 
-            body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
+            body += `> **Note:** These prebuild versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
 
             if (isLabelTrigger) {
-              body += `> **Tip:** Remove the \`helm-prerelease\` label to immediately cleanup pre-release versions and stop publishing new ones.`;
+              body += `> **Tip:** Remove the \`helm-prerelease\` label to immediately cleanup prebuild versions and stop publishing new ones.`;
             }
 
             github.rest.issues.createComment({

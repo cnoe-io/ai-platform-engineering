@@ -1,4 +1,4 @@
-name: "[Pre-Release] CAIPE UI Docker Build and Push"
+name: "[Prebuild] CAIPE UI Docker Build and Push"
 description: "Build and push CAIPE UI Docker image for prebuild branches"
 
 on:

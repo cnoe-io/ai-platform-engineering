@@ -1,4 +1,4 @@
-name: "[Pre-Release] Slack Bot Docker Build and Push"
+name: "[Prebuild] Slack Bot Docker Build and Push"
 description: "Build and push Slack Bot Docker image for prebuild branches"
 
 on:

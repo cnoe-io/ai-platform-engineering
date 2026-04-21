@@ -1,4 +1,4 @@
-name: "[Pre-Release][A2A] Sub-Agents A2A Docker Build and Push"
+name: "[Prebuild][A2A] Sub-Agents A2A Docker Build and Push"
 description: "Build and push A2A Docker images for sub-agents"
 
 on:

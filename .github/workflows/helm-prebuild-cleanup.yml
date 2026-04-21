@@ -1,5 +1,5 @@
-name: "[Pre-Release] Helm Chart Cleanup"
-description: "Cleanup pre-release Helm charts when PR is closed or label is removed"
+name: "[Prebuild] Helm Chart Cleanup"
+description: "Cleanup prebuild Helm charts when PR is closed or label is removed"
 
 on:
   pull_request:
@@ -12,8 +12,8 @@ permissions:
   packages: write
 
 jobs:
-  cleanup-pre-release:
-    name: Cleanup Pre-release Charts
+  cleanup-prebuild:
+    name: Cleanup Prebuild Charts
     runs-on: ubuntu-latest
     if: |
       (
@@ -33,13 +33,13 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: 🗑️ Delete Pre-release Chart Versions
+      - name: 🗑️ Delete Prebuild Chart Versions
         run: |
           # Get branch name and remove 'prebuild/' prefix if present
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
-          echo "🧹 Cleaning up pre-release versions for branch: $CLEAN_BRANCH"
+          echo "🧹 Cleaning up prebuild versions for branch: $CLEAN_BRANCH"
 
           OWNER="${{ github.repository_owner }}"
 
@@ -48,7 +48,7 @@ jobs:
             local CHART_NAME=$1
             local PACKAGE_NAME="prebuild-helm-charts/${CHART_NAME}"
 
-            echo "🔍 Checking ${CHART_NAME} for pre-release versions matching pattern: *-${CLEAN_BRANCH}-*"
+            echo "🔍 Checking ${CHART_NAME} for prebuild versions matching pattern: *-${CLEAN_BRANCH}-*"
 
             # Get package versions using GitHub CLI (for OCI packages)
             # Note: Forward slash in package name must be URL encoded as %2F
@@ -57,7 +57,7 @@ jobs:
               --jq '.[] | select(.metadata.container.tags[]? | test(".*-'${CLEAN_BRANCH}'-.*")) | {id: .id, tags: .metadata.container.tags}' > "${CHART_NAME}_versions.json" || true
 
             if [ -s "${CHART_NAME}_versions.json" ]; then
-              echo "🗑️ Found ${CHART_NAME} pre-release versions to delete:"
+              echo "🗑️ Found ${CHART_NAME} prebuild versions to delete:"
               cat "${CHART_NAME}_versions.json"
 
               # Delete each version
@@ -72,9 +72,9 @@ jobs:
                   "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions/${VERSION_ID}" || true
               done < <(cat "${CHART_NAME}_versions.json" | jq -c '.')
 
-              echo "✅ ${CHART_NAME} pre-release cleanup completed"
+              echo "✅ ${CHART_NAME} prebuild cleanup completed"
             else
-              echo "ℹ️ No ${CHART_NAME} pre-release versions found for branch: $CLEAN_BRANCH"
+              echo "ℹ️ No ${CHART_NAME} prebuild versions found for branch: $CLEAN_BRANCH"
             fi
           }
 
@@ -82,7 +82,7 @@ jobs:
           cleanup_chart "rag-stack"
           cleanup_chart "ai-platform-engineering"
 
-          echo "✅ All pre-release chart cleanup completed"
+          echo "✅ All prebuild chart cleanup completed"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

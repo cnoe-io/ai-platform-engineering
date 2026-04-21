@@ -1,4 +1,4 @@
-name: "[Pre-Release][MCP] Sub-Agents MCP Docker Build and Push"
+name: "[Prebuild][MCP] Sub-Agents MCP Docker Build and Push"
 description: "Build and push MCP Docker images for sub-agents"
 
 on:
