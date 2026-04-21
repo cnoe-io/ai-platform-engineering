@@ -213,11 +213,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       import("@codemirror/language-data"),
       import("@codemirror/view"),
       import("@/lib/codemirror/jinja2-highlight"),
-    ]).then(([mdMod, langDataMod, viewMod, jinja2Mod]) => {
+      import("@/lib/codemirror/markdown-highlight"),
+    ]).then(([mdMod, langDataMod, viewMod, jinja2Mod, mdHighlightMod]) => {
       if (!cancelled) {
         setCmExtensions([
           mdMod.markdown({ codeLanguages: langDataMod.languages }),
           viewMod.EditorView.lineWrapping,
+          mdHighlightMod.markdownHighlight,
           jinja2Mod.jinja2Highlight,
         ]);
       }
