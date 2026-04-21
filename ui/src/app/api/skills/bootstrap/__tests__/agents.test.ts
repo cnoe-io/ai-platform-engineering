@@ -17,8 +17,10 @@ import {
   AGENTS,
   DEFAULT_AGENT_ID,
   parseFrontmatter,
+  scopesAvailableFor,
   substitutePlaceholders,
   renderForAgent,
+  type AgentScope,
   type AgentSpec,
   type RenderInputs,
 } from '../agents';
@@ -74,15 +76,30 @@ describe('AGENTS registry', () => {
       expect(agent.ext).toMatch(/^[a-z]+$/);
       expect(agent.ext.startsWith('.')).toBe(false);
 
-      // install path must contain {name} placeholder for non-fragments
-      // (fragment agents like Continue write to a fixed config file)
-      if (!agent.isFragment) {
-        expect(agent.installPath).toContain('{name}');
+      // Every agent must declare at least one scope.
+      const scopes = scopesAvailableFor(agent);
+      expect(scopes.length).toBeGreaterThan(0);
+
+      // Each declared install path must contain `{name}` for non-fragment
+      // agents (fragment agents like Continue write to a fixed config file
+      // — config.json — so they don't templatize the filename).
+      for (const s of scopes) {
+        const p = agent.installPaths[s]!;
+        if (!agent.isFragment) {
+          expect(p).toContain('{name}');
+        }
+        // No raw shell metacharacters allowed; we render these straight into
+        // copy-paste install commands.
+        expect(p).not.toMatch(/[;&|`$()<>]/);
       }
 
-      // installPath should never contain raw shell metacharacters that we
-      // don't want surfacing in copy-paste install commands.
-      expect(agent.installPath).not.toMatch(/[;&|`$()<>]/);
+      // User-scope paths start with `~/`; project-scope paths start with `./`.
+      if (agent.installPaths.user) {
+        expect(agent.installPaths.user.startsWith('~/')).toBe(true);
+      }
+      if (agent.installPaths.project) {
+        expect(agent.installPaths.project.startsWith('./')).toBe(true);
+      }
 
       // launch guide must reference the slash command (`{name}`) at least
       // once so users learn the actual invocation syntax.
@@ -111,6 +128,24 @@ describe('AGENTS registry', () => {
   it('only Continue is a fragment-style agent', () => {
     const fragments = Object.values(AGENTS).filter((a) => a.isFragment);
     expect(fragments.map((a) => a.id)).toEqual(['continue']);
+  });
+
+  describe('scope availability matrix', () => {
+    it('Codex CLI exposes user-only (no project scope per openai/codex#9848)', () => {
+      expect(scopesAvailableFor(AGENTS.codex)).toEqual(['user']);
+      expect(AGENTS.codex.installPaths.project).toBeUndefined();
+    });
+
+    it('Spec Kit exposes project-only (no user scope per github/spec-kit#317)', () => {
+      expect(scopesAvailableFor(AGENTS.specify)).toEqual(['project']);
+      expect(AGENTS.specify.installPaths.user).toBeUndefined();
+    });
+
+    it('Claude / Cursor / Gemini / Continue support both scopes', () => {
+      for (const id of ['claude', 'cursor', 'gemini', 'continue'] as const) {
+        expect(scopesAvailableFor(AGENTS[id])).toEqual(['user', 'project']);
+      }
+    });
   });
 });
 
@@ -185,10 +220,14 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
   it.each(['claude', 'cursor', 'specify'])(
     '%s: emits valid frontmatter and substitutes $ARGUMENTS',
     (id) => {
-      const out = renderForAgent(AGENTS[id], baseInputs());
+      // Pick a scope the agent supports (Spec Kit only has project).
+      const scope: AgentScope = scopesAvailableFor(AGENTS[id])[0];
+      const out = renderForAgent(AGENTS[id], baseInputs({ scope }));
       expect(out.format).toBe('markdown-frontmatter');
       expect(out.file_extension).toBe('md');
       expect(out.is_fragment).toBe(false);
+      expect(out.scope).toBe(scope);
+      expect(out.scope_fallback).toBe(false);
 
       // Starts with frontmatter
       expect(out.template.startsWith('---\ndescription: ')).toBe(true);
@@ -203,19 +242,31 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
       expect(out.template).not.toContain('{{DESCRIPTION}}');
 
       // Install path is rendered with the command name
+      expect(out.install_path).not.toBeNull();
       expect(out.install_path).toContain('skills.md');
       expect(out.install_path).not.toContain('{name}');
     },
   );
 
-  it('substitutes a custom command name into both body and install path', () => {
+  it('substitutes a custom command name into both body and install path (project scope)', () => {
     const out = renderForAgent(
       AGENTS.claude,
-      baseInputs({ commandName: 'my-skills' }),
+      baseInputs({ commandName: 'my-skills', scope: 'project' }),
     );
-    expect(out.install_path).toBe('.claude/commands/my-skills.md');
+    expect(out.install_path).toBe('./.claude/commands/my-skills.md');
+    expect(out.install_paths.project).toBe('./.claude/commands/my-skills.md');
+    expect(out.install_paths.user).toBe('~/.claude/commands/my-skills.md');
     expect(out.template).toContain('/my-skills');
     expect(out.launch_guide).toContain('/my-skills');
+  });
+
+  it('substitutes a custom command name into the user-scope install path', () => {
+    const out = renderForAgent(
+      AGENTS.claude,
+      baseInputs({ commandName: 'my-skills', scope: 'user' }),
+    );
+    expect(out.install_path).toBe('~/.claude/commands/my-skills.md');
+    expect(out.scope).toBe('user');
   });
 
   it('falls back to the canonical description when the input description is empty', () => {
@@ -236,22 +287,33 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
 
 describe('renderForAgent — Codex (plain Markdown)', () => {
   it('emits a heading and no YAML frontmatter, with $1 as argRef', () => {
-    const out = renderForAgent(AGENTS.codex, baseInputs());
+    const out = renderForAgent(AGENTS.codex, baseInputs({ scope: 'user' }));
     expect(out.format).toBe('markdown-plain');
     expect(out.template.startsWith('# skills\n\n')).toBe(true);
     expect(out.template).not.toMatch(/^---/);
     expect(out.template).toContain('$1');
     expect(out.template).not.toContain('$ARGUMENTS');
     expect(out.install_path).toBe('~/.codex/prompts/skills.md');
+    expect(out.scopes_available).toEqual(['user']);
+  });
+
+  it('rejects scope=project (Codex has no project scope)', () => {
+    const out = renderForAgent(AGENTS.codex, baseInputs({ scope: 'project' }));
+    expect(out.install_path).toBeNull();
+    expect(out.scope).toBeNull();
+    expect(out.scope_fallback).toBe(true);
+    // The body still renders so the UI can show a preview.
+    expect(out.template).toContain('$1');
   });
 });
 
 describe('renderForAgent — Gemini (TOML)', () => {
-  it('emits valid TOML with description and prompt keys', () => {
-    const out = renderForAgent(AGENTS.gemini, baseInputs());
+  it('emits valid TOML with description and prompt keys (user scope)', () => {
+    const out = renderForAgent(AGENTS.gemini, baseInputs({ scope: 'user' }));
     expect(out.format).toBe('gemini-toml');
     expect(out.file_extension).toBe('toml');
     expect(out.install_path).toBe('~/.gemini/commands/skills.toml');
+    expect(out.install_paths.project).toBe('./.gemini/commands/skills.toml');
 
     expect(out.template).toMatch(/^description = "[^"]+"\nprompt = """\n/);
     expect(out.template).toMatch(/"""\n$/);
@@ -291,12 +353,13 @@ describe('renderForAgent — Gemini (TOML)', () => {
 });
 
 describe('renderForAgent — Continue (JSON fragment)', () => {
-  it('emits valid JSON with name/description/prompt keys', () => {
-    const out = renderForAgent(AGENTS.continue, baseInputs());
+  it('emits valid JSON with name/description/prompt keys (user scope)', () => {
+    const out = renderForAgent(AGENTS.continue, baseInputs({ scope: 'user' }));
     expect(out.format).toBe('continue-json-fragment');
     expect(out.file_extension).toBe('json');
     expect(out.is_fragment).toBe(true);
     expect(out.install_path).toBe('~/.continue/config.json');
+    expect(out.install_paths.project).toBe('./.continue/config.json');
 
     // Must parse as valid JSON
     const parsed = JSON.parse(out.template);

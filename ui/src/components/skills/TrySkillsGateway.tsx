@@ -18,6 +18,16 @@ const DEFAULT_KEY_HEADER =
 
 type SyncStatus = "in_sync" | "synced" | "supervisor_stale" | "unknown" | string;
 
+/**
+ * Single-quote a value for safe inclusion in a bash snippet shown to the
+ * user. Mirrors the server-side `shq()` in install.sh/route.ts. We do NOT
+ * try to be clever with `"…"`: single quotes are safer for arbitrary user
+ * input (including API keys with `$`, `&`, or backticks).
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function syncLabel(status: SyncStatus | undefined): string {
   switch (status) {
     case "in_sync":
@@ -57,6 +67,15 @@ export function TrySkillsGateway() {
   );
   // Selected coding agent (drives install path, file format, and launch guide).
   const [selectedAgent, setSelectedAgent] = useState<string>("claude");
+  // Install scope: "user" (~/...) or "project" (./...). null = user has not
+  // picked yet, in which case we hide the install/installer commands and
+  // prompt the user to choose. Reset whenever the agent changes so we don't
+  // show a scope the new agent does not support.
+  type InstallScope = "user" | "project";
+  const [selectedScope, setSelectedScope] = useState<InstallScope | null>(null);
+  const [copiedOneLiner, setCopiedOneLiner] = useState(false);
+  const [copiedUpgrade, setCopiedUpgrade] = useState(false);
+  const [copiedDownload, setCopiedDownload] = useState(false);
 
   // Per-agent rendered bootstrap (fetched from
   // /api/skills/bootstrap?agent=<id>&command_name=...&description=...).
@@ -69,7 +88,10 @@ export function TrySkillsGateway() {
     label: string;
     ext: string;
     format: string;
-    install_path: string;
+    /** Per-scope install paths; absent keys mean the agent does not support that scope. */
+    install_paths: Partial<Record<InstallScope, string>>;
+    /** Scopes this agent actually supports. */
+    scopes_available: InstallScope[];
     is_fragment: boolean;
     docs_url?: string;
   }
@@ -77,7 +99,13 @@ export function TrySkillsGateway() {
     agent: string;
     label: string;
     template: string;
-    install_path: string;
+    /** Resolved path for the requested scope, or null if no scope selected / unsupported. */
+    install_path: string | null;
+    install_paths: Partial<Record<InstallScope, string>>;
+    scope: InstallScope | null;
+    scope_requested: InstallScope | null;
+    scope_fallback: boolean;
+    scopes_available: InstallScope[];
     file_extension: string;
     format: string;
     is_fragment: boolean;
@@ -204,8 +232,11 @@ export function TrySkillsGateway() {
       .catch(() => {});
   }, [loadSync, loadKeys]);
 
-  // Re-fetch the per-agent rendered bootstrap whenever the agent, command
-  // name, or description changes. Debounced lightly so typing is smooth.
+  // Re-fetch the per-agent rendered bootstrap whenever the agent, scope,
+  // command name, or description changes. Debounced lightly so typing is
+  // smooth. Scope is optional (null = "ask the user first"); if set we
+  // forward it so the response carries an `install_path` for the chosen
+  // location.
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
@@ -213,6 +244,7 @@ export function TrySkillsGateway() {
         agent: selectedAgent,
         command_name: skillCommandName.trim() || "skills",
       });
+      if (selectedScope) params.set("scope", selectedScope);
       const desc = skillDescription.trim();
       if (desc) params.set("description", desc);
       fetch(`/api/skills/bootstrap?${params.toString()}`, {
@@ -238,7 +270,21 @@ export function TrySkillsGateway() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [selectedAgent, skillCommandName, skillDescription]);
+  }, [selectedAgent, selectedScope, skillCommandName, skillDescription]);
+
+  // When the user switches agents, drop any scope choice that the new agent
+  // does not support (e.g. moving from Claude → Codex with scope=project, or
+  // → Spec Kit with scope=user). Falls back to whichever single scope is
+  // available, or null when both are valid (force the user to pick again).
+  useEffect(() => {
+    const meta = agents.find((a) => a.id === selectedAgent);
+    if (!meta) return; // first paint, before /api/skills/bootstrap returns
+    if (selectedScope && !meta.scopes_available.includes(selectedScope)) {
+      setSelectedScope(
+        meta.scopes_available.length === 1 ? meta.scopes_available[0] : null,
+      );
+    }
+  }, [selectedAgent, agents, selectedScope]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -325,31 +371,57 @@ export function TrySkillsGateway() {
   // Falls back to placeholders while the first fetch is in flight.
   const bootstrapSkillContent =
     bootstrap?.template ?? "# Loading bootstrap skill template…\n";
-  const installPath =
-    bootstrap?.install_path ?? `.claude/commands/${safeCommandName}.md`;
+  const installPath = bootstrap?.install_path ?? null;
   const isFragment = bootstrap?.is_fragment ?? false;
   const launchGuide = bootstrap?.launch_guide ?? "";
   const agentLabel = bootstrap?.label ?? "Claude Code";
   const agentDocsUrl = bootstrap?.docs_url;
+  const scopesAvailable: InstallScope[] =
+    bootstrap?.scopes_available ?? ["user", "project"];
 
-  // Build the install command. For standalone-file agents we emit a heredoc
-  // that creates the parent dir and writes the file. For fragment agents
-  // (Continue) we just print the JSON fragment with instructions to merge.
-  const installCommands = isFragment
-    ? `# ${agentLabel} stores commands as JSON fragments inside\n# ${installPath}. Merge the fragment shown in "Preview generated skill"\n# below into the top-level "slashCommands" array of that file.`
-    : (() => {
-        // Resolve any leading ~/ for the mkdir helper.
-        const dir = installPath.replace(/\/[^/]+$/, "") || ".";
-        const expandedDir = dir.startsWith("~/")
-          ? `"$HOME/${dir.slice(2)}"`
-          : dir;
-        const expandedPath = installPath.startsWith("~/")
-          ? `"$HOME/${installPath.slice(2)}"`
-          : installPath;
-        return `mkdir -p ${expandedDir}\ncat > ${expandedPath} << 'SKILL'\n${bootstrapSkillContent}${
-          bootstrapSkillContent.endsWith("\n") ? "" : "\n"
-        }SKILL`;
-      })();
+  // Build the heredoc-style install command, scoped to the picked location.
+  // null when the user hasn't picked a scope yet (UI hides the block in that
+  // case so users don't run a half-resolved command).
+  const installCommands = (() => {
+    if (!installPath) return null;
+    if (isFragment) {
+      return `# ${agentLabel} stores commands as JSON fragments inside\n# ${installPath}. Merge the fragment shown in "Preview generated skill"\n# below into the top-level "slashCommands" array of that file.`;
+    }
+    const dir = installPath.replace(/\/[^/]+$/, "") || ".";
+    const expandedDir = dir.startsWith("~/")
+      ? `"$HOME/${dir.slice(2)}"`
+      : dir;
+    const expandedPath = installPath.startsWith("~/")
+      ? `"$HOME/${installPath.slice(2)}"`
+      : installPath;
+    return `mkdir -p ${expandedDir}\ncat > ${expandedPath} << 'SKILL'\n${bootstrapSkillContent}${
+      bootstrapSkillContent.endsWith("\n") ? "" : "\n"
+    }SKILL`;
+  })();
+
+  // Build the curl|bash one-liner and the "download then run" snippet for
+  // the install.sh endpoint. We pre-fill the API key from `mintedKey` (the
+  // key the user just minted on this page); if there's no minted key we fall
+  // back to a placeholder the user must replace.
+  const installerSnippets = (() => {
+    if (!selectedScope) return null;
+    const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
+      selectedAgent,
+    )}&scope=${encodeURIComponent(selectedScope)}&command_name=${encodeURIComponent(
+      safeCommandName,
+    )}`;
+    // CAIPE_CATALOG_KEY=... goes BEFORE the command, not after, so the env
+    // var only scopes the single invocation and doesn't pollute the parent
+    // shell. Quoting around the key value keeps things sane if the user
+    // pastes a key with shell-significant characters.
+    const keyForSnippet = mintedKey ?? "<your-catalog-api-key>";
+    const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash`;
+    // Upgrade variant: forwards `--upgrade` to the script via `bash -s`,
+    // which is `bash`'s standard way of passing flags to a piped script.
+    const oneLinerUpgrade = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash -s -- --upgrade`;
+    const downloadSnippet = `curl -fsSL -o install-skills.sh ${shellQuote(installShUrl)}\nchmod +x ./install-skills.sh\nCAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} ./install-skills.sh`;
+    return { oneLiner, oneLinerUpgrade, downloadSnippet, installShUrl };
+  })();
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -755,26 +827,51 @@ export function TrySkillsGateway() {
             from this gateway.
           </CardDescription>
         </CardHeader>
-        <CardContent className="text-sm space-y-4 text-muted-foreground">
-          <div>
-            <p className="font-medium text-foreground mb-2">1. Configure your API key</p>
-            <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`mkdir -p ~/.config/caipe
+        <CardContent className="text-sm space-y-8 text-muted-foreground">
+          <section>
+            <p className="font-medium text-foreground mb-3 flex items-center gap-2">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+                1
+              </span>
+              Configure your API key
+            </p>
+            <p className="text-xs text-muted-foreground mb-3 ml-8">
+              Stores your catalog credentials so any coding agent on this
+              machine can authenticate to the gateway.
+            </p>
+            <pre className="rounded-md bg-muted p-4 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap">{`mkdir -p ~/.config/caipe
 cat > ~/.config/caipe/config.json << 'EOF'
 {
   "api_key": "<your-catalog-api-key>",
   "base_url": "${baseUrl}"
 }
 EOF`}</pre>
-          </div>
+          </section>
 
-          <div>
-            <p className="font-medium text-foreground mb-2">2. Create the bootstrap skill</p>
-            <p className="mb-2">
-              Customize the slash command below. It calls the gateway and lets your coding agent
-              browse, search, run, install, and update skills.
+          <section className="space-y-5">
+            <p className="font-medium text-foreground flex items-center gap-2">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+                2
+              </span>
+              Create the bootstrap skill
             </p>
+            <p className="ml-8 leading-relaxed">
+              Customize the slash command below. It calls the gateway and lets
+              your coding agent browse, search, run, install, and update
+              skills.
+            </p>
+            <div className="ml-8 inline-flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] leading-relaxed">
+              <span className="font-semibold text-primary uppercase tracking-wide">
+                Tip
+              </span>
+              <span className="text-muted-foreground">
+                Pick an agent <span className="text-foreground">→</span> pick a
+                scope <span className="text-foreground">→</span> copy the
+                highlighted install command.
+              </span>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
                   Slash command name
@@ -811,14 +908,17 @@ EOF`}</pre>
               </div>
             </div>
 
-            <div className="mb-3">
-              <label className="text-xs font-medium text-muted-foreground">
+            <div className="pt-4">
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                  a
+                </span>
                 Coding agent
               </label>
               <select
                 value={selectedAgent}
                 onChange={(e) => setSelectedAgent(e.target.value)}
-                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 {(agents.length > 0
                   ? agents
@@ -828,17 +928,33 @@ EOF`}</pre>
                         label: "Claude Code",
                         ext: "md",
                         format: "markdown-frontmatter",
-                        install_path: ".claude/commands/skills.md",
+                        install_paths: {
+                          user: "~/.claude/commands/skills.md",
+                          project: "./.claude/commands/skills.md",
+                        },
+                        scopes_available: ["user", "project"] as InstallScope[],
                         is_fragment: false,
                       } as AgentMeta,
                     ]
-                ).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label} &mdash; {a.install_path}
-                  </option>
-                ))}
+                ).map((a) => {
+                  // Show one of the agent's install paths in the option label
+                  // so the user has a hint of where this agent installs.
+                  // Prefer project-local for git-trackable agents (Claude,
+                  // Cursor, Spec Kit, Gemini, Continue) and user-global for
+                  // Codex (no project scope).
+                  const previewPath =
+                    a.install_paths?.project ??
+                    a.install_paths?.user ??
+                    "";
+                  return (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                      {previewPath ? ` — ${previewPath}` : ""}
+                    </option>
+                  );
+                })}
               </select>
-              <p className="text-[11px] text-muted-foreground mt-1">
+              <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
                 Selected agent determines the install path, file format
                 ({bootstrap?.format ?? "markdown-frontmatter"}), and the
                 argument syntax baked into the prompt.
@@ -859,35 +975,348 @@ EOF`}</pre>
               </p>
             </div>
 
-            <p className="text-xs font-medium text-foreground mb-1">
-              {isFragment
-                ? `Generated config fragment for ${agentLabel}`
-                : `Install command for ${agentLabel}`}
-            </p>
-            <div className="relative group mb-4">
-              <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
-                {installCommands}
-              </pre>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => {
-                  void navigator.clipboard.writeText(installCommands);
-                  setCopiedInstall(true);
-                  setTimeout(() => setCopiedInstall(false), 2000);
-                }}
-              >
-                {copiedInstall ? (
-                  <Check className="h-3.5 w-3.5 text-green-500" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </Button>
+            {/* Scope chooser: user (~/) vs project (./). Some agents only
+                support one of these (Codex = user-only, Spec Kit = project-
+                only) — we disable the unavailable radio rather than hide it
+                so the asymmetry is visible.
+
+                When the user has chosen an agent but not a scope, ring-
+                highlight this block so the eye lands on "the next thing to
+                do". */}
+            <div
+              className={`mt-2 rounded-md p-3 transition-colors ${
+                !selectedScope
+                  ? "ring-1 ring-primary/40 bg-primary/5"
+                  : "bg-muted/20"
+              }`}
+            >
+              <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-3">
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                  b
+                </span>
+                Where to install
+              </p>
+              <div className="flex flex-col gap-2">
+                {(["user", "project"] as InstallScope[]).map((s) => {
+                  const supported = scopesAvailable.includes(s);
+                  const path = bootstrap?.install_paths?.[s];
+                  const isSelected = selectedScope === s;
+                  const labelText =
+                    s === "user"
+                      ? "User-wide (reused across all projects)"
+                      : "Project-local (committed with this repo)";
+                  return (
+                    <label
+                      key={s}
+                      className={`flex items-start gap-3 text-xs rounded-md border px-3 py-2 transition-colors ${
+                        supported
+                          ? `cursor-pointer hover:bg-background/60 ${
+                              isSelected
+                                ? "border-primary/60 bg-background"
+                                : "border-border/60 bg-background/30"
+                            }`
+                          : "cursor-not-allowed opacity-50 border-border/40"
+                      }`}
+                      title={
+                        supported
+                          ? path
+                          : `${agentLabel} does not support ${s}-scope commands.`
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="install-scope"
+                        value={s}
+                        checked={isSelected}
+                        disabled={!supported}
+                        onChange={() =>
+                          supported && setSelectedScope(s)
+                        }
+                        className="mt-0.5"
+                      />
+                      <span className="flex-1 leading-relaxed">
+                        <span className="block font-medium text-foreground">
+                          {labelText}
+                        </span>
+                        {path ? (
+                          <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
+                            {path}
+                          </code>
+                        ) : null}
+                        {!supported ? (
+                          <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
+                            Not supported by {agentLabel}.
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {!selectedScope ? (
+                <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  <AlertCircle className="h-3 w-3" />
+                  Pick an install scope to reveal the install command
+                </p>
+              ) : installPath ? (
+                <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Installing to{" "}
+                  <code className="font-mono">{installPath}</code>
+                </p>
+              ) : null}
             </div>
 
-            <p className="text-[11px] text-muted-foreground mb-2">
+            {selectedScope && installCommands ? (
+              <>
+                {/*
+                 * Visual hierarchy:
+                 *   1. The one-line `curl … | bash` installer is the
+                 *      happy path for non-fragment agents — show it FIRST.
+                 *   2. The manual `mkdir … && cat <<SKILL` block is the
+                 *      escape hatch for users who can't / won't run a
+                 *      remote shell script — tuck it behind a disclosure.
+                 *   3. Fragment agents (Continue) have no installer
+                 *      one-liner because the script can't safely merge
+                 *      JSON config — for them we surface the merge
+                 *      fragment directly with no disclosure.
+                 */}
+                {installerSnippets && !isFragment ? (
+                  <div className="mt-2 rounded-lg border border-primary/40 bg-primary/5 p-4 shadow-sm space-y-4">
+                    <div>
+                      <p className="flex items-center gap-2 text-sm font-semibold text-foreground mb-1">
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                          c
+                        </span>
+                        Install with one command
+                        <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary-foreground">
+                          Recommended
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed ml-6">
+                        Runs an install script that fetches the latest
+                        rendered template from this gateway and writes it to{" "}
+                        <code className="text-foreground">
+                          {installPath}
+                        </code>
+                        .
+                      </p>
+                    </div>
+
+                    <div className="relative group">
+                      <pre className="rounded-md bg-background p-4 pr-10 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap">
+                        {installerSnippets.oneLiner}
+                      </pre>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(
+                            installerSnippets.oneLiner,
+                          );
+                          setCopiedOneLiner(true);
+                          setTimeout(() => setCopiedOneLiner(false), 2000);
+                        }}
+                      >
+                        {copiedOneLiner ? (
+                          <Check className="h-3.5 w-3.5 text-green-500" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+
+                    <div className="border-t border-primary/15 pt-3 space-y-2">
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
+                        Already installed? Upgrade to the latest version
+                      </summary>
+                      <div className="mt-3 space-y-3 pl-4 border-l-2 border-primary/20">
+                        <p className="text-[11px] text-muted-foreground">
+                          Adds <code>--upgrade</code>, which only overwrites
+                          a file that this installer wrote previously
+                          (recognized by a <code>caipe-skill</code> marker).
+                          Falls back to a clear error if the file at the
+                          target path wasn&apos;t installed by this script —
+                          use <code>--force</code> in that case if you
+                          really want to clobber it.
+                        </p>
+                        <div className="relative group">
+                          <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                            {installerSnippets.oneLinerUpgrade}
+                          </pre>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(
+                                installerSnippets.oneLinerUpgrade,
+                              );
+                              setCopiedUpgrade(true);
+                              setTimeout(() => setCopiedUpgrade(false), 2000);
+                            }}
+                          >
+                            {copiedUpgrade ? (
+                              <Check className="h-3.5 w-3.5 text-green-500" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </details>
+
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
+                        Prefer to inspect the script first?
+                      </summary>
+                      <div className="mt-3 space-y-3 pl-4 border-l-2 border-primary/20">
+                        <p className="text-[11px] text-muted-foreground">
+                          Download the installer with{" "}
+                          <a
+                            className="text-primary underline"
+                            href={installerSnippets.installShUrl}
+                          >
+                            this link
+                          </a>
+                          , read it, then run it:
+                        </p>
+                        <div className="relative group">
+                          <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                            {installerSnippets.downloadSnippet}
+                          </pre>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(
+                                installerSnippets.downloadSnippet,
+                              );
+                              setCopiedDownload(true);
+                              setTimeout(() => setCopiedDownload(false), 2000);
+                            }}
+                          >
+                            {copiedDownload ? (
+                              <Check className="h-3.5 w-3.5 text-green-500" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </details>
+
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
+                        Show manual install command (no script)
+                      </summary>
+                      <div className="mt-3 space-y-3 pl-4 border-l-2 border-primary/20">
+                        <p className="text-[11px] text-muted-foreground">
+                          Same end result as the one-liner above, but writes
+                          the rendered template inline with{" "}
+                          <code>cat &lt;&lt;SKILL</code>. Use this if you
+                          can&apos;t pipe a remote script into{" "}
+                          <code>bash</code>, or if you want to vendor the
+                          file into a repo by hand.
+                        </p>
+                        <div className="relative group">
+                          <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                            {installCommands}
+                          </pre>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(installCommands);
+                              setCopiedInstall(true);
+                              setTimeout(() => setCopiedInstall(false), 2000);
+                            }}
+                          >
+                            {copiedInstall ? (
+                              <Check className="h-3.5 w-3.5 text-green-500" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </details>
+
+                    </div>
+
+                    <p className="text-[11px] text-muted-foreground leading-relaxed border-t border-primary/15 pt-3">
+                      <span className="font-medium text-foreground">
+                        Security:
+                      </span>{" "}
+                      the script never echoes your API key. The
+                      {" "}<code>CAIPE_CATALOG_KEY</code>{" "}
+                      env var is preferred over <code>--api-key=…</code>{" "}
+                      (which would land in your shell history).
+                      {!mintedKey ? (
+                        <>
+                          {" "}
+                          Mint a key above to auto-fill the snippets.
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                ) : (
+                  /*
+                   * Fragment agents (Continue) and any future scope/agent
+                   * combo without a one-line installer get the manual
+                   * command surfaced directly — there's nothing to hide
+                   * behind, since the manual block IS the only path.
+                   */
+                  <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                    <p className="flex items-center gap-2 text-xs font-medium text-foreground mb-1">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                        c
+                      </span>
+                      {isFragment
+                        ? `Generated config fragment for ${agentLabel}`
+                        : `Install command for ${agentLabel} (${selectedScope})`}
+                      {isFragment ? (
+                        <span className="ml-auto rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                          Manual merge
+                        </span>
+                      ) : null}
+                    </p>
+                    <div className="relative group mb-4">
+                      <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                        {installCommands}
+                      </pre>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(installCommands);
+                          setCopiedInstall(true);
+                          setTimeout(() => setCopiedInstall(false), 2000);
+                        }}
+                      >
+                        {copiedInstall ? (
+                          <Check className="h-3.5 w-3.5 text-green-500" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : null}
+
+            <p className="text-[11px] text-muted-foreground mt-4 mb-2 leading-relaxed">
               Template source:{" "}
               <code>{bootstrapTemplateSource ?? "loading…"}</code>
               {". Override via Helm value "}
@@ -929,14 +1358,19 @@ EOF`}</pre>
                 </Button>
               </div>
             </details>
-          </div>
+          </section>
 
-          <div>
-            <p className="font-medium text-foreground mb-2">
-              3. Launch {agentLabel} and use it
+          <section>
+            <p className="font-medium text-foreground mb-3 flex items-center gap-2">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+                3
+              </span>
+              Launch {agentLabel} and use it
             </p>
-            <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
-          </div>
+            <div className="ml-8">
+              <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
+            </div>
+          </section>
         </CardContent>
       </Card>
 
@@ -1006,13 +1440,13 @@ function LaunchGuide({
   }
 
   return (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-4 text-sm">
       {segments.map((seg, idx) => {
         if (seg.type === "code") {
           return (
             <pre
               key={idx}
-              className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap"
+              className="rounded-md bg-muted p-4 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap"
             >
               {seg.content.replace(/\n+$/, "")}
             </pre>
@@ -1024,26 +1458,55 @@ function LaunchGuide({
           .map((b) => b.trim())
           .filter(Boolean);
         return (
-          <div key={idx} className="space-y-2 text-sm text-foreground">
+          <div key={idx} className="space-y-3 text-sm text-foreground">
             {blocks.map((block, bIdx) => {
               const lines = block.split("\n");
-              const isList = lines.every(
+              // Find the first list-line; everything before it is a heading
+              // paragraph, everything from there on is the list. This handles
+              // the common "**Use the command**:\n- foo\n- bar" pattern that
+              // doesn't have a blank line between the header and the list.
+              const firstListIdx = lines.findIndex(
                 (l) => l.startsWith("- ") || l.startsWith("* "),
               );
-              if (isList) {
+              const allList =
+                firstListIdx === 0 &&
+                lines.every(
+                  (l) => l.startsWith("- ") || l.startsWith("* "),
+                );
+              const headerThenList =
+                firstListIdx > 0 &&
+                lines
+                  .slice(firstListIdx)
+                  .every(
+                    (l) => l.startsWith("- ") || l.startsWith("* "),
+                  );
+
+              if (allList || headerThenList) {
+                const headerLines = headerThenList
+                  ? lines.slice(0, firstListIdx)
+                  : [];
+                const listLines = headerThenList
+                  ? lines.slice(firstListIdx)
+                  : lines;
                 return (
-                  <ul
-                    key={bIdx}
-                    className="list-disc pl-5 space-y-1 text-sm text-foreground"
-                  >
-                    {lines.map((l, lIdx) => (
-                      <li key={lIdx}>{renderInline(l.replace(/^[-*]\s+/, ""))}</li>
-                    ))}
-                  </ul>
+                  <div key={bIdx} className="space-y-2">
+                    {headerLines.length > 0 ? (
+                      <p className="text-sm text-foreground leading-relaxed">
+                        {renderInline(headerLines.join(" "))}
+                      </p>
+                    ) : null}
+                    <ul className="list-disc pl-5 space-y-1.5 text-sm text-foreground leading-relaxed">
+                      {listLines.map((l, lIdx) => (
+                        <li key={lIdx}>
+                          {renderInline(l.replace(/^[-*]\s+/, ""))}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 );
               }
               return (
-                <p key={bIdx} className="text-sm text-foreground leading-snug">
+                <p key={bIdx} className="text-sm text-foreground leading-relaxed">
                   {renderInline(block.replace(/\n/g, " "))}
                 </p>
               );

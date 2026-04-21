@@ -16,6 +16,21 @@ export type AgentFormat =
   | "gemini-toml"
   | "continue-json-fragment";
 
+/**
+ * Where on disk the rendered artifact lives.
+ *
+ * - `user`    — user-global (under `~`), reused across every project
+ * - `project` — project-local (under the current repo), version-controllable
+ *
+ * Not every agent supports both scopes:
+ * - Codex CLI only loads prompts from `~/.codex/prompts/` (project scope is
+ *   "not planned" upstream — openai/codex#9848). Project scope is `undefined`.
+ * - Spec Kit's slash commands live in `./.specify/templates/commands/` and
+ *   are re-synced into agent dirs by `specify` itself; user-scope is an open
+ *   feature request (github/spec-kit#317). User scope is `undefined`.
+ */
+export type AgentScope = "user" | "project";
+
 export interface AgentSpec {
   /** Stable id used in URLs (e.g. ?agent=gemini). */
   id: string;
@@ -24,10 +39,15 @@ export interface AgentSpec {
   /** File extension for the rendered artifact (no leading dot). */
   ext: string;
   /**
-   * Install path with `{name}` placeholder. Tilde paths are expanded by the
-   * shell; chart-relative paths stay as-is.
+   * Install paths per scope. `{name}` is replaced with the slash command name.
+   * Tilde paths (`~/...`) are expanded at install time by the shell or the
+   * generated install.sh. Project paths use a leading `./` so they're
+   * unambiguous in shell snippets.
+   *
+   * If a scope key is missing, the agent does not support that scope and the
+   * UI should disable the radio for it.
    */
-  installPath: string;
+  installPaths: Partial<Record<AgentScope, string>>;
   /** How to wrap the canonical body. */
   format: AgentFormat;
   /**
@@ -55,7 +75,10 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "claude",
     label: "Claude Code",
     ext: "md",
-    installPath: ".claude/commands/{name}.md",
+    installPaths: {
+      user: "~/.claude/commands/{name}.md",
+      project: "./.claude/commands/{name}.md",
+    },
     format: "markdown-frontmatter",
     argRef: "$ARGUMENTS",
     docsUrl: "https://docs.claude.com/en/docs/claude-code",
@@ -77,7 +100,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{name} run create-ci-pipeline` &mdash; fetch & execute inline",
       "- `/{name} install create-ci-pipeline` &mdash; save locally",
       "",
-      "Claude Code auto-discovers commands in `.claude/commands/` (per-repo) and `~/.claude/commands/` (user-global).",
+      "Claude Code auto-discovers commands in `./.claude/commands/` (per-repo) and `~/.claude/commands/` (user-global).",
     ].join("\n"),
   },
 
@@ -85,7 +108,10 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "cursor",
     label: "Cursor",
     ext: "md",
-    installPath: ".cursor/commands/{name}.md",
+    installPaths: {
+      user: "~/.cursor/commands/{name}.md",
+      project: "./.cursor/commands/{name}.md",
+    },
     format: "markdown-frontmatter",
     argRef: "$ARGUMENTS",
     docsUrl: "https://docs.cursor.com",
@@ -99,7 +125,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{name} pipeline` &mdash; search",
       "- `/{name} run <skill>` &mdash; fetch & execute inline",
       "",
-      "Cursor reads slash commands from `.cursor/commands/` per repo. Reload the window if a new command does not appear in the picker.",
+      "Cursor reads slash commands from `./.cursor/commands/` per repo and `~/.cursor/commands/` user-global. Reload the window if a new command does not appear in the picker.",
     ].join("\n"),
   },
 
@@ -107,7 +133,10 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "specify",
     label: "Spec Kit",
     ext: "md",
-    installPath: ".specify/templates/commands/{name}.md",
+    installPaths: {
+      // No user/global scope yet — github/spec-kit#317.
+      project: "./.specify/templates/commands/{name}.md",
+    },
     format: "markdown-frontmatter",
     argRef: "$ARGUMENTS",
     docsUrl: "https://github.com/github/spec-kit",
@@ -117,7 +146,9 @@ export const AGENTS: Record<string, AgentSpec> = {
       "uvx --from git+https://github.com/github/spec-kit.git specify init",
       "```",
       "",
-      "Spec Kit re-syncs commands into the agent-specific directory (`.claude/commands/`, `.cursor/commands/`, etc.) the next time you run a Spec Kit command. Use `/specify`, `/plan`, `/tasks`, `/implement` as usual; the new `/{name}` command becomes available alongside them.",
+      "Spec Kit re-syncs commands into the agent-specific directory (`./.claude/commands/`, `./.cursor/commands/`, etc.) the next time you run a Spec Kit command. Use `/specify`, `/plan`, `/tasks`, `/implement` as usual; the new `/{name}` command becomes available alongside them.",
+      "",
+      "_Spec Kit only supports project-local commands today (see github/spec-kit#317 for user-global support)._",
     ].join("\n"),
   },
 
@@ -125,7 +156,10 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "codex",
     label: "Codex CLI (OpenAI)",
     ext: "md",
-    installPath: "~/.codex/prompts/{name}.md",
+    installPaths: {
+      // No project scope — openai/codex#9848 closed as not planned.
+      user: "~/.codex/prompts/{name}.md",
+    },
     format: "markdown-plain",
     // Codex CLI substitutes positional args; $1 is the first argument string.
     argRef: "$1",
@@ -146,7 +180,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{name}` &mdash; runs the prompt with no argument (browse mode)",
       "- `/{name} kubernetes` &mdash; runs the prompt with `$1=\"kubernetes\"` (search mode)",
       "",
-      "Prompts live in `~/.codex/prompts/` (user-global). Codex picks them up on next launch.",
+      "Codex CLI only loads prompts from `~/.codex/prompts/` (user-global); project-local prompts are not supported (openai/codex#9848). Codex picks them up on next launch.",
     ].join("\n"),
   },
 
@@ -154,7 +188,10 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "gemini",
     label: "Gemini CLI",
     ext: "toml",
-    installPath: "~/.gemini/commands/{name}.toml",
+    installPaths: {
+      user: "~/.gemini/commands/{name}.toml",
+      project: "./.gemini/commands/{name}.toml",
+    },
     format: "gemini-toml",
     // Gemini CLI uses $1 (or {{args}}); $1 is portable across recent versions.
     argRef: "$1",
@@ -174,7 +211,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{name}` &mdash; browse the catalog",
       "- `/{name} \"docker\"` &mdash; search (quote multi-word args)",
       "",
-      "Commands live in `~/.gemini/commands/` (user-global) or `.gemini/commands/` (per-repo). Gemini reloads commands on each invocation.",
+      "Commands live in `~/.gemini/commands/` (user-global) or `./.gemini/commands/` (per-repo). Gemini reloads commands on each invocation.",
     ].join("\n"),
   },
 
@@ -182,7 +219,10 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "continue",
     label: "Continue (VS Code / JetBrains)",
     ext: "json",
-    installPath: "~/.continue/config.json",
+    installPaths: {
+      user: "~/.continue/config.json",
+      project: "./.continue/config.json",
+    },
     format: "continue-json-fragment",
     isFragment: true,
     // Continue passes the full slash-command string after the name; we use a
@@ -192,7 +232,7 @@ export const AGENTS: Record<string, AgentSpec> = {
     launchGuide: [
       "**Install Continue**: from the VS Code or JetBrains marketplace.",
       "",
-      "**Add the command**: open `~/.continue/config.json` and merge the rendered fragment into the top-level `slashCommands` array (create the array if it does not exist):",
+      "**Add the command**: open the target `config.json` (`~/.continue/config.json` for user-global, `./.continue/config.json` for project-local) and merge the rendered fragment into the top-level `slashCommands` array (create the array if it does not exist):",
       "",
       "```json",
       "{",
@@ -288,8 +328,22 @@ function tomlMultiline(value: string): string {
 export interface RenderResult {
   /** Final artifact contents (Markdown, TOML, or JSON fragment). */
   template: string;
-  /** Resolved install path with `{name}` substituted. */
-  install_path: string;
+  /**
+   * Resolved install path for the requested scope, with `{name}` substituted.
+   * `null` if the agent does not support the requested scope.
+   */
+  install_path: string | null;
+  /**
+   * All install paths the agent supports (`{name}` substituted), keyed by scope.
+   * Lets the UI render the scope chooser without re-fetching per scope.
+   */
+  install_paths: Partial<Record<AgentScope, string>>;
+  /** Scopes the agent actually supports. */
+  scopes_available: AgentScope[];
+  /** The scope that was actually rendered (may differ if requested was unsupported). */
+  scope: AgentScope | null;
+  /** True if the requested scope was unsupported and we returned no install_path. */
+  scope_fallback: boolean;
   /** File extension (no leading dot). */
   file_extension: string;
   /** Format identifier — useful for the UI to choose syntax highlighting. */
@@ -309,6 +363,21 @@ export interface RenderInputs {
   commandName: string;
   description: string;
   baseUrl: string;
+  /**
+   * Requested install scope. If `null` / undefined, no `install_path` is
+   * resolved (the UI is expected to require a scope before showing install
+   * commands). If the requested scope is unsupported by the agent,
+   * `install_path` is `null` and `scope_fallback` is `true`.
+   */
+  scope?: AgentScope | null;
+}
+
+/** Helper: list of scopes the agent supports, in display order. */
+export function scopesAvailableFor(agent: AgentSpec): AgentScope[] {
+  const out: AgentScope[] = [];
+  if (agent.installPaths.user) out.push("user");
+  if (agent.installPaths.project) out.push("project");
+  return out;
 }
 
 export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderResult {
@@ -347,9 +416,39 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
       break;
   }
 
+  const scopesAvail = scopesAvailableFor(agent);
+
+  // Resolve the requested scope. Three cases:
+  //  - explicit and supported  → use it
+  //  - explicit and unsupported → null, scope_fallback=true
+  //  - not provided             → null, scope_fallback=false (UI hasn't picked yet)
+  const requested = inputs.scope ?? null;
+  let resolvedScope: AgentScope | null = null;
+  let scopeFallback = false;
+  if (requested) {
+    if (agent.installPaths[requested]) {
+      resolvedScope = requested;
+    } else {
+      scopeFallback = true;
+    }
+  }
+
+  const installPaths: Partial<Record<AgentScope, string>> = {};
+  for (const s of scopesAvail) {
+    installPaths[s] = agent.installPaths[s]!.replace(/\{name\}/g, inputs.commandName);
+  }
+
+  const installPath = resolvedScope
+    ? agent.installPaths[resolvedScope]!.replace(/\{name\}/g, inputs.commandName)
+    : null;
+
   return {
     template: rendered,
-    install_path: agent.installPath.replace(/\{name\}/g, inputs.commandName),
+    install_path: installPath,
+    install_paths: installPaths,
+    scopes_available: scopesAvail,
+    scope: resolvedScope,
+    scope_fallback: scopeFallback,
     file_extension: agent.ext,
     format: agent.format,
     is_fragment: !!agent.isFragment,

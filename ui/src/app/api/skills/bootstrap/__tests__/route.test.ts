@@ -74,7 +74,16 @@ describe('GET /api/skills/bootstrap — defaults', () => {
     expect(data.format).toBe('markdown-frontmatter');
     expect(data.file_extension).toBe('md');
     expect(data.is_fragment).toBe(false);
-    expect(data.install_path).toBe('.claude/commands/skills.md');
+    // Without ?scope=, install_path is null and the UI must prompt the user.
+    expect(data.install_path).toBeNull();
+    expect(data.scope).toBeNull();
+    expect(data.scope_requested).toBeNull();
+    expect(data.scope_fallback).toBe(false);
+    expect(data.scopes_available).toEqual(['user', 'project']);
+    expect(data.install_paths).toEqual({
+      user: '~/.claude/commands/skills.md',
+      project: './.claude/commands/skills.md',
+    });
 
     // The default template uses {{ARG_REF}} which renders to $ARGUMENTS for
     // Claude. Verify it's substituted, not leaked.
@@ -117,47 +126,79 @@ describe('GET /api/skills/bootstrap — defaults', () => {
 });
 
 describe('GET /api/skills/bootstrap — per-agent rendering', () => {
+  // Each row picks a scope that the agent actually supports — Codex is
+  // user-only, Spec Kit is project-only, the rest support both and we
+  // exercise both flavours below.
   it.each([
-    ['claude', '.claude/commands/skills.md', 'markdown-frontmatter', '$ARGUMENTS'],
-    ['cursor', '.cursor/commands/skills.md', 'markdown-frontmatter', '$ARGUMENTS'],
+    ['claude', 'user', '~/.claude/commands/skills.md', 'markdown-frontmatter', '$ARGUMENTS'],
+    ['claude', 'project', './.claude/commands/skills.md', 'markdown-frontmatter', '$ARGUMENTS'],
+    ['cursor', 'user', '~/.cursor/commands/skills.md', 'markdown-frontmatter', '$ARGUMENTS'],
+    ['cursor', 'project', './.cursor/commands/skills.md', 'markdown-frontmatter', '$ARGUMENTS'],
     [
       'specify',
-      '.specify/templates/commands/skills.md',
+      'project',
+      './.specify/templates/commands/skills.md',
       'markdown-frontmatter',
       '$ARGUMENTS',
     ],
-    ['codex', '~/.codex/prompts/skills.md', 'markdown-plain', '$1'],
-    ['gemini', '~/.gemini/commands/skills.toml', 'gemini-toml', '$1'],
-    ['continue', '~/.continue/config.json', 'continue-json-fragment', '{{input}}'],
+    ['codex', 'user', '~/.codex/prompts/skills.md', 'markdown-plain', '$1'],
+    ['gemini', 'user', '~/.gemini/commands/skills.toml', 'gemini-toml', '$1'],
+    ['gemini', 'project', './.gemini/commands/skills.toml', 'gemini-toml', '$1'],
+    ['continue', 'user', '~/.continue/config.json', 'continue-json-fragment', '{{input}}'],
+    ['continue', 'project', './.continue/config.json', 'continue-json-fragment', '{{input}}'],
   ])(
-    'agent=%s renders with the right install path / format / argRef',
-    async (agent, installPath, format, argRef) => {
+    'agent=%s scope=%s renders with the right install path / format / argRef',
+    async (agent, scope, installPath, format, argRef) => {
       const data = await callGET(
-        `https://app.example.com/api/skills/bootstrap?agent=${agent}`,
+        `https://app.example.com/api/skills/bootstrap?agent=${agent}&scope=${scope}`,
       );
       expect(data.agent).toBe(agent);
       expect(data.agent_fallback).toBe(false);
       expect(data.install_path).toBe(installPath);
+      expect(data.scope).toBe(scope);
+      expect(data.scope_fallback).toBe(false);
       expect(data.format).toBe(format);
       expect(data.template).toContain(argRef);
     },
   );
 
+  it('returns scope_fallback=true when the requested scope is not supported', async () => {
+    // Codex CLI has no project scope (per openai/codex#9848).
+    const data = await callGET(
+      'https://app.example.com/api/skills/bootstrap?agent=codex&scope=project',
+    );
+    expect(data.agent).toBe('codex');
+    expect(data.scope_requested).toBe('project');
+    expect(data.scope).toBeNull();
+    expect(data.install_path).toBeNull();
+    expect(data.scope_fallback).toBe(true);
+    expect(data.scopes_available).toEqual(['user']);
+  });
+
+  it('ignores invalid scope values and treats them as unset', async () => {
+    const data = await callGET(
+      'https://app.example.com/api/skills/bootstrap?agent=claude&scope=root',
+    );
+    expect(data.scope_requested).toBeNull();
+    expect(data.install_path).toBeNull();
+    expect(data.scope_fallback).toBe(false);
+  });
+
   it('Continue is the only fragment-style result', async () => {
     const cont = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=continue',
+      'https://app.example.com/api/skills/bootstrap?agent=continue&scope=user',
     );
     expect(cont.is_fragment).toBe(true);
 
     const claude = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=claude',
+      'https://app.example.com/api/skills/bootstrap?agent=claude&scope=user',
     );
     expect(claude.is_fragment).toBe(false);
   });
 
   it('Gemini output is a TOML payload that lints as basic TOML', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=gemini',
+      'https://app.example.com/api/skills/bootstrap?agent=gemini&scope=user',
     );
     expect(data.template).toMatch(/^description = ".+"\nprompt = """\n/);
     expect(data.template).toMatch(/"""\n$/);
@@ -165,7 +206,7 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
 
   it('Continue output is parseable JSON', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=continue',
+      'https://app.example.com/api/skills/bootstrap?agent=continue&scope=user',
     );
     const parsed = JSON.parse(data.template);
     expect(parsed.name).toBe('skills');
@@ -192,10 +233,11 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
 describe('GET /api/skills/bootstrap — input sanitization', () => {
   it('substitutes a clean command_name into install path and body', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?command_name=my-skills',
+      'https://app.example.com/api/skills/bootstrap?command_name=my-skills&scope=project',
     );
     expect(data.inputs.command_name).toBe('my-skills');
-    expect(data.install_path).toBe('.claude/commands/my-skills.md');
+    expect(data.install_path).toBe('./.claude/commands/my-skills.md');
+    expect(data.install_paths.user).toBe('~/.claude/commands/my-skills.md');
     expect(data.template).toContain('/my-skills');
   });
 
@@ -212,10 +254,10 @@ describe('GET /api/skills/bootstrap — input sanitization', () => {
     const data = await callGET(
       `https://app.example.com/api/skills/bootstrap?command_name=${encodeURIComponent(
         bad,
-      )}`,
+      )}&scope=project`,
     );
     expect(data.inputs.command_name).toBe('skills');
-    expect(data.install_path).toBe('.claude/commands/skills.md');
+    expect(data.install_path).toBe('./.claude/commands/skills.md');
   });
 
   it('caps description at 500 chars', async () => {
@@ -350,7 +392,28 @@ describe('GET /api/skills/bootstrap — response shape', () => {
     );
     const claudeMeta = data.agents.find((a: any) => a.id === 'claude');
     const geminiMeta = data.agents.find((a: any) => a.id === 'gemini');
-    expect(claudeMeta.install_path).toBe('.claude/commands/catalog.md');
-    expect(geminiMeta.install_path).toBe('~/.gemini/commands/catalog.toml');
+    const codexMeta = data.agents.find((a: any) => a.id === 'codex');
+    const specifyMeta = data.agents.find((a: any) => a.id === 'specify');
+
+    expect(claudeMeta.install_paths).toEqual({
+      user: '~/.claude/commands/catalog.md',
+      project: './.claude/commands/catalog.md',
+    });
+    expect(claudeMeta.scopes_available).toEqual(['user', 'project']);
+
+    expect(geminiMeta.install_paths.user).toBe('~/.gemini/commands/catalog.toml');
+    expect(geminiMeta.install_paths.project).toBe('./.gemini/commands/catalog.toml');
+
+    // Codex CLI is user-only.
+    expect(codexMeta.install_paths).toEqual({
+      user: '~/.codex/prompts/catalog.md',
+    });
+    expect(codexMeta.scopes_available).toEqual(['user']);
+
+    // Spec Kit is project-only.
+    expect(specifyMeta.install_paths).toEqual({
+      project: './.specify/templates/commands/catalog.md',
+    });
+    expect(specifyMeta.scopes_available).toEqual(['project']);
   });
 });

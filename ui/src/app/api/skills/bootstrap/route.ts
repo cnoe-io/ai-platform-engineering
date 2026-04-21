@@ -8,6 +8,12 @@
  *   - agent:        agent id (claude | cursor | specify | codex | gemini |
  *                   continue). Defaults to "claude". Unknown values fall back
  *                   to the default and are reported in `agent_fallback`.
+ *   - scope:        install scope ("user" | "project"). Optional. When omitted
+ *                   the response surfaces `scopes_available` so the UI can
+ *                   force the user to pick before showing install commands.
+ *                   When the requested scope is unsupported by the agent
+ *                   (e.g. ?agent=codex&scope=project), `install_path` is
+ *                   `null` and `scope_fallback` is `true`.
  *   - command_name: slash command name to substitute for {{COMMAND_NAME}}.
  *                   Defaults to "skills".
  *   - description:  short description for the command. Defaults to the
@@ -30,7 +36,12 @@
  *     agent_fallback: false,
  *     label: "Claude Code",
  *     template: "<rendered file contents>",
- *     install_path: ".claude/commands/skills.md",
+ *     install_path: "~/.claude/commands/skills.md" | null,
+ *     install_paths: { user?: string, project?: string },
+ *     scope: "user" | "project" | null,
+ *     scope_requested: "user" | "project" | null,
+ *     scope_fallback: false,
+ *     scopes_available: ["user", "project"],
  *     file_extension: "md",
  *     format: "markdown-frontmatter",
  *     is_fragment: false,
@@ -38,7 +49,7 @@
  *     docs_url: "https://...",
  *
  *     // Catalog of all known agents (for the UI dropdown)
- *     agents: [{id, label, ext, format, install_path, is_fragment, docs_url}],
+ *     agents: [{id, label, ext, format, install_paths, scopes_available, is_fragment, docs_url}],
  *
  *     // Source of the canonical template (for operator visibility)
  *     source: "file:/app/data/skills-bootstrap/bootstrap.md",
@@ -60,6 +71,8 @@ import {
   AGENTS,
   DEFAULT_AGENT_ID,
   renderForAgent,
+  scopesAvailableFor,
+  type AgentScope,
   type AgentSpec,
 } from "./agents";
 
@@ -184,9 +197,22 @@ function selectAgent(raw: string | null): {
   return { agent: AGENTS[DEFAULT_AGENT_ID], fallback: !!id };
 }
 
+/**
+ * Validate scope. Returns `null` when no scope was requested (the UI hasn't
+ * forced a choice yet) so the caller can render scopes_available without
+ * defaulting silently. Unknown values also collapse to `null` (the renderer
+ * then sets `scope_fallback`).
+ */
+export function selectScope(raw: string | null): AgentScope | null {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "user" || v === "project") return v;
+  return null;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const { agent, fallback } = selectAgent(url.searchParams.get("agent"));
+  const requestedScope = selectScope(url.searchParams.get("scope"));
 
   const commandName = sanitizeCommandName(url.searchParams.get("command_name"));
   const descriptionInput = sanitizeDescription(
@@ -202,6 +228,7 @@ export async function GET(request: Request) {
     commandName,
     description: descriptionInput,
     baseUrl,
+    scope: requestedScope,
   });
 
   return NextResponse.json(
@@ -210,28 +237,43 @@ export async function GET(request: Request) {
       agent_fallback: fallback,
       label: rendered.label,
       template: rendered.template,
+      // Scope-aware install metadata.
       install_path: rendered.install_path,
+      install_paths: rendered.install_paths,
+      scope: rendered.scope,
+      scope_requested: requestedScope,
+      scope_fallback: rendered.scope_fallback,
+      scopes_available: rendered.scopes_available,
       file_extension: rendered.file_extension,
       format: rendered.format,
       is_fragment: rendered.is_fragment,
       launch_guide: rendered.launch_guide,
       docs_url: rendered.docs_url,
 
-      agents: Object.values(AGENTS).map((a) => ({
-        id: a.id,
-        label: a.label,
-        ext: a.ext,
-        format: a.format,
-        install_path: a.installPath.replace(/\{name\}/g, commandName),
-        is_fragment: !!a.isFragment,
-        docs_url: a.docsUrl,
-      })),
+      agents: Object.values(AGENTS).map((a) => {
+        const scopes = scopesAvailableFor(a);
+        const paths: Partial<Record<AgentScope, string>> = {};
+        for (const s of scopes) {
+          paths[s] = a.installPaths[s]!.replace(/\{name\}/g, commandName);
+        }
+        return {
+          id: a.id,
+          label: a.label,
+          ext: a.ext,
+          format: a.format,
+          install_paths: paths,
+          scopes_available: scopes,
+          is_fragment: !!a.isFragment,
+          docs_url: a.docsUrl,
+        };
+      }),
 
       source,
       inputs: {
         command_name: commandName,
         description: descriptionInput,
         base_url: baseUrl,
+        scope: requestedScope,
       },
       canonical_template: canonicalTemplate,
       placeholders: [
