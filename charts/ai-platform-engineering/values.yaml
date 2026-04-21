@@ -778,45 +778,28 @@ slack-bot:
     tag: ""
     pullPolicy: "IfNotPresent"
 
-  # Display name used in Slack messages
-  appName: "CAIPE"
+  # -- Flat key-value map of environment variables.
+  # Each key-value pair is injected as a flat environment variable via ConfigMap
+  # (envFrom → configMapRef). All non-sensitive env vars go here.
+  config:
+    APP_NAME: "CAIPE"
+    SLACK_BOT_MODE: "socket"
+    CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+    SLACK_INTEGRATION_SILENCE_ENV: "false"
+    MONGODB_DATABASE: "caipe"
+    # MONGODB_URI: ""                          # Override per environment
+    # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
+    # SLACK_INTEGRATION_ENABLE_AUTH: "true"    # Enable OAuth2 Client Credentials
+    # OAUTH2_TOKEN_URL: ""                     # OIDC token endpoint
+    # OAUTH2_CLIENT_ID: ""                     # OAuth2 client ID
 
-  # Connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (webhooks via SLACK_SIGNING_SECRET)
-  botMode: "socket"
+  # -- Reference to a pre-existing Kubernetes Secret.
+  # Should contain: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,
+  # and optionally OAUTH2_CLIENT_SECRET.
+  existingSecret: "slack-bot-secrets"
 
-  # Environment variables passed to the bot container
-  env: {}
-
-  # CAIPE API URL — the bot routes all requests through this gateway.
-  caipeApiUrl: "http://ai-platform-engineering-caipe-ui:3000"
-
-  # Reference to a Kubernetes Secret containing Slack tokens:
-  #   SLACK_BOT_TOKEN (xoxb-...), SLACK_APP_TOKEN (xapp-...), SLACK_SIGNING_SECRET
-  #   Optionally: OAUTH2_CLIENT_SECRET
-  slack:
-    tokenSecretRef: "slack-bot-secrets"
-
-  # MongoDB for persistent session storage (conversation context, trace IDs, user cache)
-  # Uses the same MongoDB as CAIPE UI when deployed together
-  mongodb:
-    uri: ""  # Override per environment, e.g. "mongodb://admin:changeme@ai-platform-engineering-mongodb:27017"
-    database: "caipe"
-
-  # OAuth2 Client Credentials auth for A2A requests to the supervisor
-  # Works with any OIDC provider (Okta, Keycloak, Auth0, Azure AD)
-  auth:
-    enabled: false
-    tokenUrl: ""      # e.g. "https://your-idp.example.com/oauth2/v1/token"
-    clientId: ""
-    scope: ""         # Optional
-    audience: ""      # Optional
-    # clientSecret should be stored in the K8s Secret (slack.tokenSecretRef), NOT here
-
-  # Suppress environment info in bot responses
-  silenceEnv: "false"
-
-  # Per-channel configuration (serialized as YAML into a ConfigMap)
-  # Structure: channel_id -> channel config
+  # -- Per-channel configuration rendered as YAML and volume-mounted
+  # at /etc/caipe/bot-config.yaml. Only mounted when non-empty.
   botConfig: {}
     # C012345678:
     #   name: "#my-channel"
@@ -826,11 +809,12 @@ slack-bot:
     #     overthink: true
     #   ai_alerts:
     #     enabled: false
-    #   default:
-    #     project_key: MYPROJ
-    #     issue_type: Bug
+    #   other:
+    #     jira:
+    #       project_key: MYPROJ
+    #       issue_type: Bug
 
-  # External Secrets configuration for sensitive data (Slack tokens, Langfuse secret key, etc.)
+  # -- External Secrets configuration for sensitive data
   externalSecrets:
     enabled: false
     apiVersion: "v1beta1"
@@ -842,10 +826,6 @@ slack-bot:
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: bot_token
-      # - secretKey: SLACK_APP_TOKEN
-      #   remoteRef:
-      #     key: prod/slack-bot
-      #     property: app_token
 
   resources:
     requests:

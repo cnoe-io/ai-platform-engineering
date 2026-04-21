@@ -1986,6 +1986,7 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
+      - ./ai_platform_engineering/integrations/slack_bot/slack-bot-config.yaml:/etc/caipe/bot-config.yaml:ro
     command: ["sh", "-c", "uv sync --no-dev && exec python -m app"]
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
@@ -1995,7 +1996,7 @@ services:
       - SLACK_INTEGRATION_APP_TOKEN=${SLACK_INTEGRATION_APP_TOKEN:-${SLACK_APP_TOKEN}}
       - SLACK_INTEGRATION_SIGNING_SECRET=${SLACK_INTEGRATION_SIGNING_SECRET:-}
       - SLACK_INTEGRATION_BOT_MODE=${SLACK_INTEGRATION_BOT_MODE:-socket}
-      - SLACK_INTEGRATION_BOT_CONFIG=${SLACK_INTEGRATION_BOT_CONFIG}
+      - SLACK_INTEGRATION_BOT_CONFIG=${SLACK_INTEGRATION_BOT_CONFIG:-/etc/caipe/bot-config.yaml}
       - SLACK_INTEGRATION_ENABLE_AUTH=${SLACK_INTEGRATION_ENABLE_AUTH:-false}
       - SLACK_INTEGRATION_AUTH_TOKEN_URL=${SLACK_INTEGRATION_AUTH_TOKEN_URL:-}
       - SLACK_INTEGRATION_AUTH_CLIENT_ID=${SLACK_INTEGRATION_AUTH_CLIENT_ID:-}
