@@ -118,6 +118,17 @@ The `AUTH_ENABLED` config key is removed. It was being used as a development sho
 
 **Replacement:** Use `DEBUG: "true"` in `config:` to enable the dev admin user bypass. In production, omit it (auth is always enabled when the UI passes a valid token).
 
+#### OIDC and CORS config removed
+
+In 0.4.0, all authentication is handled by the **UI gateway** (Next.js server). Dynamic-agents no longer validates tokens or accepts direct browser requests, so the following keys should be **removed** from `dynamic-agents.config:`:
+
+- `OIDC_ISSUER`
+- `OIDC_CLIENT_ID`
+- `OIDC_REQUIRED_ADMIN_GROUP`
+- `CORS_ORIGINS`
+
+These are now only needed on the `caipe-ui` side.
+
 ---
 
 ### 3. Slack Bot (slack-bot) -- **Most Breaking Changes**
@@ -303,6 +314,10 @@ component:
 | caipe-ui | `seedConfig.*` | `appConfig.*` |
 | dynamic-agents | `env:` | `config:` |
 | dynamic-agents | `config.AUTH_ENABLED` | `config.DEBUG: "true"` for dev |
+| dynamic-agents | `config.OIDC_ISSUER` | Removed (auth handled by UI gateway) |
+| dynamic-agents | `config.OIDC_CLIENT_ID` | Removed (auth handled by UI gateway) |
+| dynamic-agents | `config.OIDC_REQUIRED_ADMIN_GROUP` | Removed (auth handled by UI gateway) |
+| dynamic-agents | `config.CORS_ORIGINS` | Removed (no direct browser access) |
 | slack-bot | `env:` | `config:` |
 | slack-bot | `appName` | `config.APP_NAME` |
 | slack-bot | `botMode` | `config.SLACK_BOT_MODE` |
@@ -341,7 +356,7 @@ For stable releases, the chart's `appVersion` is set automatically and no overri
 
 - [ ] **Back up current values:** `helm get values ai-platform-engineering -o yaml > values-backup.yaml`
 - [ ] **Migrate caipe-ui values:** merge `env:` into `config:`, rename `seedConfig` to `appConfig`
-- [ ] **Migrate dynamic-agents values:** merge `env:` into `config:`, remove `AUTH_ENABLED`
+- [ ] **Migrate dynamic-agents values:** merge `env:` into `config:`, remove `AUTH_ENABLED`, remove OIDC/CORS keys
 - [ ] **Migrate slack-bot values:** restructure all named keys into `config:` flat map (see mapping table above)
 - [ ] **Verify secret name:** `existingSecret` points to the correct K8s Secret containing Slack tokens
 - [ ] **Verify botConfig structure:** rename `default:` to `other:` if used
