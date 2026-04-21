@@ -237,9 +237,9 @@ describe('POST /api/feedback — Slack with channel: 3 Langfuse scores + upsert'
     expect(mockInsertOne).not.toHaveBeenCalled();
 
     const [filter, update, options] = mockUpdateOne.mock.calls[0];
-    // Upsert filter: keyed on thread_ts, user_id, source
+    // Upsert filter: keyed on message_id, user_id, source
     expect(filter).toEqual({
-      thread_ts: 'thread-123',
+      message_id: 'thread-123',
       user_id: 'U99',
       source: 'slack',
     });
