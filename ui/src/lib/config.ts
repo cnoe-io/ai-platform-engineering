@@ -307,7 +307,7 @@ export function getServerConfig(): Config {
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
 
   const agentProtocolEnv = env('AGENT_PROTOCOL');
-  const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'agui' ? 'agui' : 'custom';
+  const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
