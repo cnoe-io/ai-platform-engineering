@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Terminal, RefreshCcw, Loader2, AlertCircle, CheckCircle2, Search, Copy, Check } from "lucide-react";
+import { Terminal, Loader2, AlertCircle, CheckCircle2, Search, Copy, Check, ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,13 +11,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useAdminRole } from "@/hooks/use-admin-role";
-
 const DEFAULT_KEY_HEADER =
   process.env.NEXT_PUBLIC_CAIPE_CATALOG_API_KEY_HEADER ||
   "X-Caipe-Catalog-Key";
 
-type SyncStatus = "in_sync" | "synced" | "supervisor_stale" | "unknown" | string;
 
 /**
  * Single-quote a value for safe inclusion in a bash snippet shown to the
@@ -28,32 +26,7 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-function syncLabel(status: SyncStatus | undefined): string {
-  switch (status) {
-    case "in_sync":
-    case "synced":
-      return "In sync — supervisor loaded the current catalog generation.";
-    case "supervisor_stale":
-      return "Supervisor stale — run Refresh skills so the assistant picks up the latest catalog.";
-    default:
-      return "Status unavailable — backend may not expose generation metadata yet.";
-  }
-}
-
 export function TrySkillsGateway() {
-  const { isAdmin } = useAdminRole();
-  const [sync, setSync] = useState<{
-    sync_status?: SyncStatus;
-    catalog_cache_generation?: number | null;
-    last_built_catalog_generation?: number | null;
-    skills_loaded_count?: number | null;
-    graph_generation?: number | null;
-  } | null>(null);
-  const [syncLoading, setSyncLoading] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
-
   const [copiedBearer, setCopiedBearer] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
@@ -166,28 +139,6 @@ export function TrySkillsGateway() {
 
   const catalogUrl = buildCatalogUrl();
 
-  const loadSync = useCallback(async () => {
-    setSyncLoading(true);
-    setSyncError(null);
-    try {
-      const res = await fetch("/api/skills/supervisor-status", {
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setSyncError("Could not load sync status.");
-        setSync(null);
-        return;
-      }
-      setSync(data);
-    } catch {
-      setSyncError("Could not load sync status.");
-      setSync(null);
-    } finally {
-      setSyncLoading(false);
-    }
-  }, []);
-
   const loadKeys = useCallback(async () => {
     try {
       const res = await fetch("/api/catalog-api-keys", { credentials: "include" });
@@ -199,7 +150,6 @@ export function TrySkillsGateway() {
   }, []);
 
   useEffect(() => {
-    void loadSync();
     void loadKeys();
 
     // Fetch catalog to populate autocomplete tags and search suggestions
@@ -232,7 +182,7 @@ export function TrySkillsGateway() {
         );
       })
       .catch(() => {});
-  }, [loadSync, loadKeys]);
+  }, [loadKeys]);
 
   // Re-fetch the per-agent rendered bootstrap whenever the agent, scope,
   // command name, or description changes. Debounced lightly so typing is
@@ -287,33 +237,6 @@ export function TrySkillsGateway() {
       );
     }
   }, [selectedAgent, agents, selectedScope]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    setRefreshMsg(null);
-    try {
-      const res = await fetch("/api/skills/refresh", {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setRefreshMsg(
-          data.message ||
-            (res.status === 403
-              ? "Admin role required to refresh the supervisor."
-              : "Refresh failed."),
-        );
-        return;
-      }
-      setRefreshMsg(data.message || "Refresh completed.");
-      await loadSync();
-    } catch {
-      setRefreshMsg("Refresh failed.");
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const handleMint = async () => {
     setMintBusy(true);
@@ -888,53 +811,17 @@ export function TrySkillsGateway() {
             </div>
           ) : null}
 
-          <div className="border-t border-border pt-4 space-y-2">
-            <p className="font-medium text-foreground">Skills sync (supervisor vs catalog)</p>
-            {syncLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            ) : syncError ? (
-              <p className="text-destructive text-xs flex items-center gap-1">
-                <AlertCircle className="h-3.5 w-3.5" />
-                {syncError}
-              </p>
-            ) : (
-              <div className="space-y-1 text-xs">
-                <p className="flex items-start gap-1.5">
-                  {sync?.sync_status === "in_sync" || sync?.sync_status === "synced" ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
-                  )}
-                  {syncLabel(sync?.sync_status)}
-                </p>
-                <p className="text-muted-foreground pl-5">
-                  catalog_cache_generation: {sync?.catalog_cache_generation ?? "—"} ·
-                  last_built_catalog_generation: {sync?.last_built_catalog_generation ?? "—"} ·
-                  skills_loaded_count: {sync?.skills_loaded_count ?? "—"}
-                </p>
-              </div>
-            )}
-            {isAdmin ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                disabled={refreshing}
-                onClick={() => void handleRefresh()}
-              >
-                <RefreshCcw className={`h-3.5 w-3.5 mr-1 ${refreshing ? "animate-spin" : ""}`} />
-                Refresh skills (supervisor)
-              </Button>
-            ) : (
-              <p className="text-xs text-muted-foreground mt-2">
-                Ask an administrator to run <strong>Refresh skills</strong> if the supervisor is
-                stale.
-              </p>
-            )}
-            {refreshMsg ? (
-              <p className="text-xs text-muted-foreground mt-1">{refreshMsg}</p>
-            ) : null}
+          <div className="border-t border-border pt-4 text-xs text-muted-foreground">
+            Supervisor sync status and the <strong>Refresh skills</strong> action live on the
+            admin page —{" "}
+            <Link
+              href="/admin?tab=skills"
+              className="text-primary font-medium hover:underline inline-flex items-center gap-0.5"
+            >
+              open Admin → Skills
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </Link>
+            .
           </div>
         </CardContent>
       </Card>
