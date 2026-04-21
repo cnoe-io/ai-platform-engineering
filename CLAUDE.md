@@ -22,8 +22,8 @@
 Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`).
 
 For AI-assisted commits, follow the [dco-ai-attribution](./skills/dco-ai-attribution/SKILL.md) skill:
-- AI must **never** add `Signed-off-by` — only the human author can certify the DCO
-- Always append `Assisted-by: Claude:<model-version>` when code was materially AI-assisted
+- AI agents may add `Signed-off-by` on the configured git author's behalf (the human submitter remains responsible for reviewing every commit before push)
+- Always append `Assisted-by claude <model>` (no colon — GitHub DCO check treats `Trailer-Name:` lines as signatures) when code was materially AI-assisted, e.g. `Assisted-by claude opus-4.7`
 - See `agents.md` for the canonical policy reference used by AI coding agents
 
 ```

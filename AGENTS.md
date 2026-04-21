@@ -27,17 +27,16 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 
 ## DCO and AI Attribution Policy
 
-**Skill**: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)  
-**Authority**: Linux kernel [AI Coding Assistants policy](https://github.com/torvalds/linux/blob/master/Documentation/process/coding-assistants.rst)
+**Skill**: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
 
 AI agents operating in this repository **must** follow these rules on every commit:
 
-1. **Never generate `Signed-off-by`** — this is a human-only DCO certification. Do not add, suggest, or insert this trailer on behalf of the AI.
-2. **Always suggest `Assisted-by`** when code was materially AI-assisted:
+1. **Sign off every commit.** AI agents may add `Signed-off-by` on behalf of the configured git author (`user.name` / `user.email`) — typically by running `git commit -s`. The human submitter remains responsible for reviewing the commit before push.
+2. **Always add an `Assisted-by` line** in the commit body when code was materially AI-assisted, using the simple form (no colon — GitHub's DCO check treats `Trailer-Name:` lines as signature trailers and will reject the commit):
    ```
-   Assisted-by: Claude:claude-sonnet-4-6
+   Assisted-by claude opus-4.7
    ```
-3. **Always remind the human** to add their own `Signed-off-by` before the commit is finalized.
+   Substitute the appropriate tool and model identifier (e.g. `claude sonnet-4-6`, `gemini 2.5-pro`, `codex gpt-5`).
 
 Full pre-commit checklist and examples: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
 
