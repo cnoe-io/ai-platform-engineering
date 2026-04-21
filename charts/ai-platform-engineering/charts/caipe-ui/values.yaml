@@ -147,14 +147,12 @@ tolerations: []
 
 affinity: {}
 
-# Environment variables (non-sensitive configuration)
-env:
+# Non-sensitive application configuration.
+# Each key-value pair is injected as a flat environment variable via ConfigMap (envFrom).
+# For sensitive values (OIDC secrets, MongoDB URI, etc.) use existingSecret or externalSecrets below.
+config:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
   A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
-
-# ConfigMap for non-sensitive configuration
-# These values are mounted as environment variables to the pod
-config:
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
@@ -197,6 +195,8 @@ config:
   OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
+  # Additional JWKS URIs for token validation (JSON array, non-sensitive)
+  # OIDC_ADDITIONAL_JWKS: '["https://other-idp/.well-known/jwks.json"]'
   # Support contact email
   SUPPORT_EMAIL: "support@example.com"
   # Header link URLs (leave empty/commented to hide)
@@ -263,13 +263,12 @@ externalSecrets:
     #     key: dev/caipe-ui
     #     property: OIDC_CLIENT_SECRET
 
-# Seed configuration for MCP servers and agents
-# These are loaded at startup and marked as config_driven (cannot be edited via UI)
-# Environment variables in values support ${VAR_NAME} and ${VAR_NAME:-default} syntax
-seedConfig:
-  # Enable seed config ConfigMap creation and mounting
-  enabled: false
-
+# Structured application config (models, MCP servers, agents).
+# Rendered as a YAML file and volume-mounted into the container at /etc/caipe-ui/app-config.yaml.
+# Loaded at startup and marked as config_driven (cannot be edited via UI).
+# Auto-mounted only when at least one key below is non-empty.
+# Environment variables in values support ${VAR_NAME} and ${VAR_NAME:-default} syntax.
+appConfig:
   # Available LLM models for the model selector
   models: []
   # Example:

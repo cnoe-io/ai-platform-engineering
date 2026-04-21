@@ -354,9 +354,9 @@ async function cleanupStaleConfigDriven(
  * Also cleans up config-driven entities that have been removed from config.
  */
 export async function applySeedConfig(): Promise<void> {
-  const configPath = process.env.SEED_CONFIG_PATH;
+  const configPath = process.env.APP_CONFIG_PATH;
   if (!configPath) {
-    console.log("[seed-config] SEED_CONFIG_PATH not set, skipping seed");
+    console.log("[seed-config] APP_CONFIG_PATH not set, skipping seed");
     return;
   }
 

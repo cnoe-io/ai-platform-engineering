@@ -98,15 +98,10 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# Environment variables (direct injection)
-env: {}
-
 # ConfigMap for non-sensitive configuration
 config:
   # MongoDB database name (uses same DB as CAIPE UI)
   MONGODB_DATABASE: "caipe"
-  # Authentication
-  AUTH_ENABLED: "false"
   # Agent runtime TTL in seconds
   AGENT_RUNTIME_TTL_SECONDS: "3600"
   # CORS origins (JSON array format for Pydantic)
