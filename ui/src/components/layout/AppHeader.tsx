@@ -288,7 +288,7 @@ export function AppHeader() {
               )}
             >
               <Database className="h-3.5 w-3.5 shrink-0" />
-               Knowledge Base
+               Knowledge Bases
             </GuardedLink>
           )}
           {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
