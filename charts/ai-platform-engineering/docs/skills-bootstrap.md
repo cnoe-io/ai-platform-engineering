@@ -1,7 +1,12 @@
-# Bootstrap skill template
+# Skills bootstrap template (chart-side reference)
+
+This page is a chart-operator reference for customizing the **Skills API
+Gateway** bootstrap skill. The packaged template itself lives at
+[`../data/skills/bootstrap.md`](../data/skills/bootstrap.md); this document
+explains how the chart wires it up and which Helm values override it.
 
 `bootstrap.md` is the default markdown body of the `/skills` slash command
-that the **Skills API Gateway** UI page renders for users to copy into their
+that the Skills API Gateway UI page renders for users to copy into their
 coding agent (Claude Code, Cursor, Spec Kit, etc.).
 
 The chart packages it into the `skills-bootstrap` ConfigMap, which is mounted

@@ -221,6 +221,6 @@ basic Markdown (bold, inline code, links, fenced code blocks).
 
 ## See also
 
-- Chart-side reference: [`charts/ai-platform-engineering/data/skills/README.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/data/skills/README.md)
+- Chart-side reference: [`charts/ai-platform-engineering/docs/skills-bootstrap.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/docs/skills-bootstrap.md)
 - Default template: [`bootstrap.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/data/skills/bootstrap.md)
 - ConfigMap template: [`templates/skills-bootstrap-config.yaml`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/templates/skills-bootstrap-config.yaml)
