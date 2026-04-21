@@ -986,15 +986,27 @@ EOF`}</pre>
             <div
               className={`mt-2 rounded-md p-3 transition-colors ${
                 !selectedScope
-                  ? "ring-1 ring-primary/40 bg-primary/5"
+                  ? "ring-1 ring-amber-500/50 bg-amber-500/5"
                   : "bg-muted/20"
               }`}
             >
-              <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-3">
-                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+              <p
+                className={`flex items-center gap-2 text-xs font-semibold mb-3 ${
+                  !selectedScope
+                    ? "text-amber-700 dark:text-amber-400"
+                    : "text-muted-foreground font-medium"
+                }`}
+              >
+                <span
+                  className={`inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold ${
+                    !selectedScope
+                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                      : "bg-primary/15 text-primary"
+                  }`}
+                >
                   b
                 </span>
-                Where to install
+                Where to install?
               </p>
               <div className="flex flex-col gap-2">
                 {(["user", "project"] as InstallScope[]).map((s) => {
@@ -1054,7 +1066,7 @@ EOF`}</pre>
                 })}
               </div>
               {!selectedScope ? (
-                <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
                   <AlertCircle className="h-3 w-3" />
                   Pick an install scope to reveal the install command
                 </p>
