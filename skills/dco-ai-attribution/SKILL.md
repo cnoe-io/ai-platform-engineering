@@ -40,19 +40,32 @@ The human submitter is always responsible for:
 ## Attribution: Assisted-by line
 
 Add a single-line `Assisted-by` note in the commit body when AI materially
-contributed to the commit. Do **not** use a colon after `Assisted-by` —
-GitHub's DCO check treats `Trailer-Name:` lines as signature trailers and
-will reject the commit. Use a space instead:
+contributed to the commit.
 
-  Assisted-by claude <model>
+**Format (best-effort model):**
 
-Examples:
+  Assisted-by <tool> (model: <model>)
 
-  Assisted-by claude opus-4.7
-  Assisted-by claude sonnet-4-6
+Do **not** put a colon directly after `Assisted-by` — GitHub's DCO check
+parses `Trailer-Name:` lines as signature trailers and will reject the
+commit. Use a space after `Assisted-by`. A colon inside the parenthetical
+(`(model: ...)`) is fine because the parser only looks at the first token.
 
-For other AI tools, substitute the tool name (e.g. `gemini`, `codex`,
-`cursor`) and its model identifier.
+The agent fills in what it actually knows. If the runtime cannot
+determine the model identifier reliably (most CLIs do not expose it as
+an env var), write `(model: unknown)` so the human author can correct
+it during review rather than guessing a stale model string.
+
+**Examples:**
+
+  Assisted-by claude (model: opus-4.7)
+  Assisted-by claude (model: sonnet-4-6)
+  Assisted-by cursor (model: unknown)
+  Assisted-by gemini (model: 2.5-pro)
+  Assisted-by codex (model: gpt-5)
+
+For other AI tools, substitute the tool name and its model identifier
+(or `unknown`).
 
 ---
 
@@ -63,7 +76,7 @@ For other AI tools, substitute the tool name (e.g. `gemini`, `codex`,
   The expiry check was skipped when the token lacked an explicit 'exp'
   claim, allowing stale tokens to authenticate.
 
-  Assisted-by claude opus-4.7
+  Assisted-by claude (model: opus-4.7)
 
   Signed-off-by: John Doe <john@example.com>
 
@@ -75,4 +88,4 @@ For other AI tools, substitute the tool name (e.g. `gemini`, `codex`,
 - [ ] I can explain what the code does and why it is correct
 - [ ] The code is license-compatible with this project
 - [ ] `Signed-off-by` matches the configured git author
-- [ ] `Assisted-by <tool> <model>` (no colon) is present when AI was involved
+- [ ] `Assisted-by <tool> (model: <model-or-unknown>)` is present when AI was involved (no colon directly after `Assisted-by`)
