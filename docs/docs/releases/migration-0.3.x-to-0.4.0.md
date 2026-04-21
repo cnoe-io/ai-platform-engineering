@@ -317,6 +317,26 @@ component:
 
 ---
 
+## Image Tag Overrides
+
+When deploying RC builds (pre-release), the chart's default `appVersion` may not match the desired image tag. You must explicitly override image tags for each component:
+
+```yaml
+caipe-ui:
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-ui"
+    tag: "0.4.0-rc.16"
+    pullPolicy: "Always"
+
+dynamic-agents:
+  image:
+    tag: "0.4.0-rc.16"
+```
+
+For stable releases, the chart's `appVersion` is set automatically and no override is needed — you can remove the `image.tag` overrides after upgrading to the final 0.4.0 release.
+
+---
+
 ## Pre-Upgrade Checklist
 
 - [ ] **Back up current values:** `helm get values ai-platform-engineering -o yaml > values-backup.yaml`
