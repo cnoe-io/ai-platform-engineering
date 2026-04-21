@@ -45,7 +45,7 @@ const capabilities = [
   },
   {
     id: "knowledge-bases",
-    title: "Knowledge Bases",
+    title: "Knowledge Base",
     description:
       "Search and explore your organization's knowledge through RAG-powered semantic search and graph views.",
     icon: Database,

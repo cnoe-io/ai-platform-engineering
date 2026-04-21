@@ -77,7 +77,7 @@ describe('CapabilityCards', () => {
       expect(screen.getByTestId('capability-card-task-builder')).toHaveAttribute('href', '/task-builder')
     })
 
-    it('Knowledge Bases card links to /knowledge-bases', () => {
+    it('Knowledge Base card links to /knowledge-bases', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByTestId('capability-card-knowledge-bases')).toHaveAttribute('href', '/knowledge-bases')
     })
@@ -100,9 +100,9 @@ describe('CapabilityCards', () => {
       expect(screen.getByText(/Create and manage self-service workflows/)).toBeInTheDocument()
     })
 
-    it('renders Knowledge Bases card title and description', () => {
+    it('renders Knowledge Base card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
-      expect(screen.getByText('Knowledge Bases')).toBeInTheDocument()
+      expect(screen.getByText('Knowledge Base')).toBeInTheDocument()
       expect(screen.getByText(/Search and explore your organization's knowledge/)).toBeInTheDocument()
     })
 
@@ -113,7 +113,7 @@ describe('CapabilityCards', () => {
   })
 
   describe('with RAG disabled', () => {
-    it('renders Chat, Skills, and Task Builder cards but not Knowledge Bases', () => {
+    it('renders Chat, Skills, and Task Builder cards but not Knowledge Base', () => {
       render(<CapabilityCards ragEnabled={false} />)
       expect(screen.getByTestId('capability-card-chat')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-skills')).toBeInTheDocument()
@@ -121,9 +121,9 @@ describe('CapabilityCards', () => {
       expect(screen.queryByTestId('capability-card-knowledge-bases')).not.toBeInTheDocument()
     })
 
-    it('does not render Knowledge Bases text', () => {
+    it('does not render Knowledge Base text', () => {
       render(<CapabilityCards ragEnabled={false} />)
-      expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
+      expect(screen.queryByText('Knowledge Base')).not.toBeInTheDocument()
     })
   })
 })

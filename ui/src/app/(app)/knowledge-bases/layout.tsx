@@ -43,7 +43,7 @@ function KnowledgeBasesLayoutContent({
               <WifiOff className="h-5 w-5 text-destructive" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-foreground">Knowledge Bases</h1>
+              <h1 className="text-lg font-bold text-foreground">Knowledge Base</h1>
               <p className="text-destructive text-xs">
                 RAG Server Unavailable
               </p>

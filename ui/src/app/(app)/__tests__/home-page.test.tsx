@@ -247,14 +247,14 @@ describe('HomePage', () => {
       expect(screen.getByTestId('capability-cards')).toBeInTheDocument()
     })
 
-    it('shows Knowledge Bases when RAG is enabled', () => {
+    it('shows Knowledge Base when RAG is enabled', () => {
       mockRagEnabled = true
       setupMockAPIs()
       render(<HomePage />)
       expect(screen.getByTestId('capability-card-knowledge-bases')).toBeInTheDocument()
     })
 
-    it('hides Knowledge Bases when RAG is disabled', () => {
+    it('hides Knowledge Base when RAG is disabled', () => {
       mockRagEnabled = false
       setupMockAPIs()
       render(<HomePage />)
