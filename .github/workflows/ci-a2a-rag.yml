@@ -2,16 +2,7 @@ name: "[CI][A2A] CAIPE RAG Build and Push"
 description: "Build and push CAIPE RAG Docker image"
 
 on:
-  # Trigger on push to main to detect changes and build/retag images
   push:
-    branches:
-      - main
-    paths:
-      - 'ai_platform_engineering/**'
-      - 'build/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-    # Build on all manual new tags as well
     tags:
       - '**'
   pull_request:
@@ -20,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_version:
-        description: 'Version tag to apply (e.g., 0.2.8-rc.1)'
+        description: 'Version tag to apply (e.g., 0.3.0-dev.5)'
         required: false
         type: string
 
@@ -53,6 +44,7 @@ jobs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
+      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -84,49 +76,53 @@ jobs:
           SHOULD_RETAG="false"
           TAG_VERSION="${{ env.TAG_VERSION }}"
 
-          # Check if this is an RC tag
-          if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
-            IS_RC="true"
-          else
-            IS_RC="false"
+          # Chart-only tag: skip image builds entirely
+          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
+            echo "📊 Chart-only tag: skipping image builds"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_retag=false" >> $GITHUB_OUTPUT
+            echo "image_prefix=" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          # Determine build vs retag logic:
-          # 1. Final release (non-RC tag via workflow_dispatch or tag push): Always build
-          # 2. RC tag with changes: Build
-          # 3. RC tag without changes: Retag from previous version
-          # 4. Push to main: Build
-          # 5. PR or other: Build only if changed
+          # Determine pre-release type and number
+          if [[ "$TAG_VERSION" =~ -(dev|rc|hotfix)\.([0-9]+)$ ]]; then
+            IS_PRERELEASE="true"
+            PRERELEASE_NUM="${BASH_REMATCH[2]}"
+          else
+            IS_PRERELEASE="false"
+            PRERELEASE_NUM=0
+          fi
+
+          # GHCR prefix: -rc.N and -hotfix.N go to pre-release/
+          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
+            IMAGE_PREFIX="pre-release/"
+          else
+            IMAGE_PREFIX=""
+          fi
 
           if [ -n "$TAG_VERSION" ]; then
-            # We have a tag version (from workflow_dispatch or tag push)
-            if [ "$IS_RC" == "true" ]; then
-              # RC tag: only build if RAG files changed, otherwise retag
+            if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
               if [ "$RAG_CHANGED" == "true" ]; then
                 SHOULD_BUILD="true"
-                echo "🔨 RC tag with RAG changes: building"
+                echo "🔨 Pre-release tag with RAG changes: building"
               else
                 SHOULD_RETAG="true"
-                echo "🏷️ RC tag without RAG changes: retagging"
+                echo "🏷️ Pre-release tag without RAG changes: retagging"
               fi
             else
-              # Final release (non-RC): always build
               SHOULD_BUILD="true"
-              echo "🚀 Final release: building all"
+              echo "🚀 Build all: first pre-release or final release"
             fi
-          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            # Push to main: always build
+          elif [ "$RAG_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             SHOULD_BUILD="true"
-            echo "📦 Push to main: building"
-          elif [ "$RAG_CHANGED" == "true" ]; then
-            # PR or other with RAG changes
-            SHOULD_BUILD="true"
-            echo "🔍 RAG files changed: building"
+            echo "📦 RAG files changed or manual trigger: building"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC"
+          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -152,7 +148,7 @@ jobs:
     env:
       REGISTRY: ghcr.io
       # For slim variant, append -slim to image name suffix in tags (not the image name itself)
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-rag-${{ matrix.component }}
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-rag-${{ matrix.component }}
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
@@ -209,9 +205,8 @@ jobs:
           flavor: |
             suffix=${{ matrix.variant != 'default' && format('-{0}', matrix.variant) || '' }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
-            type=ref,event=branch,prefix=
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
@@ -229,7 +224,7 @@ jobs:
         with:
           context: ai_platform_engineering/knowledge_bases/rag
           file: ${{ env.DOCKERFILE }}
-          push: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
@@ -266,7 +261,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-rag-${{ matrix.component }}
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-rag-${{ matrix.component }}
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
@@ -294,31 +289,32 @@ jobs:
           VARIANT: ${{ matrix.variant }}
         run: |
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          
+
           # Determine variant suffix for tags
           if [[ "$VARIANT" != "default" ]]; then
             VARIANT_SUFFIX="-${VARIANT}"
           else
             VARIANT_SUFFIX=""
           fi
-          
+
           echo "🏷️ Processing rag-${{ matrix.component }}${VARIANT_SUFFIX}..."
 
           # Determine source tag (previous version)
-          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+          if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
             BASE_VERSION="${BASH_REMATCH[1]}"
-            RC_NUM="${BASH_REMATCH[2]}"
+            SUFFIX_TYPE="${BASH_REMATCH[2]}"
+            SUFFIX_NUM="${BASH_REMATCH[3]}"
 
-            if [[ "$RC_NUM" -gt 1 ]]; then
-              PREV_RC=$((RC_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}${VARIANT_SUFFIX}"
+            if [[ "$SUFFIX_NUM" -gt 1 ]]; then
+              PREV_NUM=$((SUFFIX_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}${VARIANT_SUFFIX}"
             else
               SOURCE_TAG="${BASE_VERSION}${VARIANT_SUFFIX}"
             fi
           else
             SOURCE_TAG="latest${VARIANT_SUFFIX}"
           fi
-          
+
           TARGET_TAG="${TAG_VERSION}${VARIANT_SUFFIX}"
 
           echo "  Source: ${SOURCE_TAG}"
@@ -417,11 +413,10 @@ jobs:
   notify-release:
     runs-on: ubuntu-latest
     needs: [determine-changes, build-and-push, retag-unchanged]
-    # Only notify for final releases (non-RC tags) - RC builds don't need release finalization
     if: |
       always() &&
       needs.determine-changes.outputs.tag_version != '' &&
-      !contains(needs.determine-changes.outputs.tag_version, '-rc.')
+      !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
       - name: 🔔 Notify release finalize
         env:

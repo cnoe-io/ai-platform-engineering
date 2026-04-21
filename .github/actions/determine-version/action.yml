@@ -1,0 +1,268 @@
+name: 'Determine Version'
+description: >
+  Branch detection + version computation. Outputs a self-describing tag string for the next version
+  e.g.
+  | current branch        | tag check method                    | current latest matching tag           | new version (output)                 |
+  | main (latest release) | use pyproject.toml version          | x.y.z or x.y.z-dev.N                  | x.y.z-dev.1 or x.y.z-dev.{N+1}       |
+  | release/x.y.z         | pull all tags matching x.y.z-rc     | none (fresh branch) or x.y.z-rc.N     | x.y.z-rc.1 or x.y.z-rc.{N+1}         |
+  | release/x.y.z-hotfix  | pull all tags matching x.y.z-hotfix | none (fresh branch) or x.y.z-hotfix.N | x.y.z-hotfix.1 or x.y.z-hotfix.{N+1} |
+
+  For all three cases above, chart-only changes will only add -chart.M suffix to the chartVersion and not appVersion, resulting in a tag like:
+
+  x.y.z-{tag type}.N -> x.y.z-{tag type}.N-chart.1
+  - or -
+  x.y.z-{tag type}.N-chart.M -> x.y.z-{tag type}.N-chart.{M+1}
+
+  where N stays the same and tag type is dev, rc, or hotfix depending on the branch. Then upon any image change:
+
+  x.y.z-{tag type}.N-chart.M -> x.y.z-{tag type}.{N+1}
+
+  i.e. full bump with chart reset where both chartVersion and appVersion are incremented since a new base version is needed.
+
+inputs:
+  token:
+    description: 'GitHub token for API calls (needs read access to tags)'
+    required: true
+
+outputs:
+  tag:
+    description: >
+      Self-describing version tag for the desired next version. Examples:
+        0.3.0-dev.6        — full bump on main
+        0.3.0-rc.2-chart.1 — chart-only bump on release/0.3.0
+    value: ${{ steps.final.outputs.tag }}
+  diff_target:
+    description: >
+      The git ref that was used for chart-only detection (e.g. a tag name or
+      commit SHA). Passed to update-version-files so it can detect which
+      specific charts changed.
+    value: ${{ steps.resolve-diff.outputs.diff_target }}
+
+runs:
+  using: "composite"
+  steps:
+    # ------------------------------------------------------------------
+    # Step 1 — Branch detection → base_version (bare x.y.z) + suffix
+    # ------------------------------------------------------------------
+    - name: 🔍 Detect branch and derive base version + suffix
+      id: branch
+      shell: bash
+      run: |
+        # For pull_request events, GITHUB_REF is refs/pull/N/merge — use the
+        # PR base branch instead so we compute the version the target branch
+        # would get after merge.
+        if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "$GITHUB_EVENT_NAME" == "pull_request_target" ]]; then
+          BRANCH="${{ github.event.pull_request.base.ref }}"
+          echo "📌 PR detected — using base branch: $BRANCH"
+        else
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "📌 Push detected — branch: $BRANCH"
+        fi
+
+        if [[ "$BRANCH" == "main" ]]; then
+          # Read version from pyproject.toml, strip to bare x.y.z
+          RAW=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          BASE_VERSION=$(echo "$RAW" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+          SUFFIX="dev"
+          echo "📦 main branch — pyproject.toml raw='$RAW', base_version='$BASE_VERSION', suffix='$SUFFIX'"
+
+        elif [[ "$BRANCH" == release/*-hotfix ]]; then
+          # release/0.2.41-hotfix → base_version=0.2.41
+          BRANCH_TAIL="${BRANCH#release/}"
+          BASE_VERSION=$(echo "$BRANCH_TAIL" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+          SUFFIX="hotfix"
+          echo "📦 hotfix branch — base_version='$BASE_VERSION', suffix='$SUFFIX'"
+
+        elif [[ "$BRANCH" == release/* ]]; then
+          # release/0.3.0 → base_version=0.3.0
+          BASE_VERSION="${BRANCH#release/}"
+          SUFFIX="rc"
+          echo "📦 release branch — base_version='$BASE_VERSION', suffix='$SUFFIX'"
+
+        else
+          echo "❌ Unsupported branch: $BRANCH"
+          exit 1
+        fi
+
+        echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+        echo "suffix=$SUFFIX" >> $GITHUB_OUTPUT
+
+    # ------------------------------------------------------------------
+    # Step 2 — Fetch & parse existing tags
+    # Step 3 — Chart-only detection
+    # Step 4 — Compute output tag
+    # ------------------------------------------------------------------
+    - name: 🏷️ Compute version tag
+      id: compute
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      env:
+        BASE_VERSION: ${{ steps.branch.outputs.base_version }}
+        SUFFIX: ${{ steps.branch.outputs.suffix }}
+      with:
+        script: |
+          const baseVersion = process.env.BASE_VERSION;
+          const suffix = process.env.SUFFIX;
+          const prefix = `${baseVersion}-${suffix}.`;
+
+          console.log(`🔍 Querying tags matching: ${prefix}*`);
+
+          // ── Step 2: Fetch & parse existing tags ──────────────────────────
+          const { data: refs } = await github.rest.git.listMatchingRefs({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: `tags/${prefix}`
+          });
+
+          // Regex for base tags: {base}-{suffix}.N
+          const baseTagRe = new RegExp(
+            `^${baseVersion.replace(/\./g, '\\.')}-${suffix}\\.(\\d+)$`
+          );
+          // Regex for chart tags: {base}-{suffix}.N-chart.M
+          const chartTagRe = new RegExp(
+            `^${baseVersion.replace(/\./g, '\\.')}-${suffix}\\.(\\d+)-chart\\.(\\d+)$`
+          );
+
+          let maxN = 0;            // highest N among base tags
+          const chartMs = {};      // { N: maxM } for chart tags
+
+          for (const ref of refs) {
+            const tagName = ref.ref.replace('refs/tags/', '');
+
+            const baseMatch = tagName.match(baseTagRe);
+            if (baseMatch) {
+              const n = parseInt(baseMatch[1], 10);
+              if (n > maxN) maxN = n;
+              continue;
+            }
+
+            const chartMatch = tagName.match(chartTagRe);
+            if (chartMatch) {
+              const n = parseInt(chartMatch[1], 10);
+              const m = parseInt(chartMatch[2], 10);
+              // Also track maxN from chart tags (a chart tag implies its base exists)
+              if (n > maxN) maxN = n;
+              if (!chartMs[n] || m > chartMs[n]) chartMs[n] = m;
+            }
+          }
+
+          const latestBaseTag = maxN > 0 ? `${baseVersion}-${suffix}.${maxN}` : null;
+          const maxMForMaxN = chartMs[maxN] || 0;
+          const latestTag = maxMForMaxN > 0
+            ? `${latestBaseTag}-chart.${maxMForMaxN}`
+            : latestBaseTag;
+
+          console.log(`📊 maxN=${maxN}, latestBaseTag=${latestBaseTag}, maxMForMaxN=${maxMForMaxN}, latestTag=${latestTag}`);
+
+          // ── Step 3: Chart-only detection ─────────────────────────────────
+          let diffTarget;
+          if (latestTag) {
+            diffTarget = latestTag;
+          } else if (suffix === 'dev') {
+            // First dev tag on main → diff against latest x.y.z release tag
+            diffTarget = baseVersion;
+            console.log(`⚠️ No prior dev tags; diffing against release tag ${diffTarget}`);
+          } else if (suffix === 'rc') {
+            // First rc tag on release branch → diff against merge-base with main
+            diffTarget = 'MERGE_BASE';
+          } else if (suffix === 'hotfix') {
+            // First hotfix tag → diff against x.y.z tag
+            diffTarget = baseVersion;
+            console.log(`⚠️ No prior hotfix tags; diffing against release tag ${diffTarget}`);
+          }
+
+          // We'll resolve the actual diff in a shell step; pass diff_target forward
+          core.exportVariable('DIFF_TARGET', diffTarget || '');
+          core.exportVariable('LATEST_TAG', latestTag || '');
+          core.exportVariable('LATEST_BASE_TAG', latestBaseTag || '');
+          core.exportVariable('MAX_N', String(maxN));
+          core.exportVariable('MAX_M_FOR_MAX_N', String(maxMForMaxN));
+
+    - name: 🔗 Resolve diff target
+      id: resolve-diff
+      shell: bash
+      env:
+        DIFF_TARGET: ${{ env.DIFF_TARGET }}
+        SUFFIX: ${{ steps.branch.outputs.suffix }}
+      run: |
+        # Resolve symbolic diff target to a concrete git ref
+        if [[ "$DIFF_TARGET" == "MERGE_BASE" ]]; then
+          RESOLVED=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo "")
+          if [[ -z "$RESOLVED" ]]; then
+            echo "⚠️ Could not determine merge-base with main"
+            echo "diff_target=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "📌 Resolved MERGE_BASE → $RESOLVED"
+          DIFF_TARGET="$RESOLVED"
+        fi
+
+        echo "diff_target=$DIFF_TARGET" >> $GITHUB_OUTPUT
+
+    - name: 🔍 Detect chart-only changes
+      id: chart-only
+      shell: bash
+      env:
+        DIFF_TARGET: ${{ steps.resolve-diff.outputs.diff_target }}
+      run: |
+        if [[ -z "$DIFF_TARGET" ]]; then
+          echo "⚠️ No diff target available; treating as full bump"
+          echo "chart_only=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "📋 Diffing HEAD against $DIFF_TARGET"
+        CHANGED_FILES=$(git diff --name-only "$DIFF_TARGET"..HEAD 2>/dev/null || true)
+
+        if [[ -z "$CHANGED_FILES" ]]; then
+          echo "ℹ️ No file changes detected; treating as full bump"
+          echo "chart_only=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "Changed files:"
+        echo "$CHANGED_FILES" | head -20
+
+        # Check if ALL changes are under charts/
+        NON_CHART_FILES=$(echo "$CHANGED_FILES" | grep -v '^charts/' || true)
+
+        if [[ -z "$NON_CHART_FILES" ]]; then
+          echo "✅ All changes are under charts/ — chart-only"
+          echo "chart_only=true" >> $GITHUB_OUTPUT
+        else
+          echo "📦 Non-chart changes detected:"
+          echo "$NON_CHART_FILES" | head -10
+          echo "chart_only=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: 🏷️ Compute final tag
+      id: final
+      shell: bash
+      env:
+        BASE_VERSION: ${{ steps.branch.outputs.base_version }}
+        SUFFIX: ${{ steps.branch.outputs.suffix }}
+        CHART_ONLY: ${{ steps.chart-only.outputs.chart_only }}
+        LATEST_TAG: ${{ env.LATEST_TAG }}
+        LATEST_BASE_TAG: ${{ env.LATEST_BASE_TAG }}
+        MAX_N: ${{ env.MAX_N }}
+        MAX_M_FOR_MAX_N: ${{ env.MAX_M_FOR_MAX_N }}
+      run: |
+        if [[ "$CHART_ONLY" == "true" ]]; then
+          if [[ -z "$LATEST_BASE_TAG" ]]; then
+            # Edge case: chart-only but no prior tags → override to full bump
+            TAG="${BASE_VERSION}-${SUFFIX}.1"
+            echo "⚠️ Chart-only change but no prior tags exist; overriding to full bump: $TAG"
+          else
+            # Append/increment -chart.M on the latest base tag
+            NEXT_M=$(( MAX_M_FOR_MAX_N + 1 ))
+            TAG="${LATEST_BASE_TAG}-chart.${NEXT_M}"
+            echo "📦 Chart-only → $TAG"
+          fi
+        else
+          # Full bump: increment N
+          NEXT_N=$(( MAX_N + 1 ))
+          TAG="${BASE_VERSION}-${SUFFIX}.${NEXT_N}"
+          echo "🏷️ Full bump → $TAG"
+        fi
+
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "✅ Output tag: $TAG"

@@ -292,9 +292,9 @@ jobs:
       - name: 🚀 Push Pre-release Charts to GHCR
         if: steps.version-check.outputs.skip != 'true'
         run: |
-          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts"
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/prebuild-helm-charts"
 
-          echo "📦 Pushing pre-release charts to $REGISTRY"
+          echo "📦 Pushing prebuild charts to $REGISTRY"
 
           for CHART_FILE in ./packaged-charts/*.tgz; do
             if [ -f "$CHART_FILE" ]; then
@@ -312,7 +312,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
-            const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;
+            const registry = `ghcr.io/${{ github.repository_owner }}/prebuild-helm-charts`;
             const ragStackChanged = '${{ steps.detect.outputs.rag-stack-changed }}' === 'true';
             const aiPlatformChanged = '${{ steps.detect.outputs.ai-platform-changed }}' === 'true';
             const headRepo = '${{ steps.pr-info.outputs.head_repo_full_name }}';

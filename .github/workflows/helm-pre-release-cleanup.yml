@@ -46,7 +46,7 @@ jobs:
           # Function to cleanup a chart
           cleanup_chart() {
             local CHART_NAME=$1
-            local PACKAGE_NAME="pre-release-helm-charts/${CHART_NAME}"
+            local PACKAGE_NAME="prebuild-helm-charts/${CHART_NAME}"
 
             echo "🔍 Checking ${CHART_NAME} for pre-release versions matching pattern: *-${CLEAN_BRANCH}-*"
 
