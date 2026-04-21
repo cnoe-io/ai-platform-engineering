@@ -47,6 +47,27 @@ export function TrySkillsGateway() {
   const [copiedBearer, setCopiedBearer] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedSkill, setCopiedSkill] = useState(false);
+  const [copiedInstall, setCopiedInstall] = useState(false);
+
+  // Bootstrap skill customization
+  const [skillCommandName, setSkillCommandName] = useState("skills");
+  const [skillDescription, setSkillDescription] = useState(
+    "Browse and install skills from the CAIPE skill catalog",
+  );
+  const [skillTargetClaude, setSkillTargetClaude] = useState(true);
+  const [skillTargetCursor, setSkillTargetCursor] = useState(false);
+  const [skillTargetSpecify, setSkillTargetSpecify] = useState(false);
+
+  // Bootstrap template (fetched from /api/skills/bootstrap, server-configurable
+  // via SKILLS_BOOTSTRAP_FILE / SKILLS_BOOTSTRAP_TEMPLATE env vars or the
+  // skills-bootstrap ConfigMap rendered by the Helm chart).
+  const [bootstrapTemplate, setBootstrapTemplate] = useState<string | null>(
+    null,
+  );
+  const [bootstrapTemplateSource, setBootstrapTemplateSource] = useState<
+    string | null
+  >(null);
 
   const [mintedKey, setMintedKey] = useState<string | null>(null);
   const [mintBusy, setMintBusy] = useState(false);
@@ -127,6 +148,20 @@ export function TrySkillsGateway() {
   useEffect(() => {
     void loadSync();
     void loadKeys();
+
+    // Fetch the bootstrap skill template from the server. The server resolves
+    // it from (in order): SKILLS_BOOTSTRAP_TEMPLATE env, SKILLS_BOOTSTRAP_FILE
+    // env, the packaged chart default, or a built-in fallback.
+    fetch("/api/skills/bootstrap", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || typeof data.template !== "string") return;
+        setBootstrapTemplate(data.template);
+        if (typeof data.source === "string") {
+          setBootstrapTemplateSource(data.source);
+        }
+      })
+      .catch(() => {});
 
     // Fetch catalog to populate autocomplete tags and search suggestions
     fetch("/api/skills?page_size=100", { credentials: "include" })
@@ -233,6 +268,71 @@ export function TrySkillsGateway() {
   const curlBearer = `curl -sS "${catalogUrl}" \\\n  -H "Authorization: Bearer <access_token>"`;
 
   const curlKey = `curl -sS "${catalogUrl}" \\\n  -H "${DEFAULT_KEY_HEADER}: ${keyPlaceholder}"`;
+
+  // Sanitize the slash command name for use in filenames / display.
+  const safeCommandName = (skillCommandName.trim() || "skills")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/^-+|-+$/g, "") || "skills";
+  const safeDescription = (skillDescription.trim() || "Browse and install skills from the CAIPE skill catalog")
+    .replace(/\r?\n/g, " ");
+
+  // Minimal client-side fallback used only if /api/skills/bootstrap is
+  // unreachable. The real default lives in
+  // charts/ai-platform-engineering/data/skills/bootstrap.md and can be
+  // overridden per-deployment via the skills-bootstrap ConfigMap.
+  const FALLBACK_BOOTSTRAP_TEMPLATE = `---
+description: {{DESCRIPTION}}
+---
+
+## User Input
+
+\`\`\`text
+$ARGUMENTS
+\`\`\`
+
+## SECURITY — never expose the API key
+
+- NEVER print, echo, or display the API key in any output.
+- All API calls MUST go through the python3 helper which keeps the key internal.
+
+## Steps
+
+1. Search the gateway at {{BASE_URL}}/api/skills with header X-Caipe-Catalog-Key.
+2. Display results as a table.
+3. Offer to install locally or run inline.
+
+Slash command: /{{COMMAND_NAME}}
+`;
+
+  const renderBootstrapSkill = (template: string): string =>
+    template
+      .replace(/\{\{COMMAND_NAME\}\}/g, safeCommandName)
+      .replace(/\{\{DESCRIPTION\}\}/g, safeDescription)
+      .replace(/\{\{BASE_URL\}\}/g, baseUrl);
+
+  const bootstrapSkillContent = renderBootstrapSkill(
+    bootstrapTemplate ?? FALLBACK_BOOTSTRAP_TEMPLATE,
+  );
+
+  const skillTargets: { dir: string; enabled: boolean }[] = [
+    { dir: ".claude/commands", enabled: skillTargetClaude },
+    { dir: ".cursor/commands", enabled: skillTargetCursor },
+    { dir: ".specify/templates/commands", enabled: skillTargetSpecify },
+  ].filter((t) => t.enabled);
+
+  const installCommands = skillTargets.length
+    ? skillTargets
+        .map(
+          (t, i) =>
+            `${i === 0 ? "mkdir -p " : "mkdir -p "}${t.dir}${
+              i === 0
+                ? `\ncat > ${t.dir}/${safeCommandName}.md << 'SKILL'\n${bootstrapSkillContent}SKILL`
+                : `\ncp ${skillTargets[0].dir}/${safeCommandName}.md ${t.dir}/${safeCommandName}.md`
+            }`,
+        )
+        .join("\n")
+    : `# Select at least one target directory above.\n# Then a write command will appear here.`;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -653,52 +753,167 @@ EOF`}</pre>
           <div>
             <p className="font-medium text-foreground mb-2">2. Create the bootstrap skill</p>
             <p className="mb-2">
-              Add this file to your repo. It calls the gateway and lets Claude browse, search, and
-              install skills as <code>.claude/commands/</code> files.
+              Customize the slash command below. It calls the gateway and lets your coding agent
+              browse, search, run, install, and update skills.
             </p>
-            <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`mkdir -p .claude/commands
-cat > .claude/commands/skills.md << 'SKILL'
----
-description: Browse and install skills from the CAIPE catalog
----
 
-## User Input
-\`\`\`text
-$ARGUMENTS
-\`\`\`
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">
+                  Slash command name
+                </label>
+                <div className="flex items-center mt-1">
+                  <span className="px-2 py-2 text-sm bg-muted border border-r-0 border-border rounded-l-md text-muted-foreground">
+                    /
+                  </span>
+                  <input
+                    type="text"
+                    value={skillCommandName}
+                    onChange={(e) => setSkillCommandName(e.target.value)}
+                    placeholder="skills"
+                    className="w-full px-3 py-2 text-sm bg-background border border-border rounded-r-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Becomes <code>{safeCommandName}.md</code> in your commands directory.
+                </p>
+              </div>
 
-## SECURITY — never expose the API key
-- NEVER print, echo, or display the API key in any output.
-- Store in a shell variable, pass only via -H header.
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Description</label>
+                <input
+                  type="text"
+                  value={skillDescription}
+                  onChange={(e) => setSkillDescription(e.target.value)}
+                  placeholder="Browse and install skills from the CAIPE skill catalog"
+                  className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Shown in the slash-command picker.
+                </p>
+              </div>
+            </div>
 
-## Steps
+            <div className="mb-3">
+              <p className="text-xs font-medium text-muted-foreground mb-1.5">
+                Install targets (where to write the skill file)
+              </p>
+              <div className="flex flex-wrap gap-3 text-xs text-foreground">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={skillTargetClaude}
+                    onChange={(e) => setSkillTargetClaude(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  <code>.claude/commands/</code>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={skillTargetCursor}
+                    onChange={(e) => setSkillTargetCursor(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  <code>.cursor/commands/</code>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={skillTargetSpecify}
+                    onChange={(e) => setSkillTargetSpecify(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  <code>.specify/templates/commands/</code>
+                </label>
+              </div>
+            </div>
 
-1. Load credentials (do NOT echo the key):
-   \`\`\`bash
-   CAIPE_KEY="" CAIPE_URL=""
-   if [ -f ~/.config/caipe/config.json ]; then
-     CAIPE_KEY=$(python3 -c "import json; print(json.load(open('$HOME/.config/caipe/config.json')).get('api_key',''))" 2>/dev/null)
-     CAIPE_URL=$(python3 -c "import json; print(json.load(open('$HOME/.config/caipe/config.json')).get('base_url',''))" 2>/dev/null)
-   fi
-   [ -z "$CAIPE_URL" ] && CAIPE_URL="https://catalog.caipe.dev"
-   [ -n "$CAIPE_KEY" ] && echo "KEY_FOUND" || echo "NO_KEY"
-   \`\`\`
+            <p className="text-xs font-medium text-foreground mb-1">Install command</p>
+            <div className="relative group mb-4">
+              <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                {installCommands}
+              </pre>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => {
+                  void navigator.clipboard.writeText(installCommands);
+                  setCopiedInstall(true);
+                  setTimeout(() => setCopiedInstall(false), 2000);
+                }}
+              >
+                {copiedInstall ? (
+                  <Check className="h-3.5 w-3.5 text-green-500" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </div>
 
-2. Search: curl -sS "$CAIPE_URL/api/skills?source=github&q=<query>&page=1&page_size=20" -H "X-Caipe-Catalog-Key: $CAIPE_KEY"
+            <p className="text-[11px] text-muted-foreground mb-2">
+              Template source:{" "}
+              <code>{bootstrapTemplateSource ?? "loading…"}</code>
+              {". Override via Helm value "}
+              <code>skillsBootstrap</code>
+              {" (inline) or "}
+              <code>skillsBootstrapName</code>
+              {" (selects "}
+              <code>data/skills/bootstrap.&lt;name&gt;.md</code>
+              {"), or container env "}
+              <code>SKILLS_BOOTSTRAP_FILE</code>
+              {" / "}
+              <code>SKILLS_BOOTSTRAP_TEMPLATE</code>.
+            </p>
 
-3. Display as table, offer to install selected skill to .claude/commands/<name>.md
-SKILL`}</pre>
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Preview generated skill markdown
+              </summary>
+              <div className="relative group mt-2">
+                <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
+                  {bootstrapSkillContent}
+                </pre>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(bootstrapSkillContent);
+                    setCopiedSkill(true);
+                    setTimeout(() => setCopiedSkill(false), 2000);
+                  }}
+                >
+                  {copiedSkill ? (
+                    <Check className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
+            </details>
           </div>
 
           <div>
             <p className="font-medium text-foreground mb-2">3. Use it</p>
             <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`# Browse all skills
-/skills
+/${safeCommandName}
 
 # Search for specific skills
-/skills docker
-/skills kubernetes
-/skills python`}</pre>
+/${safeCommandName} docker
+/${safeCommandName} kubernetes
+
+# Run a skill inline (fetched live, no local copy)
+/${safeCommandName} run <skill-name>
+
+# Install a skill locally
+/${safeCommandName} install <skill-name>
+
+# Update all locally installed skills
+/${safeCommandName} update`}</pre>
           </div>
         </CardContent>
       </Card>

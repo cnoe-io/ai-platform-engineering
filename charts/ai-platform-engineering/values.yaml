@@ -199,6 +199,23 @@ promptConfig: ""              # Custom prompt config (overrides promptConfigType
 
 ragPromptConfig: ""           # Custom RAG prompt config (overrides default if set)
 
+# ---------------------------------------------------------------------------
+# Skills bootstrap command template (rendered as the `/skills` slash command
+# in the "Skills API Gateway" UI page). Customizable per-deployment.
+#
+# Resolution order (mirrors promptConfig):
+#   1. .Values.skillsBootstrap          - inline multi-line string (highest)
+#   2. .Values.skillsBootstrapName      - selects data/skills/bootstrap.<name>.md
+#   3. data/skills/bootstrap.md         - packaged default
+#
+# The template supports the following placeholders, substituted by the UI:
+#   {{COMMAND_NAME}} - slash command name (default: "skills")
+#   {{DESCRIPTION}}  - short description shown in the slash-command picker
+#   {{BASE_URL}}     - gateway base URL (auto-detected from window.location)
+# ---------------------------------------------------------------------------
+skillsBootstrapName: ""       # Variant name (looks up data/skills/bootstrap.<name>.md)
+skillsBootstrap: ""           # Inline custom bootstrap skill (overrides everything)
+
 # Task Configuration
 # Self-service workflow definitions (Create LLM Key, GitHub Org Invite, etc.)
 # Default is bundled from data/task_config.yaml. Override via taskConfig value.
@@ -638,15 +655,26 @@ caipe-ui:
     - name: skill-templates
       configMap:
         name: skill-templates
+    - name: skills-bootstrap
+      configMap:
+        name: skills-bootstrap
+        optional: true
   volumeMounts:
     - name: skill-templates
       mountPath: /app/data/skills
+      readOnly: true
+    - name: skills-bootstrap
+      mountPath: /app/data/skills-bootstrap
       readOnly: true
   env:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
     A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
     # Skills template directory (mounted from ConfigMap)
     SKILLS_DIR: "/app/data/skills"
+    # Bootstrap skill template (mounted from ConfigMap "skills-bootstrap").
+    # Override per-deployment via .Values.skillsBootstrap (inline string) or
+    # .Values.skillsBootstrapName (selects data/skills/bootstrap.<name>.md).
+    SKILLS_BOOTSTRAP_FILE: "/app/data/skills-bootstrap/bootstrap.md"
   # ConfigMap for non-sensitive configuration
   config:
     # Feature flags

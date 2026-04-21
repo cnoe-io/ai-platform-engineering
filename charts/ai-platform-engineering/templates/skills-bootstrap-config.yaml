@@ -1,0 +1,27 @@
+{{- if index .Values "caipe-ui" "skills" "enabled" | default true }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skills-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "ai-platform-engineering.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  bootstrap.md: |
+{{- if .Values.skillsBootstrap }}
+{{- /* Custom bootstrap skill provided inline - use it directly */ -}}
+{{ .Values.skillsBootstrap | nindent 4 }}
+{{- else }}
+{{- /* Use skillsBootstrapName to select a variant file (defaults to "default") */ -}}
+{{- $variant := .Values.skillsBootstrapName | default "default" }}
+{{- $candidate := printf "data/skills/bootstrap.%s.md" $variant }}
+{{- $contents := .Files.Get $candidate }}
+{{- if not $contents }}
+{{- $contents = .Files.Get "data/skills/bootstrap.md" }}
+{{- end }}
+{{ $contents | nindent 4 }}
+{{- end }}
+{{- end }}
