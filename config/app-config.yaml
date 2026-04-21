@@ -20,15 +20,14 @@ models: []
   #   description: "OpenAI GPT-4o"
 
 # ── MCP Servers ───────────────────────────────────────────────────
+# Supported transports: "http" (streamable HTTP), "sse", "stdio"
 mcp_servers: []
   # - id: "github-mcp"
   #   name: "GitHub"
   #   description: "GitHub MCP server for repository operations"
-  #   transport: "stdio"
-  #   command: "npx"
-  #   args: ["-y", "@modelcontextprotocol/server-github"]
-  #   env:
-  #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN:-}"
+  #   transport: "http"
+  #   endpoint: "http://github-mcp-server:8080/mcp"
+  #   enabled: true
 
 # ── Agents ────────────────────────────────────────────────────────
 agents: []
