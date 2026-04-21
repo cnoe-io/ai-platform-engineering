@@ -352,6 +352,23 @@ For stable releases, the chart's `appVersion` is set automatically and no overri
 
 ---
 
+## Known Gaps (to be addressed before GA)
+
+### Slack interaction tracking for admin statistics
+
+The `InteractionTracker` class (which recorded Slack thread metadata, user
+upserts, and lightweight message docs to MongoDB for the admin stats dashboard)
+has been removed as part of the slack bot rewrite. The admin statistics page
+will **not** show Slack-sourced data until equivalent tracking is re-implemented
+in the new AG-UI-based slack bot.
+
+**Impact:** Admin → Statistics page will under-report conversation counts,
+active users, and message volumes for Slack interactions.
+
+**Tracking:** This must be resolved before the 0.4.0 GA release.
+
+---
+
 ## Pre-Upgrade Checklist
 
 - [ ] **Back up current values:** `helm get values ai-platform-engineering -o yaml > values-backup.yaml`
