@@ -28,6 +28,7 @@ import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
@@ -144,6 +145,9 @@ export function AppHeader() {
     graphRagEnabled,
     cleanupConfig
   } = useRAGHealth();
+
+  // Health check for Agent Runtime (polls every 30 seconds)
+  const { status: agentRuntimeStatus } = useAgentRuntimeHealth();
 
   // Check if RAG is enabled in config
   const ragEnabled = config.ragEnabled;
@@ -597,6 +601,43 @@ export function AppHeader() {
                       </div>
                     </>
                   )}
+
+                  {/* Agent Runtime Section */}
+                  <>
+                    {/* Divider */}
+                    <div className="border-t border-border/50" />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-bold text-foreground">Agent Runtime</div>
+                          <div className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            agentRuntimeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
+                            agentRuntimeStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+                            agentRuntimeStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
+                          )}>
+                            {agentRuntimeStatus === "connected" ? "ONLINE" : agentRuntimeStatus === "checking" ? "CHECKING" : "OFFLINE"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Dynamic Agents sub-item */}
+                      <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
+                        <div className="text-xs text-muted-foreground">CAIPE Dynamic Agents</div>
+                        <div className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                          agentRuntimeStatus === "connected"
+                            ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                            : agentRuntimeStatus === "checking"
+                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                            : "bg-red-500/15 text-red-400 border border-red-500/30"
+                        )}>
+                          {agentRuntimeStatus === "connected" ? "ON" : agentRuntimeStatus === "checking" ? "..." : "OFF"}
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 </div>
 
                 {/* Footer */}
