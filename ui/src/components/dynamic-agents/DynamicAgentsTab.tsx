@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   Bot,
   Plus,
-  Pencil,
   Trash2,
   Loader2,
   Globe,
@@ -16,7 +15,6 @@ import {
   ToggleLeft,
   ToggleRight,
   RefreshCw,
-  Ban,
   Download,
   CopyPlus,
 } from "lucide-react";
@@ -160,6 +158,7 @@ export function DynamicAgentsTab() {
       <DynamicAgentEditor
         agent={editingAgent}
         cloneFrom={cloningAgent}
+        readOnly={editingAgent?.config_driven}
         onSave={() => {
           setEditingAgent(null);
           setIsCreating(false);
@@ -180,7 +179,7 @@ export function DynamicAgentsTab() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Custom Agents</CardTitle>
+            <CardTitle>Agents</CardTitle>
             <CardDescription>
               Configure AI agents with custom instructions and MCP tool access.
             </CardDescription>
@@ -236,7 +235,8 @@ export function DynamicAgentsTab() {
             {agents.map((agent) => (
               <div
                 key={agent._id}
-                className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center"
+                className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer"
+                onClick={() => setEditingAgent(agent)}
               >
                 <div className="col-span-4">
                     <div className="flex items-center gap-3">
@@ -275,7 +275,7 @@ export function DynamicAgentsTab() {
 
                 <div className="col-span-2">
                   <button
-                    onClick={() => !agent.config_driven && handleToggleEnabled(agent)}
+                    onClick={(e) => { e.stopPropagation(); if (!agent.config_driven) handleToggleEnabled(agent); }}
                     className={`flex items-center gap-1.5 ${agent.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
                     disabled={agent.config_driven}
                     title={agent.config_driven ? "Config-driven agents cannot be modified" : undefined}
@@ -294,17 +294,7 @@ export function DynamicAgentsTab() {
                   </button>
                 </div>
 
-                <div className="col-span-2 flex items-center justify-end gap-1">
-                  {agent.config_driven && (
-                    <Badge
-                      variant="outline"
-                      className="gap-1 mr-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
-                      title="Loaded from config.yaml - cannot be edited"
-                    >
-                      <Ban className="h-3 w-3" />
-                      Config
-                    </Badge>
-                  )}
+                <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -323,15 +313,14 @@ export function DynamicAgentsTab() {
                   >
                     <CopyPlus className="h-4 w-4" />
                   </Button>
-                  {!agent.config_driven && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setEditingAgent(agent)}
+                  {agent.config_driven && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 mr-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
+                      title="Loaded from config.yaml - cannot be edited"
                     >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                      Config
+                    </Badge>
                   )}
                   {!agent.is_system && !agent.config_driven && (
                     <Button

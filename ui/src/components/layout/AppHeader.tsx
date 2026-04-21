@@ -288,7 +288,7 @@ export function AppHeader() {
               )}
             >
               <Database className="h-3.5 w-3.5 shrink-0" />
-              Knowledge Bases
+               Knowledge Base
             </GuardedLink>
           )}
           {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
@@ -304,7 +304,7 @@ export function AppHeader() {
               )}
             >
               <Bot className="h-3.5 w-3.5 shrink-0" />
-              Custom Agents
+              Agents
             </GuardedLink>
           )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
