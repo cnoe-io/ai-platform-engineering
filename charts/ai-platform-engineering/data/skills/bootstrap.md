@@ -5,7 +5,7 @@ description: {{DESCRIPTION}}
 ## User Input
 
 ```text
-$ARGUMENTS
+{{ARG_REF}}
 ```
 
 You **MUST** consider the user input before proceeding (if not empty).
@@ -23,7 +23,7 @@ and execute them inline — no local copy required. Skills are always fresh.
 
 ## Modes
 
-Parse `$ARGUMENTS` to determine the mode:
+Parse `{{ARG_REF}}` to determine the mode:
 
 | Pattern | Mode | Example |
 |---------|------|---------|

@@ -8,13 +8,19 @@ The chart packages it into the `skills-bootstrap` ConfigMap, which is mounted
 into the `caipe-ui` pod at `/app/data/skills-bootstrap/bootstrap.md` and read
 by the `/api/skills/bootstrap` endpoint.
 
-## Placeholders (substituted by the UI)
+## Placeholders (substituted by the server-side renderer)
 
-| Placeholder         | Replaced with                                       |
-| ------------------- | --------------------------------------------------- |
-| `{{COMMAND_NAME}}`  | Slash command name from the UI form (default `skills`) |
-| `{{DESCRIPTION}}`   | Description from the UI form                        |
-| `{{BASE_URL}}`      | Gateway base URL (auto-detected from the browser)   |
+| Placeholder         | Replaced with                                                  |
+| ------------------- | -------------------------------------------------------------- |
+| `{{COMMAND_NAME}}`  | Slash command name from the UI form (default `skills`)         |
+| `{{DESCRIPTION}}`   | Description from the UI form                                   |
+| `{{BASE_URL}}`      | Gateway base URL (auto-detected from the request origin)       |
+| `{{ARG_REF}}`       | Per-agent argument syntax: `$ARGUMENTS` (Claude/Cursor/Spec Kit), `$1` (Codex/Gemini), or `{{input}}` (Continue) |
+
+The renderer (`ui/src/app/api/skills/bootstrap/agents.ts`) parses this
+template once and re-wraps the body per agent surface (Markdown frontmatter,
+plain Markdown, Gemini TOML, or Continue JSON fragment). One canonical
+template serves all six agents.
 
 ## Override resolution order
 

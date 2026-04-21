@@ -1,32 +1,76 @@
 /**
  * GET /api/skills/bootstrap
  *
- * Returns the bootstrap skill markdown template used by the Skills API Gateway
- * UI page to render the `/skills` slash command.
+ * Returns the bootstrap skill template used by the Skills API Gateway UI to
+ * render the `/skills` slash command for a particular coding agent.
  *
- * Resolution order (highest priority first):
+ * Query params:
+ *   - agent:        agent id (claude | cursor | specify | codex | gemini |
+ *                   continue). Defaults to "claude". Unknown values fall back
+ *                   to the default and are reported in `agent_fallback`.
+ *   - command_name: slash command name to substitute for {{COMMAND_NAME}}.
+ *                   Defaults to "skills".
+ *   - description:  short description for the command. Defaults to the
+ *                   frontmatter `description:` of the canonical template.
+ *   - base_url:     gateway base URL. Defaults to the request origin.
+ *
+ * Canonical template resolution (highest priority first):
  *   1. SKILLS_BOOTSTRAP_TEMPLATE env var (raw markdown)
  *   2. File at SKILLS_BOOTSTRAP_FILE env var
  *   3. <repo>/charts/ai-platform-engineering/data/skills/bootstrap.md
  *   4. Built-in fallback string
  *
- * Placeholders ({{COMMAND_NAME}}, {{DESCRIPTION}}, {{BASE_URL}}) are NOT
- * substituted server-side - the client performs substitution so a single
- * template can serve many slash-command variants without re-rendering.
+ * The canonical template is parsed once and re-rendered per agent (Markdown
+ * frontmatter, plain Markdown, Gemini TOML, or Continue JSON fragment).
+ *
+ * Response shape (stable):
+ *   {
+ *     // Per-agent rendered artifact + metadata
+ *     agent: "claude",
+ *     agent_fallback: false,
+ *     label: "Claude Code",
+ *     template: "<rendered file contents>",
+ *     install_path: ".claude/commands/skills.md",
+ *     file_extension: "md",
+ *     format: "markdown-frontmatter",
+ *     is_fragment: false,
+ *     launch_guide: "Markdown launch instructions",
+ *     docs_url: "https://...",
+ *
+ *     // Catalog of all known agents (for the UI dropdown)
+ *     agents: [{id, label, ext, format, install_path, is_fragment, docs_url}],
+ *
+ *     // Source of the canonical template (for operator visibility)
+ *     source: "file:/app/data/skills-bootstrap/bootstrap.md",
+ *
+ *     // Inputs used (after defaulting)
+ *     inputs: { command_name, description, base_url },
+ *
+ *     // Original canonical template + placeholders (for debugging / advanced UIs)
+ *     canonical_template: "...",
+ *     placeholders: ["{{COMMAND_NAME}}", "{{DESCRIPTION}}", "{{BASE_URL}}", "{{ARG_REF}}"],
+ *     defaults: { command_name, description },
+ *   }
  */
 
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import {
+  AGENTS,
+  DEFAULT_AGENT_ID,
+  renderForAgent,
+  type AgentSpec,
+} from "./agents";
 
 const FALLBACK_TEMPLATE = `---
-description: {{DESCRIPTION}}
+description: Browse and install skills from the CAIPE skill catalog
 ---
 
 ## User Input
 
 \`\`\`text
-$ARGUMENTS
+{{ARG_REF}}
 \`\`\`
 
 ## SECURITY — never expose the API key
@@ -38,7 +82,7 @@ $ARGUMENTS
 
 1. Search: call the gateway at {{BASE_URL}}/api/skills with header X-Caipe-Catalog-Key.
 2. Display results as a table.
-3. Offer to install (.claude/commands/<name>.md) or run inline (fetched live).
+3. Offer to install or run inline (fetched live).
 
 Slash command: /{{COMMAND_NAME}}
 `;
@@ -95,13 +139,107 @@ function resolveBootstrapTemplate(): { template: string; source: string } {
   return { template: FALLBACK_TEMPLATE, source: "fallback" };
 }
 
-export async function GET() {
-  const { template, source } = resolveBootstrapTemplate();
+/**
+ * Validate slash-command name. Allow letters, digits, hyphens, underscores,
+ * dots; cap length. Anything else falls back to the default.
+ */
+function sanitizeCommandName(raw: string | null): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "skills";
+  if (trimmed.length > 64) return "skills";
+  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) return "skills";
+  return trimmed;
+}
+
+/** Cap description length to keep frontmatter sane. */
+function sanitizeDescription(raw: string | null): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return "";
+  return trimmed.slice(0, 500);
+}
+
+/**
+ * Validate base URL: only http(s), no embedded credentials, no path traversal.
+ * Returns null if invalid.
+ */
+function sanitizeBaseUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username || url.password) return null;
+    // Strip trailing slashes for consistency.
+    return url.origin + url.pathname.replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function selectAgent(raw: string | null): {
+  agent: AgentSpec;
+  fallback: boolean;
+} {
+  const id = (raw ?? "").trim().toLowerCase();
+  if (id && AGENTS[id]) return { agent: AGENTS[id], fallback: false };
+  return { agent: AGENTS[DEFAULT_AGENT_ID], fallback: !!id };
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const { agent, fallback } = selectAgent(url.searchParams.get("agent"));
+
+  const commandName = sanitizeCommandName(url.searchParams.get("command_name"));
+  const descriptionInput = sanitizeDescription(
+    url.searchParams.get("description"),
+  );
+  const baseUrl =
+    sanitizeBaseUrl(url.searchParams.get("base_url")) ?? url.origin;
+
+  const { template: canonicalTemplate, source } = resolveBootstrapTemplate();
+
+  const rendered = renderForAgent(agent, {
+    canonicalTemplate,
+    commandName,
+    description: descriptionInput,
+    baseUrl,
+  });
+
   return NextResponse.json(
     {
-      template,
+      agent: agent.id,
+      agent_fallback: fallback,
+      label: rendered.label,
+      template: rendered.template,
+      install_path: rendered.install_path,
+      file_extension: rendered.file_extension,
+      format: rendered.format,
+      is_fragment: rendered.is_fragment,
+      launch_guide: rendered.launch_guide,
+      docs_url: rendered.docs_url,
+
+      agents: Object.values(AGENTS).map((a) => ({
+        id: a.id,
+        label: a.label,
+        ext: a.ext,
+        format: a.format,
+        install_path: a.installPath.replace(/\{name\}/g, commandName),
+        is_fragment: !!a.isFragment,
+        docs_url: a.docsUrl,
+      })),
+
       source,
-      placeholders: ["{{COMMAND_NAME}}", "{{DESCRIPTION}}", "{{BASE_URL}}"],
+      inputs: {
+        command_name: commandName,
+        description: descriptionInput,
+        base_url: baseUrl,
+      },
+      canonical_template: canonicalTemplate,
+      placeholders: [
+        "{{COMMAND_NAME}}",
+        "{{DESCRIPTION}}",
+        "{{BASE_URL}}",
+        "{{ARG_REF}}",
+      ],
       defaults: {
         command_name: "skills",
         description: "Browse and install skills from the CAIPE skill catalog",

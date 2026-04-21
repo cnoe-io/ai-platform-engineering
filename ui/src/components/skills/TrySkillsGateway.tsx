@@ -55,19 +55,42 @@ export function TrySkillsGateway() {
   const [skillDescription, setSkillDescription] = useState(
     "Browse and install skills from the CAIPE skill catalog",
   );
-  const [skillTargetClaude, setSkillTargetClaude] = useState(true);
-  const [skillTargetCursor, setSkillTargetCursor] = useState(false);
-  const [skillTargetSpecify, setSkillTargetSpecify] = useState(false);
+  // Selected coding agent (drives install path, file format, and launch guide).
+  const [selectedAgent, setSelectedAgent] = useState<string>("claude");
 
-  // Bootstrap template (fetched from /api/skills/bootstrap, server-configurable
-  // via SKILLS_BOOTSTRAP_FILE / SKILLS_BOOTSTRAP_TEMPLATE env vars or the
-  // skills-bootstrap ConfigMap rendered by the Helm chart).
-  const [bootstrapTemplate, setBootstrapTemplate] = useState<string | null>(
-    null,
-  );
+  // Per-agent rendered bootstrap (fetched from
+  // /api/skills/bootstrap?agent=<id>&command_name=...&description=...).
+  // The server resolves the canonical template from SKILLS_BOOTSTRAP_TEMPLATE,
+  // SKILLS_BOOTSTRAP_FILE, the chart default, or a built-in fallback, then
+  // renders it for the selected agent (Markdown frontmatter, plain Markdown,
+  // Gemini TOML, or Continue JSON fragment).
+  interface AgentMeta {
+    id: string;
+    label: string;
+    ext: string;
+    format: string;
+    install_path: string;
+    is_fragment: boolean;
+    docs_url?: string;
+  }
+  interface BootstrapResponse {
+    agent: string;
+    label: string;
+    template: string;
+    install_path: string;
+    file_extension: string;
+    format: string;
+    is_fragment: boolean;
+    launch_guide: string;
+    docs_url?: string;
+    agents: AgentMeta[];
+    source: string;
+  }
+  const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
   const [bootstrapTemplateSource, setBootstrapTemplateSource] = useState<
     string | null
   >(null);
+  const [agents, setAgents] = useState<AgentMeta[]>([]);
 
   const [mintedKey, setMintedKey] = useState<string | null>(null);
   const [mintBusy, setMintBusy] = useState(false);
@@ -149,20 +172,6 @@ export function TrySkillsGateway() {
     void loadSync();
     void loadKeys();
 
-    // Fetch the bootstrap skill template from the server. The server resolves
-    // it from (in order): SKILLS_BOOTSTRAP_TEMPLATE env, SKILLS_BOOTSTRAP_FILE
-    // env, the packaged chart default, or a built-in fallback.
-    fetch("/api/skills/bootstrap", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!data || typeof data.template !== "string") return;
-        setBootstrapTemplate(data.template);
-        if (typeof data.source === "string") {
-          setBootstrapTemplateSource(data.source);
-        }
-      })
-      .catch(() => {});
-
     // Fetch catalog to populate autocomplete tags and search suggestions
     fetch("/api/skills?page_size=100", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
@@ -194,6 +203,42 @@ export function TrySkillsGateway() {
       })
       .catch(() => {});
   }, [loadSync, loadKeys]);
+
+  // Re-fetch the per-agent rendered bootstrap whenever the agent, command
+  // name, or description changes. Debounced lightly so typing is smooth.
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({
+        agent: selectedAgent,
+        command_name: skillCommandName.trim() || "skills",
+      });
+      const desc = skillDescription.trim();
+      if (desc) params.set("description", desc);
+      fetch(`/api/skills/bootstrap?${params.toString()}`, {
+        credentials: "include",
+        signal: controller.signal,
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: BootstrapResponse | null) => {
+          if (!data || typeof data.template !== "string") return;
+          setBootstrap(data);
+          if (typeof data.source === "string") {
+            setBootstrapTemplateSource(data.source);
+          }
+          if (Array.isArray(data.agents)) setAgents(data.agents);
+        })
+        .catch((err) => {
+          if (err?.name !== "AbortError") {
+            // Soft-fail; UI shows a fallback notice.
+          }
+        });
+    }, 200);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [selectedAgent, skillCommandName, skillDescription]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -269,70 +314,42 @@ export function TrySkillsGateway() {
 
   const curlKey = `curl -sS "${catalogUrl}" \\\n  -H "${DEFAULT_KEY_HEADER}: ${keyPlaceholder}"`;
 
-  // Sanitize the slash command name for use in filenames / display.
+  // Sanitize the slash command name for display purposes (the server
+  // performs its own sanitization for the rendered artifact).
   const safeCommandName = (skillCommandName.trim() || "skills")
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "-")
     .replace(/^-+|-+$/g, "") || "skills";
-  const safeDescription = (skillDescription.trim() || "Browse and install skills from the CAIPE skill catalog")
-    .replace(/\r?\n/g, " ");
 
-  // Minimal client-side fallback used only if /api/skills/bootstrap is
-  // unreachable. The real default lives in
-  // charts/ai-platform-engineering/data/skills/bootstrap.md and can be
-  // overridden per-deployment via the skills-bootstrap ConfigMap.
-  const FALLBACK_BOOTSTRAP_TEMPLATE = `---
-description: {{DESCRIPTION}}
----
+  // Rendered artifact + metadata from the server (per selected agent).
+  // Falls back to placeholders while the first fetch is in flight.
+  const bootstrapSkillContent =
+    bootstrap?.template ?? "# Loading bootstrap skill template…\n";
+  const installPath =
+    bootstrap?.install_path ?? `.claude/commands/${safeCommandName}.md`;
+  const isFragment = bootstrap?.is_fragment ?? false;
+  const launchGuide = bootstrap?.launch_guide ?? "";
+  const agentLabel = bootstrap?.label ?? "Claude Code";
+  const agentDocsUrl = bootstrap?.docs_url;
 
-## User Input
-
-\`\`\`text
-$ARGUMENTS
-\`\`\`
-
-## SECURITY — never expose the API key
-
-- NEVER print, echo, or display the API key in any output.
-- All API calls MUST go through the python3 helper which keeps the key internal.
-
-## Steps
-
-1. Search the gateway at {{BASE_URL}}/api/skills with header X-Caipe-Catalog-Key.
-2. Display results as a table.
-3. Offer to install locally or run inline.
-
-Slash command: /{{COMMAND_NAME}}
-`;
-
-  const renderBootstrapSkill = (template: string): string =>
-    template
-      .replace(/\{\{COMMAND_NAME\}\}/g, safeCommandName)
-      .replace(/\{\{DESCRIPTION\}\}/g, safeDescription)
-      .replace(/\{\{BASE_URL\}\}/g, baseUrl);
-
-  const bootstrapSkillContent = renderBootstrapSkill(
-    bootstrapTemplate ?? FALLBACK_BOOTSTRAP_TEMPLATE,
-  );
-
-  const skillTargets: { dir: string; enabled: boolean }[] = [
-    { dir: ".claude/commands", enabled: skillTargetClaude },
-    { dir: ".cursor/commands", enabled: skillTargetCursor },
-    { dir: ".specify/templates/commands", enabled: skillTargetSpecify },
-  ].filter((t) => t.enabled);
-
-  const installCommands = skillTargets.length
-    ? skillTargets
-        .map(
-          (t, i) =>
-            `${i === 0 ? "mkdir -p " : "mkdir -p "}${t.dir}${
-              i === 0
-                ? `\ncat > ${t.dir}/${safeCommandName}.md << 'SKILL'\n${bootstrapSkillContent}SKILL`
-                : `\ncp ${skillTargets[0].dir}/${safeCommandName}.md ${t.dir}/${safeCommandName}.md`
-            }`,
-        )
-        .join("\n")
-    : `# Select at least one target directory above.\n# Then a write command will appear here.`;
+  // Build the install command. For standalone-file agents we emit a heredoc
+  // that creates the parent dir and writes the file. For fragment agents
+  // (Continue) we just print the JSON fragment with instructions to merge.
+  const installCommands = isFragment
+    ? `# ${agentLabel} stores commands as JSON fragments inside\n# ${installPath}. Merge the fragment shown in "Preview generated skill"\n# below into the top-level "slashCommands" array of that file.`
+    : (() => {
+        // Resolve any leading ~/ for the mkdir helper.
+        const dir = installPath.replace(/\/[^/]+$/, "") || ".";
+        const expandedDir = dir.startsWith("~/")
+          ? `"$HOME/${dir.slice(2)}"`
+          : dir;
+        const expandedPath = installPath.startsWith("~/")
+          ? `"$HOME/${installPath.slice(2)}"`
+          : installPath;
+        return `mkdir -p ${expandedDir}\ncat > ${expandedPath} << 'SKILL'\n${bootstrapSkillContent}${
+          bootstrapSkillContent.endsWith("\n") ? "" : "\n"
+        }SKILL`;
+      })();
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -795,41 +812,58 @@ EOF`}</pre>
             </div>
 
             <div className="mb-3">
-              <p className="text-xs font-medium text-muted-foreground mb-1.5">
-                Install targets (where to write the skill file)
+              <label className="text-xs font-medium text-muted-foreground">
+                Coding agent
+              </label>
+              <select
+                value={selectedAgent}
+                onChange={(e) => setSelectedAgent(e.target.value)}
+                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {(agents.length > 0
+                  ? agents
+                  : [
+                      {
+                        id: "claude",
+                        label: "Claude Code",
+                        ext: "md",
+                        format: "markdown-frontmatter",
+                        install_path: ".claude/commands/skills.md",
+                        is_fragment: false,
+                      } as AgentMeta,
+                    ]
+                ).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label} &mdash; {a.install_path}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Selected agent determines the install path, file format
+                ({bootstrap?.format ?? "markdown-frontmatter"}), and the
+                argument syntax baked into the prompt.
+                {agentDocsUrl ? (
+                  <>
+                    {" "}
+                    <a
+                      href={agentDocsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline"
+                    >
+                      {agentLabel} docs
+                    </a>
+                    .
+                  </>
+                ) : null}
               </p>
-              <div className="flex flex-wrap gap-3 text-xs text-foreground">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={skillTargetClaude}
-                    onChange={(e) => setSkillTargetClaude(e.target.checked)}
-                    className="rounded border-border"
-                  />
-                  <code>.claude/commands/</code>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={skillTargetCursor}
-                    onChange={(e) => setSkillTargetCursor(e.target.checked)}
-                    className="rounded border-border"
-                  />
-                  <code>.cursor/commands/</code>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={skillTargetSpecify}
-                    onChange={(e) => setSkillTargetSpecify(e.target.checked)}
-                    className="rounded border-border"
-                  />
-                  <code>.specify/templates/commands/</code>
-                </label>
-              </div>
             </div>
 
-            <p className="text-xs font-medium text-foreground mb-1">Install command</p>
+            <p className="text-xs font-medium text-foreground mb-1">
+              {isFragment
+                ? `Generated config fragment for ${agentLabel}`
+                : `Install command for ${agentLabel}`}
+            </p>
             <div className="relative group mb-4">
               <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
                 {installCommands}
@@ -870,7 +904,7 @@ EOF`}</pre>
 
             <details className="text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                Preview generated skill markdown
+                Preview generated skill ({bootstrap?.file_extension ?? "md"})
               </summary>
               <div className="relative group mt-2">
                 <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
@@ -898,22 +932,10 @@ EOF`}</pre>
           </div>
 
           <div>
-            <p className="font-medium text-foreground mb-2">3. Use it</p>
-            <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap">{`# Browse all skills
-/${safeCommandName}
-
-# Search for specific skills
-/${safeCommandName} docker
-/${safeCommandName} kubernetes
-
-# Run a skill inline (fetched live, no local copy)
-/${safeCommandName} run <skill-name>
-
-# Install a skill locally
-/${safeCommandName} install <skill-name>
-
-# Update all locally installed skills
-/${safeCommandName} update`}</pre>
+            <p className="font-medium text-foreground mb-2">
+              3. Launch {agentLabel} and use it
+            </p>
+            <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
           </div>
         </CardContent>
       </Card>
@@ -933,4 +955,160 @@ EOF`}</pre>
       </p>
     </div>
   );
+}
+
+/**
+ * Minimal Markdown renderer for the per-agent launch guide returned by
+ * /api/skills/bootstrap. Supports the subset our agent registry uses:
+ *   - fenced code blocks (```...```)
+ *   - blank-line separated paragraphs
+ *   - **bold** and `inline code`
+ *   - [link text](url) — opens in a new tab with rel="noreferrer"
+ *   - {name} substituted with the slash-command name
+ *
+ * We intentionally avoid a full MD library to keep bundle size small and to
+ * sidestep dangerouslySetInnerHTML (server controls the input, but defense
+ * in depth — we never inject raw HTML). Unknown markdown is rendered as
+ * plain text.
+ */
+function LaunchGuide({
+  markdown,
+  commandName,
+}: {
+  markdown: string;
+  commandName: string;
+}) {
+  if (!markdown) {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        Launch instructions will appear here once the bootstrap template loads.
+      </p>
+    );
+  }
+
+  const text = markdown.replace(/\{name\}/g, commandName);
+
+  // Split by fenced code blocks, preserving them as separate segments.
+  const segments: { type: "code" | "prose"; content: string; lang?: string }[] =
+    [];
+  const fenceRe = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      segments.push({ type: "prose", content: text.slice(lastIndex, m.index) });
+    }
+    segments.push({ type: "code", content: m[2], lang: m[1] || undefined });
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ type: "prose", content: text.slice(lastIndex) });
+  }
+
+  return (
+    <div className="space-y-3 text-sm">
+      {segments.map((seg, idx) => {
+        if (seg.type === "code") {
+          return (
+            <pre
+              key={idx}
+              className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap"
+            >
+              {seg.content.replace(/\n+$/, "")}
+            </pre>
+          );
+        }
+        // Render prose: split on blank lines into paragraphs/list groups.
+        const blocks = seg.content
+          .split(/\n{2,}/)
+          .map((b) => b.trim())
+          .filter(Boolean);
+        return (
+          <div key={idx} className="space-y-2 text-sm text-foreground">
+            {blocks.map((block, bIdx) => {
+              const lines = block.split("\n");
+              const isList = lines.every(
+                (l) => l.startsWith("- ") || l.startsWith("* "),
+              );
+              if (isList) {
+                return (
+                  <ul
+                    key={bIdx}
+                    className="list-disc pl-5 space-y-1 text-sm text-foreground"
+                  >
+                    {lines.map((l, lIdx) => (
+                      <li key={lIdx}>{renderInline(l.replace(/^[-*]\s+/, ""))}</li>
+                    ))}
+                  </ul>
+                );
+              }
+              return (
+                <p key={bIdx} className="text-sm text-foreground leading-snug">
+                  {renderInline(block.replace(/\n/g, " "))}
+                </p>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Render inline markdown — bold, inline code, and links — into React nodes.
+ * Anything not matched is rendered as plain text. Links are opened in a new
+ * tab with `rel="noreferrer"`. We never inject raw HTML.
+ */
+function renderInline(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  // Combined regex: link, bold, code (in that priority order).
+  const re = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) {
+      out.push(text.slice(last, m.index));
+    }
+    if (m[1] && m[2]) {
+      // Validate the URL: only allow http(s) targets, no javascript: etc.
+      let safe = false;
+      try {
+        const u = new URL(m[2]);
+        safe = u.protocol === "http:" || u.protocol === "https:";
+      } catch {
+        safe = false;
+      }
+      if (safe) {
+        out.push(
+          <a
+            key={`l${key++}`}
+            href={m[2]}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary underline"
+          >
+            {m[1]}
+          </a>,
+        );
+      } else {
+        out.push(m[1]);
+      }
+    } else if (m[3]) {
+      out.push(<strong key={`b${key++}`}>{m[3]}</strong>);
+    } else if (m[4]) {
+      out.push(
+        <code
+          key={`c${key++}`}
+          className="rounded bg-muted px-1 py-0.5 text-[0.85em]"
+        >
+          {m[4]}
+        </code>,
+      );
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
 }
