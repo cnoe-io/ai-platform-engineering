@@ -1,0 +1,44 @@
+# CAIPE UI — application seed configuration
+# -------------------------------------------
+# This file is volume-mounted into the container and loaded at Next.js
+# startup via instrumentation.ts → seed-config.ts.
+#
+# Entities defined here are "config-driven": they are upserted into
+# MongoDB on every restart, marked config_driven=true, and cannot be
+# edited/deleted via the UI. Stale entries (removed from this file)
+# are automatically cleaned up.
+#
+# In docker-compose dev mode, ${VAR:-default} syntax is expanded at
+# load time. In Kubernetes, Helm resolves values before creating the
+# ConfigMap, so the mounted YAML contains literal values.
+
+# ── Models ────────────────────────────────────────────────────────
+models: []
+  # - model_id: "gpt-4o"
+  #   name: "GPT-4o"
+  #   provider: "openai"
+  #   description: "OpenAI GPT-4o"
+
+# ── MCP Servers ───────────────────────────────────────────────────
+mcp_servers: []
+  # - id: "github-mcp"
+  #   name: "GitHub"
+  #   description: "GitHub MCP server for repository operations"
+  #   transport: "stdio"
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN:-}"
+
+# ── Agents ────────────────────────────────────────────────────────
+agents: []
+  # - id: "default-agent"
+  #   name: "Default Agent"
+  #   description: "General-purpose assistant"
+  #   system_prompt: "You are a helpful assistant."
+  #   model_id: "gpt-4o"
+  #   model_provider: "openai"
+  #   visibility: "global"
+  #   allowed_tools: {}
+  #   subagents: []
+  #   enabled: true
