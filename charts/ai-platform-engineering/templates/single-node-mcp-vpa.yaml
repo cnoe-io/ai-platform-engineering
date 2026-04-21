@@ -19,16 +19,16 @@ VPA config is resolved per-agent (mcp.vpa) falling back to global.mcp.vpa.
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+  name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
   labels:
     {{- include "ai-platform-engineering.labels" $ | nindent 4 }}
-    app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+    app.kubernetes.io/name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
     app.kubernetes.io/component: mcp
 spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
+    name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
   updatePolicy:
     updateMode: {{ $vpa.updateMode | quote }}
   resourcePolicy:
