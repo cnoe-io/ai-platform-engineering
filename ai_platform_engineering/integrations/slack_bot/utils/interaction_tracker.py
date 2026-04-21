@@ -107,10 +107,12 @@ class InteractionTracker:
                             "name": user_name or user_email.split("@")[0],
                             "role": "user",
                             "source": "slack",
-                            "slack_user_id": user_id,
                             "created_at": now,
                         },
-                        "$set": {"last_login": now},
+                        "$set": {
+                            "last_login": now,
+                            "slack_user_id": user_id,
+                        },
                     },
                     upsert=True,
                 )
