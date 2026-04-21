@@ -145,14 +145,18 @@ const SKILLS_LIST_BODY = {
   meta: { total: 10 },
 };
 
-let mintedKeyValue = "test-mint-key-abcdef123";
+// Low-entropy, obviously-fake fixture. Avoids tripping gitleaks'
+// generic-api-key rule (which fires on entropy >~3.5) while still
+// being a plausible string for the assertions below.
+const FAKE_MINT_KEY = "FAKE-TEST-KEY-DO-NOT-USE";
+let mintedKeyValue = FAKE_MINT_KEY;
 let mintCallCount = 0;
 const mintPostMock = jest.fn();
 
 beforeEach(() => {
   mintCallCount = 0;
   mintPostMock.mockReset();
-  mintedKeyValue = "test-mint-key-abcdef123";
+  mintedKeyValue = FAKE_MINT_KEY;
 
   global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -376,7 +380,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const copied = snippetCall![0] as string;
 
     // Must be the two-line `export ; curl | bash` form, NOT the placeholder.
-    expect(copied).toMatch(/^export CAIPE_CATALOG_KEY='test-mint-key-abcdef123'\n/);
+    expect(copied).toMatch(
+      new RegExp(`^export CAIPE_CATALOG_KEY='${FAKE_MINT_KEY}'\\n`),
+    );
     expect(copied).toContain("curl -fsSL");
     expect(copied).toContain("/api/skills/install.sh?");
     expect(copied).toContain("agent=claude");
