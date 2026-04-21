@@ -264,7 +264,7 @@ def get_latest_thread_ts(docs: list[dict]) -> float | None:
             try:
                 timestamps.append(float(ts))
             except (ValueError, TypeError):
-                pass
+                continue  # skip malformed thread_ts values
     return max(timestamps) if timestamps else None
 
 

@@ -110,7 +110,7 @@ def get_latest_timestamp(scores: list[dict]) -> str | None:
             try:
                 timestamps.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
             except (ValueError, AttributeError):
-                pass
+                continue  # skip malformed timestamps
     return max(timestamps).isoformat() if timestamps else None
 
 
