@@ -34,6 +34,12 @@ global:
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
 
+  # When deploymentMode is single-node, in-cluster MCP Services/Deployments/SAs use
+  # {mcpResourcePrefix}-agent-<name>-mcp. Leave mcpResourcePrefix unset (empty) to use the
+  # Helm release name; set to "single-node" for stable, readable resource names.
+  singleNode:
+    mcpResourcePrefix: ""
+
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
