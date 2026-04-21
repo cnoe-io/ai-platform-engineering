@@ -244,18 +244,21 @@ describe("GET /api/skills/install.sh — script content", () => {
   });
 
   it.each([
-    ["claude", "user", "<!-- $MARKER_TAG -->"],
-    ["cursor", "project", "<!-- $MARKER_TAG -->"],
-    ["specify", "project", "<!-- $MARKER_TAG -->"],
-    ["codex", "user", "<!-- $MARKER_TAG -->"],
-    ["gemini", "user", "# $MARKER_TAG"],
+    ["claude", "user", '"<!-- "', '" -->"'],
+    ["cursor", "project", '"<!-- "', '" -->"'],
+    ["specify", "project", '"<!-- "', '" -->"'],
+    ["codex", "user", '"<!-- "', '" -->"'],
+    ["gemini", "user", '"# "', '""'],
   ])(
     "agent=%s scope=%s writes a format-appropriate marker comment",
-    async (agent, scope, expectedMarker) => {
+    async (agent, scope, expectedPrefix, expectedSuffix) => {
       const res = await callGET(
         `https://app.example.com/api/skills/install.sh?agent=${agent}&scope=${scope}`,
       );
-      expect(res.body).toContain(expectedMarker);
+      // Marker prefix/suffix are emitted as separate vars so the same case
+      // statement can serve both single-skill and bulk-install flows.
+      expect(res.body).toContain(`MARKER_PREFIX=${expectedPrefix}`);
+      expect(res.body).toContain(`MARKER_SUFFIX=${expectedSuffix}`);
     },
   );
 
@@ -281,6 +284,87 @@ describe("GET /api/skills/install.sh — script content", () => {
     expect(res.body).toContain("BASE_URL='https://gateway.test.io'");
     expect(res.body).toContain(
       "BOOTSTRAP_URL='https://gateway.test.io/api/skills/bootstrap?",
+    );
+  });
+});
+
+describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => {
+  const sameOriginCatalog = encodeURIComponent(
+    "https://app.example.com/api/skills?q=jira&page=1&page_size=20",
+  );
+
+  it("switches to bulk mode when a same-origin catalog_url is supplied", async () => {
+    const res = await callGET(
+      `https://app.example.com/api/skills/install.sh?agent=claude&scope=user&catalog_url=${sameOriginCatalog}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toContain("BULK_MODE=1");
+    // Always force include_content=true so the script has bodies to write.
+    expect(res.body).toMatch(
+      /CATALOG_URL='https:\/\/app\.example\.com\/api\/skills\?[^']*include_content=true[^']*'/,
+    );
+    // Bulk filename hint helps users distinguish saved scripts.
+    expect(res.headers.get("Content-Disposition")).toContain(
+      'filename="install-skills-claude-user-bulk.sh"',
+    );
+    // Bulk mode never bakes the bootstrap template into the script — it
+    // walks the catalog response and writes one file per skill into the
+    // commands directory derived from the agent's installPaths entry.
+    expect(res.body).toContain("COMMANDS_DIR_RAW='~/.claude/commands'");
+    expect(res.body).toContain("FILE_EXT='md'");
+    expect(res.body).toContain('mkdir -p "$COMMANDS_DIR"');
+    // The per-skill marker tag must be built per-iteration so --upgrade only
+    // overwrites files this installer wrote.
+    expect(res.body).toContain('MARKER_TAG="caipe-skill: $AGENT_ID/$SKILL_NAME"');
+  });
+
+  it("rejects a catalog_url that points off-origin", async () => {
+    const evil = encodeURIComponent("https://attacker.example.com/api/skills");
+    const res = await callGET(
+      `https://app.example.com/api/skills/install.sh?agent=claude&scope=user&catalog_url=${evil}`,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).toContain("invalid ?catalog_url=");
+  });
+
+  it("rejects a catalog_url that points at a non-/api/skills path", async () => {
+    const wrongPath = encodeURIComponent(
+      "https://app.example.com/api/skills/install.sh?evil=1",
+    );
+    const res = await callGET(
+      `https://app.example.com/api/skills/install.sh?agent=claude&scope=user&catalog_url=${wrongPath}`,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).toContain("invalid ?catalog_url=");
+  });
+
+  it("rejects bulk install for fragment-config agents (Continue)", async () => {
+    const res = await callGET(
+      `https://app.example.com/api/skills/install.sh?agent=continue&scope=user&catalog_url=${sameOriginCatalog}`,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).toContain("bulk install via ?catalog_url= is not supported");
+  });
+
+  it("derives gemini-toml extension and toml-style markers in bulk mode", async () => {
+    const res = await callGET(
+      `https://app.example.com/api/skills/install.sh?agent=gemini&scope=user&catalog_url=${sameOriginCatalog}`,
+    );
+    expect(res.body).toContain("FILE_EXT='toml'");
+    // TOML uses '#' line comments; markdown formats use HTML comments. The
+    // marker prefix/suffix machinery picks per FORMAT.
+    expect(res.body).toContain('MARKER_PREFIX="# "');
+  });
+
+  it("does not switch to bulk mode when catalog_url is absent", async () => {
+    const res = await callGET(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.body).toContain("BULK_MODE=0");
+    expect(res.body).toContain("CATALOG_URL=''");
+    // Single-skill filename (no -bulk suffix).
+    expect(res.headers.get("Content-Disposition")).toContain(
+      'filename="install-skills-claude-user.sh"',
     );
   });
 });

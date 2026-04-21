@@ -57,6 +57,8 @@ export function TrySkillsGateway() {
   const [copiedBearer, setCopiedBearer] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedBulkOneLiner, setCopiedBulkOneLiner] = useState(false);
+  const [copiedBulkUpgrade, setCopiedBulkUpgrade] = useState(false);
   const [copiedSkill, setCopiedSkill] = useState(false);
   const [copiedInstall, setCopiedInstall] = useState(false);
 
@@ -423,6 +425,29 @@ export function TrySkillsGateway() {
     return { oneLiner, oneLinerUpgrade, downloadSnippet, installShUrl };
   })();
 
+  // Bulk-install one-liner driven by the Skill Catalog Query Builder. Reuses
+  // the same /api/skills/install.sh endpoint, but adds ?catalog_url=… so the
+  // generated script writes one file per catalog skill instead of installing
+  // the bootstrap skill. Disabled when the agent is fragment-config (Continue)
+  // or when no scope has been chosen yet.
+  const bulkInstallerSnippet = (() => {
+    if (!selectedScope) return null;
+    const meta = agents.find((a) => a.id === selectedAgent);
+    if (meta?.is_fragment) return null;
+    const previewSkillCount =
+      previewData?.skills && Array.isArray(previewData.skills)
+        ? previewData.skills.length
+        : 0;
+    if (previewSkillCount === 0) return null;
+    const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
+      selectedAgent,
+    )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}`;
+    const keyForSnippet = mintedKey ?? "<your-catalog-api-key>";
+    const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash`;
+    const oneLinerUpgrade = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash -s -- --upgrade`;
+    return { oneLiner, oneLinerUpgrade, installShUrl, count: previewSkillCount };
+  })();
+
   return (
     <div className="space-y-6 max-w-3xl">
       {/* Catalog Query Builder */}
@@ -664,6 +689,101 @@ export function TrySkillsGateway() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Bulk install action bar — wires the Query Builder's catalog URL
+              into /api/skills/install.sh?catalog_url=… so each previewed
+              skill is written as a slash-command file for the chosen
+              coding agent + scope. Reuses the agent/scope pickers from the
+              bootstrap card above (state lives on the parent). */}
+          {previewData?.skills && previewData.skills.length > 0 && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-sm font-medium text-foreground">
+                  Install these {previewData.skills.length} skill
+                  {previewData.skills.length === 1 ? "" : "s"} as slash commands
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  agent:{" "}
+                  <span className="font-mono">{selectedAgent}</span>
+                  {" · "}
+                  scope:{" "}
+                  <span className="font-mono">
+                    {selectedScope ?? "(pick above)"}
+                  </span>
+                </div>
+              </div>
+              {bulkInstallerSnippet ? (
+                <>
+                  <div className="relative group">
+                    <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                      {bulkInstallerSnippet.oneLiner}
+                    </pre>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(
+                          bulkInstallerSnippet.oneLiner,
+                        );
+                        setCopiedBulkOneLiner(true);
+                        setTimeout(() => setCopiedBulkOneLiner(false), 2000);
+                      }}
+                    >
+                      {copiedBulkOneLiner ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                      Already installed? Upgrade
+                    </summary>
+                    <div className="relative group mt-2">
+                      <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                        {bulkInstallerSnippet.oneLinerUpgrade}
+                      </pre>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(
+                            bulkInstallerSnippet.oneLinerUpgrade,
+                          );
+                          setCopiedBulkUpgrade(true);
+                          setTimeout(() => setCopiedBulkUpgrade(false), 2000);
+                        }}
+                      >
+                        {copiedBulkUpgrade ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </div>
+                  </details>
+                  <p className="text-[11px] text-muted-foreground">
+                    Writes one file per skill into the {selectedAgent} commands
+                    directory. Existing files are skipped unless you re-run
+                    with <code className="font-mono">--upgrade</code> (only
+                    overwrites files this script previously wrote) or{" "}
+                    <code className="font-mono">--force</code>.
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  {agents.find((a) => a.id === selectedAgent)?.is_fragment
+                    ? `${selectedAgent} stores commands inside an editor config file; bulk install is disabled. Install skills individually or use a non-fragment agent.`
+                    : "Pick an install scope (user-global or project-local) on the bootstrap card above to enable the install command."}
+                </p>
+              )}
             </div>
           )}
         </CardContent>
