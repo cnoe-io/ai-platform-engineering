@@ -868,7 +868,6 @@ def stream_response(
       final_thinking = "".join(pending_thinking)
       if needs_separator and stream_buf.has_flushed:
         final_thinking = "\n\n" + final_thinking
-        needs_separator = False
       stream_buf.append(final_thinking)
       pending_thinking.clear()
 
@@ -1074,7 +1073,7 @@ def invoke_response(
         )
       )
     except Exception:
-      pass
+      logger.debug("Failed to build footer blocks for error response, continuing with base error blocks")
     slack_client.chat_postMessage(
       channel=channel_id,
       thread_ts=thread_ts,
