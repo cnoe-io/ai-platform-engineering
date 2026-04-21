@@ -75,6 +75,7 @@ import {
   type AgentScope,
   type AgentSpec,
 } from "./agents";
+import { getRequestOrigin } from "../_lib/request-origin";
 
 const FALLBACK_TEMPLATE = `---
 description: Browse and install skills from the CAIPE skill catalog
@@ -218,8 +219,11 @@ export async function GET(request: Request) {
   const descriptionInput = sanitizeDescription(
     url.searchParams.get("description"),
   );
+  // `request.url` is the internal listen address behind an ingress;
+  // the public origin lives on x-forwarded-* headers. Use the helper.
   const baseUrl =
-    sanitizeBaseUrl(url.searchParams.get("base_url")) ?? url.origin;
+    sanitizeBaseUrl(url.searchParams.get("base_url")) ??
+    getRequestOrigin(request);
 
   const { template: canonicalTemplate, source } = resolveBootstrapTemplate();
 

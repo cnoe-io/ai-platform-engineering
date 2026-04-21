@@ -46,6 +46,7 @@
 
 import { NextResponse } from "next/server";
 import { AGENTS, scopesAvailableFor, type AgentSpec } from "../bootstrap/agents";
+import { getRequestOrigin } from "../_lib/request-origin";
 
 /* ---------- input sanitizers (mirror the bootstrap route) ---------- */
 
@@ -659,8 +660,13 @@ export async function GET(request: Request) {
 
   const commandName = sanitizeCommandName(url.searchParams.get("command_name"));
   const description = sanitizeDescription(url.searchParams.get("description"));
+  // `request.url` is the internal listen address behind an ingress
+  // (e.g. http://0.0.0.0:3000), so we MUST honor x-forwarded-* headers.
+  // Otherwise the script we hand back tries to call back into the pod IP
+  // and fails with `tlsv1 alert protocol version` / connection refused.
   const baseUrl =
-    sanitizeBaseUrl(url.searchParams.get("base_url")) ?? url.origin;
+    sanitizeBaseUrl(url.searchParams.get("base_url")) ??
+    getRequestOrigin(request);
 
   // Optional bulk-install mode driven by the Skills API Gateway Query Builder.
   const catalogUrlRaw = url.searchParams.get("catalog_url");
