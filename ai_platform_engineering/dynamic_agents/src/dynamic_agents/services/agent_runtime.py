@@ -18,7 +18,6 @@ from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from jinja2 import ChainableUndefined, TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
-from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.types import Command
@@ -48,6 +47,7 @@ from dynamic_agents.services.mcp_client import (
     get_tools_with_resilience,
     wrap_tools_with_error_handling,
 )
+from dynamic_agents.services.middleware import build_middleware
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -142,6 +142,7 @@ class AgentRuntime:
         mongo_service: "MongoDBService | None" = None,
         user: UserContext | None = None,
         client_context: ClientContext | None = None,
+        session_id: str | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
@@ -149,6 +150,7 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._client_context = client_context
+        self._session_id = session_id
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
@@ -275,9 +277,7 @@ class AgentRuntime:
             name=safe_name,
             subagents=subagents if subagents else None,
             interrupt_on={"request_user_input": True},
-            middleware=[
-                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
-            ],
+            middleware=build_middleware(self.config.features, self._session_id),
         )
 
         self._initialized = True
@@ -429,9 +429,7 @@ class AgentRuntime:
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
-                "middleware": [
-                    ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
-                ],
+                "middleware": build_middleware(subagent_config.features, self._session_id),
             }
 
             # Note: Nested subagents (subagent of subagent) are not supported in this MVP.
@@ -561,7 +559,11 @@ class AgentRuntime:
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
 
-        logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
+        logger.info(
+            f"[stream] Starting stream for agent '{self.config.name}': "
+            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
+            f"user_context={self._user}, client_context={self._client_context}"
+        )
 
         # ── Core lifecycle: run start ──
         for frame in encoder.on_run_start(run_id, session_id):
@@ -718,7 +720,11 @@ class AgentRuntime:
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
 
-        logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
+        logger.info(
+            f"[resume] Resuming stream for agent '{self.config.name}': "
+            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
+            f"user_context={self._user}, client_context={self._client_context}"
+        )
 
         # ── Core lifecycle: run start ──
         for frame in encoder.on_run_start(run_id, session_id):
@@ -935,6 +941,7 @@ class AgentRuntimeCache:
             mongo_service=self._mongo_service,
             user=user,
             client_context=client_context,
+            session_id=session_id,
         )
         await runtime.initialize()
         self._cache[key] = runtime
