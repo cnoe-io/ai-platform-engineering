@@ -44,18 +44,27 @@ class StreamBuffer:
     self.stream_ts = stream_ts
     self.flush_interval = flush_interval
     self._buffer = ""
-    self._last_flush = time.monotonic()
+    self._last_flush = None  # set on first append, not init — avoids stale elapsed from LLM think time
     self._flushed_any = False
+    self._trailing_newlines = 0  # count of trailing \n chars in last flushed text
+    self._dead = False  # True after msg_too_long — stop trying to append
 
   @property
   def has_flushed(self):
     return self._flushed_any
 
+  @property
+  def trailing_newlines(self):
+    return self._trailing_newlines
+
   def append(self, text):
     """Add text to the buffer; auto-flush on newline or after the interval."""
     self._buffer += text
 
-    elapsed = time.monotonic() - self._last_flush
+    now = time.monotonic()
+    if self._last_flush is None:
+      self._last_flush = now  # start interval from first token, not from init
+    elapsed = now - self._last_flush
 
     # Prefer flushing on newline boundaries so markdown isn't split mid-token
     if "\n" in self._buffer:
@@ -79,6 +88,8 @@ class StreamBuffer:
 
   def _send(self, text):
     """Send *text* to Slack and update bookkeeping."""
+    if self._dead:
+      return False  # stream hit msg_too_long — stop spamming Slack
     self._last_flush = time.monotonic()
     try:
       self.slack_client.chat_appendStream(
@@ -87,9 +98,16 @@ class StreamBuffer:
         chunks=[{"type": "markdown_text", "text": text}],
       )
       self._flushed_any = True
+      self._trailing_newlines = len(text) - len(text.rstrip('\n'))
+      preview = text[:80].replace('\n', '\\n')
+      logger.info(f"SLACK appendStream text ({len(text)} chars): {preview}{'...' if len(text) > 80 else ''}")
       return True
     except Exception as e:
-      logger.warning(f"SLACK appendStream text FAILED: {e}")
+      if "msg_too_long" in str(e):
+        self._dead = True
+        logger.warning("SLACK appendStream msg_too_long — disabling further appends")
+      else:
+        logger.warning(f"SLACK appendStream text FAILED: {e}")
       return False
 
 
@@ -173,10 +191,11 @@ def stream_a2a_response(
     """Set the typing indicator status (best-effort, non-blocking).
 
     IMPORTANT: Only call this BEFORE startStream. Calling setStatus after
-    startStream creates a second message in the thread.
-    Only works for streamable users (U/W prefix), not bot users (B prefix).
+    startStream creates a second message in the thread (Slack limitation).
     """
     if not can_stream or overthink_mode:
+      return
+    if stream_ts and status_text:
       return
     try:
       kwargs = dict(
@@ -193,7 +212,7 @@ def stream_a2a_response(
 
   def _start_stream_if_needed():
     """Lazily start the Slack stream on first real content. Returns stream_ts or None."""
-    nonlocal stream_ts, stream_buf, thread_deleted
+    nonlocal stream_ts, stream_buf, thread_deleted, can_stream
     if thread_deleted:
       return None
     if stream_ts:
@@ -215,9 +234,13 @@ def stream_a2a_response(
       _set_typing_status("")
       return stream_ts
     except Exception as e:
-      if "invalid_thread_ts" in str(e) or "thread_not_found" in str(e):
+      err_str = str(e)
+      if "invalid_thread_ts" in err_str or "thread_not_found" in err_str:
         thread_deleted = True
         logger.warning(f"[{thread_ts}] Thread was deleted mid-processing — aborting response")
+      elif "channel_type_not_supported" in err_str:
+        can_stream = False
+        logger.warning(f"[{thread_ts}] Channel {channel_id} does not support streaming — falling back to block kit")
       else:
         logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
       return None
@@ -259,11 +282,8 @@ def stream_a2a_response(
   last_artifacts = []
   is_new_context = context_id is None
   current_tool = None
-  any_subagent_completed = False  # Set after first sub-agent TOOL_NOTIFICATION_END; suppress post-tool echoes
-  completed_tool_names = set()  # Track which tools have completed for sub-agent vs RAG distinction
   task_error = None  # Track errors but don't raise immediately - allow recovery
   trace_id = None  # Langfuse trace ID for feedback scoring
-  # streamed_any_text is tracked by stream_buf.has_flushed
   streaming_final_answer = False  # Latch: once last plan step streams, keep streaming
 
   try:
@@ -283,18 +303,24 @@ def stream_a2a_response(
       # _text_len = len(parsed.text_content) if parsed.text_content else 0
       # _extra = ""
       # if parsed.plan_data:
-      #     _statuses = [f"{s.get('step_id','?')}:{s.get('status','?')}" for s in parsed.plan_data.get("steps", [])]
-      #     _extra = f" steps=[{', '.join(_statuses)}]"
+      #   _statuses = [f"{s.get('step_id', '?')[:8]}:{s.get('status', '?')}" for s in parsed.plan_data.get("steps", [])]
+      #   _extra = f" steps=[{', '.join(_statuses)}]"
       # elif parsed.tool_notification:
-      #     _extra = f" tool={parsed.tool_notification.tool_name} status={parsed.tool_notification.status}"
+      #   _extra = f" tool={parsed.tool_notification.tool_name} status={parsed.tool_notification.status}"
       # elif _text_len:
-      #     _preview = (parsed.text_content or "")[:80].replace("\n", "\\n")
-      #     _extra = f" preview={_preview!r}"
+      #   _preview = (parsed.text_content or "")[:100].replace("\n", "\\n")
+      #   _extra = f" preview={_preview!r}"
+      # _meta_flags = ""
+      # if parsed.artifact:
+      #   _ameta = parsed.artifact.get("metadata", {})
+      #   if _ameta.get("is_final_answer"):
+      #     _meta_flags += " is_final_answer=True"
+      #   if _ameta.get("is_narration"):
+      #     _meta_flags += " is_narration=True"
       # logger.info(
-      #     f"[{thread_ts}] A2A #{event_data.get('kind', '?')}: "
-      #     f"type={parsed.event_type.value} artifact={_artifact_name!r} "
-      #     f"text_len={_text_len} append={parsed.should_append} "
-      #     f"final={parsed.is_final}{_extra}"
+      #   f"[{thread_ts}] A2A event: "
+      #   f"type={parsed.event_type.value} artifact={_artifact_name!r} "
+      #   f"text_len={_text_len} append={parsed.should_append}{_meta_flags}{_extra}"
       # )
 
       if parsed.event_type == EventType.TASK:
@@ -331,28 +357,22 @@ def stream_a2a_response(
 
       elif parsed.event_type == EventType.STREAMING_RESULT:
         if parsed.text_content:
-          # Deterministic chunker tags its chunks with is_final_answer=True.
-          # Latch streaming_final_answer so the FINAL_RESULT handler skips
-          # re-streaming the same content (prevents duplicate output).
+          # Skip chunks tagged as narration — these are the supervisor
+          # re-narrating what was already streamed (causes duplicates).
           artifact_meta = (parsed.artifact or {}).get("metadata", {})
-          if artifact_meta.get("is_final_answer") and not streaming_final_answer:
-            streaming_final_answer = True
+          if artifact_meta.get("is_narration"):
+            continue
 
-          # Track plan progress and latch final-answer streaming.
+          # Routing: intermediate step -> accumulate silently,
+          # last step or no plan -> stream markdown in real-time.
           if current_step_id and plan_steps and not streaming_final_answer:
             sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
             last_step = sorted_steps[-1]
             is_last = last_step.get("step_id") == current_step_id
             if is_last:
-              # Only latch streaming_final_answer when the step is already completed
-              # (supervisor is summarizing after sub-agents finished). While the step is
-              # in_progress, this text is sub-agent narration ("I'll search...") — not
-              # the supervisor's final answer. Latching here would cause FINAL_RESULT to
-              # be skipped, leaving the user with only the narration and no real answer.
-              if last_step.get("status") == "completed":
-                streaming_final_answer = True
+              streaming_final_answer = True
             else:
-              # Accumulate for step-detail cards (shown on step completion)
+              # Intermediate step — accumulate thinking silently
               if parsed.should_append is False:
                 step_thinking[current_step_id] = [parsed.text_content]
               else:
@@ -362,50 +382,12 @@ def stream_a2a_response(
                 step = plan_steps.get(current_step_id, {})
                 title = step.get("title", "working")
                 _set_typing_status(f"is {title}...")
-            # Fall through to stream — narrative text like "I'll search
-            # the knowledge base..." should be visible. Post-tool echo
-            # suppression is handled by any_subagent_completed below.
+              continue
 
           # Stream markdown (no plan, or final answer)
-          # Safety filter: suppress any ToolStrategy metadata that may have leaked.
-          text = parsed.text_content
-          if "is_task_complete=" in text or text.startswith("Returning structured response"):
-            logger.debug(f"[{thread_ts}] Suppressing metadata STREAMING_RESULT chunk")
-            continue
-          # After a sub-agent completes, allow post-subagent STREAMING_RESULT through
-          # when the stream is already open. In [FINAL ANSWER] mode, pre-marker thinking
-          # is suppressed at the agent level so only the clean final answer reaches here.
-          # If the stream is not yet open (typing indicator), accumulate for step cards.
-          if any_subagent_completed:
-            if not stream_ts:
-              if current_step_id and plan_steps:
-                step_thinking.setdefault(current_step_id, [])
-                step_thinking[current_step_id].append(text)
-              else:
-                logger.debug(f"[{thread_ts}] Suppressing pre-stream post-subagent chunk ({len(text)} chars)")
-              continue
-            # Latch streaming_final_answer only when ALL plan steps are done.
-            # In multi-step plans, sub-agent N's narration arrives after sub-agent
-            # N-1 completes (any_subagent_completed=True) but while sub-agent N is
-            # still in_progress.  Latching here would cause FINAL_RESULT to be skipped,
-            # leaving the user with only intermediate narration and no real answer.
-            all_steps_done = not plan_steps or all(
-              s.get("status") == "completed" for s in plan_steps.values()
-            )
-            if all_steps_done:
-              streaming_final_answer = True
-          # Before the stream starts (typing indicator still visible), show narration
-          # text as a typing status update rather than immediately opening the stream.
-          # The stream will start when the first tool fires (TOOL_NOTIFICATION_START).
-          # This keeps CAIPE in "thinking/typing" state while it searches/fetches.
-          # Exception: is_final_answer chunks ARE the answer — open the stream for them.
-          if not stream_ts and not streaming_final_answer:
-            status = text.strip().rstrip('\n')
-            if status:
-              _set_typing_status(status[:80])
-            continue
           _start_stream_if_needed()
           if stream_buf:
+            text = parsed.text_content
             if needs_separator and stream_buf.has_flushed:
               text = "\n\n" + text
               needs_separator = False
@@ -430,15 +412,10 @@ def stream_a2a_response(
             # Leave final_result_text set so finalization puts it in stopStream.chunks.
             logger.info(f"[{thread_ts}] Plan flow — deferring FINAL_RESULT to stopStream.chunks")
           else:
-            # No-plan flow: stream the final answer live via appendStream.
-            _start_stream_if_needed()
-            if stream_buf:
-              if needs_separator and stream_buf.has_flushed:
-                stream_buf.append("\n\n")
-                needs_separator = False
-              stream_buf.append(parsed.text_content)
-              stream_buf.flush()  # Flush immediately — don't wait for the interval
-              streaming_final_answer = True  # Mark as already streamed
+            # No-plan flow: defer FINAL_RESULT to stopStream at finalization.
+            # Don't stream via appendStream — STREAMING_RESULT may contain raw
+            # ToolStrategy metadata that we need to keep out of the channel.
+            logger.info(f"[{thread_ts}] No-plan flow — deferring FINAL_RESULT to stopStream.chunks")
         # Extract trace_id from artifact metadata
         if parsed.artifact and not trace_id:
           artifact_metadata = parsed.artifact.get("metadata", {})
@@ -461,10 +438,8 @@ def stream_a2a_response(
           tool_id = parsed.tool_notification.tool_id
           current_tool = tool_name or tool_id or None
           logger.info(f"[{thread_ts}] Tool started: {current_tool or '(unknown)'}")
-          # Open the stream on first tool call so the user sees progress immediately.
-          # Without this, RAG queries (no sub-agents) are silent for 30-60s while
-          # search/fetch_document run, because STREAMING_RESULT only arrives at the end.
-          _start_stream_if_needed()
+          if not stream_ts and current_tool:
+            _set_typing_status(f"is {current_tool}-ing...")
           if throttler:
             blocks = _build_progress_blocks(current_tool, plan_steps)
             throttler.force_update(blocks, "Working on your request...")
@@ -480,20 +455,9 @@ def stream_a2a_response(
           else:
             logger.info(f"[{thread_ts}] Tool completed: {display_name}")
           current_tool = None
-          completed_tool_names.add(display_name)
-          # When plan steps are present, use plan step completion (in EXECUTION_PLAN
-          # handler below) as the authoritative "sub-agent done" signal. This avoids
-          # false positives from sub-agent-internal tool completions (search, fetch,
-          # compile, etc.) that are case-mismatched or missing from the filter list.
-          # For no-plan flows (rare), fall back to tool completion as a proxy.
-          if not plan_steps:
-            _RAG_TOOL_NAMES = {"search", "fetch_document", "list_datasources", "fetch_url"}
-            if display_name.lower() not in _RAG_TOOL_NAMES:
-              any_subagent_completed = True
           needs_separator = True
           if not stream_ts:
             _set_typing_status("is working...")
-          # Update to clear tool indicator
           if throttler:
             blocks = _build_progress_blocks(None, plan_steps)
             throttler.force_update(blocks, "Working on your request...")
@@ -502,15 +466,9 @@ def stream_a2a_response(
         if stream_buf:
           stream_buf.flush()
         if parsed.plan_data and parsed.plan_data.get("steps"):
-          # Update plan state from structured DataPart; detect step completions.
-          # A step transitioning to "completed" is the authoritative signal that
-          # the sub-agent for that step is done and the supervisor is responding.
+          # Update plan state from structured DataPart
           for step in parsed.plan_data["steps"]:
-            prev_status = plan_steps.get(step["step_id"], {}).get("status")
             plan_steps[step["step_id"]] = step
-            if step.get("status") == "completed" and prev_status != "completed":
-              any_subagent_completed = True
-              logger.debug(f"[{thread_ts}] Sub-agent done (step {step['step_id'][:16]} completed)")
 
           # Track current in_progress step
           for step in parsed.plan_data["steps"]:
@@ -640,7 +598,7 @@ def stream_a2a_response(
         logger.info(f"[{thread_ts}] Stripped [CONFIDENCE: HIGH] marker from response")
 
     # Handle graceful degradation: if we have content, show it even if there was an error
-    if final_text and final_text != "I've completed your request.":
+    if final_text and final_text != "Oops, something went wrong :(.":
       if task_error:
         logger.info(f"[{thread_ts}] Recovered from error - showing final content despite: {task_error}")
       logger.info(f"[{thread_ts}] Selected final text: {len(final_text)} chars, preview: {final_text[:100]}...")
@@ -717,16 +675,9 @@ def stream_a2a_response(
 
       # 2. Build stop call with final answer + feedback blocks.
       # Skip final_text if the answer was already streamed live.
-      # For plan flows: only streaming_final_answer means the answer was streamed
-      #   (pre-plan chatter sets streamed_any_text but isn't the answer).
-      # For no-plan flows: streamed_any_text means the answer was streamed.
       stop_chunks = []
       streamed_any_text = stream_buf.has_flushed if stream_buf else False
-      # streaming_final_answer=True  → answer already streamed token-by-token (STREAMING_RESULT)
-      #                                 or via appendStream (no-plan FINAL_RESULT path)
-      # For plan flows, FINAL_RESULT text is deferred to stopStream.chunks (block+text mixing issue)
-      # so streaming_final_answer stays False and needs_final=True sends it in stop_chunks.
-      already_streamed = streaming_final_answer or (not plan_steps and streamed_any_text and not final_result_text)
+      already_streamed = streaming_final_answer or streamed_any_text
       needs_final = not already_streamed
       if needs_final and final_text:
         stop_chunks.append({"type": "markdown_text", "text": final_text})
@@ -754,6 +705,22 @@ def stream_a2a_response(
           # Stream expired (long-running query). Fall back to regular message.
           logger.warning(
             f"[{thread_ts}] Streaming message expired — posting final answer as regular message"
+          )
+          return _post_final_response(
+            slack_client,
+            channel_id,
+            thread_ts,
+            final_text,
+            response_ts,
+            triggered_by_user_id=triggered_by_user_id,
+            additional_footer=additional_footer,
+            escalation_config=escalation_config,
+          )
+        if "msg_too_long" in err_str:
+          # Response exceeded Slack streaming message limit. Fall back to
+          # a regular post which uses split_text_into_blocks to chunk it.
+          logger.warning(
+            f"[{thread_ts}] Streaming message too long — posting final answer as regular message"
           )
           return _post_final_response(
             slack_client,
@@ -930,7 +897,7 @@ def _get_final_text(final_result_text, partial_result_text, final_message_text, 
 
   # Final fallback
   logger.warning(f"[{thread_ts}] No content extracted from response - using default message")
-  return "I've completed your request."
+  return "Oops, something went wrong :(."
 
 
 def _post_final_response(
@@ -943,36 +910,52 @@ def _post_final_response(
   additional_footer=None,
   escalation_config=None,
 ):
-  """Post final response as a regular message (fallback for bot messages)."""
+  """Post final response as a regular message (fallback for bot messages).
+
+  Splits into multiple messages if the response exceeds Slack's 50-block limit.
+  """
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
-  final_blocks = []
-  for chunk in text_chunks:
-    final_blocks.append(
-      {
-        "type": "markdown",
-        "text": chunk,
-      }
-    )
+  content_blocks = [{"type": "markdown", "text": chunk} for chunk in text_chunks]
 
-  # Append feedback + footer blocks (actions, context_actions, footer)
-  final_blocks.extend(
-    _build_stream_final_blocks(
-      channel_id, thread_ts, original_ts,
-      triggered_by_user_id=triggered_by_user_id,
-      additional_footer=additional_footer,
-      escalation_config=escalation_config,
-    )
+  footer_blocks = _build_stream_final_blocks(
+    channel_id, thread_ts, original_ts,
+    triggered_by_user_id=triggered_by_user_id,
+    additional_footer=additional_footer,
+    escalation_config=escalation_config,
   )
 
-  slack_client.chat_postMessage(
-    channel=channel_id,
-    thread_ts=thread_ts,
-    blocks=final_blocks,
-    text=final_text[:100],
-  )
+  # Slack allows max 50 blocks per message.  Reserve space for footer blocks
+  # in the last batch so they always appear at the end.
+  max_blocks = 50
+  max_content_per_msg = max_blocks - len(footer_blocks)
 
-  return final_blocks
+  all_blocks = []
+  if len(content_blocks) <= max_content_per_msg:
+    # Fits in one message
+    all_blocks = content_blocks + footer_blocks
+    slack_client.chat_postMessage(
+      channel=channel_id,
+      thread_ts=thread_ts,
+      blocks=all_blocks,
+      text=final_text[:100],
+    )
+  else:
+    # Split into multiple messages; footer on the last one
+    for i in range(0, len(content_blocks), max_content_per_msg):
+      batch = content_blocks[i:i + max_content_per_msg]
+      is_last = i + max_content_per_msg >= len(content_blocks)
+      if is_last:
+        batch.extend(footer_blocks)
+      slack_client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        blocks=batch,
+        text=final_text[:100] if i == 0 else "(continued)",
+      )
+    all_blocks = content_blocks + footer_blocks
+
+  return all_blocks
 
 
 def _build_stream_final_blocks(

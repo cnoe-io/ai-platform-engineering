@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
         with:
           egress-policy: audit
       - name: Checkout repository
@@ -70,7 +70,7 @@ jobs:
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
         if: steps.eligibility.outputs.should_build == 'true'
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -103,7 +103,7 @@ jobs:
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
       - name: Build and Push A2A Docker image
         if: steps.eligibility.outputs.should_build == 'true'
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           file: ./build/Dockerfile
@@ -116,7 +116,7 @@ jobs:
 
       - name: 💬 Comment on PR
         if: steps.eligibility.outputs.should_build == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
           IMAGE_REF: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
@@ -153,7 +153,7 @@ jobs:
       PACKAGE_NAME: prebuild/ai-platform-engineering
     steps:
       - name: Delete prebuild images for branch
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:

@@ -215,19 +215,6 @@ export function AppHeader() {
             Home
           </GuardedLink>
           <GuardedLink
-            href="/skills"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "skills"
-                ? "gradient-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Zap className="h-3.5 w-3.5 shrink-0" />
-            Skills
-          </GuardedLink>
-          <GuardedLink
             href="/chat"
             prefetch={true}
             className={cn(
@@ -261,6 +248,19 @@ export function AppHeader() {
                 </span>
               </span>
             )}
+          </GuardedLink>
+          <GuardedLink
+            href="/skills"
+            prefetch={true}
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+              activeTab === "skills"
+                ? "gradient-primary text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Zap className="h-3.5 w-3.5 shrink-0" />
+            Skills
           </GuardedLink>
           <GuardedLink
             href="/task-builder"

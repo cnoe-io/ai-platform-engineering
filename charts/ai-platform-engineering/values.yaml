@@ -25,8 +25,20 @@ tags:
 
 # Global configuration shared across all subcharts
 global:
+  # -- Global image tag override. When set, overrides the default appVersion-based
+  # image tag for ALL subcharts (supervisor, agents, UI, etc.) in a single place.
+  # Individual subchart `image.tag` values still take highest precedence.
+  image:
+    tag: ""
+
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
+
+  # When deploymentMode is single-node, in-cluster MCP Services/Deployments/SAs use
+  # {mcpResourcePrefix}-agent-<name>-mcp. Leave mcpResourcePrefix unset (empty) to use the
+  # Helm release name; set to "single-node" for stable, readable resource names.
+  singleNode:
+    mcpResourcePrefix: ""
 
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
@@ -46,6 +58,60 @@ global:
 
   metrics:
     enabled: true
+
+  # Global VPA config for all agent deployments (supervisor + all sub-agents).
+  # Requires VPA to be installed in the cluster.
+  # Do not enable alongside global autoscaling — VPA conflicts with HPA on CPU/memory scaling.
+  # Setting initial resource requests (see resources: in each agent section) improves early VPA recommendations.
+  # NOTE: per-agent opt-out via vpa.enabled=false is not supported (Helm cannot distinguish
+  # "explicitly false" from the default "false"). To enable VPA selectively, keep global.vpa.enabled=false
+  # and set vpa.enabled=true on individual agents instead.
+  # Override global defaults per-agent with non-enabled fields:
+  #   agent-github:
+  #     vpa:
+  #       maxAllowed:
+  #         cpu: 2
+  #         memory: 2Gi
+  vpa:
+    enabled: false
+    # "InPlaceOrRecreate" applies recommendations in-place (Kubernetes 1.29+) or recreates the pod.
+    # Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters.
+    updateMode: "InPlaceOrRecreate"
+    controlledResources: ["cpu", "memory"]
+    controlledValues: "RequestsAndLimits"
+    minAllowed:
+      cpu: 50m
+      memory: 128Mi
+    maxAllowed: {}
+    #   cpu: 2
+    #   memory: 2Gi
+
+  # VPA config for MCP containers in single-node mode, where each MCP server
+  # runs as a standalone Deployment and gets its own VPA resource.
+  # In multi-node mode, MCP runs as a sidecar and its VPA containerPolicy is
+  # governed by global.vpa (or per-agent vpa) instead.
+  # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
+  #   agent-github:
+  #     mcp:
+  #       vpa:
+  #         enabled: false   # disable VPA for github MCP only
+  #         maxAllowed:
+  #           cpu: 2
+  #           memory: 2Gi
+  mcp:
+    vpa:
+      enabled: false
+      # "Off" = recommendations only (no restarts).
+      # Use "InPlaceOrRecreate" (Kubernetes 1.29+) or "Recreate" to apply automatically.
+      updateMode: "InPlaceOrRecreate"
+      controlledResources: ["cpu", "memory"]
+      controlledValues: "RequestsAndLimits"
+      minAllowed:
+        cpu: 50m
+        memory: 128Mi
+      maxAllowed: {}
+      #   cpu: 2
+      #   memory: 2Gi
 
   agentgateway:
     enabled: false

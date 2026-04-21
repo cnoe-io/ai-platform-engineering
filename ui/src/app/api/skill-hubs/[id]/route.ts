@@ -5,6 +5,7 @@ import {
   withErrorHandler,
   requireAdmin,
   ApiError,
+  validateCredentialsRef,
 } from "@/lib/api-middleware";
 
 /**
@@ -43,7 +44,7 @@ export const PATCH = withErrorHandler(
         let loc = String(body.location).trim();
         try {
           const url = new URL(loc);
-          if (url.hostname.includes("github.com") || url.hostname.includes("gitlab.com")) {
+          if (url.hostname === "github.com" || url.hostname.endsWith(".github.com") || url.hostname === "gitlab.com" || url.hostname.endsWith(".gitlab.com")) {
             const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
             if (segments.length >= 2) loc = `${segments[0]}/${segments[1]}`;
           }
@@ -51,7 +52,9 @@ export const PATCH = withErrorHandler(
         update.location = loc;
       }
       if (body.credentials_ref !== undefined)
-        update.credentials_ref = body.credentials_ref || null;
+        update.credentials_ref = validateCredentialsRef(body.credentials_ref);
+      if (Array.isArray(body.labels))
+        update.labels = body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20);
 
       await collection.updateOne({ id }, { $set: update });
 

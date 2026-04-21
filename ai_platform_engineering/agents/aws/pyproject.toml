@@ -19,7 +19,7 @@ dependencies = [
     "python-dotenv==1.2.1",
     "a2a-sdk==0.3.0",
     "cnoe-agent-utils==0.3.14",
-    "pytest==8.3.5",
+    "pytest==9.0.3",
     "tabulate==0.9.0",
     "keyring==25.6.0",
     "httpx==0.28.1",
@@ -28,7 +28,7 @@ dependencies = [
     "typing-extensions==4.14.1",
     "requests==2.33.0",
     "mcp==1.26.0",
-    "langchain-core==1.2.28",
+    "langchain-core==1.2.31",
     "langchain-mcp-adapters==0.2.1",
     "langgraph==1.1.6",
     "deepagents==0.3.0",
@@ -45,7 +45,7 @@ allow-direct-references = true
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

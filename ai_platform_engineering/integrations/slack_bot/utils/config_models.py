@@ -81,7 +81,7 @@ You MUST execute search queries against the knowledge base before responding.
 - Do NOT assume you know the answer - always search first
 - Try different keyword combinations and related concepts
 - Aim for at least 5 search queries to ensure comprehensive coverage
-- Use both keyword_search=true (for exact terms, parameter names, config values) AND semantic search (for concepts, how-to questions) — do not use only one mode
+- Use varied query phrasing: exact terms for config values/parameter names, broader concepts for how-to questions — do not rely on a single query
 - If any result looks relevant, use fetch_document to get the full content — prioritize configuration/setup documents over error or troubleshooting documents
 If you respond without searching, your answer will likely be wrong.
 

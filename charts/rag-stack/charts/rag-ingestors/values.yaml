@@ -240,6 +240,54 @@ ingestors: []
   #       cpu: 500m
   #       memory: 512Mi
 
+  # Example Jira Ingestor
+  # - name: jira-workspace
+  #   type: jira                             # INGESTOR_TYPE
+  #   syncInterval: 86400                    # SYNC_INTERVAL (24 hours)
+  #   initDelaySeconds: 60                   # INIT_DELAY_SECONDS
+  #   logLevel: INFO                         # LOG_LEVEL
+  #
+  #   # Jira-specific configuration
+  #   env:
+  #     JIRA_URL: https://mycompany.atlassian.net  # JIRA_URL (required)
+  #     JIRA_EMAIL: bot@mycompany.com        # JIRA_EMAIL (required)
+  #     JIRA_PAGE_SIZE: "100"                # JIRA_PAGE_SIZE
+  #     JIRA_PROJECTS: |                     # JIRA_PROJECTS (JSON)
+  #       {
+  #         "PROJ": [
+  #           {
+  #             "name": "My Project",
+  #             "jql": "project = PROJ AND updated >= -30d ORDER BY updated DESC",
+  #             "include_comments": true,
+  #             "include_links": true
+  #           }
+  #         ],
+  #         "OPS": [
+  #           {
+  #             "name": "untriaged",
+  #             "jql": "project = OPS AND status = Open ORDER BY updated DESC",
+  #             "custom_fields": {"slo": "customfield_12345"}
+  #           },
+  #           {
+  #             "name": "all-issues",
+  #             "jql": "project = OPS AND status != Done ORDER BY updated DESC"
+  #           }
+  #         ]
+  #       }
+  #
+  #   # Jira API token from secret
+  #   envFrom:
+  #     - secretRef:
+  #         name: jira-credentials           # Must contain ATLASSIAN_TOKEN
+  #
+  #   resources:
+  #     requests:
+  #       cpu: 100m
+  #       memory: 256Mi
+  #     limits:
+  #       cpu: 500m
+  #       memory: 512Mi
+
   # Example Confluence Ingestor
   # - name: confluence-wiki
   #   type: confluence                        # INGESTOR_TYPE
@@ -303,6 +351,19 @@ tolerations: []
 
 # Affinity
 affinity: {}
+
+# VPA configuration. Requires VPA to be installed in the cluster.
+# Creates one VPA per ingestor Deployment. Applies the same config to all ingestors.
+# Inherits global.vpa defaults; override any field here to customise for rag-ingestors.
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}
 
 # Image pull secrets
 imagePullSecrets: []

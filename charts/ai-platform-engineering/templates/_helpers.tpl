@@ -123,3 +123,23 @@ In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml i
 {{- .Values.global.enabledSubAgents | default dict | toYaml -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Prefix for single-node in-cluster MCP Kubernetes names: {prefix}-agent-<name>[-mcp].
+When global.singleNode.mcpResourcePrefix is non-empty, use it (e.g. "single-node" for readable kubectl).
+When empty, use .Release.Name so legacy DNS like <release>-agent-jira-mcp stays stable.
+*/}}
+{{- define "ai-platform-engineering.singleNodeMcpResourcePrefix" -}}
+{{- $g := .Values.global | default dict }}
+{{- $sn := index $g "singleNode" | default dict }}
+{{- $p := index $sn "mcpResourcePrefix" | default "" }}
+{{- if ne $p "" -}}
+{{- $p -}}
+{{- else -}}
+{{- .Release.Name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ai-platform-engineering.appVersion" -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
+{{- end -}}

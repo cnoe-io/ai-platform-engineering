@@ -79,6 +79,19 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
 
+# VPA configuration. Requires VPA to be installed in the cluster.
+# Cannot be enabled alongside autoscaling (VPA conflicts with HPA on CPU/memory scaling).
+# Inherits global.vpa defaults; override any field here to customise for dynamic-agents.
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}
+
 volumes: []
 volumeMounts: []
 nodeSelector: {}

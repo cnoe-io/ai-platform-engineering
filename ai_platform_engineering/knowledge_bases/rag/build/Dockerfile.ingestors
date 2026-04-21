@@ -58,6 +58,7 @@ ARG VARIANT=default
 # - AWS CLI v2 for EKS authentication (k8s ingestor)
 # - Playwright/Chromium dependencies (default variant only, not slim)
 RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     # For AWS CLI installation
     curl unzip && \

@@ -75,9 +75,12 @@ def get_username_by_bot_id(bot_id):
 
     response_dict = json.loads(response.text)
     if response_dict["ok"]:
+        bot_name = response_dict["bot"]["name"]
+        bot_user_id = response_dict["bot"].get("user_id")
+        logger.info(f"Resolved bot_id={bot_id} -> name={bot_name}, user_id={bot_user_id or 'N/A'}")
         return response_dict["bot"]["name"]
     else:
-        logger.info(response_dict)
+        logger.warning(f"Failed to resolve bot_id={bot_id}: {response_dict.get('error', response_dict)}")
         return ""
 
 

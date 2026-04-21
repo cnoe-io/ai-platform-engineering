@@ -206,7 +206,7 @@ if __name__ == "__main__":
   print("🔐 Getting Access Token...")
   token = get_oauth2_token()
   if token:
-    print(f"✅ Access Token: {token}")
+    print("✅ Access Token: [obtained]")
 
     # Check if token is expired
     if is_token_expired(token):
