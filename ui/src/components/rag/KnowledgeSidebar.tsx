@@ -103,7 +103,7 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
             <div className="w-10 h-10 mb-3 rounded-xl gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
               <BookOpen className="h-5 w-5 text-white" />
             </div>
-            <p className="text-sm font-semibold gradient-text">Knowledge Base</p>
+            <p className="text-sm font-semibold gradient-text">Knowledge Bases</p>
             <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
               Manage your data sources, search content, and explore relationships.
             </p>

@@ -272,17 +272,17 @@ describe('AppHeader — nav tabs', () => {
       expect(link.className).toContain('bg-primary')
     })
 
-    it('shows Knowledge Base tab when RAG is enabled', () => {
+    it('shows Knowledge Bases tab when RAG is enabled', () => {
       mockRagEnabled = true
       render(<AppHeader />)
-      expect(screen.getByText('Knowledge Base')).toBeInTheDocument()
+      expect(screen.getByText('Knowledge Bases')).toBeInTheDocument()
       expect(screen.getByTestId('link-/knowledge-bases')).toBeInTheDocument()
     })
 
-    it('does NOT show Knowledge Base when RAG is disabled', () => {
+    it('does NOT show Knowledge Bases when RAG is disabled', () => {
       mockRagEnabled = false
       render(<AppHeader />)
-      expect(screen.queryByText('Knowledge Base')).not.toBeInTheDocument()
+      expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
     })
   })
 
