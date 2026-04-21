@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Terminal, Loader2, AlertCircle, CheckCircle2, Search, Copy, Check, ExternalLink } from "lucide-react";
+import { Terminal, Loader2, AlertCircle, CheckCircle2, Search, Copy, Check, ExternalLink, Zap } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 const DEFAULT_KEY_HEADER =
   process.env.NEXT_PUBLIC_CAIPE_CATALOG_API_KEY_HEADER ||
   "X-Caipe-Catalog-Key";
@@ -31,6 +38,8 @@ export function TrySkillsGateway() {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedBulkOneLiner, setCopiedBulkOneLiner] = useState(false);
   const [copiedBulkUpgrade, setCopiedBulkUpgrade] = useState(false);
+  const [copiedQuickInstall, setCopiedQuickInstall] = useState(false);
+  const [quickInstallOpen, setQuickInstallOpen] = useState(false);
   const [copiedSkill, setCopiedSkill] = useState(false);
   const [copiedInstall, setCopiedInstall] = useState(false);
 
@@ -345,7 +354,7 @@ export function TrySkillsGateway() {
     return { oneLiner, oneLinerUpgrade, downloadSnippet, installShUrl };
   })();
 
-  // Bulk-install one-liner driven by the Skill Catalog Query Builder. Reuses
+  // Bulk-install one-liner driven by the "Pick your skills" panel. Reuses
   // the same /api/skills/install.sh endpoint, but adds ?catalog_url=… so the
   // generated script writes one file per catalog skill instead of installing
   // the bootstrap skill. Disabled when the agent is fragment-config (Continue)
@@ -369,20 +378,43 @@ export function TrySkillsGateway() {
   })();
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-6xl">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          How to use Skills API Gateway with coding agents
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Pick the skills you want, generate an API key, and copy a one-line
+          installer for your coding agent (Claude Code, Cursor, Codex, Gemini
+          CLI, and more).
+        </p>
+      </div>
+
       {/* Catalog Query Builder */}
       <Card className="border-border/80 bg-card/50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2 text-xl">
             <Search className="h-5 w-5" />
-            Skill Catalog Query Builder
+            Step 1: Pick your skills
           </CardTitle>
           <CardDescription>
             Build a catalog URL interactively and preview results.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="inline-flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] leading-relaxed">
+            <span className="font-semibold text-primary uppercase tracking-wide">
+              Hint
+            </span>
+            <span className="text-muted-foreground">
+              Try <code className="font-mono text-foreground">github</code> in
+              Search and pick an{" "}
+              <code className="font-mono text-foreground">example</code>{" "}
+              repository from the Repository dropdown to see what a real result
+              set looks like.
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="relative">
               <label className="text-xs font-medium text-muted-foreground">Search (q)</label>
               <input
@@ -391,7 +423,7 @@ export function TrySkillsGateway() {
                 onChange={(e) => { setQueryQ(e.target.value); setShowSearchSuggestions(true); }}
                 onFocus={() => setShowSearchSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 150)}
-                placeholder="e.g. aws, kubernetes"
+                placeholder="e.g. github, aws, kubernetes"
                 className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
                 autoComplete="off"
               />
@@ -559,7 +591,7 @@ export function TrySkillsGateway() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               type="button"
               variant="secondary"
@@ -571,12 +603,22 @@ export function TrySkillsGateway() {
               {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               Preview
             </Button>
-            {previewData?.meta?.total != null && (
-              <span className="text-xs text-muted-foreground">
-                {previewData.meta.total} skill{previewData.meta.total !== 1 ? "s" : ""} found
-              </span>
-            )}
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={() => setQuickInstallOpen(true)}
+              className="gap-1"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Quick install
+            </Button>
           </div>
+          {previewData?.meta?.total != null && (
+            <p className="text-xs text-muted-foreground">
+              {previewData.meta.total} skill{previewData.meta.total !== 1 ? "s" : ""} found
+            </p>
+          )}
 
           {previewError && (
             <p className="text-destructive text-xs flex items-center gap-1">
@@ -600,7 +642,7 @@ export function TrySkillsGateway() {
                   {previewData.skills.map((skill: any, i: number) => (
                     <tr key={skill.id || i} className="border-t border-border hover:bg-muted/50">
                       <td className="px-3 py-1.5 font-medium">{skill.name}</td>
-                      <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[200px]">{skill.description}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[200px] lg:max-w-[420px]">{skill.description}</td>
                       <td className="px-3 py-1.5">{skill.source}</td>
                       <td className="px-3 py-1.5 text-muted-foreground">
                         {((skill.metadata?.tags as string[]) || []).join(", ")}
@@ -709,23 +751,27 @@ export function TrySkillsGateway() {
         </CardContent>
       </Card>
 
-      {/* Authentication & Sync */}
+      {/* Generate API Key */}
       <Card className="border-border/80 bg-card/50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
+          <CardTitle className="flex items-center gap-2 text-xl">
             <Terminal className="h-5 w-5" />
-            Authentication & Sync
+            Step 2: Generate API Key
           </CardTitle>
           <CardDescription>
-            Call the same catalog as the UI and supervisor using a catalog API key. Invalid
-            authentication returns <strong>401</strong> with a generic body (no account
-            enumeration).
+            Create a catalog API key so scripts and installers can call the same catalog as
+            the UI and supervisor. Invalid authentication returns <strong>401</strong> with a
+            generic body (no account enumeration).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <div>
             <p className="font-medium text-foreground mb-1">Base URL</p>
-            <code className="block rounded-md bg-muted px-3 py-2 text-xs break-all">{baseUrl}</code>
+            <CopyableBlock
+              text={baseUrl}
+              as="code"
+              ariaLabel="Copy base URL"
+            />
           </div>
 
           <div>
@@ -768,7 +814,7 @@ export function TrySkillsGateway() {
               onClick={() => void handleMint()}
             >
               {mintBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Mint catalog API key
+              Generate new catalog API key
             </Button>
             {mintedKey ? (
               <span className="text-xs text-amber-600 dark:text-amber-400 break-all">
@@ -776,6 +822,12 @@ export function TrySkillsGateway() {
               </span>
             ) : null}
           </div>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            <strong>Save this key somewhere safe.</strong> Only the secret hash is stored, so
+            we cannot show it again. If you lose it, generate a new one and update any
+            scripts, env vars, or installers that use it. Previously-issued keys keep working
+            until an admin revokes them.
+          </p>
           {keys.length > 0 ? (
             <div className="text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Active / past keys: </span>
@@ -800,10 +852,15 @@ export function TrySkillsGateway() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Claude Code</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Terminal className="h-5 w-5" />
+            Step 3: Install skills
+          </CardTitle>
           <CardDescription>
-            Create a <code>/skills</code> slash command that lets Claude Code browse and install skills
-            from this gateway.
+            Create a <code>/skills</code> slash command that lets your coding
+            agent browse and install skills from this gateway. Works with
+            Claude Code, Cursor, Codex, Gemini CLI, and more — pick your agent
+            below.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm space-y-8 text-muted-foreground">
@@ -818,13 +875,17 @@ export function TrySkillsGateway() {
               Stores your catalog credentials so any coding agent on this
               machine can authenticate to the gateway.
             </p>
-            <pre className="rounded-md bg-muted p-4 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap">{`mkdir -p ~/.config/caipe
+            <CopyableBlock
+              className="p-4"
+              ariaLabel="Copy config snippet"
+              text={`mkdir -p ~/.config/caipe
 cat > ~/.config/caipe/config.json << 'EOF'
 {
   "api_key": "<your-catalog-api-key>",
   "base_url": "${baseUrl}"
 }
-EOF`}</pre>
+EOF`}
+            />
           </section>
 
           <section className="space-y-5">
@@ -1378,6 +1439,365 @@ EOF`}</pre>
         , provided by <strong>Cisco AI Defense</strong>. Scanner results are best-effort and do not
         guarantee security.
       </p>
+
+      {/*
+        Quick-install modal: lets the user pick agent + scope and grab a
+        single curl-pipe-bash one-liner without scrolling through Steps 2
+        and 3. State (selectedAgent, selectedScope) is shared with Step 3,
+        so picking here also pre-selects the detailed install card below.
+
+        The same constraints as the inline bulk action bar apply:
+        - fragment agents (Continue) cannot use the bulk script
+        - the agent must support the chosen scope (radios disable themselves)
+        - the API key is taken from `mintedKey` (just-minted on this page)
+          and falls back to a placeholder so the user knows where to paste
+      */}
+      <Dialog open={quickInstallOpen} onOpenChange={setQuickInstallOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-primary" />
+              Quick install
+            </DialogTitle>
+            <DialogDescription>
+              Pick your coding agent and where to install. We&rsquo;ll
+              generate a one-line installer that fetches your selected
+              skills from the catalog URL above and writes them as slash
+              commands.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 text-sm">
+            {/* Agent picker — same options as Step 3, kept compact. */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">
+                Coding agent
+              </label>
+              <select
+                value={selectedAgent}
+                onChange={(e) => setSelectedAgent(e.target.value)}
+                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {(agents.length > 0
+                  ? agents
+                  : [
+                      {
+                        id: "claude",
+                        label: "Claude Code",
+                        ext: "md",
+                        format: "markdown-frontmatter",
+                        install_paths: {
+                          user: "~/.claude/commands/skills.md",
+                          project: "./.claude/commands/skills.md",
+                        },
+                        scopes_available: ["user", "project"] as InstallScope[],
+                        is_fragment: false,
+                      } as AgentMeta,
+                    ]
+                ).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Scope picker — matches Step 3 wording. */}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">
+                Where to install?
+              </label>
+              <div className="mt-1 flex flex-col gap-2">
+                {(["user", "project"] as InstallScope[]).map((s) => {
+                  const supported = scopesAvailable.includes(s);
+                  const path = bootstrap?.install_paths?.[s];
+                  const isSelected = selectedScope === s;
+                  const labelText =
+                    s === "user"
+                      ? "User-wide (reused across all projects)"
+                      : "Project-local (committed with this repo)";
+                  return (
+                    <label
+                      key={s}
+                      className={`flex items-start gap-3 text-xs rounded-md border px-3 py-2 transition-colors ${
+                        supported
+                          ? `cursor-pointer hover:bg-muted/50 ${
+                              isSelected
+                                ? "border-primary/60 bg-primary/5"
+                                : "border-border/60"
+                            }`
+                          : "cursor-not-allowed opacity-50 border-border/40"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="quick-install-scope"
+                        value={s}
+                        checked={isSelected}
+                        disabled={!supported}
+                        onChange={() =>
+                          supported && setSelectedScope(s)
+                        }
+                        className="mt-0.5"
+                      />
+                      <span className="flex-1 leading-relaxed">
+                        <span className="block font-medium text-foreground">
+                          {labelText}
+                        </span>
+                        {path ? (
+                          <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
+                            {path}
+                          </code>
+                        ) : null}
+                        {!supported ? (
+                          <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
+                            Not supported by {agentLabel}.
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Result snippet (or guidance when blocked). */}
+            <div className="border-t border-border pt-4">
+              {(() => {
+                const meta = agents.find((a) => a.id === selectedAgent);
+                if (meta?.is_fragment) {
+                  return (
+                    <p className="text-xs text-amber-700 dark:text-amber-400 inline-flex items-start gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      {agentLabel} uses a config-fragment install (not a
+                      slash command), so the bulk one-liner doesn&rsquo;t
+                      apply. Use the detailed instructions in Step 3.
+                    </p>
+                  );
+                }
+                if (!selectedScope) {
+                  return (
+                    <p className="text-xs text-muted-foreground inline-flex items-start gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      Pick an install scope above to generate the install
+                      command.
+                    </p>
+                  );
+                }
+                const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
+                  selectedAgent,
+                )}&scope=${encodeURIComponent(
+                  selectedScope,
+                )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
+                const targetPath =
+                  bootstrap?.install_paths?.[selectedScope] ?? null;
+                const skillCount = previewData?.meta?.total ?? null;
+                // Build a multi-line snippet that exposes the URLs as
+                // shell variables FIRST, then uses them. This is much
+                // easier to scan than a single huge URL-encoded line,
+                // and lets users edit either URL without re-parsing.
+                const oneLiner = mintedKey
+                  ? `export CAIPE_CATALOG_KEY=${shellQuote(mintedKey)}\ncurl -fsSL ${shellQuote(installShUrl)} | bash`
+                  : `# 1. Paste your catalog API key (generate one below if you don't have it)\nexport CAIPE_CATALOG_KEY='<your-catalog-api-key>'\n\n# 2. Run the installer\ncurl -fsSL ${shellQuote(installShUrl)} | bash`;
+                return (
+                  <div className="space-y-3">
+                    {/* Summary chips: tell the user *what* will happen
+                        before they read the curl. Each chip is a tiny
+                        rounded badge with a label + value, separated by
+                        bullets. */}
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 font-medium">
+                        {skillCount != null
+                          ? `${skillCount} skill${skillCount !== 1 ? "s" : ""}`
+                          : "skills from catalog"}
+                      </span>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-foreground">
+                        {agentLabel}
+                      </span>
+                      {targetPath ? (
+                        <>
+                          <span className="text-muted-foreground">at</span>
+                          <code className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-foreground">
+                            {targetPath}
+                          </code>
+                        </>
+                      ) : null}
+                    </div>
+
+                    {/* API-key status row: clear gate above the snippet.
+                        Green when ready, amber + inline Generate button
+                        when missing. */}
+                    {mintedKey ? (
+                      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 space-y-2">
+                        <div className="flex items-center gap-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          API key ready — pre-filled in the snippet below.
+                        </div>
+                        <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                          ⚠ Save this key now — it&rsquo;s shown only once:
+                        </div>
+                        <CopyableBlock
+                          as="code"
+                          text={mintedKey}
+                          ariaLabel="Copy API key"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400 flex-1 min-w-[200px]">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          <span>
+                            <span className="font-medium">
+                              API key required
+                            </span>{" "}
+                            — generate one to auto-fill the snippet.
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          disabled={mintBusy}
+                          onClick={() => void handleMint()}
+                          className="gap-1.5 shrink-0"
+                        >
+                          {mintBusy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          Generate API key
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* The actual one-liner. Multi-line + monospace so the
+                        long install.sh URL is readable. Big, full-width
+                        copy button so it's the primary action. */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-foreground">
+                          Run this in your terminal
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1.5 text-xs"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(oneLiner);
+                            setCopiedQuickInstall(true);
+                            setTimeout(
+                              () => setCopiedQuickInstall(false),
+                              2000,
+                            );
+                          }}
+                        >
+                          {copiedQuickInstall ? (
+                            <>
+                              <Check className="h-3.5 w-3.5 text-emerald-600" />
+                              Copied
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="h-3.5 w-3.5" />
+                              Copy
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      {/* `whitespace-pre-wrap` preserves the newlines
+                          between the export/curl steps, while `break-all`
+                          wraps the long install.sh URL at any character so
+                          it stays inside the dialog instead of forcing
+                          horizontal scroll. */}
+                      <pre className="rounded-md bg-muted p-3 text-xs leading-relaxed font-mono whitespace-pre-wrap break-all">
+                        {oneLiner}
+                      </pre>
+                      <p className="text-[11px] text-muted-foreground">
+                        Idempotent and safe to re-run. Existing skill files
+                        are skipped — pass{" "}
+                        <code className="font-mono">--upgrade</code> to
+                        overwrite.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="border-t border-border pt-3 text-[11px] text-muted-foreground">
+              Want the manual heredoc, the{" "}
+              <code className="font-mono">--upgrade</code> variant, or
+              per-agent docs?{" "}
+              <button
+                type="button"
+                className="text-primary font-medium hover:underline"
+                onClick={() => setQuickInstallOpen(false)}
+              >
+                Close and jump to Step 3 →
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/**
+ * Reusable copy-to-clipboard wrapper around a block of text. Renders the
+ * content as `<pre>` (default) or `<code>` (`as="code"`) inside a `relative
+ * group` div with an absolutely-positioned ghost button that flips between
+ * a `Copy` and `Check` icon for ~2s after a successful copy.
+ *
+ * Each instance owns its own `copied` state so we can have many copyable
+ * blocks on the same page (notably one per fenced code block in the
+ * launch-guide markdown) without sharing state.
+ */
+function CopyableBlock({
+  text,
+  as = "pre",
+  className = "",
+  ariaLabel = "Copy to clipboard",
+}: {
+  text: string;
+  as?: "pre" | "code";
+  className?: string;
+  ariaLabel?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  // Keep visual parity with the existing inline copy blocks: muted bg,
+  // rounded-md, small padding, room on the right for the button.
+  const baseClasses =
+    as === "code"
+      ? `block rounded-md bg-muted px-3 py-2 pr-10 text-xs break-all ${className}`
+      : `rounded-md bg-muted p-3 pr-10 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap ${className}`;
+  return (
+    <div className="relative group">
+      {as === "code" ? (
+        <code className={baseClasses}>{text}</code>
+      ) : (
+        <pre className={baseClasses}>{text}</pre>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={ariaLabel}
+        className="absolute top-1 right-1 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+        onClick={handleCopy}
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5 text-green-500" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+      </Button>
     </div>
   );
 }
@@ -1435,12 +1855,12 @@ function LaunchGuide({
       {segments.map((seg, idx) => {
         if (seg.type === "code") {
           return (
-            <pre
+            <CopyableBlock
               key={idx}
-              className="rounded-md bg-muted p-4 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap"
-            >
-              {seg.content.replace(/\n+$/, "")}
-            </pre>
+              className="p-4"
+              ariaLabel="Copy code block"
+              text={seg.content.replace(/\n+$/, "")}
+            />
           );
         }
         // Render prose: split on blank lines into paragraphs/list groups.

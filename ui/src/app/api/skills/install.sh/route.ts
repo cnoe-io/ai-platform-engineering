@@ -356,7 +356,7 @@ case "\$FORMAT" in
   *)                       MARKER_PREFIX="" ; MARKER_SUFFIX="" ;;
 esac
 
-# ---------- bulk install (Skill Catalog Query Builder selection) ----------
+# ---------- bulk install ("Pick your skills" selection) ----------
 #
 # Triggered when the gateway templated a non-empty CATALOG_URL into the
 # script. We fetch the catalog listing, then write one file per returned
