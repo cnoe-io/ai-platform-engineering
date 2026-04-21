@@ -27,7 +27,6 @@ function shellQuote(value: string): string {
 }
 
 export function TrySkillsGateway() {
-  const [copiedBearer, setCopiedBearer] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedBulkOneLiner, setCopiedBulkOneLiner] = useState(false);
@@ -280,8 +279,6 @@ export function TrySkillsGateway() {
   };
 
   const keyPlaceholder = mintedKey || "<key_id.secret>";
-
-  const curlBearer = `curl -sS "${catalogUrl}" \\\n  -H "Authorization: Bearer <access_token>"`;
 
   const curlKey = `curl -sS "${catalogUrl}" \\\n  -H "${DEFAULT_KEY_HEADER}: ${keyPlaceholder}"`;
 
@@ -720,9 +717,9 @@ export function TrySkillsGateway() {
             Authentication & Sync
           </CardTitle>
           <CardDescription>
-            Call the same catalog as the UI and supervisor using an OIDC access token or a catalog
-            API key. Invalid authentication returns <strong>401</strong> with a generic body (no
-            account enumeration).
+            Call the same catalog as the UI and supervisor using a catalog API key. Invalid
+            authentication returns <strong>401</strong> with a generic body (no account
+            enumeration).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -732,32 +729,7 @@ export function TrySkillsGateway() {
           </div>
 
           <div>
-            <p className="font-medium text-foreground mb-1">Auth option A — Bearer token</p>
-            <p className="text-muted-foreground mb-2">
-              Use an OIDC access token accepted by the same validation as other CAIPE APIs.
-            </p>
-            <div className="relative group">
-              <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
-                {curlBearer}
-              </pre>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => {
-                  void navigator.clipboard.writeText(curlBearer);
-                  setCopiedBearer(true);
-                  setTimeout(() => setCopiedBearer(false), 2000);
-                }}
-              >
-                {copiedBearer ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-              </Button>
-            </div>
-          </div>
-
-          <div>
-            <p className="font-medium text-foreground mb-1">Auth option B — Catalog API key</p>
+            <p className="font-medium text-foreground mb-1">Catalog API key</p>
             <p className="text-muted-foreground mb-2">
               Header name: <code>{DEFAULT_KEY_HEADER}</code> (configure server-side; do not log key
               values).
