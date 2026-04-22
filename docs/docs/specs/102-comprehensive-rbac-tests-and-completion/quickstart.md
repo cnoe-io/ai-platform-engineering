@@ -78,9 +78,10 @@ export COMPOSE_PROFILES="rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-ag
 docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml up -d
 # Wait ~30s for Keycloak to be ready
 curl -fs http://localhost:7080/health/ready
-# UI: http://localhost:3010 (e2e port; dev uses 3000)
-# Keycloak admin: http://localhost:7080/admin (master / admin)
-# Mongo: mongodb://localhost:27018 (e2e port; dev uses 27017)
+# UI: http://localhost:28030 (e2e band; dev uses 3000)
+# Supervisor: http://localhost:28000 (e2e band; dev uses 8000)
+# Keycloak admin: http://localhost:7080/admin (master / admin)  -- not remapped, dev publishes this
+# Mongo: mongodb://localhost:28017 (e2e band; dev uses 27017)
 ```
 
 Tear down: `docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml down -v`.

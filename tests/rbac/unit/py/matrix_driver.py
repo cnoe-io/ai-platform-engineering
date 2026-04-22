@@ -35,7 +35,7 @@ Surface dispatch URLs
 Default URLs are read from env (set by `make test-rbac-up` /
 `docker-compose/docker-compose.e2e.override.yaml`):
 
-* `E2E_SUPERVISOR_URL`     — default `http://localhost:8010` (from override)
+* `E2E_SUPERVISOR_URL`     — default `http://localhost:28000` (e2e port band)
 * `E2E_DA_URL`             — default `http://localhost:8200`
 * `E2E_RAG_URL`            — default `http://localhost:9446`
 * `E2E_MCP_BASE_URL`       — default `http://localhost:18000`
@@ -179,7 +179,7 @@ def matrix_param_id(row: MatrixRow) -> str:
 def _surface_base_url(surface: str, resource: str) -> str:
     """Resolve the base URL for the given surface (and resource, for MCP)."""
     if surface == "supervisor":
-        return os.environ.get("E2E_SUPERVISOR_URL", "http://localhost:8010").rstrip("/")
+        return os.environ.get("E2E_SUPERVISOR_URL", "http://localhost:28000").rstrip("/")
     if surface == "dynamic_agents":
         return os.environ.get("E2E_DA_URL", "http://localhost:8200").rstrip("/")
     if surface == "rag":

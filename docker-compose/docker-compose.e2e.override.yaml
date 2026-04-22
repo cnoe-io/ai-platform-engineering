@@ -17,24 +17,39 @@
 #   - docs/docs/specs/102-comprehensive-rbac-tests-and-completion/spec.md (Clarification 2026-04-22)
 ---
 services:
-  # MongoDB — remap host port 27017 -> 27018 to avoid colliding with a dev mongo.
+  # E2E port-band convention (per project rule): all e2e host ports live in the
+  # 28xxx band so they cannot collide with dev (8xxx, 18xxx, 27017, 3000, 7080…).
+  # Container-internal ports are unchanged; only host-side mappings shift.
+  #
+  # +-------------------+----------+----------+
+  # | Service           | Dev port | E2E port |
+  # +-------------------+----------+----------+
+  # | caipe-mongodb     | 27017    | 28017    |
+  # | caipe-ui          | 3000     | 28030    |
+  # | caipe-supervisor  | 8000     | 28000    |
+  # +-------------------+----------+----------+
+  #
+  # Keycloak is NOT remapped — dev already publishes it on 7080/7443 and the e2e
+  # stack reuses the same singleton. (No collision, no second IdP needed.)
+
+  # MongoDB — host 27017 -> 28017 (e2e band).
   caipe-mongodb:
     ports: !override
-      - "27018:27017"
+      - "28017:27017"
 
-  # Caipe UI — remap host port 3000 -> 3010 to avoid colliding with a dev next dev server.
+  # Caipe UI — host 3000 -> 28030 (e2e band).
   caipe-ui:
     ports: !override
-      - "3010:3000"
+      - "28030:3000"
     environment:
       # E2E uses the in-stack supervisor URL for direct calls; the BFF still
       # talks to caipe-supervisor:8000 over the docker network unchanged.
       E2E_RUN: "true"
 
-  # Supervisor — remap host port 8000 -> 8010.
+  # Supervisor — host 8000 -> 28000 (e2e band).
   caipe-supervisor:
     ports: !override
-      - "8010:8000"
+      - "28000:8000"
     environment:
       RBAC_FALLBACK_CONFIG_PATH: /etc/keycloak/realm-config-extras.json
     volumes:

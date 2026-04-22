@@ -41,7 +41,7 @@ import pytest
 
 from tests.rbac.unit.py.matrix_driver import MatrixRow, matrix_param_set
 
-DEFAULT_MONGODB_URI = "mongodb://localhost:27018"  # e2e override port (T032)
+DEFAULT_MONGODB_URI = "mongodb://localhost:28017"  # e2e port band (T032)
 DEFAULT_AUDIT_DB = "caipe_audit"
 DEFAULT_AUDIT_COLLECTION = "authz_decisions"
 
@@ -72,7 +72,7 @@ def audit_collection(_pymongo_module: Any) -> Any:
     """Return the live `authz_decisions` collection used for FR-007 assertions.
 
     Skips the test if Mongo is unreachable. The compose stack maps Mongo to
-    `localhost:27018` per `docker-compose/docker-compose.e2e.override.yaml`;
+    `localhost:28017` per `docker-compose/docker-compose.e2e.override.yaml`;
     override via `MONGODB_URI=…`.
     """
     uri = os.environ.get("MONGODB_URI", DEFAULT_MONGODB_URI)

@@ -13,8 +13,10 @@
  *  - Playwright lives outside `ui/`. It depends on the **e2e stack**,
  *    not the local `next dev` server. Per
  *    `docker-compose/docker-compose.e2e.override.yaml`, the UI is at
- *    `http://localhost:3010` (host port 3010 -> container 3000) when
- *    `make test-rbac-up` brings the stack up.
+ *    `http://localhost:28030` (host port 28030 -> container 3000) when
+ *    `make test-rbac-up` brings the stack up. All e2e host ports live in
+ *    the 28xxx band so they cannot collide with dev (8xxx, 18xxx, 27017,
+ *    3000, 7080…).
  *  - Each persona is a Playwright "project" — Playwright runs the same
  *    spec set once per project, mints a real Keycloak token via the
  *    fixture in `tests/rbac/fixtures/keycloak.ts`, and stores it in the
@@ -27,10 +29,10 @@
  * SHOULD read them via `process.env` rather than hard-coding. We document
  * the canonical names here so `quickstart.md` can reference them.
  *
- *   E2E_UI_URL          default http://localhost:3010
- *   E2E_KC_URL          default http://localhost:7080
+ *   E2E_UI_URL          default http://localhost:28030
+ *   E2E_KC_URL          default http://localhost:7080  (dev publishes this; not remapped)
  *   E2E_KC_REALM        default cnoe
- *   E2E_AUDIT_API       default http://localhost:8010/_test/audit (supervisor stub)
+ *   E2E_AUDIT_API       default http://localhost:28000/_test/audit (supervisor stub)
  *
  * Artifacts
  * ---------
@@ -41,7 +43,7 @@
 
 import { defineConfig, devices } from "@playwright/test";
 
-const UI_BASE_URL = process.env.E2E_UI_URL ?? "http://localhost:3010";
+const UI_BASE_URL = process.env.E2E_UI_URL ?? "http://localhost:28030";
 
 // Per-spec timeout (ms). The OIDC redirect dance + BFF cold start can
 // approach the default 30s on slower runners; bump to 60s to be safe.
