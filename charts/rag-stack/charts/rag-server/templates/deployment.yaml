@@ -31,7 +31,7 @@ spec:
       containers:
         # Main RAG Server container
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -80,7 +80,7 @@ spec:
         {{- if .Values.webIngestor.enabled }}
         # Web Ingestor sidecar container
         - name: web-ingestor
-          image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.webIngestor.image.pullPolicy }}
           {{- with .Values.webIngestor.envFrom }}
           envFrom:

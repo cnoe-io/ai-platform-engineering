@@ -32,6 +32,12 @@ export interface UserPublicInfo {
 // Conversation Collection
 // ============================================================================
 
+/** Valid client types for conversation creation. */
+export type ClientType = 'webui' | 'slack';
+
+/** All valid client_type values — used for runtime validation. */
+export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack'] as const;
+
 /**
  * A conversation participant — either an agent or a user.
  *
@@ -44,16 +50,18 @@ export interface Participant {
 }
 
 export interface Conversation {
-  _id: string; // UUID for shareable links
+  _id: string; // UUID for shareable links (server-generated)
   title: string;
+  client_type: ClientType; // Top-level: 'webui' | 'slack' (promoted from metadata)
   owner_id: string; // User email
+  idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
   participants: Participant[]; // Agents and users involved in this conversation
   created_at: Date;
   updated_at: Date;
-  metadata: {
-    /** Which client created this conversation: 'ui', 'slack', 'api', etc. */
-    client_type: string;
-    /** UI version (from package.json) when client_type is 'ui' */
+  metadata: Record<string, unknown> & {
+    /** @deprecated Use top-level client_type instead. Kept for backward compat reads. */
+    client_type?: string;
+    /** UI version (from package.json) when client_type is 'webui' */
     ui_version?: string;
     total_messages: number;
     total_tokens?: number;
@@ -253,10 +261,19 @@ export interface SharingAccess {
 
 // Conversation API
 export interface CreateConversationRequest {
-  id?: string; // Client-generated UUID — ensures client and server share the same ID
   title: string;
+  client_type: ClientType; // Required: 'webui' | 'slack'
+  agent_id?: string; // Optional: builds participants with this agent
+  owner_id?: string; // Optional: trusted callers (e.g. Slack bot) can set on behalf of user
+  idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
+  metadata?: Record<string, unknown>; // Optional: arbitrary key/values from client
   tags?: string[];
-  participants?: Participant[]; // Agents and users; empty/undefined = Platform Engineer (default)
+}
+
+/** Response from POST /api/chat/conversations */
+export interface CreateConversationResponse {
+  conversation: Conversation;
+  created: boolean; // true = new, false = existing (upsert matched)
 }
 
 export interface UpdateConversationRequest {
@@ -264,6 +281,10 @@ export interface UpdateConversationRequest {
   tags?: string[];
   is_archived?: boolean;
   is_pinned?: boolean;
+}
+
+export interface PatchConversationMetadataRequest {
+  metadata: Record<string, unknown>;
 }
 
 export interface ShareConversationRequest {

@@ -27,21 +27,32 @@ function getHighlighter(): Promise<Highlighter> {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Marked instance — configured once with async shiki highlighting
+// Marked instances — full (with shiki) and fast (without)
 // ═══════════════════════════════════════════════════════════════
 
-const md = new Marked();
-
-md.use({
+const sharedMarkedOptions = {
   gfm: true,
   breaks: false,
   renderer: {
-    link({ href, title, text }) {
+    link({ href, title, text }: { href: string; title?: string | null; text: string }) {
       const titleAttr = title ? ` title="${title}"` : "";
       return `<a href="${href}"${titleAttr} class="md-link" target="_blank" rel="noopener noreferrer">${text}</a>`;
     },
   },
-});
+};
+
+/**
+ * Fast synchronous Marked instance — no shiki.  Used during streaming
+ * where code blocks are typically incomplete and 80-400ms shiki parses
+ * would tank the frame rate.
+ */
+const mdFast = new Marked();
+mdFast.use({ ...sharedMarkedOptions, async: false });
+
+/** Full async Marked instance — with shiki syntax highlighting. */
+const md = new Marked();
+
+md.use(sharedMarkedOptions);
 
 md.use(
   markedShiki({
@@ -153,6 +164,13 @@ function handleCopyClick(e: MouseEvent) {
 async function parseMarkdown(content: string, streaming: boolean): Promise<string> {
   const src = streaming ? remend(content, { linkMode: "text-only" }) : content;
   try {
+    // During streaming, use the fast synchronous parser (no shiki).
+    // Shiki adds 80-400ms per parse which destroys frame rate.
+    // Full highlighting is applied once when streaming ends.
+    if (streaming) {
+      const raw = mdFast.parse(src) as string;
+      return sanitize(raw);
+    }
     const raw = await md.parse(src);
     return sanitize(raw);
   } catch {
@@ -201,6 +219,17 @@ export function MarkdownRenderer({
   const parseSeqRef = useRef(0);
   // Track last applied sequence to skip out-of-order resolutions
   const appliedSeqRef = useRef(0);
+  // rAF-based throttle: store pending HTML and rAF handle so we patch
+  // at most once per frame (~16ms / 60fps). No queue — always latest.
+  const pendingHtmlRef = useRef<string | null>(null);
+  const rafRef = useRef<number>(0);
+
+  // Track streaming state for morphdom callbacks (avoids re-creating patchDom)
+  const streamingRef = useRef(isStreaming);
+  streamingRef.current = isStreaming;
+
+  /** Block-level tags that get the fade-in animation during streaming. */
+  const BLOCK_TAGS = new Set(["P", "UL", "OL", "LI", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "TABLE", "HR", "DIV"]);
 
   const patchDom = useCallback((html: string) => {
     const container = containerRef.current;
@@ -228,9 +257,33 @@ export function MarkdownRenderer({
         ) {
           toEl.classList.add("copied");
         }
+        // Preserve in-flight fade-in animation across morphdom patches.
+        // Without this, the next token's morph strips the class before
+        // the 200ms animation finishes.
+        if (
+          fromEl instanceof HTMLElement &&
+          toEl instanceof HTMLElement &&
+          fromEl.classList.contains("md-stream-in")
+        ) {
+          toEl.classList.add("md-stream-in");
+        }
         // Skip unchanged subtrees
         if (fromEl.isEqualNode(toEl)) return false;
         return true;
+      },
+      onNodeAdded(node) {
+        // Animate new block-level elements during streaming
+        if (
+          streamingRef.current &&
+          node instanceof HTMLElement &&
+          BLOCK_TAGS.has(node.tagName)
+        ) {
+          node.classList.add("md-stream-in");
+          node.addEventListener("animationend", () => {
+            node.classList.remove("md-stream-in");
+          }, { once: true });
+        }
+        return node;
       },
     });
 
@@ -254,20 +307,37 @@ export function MarkdownRenderer({
 
     parseMarkdown(content, !!isStreaming).then((html) => {
       // Only apply if this is still the latest parse (or newer than last applied).
-      // During rapid streaming, earlier parses that resolve late are skipped,
-      // but the latest one always applies regardless of whether content has
-      // since advanced — the next event will trigger another parse anyway.
       if (seq < appliedSeqRef.current) return;
       appliedSeqRef.current = seq;
-      patchDom(html);
+
+      if (isStreaming) {
+        // Coalesce to one patch per animation frame (~16ms / 60fps).
+        // If a rAF is already pending, just update the HTML it will apply.
+        pendingHtmlRef.current = html;
+        if (!rafRef.current) {
+          rafRef.current = requestAnimationFrame(() => {
+            rafRef.current = 0;
+            const pending = pendingHtmlRef.current;
+            pendingHtmlRef.current = null;
+            if (pending !== null) patchDom(pending);
+          });
+        }
+      } else {
+        // Not streaming — apply immediately (final render with shiki)
+        patchDom(html);
+      }
     });
   }, [content, isStreaming, patchDom]);
 
-  // Cleanup event listener on unmount
+  // Cleanup event listener and pending rAF on unmount
   useEffect(() => {
     return () => {
       cleanupRef.current?.();
       cleanupRef.current = null;
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
     };
   }, []);
 
@@ -283,7 +353,7 @@ export function MarkdownRenderer({
   return (
     <div
       ref={containerRef}
-      className={cn("streaming-markdown", variantClass, className)}
+      className={cn("streaming-markdown", variantClass, isStreaming && "md-streaming", className)}
     />
   );
 }

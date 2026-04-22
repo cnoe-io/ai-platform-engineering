@@ -312,6 +312,45 @@ class AgentUIConfig(BaseModel):
 
 
 # =============================================================================
+# Features / Middleware Config
+# =============================================================================
+
+
+class MiddlewareEntry(BaseModel):
+    """A single middleware in the agent's middleware stack.
+
+    Entries are ordered — the list defines execution order.
+    Some middleware types allow multiple instances (e.g. ``pii`` for
+    different PII types, ``tool_call_limit`` for per-tool limits);
+    others are singletons (e.g. ``model_retry``).
+    """
+
+    type: str = Field(..., description="Middleware type key (e.g. 'model_retry', 'pii')")
+    enabled: bool = Field(True, description="Whether this middleware is active")
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Middleware-specific parameters (merged over defaults)",
+    )
+
+
+class FeaturesConfig(BaseModel):
+    """Agent feature flags and middleware configuration.
+
+    When absent from MongoDB (``features`` is None on the agent config),
+    all default-enabled middleware are applied with their default params.
+    No migration script needed.
+
+    The middleware list is ordered and may contain multiple entries of the
+    same type where the registry allows it.
+    """
+
+    middleware: list[MiddlewareEntry] = Field(
+        default_factory=list,
+        description="Ordered list of middleware entries",
+    )
+
+
+# =============================================================================
 # Dynamic Agent Config
 # =============================================================================
 
@@ -344,6 +383,10 @@ class DynamicAgentConfigBase(BaseModel):
         None,
         description="UI configuration (gradient theme, etc.)",
     )
+    features: FeaturesConfig | None = Field(
+        None,
+        description="Feature flags and middleware configuration. None = apply defaults.",
+    )
     enabled: bool = Field(True, description="Whether the agent is active")
 
 
@@ -367,6 +410,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     subagents: list[SubAgentRef] | None = None
     builtin_tools: BuiltinToolsConfig | None = None
     ui: AgentUIConfig | None = None
+    features: FeaturesConfig | None = None
     enabled: bool | None = None
 
 

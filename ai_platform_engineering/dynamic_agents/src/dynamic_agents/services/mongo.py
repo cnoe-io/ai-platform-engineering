@@ -38,6 +38,7 @@ class MongoDBService:
                 self.settings.mongodb_uri,
                 serverSelectionTimeoutMS=5000,
                 retryWrites=False,
+                tz_aware=True,
             )
             # Verify connectivity
             self._client.admin.command("ping")

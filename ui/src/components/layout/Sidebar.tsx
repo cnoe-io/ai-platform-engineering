@@ -174,10 +174,12 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server
         const { apiClient } = await import('@/lib/api-client');
-        const conversation = await apiClient.createConversation({
+        const result = await apiClient.createConversation({
           title: "New Conversation",
-          participants: buildParticipants(agentId),
+          client_type: 'webui',
+          agent_id: agentId,
         });
+        const conversation = result.conversation;
 
         // Add to local store immediately
         const newConversation: Conversation = {
@@ -528,7 +530,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                               // so the user always has somewhere to land
                               let navigateToId: string | null = null;
                               if (isLastConversation) {
-                                navigateToId = createConversation();
+                                navigateToId = await createConversation();
                                 console.log('[Sidebar] Created replacement conversation:', navigateToId);
                               }
 

@@ -7,6 +7,7 @@ import type {
   User,
   UserSettings,
   CreateConversationRequest,
+  CreateConversationResponse,
   UpdateConversationRequest,
   ShareConversationRequest,
   AddMessageRequest,
@@ -145,7 +146,7 @@ class APIClient {
 
   async createConversation(
     data: CreateConversationRequest
-  ): Promise<Conversation> {
+  ): Promise<CreateConversationResponse> {
     return this.request('/api/chat/conversations', {
       method: 'POST',
       body: JSON.stringify(data),

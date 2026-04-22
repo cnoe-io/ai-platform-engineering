@@ -44,7 +44,7 @@ export const PATCH = withErrorHandler(
         let loc = String(body.location).trim();
         try {
           const url = new URL(loc);
-          if (url.hostname.includes("github.com") || url.hostname.includes("gitlab.com")) {
+          if (url.hostname === "github.com" || url.hostname.endsWith(".github.com") || url.hostname === "gitlab.com" || url.hostname.endsWith(".gitlab.com")) {
             const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
             if (segments.length >= 2) loc = `${segments[0]}/${segments[1]}`;
           }

@@ -3,8 +3,7 @@
 When the agent uses write_todos, the Slack bot should:
 - Parse todos from write_todos TOOL_CALL_ARGS (no API call — checkpoint not persisted mid-stream)
 - Show todos as task cards instead of raw tool names
-- Attach thinking text to the active todo's details
-- Attach tool thoughts to the active todo's output
+- Keep plan card clean: no thinking text in details, no tool thoughts in output
 - Suppress raw tool cards when in todo-aware mode
 - Fall back to raw tool cards when no todos exist
 """
@@ -293,8 +292,8 @@ class TestTodosWithoutIdField:
     # Task 2 is in_progress, so it should be the plan title
     assert plan_updates[0]["title"] == "Task 2 - Processing"
 
-  def test_no_id_thinking_attaches_to_active_todo(self):
-    """Thinking text attaches to the in_progress todo even without explicit IDs."""
+  def test_no_id_thinking_not_in_details(self):
+    """Thinking text is NOT sent to the plan card details — plan stays clean."""
     events = [
       _run_started_event(),
       _tool_start_event("write_todos", "tc-wt-1"),
@@ -309,9 +308,9 @@ class TestTodosWithoutIdField:
     mock_slack, _ = _run_stream(events)
 
     task_updates = _get_task_updates(mock_slack)
-    # todo_2 is in_progress (Task 2), should have thinking attached
-    active_updates = [u for u in task_updates if u.get("id") == "todo_2" and u.get("details")]
-    assert any("Checking sources" in u["details"] for u in active_updates), f"Active todo should have thinking text, got: {active_updates}"
+    # No task_update should have details — thinking is not sent to plan cards
+    updates_with_details = [u for u in task_updates if u.get("details")]
+    assert len(updates_with_details) == 0, f"No details expected in plan cards, got: {updates_with_details}"
 
 
 class TestRawToolSuppression:
@@ -359,10 +358,10 @@ class TestRawToolSuppression:
 
 
 class TestThinkingOnActiveTodo:
-  """Thinking text between tool calls attaches to the active todo's details."""
+  """Thinking text between tool calls is NOT sent to plan card details."""
 
-  def test_thinking_text_attached_to_active_todo(self):
-    """Thinking text before a tool call is attached to the active todo as details."""
+  def test_thinking_text_not_in_details(self):
+    """Thinking text before a tool call is NOT attached to the active todo as details."""
     events = [
       _run_started_event(),
       _tool_start_event("write_todos", "tc-wt-1"),
@@ -377,13 +376,12 @@ class TestThinkingOnActiveTodo:
     mock_slack, _ = _run_stream(events)
 
     task_updates = _get_task_updates(mock_slack)
-    # The active todo (id=2) should have thinking text as details
-    active_updates = [u for u in task_updates if u.get("id") == "todo_2"]
-    details_found = [u.get("details") for u in active_updates if u.get("details")]
-    assert any("search the knowledge base" in d for d in details_found), f"Active todo should have thinking text as details, got: {details_found}"
+    # No task_update should have details — plan card stays clean
+    updates_with_details = [u for u in task_updates if u.get("details")]
+    assert len(updates_with_details) == 0, f"No details expected, got: {updates_with_details}"
 
-  def test_thinking_text_emitted_incrementally(self):
-    """Each text chunk updates the active todo's details immediately."""
+  def test_thinking_text_not_emitted_on_boundary(self):
+    """Thinking text is not emitted to plan card on TEXT_MESSAGE_END or TOOL_CALL_START."""
     events = [
       _run_started_event(),
       _tool_start_event("write_todos", "tc-wt-1"),
@@ -398,22 +396,21 @@ class TestThinkingOnActiveTodo:
     ]
     mock_slack, _ = _run_stream(events)
 
-    # Should have emitted at least 2 todo updates for the thinking text
     task_updates = _get_task_updates(mock_slack)
-    active_with_details = [u for u in task_updates if u.get("id") == "todo_2" and u.get("details")]
-    assert len(active_with_details) >= 2, f"Expected at least 2 incremental todo updates, got {len(active_with_details)}"
+    updates_with_details = [u for u in task_updates if u.get("details")]
+    assert len(updates_with_details) == 0, f"No details expected, got: {updates_with_details}"
 
 
 # ---------------------------------------------------------------------------
-# Tests: Tool thought attached to active todo output
+# Tests: No tool thoughts in plan card output
 # ---------------------------------------------------------------------------
 
 
-class TestToolThoughtOnActiveTodo:
-  """Tool thought extraction attaches to the active todo's output."""
+class TestNoToolThoughtInPlanCard:
+  """Tool thoughts are NOT sent to the plan card — keep it clean."""
 
-  def test_tool_thought_on_active_todo_output(self):
-    """Thought from tool args is attached to the active todo as output."""
+  def test_tool_thought_not_in_output(self):
+    """Tool thought from args is NOT attached to the active todo as output."""
     events = [
       _run_started_event(),
       _tool_start_event("write_todos", "tc-wt-1"),
@@ -428,47 +425,8 @@ class TestToolThoughtOnActiveTodo:
     mock_slack, _ = _run_stream(events)
 
     task_updates = _get_task_updates(mock_slack)
-    active_with_output = [u for u in task_updates if u.get("id") == "todo_2" and u.get("output")]
-    assert len(active_with_output) >= 1
-    assert "Found 3 relevant docs" in active_with_output[0]["output"]
-
-  def test_no_thought_no_output_update(self):
-    """If tool args have no thought key, no output update is emitted."""
-    events = [
-      _run_started_event(),
-      _tool_start_event("write_todos", "tc-wt-1"),
-      _tool_args_event("tc-wt-1", SAMPLE_TODOS_JSON),
-      _tool_end_event("tc-wt-1"),
-      _tool_start_event("rag_search", "tc-2"),
-      _tool_args_event("tc-2", '{"query": "k8s"}'),
-      _tool_end_event("tc-2"),
-      _content_event("Done."),
-      _done_event(),
-    ]
-    mock_slack, _ = _run_stream(events)
-
-    task_updates = _get_task_updates(mock_slack)
-    active_with_output = [u for u in task_updates if u.get("id") == "todo_2" and u.get("output")]
-    assert len(active_with_output) == 0
-
-  def test_task_tool_thought_not_extracted(self):
-    """The 'task' tool (subagent) args should not leak into todo output."""
-    events = [
-      _run_started_event(),
-      _tool_start_event("write_todos", "tc-wt-1"),
-      _tool_args_event("tc-wt-1", SAMPLE_TODOS_JSON),
-      _tool_end_event("tc-wt-1"),
-      _tool_start_event("task", "tc-2"),
-      _tool_args_event("tc-2", '{"description": "Echo your tools", "goal": "list tools"}'),
-      _tool_end_event("tc-2"),
-      _content_event("Done."),
-      _done_event(),
-    ]
-    mock_slack, _ = _run_stream(events)
-
-    task_updates = _get_task_updates(mock_slack)
-    active_with_output = [u for u in task_updates if u.get("id") == "todo_2" and u.get("output")]
-    assert len(active_with_output) == 0, f"task tool args should not appear as todo output, got: {active_with_output}"
+    updates_with_output = [u for u in task_updates if u.get("output")]
+    assert len(updates_with_output) == 0, f"No output expected in plan cards, got: {updates_with_output}"
 
 
 # ---------------------------------------------------------------------------

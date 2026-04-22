@@ -34,12 +34,15 @@ export function CreateTeamDialog({
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/admin/users")
+    // /api/admin/users returns Keycloak realm users in the shape
+    // { users: [{ email, ... }], total, page, pageSize } (no success/data envelope).
+    fetch("/api/admin/users?pageSize=100")
       .then((r) => r.json())
       .then((res) => {
-        if (res.success && res.data?.users) {
+        const users = Array.isArray(res?.users) ? res.users : res?.data?.users;
+        if (Array.isArray(users)) {
           setUserEmails(
-            res.data.users
+            users
               .map((u: { email?: string }) => u.email)
               .filter(Boolean)
           );

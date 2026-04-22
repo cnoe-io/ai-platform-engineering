@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   Bot,
   Plus,
-  Pencil,
   Trash2,
   Loader2,
   Globe,
@@ -16,13 +15,13 @@ import {
   ToggleLeft,
   ToggleRight,
   RefreshCw,
-  Ban,
   Download,
   CopyPlus,
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 import { getGradientStyle } from "@/lib/gradient-themes";
+import { toYaml } from "@/lib/yaml-serializer";
 
 export function DynamicAgentsTab() {
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
@@ -111,48 +110,6 @@ export function DynamicAgentsTab() {
       enabled: agent.enabled,
     };
 
-    // Simple YAML serializer for clean output
-    const toYaml = (obj: Record<string, unknown>, indent = 0): string => {
-      const spaces = "  ".repeat(indent);
-      let yaml = "";
-
-      for (const [key, value] of Object.entries(obj)) {
-        if (value === undefined || value === null) continue;
-
-        if (typeof value === "string") {
-          // Multi-line strings use literal block scalar
-          if (value.includes("\n")) {
-            yaml += `${spaces}${key}: |\n`;
-            value.split("\n").forEach((line) => {
-              yaml += `${spaces}  ${line}\n`;
-            });
-          } else {
-            // Quote strings that need it
-            const needsQuotes = /[:#\[\]{}|>!&*?'"]/.test(value) || value === "";
-            yaml += `${spaces}${key}: ${needsQuotes ? `"${value.replace(/"/g, '\\"')}"` : value}\n`;
-          }
-        } else if (typeof value === "number" || typeof value === "boolean") {
-          yaml += `${spaces}${key}: ${value}\n`;
-        } else if (Array.isArray(value)) {
-          if (value.length === 0) continue;
-          yaml += `${spaces}${key}:\n`;
-          value.forEach((item) => {
-            if (typeof item === "object" && item !== null) {
-              yaml += `${spaces}  -\n`;
-              yaml += toYaml(item as Record<string, unknown>, indent + 2);
-            } else {
-              yaml += `${spaces}  - ${item}\n`;
-            }
-          });
-        } else if (typeof value === "object") {
-          yaml += `${spaces}${key}:\n`;
-          yaml += toYaml(value as Record<string, unknown>, indent + 1);
-        }
-      }
-
-      return yaml;
-    };
-
     const yamlContent = toYaml(exportConfig);
 
     // Download the file
@@ -201,6 +158,7 @@ export function DynamicAgentsTab() {
       <DynamicAgentEditor
         agent={editingAgent}
         cloneFrom={cloningAgent}
+        readOnly={editingAgent?.config_driven}
         onSave={() => {
           setEditingAgent(null);
           setIsCreating(false);
@@ -221,7 +179,7 @@ export function DynamicAgentsTab() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Custom Agents</CardTitle>
+            <CardTitle>Agents</CardTitle>
             <CardDescription>
               Configure AI agents with custom instructions and MCP tool access.
             </CardDescription>
@@ -277,7 +235,8 @@ export function DynamicAgentsTab() {
             {agents.map((agent) => (
               <div
                 key={agent._id}
-                className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center"
+                className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer"
+                onClick={() => setEditingAgent(agent)}
               >
                 <div className="col-span-4">
                     <div className="flex items-center gap-3">
@@ -316,7 +275,7 @@ export function DynamicAgentsTab() {
 
                 <div className="col-span-2">
                   <button
-                    onClick={() => !agent.config_driven && handleToggleEnabled(agent)}
+                    onClick={(e) => { e.stopPropagation(); if (!agent.config_driven) handleToggleEnabled(agent); }}
                     className={`flex items-center gap-1.5 ${agent.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
                     disabled={agent.config_driven}
                     title={agent.config_driven ? "Config-driven agents cannot be modified" : undefined}
@@ -335,17 +294,7 @@ export function DynamicAgentsTab() {
                   </button>
                 </div>
 
-                <div className="col-span-2 flex items-center justify-end gap-1">
-                  {agent.config_driven && (
-                    <Badge
-                      variant="outline"
-                      className="gap-1 mr-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
-                      title="Loaded from config.yaml - cannot be edited"
-                    >
-                      <Ban className="h-3 w-3" />
-                      Config
-                    </Badge>
-                  )}
+                <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -364,15 +313,14 @@ export function DynamicAgentsTab() {
                   >
                     <CopyPlus className="h-4 w-4" />
                   </Button>
-                  {!agent.config_driven && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setEditingAgent(agent)}
+                  {agent.config_driven && (
+                    <Badge
+                      variant="outline"
+                      className="gap-1 mr-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
+                      title="Loaded from config.yaml - cannot be edited"
                     >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                      Config
+                    </Badge>
                   )}
                   {!agent.is_system && !agent.config_driven && (
                     <Button

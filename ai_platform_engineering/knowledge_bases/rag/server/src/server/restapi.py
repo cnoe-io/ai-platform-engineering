@@ -1449,8 +1449,8 @@ async def ingest_documents(
       chunk_overlap=datasource_info.default_chunk_overlap,
       chunk_size=datasource_info.default_chunk_size,
     )
-  except ValueError as ve:
-    return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": str(ve)})
+  except ValueError:
+    return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"message": "Invalid input data"})
   return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"message": "Text data ingestion started successfully"})
 
 

@@ -26,8 +26,20 @@ tags:
 
 # Global configuration shared across all subcharts
 global:
+  # -- Global image tag override. When set, overrides the default appVersion-based
+  # image tag for ALL subcharts (supervisor, agents, UI, etc.) in a single place.
+  # Individual subchart `image.tag` values still take highest precedence.
+  image:
+    tag: ""
+
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
+
+  # When deploymentMode is single-node, in-cluster MCP Services/Deployments/SAs use
+  # {mcpResourcePrefix}-agent-<name>-mcp. Leave mcpResourcePrefix unset (empty) to use the
+  # Helm release name; set to "single-node" for stable, readable resource names.
+  singleNode:
+    mcpResourcePrefix: ""
 
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
@@ -47,6 +59,60 @@ global:
 
   metrics:
     enabled: true
+
+  # Global VPA config for all agent deployments (supervisor + all sub-agents).
+  # Requires VPA to be installed in the cluster.
+  # Do not enable alongside global autoscaling — VPA conflicts with HPA on CPU/memory scaling.
+  # Setting initial resource requests (see resources: in each agent section) improves early VPA recommendations.
+  # NOTE: per-agent opt-out via vpa.enabled=false is not supported (Helm cannot distinguish
+  # "explicitly false" from the default "false"). To enable VPA selectively, keep global.vpa.enabled=false
+  # and set vpa.enabled=true on individual agents instead.
+  # Override global defaults per-agent with non-enabled fields:
+  #   agent-github:
+  #     vpa:
+  #       maxAllowed:
+  #         cpu: 2
+  #         memory: 2Gi
+  vpa:
+    enabled: false
+    # "InPlaceOrRecreate" applies recommendations in-place (Kubernetes 1.29+) or recreates the pod.
+    # Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters.
+    updateMode: "InPlaceOrRecreate"
+    controlledResources: ["cpu", "memory"]
+    controlledValues: "RequestsAndLimits"
+    minAllowed:
+      cpu: 50m
+      memory: 128Mi
+    maxAllowed: {}
+    #   cpu: 2
+    #   memory: 2Gi
+
+  # VPA config for MCP containers in single-node mode, where each MCP server
+  # runs as a standalone Deployment and gets its own VPA resource.
+  # In multi-node mode, MCP runs as a sidecar and its VPA containerPolicy is
+  # governed by global.vpa (or per-agent vpa) instead.
+  # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
+  #   agent-github:
+  #     mcp:
+  #       vpa:
+  #         enabled: false   # disable VPA for github MCP only
+  #         maxAllowed:
+  #           cpu: 2
+  #           memory: 2Gi
+  mcp:
+    vpa:
+      enabled: false
+      # "Off" = recommendations only (no restarts).
+      # Use "InPlaceOrRecreate" (Kubernetes 1.29+) or "Recreate" to apply automatically.
+      updateMode: "InPlaceOrRecreate"
+      controlledResources: ["cpu", "memory"]
+      controlledValues: "RequestsAndLimits"
+      minAllowed:
+        cpu: 50m
+        memory: 128Mi
+      maxAllowed: {}
+      #   cpu: 2
+      #   memory: 2Gi
 
   agentgateway:
     enabled: false
@@ -579,13 +645,11 @@ caipe-ui:
     - name: skill-templates
       mountPath: /app/data/skills
       readOnly: true
-  env:
+  config:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
     A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
     # Skills template directory (mounted from ConfigMap)
     SKILLS_DIR: "/app/data/skills"
-  # ConfigMap for non-sensitive configuration
-  config:
     # Feature flags
     ENABLE_SUBAGENT_CARDS: "true"
     SSO_ENABLED: "false"
@@ -717,45 +781,27 @@ slack-bot:
     tag: ""
     pullPolicy: "IfNotPresent"
 
-  # Display name used in Slack messages
-  appName: "CAIPE"
+  # -- Flat key-value map of environment variables.
+  # Each key-value pair is injected as a flat environment variable via ConfigMap
+  # (envFrom → configMapRef). All non-sensitive env vars go here.
+  config:
+    APP_NAME: "CAIPE"
+    SLACK_BOT_MODE: "socket"
+    CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+    SLACK_INTEGRATION_SILENCE_ENV: "false"
+    # MONGODB_URI: ""                          # Override per environment
+    # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
+    # SLACK_INTEGRATION_ENABLE_AUTH: "true"    # Enable OAuth2 Client Credentials
+    # OAUTH2_TOKEN_URL: ""                     # OIDC token endpoint
+    # OAUTH2_CLIENT_ID: ""                     # OAuth2 client ID
 
-  # Connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (webhooks via SLACK_SIGNING_SECRET)
-  botMode: "socket"
+  # -- Reference to a pre-existing Kubernetes Secret.
+  # Should contain: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,
+  # and optionally OAUTH2_CLIENT_SECRET.
+  existingSecret: "slack-bot-secrets"
 
-  # Environment variables passed to the bot container
-  env: {}
-
-  # CAIPE API URL — the bot routes all requests through this gateway.
-  caipeApiUrl: "http://ai-platform-engineering-caipe-ui:3000"
-
-  # Reference to a Kubernetes Secret containing Slack tokens:
-  #   SLACK_BOT_TOKEN (xoxb-...), SLACK_APP_TOKEN (xapp-...), SLACK_SIGNING_SECRET
-  #   Optionally: OAUTH2_CLIENT_SECRET
-  slack:
-    tokenSecretRef: "slack-bot-secrets"
-
-  # MongoDB for persistent session storage (conversation context, trace IDs, user cache)
-  # Uses the same MongoDB as CAIPE UI when deployed together
-  mongodb:
-    uri: ""  # Override per environment, e.g. "mongodb://admin:changeme@ai-platform-engineering-mongodb:27017"
-    database: "caipe"
-
-  # OAuth2 Client Credentials auth for A2A requests to the supervisor
-  # Works with any OIDC provider (Okta, Keycloak, Auth0, Azure AD)
-  auth:
-    enabled: false
-    tokenUrl: ""      # e.g. "https://your-idp.example.com/oauth2/v1/token"
-    clientId: ""
-    scope: ""         # Optional
-    audience: ""      # Optional
-    # clientSecret should be stored in the K8s Secret (slack.tokenSecretRef), NOT here
-
-  # Suppress environment info in bot responses
-  silenceEnv: "false"
-
-  # Per-channel configuration (serialized as YAML into a ConfigMap)
-  # Structure: channel_id -> channel config
+  # -- Per-channel configuration rendered as YAML and volume-mounted
+  # at /etc/caipe/bot-config.yaml. Only mounted when non-empty.
   botConfig: {}
     # C012345678:
     #   name: "#my-channel"
@@ -765,11 +811,12 @@ slack-bot:
     #     overthink: true
     #   ai_alerts:
     #     enabled: false
-    #   default:
-    #     project_key: MYPROJ
-    #     issue_type: Bug
+    #   other:
+    #     jira:
+    #       project_key: MYPROJ
+    #       issue_type: Bug
 
-  # External Secrets configuration for sensitive data (Slack tokens, Langfuse secret key, etc.)
+  # -- External Secrets configuration for sensitive data
   externalSecrets:
     enabled: false
     apiVersion: "v1beta1"
@@ -781,10 +828,6 @@ slack-bot:
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: bot_token
-      # - secretKey: SLACK_APP_TOKEN
-      #   remoteRef:
-      #     key: prod/slack-bot
-      #     property: app_token
 
   resources:
     requests:

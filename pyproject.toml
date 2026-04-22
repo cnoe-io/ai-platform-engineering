@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.3.3"
+version = "0.3.10"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -19,7 +19,7 @@ dependencies = [
     "httpx==0.28.1",
     "hvac==2.4.0",
     "langchain==1.2.15",
-    "langchain-core==1.2.28",
+    "langchain-core==1.2.31",
     "langchain-mcp-adapters==0.2.1",
     "langfuse==3.14.3",
     "langgraph==1.1.6",
@@ -99,4 +99,4 @@ url = "https://pypi.org/simple/"
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2"]

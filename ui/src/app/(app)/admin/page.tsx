@@ -110,6 +110,7 @@ interface AdminStats {
     daily: Array<{ date: string; interactions: number; unique_users: number; resolved: number; escalated: number }>;
     top_channels: Array<{ channel_name: string; interactions: number; resolved: number; resolution_rate: number }>;
   };
+  available_channels?: string[];
 }
 
 interface FeedbackEntry {
@@ -405,6 +406,8 @@ function AdminPage() {
   const [stoppingCampaign, setStoppingCampaign] = useState<string | null>(null);
   const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
   const [statsRefreshing, setStatsRefreshing] = useState(false);
+  const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
+  const [statsChannels, setStatsChannels] = useState<string[]>([]);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [slackSubTab, setSlackSubTab] = useState<"slack-users" | "slack-channels">("slack-users");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -431,21 +434,26 @@ function AdminPage() {
   };
 
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
-  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter });
-  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[]) => {
+  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter });
+  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     setStatsRefreshing(true);
     try {
       const r = range ?? dateRange;
       const s = source ?? sourceFilter;
       const u = userEmails ?? expandStatsUsers(userFilter);
+      const ch = channels ?? statsChannelFilter;
       const params = new URLSearchParams({ from: r.from, to: r.to });
       if (s !== 'all') params.set('source', s);
       if (u.length > 0) params.set('user', u.join(','));
+      if (s === 'slack' && ch.length > 0) params.set('channel', ch.join(','));
       const res = await fetch(`/api/admin/stats?${params}`);
       if (res.ok) {
         const json = await res.json();
-        if (json.success) setStats(json.data);
+        if (json.success) {
+          setStats(json.data);
+          if (json.data.available_channels) setStatsChannels(json.data.available_channels);
+        }
       }
     } catch {
       // keep existing stats on failure
@@ -454,10 +462,11 @@ function AdminPage() {
     }
   };
   useEffect(() => {
-    const current = { range: dateRange, source: sourceFilter, users: userFilter };
+    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter };
     if (statsFilterRef.current.range === current.range
       && statsFilterRef.current.source === current.source
-      && statsFilterRef.current.users === current.users) return; // skip initial
+      && statsFilterRef.current.users === current.users
+      && statsFilterRef.current.channels === current.channels) return; // skip initial
     statsFilterRef.current = current;
     fetchStatsWithFilters();
   }, [dateRange, sourceFilter, userFilter, status]);
@@ -508,6 +517,7 @@ function AdminPage() {
 
       if (statsResponse.success) {
         setStats(statsResponse.data);
+        if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
         // Use unfiltered response for global overview, or the main response if no filters were applied
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
@@ -1760,7 +1770,8 @@ function AdminPage() {
                       onChange={(e) => {
                         const src = e.target.value as 'all' | 'web' | 'slack';
                         setSourceFilter(src);
-                        fetchStatsWithFilters(undefined, src);
+                        setStatsChannelFilter([]);
+                        fetchStatsWithFilters(undefined, src, undefined, []);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
                       }}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
@@ -1769,6 +1780,20 @@ function AdminPage() {
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
                     </select>
+                    {sourceFilter === 'slack' && statsChannels.length > 0 && (
+                      <MultiSelect
+                        options={statsChannels}
+                        selected={statsChannelFilter}
+                        onChange={(channels) => {
+                          setStatsChannelFilter(channels);
+                          fetchStatsWithFilters(undefined, undefined, undefined, channels);
+                        }}
+                        placeholder="All Channels"
+                        searchPlaceholder="Search channels..."
+                        emptyLabel="No channels found"
+                        badgeLabel="channels"
+                      />
+                    )}
                     <MultiSelect
                       options={[
                         ...teams.map((t) => `team:${t.name}`),
@@ -1824,7 +1849,12 @@ function AdminPage() {
                 </div>
 
                 {stats && (
-                  <>
+                  <div className="relative space-y-4">
+                    {statsRefreshing && (
+                      <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
                     {/* Platform Summary Cards */}
                     {stats.platform_summary && (
                       <div className="grid grid-cols-2 gap-4">
@@ -2349,7 +2379,7 @@ function AdminPage() {
 
                     {/* Checkpoint Persistence */}
                     <CheckpointStatsSection />
-                  </>
+                  </div>
                 )}
               </TabsContent>
 

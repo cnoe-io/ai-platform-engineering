@@ -137,4 +137,10 @@ helm show values oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
 | tolerations | list | `[]` | Pod tolerations |
 | volumeMounts | list | `[]` | Extra volume mounts |
 | volumes | list | `[]` | Extra volumes |
+| vpa | object | `{"controlledResources":["cpu","memory"],"enabled":false,"maxAllowed":{},"minAllowed":{"cpu":"50m","memory":"128Mi"},"updateMode":"InPlaceOrRecreate"}` | Vertical Pod Autoscaler - applies resource recommendations automatically (updateMode: "InPlaceOrRecreate"). Requires VPA to be installed in the cluster before deploying with vpa.enabled=true. Do not enable alongside autoscaling.enabled - VPA conflicts with HPA on both CPU-based and memory-based scaling. Setting initial resource requests (see resources: above) improves the quality of early VPA recommendations. |
+| vpa.controlledResources | list | `["cpu","memory"]` | Resources VPA should observe and recommend for |
+| vpa.enabled | bool | `false` | Enable VPA |
+| vpa.maxAllowed | object | `{}` | Maximum bounds VPA will recommend (empty = no cap) |
+| vpa.minAllowed | object | `{"cpu":"50m","memory":"128Mi"}` | Minimum bounds VPA will recommend |
+| vpa.updateMode | string | `"InPlaceOrRecreate"` | Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters. |
 

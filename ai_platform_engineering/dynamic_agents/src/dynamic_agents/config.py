@@ -44,9 +44,6 @@ class Settings(BaseSettings):
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
 
-    # Auth
-    auth_enabled: bool = True  # Set to false to disable auth for local dev
-
     # CORS
     cors_origins: list[str] = ["*"]
 

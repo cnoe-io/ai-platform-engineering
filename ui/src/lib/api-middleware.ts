@@ -207,6 +207,23 @@ export function requireAdmin(session: { role?: string }): void {
   }
 }
 
+/**
+ * Require admin view access for read-only admin endpoints.
+ * Checks session.canViewAdmin (set from OIDC_REQUIRED_ADMIN_VIEW_GROUP).
+ * Admin users always have view access.
+ * Throws 403 if user lacks the required group.
+ *
+ * Brought in from release/0.4.0 to support read-only analytics endpoints
+ * (e.g. GET /api/admin/users/stats) that should be accessible to viewers
+ * who can see the admin dashboard but cannot mutate it.
+ */
+export function requireAdminView(session: { role?: string; canViewAdmin?: boolean }): void {
+  if (session.role === 'admin') return;
+  if (session.canViewAdmin !== true) {
+    throw new ApiError('Admin view access required - must be member of admin view group', 403);
+  }
+}
+
 
 // ============================================================================
 // Enterprise RBAC (098) — Keycloak Authorization Services

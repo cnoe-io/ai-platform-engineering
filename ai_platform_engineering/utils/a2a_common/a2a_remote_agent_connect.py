@@ -178,13 +178,9 @@ class A2ARemoteAgentConnectTool(BaseTool):
         # If we get here, stop_event was set - exit the loop
         break
       except asyncio.TimeoutError:
-        # Timeout means we should send a heartbeat
+        # Timeout means we should send a heartbeat (log only, don't pollute the stream)
         wait_count += 1
         elapsed = wait_count * heartbeat_interval
-        writer({
-          "type": "a2a_event",
-          "data": f"⏳ Waiting for {agent_name}... ({int(elapsed)}s)"
-        })
         logger.debug(f"Heartbeat: Waiting for {agent_name} ({int(elapsed)}s)")
 
   async def _arun(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:

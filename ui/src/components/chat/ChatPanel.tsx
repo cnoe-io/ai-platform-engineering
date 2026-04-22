@@ -363,7 +363,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
     // Create conversation if needed
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
 
     // Clear previous turn's events (tasks, tool completions, stream events)
@@ -863,7 +863,10 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
 
     } catch (error) {
       console.error("[A2A SDK] Stream error:", error);
-      appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
+      // Session expiry is handled by TokenExpiryGuard — don't persist the error in chat history
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
+      }
       setConversationStreaming(convId, null);
     }
   }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, selectedAgentId, createConversation, clearA2AEvents, clearSSEEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, addSSEEvent, setConversationStreaming]);
@@ -891,7 +894,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
   const handleSkillsCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
 
     // Add user message showing the command
@@ -942,10 +945,10 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
   }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
 
   // Handle /help command: show available commands in chat
-  const handleHelpCommand = useCallback(() => {
+  const handleHelpCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/help" }, turnId);
@@ -1301,8 +1304,10 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
       setConversationStreaming(activeConversationId, null);
     } catch (error) {
       console.error("[ChatPanel] HITL resume error:", error);
-      appendToMessage(activeConversationId, assistantMsgId,
-        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(activeConversationId, assistantMsgId,
+          `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      }
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
@@ -1455,8 +1460,10 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
       setConversationStreaming(activeConversationId, null);
     } catch (error) {
       console.error("[ChatPanel] SSE HITL resume error:", error);
-      appendToMessage(activeConversationId, assistantMsgId,
-        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(activeConversationId, assistantMsgId,
+          `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      }
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,

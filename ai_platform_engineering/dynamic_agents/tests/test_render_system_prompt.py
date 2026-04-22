@@ -2,7 +2,7 @@
 
 import pytest
 
-from dynamic_agents.models import ClientContext
+from dynamic_agents.models import ClientContext, UserContext
 from dynamic_agents.services.agent_runtime import (
     SystemPromptRenderError,
     _jinja_env,
@@ -85,6 +85,31 @@ class TestRenderSystemPrompt:
 
         assert _render_system_prompt(prompt, slack_ctx) == "Keep it short."
         assert _render_system_prompt(prompt, web_ctx) == "Be detailed."
+
+
+class TestUserContextRendering:
+    """Tests for user context in system prompt rendering."""
+
+    def test_renders_user_email(self):
+        """Template can reference user.email."""
+        prompt = "Current user: {{ user.email }}."
+        user = UserContext(email="alice@example.com")
+        result = _render_system_prompt(prompt, None, user=user)
+        assert result == "Current user: alice@example.com."
+
+    def test_user_conditional(self):
+        """Template can branch on user fields like is_admin."""
+        prompt = "Base.{% if user.is_admin %} You have admin privileges.{% endif %}"
+        admin = UserContext(email="admin@example.com", is_admin=True)
+        regular = UserContext(email="user@example.com", is_admin=False)
+        assert _render_system_prompt(prompt, None, user=admin) == "Base. You have admin privileges."
+        assert _render_system_prompt(prompt, None, user=regular) == "Base."
+
+    def test_none_user_skips_conditionals(self):
+        """When user is None, all user conditionals are skipped."""
+        prompt = "Base.{% if user.email %} Hello {{ user.email }}.{% endif %}"
+        result = _render_system_prompt(prompt, None, user=None)
+        assert result == "Base."
 
 
 class TestSandboxSecurity:

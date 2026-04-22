@@ -24,13 +24,20 @@ from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 
-from sse_client import SSEClient, thread_ts_to_conversation_id
+from sse_client import SSEClient
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.config_models import get_escalation_config
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
+_WORKSPACE_URL = os.environ.get("SLACK_WORKSPACE_URL", "").rstrip("/")
+
+
+def _msg_link(channel_id: str, ts: str) -> str:
+  if not _WORKSPACE_URL or not ts:
+    return ""
+  return f" {_WORKSPACE_URL}/archives/{channel_id}/p{ts.replace('.', '')}"
 
 # 098 Enterprise RBAC enforcement
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
@@ -127,8 +134,11 @@ def _obo_token_from_context(context):
     except AttributeError:
         return None
 
-# Initialize OAuth2 auth client if enabled
+
 AUTH_ENABLED = os.environ.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
+
+SLACK_WORKSPACE_URL = os.environ.get("SLACK_WORKSPACE_URL", "")
+logger.info("SLACK_WORKSPACE_URL={}", SLACK_WORKSPACE_URL or "(not set)")
 
 auth_client = None
 if AUTH_ENABLED:
@@ -198,6 +208,31 @@ def _get_agent_id_for_dm() -> str:
     return config.defaults.default_agent_id
   logger.warning("No agent_id configured for DMs — using empty string")
   return ""
+
+
+def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = "", owner_id: str = "") -> str:
+  """Resolve a Slack thread to its server-side conversation_id via idempotency_key lookup.
+
+  Calls create_conversation with the thread_ts as idempotency_key. If the
+  conversation already exists the server returns it (created=false); otherwise
+  a new one is created. This ensures all handlers in a thread share the same
+  conversation_id used by UI and LangGraph checkpoints.
+  """
+  channel_config = config.channels.get(channel_id)
+  channel_name = channel_config.name if channel_config else None
+  conv_result = sse_client.create_conversation(
+    title="Slack Thread",
+    agent_id=agent_id,
+    owner_id=owner_id or None,
+    idempotency_key=thread_ts,
+    metadata={
+      "thread_ts": thread_ts,
+      "channel_id": channel_id,
+      **({"channel_name": channel_name} if channel_name else {}),
+      **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+    },
+  )
+  return conv_result["conversation_id"]
 
 
 def _call_ai(
@@ -431,7 +466,7 @@ def handle_mention(event, say, client, context=None):
 
     user_name, user_email = utils.get_message_author_info(event, client)
 
-    logger.info(f"[{thread_ts}] CAIPE was invoked by User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Thread: {thread_ts}")
+    logger.info(f"[{thread_ts}] CAIPE was invoked by User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Thread: {thread_ts}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text:
       say(text="Please include a question or message!", thread_ts=thread_ts)
@@ -440,22 +475,49 @@ def handle_mention(event, say, client, context=None):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
+    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
+
+    # Create or retrieve conversation via shared API (server owns ID generation).
+    # Must happen BEFORE context building so we can use `created` to decide
+    # full vs delta thread context.
+    conv_result = sse_client.create_conversation(
+      title=message_text[:50].strip() or "Slack Thread",
+      agent_id=agent_id,
+      owner_id=user_email or user_id,
+      idempotency_key=thread_ts,
+      metadata={
+        "thread_ts": thread_ts,
+        "channel_id": channel_id,
+        "channel_name": channel_config.name,
+        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+      },
+    )
+    conversation_id = conv_result["conversation_id"]
+    conv_created = conv_result["created"]
+    conv_metadata = conv_result.get("metadata", {})
+
+    # Build thread context: full on first interaction, delta on follow-ups
     context_message = message_text
     if event.get("thread_ts"):
-      context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
-
-    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
+      if conv_created:
+        context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
+      else:
+        since_ts = conv_metadata.get("last_processed_ts", thread_ts)
+        context_message = slack_context.build_delta_context(app, channel_id, thread_ts, message_text, bot_user_id, since_ts=since_ts)
 
     is_humble_followup = session_manager.is_skipped(thread_ts)
     if is_humble_followup:
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
 
+    channel_info = utils.get_channel_context(client, channel_id, session_manager)
+
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
+      "channel_topic": channel_info.get("topic", ""),
+      "channel_purpose": channel_info.get("purpose", ""),
       "humble_followup": is_humble_followup,
     }
     if user_email:
@@ -510,6 +572,13 @@ def handle_mention(event, say, client, context=None):
 
     logger.info(f"[{thread_ts}] Completed CAIPE request for {user_name}")
 
+    # Record the timestamp of the last processed message so subsequent
+    # interactions can fetch only the delta.
+    try:
+      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
+
   except Exception as e:
     logger.exception(f"Error handling CAIPE mention: {e}")
     try:
@@ -527,6 +596,11 @@ def handle_mention(event, say, client, context=None):
 # =============================================================================
 def handle_qanda_message(event, say, client, context=None):
   try:
+    # Ignore system messages (channel_purpose, channel_topic, channel_join, etc.)
+    if event.get("subtype"):
+      logger.debug(f"Q&A ignoring system message subtype={event['subtype']} in {event.get('channel')}")
+      return
+
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
@@ -540,19 +614,37 @@ def handle_qanda_message(event, say, client, context=None):
 
     user_name, user_email = utils.get_message_author_info(event, client)
 
-    logger.info(f"[{thread_ts}] Q&A MODE - User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Question: {message_text}")
+    logger.info(f"[{thread_ts}] Q&A MODE - User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Question: {message_text}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text.strip():
       return
 
     channel_config = config.channels[channel_id]
     agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
+
+    # Create or retrieve conversation via shared API (server owns ID generation)
+    conv_result = sse_client.create_conversation(
+      title=message_text[:50].strip() or "Slack Q&A",
+      agent_id=agent_id,
+      owner_id=user_email or user_id,
+      idempotency_key=thread_ts,
+      metadata={
+        "thread_ts": thread_ts,
+        "channel_id": channel_id,
+        "channel_name": channel_config.name,
+        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+      },
+    )
+    conversation_id = conv_result["conversation_id"]
+
+    channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
+      "channel_topic": channel_info.get("topic", ""),
+      "channel_purpose": channel_info.get("purpose", ""),
       "overthink": channel_config.qanda.overthink,
     }
     if user_email:
@@ -612,7 +704,7 @@ def handle_dm_message(event, say, client, context=None):
 
     user_name, user_email = utils.get_message_author_info(event, client)
 
-    logger.info(f"[{thread_ts}] DM from User: {user_name} ({user_id}), Email: {user_email}, Message: {message_text}")
+    logger.info(f"[{thread_ts}] DM from User: {user_name} ({user_id}), Email: {user_email}, Message: {message_text}{_msg_link(channel_id, thread_ts)}")
 
     if not message_text or not message_text.strip():
       say(text="Please include a question or message!", thread_ts=thread_ts)
@@ -667,12 +759,39 @@ def handle_dm_message(event, say, client, context=None):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
+    agent_id = _get_agent_id_for_dm()
+    if not agent_id:
+      logger.error(f"[{thread_ts}] No agent_id configured for DMs — set SLACK_INTEGRATION_DM_AGENT_ID or SLACK_INTEGRATION_DEFAULT_AGENT_ID")
+      say(text="Sorry, DMs aren't configured yet — no agent ID is set. Please contact an admin.", thread_ts=thread_ts)
+      return
+
+    # Create or retrieve conversation via shared API (server owns ID generation).
+    # Must happen BEFORE context building so we can use `created` to decide
+    # full vs delta thread context.
+    conv_result = sse_client.create_conversation(
+      title=message_text[:50].strip() or "Slack DM",
+      agent_id=agent_id,
+      owner_id=user_email or user_id,
+      idempotency_key=thread_ts,
+      metadata={
+        "thread_ts": thread_ts,
+        "channel_id": channel_id,
+        "channel_type": "dm",
+        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+      },
+    )
+    conversation_id = conv_result["conversation_id"]
+    conv_created = conv_result["created"]
+    conv_metadata = conv_result.get("metadata", {})
+
+    # Build thread context: full on first interaction, delta on follow-ups
     context_message = message_text
     if event.get("thread_ts"):
-      context_message = slack_context.build_thread_context(app, event.get("channel"), thread_ts, message_text, bot_user_id)
-
-    agent_id = _get_agent_id_for_dm()
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
+      if conv_created:
+        context_message = slack_context.build_thread_context(app, channel_id, thread_ts, message_text, bot_user_id)
+      else:
+        since_ts = conv_metadata.get("last_processed_ts", thread_ts)
+        context_message = slack_context.build_delta_context(app, channel_id, thread_ts, message_text, bot_user_id, since_ts=since_ts)
 
     client_context = {
       "source": "slack",
@@ -727,6 +846,13 @@ def handle_dm_message(event, say, client, context=None):
       )
 
     logger.info(f"[{thread_ts}] Completed DM request for {user_name}")
+
+    # Record the timestamp of the last processed message so subsequent
+    # interactions can fetch only the delta.
+    try:
+      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
 
   except Exception as e:
     logger.exception(f"Error handling DM message: {e}")
@@ -809,7 +935,7 @@ def handle_message_events(body, say, client, context=None):
   channel_config = config.channels[channel_id]
   if channel_config.ai_alerts.enabled:
     alert_ts = event.get("ts", "unknown")
-    logger.info(f"[{alert_ts}] Routing alert from {bot_username} to AI processing")
+    logger.info(f"[{alert_ts}] Routing alert from {bot_username} (bot_id={bot_id}) to AI processing, Channel: {channel_id}{_msg_link(channel_id, alert_ts)}")
     jira_config = channel_config.other.jira
     if not jira_config:
       raise ValueError(f"Channel {channel_id} is missing required 'other.jira' config")
@@ -892,6 +1018,7 @@ def handle_caipe_feedback(ack, body, client):
     is_positive = feedback_type == "positive"
 
     feedback_value = "thumbs_up" if is_positive else "thumbs_down"
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -900,6 +1027,7 @@ def handle_caipe_feedback(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
@@ -953,6 +1081,9 @@ def handle_feedback_more_detail(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
+    agent_id = _get_agent_id(config.channels.get(channel_id))
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -961,13 +1092,12 @@ def handle_feedback_more_detail(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
     client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for more detail...")
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
@@ -1002,6 +1132,9 @@ def handle_feedback_less_verbose(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
+    agent_id = _get_agent_id(config.channels.get(channel_id))
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -1010,13 +1143,12 @@ def handle_feedback_less_verbose(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
     client.chat_postEphemeral(channel=channel_id, user=user_id, thread_ts=thread_ts, text=f"Got it! Asking {APP_NAME} for a more concise response...")
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
@@ -1051,6 +1183,14 @@ def handle_caipe_retry(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
+    if not utils.check_has_jira_info(channel_id):
+      return
+
+    channel_config = config.channels[channel_id]
+    agent_id = _get_agent_id(channel_config)
+    # Resolve server-side conversation_id for this thread
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -1059,6 +1199,7 @@ def handle_caipe_retry(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       message_ts=message_ts,
     )
 
@@ -1069,20 +1210,16 @@ def handle_caipe_retry(ack, body, client):
 
     thread_context = slack_context.build_thread_context(app, channel_id, thread_ts, "", bot_user_id)
 
-    if not utils.check_has_jira_info(channel_id):
-      return
-
-    channel_config = config.channels[channel_id]
-    agent_id = _get_agent_id(channel_config)
-    # Use a new conversation_id for retries to avoid LangGraph state conflicts
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
-
     retry_message = ai.RETRY_PROMPT_PREFIX + thread_context
+
+    channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
+      "channel_topic": channel_info.get("topic", ""),
+      "channel_purpose": channel_info.get("purpose", ""),
     }
     if user_email:
       client_context["user_email"] = user_email
@@ -1133,6 +1270,7 @@ def handle_escalation_get_help(ack, body, client):
     session_manager.set_escalated(thread_ts)
 
     # Track escalation in feedback
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -1141,6 +1279,7 @@ def handle_escalation_get_help(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
     )
 
     client.chat_postEphemeral(
@@ -1204,6 +1343,7 @@ def handle_delete_message(ack, body, client):
       logger.warning(f"[{thread_ts}] Unauthorized delete attempt by <@{user_id}>")
       return
 
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -1212,6 +1352,7 @@ def handle_delete_message(ack, body, client):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
     )
 
     client.chat_delete(channel=channel_id, ts=message_ts)
@@ -1288,6 +1429,9 @@ def handle_wrong_answer_submission(ack, body, client, view):
     if not correction_text:
       return
 
+    agent_id = _get_agent_id(config.channels.get(channel_id))
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -1296,6 +1440,7 @@ def handle_wrong_answer_submission(ack, body, client, view):
       slack_client=client,
       session_manager=session_manager,
       config=config,
+      conversation_id=conversation_id,
       comment=correction_text,
       message_ts=message_ts,
     )
@@ -1307,8 +1452,6 @@ def handle_wrong_answer_submission(ack, body, client, view):
       text=f"Got it! Asking {APP_NAME} to correct the response based on your feedback...",
     )
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
-    conversation_id = thread_ts_to_conversation_id(thread_ts)
     correction_prompt = f'The user indicated your previous response was incorrect and provided the following IMPORTANT context: "{correction_text}"\n\nPlease carefully review this feedback and provide a corrected response.'
 
     # Get escalation config for this channel

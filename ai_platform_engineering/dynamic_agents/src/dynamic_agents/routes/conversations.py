@@ -50,21 +50,6 @@ class ConversationMessagesResponse(BaseModel):
     interrupt_data: InterruptData | None = None
 
 
-class TodoItem(BaseModel):
-    """A single todo item from the agent's todo list."""
-
-    content: str
-    status: Literal["pending", "in_progress", "completed"]
-
-
-class ConversationTodosResponse(BaseModel):
-    """Response containing conversation todos from checkpointer."""
-
-    conversation_id: str
-    agent_id: str
-    todos: list[TodoItem]
-
-
 class ConversationFilesListResponse(BaseModel):
     """Response containing list of file paths from checkpointer."""
 
@@ -204,7 +189,8 @@ async def get_conversation_messages(
         additional_kwargs = getattr(msg, "additional_kwargs", {})
         if "timestamp" in additional_kwargs:
             try:
-                timestamp = datetime.fromisoformat(additional_kwargs["timestamp"])
+                ts = datetime.fromisoformat(additional_kwargs["timestamp"])
+                timestamp = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
             except (ValueError, TypeError):
                 pass
 
@@ -325,110 +311,6 @@ async def get_interrupt_state(
         agent_id=agent_id,
         has_pending_interrupt=has_pending_interrupt,
         interrupt_data=InterruptData(**interrupt_data) if interrupt_data else None,
-    )
-
-
-@router.get("/{conversation_id}/todos", response_model=ConversationTodosResponse)
-async def get_conversation_todos(
-    conversation_id: str,
-    agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_user_context),
-    mongo: MongoDBService = Depends(get_mongo_service),
-) -> ConversationTodosResponse:
-    """Get todos for a conversation from the LangGraph checkpointer.
-
-    Returns the current todo list state for the conversation.
-    This is used by the UI to restore todos when resuming a session.
-
-    Access control is handled by `can_access_conversation()` in auth/access.py.
-    """
-    # 1. Verify agent exists
-    agent = mongo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    # 2. Check conversation ownership
-    if mongo._client is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-    db = mongo._db
-    if db is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-
-    conversations_coll = db["conversations"]
-    conversation = conversations_coll.find_one({"_id": conversation_id})
-
-    if not conversation:
-        # Conversation doesn't exist - return empty todos
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    # 3. Check access
-    if not can_access_conversation(conversation, user):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    # 4. Get or create runtime to access checkpointer
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
-
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state from checkpointer
-    if not runtime._graph:
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    if not state or not state.values:
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    # 6. Extract todos from state
-    raw_todos = state.values.get("todos", [])
-    todos: list[TodoItem] = []
-
-    for todo in raw_todos:
-        if isinstance(todo, dict):
-            content = todo.get("content", "")
-            status = todo.get("status", "pending")
-            # Validate status
-            if status not in ("pending", "in_progress", "completed"):
-                status = "pending"
-            todos.append(TodoItem(content=content, status=status))
-
-    logger.debug(f"Retrieved {len(todos)} todos for conversation {conversation_id}")
-
-    return ConversationTodosResponse(
-        conversation_id=conversation_id,
-        agent_id=agent_id,
-        todos=todos,
     )
 
 

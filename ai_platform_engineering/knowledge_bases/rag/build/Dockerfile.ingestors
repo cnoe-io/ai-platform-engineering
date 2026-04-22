@@ -58,6 +58,7 @@ ARG VARIANT=default
 # - AWS CLI v2 for EKS authentication (k8s ingestor)
 # - Playwright/Chromium dependencies (default variant only, not slim)
 RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     # For AWS CLI installation
     curl unzip && \
@@ -78,8 +79,7 @@ RUN apt-get update && \
     unzip awscliv2.zip && \
     ./aws/install && \
     rm -rf awscliv2.zip aws && \
-    # Cleanup
-    apt-get remove -y curl unzip && \
+    # Keep curl and unzip — needed later for Chrome for Testing download
     apt-get autoremove -y && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -96,14 +96,46 @@ WORKDIR /app/ingestors
 # Place executables in the environment at the front of the path
 ENV PATH="/app/ingestors/.venv/bin:$PATH"
 
-# Install Playwright browsers (Chromium only) - default variant only
-# This needs to run before switching to non-root user since it downloads to system cache
+# Install Chrome for Testing (latest stable) — replaces playwright's bundled Chrome 145
+# which carries ~90 High/Critical CVEs. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH tells
+# playwright to use this binary instead of its bundled one.
+# A fixed symlink /opt/chrome/chrome makes the ENV path arch-independent.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN if [ "$VARIANT" != "slim" ]; then \
-        mkdir -p /opt/playwright && \
-        playwright install chromium && \
-        chmod -R 755 /opt/playwright; \
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+            # Chrome for Testing has no linux-arm64 build; use playwright's bundled chromium
+            playwright install chromium && \
+            mkdir -p /opt/chrome && \
+            ln -sf "$(find /opt/playwright -name chrome -type f 2>/dev/null | head -1)" /opt/chrome/chrome; \
+        else \
+            # linux64 is the only Linux platform offered by Chrome for Testing
+            PLATFORM="linux64" && \
+            for i in 1 2 3 4 5; do \
+                CHROME_VERSION=$(curl -sfL --retry 3 --retry-delay 5 \
+                    "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json" \
+                    | python3 -c "import sys,json; print(json.load(sys.stdin)['channels']['Stable']['version'])" 2>/dev/null) && \
+                [ -n "$CHROME_VERSION" ] && break; \
+                echo "Attempt $i: failed to fetch Chrome version, retrying in $((i*10))s..." && sleep $((i * 10)); \
+            done && \
+            [ -n "$CHROME_VERSION" ] || (echo "ERROR: Could not fetch Chrome version after 5 attempts" && exit 1) && \
+            echo "Chrome version: $CHROME_VERSION" && \
+            mkdir -p /opt/chrome && \
+            for i in 1 2 3; do \
+                curl -sfL --retry 3 --retry-delay 5 \
+                    "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/${PLATFORM}/chrome-${PLATFORM}.zip" \
+                    -o /tmp/chrome.zip && break; \
+                [ $i -lt 3 ] && sleep $((i * 10)); \
+            done && \
+            unzip -q /tmp/chrome.zip -d /opt/chrome && \
+            rm /tmp/chrome.zip && \
+            ln -sf /opt/chrome/chrome-${PLATFORM}/chrome /opt/chrome/chrome && \
+            chmod -R 755 /opt/chrome && \
+            playwright install-deps chromium; \
+        fi; \
     fi
+
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/chrome/chrome
 
 # Use a non-root user to run the application
 USER app
