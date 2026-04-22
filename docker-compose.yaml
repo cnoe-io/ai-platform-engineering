@@ -942,7 +942,7 @@ services:
       - graph_rag
 
   milvus-standalone:
-    image: milvusdb/milvus:v2.6.0
+    image: milvusdb/milvus:v2.5.14
     container_name: milvus-standalone
     command: ["milvus", "run", "standalone"]
     security_opt: [seccomp:unconfined]
