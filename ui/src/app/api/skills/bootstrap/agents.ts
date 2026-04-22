@@ -31,6 +31,23 @@ export type AgentFormat =
  */
 export type AgentScope = "user" | "project";
 
+/**
+ * Agent file-system layout for skill artifacts.
+ *
+ * - `commands` — legacy slash-command layout (`<dir>/commands/{name}.<ext>`),
+ *   one file per command. This is what shipped first, and is the only
+ *   layout supported by Codex CLI, Spec Kit, Continue, and Gemini today.
+ * - `skills`  — modern skills layout (`<dir>/skills/{name}/SKILL.md`), one
+ *   directory per skill containing a canonical `SKILL.md`. Standardized by
+ *   Claude Code (Oct 2025), Cursor, and opencode; all three back-scan
+ *   `.claude/skills/` for cross-agent compatibility.
+ *
+ * The bootstrap UI exposes this as a per-agent toggle for agents that
+ * support both layouts (Claude, Cursor today). Agents without a
+ * `skillsPaths` entry only support `commands`.
+ */
+export type AgentLayout = "commands" | "skills";
+
 export interface AgentSpec {
   /** Stable id used in URLs (e.g. ?agent=gemini). */
   id: string;
@@ -39,7 +56,8 @@ export interface AgentSpec {
   /** File extension for the rendered artifact (no leading dot). */
   ext: string;
   /**
-   * Install paths per scope. `{name}` is replaced with the slash command name.
+   * Install paths per scope, for the legacy `commands` layout. `{name}` is
+   * replaced with the slash command name.
    * Tilde paths (`~/...`) are expanded at install time by the shell or the
    * generated install.sh. Project paths use a leading `./` so they're
    * unambiguous in shell snippets.
@@ -48,6 +66,22 @@ export interface AgentSpec {
    * UI should disable the radio for it.
    */
   installPaths: Partial<Record<AgentScope, string>>;
+  /**
+   * Install paths per scope for the modern `skills` layout
+   * (`<dir>/skills/{name}/SKILL.md`). Optional: present only for agents
+   * that support the skills layout (Claude, Cursor today).
+   *
+   * The path MUST end in `/{name}/SKILL.md` so `commandsDirFor()` can
+   * strip the trailing two segments to find the parent skills directory
+   * for bulk installs.
+   */
+  skillsPaths?: Partial<Record<AgentScope, string>>;
+  /**
+   * Default layout for this agent. If `skillsPaths` is present and this
+   * is unset, `skills` is used as the default. If `skillsPaths` is absent,
+   * `commands` is the only choice regardless of this field.
+   */
+  defaultLayout?: AgentLayout;
   /** How to wrap the canonical body. */
   format: AgentFormat;
   /**
@@ -79,6 +113,11 @@ export const AGENTS: Record<string, AgentSpec> = {
       user: "~/.claude/commands/{name}.md",
       project: "./.claude/commands/{name}.md",
     },
+    skillsPaths: {
+      user: "~/.claude/skills/{name}/SKILL.md",
+      project: "./.claude/skills/{name}/SKILL.md",
+    },
+    defaultLayout: "skills",
     format: "markdown-frontmatter",
     argRef: "$ARGUMENTS",
     docsUrl: "https://docs.claude.com/en/docs/claude-code",
@@ -112,6 +151,11 @@ export const AGENTS: Record<string, AgentSpec> = {
       user: "~/.cursor/commands/{name}.md",
       project: "./.cursor/commands/{name}.md",
     },
+    skillsPaths: {
+      user: "~/.cursor/skills/{name}/SKILL.md",
+      project: "./.cursor/skills/{name}/SKILL.md",
+    },
+    defaultLayout: "skills",
     format: "markdown-frontmatter",
     argRef: "$ARGUMENTS",
     docsUrl: "https://docs.cursor.com",
@@ -329,21 +373,28 @@ export interface RenderResult {
   /** Final artifact contents (Markdown, TOML, or JSON fragment). */
   template: string;
   /**
-   * Resolved install path for the requested scope, with `{name}` substituted.
-   * `null` if the agent does not support the requested scope.
+   * Resolved install path for the requested (layout, scope), with `{name}`
+   * substituted. `null` if that combination is unsupported.
    */
   install_path: string | null;
   /**
-   * All install paths the agent supports (`{name}` substituted), keyed by scope.
-   * Lets the UI render the scope chooser without re-fetching per scope.
+   * All install paths the agent supports for the resolved layout
+   * (`{name}` substituted), keyed by scope. Lets the UI render the scope
+   * chooser without re-fetching per scope.
    */
   install_paths: Partial<Record<AgentScope, string>>;
-  /** Scopes the agent actually supports. */
+  /** Scopes the agent actually supports for the resolved layout. */
   scopes_available: AgentScope[];
   /** The scope that was actually rendered (may differ if requested was unsupported). */
   scope: AgentScope | null;
   /** True if the requested scope was unsupported and we returned no install_path. */
   scope_fallback: boolean;
+  /** Layouts the agent supports, in display order. */
+  layouts_available: AgentLayout[];
+  /** The layout that was actually rendered. */
+  layout: AgentLayout;
+  /** True if the requested layout was unsupported and we fell back to the default. */
+  layout_fallback: boolean;
   /** File extension (no leading dot). */
   file_extension: string;
   /** Format identifier — useful for the UI to choose syntax highlighting. */
@@ -370,13 +421,47 @@ export interface RenderInputs {
    * `install_path` is `null` and `scope_fallback` is `true`.
    */
   scope?: AgentScope | null;
+  /**
+   * Requested layout. If `null` / undefined, the agent's `defaultLayout` is
+   * used (or `commands` if neither is set). If the requested layout is not
+   * supported by the agent, falls back to the default and sets
+   * `layout_fallback: true` on the result.
+   */
+  layout?: AgentLayout | null;
 }
 
-/** Helper: list of scopes the agent supports, in display order. */
-export function scopesAvailableFor(agent: AgentSpec): AgentScope[] {
+/** Resolve the install-paths map for a given layout. */
+function pathsForLayout(
+  agent: AgentSpec,
+  layout: AgentLayout,
+): Partial<Record<AgentScope, string>> {
+  if (layout === "skills" && agent.skillsPaths) return agent.skillsPaths;
+  return agent.installPaths;
+}
+
+/** Helper: list of scopes the agent supports for the given layout. */
+export function scopesAvailableFor(
+  agent: AgentSpec,
+  layout: AgentLayout = layoutsAvailableFor(agent)[0],
+): AgentScope[] {
+  const paths = pathsForLayout(agent, layout);
   const out: AgentScope[] = [];
-  if (agent.installPaths.user) out.push("user");
-  if (agent.installPaths.project) out.push("project");
+  if (paths.user) out.push("user");
+  if (paths.project) out.push("project");
+  return out;
+}
+
+/** Helper: list of layouts the agent supports, default-first. */
+export function layoutsAvailableFor(agent: AgentSpec): AgentLayout[] {
+  const out: AgentLayout[] = [];
+  // Prefer the agent's stated default if present.
+  if (agent.defaultLayout === "skills" && agent.skillsPaths) {
+    out.push("skills");
+    if (Object.keys(agent.installPaths).length > 0) out.push("commands");
+    return out;
+  }
+  if (Object.keys(agent.installPaths).length > 0) out.push("commands");
+  if (agent.skillsPaths) out.push("skills");
   return out;
 }
 
@@ -404,29 +489,55 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
     argRef: agent.argRef,
   }).replace(/^\n+/, ""); // strip leading blank lines from frontmatter strip
 
-  let rendered: string;
-  switch (agent.format) {
-    case "markdown-frontmatter":
-      rendered = `---\ndescription: ${quoteYaml(description)}\n---\n\n${body}`;
-      break;
-    case "markdown-plain":
-      // Codex prompts: just the body, optionally prefixed with a heading.
-      rendered = `# ${inputs.commandName}\n\n${body}`;
-      break;
-    case "gemini-toml":
-      rendered = `description = ${tomlString(description)}\nprompt = ${tomlMultiline(body)}\n`;
-      break;
-    case "continue-json-fragment":
-      rendered =
-        JSON.stringify(
-          { name: inputs.commandName, description, prompt: body },
-          null,
-          2,
-        ) + "\n";
-      break;
+  // Resolve the layout. If caller asked for `skills` but agent doesn't
+  // support it, fall back to the agent's default layout and flag it.
+  const layoutsAvail = layoutsAvailableFor(agent);
+  const requestedLayout = inputs.layout ?? null;
+  let resolvedLayout: AgentLayout = layoutsAvail[0];
+  let layoutFallback = false;
+  if (requestedLayout) {
+    if (layoutsAvail.includes(requestedLayout)) {
+      resolvedLayout = requestedLayout;
+    } else {
+      layoutFallback = true;
+    }
   }
 
-  const scopesAvail = scopesAvailableFor(agent);
+  // For the `skills` layout, every artifact is a Markdown file with
+  // frontmatter (Cursor / Claude / opencode all REQUIRE name + description
+  // frontmatter for skill auto-discovery). Override the per-agent format
+  // when the skills layout is in use to make sure the bootstrap skill is
+  // discoverable. The frontmatter MUST include `name:` matching the
+  // directory name — see Cursor / Claude / opencode docs.
+  const useSkillsLayout = resolvedLayout === "skills";
+
+  let rendered: string;
+  if (useSkillsLayout) {
+    rendered = `---\nname: ${quoteYaml(inputs.commandName)}\ndescription: ${quoteYaml(description)}\n---\n\n${body}`;
+  } else {
+    switch (agent.format) {
+      case "markdown-frontmatter":
+        rendered = `---\ndescription: ${quoteYaml(description)}\n---\n\n${body}`;
+        break;
+      case "markdown-plain":
+        rendered = `# ${inputs.commandName}\n\n${body}`;
+        break;
+      case "gemini-toml":
+        rendered = `description = ${tomlString(description)}\nprompt = ${tomlMultiline(body)}\n`;
+        break;
+      case "continue-json-fragment":
+        rendered =
+          JSON.stringify(
+            { name: inputs.commandName, description, prompt: body },
+            null,
+            2,
+          ) + "\n";
+        break;
+    }
+  }
+
+  const layoutPaths = pathsForLayout(agent, resolvedLayout);
+  const scopesAvail = scopesAvailableFor(agent, resolvedLayout);
 
   // Resolve the requested scope. Three cases:
   //  - explicit and supported  → use it
@@ -436,7 +547,7 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
   let resolvedScope: AgentScope | null = null;
   let scopeFallback = false;
   if (requested) {
-    if (agent.installPaths[requested]) {
+    if (layoutPaths[requested]) {
       resolvedScope = requested;
     } else {
       scopeFallback = true;
@@ -445,11 +556,11 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
 
   const installPaths: Partial<Record<AgentScope, string>> = {};
   for (const s of scopesAvail) {
-    installPaths[s] = agent.installPaths[s]!.replace(/\{name\}/g, inputs.commandName);
+    installPaths[s] = layoutPaths[s]!.replace(/\{name\}/g, inputs.commandName);
   }
 
   const installPath = resolvedScope
-    ? agent.installPaths[resolvedScope]!.replace(/\{name\}/g, inputs.commandName)
+    ? layoutPaths[resolvedScope]!.replace(/\{name\}/g, inputs.commandName)
     : null;
 
   return {
@@ -459,9 +570,12 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
     scopes_available: scopesAvail,
     scope: resolvedScope,
     scope_fallback: scopeFallback,
-    file_extension: agent.ext,
-    format: agent.format,
-    is_fragment: !!agent.isFragment,
+    layouts_available: layoutsAvail,
+    layout: resolvedLayout,
+    layout_fallback: layoutFallback,
+    file_extension: useSkillsLayout ? "md" : agent.ext,
+    format: useSkillsLayout ? "markdown-frontmatter" : agent.format,
+    is_fragment: useSkillsLayout ? false : !!agent.isFragment,
     launch_guide: agent.launchGuide.replace(/\{name\}/g, inputs.commandName),
     docs_url: agent.docsUrl,
     label: agent.label,

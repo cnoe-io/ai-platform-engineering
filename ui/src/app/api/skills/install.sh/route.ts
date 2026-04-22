@@ -52,7 +52,13 @@
  */
 
 import { NextResponse } from "next/server";
-import { AGENTS, scopesAvailableFor, type AgentSpec } from "../bootstrap/agents";
+import {
+  AGENTS,
+  layoutsAvailableFor,
+  scopesAvailableFor,
+  type AgentLayout,
+  type AgentSpec,
+} from "../bootstrap/agents";
 import { getRequestOrigin } from "../_lib/request-origin";
 
 /* ---------- input sanitizers (mirror the bootstrap route) ---------- */
@@ -133,12 +139,25 @@ function extensionForFormat(format: AgentSpec["format"]): string {
 }
 
 /**
- * Strip the trailing `/{name}.<ext>` from an installPath template so we can
- * reuse the same per-agent directory for bulk installs. The bootstrap entry
- * always ends in `/{name}.<ext>`; if that ever changes the safest fallback
- * is `dirname` semantics, which is what we do here.
+ * Compute the parent directory used for bulk installs.
+ *
+ * - `commands` layout: install path is `<dir>/{name}.<ext>`, so we strip
+ *   the last segment.
+ * - `skills` layout: install path is `<dir>/{name}/SKILL.md`, so we strip
+ *   the last TWO segments to recover `<dir>` (the skills directory itself).
  */
-function commandsDirFor(installPathTemplate: string): string {
+function commandsDirFor(
+  installPathTemplate: string,
+  layout: AgentLayout,
+): string {
+  if (layout === "skills") {
+    // Expect /{name}/SKILL.md tail. Strip both segments.
+    const stripped = installPathTemplate.replace(/\/\{name\}\/[^/]+$/, "");
+    if (stripped !== installPathTemplate) return stripped;
+    // Fallback: drop the last segment if the template doesn't match.
+    const idx = installPathTemplate.lastIndexOf("/");
+    return idx < 0 ? "." : installPathTemplate.slice(0, idx);
+  }
   const idx = installPathTemplate.lastIndexOf("/");
   if (idx < 0) return ".";
   return installPathTemplate.slice(0, idx);
@@ -172,6 +191,7 @@ function plainTextError(message: string, status: number): NextResponse {
 interface ScriptInputs {
   agent: AgentSpec;
   scope: "user" | "project";
+  layout: AgentLayout;
   commandName: string;
   description: string;
   baseUrl: string;
@@ -187,30 +207,40 @@ interface ScriptInputs {
 function buildScript({
   agent,
   scope,
+  layout,
   commandName,
   description,
   baseUrl,
   catalogUrl,
 }: ScriptInputs): string {
-  const installPathTemplate = agent.installPaths[scope]!;
+  // Pick the right install path table for the requested layout.
+  const layoutPaths =
+    layout === "skills" && agent.skillsPaths
+      ? agent.skillsPaths
+      : agent.installPaths;
+  const installPathTemplate = layoutPaths[scope]!;
   const resolvedPath = installPathTemplate.replace(/\{name\}/g, commandName);
-  const commandsDirTemplate = commandsDirFor(installPathTemplate);
-  const isFragment = !!agent.isFragment;
+  const commandsDirTemplate = commandsDirFor(installPathTemplate, layout);
+  // In skills layout the per-agent format is irrelevant — every artifact is
+  // a Markdown SKILL.md file with `name:` + `description:` frontmatter.
+  const isFragment = layout === "skills" ? false : !!agent.isFragment;
   const queryString = new URLSearchParams({
     agent: agent.id,
     scope,
+    layout,
     command_name: commandName,
     base_url: baseUrl,
     ...(description ? { description } : {}),
   }).toString();
   const bootstrapUrl = `${baseUrl}/api/skills/bootstrap?${queryString}`;
-  const fileExt = extensionForFormat(agent.format);
+  const fileExt = layout === "skills" ? "md" : extensionForFormat(agent.format);
   const bulkMode = !!catalogUrl;
 
   // Pre-quote everything we templated in.
   const Q_AGENT_ID = shq(agent.id);
   const Q_AGENT_LABEL = shq(agent.label);
   const Q_SCOPE = shq(scope);
+  const Q_LAYOUT = shq(layout);
   const Q_COMMAND = shq(commandName);
   const Q_FORMAT = shq(agent.format);
   const Q_INSTALL_PATH = shq(resolvedPath);
@@ -244,6 +274,7 @@ set -euo pipefail
 AGENT_ID=${Q_AGENT_ID}
 AGENT_LABEL=${Q_AGENT_LABEL}
 SCOPE=${Q_SCOPE}
+LAYOUT=${Q_LAYOUT}
 COMMAND_NAME=${Q_COMMAND}
 FORMAT=${Q_FORMAT}
 INSTALL_PATH_RAW=${Q_INSTALL_PATH}
@@ -581,7 +612,17 @@ for s in data.get("skills", []) or []:
     if [ -z "\$SKILL_NAME" ]; then
       continue
     fi
-    TARGET="\$COMMANDS_DIR/\$SKILL_NAME.\$FILE_EXT"
+    # In skills layout each skill lives in its own dir as SKILL.md (the
+    # filename Claude/Cursor/opencode auto-discover). In commands layout
+    # we keep the legacy flat <skill>.<ext> file.
+    if [ "\$LAYOUT" = "skills" ]; then
+      TARGET_DIR="\$COMMANDS_DIR/\$SKILL_NAME"
+      TARGET="\$TARGET_DIR/SKILL.md"
+      mkdir -p "\$TARGET_DIR"
+    else
+      TARGET_DIR="\$COMMANDS_DIR"
+      TARGET="\$COMMANDS_DIR/\$SKILL_NAME.\$FILE_EXT"
+    fi
 
     # Per-file overwrite policy mirrors the single-skill flow:
     #   --force   : overwrite anything
@@ -608,7 +649,7 @@ for s in data.get("skills", []) or []:
     # Decode the base64 body into a tempfile in the same dir, then atomic-rename.
     # The body is written verbatim — no marker line, no preamble — so what
     # lands on disk is byte-for-byte the catalog's content.
-    PER_TMP="\$(mktemp "\$COMMANDS_DIR/.caipe-install-XXXXXX")"
+    PER_TMP="\$(mktemp "\$TARGET_DIR/.caipe-install-XXXXXX")"
     if command -v base64 >/dev/null 2>&1; then
       # macOS uses -D, GNU uses -d. Try -d first, fall back to -D.
       if ! printf '%s' "\$SKILL_B64" | base64 -d > "\$PER_TMP" 2>/dev/null; then
@@ -772,10 +813,27 @@ export async function GET(request: Request) {
   }
   const scope = scopeRaw as "user" | "project";
 
-  const supported = scopesAvailableFor(agent);
+  // Resolve the layout BEFORE checking scope support — `scope_available` is
+  // layout-dependent (an agent might support `user` only for `commands` and
+  // both for `skills`, etc.). Default: agent's stated default; falls back to
+  // `commands` if the request asked for an unsupported layout.
+  const layoutsAvail = layoutsAvailableFor(agent);
+  const layoutRaw = (url.searchParams.get("layout") ?? "").trim().toLowerCase();
+  let layout: AgentLayout = layoutsAvail[0];
+  if (layoutRaw === "skills" || layoutRaw === "commands") {
+    if (!layoutsAvail.includes(layoutRaw as AgentLayout)) {
+      return plainTextError(
+        `agent ${agentId} does not support layout=${layoutRaw} (supported: ${layoutsAvail.join(", ")})`,
+        400,
+      );
+    }
+    layout = layoutRaw as AgentLayout;
+  }
+
+  const supported = scopesAvailableFor(agent, layout);
   if (!supported.includes(scope)) {
     return plainTextError(
-      `agent ${agentId} does not support scope=${scope} (supported: ${supported.join(", ") || "none"})`,
+      `agent ${agentId} does not support scope=${scope} for layout=${layout} (supported: ${supported.join(", ") || "none"})`,
       400,
     );
   }
@@ -809,6 +867,7 @@ export async function GET(request: Request) {
   const script = buildScript({
     agent,
     scope,
+    layout,
     commandName,
     description,
     baseUrl,

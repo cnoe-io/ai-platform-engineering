@@ -56,6 +56,14 @@ export function TrySkillsGateway() {
   // show a scope the new agent does not support.
   type InstallScope = "user" | "project";
   const [selectedScope, setSelectedScope] = useState<InstallScope | null>(null);
+  // Agent file-system layout for skill artifacts. `commands` is the legacy
+  // <dir>/commands/{name}.<ext> single-file layout (Codex, Spec Kit, Continue,
+  // Gemini); `skills` is the modern <dir>/skills/{name}/SKILL.md per-skill-dir
+  // layout standardized by Claude Code (Oct 2025), Cursor, and opencode.
+  // null = "use the agent's documented default" (skills where supported,
+  // commands otherwise) so users get the right behavior without thinking.
+  type AgentLayout = "commands" | "skills";
+  const [selectedLayout, setSelectedLayout] = useState<AgentLayout | null>(null);
   const [copiedOneLiner, setCopiedOneLiner] = useState(false);
   const [copiedUpgrade, setCopiedUpgrade] = useState(false);
   const [copiedDownload, setCopiedDownload] = useState(false);
@@ -77,6 +85,15 @@ export function TrySkillsGateway() {
     scopes_available: InstallScope[];
     is_fragment: boolean;
     docs_url?: string;
+    /** Per-layout, per-scope install paths. Server emits a sub-map per
+     *  layout the agent supports (`commands`, `skills`). Used to render
+     *  the layout toggle and resolve paths client-side without a refetch. */
+    install_paths_by_layout?: Partial<
+      Record<AgentLayout, Partial<Record<InstallScope, string>>>
+    >;
+    /** Agent's documented default layout. Used as the toggle's initial
+     *  value when `selectedLayout` is null. */
+    default_layout?: AgentLayout;
   }
   interface BootstrapResponse {
     agent: string;
@@ -96,6 +113,14 @@ export function TrySkillsGateway() {
     docs_url?: string;
     agents: AgentMeta[];
     source: string;
+    /** Resolved layout for this render (after any fallback). */
+    layout?: AgentLayout;
+    /** What the client requested (or null if it accepted the default). */
+    layout_requested?: AgentLayout | null;
+    /** True iff the requested layout was unsupported and we fell back. */
+    layout_fallback?: boolean;
+    /** Layouts this agent supports, in display order (default first). */
+    layouts_available?: AgentLayout[];
   }
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
   const [bootstrapTemplateSource, setBootstrapTemplateSource] = useState<
@@ -193,6 +218,7 @@ export function TrySkillsGateway() {
         command_name: skillCommandName.trim() || "skills",
       });
       if (selectedScope) params.set("scope", selectedScope);
+      if (selectedLayout) params.set("layout", selectedLayout);
       const desc = skillDescription.trim();
       if (desc) params.set("description", desc);
       fetch(`/api/skills/bootstrap?${params.toString()}`, {
@@ -218,7 +244,7 @@ export function TrySkillsGateway() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [selectedAgent, selectedScope, skillCommandName, skillDescription]);
+  }, [selectedAgent, selectedScope, selectedLayout, skillCommandName, skillDescription]);
 
   // When the user switches agents, drop any scope choice that the new agent
   // does not support (e.g. moving from Claude → Codex with scope=project, or
@@ -232,7 +258,17 @@ export function TrySkillsGateway() {
         meta.scopes_available.length === 1 ? meta.scopes_available[0] : null,
       );
     }
-  }, [selectedAgent, agents, selectedScope]);
+    // Same dance for layout: dropping the choice when the target agent
+    // doesn't expose it (e.g. skills→commands when moving Claude→Codex).
+    // null means "use the agent's documented default", so we don't have to
+    // pick one for them.
+    const layoutsAvail = meta.install_paths_by_layout
+      ? (Object.keys(meta.install_paths_by_layout) as AgentLayout[])
+      : (["commands"] as AgentLayout[]);
+    if (selectedLayout && !layoutsAvail.includes(selectedLayout)) {
+      setSelectedLayout(null);
+    }
+  }, [selectedAgent, agents, selectedScope, selectedLayout]);
 
   const handleMint = async () => {
     setMintBusy(true);
@@ -336,7 +372,9 @@ export function TrySkillsGateway() {
       selectedAgent,
     )}&scope=${encodeURIComponent(selectedScope)}&command_name=${encodeURIComponent(
       safeCommandName,
-    )}`;
+    )}${
+      selectedLayout ? `&layout=${encodeURIComponent(selectedLayout)}` : ""
+    }`;
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
     // Upgrade variant: forwards `--upgrade` to the script via `bash -s`,
     // which is `bash`'s standard way of passing flags to a piped script.
@@ -361,7 +399,9 @@ export function TrySkillsGateway() {
     if (previewSkillCount === 0) return null;
     const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
       selectedAgent,
-    )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}`;
+    )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}${
+      selectedLayout ? `&layout=${encodeURIComponent(selectedLayout)}` : ""
+    }`;
     // No CAIPE_CATALOG_KEY=… injection — install.sh reads the key from
     // ~/.config/caipe/config.json (Step 1). See installerSnippets above.
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
@@ -1049,6 +1089,88 @@ EOF`}
                 ) : null}
               </p>
             </div>
+
+            {/* Layout toggle: skills/<name>/SKILL.md (Claude Code Oct 2025
+                + Cursor + opencode) vs the legacy <agent>/commands/{name}.md
+                file. Only visible for agents that support BOTH layouts —
+                otherwise the choice is forced. Defaults to the agent's
+                documented default (skills for Claude/Cursor, commands for
+                everyone else) so users get the right behavior on first paint
+                without having to think about it. Per Shubham Bakshi review
+                feedback (#1268, point C). */}
+            {(() => {
+              const meta = agents.find((a) => a.id === selectedAgent);
+              const layoutsAvail = meta?.install_paths_by_layout
+                ? (Object.keys(meta.install_paths_by_layout) as AgentLayout[])
+                : (["commands"] as AgentLayout[]);
+              if (layoutsAvail.length < 2) return null;
+              const effectiveLayout: AgentLayout =
+                selectedLayout ?? meta?.default_layout ?? layoutsAvail[0];
+              return (
+                <div className="mt-2 rounded-md bg-muted/20 p-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">
+                    File layout
+                    <span className="ml-1 text-[11px] font-normal opacity-70">
+                      ({agentLabel} supports both)
+                    </span>
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {layoutsAvail.map((layout) => {
+                      const isSelected = effectiveLayout === layout;
+                      const paths = meta?.install_paths_by_layout?.[layout];
+                      // Show the path that matches whichever scope is currently
+                      // picked; fall back to user-scope, then any available path
+                      // so the example never collapses to "undefined".
+                      const examplePath =
+                        (selectedScope && paths?.[selectedScope]) ||
+                        paths?.user ||
+                        paths?.project ||
+                        "";
+                      const labelText =
+                        layout === "skills"
+                          ? "Skills layout (SKILL.md per directory)"
+                          : "Commands layout (one .md file per command)";
+                      const sub =
+                        layout === "skills"
+                          ? "Auto-discovered by Claude Code, Cursor, opencode."
+                          : "Legacy slash-command layout. Pick this for portability with older agent versions.";
+                      return (
+                        <label
+                          key={layout}
+                          className={`flex items-start gap-2 rounded-md border p-2 cursor-pointer transition-colors ${
+                            isSelected
+                              ? "border-primary bg-primary/5"
+                              : "border-border bg-background/50 hover:bg-muted/30"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="agent-layout"
+                            value={layout}
+                            checked={isSelected}
+                            onChange={() => setSelectedLayout(layout)}
+                            className="mt-1"
+                          />
+                          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                            <span className="text-sm font-medium">
+                              {labelText}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {sub}
+                            </span>
+                            {examplePath ? (
+                              <code className="text-[11px] font-mono text-muted-foreground break-all">
+                                {examplePath}
+                              </code>
+                            ) : null}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Scope chooser: user (~/) vs project (./). Some agents only
                 support one of these (Codex = user-only, Spec Kit = project-

@@ -48,8 +48,17 @@ interface MockRes {
   headers: Map<string, string>;
 }
 
+// All pre-existing tests assert the legacy `commands` layout, which is the
+// only layout install.sh supported before the skills/<name>/SKILL.md toggle
+// was added. Inject `layout=commands` so existing assertions remain meaningful;
+// skills-layout coverage lives in its own describe block below that calls
+// callGET with `layout=skills` explicitly.
 const callGET = async (url: string): Promise<MockRes> => {
-  const res = (await GET(new Request(url))) as unknown as MockRes;
+  const u = new URL(url);
+  if (!u.searchParams.has("layout")) {
+    u.searchParams.set("layout", "commands");
+  }
+  const res = (await GET(new Request(u.toString()))) as unknown as MockRes;
   return res;
 };
 
@@ -376,5 +385,70 @@ describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => 
     expect(res.headers.get("Content-Disposition")).toContain(
       'filename="install-skills-claude-user.sh"',
     );
+  });
+});
+
+describe("GET /api/skills/install.sh — layout=skills (Shubham C: skills/<name>/SKILL.md)", () => {
+  // Bypass the callGET wrapper so we drive `layout=skills` end-to-end and
+  // exercise the new commandsDirFor() / bulk-install branches.
+  const callGetRaw = async (url: string): Promise<MockRes> =>
+    (await GET(new Request(url))) as unknown as MockRes;
+
+  it("emits LAYOUT=skills and the parent skills dir as COMMANDS_DIR_RAW (Claude user scope)", async () => {
+    const res = await callGetRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&layout=skills",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toContain(`LAYOUT='skills'`);
+    // commandsDirFor() must strip both `/{name}` AND `/SKILL.md` so the bulk
+    // loop can mkdir per-skill subdirs underneath. If only one segment is
+    // stripped, every skill collides at .../skills/SKILL.md.
+    expect(res.body).toContain(`COMMANDS_DIR_RAW='~/.claude/skills'`);
+    expect(res.body).toContain(`INSTALL_PATH_RAW='~/.claude/skills/skills/SKILL.md'`);
+    expect(res.body).toContain(`FILE_EXT='md'`);
+    // Bulk loop branch: per-skill dir + SKILL.md filename.
+    expect(res.body).toContain(`if [ "$LAYOUT" = "skills" ]; then`);
+    expect(res.body).toContain(`TARGET="$TARGET_DIR/SKILL.md"`);
+  });
+
+  it("project scope resolves to ./.cursor/skills for Cursor", async () => {
+    const res = await callGetRaw(
+      "https://app.example.com/api/skills/install.sh?agent=cursor&scope=project&layout=skills&command_name=mycmd",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toContain(`COMMANDS_DIR_RAW='./.cursor/skills'`);
+    expect(res.body).toContain(`INSTALL_PATH_RAW='./.cursor/skills/mycmd/SKILL.md'`);
+  });
+
+  it("rejects layout=skills for agents that don't support it (codex)", async () => {
+    const res = await callGetRaw(
+      "https://app.example.com/api/skills/install.sh?agent=codex&scope=user&layout=skills",
+    );
+    // Per Shubham C, layout must be enforced server-side: silently falling
+    // back would write SKILL.md into ~/.codex/prompts/, which Codex won't
+    // discover.
+    expect(res.status).toBe(400);
+    expect(res.body).toMatch(/layout/i);
+  });
+
+  it("ignores unknown layout values and uses the agent default (claude → skills)", async () => {
+    // We choose lenient fallback over 400 here so a typo'd `?layout=xyz` from
+    // an old install.sh URL doesn't break user installs — the script still
+    // produces a working artifact at the agent's documented default location.
+    const res = await callGetRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&layout=nonsense",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toContain(`LAYOUT='skills'`);
+  });
+
+  it("threads layout through to the bootstrap callback URL", async () => {
+    const res = await callGetRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&layout=skills",
+    );
+    // The script re-fetches the rendered SKILL.md via BOOTSTRAP_URL; that URL
+    // must carry layout=skills or the callback would re-render with the wrong
+    // frontmatter (no `name:` field).
+    expect(res.body).toMatch(/BOOTSTRAP_URL='[^']*[?&]layout=skills/);
   });
 });

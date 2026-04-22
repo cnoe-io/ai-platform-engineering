@@ -41,11 +41,16 @@ description: Browse and install skills from the CAIPE skill catalog
 2. Slash command: /{{COMMAND_NAME}}.
 `;
 
+// Default to the legacy `commands` layout in this helper so that pre-existing
+// assertions (which were written before the skills-layout toggle was added)
+// keep their meaning. Skills-layout coverage lives in its own describe block
+// further down where `layout: 'skills'` is passed explicitly.
 const baseInputs = (overrides: Partial<RenderInputs> = {}): RenderInputs => ({
   canonicalTemplate: CANONICAL,
   commandName: 'skills',
   description: '',
   baseUrl: 'https://gateway.example.com',
+  layout: 'commands',
   ...overrides,
 });
 
@@ -457,5 +462,87 @@ describe('renderForAgent — base URL handling', () => {
     );
     expect(out.template).toContain('https://other.example.com/api/skills');
     expect(out.template).not.toContain('https://gateway.example.com');
+  });
+});
+
+describe('renderForAgent — skills/<name>/SKILL.md layout (Claude/Cursor)', () => {
+  // Per Shubham Bakshi #C: Claude Code (Oct 2025), Cursor, and opencode all
+  // standardize on `<scope>/.<agent>/skills/<name>/SKILL.md`. This block
+  // covers the layout=skills branch end-to-end: install paths, frontmatter
+  // (must include `name:` for auto-discovery), and per-agent fallback when
+  // an agent doesn't support the skills layout.
+
+  it('claude: layout=skills resolves the user-scope SKILL.md path', () => {
+    const out = renderForAgent(
+      AGENTS.claude,
+      { ...baseInputs({ scope: 'user' }), layout: 'skills' },
+    );
+    expect(out.layout).toBe('skills');
+    expect(out.layout_fallback).toBe(false);
+    expect(out.layouts_available).toEqual(['skills', 'commands']);
+    expect(out.install_path).toBe('~/.claude/skills/skills/SKILL.md');
+    expect(out.install_paths.user).toBe('~/.claude/skills/skills/SKILL.md');
+    expect(out.install_paths.project).toBe('./.claude/skills/skills/SKILL.md');
+  });
+
+  it('claude: layout=skills resolves the project-scope SKILL.md path with custom name', () => {
+    const out = renderForAgent(
+      AGENTS.claude,
+      {
+        ...baseInputs({ scope: 'project', commandName: 'my-skill' }),
+        layout: 'skills',
+      },
+    );
+    expect(out.install_path).toBe('./.claude/skills/my-skill/SKILL.md');
+  });
+
+  it('cursor: layout=skills resolves to ~/.cursor/skills/<name>/SKILL.md', () => {
+    const out = renderForAgent(
+      AGENTS.cursor,
+      { ...baseInputs({ scope: 'user', commandName: 'kube' }), layout: 'skills' },
+    );
+    expect(out.layout).toBe('skills');
+    expect(out.install_path).toBe('~/.cursor/skills/kube/SKILL.md');
+  });
+
+  it('renders frontmatter with name + description (required by Claude/Cursor/opencode)', () => {
+    const out = renderForAgent(
+      AGENTS.claude,
+      {
+        ...baseInputs({ scope: 'user', description: 'Catalog' }),
+        layout: 'skills',
+      },
+    );
+    // YAML frontmatter MUST start with --- and include both name + description.
+    // Claude/Cursor/opencode require `name:` matching the directory name for
+    // skill auto-discovery; without it the skill won't be loaded.
+    expect(out.template.startsWith('---\nname: ')).toBe(true);
+    expect(out.template).toMatch(/^---\nname: skills\ndescription: .+\n---\n\n/);
+    // Format/extension are forced to markdown for skills layout regardless
+    // of the agent's per-format preference (TOML/JSON wouldn't be a skill).
+    expect(out.format).toBe('markdown-frontmatter');
+    expect(out.file_extension).toBe('md');
+  });
+
+  it('falls back to commands layout when an agent does not support skills', () => {
+    // Codex CLI only ships `installPaths` (no `skillsPaths`), so requesting
+    // skills should fall back gracefully instead of erroring.
+    const out = renderForAgent(
+      AGENTS.codex,
+      { ...baseInputs({ scope: 'user' }), layout: 'skills' },
+    );
+    expect(out.layout).toBe('commands');
+    expect(out.layout_fallback).toBe(true);
+    expect(out.install_path).toBe('~/.codex/prompts/skills.md');
+    expect(out.layouts_available).toEqual(['commands']);
+  });
+
+  it('uses the agent default layout when no layout is requested (claude → skills)', () => {
+    const out = renderForAgent(
+      AGENTS.claude,
+      { ...baseInputs({ scope: 'user' }), layout: null },
+    );
+    expect(out.layout).toBe('skills');
+    expect(out.install_path).toBe('~/.claude/skills/skills/SKILL.md');
   });
 });

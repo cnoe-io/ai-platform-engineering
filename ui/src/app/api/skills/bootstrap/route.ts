@@ -70,8 +70,10 @@ import path from "path";
 import {
   AGENTS,
   DEFAULT_AGENT_ID,
+  layoutsAvailableFor,
   renderForAgent,
   scopesAvailableFor,
+  type AgentLayout,
   type AgentScope,
   type AgentSpec,
 } from "./agents";
@@ -210,10 +212,23 @@ export function selectScope(raw: string | null): AgentScope | null {
   return null;
 }
 
+/**
+ * Validate layout. Returns `null` when no layout was requested so the
+ * renderer can pick the agent's default. Unknown values also collapse to
+ * `null` (the renderer then sets `layout_fallback: false` since there was
+ * no real request to honor).
+ */
+export function selectLayout(raw: string | null): AgentLayout | null {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (v === "skills" || v === "commands") return v;
+  return null;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const { agent, fallback } = selectAgent(url.searchParams.get("agent"));
   const requestedScope = selectScope(url.searchParams.get("scope"));
+  const requestedLayout = selectLayout(url.searchParams.get("layout"));
 
   const commandName = sanitizeCommandName(url.searchParams.get("command_name"));
   const descriptionInput = sanitizeDescription(
@@ -233,6 +248,7 @@ export async function GET(request: Request) {
     description: descriptionInput,
     baseUrl,
     scope: requestedScope,
+    layout: requestedLayout,
   });
 
   return NextResponse.json(
@@ -253,20 +269,43 @@ export async function GET(request: Request) {
       is_fragment: rendered.is_fragment,
       launch_guide: rendered.launch_guide,
       docs_url: rendered.docs_url,
+      // Layout-aware metadata so the UI can render the layout toggle.
+      layout: rendered.layout,
+      layout_requested: requestedLayout,
+      layout_fallback: rendered.layout_fallback,
+      layouts_available: rendered.layouts_available,
 
       agents: Object.values(AGENTS).map((a) => {
-        const scopes = scopesAvailableFor(a);
-        const paths: Partial<Record<AgentScope, string>> = {};
-        for (const s of scopes) {
-          paths[s] = a.installPaths[s]!.replace(/\{name\}/g, commandName);
+        const layouts = layoutsAvailableFor(a);
+        // Each agent advertises install_paths for ALL supported (layout, scope)
+        // combinations so the UI can drive the toggle without re-fetching.
+        const pathsByLayout: Partial<
+          Record<AgentLayout, Partial<Record<AgentScope, string>>>
+        > = {};
+        for (const lay of layouts) {
+          const scopes = scopesAvailableFor(a, lay);
+          const layPaths: Partial<Record<AgentScope, string>> = {};
+          const tpl = lay === "skills" && a.skillsPaths
+            ? a.skillsPaths
+            : a.installPaths;
+          for (const s of scopes) {
+            layPaths[s] = tpl[s]!.replace(/\{name\}/g, commandName);
+          }
+          pathsByLayout[lay] = layPaths;
         }
+        // Back-compat: keep top-level `install_paths` keyed by the agent's
+        // default layout (matches pre-skills-layout behavior).
+        const defaultLayoutForAgent = layouts[0];
         return {
           id: a.id,
           label: a.label,
           ext: a.ext,
           format: a.format,
-          install_paths: paths,
-          scopes_available: scopes,
+          install_paths: pathsByLayout[defaultLayoutForAgent] ?? {},
+          install_paths_by_layout: pathsByLayout,
+          scopes_available: scopesAvailableFor(a, defaultLayoutForAgent),
+          layouts_available: layouts,
+          default_layout: defaultLayoutForAgent,
           is_fragment: !!a.isFragment,
           docs_url: a.docsUrl,
         };
@@ -278,6 +317,7 @@ export async function GET(request: Request) {
         description: descriptionInput,
         base_url: baseUrl,
         scope: requestedScope,
+        layout: requestedLayout,
       },
       canonical_template: canonicalTemplate,
       placeholders: [

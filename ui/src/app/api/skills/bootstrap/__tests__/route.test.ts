@@ -59,8 +59,17 @@ afterAll(() => {
   process.env = { ...ORIG_ENV };
 });
 
+// All pre-existing tests assert the legacy `commands` layout (the only
+// layout that existed before the skills/<name>/SKILL.md toggle was added).
+// We inject `layout=commands` here so a single change keeps every existing
+// expectation valid; skills-layout coverage lives in its own describe block
+// that calls GET directly with `layout=skills`.
 const callGET = async (url: string) => {
-  const res = await GET(new Request(url));
+  const u = new URL(url);
+  if (!u.searchParams.has('layout')) {
+    u.searchParams.set('layout', 'commands');
+  }
+  const res = await GET(new Request(u.toString()));
   return res.json() as Promise<any>;
 };
 
@@ -395,7 +404,16 @@ describe('GET /api/skills/bootstrap — response shape', () => {
     const codexMeta = data.agents.find((a: any) => a.id === 'codex');
     const specifyMeta = data.agents.find((a: any) => a.id === 'specify');
 
+    // Claude's default layout is now `skills` (Oct 2025 standard), so
+    // its top-level install_paths reflect <scope>/.claude/skills/<name>/SKILL.md.
+    // The legacy `commands` paths still exist under install_paths_by_layout.
+    expect(claudeMeta.default_layout).toBe('skills');
+    expect(claudeMeta.layouts_available).toEqual(['skills', 'commands']);
     expect(claudeMeta.install_paths).toEqual({
+      user: '~/.claude/skills/catalog/SKILL.md',
+      project: './.claude/skills/catalog/SKILL.md',
+    });
+    expect(claudeMeta.install_paths_by_layout?.commands).toEqual({
       user: '~/.claude/commands/catalog.md',
       project: './.claude/commands/catalog.md',
     });
@@ -415,5 +433,61 @@ describe('GET /api/skills/bootstrap — response shape', () => {
       project: './.specify/templates/commands/catalog.md',
     });
     expect(specifyMeta.scopes_available).toEqual(['project']);
+  });
+});
+
+describe('GET /api/skills/bootstrap — layout=skills (Shubham C: skills/<name>/SKILL.md)', () => {
+  // Uses GET directly (bypasses callGET wrapper) so `layout=skills` is the
+  // only layout in the query string — exercises the new skills-layout branch.
+  const callGetRaw = async (url: string) => {
+    const res = await GET(new Request(url));
+    return res.json() as Promise<any>;
+  };
+
+  it('renders Claude with the skills layout, frontmatter `name:`, and SKILL.md path', async () => {
+    const data = await callGetRaw(
+      'https://app.example.com/api/skills/bootstrap?agent=claude&layout=skills&scope=user',
+    );
+    expect(data.layout).toBe('skills');
+    expect(data.layout_requested).toBe('skills');
+    expect(data.layout_fallback).toBe(false);
+    expect(data.layouts_available).toEqual(['skills', 'commands']);
+    expect(data.install_path).toBe('~/.claude/skills/skills/SKILL.md');
+    // Claude/Cursor/opencode auto-discover skills via the YAML `name:` field;
+    // missing it means the skill silently won't load.
+    expect(data.template).toMatch(/^---\nname: skills\ndescription: /);
+  });
+
+  it('falls back to commands when an agent does not support the skills layout (codex)', async () => {
+    const data = await callGetRaw(
+      'https://app.example.com/api/skills/bootstrap?agent=codex&layout=skills&scope=user',
+    );
+    expect(data.layout).toBe('commands');
+    expect(data.layout_requested).toBe('skills');
+    expect(data.layout_fallback).toBe(true);
+    expect(data.install_path).toBe('~/.codex/prompts/skills.md');
+  });
+
+  it('agents catalog advertises install_paths_by_layout and default_layout', async () => {
+    const data = await callGetRaw(
+      'https://app.example.com/api/skills/bootstrap?layout=skills',
+    );
+    const claudeMeta = data.agents.find((a: any) => a.id === 'claude');
+    expect(claudeMeta.default_layout).toBe('skills');
+    expect(claudeMeta.install_paths_by_layout).toEqual({
+      commands: {
+        user: '~/.claude/commands/skills.md',
+        project: './.claude/commands/skills.md',
+      },
+      skills: {
+        user: '~/.claude/skills/skills/SKILL.md',
+        project: './.claude/skills/skills/SKILL.md',
+      },
+    });
+
+    // Codex has no skills layout — only `commands` should appear.
+    const codexMeta = data.agents.find((a: any) => a.id === 'codex');
+    expect(codexMeta.default_layout).toBe('commands');
+    expect(Object.keys(codexMeta.install_paths_by_layout)).toEqual(['commands']);
   });
 });
