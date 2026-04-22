@@ -21,6 +21,9 @@ os.environ.setdefault(
 from ai_platform_engineering.integrations.slack_bot.utils.ai import _get_final_text
 from ai_platform_engineering.integrations.slack_bot.utils.event_parser import EventType, parse_event
 
+# Keep in sync with ``_RAG_TOOL_NAMES`` in ``stream_a2a_response`` (TOOL_NOTIFICATION_END).
+RAG_TOOL_NAMES = frozenset({"search", "fetch_document", "list_datasources", "fetch_url"})
+
 
 def _artifact_update_event(
     artifact_name: str,
@@ -77,6 +80,22 @@ class TestEventTypeParsing(unittest.TestCase):
         self.assertIsNotNone(parsed.tool_notification)
 
 
+class TestRAGToolExclusion(unittest.TestCase):
+    """RAG tools must not set ``any_subagent_completed`` in ``stream_a2a_response``."""
+
+    def test_rag_tools_defined(self) -> None:
+        self.assertEqual(
+            RAG_TOOL_NAMES,
+            {"search", "fetch_document", "list_datasources", "fetch_url"},
+        )
+
+    def test_github_not_in_rag_tools(self) -> None:
+        self.assertNotIn("github", RAG_TOOL_NAMES)
+
+    def test_argocd_not_in_rag_tools(self) -> None:
+        self.assertNotIn("argocd", RAG_TOOL_NAMES)
+
+
 class TestGetFinalText(unittest.TestCase):
     """Priority order for final Slack text (FINAL_RESULT > PARTIAL_RESULT > MESSAGE > artifacts)."""
 
@@ -92,9 +111,10 @@ class TestGetFinalText(unittest.TestCase):
         out = _get_final_text(None, None, "Message", [], "ts1")
         self.assertEqual(out, "Message")
 
-    def test_empty_returns_default(self) -> None:
+    def test_empty_returns_none(self) -> None:
+        # No extractable user content: implementation uses the default placeholder string.
         out = _get_final_text(None, None, None, [], "ts1")
-        self.assertEqual(out, "Oops, something went wrong :(.")
+        self.assertEqual(out, "I've completed your request.")
 
 
 if __name__ == "__main__":

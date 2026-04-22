@@ -13,44 +13,24 @@ serviceAccount:
   annotations: {}
   name: ""
 
-# -- Flat key-value map of environment variables.
-# Each key-value pair is injected as a flat environment variable via ConfigMap
-# (envFrom → configMapRef). Put ALL non-sensitive env vars here — no separate
-# env: block needed.
-#
-# Common keys:
-#   APP_NAME:                          Display name used in Slack messages (default: CAIPE)
-#   SLACK_BOT_MODE:                    "socket" (WebSocket) or "http" (webhooks)
-#   CAIPE_API_URL:                     Next.js gateway URL the bot routes requests through
-#   SLACK_INTEGRATION_SILENCE_ENV:     "true" to suppress environment info in responses
-#   SLACK_WORKSPACE_URL:               e.g. "https://mycompany.slack.com" for permalink deep links
-#   MONGODB_URI:                       MongoDB connection string
-#   MONGODB_DATABASE:                  MongoDB database name (default: caipe)
-#   SLACK_INTEGRATION_ENABLE_AUTH:     "true" to enable OAuth2 Client Credentials
-#   OAUTH2_TOKEN_URL:                  OIDC token endpoint
-#   OAUTH2_CLIENT_ID:                  OAuth2 client ID
-#   OAUTH2_SCOPE:                      OAuth2 scope (optional)
-#   OAUTH2_AUDIENCE:                   OAuth2 audience (optional)
-#   SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE:  Override response style prompt
-#   SLACK_INTEGRATION_PROMPT_QANDA:           Override Q&A prompt
-#   SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA: Override overthink Q&A prompt
-#   SLACK_INTEGRATION_PROMPT_MENTION:         Override mention prompt
-#   SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP: Override humble followup prompt
-#   SLACK_INTEGRATION_PROMPT_AI_ALERTS:       Override AI alerts prompt
-config:
-  APP_NAME: "CAIPE"
-  SLACK_BOT_MODE: "socket"
-  CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
-  SLACK_INTEGRATION_SILENCE_ENV: "false"
-  MONGODB_DATABASE: "caipe"
+appName: "CAIPE"  # Display name used in Slack messages (maps to APP_NAME env var)
 
-# -- Reference to a pre-existing Kubernetes Secret.
-# All keys in the secret are injected as env vars via envFrom → secretRef.
-# Typically contains: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,
-# and optionally OAUTH2_CLIENT_SECRET.
-existingSecret: "slack-bot-secrets"
+# CAIPE API URL — the bot routes all requests through this gateway.
+# Points to the Next.js app which proxies to dynamic agents.
+# Required. Must be reachable from the bot pod.
+caipeApiUrl: "http://ai-platform-engineering-caipe-ui:3000"
 
-# -- External Secrets configuration for sensitive data (Slack tokens, OAuth2 client secret, etc.)
+# Bot connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (incoming webhooks via SLACK_SIGNING_SECRET)
+botMode: "socket"
+
+# Additional env vars passed through to the container.
+env: {}
+
+slack:
+  # Reference to a Kubernetes Secret containing SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET
+  tokenSecretRef: "slack-bot-secrets"
+
+# External Secrets configuration for sensitive data (Slack tokens, OAuth2 client secret, etc.)
 externalSecrets:
   enabled: false  # Set to true to use ExternalSecrets instead of a manually-created K8s Secret
   apiVersion: "v1beta1"
@@ -76,23 +56,58 @@ externalSecrets:
     #     key: prod/slack-bot
     #     property: oauth2_client_secret
 
-# -- Structured channel configuration rendered as a YAML file and volume-mounted
-# at /etc/caipe/bot-config.yaml. Only mounted when non-empty.
-# Structure: channel_id -> channel config (same format as config_models.py expects).
+mongodb:
+  uri: ""  # Override per environment, e.g. "mongodb://admin:changeme@ai-platform-engineering-mongodb:27017"
+  database: "caipe"
+
+# OAuth2 Client Credentials authentication for A2A requests to the supervisor.
+# When enabled, the bot obtains a Bearer token and injects it into all A2A API calls.
+# Works with any OIDC provider (Okta, Keycloak, Auth0, Azure AD, etc.).
+auth:
+  enabled: false
+  tokenUrl: ""      # e.g. "https://your-idp.example.com/oauth2/v1/token"
+  clientId: ""
+  scope: ""         # Optional, e.g. "api://caipe"
+  audience: ""      # Optional
+  # clientSecret should be stored in the Kubernetes Secret (slack.tokenSecretRef) or ExternalSecrets,
+  # NOT in values.yaml. Add OAUTH2_CLIENT_SECRET to your secret.
+
+slackWorkspaceUrl: ""  # e.g. "https://mycompany.slack.com" — used for feedback permalink deep links
+silenceEnv: "false"  # Suppress environment info in bot responses
+
+# Prompt overrides — set any of these to replace the built-in default prompt.
+# Values are injected as SLACK_INTEGRATION_PROMPT_* env vars.
+# Leave empty ("") to use the built-in defaults from the bot's config_models.py.
+prompts:
+  responseStyle: ""       # SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE
+  qanda: ""               # SLACK_INTEGRATION_PROMPT_QANDA
+  overthinkQanda: ""      # SLACK_INTEGRATION_PROMPT_OVERTHINK_QANDA
+  mention: ""             # SLACK_INTEGRATION_PROMPT_MENTION
+  humbleFollowup: ""      # SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP
+  aiAlerts: ""            # SLACK_INTEGRATION_PROMPT_AI_ALERTS
+
+# Channel configuration — written into a ConfigMap and mounted as /etc/caipe/caipe-bot-config.yaml.
+# Structure: channel_id -> channel config (same format as the bot's config_models.py expects).
 # Example:
 #   C012345678:
 #     name: "#my-channel"
 #     ai_enabled: true
-#     agent_id: "my-agent"
+#     custom_prompt: |     # Per-channel @mention prompt override. Overrides the global prompts.mention value
+#       You are a helpful assistant for the #my-channel team.
+#       Answer questions about our platform and escalate incidents when needed.
+#       User message: {message_text}
 #     qanda:
 #       enabled: true
 #       overthink: true
+#       custom_prompt: |   # Per-channel Q&A prompt override. Overrides the global prompts.qanda value
+#         You are a Q&A assistant for the #my-channel team.
+#         User message: {message_text}
 #     ai_alerts:
 #       enabled: false
-#     other:
-#       jira:
-#         project_key: MYPROJ
-#         issue_type: Bug
+#       custom_prompt: ""  # Per-channel AI alerts prompt override. Overrides the global prompts.aiAlerts value
+#     default:
+#       project_key: MYPROJ
+#       issue_type: Bug
 botConfig: {}
 
 resources:
@@ -115,15 +130,3 @@ affinity: {}
 
 volumes: []
 volumeMounts: []
-
-# VPA configuration. Requires VPA to be installed in the cluster.
-# Inherits global.vpa defaults; override any field here to customise for slack-bot.
-vpa:
-  enabled: false
-  updateMode: "InPlaceOrRecreate"
-  controlledResources: ["cpu", "memory"]
-  controlledValues: "RequestsAndLimits"
-  minAllowed:
-    cpu: 50m
-    memory: 128Mi
-  maxAllowed: {}

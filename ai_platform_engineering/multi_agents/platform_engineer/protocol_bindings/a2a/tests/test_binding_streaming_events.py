@@ -224,8 +224,7 @@ class TestStreamingResultContent(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(artifacts[1].append)
         self.assertTrue(artifacts[2].append)
 
-    async def test_narrative_after_subagent_suppressed(self):
-        """After single sub-agent completes, supervisor re-narration is suppressed (dedup)."""
+    async def test_narrative_after_subagent_still_forwarded(self):
         executor = _make_executor()
         state = StreamState()
         state.sub_agents_completed = 1
@@ -235,8 +234,8 @@ class TestStreamingResultContent(unittest.IsolatedAsyncioTestCase):
         await executor._handle_streaming_chunk({}, state, 'After sub-agent synthesis.', task, eq)
 
         artifacts = _extract_artifacts(executor)
-        self.assertEqual(len(artifacts), 0)
-        self.assertIn('After sub-agent synthesis.', state.supervisor_content)
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(artifacts[0].artifact.name, 'streaming_result')
 
 
 # ===================================================================

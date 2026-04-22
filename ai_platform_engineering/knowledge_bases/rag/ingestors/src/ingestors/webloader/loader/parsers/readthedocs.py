@@ -43,11 +43,8 @@ class ReadTheDocsParser(BaseParser):
     if response.css(".wy-body-for-nav, .wy-nav-content-wrap").get():
       return True
 
-    # Check URL for readthedocs domain using hostname to avoid substring false-positives
-    from urllib.parse import urlparse as _urlparse
-    _rtd_host = (_urlparse(response.url).hostname or "").lower()
-    if _rtd_host == "readthedocs.io" or _rtd_host.endswith(".readthedocs.io") \
-            or _rtd_host == "readthedocs.org" or _rtd_host.endswith(".readthedocs.org"):
+    # Check URL for readthedocs domain
+    if "readthedocs.io" in response.url or "readthedocs.org" in response.url:
       return True
 
     return False

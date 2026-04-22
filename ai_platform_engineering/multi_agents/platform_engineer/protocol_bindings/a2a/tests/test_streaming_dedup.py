@@ -140,8 +140,8 @@ class TestStreamingChunkSuppression(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(artifacts[0].append)  # First chunk: new artifact
         self.assertTrue(artifacts[1].append)    # Second chunk: append
 
-    async def test_chunks_after_single_subagent_completion_are_suppressed(self):
-        """After 1 sub-agent completes, streaming chunks are suppressed (dedup guard)."""
+    async def test_chunks_after_single_subagent_completion_are_forwarded(self):
+        """After 1 sub-agent completes, streaming chunks are still forwarded as artifacts."""
         executor = _make_executor()
         state = StreamState()
         state.sub_agents_completed = 1  # Sub-agent already sent complete_result
@@ -152,9 +152,12 @@ class TestStreamingChunkSuppression(unittest.IsolatedAsyncioTestCase):
         await executor._handle_streaming_chunk({}, state, " ArgoCD v2.9.3", task, eq)
 
         artifacts = _extract_artifacts(executor)
-        self.assertEqual(len(artifacts), 0)
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(artifacts[0].artifact.name, 'streaming_result')
+        self.assertFalse(artifacts[0].append)
+        self.assertTrue(artifacts[1].append)
 
-        # Content is still accumulated in supervisor_content for later use as final_result
+        # Content is accumulated in supervisor_content for later use as final_result
         self.assertIn("Here is the result:", state.supervisor_content)
         self.assertIn(" ArgoCD v2.9.3", state.supervisor_content)
 
@@ -235,8 +238,8 @@ class TestStreamingChunkSuppression(unittest.IsolatedAsyncioTestCase):
         await executor._handle_streaming_chunk({}, state, '', task, eq)
         self.assertEqual(len(_extract_sent_events(executor)), 0)
 
-    async def test_chunks_after_subagent_completion_do_not_create_streaming_artifact(self):
-        """Suppressed chunks after sub-agent completion do not set streaming_artifact_id."""
+    async def test_chunks_after_subagent_completion_create_streaming_artifact_id(self):
+        """Forwarded chunks after sub-agent completion set streaming_artifact_id."""
         executor = _make_executor()
         state = StreamState()
         state.sub_agents_completed = 1
@@ -245,7 +248,7 @@ class TestStreamingChunkSuppression(unittest.IsolatedAsyncioTestCase):
 
         await executor._handle_streaming_chunk({}, state, "Post-completion content", task, eq)
 
-        self.assertIsNone(state.streaming_artifact_id)
+        self.assertIsNotNone(state.streaming_artifact_id)
 
     async def test_suppressed_chunks_accumulate_in_supervisor_content(self):
         """Suppressed chunks must accumulate in supervisor_content for use as final_result."""
@@ -763,9 +766,9 @@ class TestEndToEndGitHubProfilePattern(unittest.IsolatedAsyncioTestCase):
         # Always 1 final_result (sub_agent_content preferred for single sub-agent)
         self.assertEqual(final_count, 1, "final_result must always be sent")
 
-        # Streaming: 3 pre-subagent only; post-subagent suppressed by dedup guard
-        self.assertEqual(streaming_count, 3,
-                         "Pre-subagent streaming chunks forwarded, post-subagent suppressed")
+        # Streaming: 3 pre-subagent + 3 post-subagent supervisor chunks (all forwarded)
+        self.assertEqual(streaming_count, 6,
+                         "Pre- and post-subagent streaming chunks forwarded")
 
         # Tool notifications always forwarded (3 total: write_todos, github, write_todos)
         self.assertEqual(notif_start_count, 3,
@@ -865,8 +868,8 @@ class TestEndToEndArgocdVersionPattern(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(artifact_names.count('final_result'), 1,
                          "final_result must always be sent")
 
-        # 3 pre-subagent only; post-subagent suppressed by dedup guard
-        self.assertEqual(artifact_names.count('streaming_result'), 3)
+        # 3 pre-subagent + 2 post-subagent streaming chunks (all forwarded)
+        self.assertEqual(artifact_names.count('streaming_result'), 5)
 
         # Completion
         self.assertEqual(len(all_statuses), 1)

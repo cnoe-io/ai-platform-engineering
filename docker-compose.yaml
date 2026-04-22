@@ -729,6 +729,7 @@ services:
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-backstage-access}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
       # Workflow runner - set WORKFLOW_RUNNER_ENABLED=true to show Run Workflow button and Multi-Step Workflows
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
@@ -941,7 +942,7 @@ services:
       - graph_rag
 
   milvus-standalone:
-    image: milvusdb/milvus:v2.6.0
+    image: milvusdb/milvus:v2.5.14
     container_name: milvus-standalone
     command: ["milvus", "run", "standalone"]
     security_opt: [seccomp:unconfined]

@@ -38,7 +38,8 @@ import {
   ArrowRight,
   Layers,
   Info,
-  Eraser
+  Eraser,
+  Users
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
@@ -63,6 +64,8 @@ import {
 import type { DatasourceDocumentsResponse, DocumentInfo, ChunkInfo } from './api/index'
 import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
 import { useRagPermissions, Permission } from '@/hooks/useRagPermissions'
+import { useTeamKbOwnership } from '@/hooks/useTeamKbOwnership'
+import { KbTeamAccessPanel } from './KbTeamAccessPanel'
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -199,7 +202,10 @@ const ProgressBar = ({ progress, total, current }: { progress: number; total: nu
 
 export default function IngestView() {
   const { hasPermission } = useRagPermissions()
-  
+  const canIngest = hasPermission(Permission.INGEST)
+  const canDelete = hasPermission(Permission.DELETE)
+  const { getTeamsForKb, reload: reloadTeamKb } = useTeamKbOwnership()
+
   // Ingestion state
   const [url, setUrl] = useState('')
   const [ingestType, setIngestType] = useState<string>('web')
@@ -223,6 +229,11 @@ export default function IngestView() {
   const [chunkOverlap, setChunkOverlap] = useState(2000)
   const [reloadInterval, setReloadInterval] = useState<number>(86400) // Default to 24 hours
   const [isCustomReloadInterval, setIsCustomReloadInterval] = useState(false)
+
+  // Team sharing state for new ingestions
+  const [ingestTeamId, setIngestTeamId] = useState('')
+  const [ingestTeamPermission, setIngestTeamPermission] = useState<'read' | 'ingest' | 'admin'>('ingest')
+  const [availableTeams, setAvailableTeams] = useState<{ _id: string; name: string }[]>([])
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -348,6 +359,10 @@ export default function IngestView() {
   useEffect(() => {
     fetchDataSources()
     fetchIngestors()
+    fetch('/api/admin/teams')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setAvailableTeams(d?.data?.teams ?? []))
+      .catch(() => {})
   }, [])
 
   // Effect to auto-select first available ingest type when ingestors load
@@ -839,9 +854,28 @@ export default function IngestView() {
       await fetchDataSources()
       if (datasource_id) {
         await fetchJobsForDataSource(datasource_id)
+
+        if (ingestTeamId) {
+          try {
+            const curRes = await fetch(`/api/admin/teams/${ingestTeamId}/kb-assignments`)
+            const curData = curRes.ok ? await curRes.json() : { data: { kb_ids: [], kb_permissions: {} } }
+            const kbIds = [...(curData.data.kb_ids || []), datasource_id]
+            const perms = { ...(curData.data.kb_permissions || {}), [datasource_id]: ingestTeamPermission }
+            await fetch(`/api/admin/teams/${ingestTeamId}/kb-assignments`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kb_ids: kbIds, kb_permissions: perms }),
+            })
+            reloadTeamKb()
+          } catch (assignErr) {
+            console.error('Post-ingest team assignment failed:', assignErr)
+          }
+        }
       }
       setUrl('')
       setDescription('')
+      setIngestTeamId('')
+      setIngestTeamPermission('ingest')
     } catch (error: any) {
       console.error('Error ingesting data:', error)
       alert(`❌ Ingestion failed: ${error?.message || 'unknown error'}`)
@@ -968,7 +1002,8 @@ export default function IngestView() {
       {/* Scrollable Content */}
       <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
-          {/* Ingest Section */}
+          {/* Ingest Section — hidden for users without INGEST permission */}
+          {canIngest && (
           <motion.section 
             className="bg-card rounded-xl shadow-sm border border-border p-5"
             initial={{ opacity: 0, y: 10 }}
@@ -1046,6 +1081,35 @@ export default function IngestView() {
                 </Button>
               </div>
               
+              {/* Share with team */}
+              {availableTeams.length > 0 && (
+                <div className="flex items-center gap-2 mt-2 ml-1">
+                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Share with:</span>
+                  <select
+                    className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={ingestTeamId}
+                    onChange={(e) => setIngestTeamId(e.target.value)}
+                  >
+                    <option value="">None</option>
+                    {availableTeams.map((t) => (
+                      <option key={t._id} value={t._id}>{t.name}</option>
+                    ))}
+                  </select>
+                  {ingestTeamId && (
+                    <select
+                      className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={ingestTeamPermission}
+                      onChange={(e) => setIngestTeamPermission(e.target.value as 'read' | 'ingest' | 'admin')}
+                    >
+                      <option value="read">Read</option>
+                      <option value="ingest">Ingest</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  )}
+                </div>
+              )}
+
               {/* Quick options - Crawl Mode for web */}
               {ingestType === 'web' && (
                 <div className="flex items-center gap-4 mt-2 ml-1">
@@ -1428,6 +1492,7 @@ export default function IngestView() {
               </AnimatePresence>
             </div>
           </motion.section>
+          )}
 
           {/* Data Sources Section */}
           <motion.section 
@@ -1595,6 +1660,16 @@ export default function IngestView() {
                                 <span className="font-medium text-sm truncate max-w-md" title={ds.datasource_id}>
                                   {ds.datasource_id.length > 60 ? `${ds.datasource_id.substring(0, 60)}...` : ds.datasource_id}
                                 </span>
+                                {getTeamsForKb(ds.datasource_id).map((ti) => (
+                                  <Badge key={ti.teamId} variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                                    {ti.teamName}
+                                  </Badge>
+                                ))}
+                                <KbTeamAccessPanel
+                                  datasourceId={ds.datasource_id}
+                                  mode="compact"
+                                  onUpdate={reloadTeamKb}
+                                />
                                 <Badge variant="secondary" className="text-[10px] shrink-0">
                                   {ds.source_type}
                                 </Badge>
@@ -1626,7 +1701,9 @@ export default function IngestView() {
                                 <span className="text-xs text-muted-foreground">No jobs</span>
                               )}
 
+                              {(canIngest || canDelete) && (
                               <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                                {canIngest && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1637,6 +1714,9 @@ export default function IngestView() {
                                 >
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 </Button>
+                                )}
+                                {canDelete && (
+                                <>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1657,7 +1737,10 @@ export default function IngestView() {
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
+                                </>
+                                )}
                               </div>
+                              )}
                             </div>
                           </div>
 
@@ -1731,6 +1814,15 @@ export default function IngestView() {
                                       </div>
                                     </details>
                                   )}
+
+                                  {/* Team Access */}
+                                  <div className="rounded-lg bg-muted/50 border border-border/50 p-3">
+                                    <KbTeamAccessPanel
+                                      datasourceId={ds.datasource_id}
+                                      mode="full"
+                                      onUpdate={reloadTeamKb}
+                                    />
+                                  </div>
 
                                   {/* Jobs Section - Collapsible */}
                                   {jobs.length > 0 && (
@@ -2351,16 +2443,18 @@ export default function IngestView() {
                                   </p>
                                 </div>
 
+                                {canDelete && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
-                                  disabled={isDefaultWebloader || !hasPermission(Permission.DELETE)}
+                                  disabled={isDefaultWebloader}
                                   className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
                                   title={isDefaultWebloader ? 'Cannot delete default webloader' : 'Delete ingestor'}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
+                                )}
                               </div>
 
                               <AnimatePresence>

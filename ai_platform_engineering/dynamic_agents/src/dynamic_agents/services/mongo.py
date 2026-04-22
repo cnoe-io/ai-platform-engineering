@@ -16,6 +16,8 @@ from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import (
     DynamicAgentConfig,
     MCPServerConfig,
+    UserContext,
+    VisibilityType,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +38,6 @@ class MongoDBService:
                 self.settings.mongodb_uri,
                 serverSelectionTimeoutMS=5000,
                 retryWrites=False,
-                tz_aware=True,
             )
             # Verify connectivity
             self._client.admin.command("ping")
@@ -97,6 +98,8 @@ class MongoDBService:
         if doc:
             return DynamicAgentConfig(**doc)
         return None
+
+
 
     # =========================================================================
     # Read-only MCP server access

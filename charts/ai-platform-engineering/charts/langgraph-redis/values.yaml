@@ -108,15 +108,3 @@ affinity: {}
 volumes: []
 # -- Extra volume mounts
 volumeMounts: []
-
-# VPA configuration. Requires VPA to be installed in the cluster.
-# Inherits global.vpa defaults; override any field here to customise for langgraph-redis.
-vpa:
-  enabled: false
-  updateMode: "InPlaceOrRecreate"
-  controlledResources: ["cpu", "memory"]
-  controlledValues: "RequestsAndLimits"
-  minAllowed:
-    cpu: 50m
-    memory: 128Mi
-  maxAllowed: {}

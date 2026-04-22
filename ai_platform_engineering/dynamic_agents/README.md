@@ -84,10 +84,14 @@ MONGODB_DATABASE=caipe
 DYNAMIC_AGENTS_COLLECTION=dynamic_agents
 MCP_SERVERS_COLLECTION=mcp_servers
 
-# Authentication
-# In production, the Next.js gateway injects X-User-Context headers.
-# For local development, set DEBUG=true to bypass auth with a dev admin user.
-DEBUG=true
+# Authentication (disable for local development)
+AUTH_ENABLED=false
+
+# When AUTH_ENABLED=true, configure OIDC:
+# OIDC_ISSUER=https://your-idp.com
+# OIDC_CLIENT_ID=your-client-id
+# OIDC_GROUP_CLAIM=groups
+# OIDC_REQUIRED_ADMIN_GROUP=platform-admin
 
 # LLM Provider (configure at least one)
 # For Anthropic:
@@ -141,11 +145,17 @@ The API documentation is available at:
 |----------|-------------|---------|
 | `HOST` | Server bind address | `0.0.0.0` |
 | `PORT` | Server port | `8001` |
-| `DEBUG` | Enable debug mode / hot reload / dev auth bypass | `false` |
+| `DEBUG` | Enable debug mode / hot reload | `false` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
 | `MONGODB_DATABASE` | Database name | `caipe` |
 | `DYNAMIC_AGENTS_COLLECTION` | Agents collection name | `dynamic_agents` |
 | `MCP_SERVERS_COLLECTION` | MCP servers collection name | `mcp_servers` |
+| `AUTH_ENABLED` | Enable JWT authentication | `true` |
+| `OIDC_ISSUER` | OIDC provider issuer URL | - |
+| `OIDC_CLIENT_ID` | OIDC client ID (for audience validation) | - |
+| `OIDC_DISCOVERY_URL` | Explicit OIDC discovery URL | - |
+| `OIDC_GROUP_CLAIM` | JWT claim name(s) for groups | - |
+| `OIDC_REQUIRED_ADMIN_GROUP` | Group name for admin access | - |
 | `AGENT_RUNTIME_TTL_SECONDS` | Cache TTL for agent runtimes | `3600` |
 | `CORS_ORIGINS` | Allowed CORS origins | `["*"]` |
 
@@ -314,7 +324,7 @@ docker build -t dynamic-agents .
 # Run
 docker run -p 8001:8001 \
   -e MONGODB_URI=mongodb://host.docker.internal:27017 \
-  -e DEBUG=true \
+  -e AUTH_ENABLED=false \
   -e ANTHROPIC_API_KEY=your-key \
   dynamic-agents
 ```

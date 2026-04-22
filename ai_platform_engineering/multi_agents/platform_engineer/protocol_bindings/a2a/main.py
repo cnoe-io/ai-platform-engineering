@@ -200,15 +200,7 @@ app.mount("/", _skills_api)
 A2A_AUTH_OAUTH2 = os.getenv('A2A_AUTH_OAUTH2', 'false').lower() == 'true'
 A2A_AUTH_SHARED_KEY = os.getenv('A2A_AUTH_SHARED_KEY')
 
-if A2A_AUTH_SHARED_KEY and A2A_AUTH_OAUTH2:
-    logger.info("Using dual authentication (shared key + OAuth2 JWT)")
-    from ai_platform_engineering.utils.auth.dual_auth_middleware import DualAuthMiddleware
-    app.add_middleware(
-        DualAuthMiddleware,
-        agent_card=get_agent_card(host, port, external_url),
-        public_paths=['/.well-known/agent.json', '/.well-known/agent-card.json'],
-    )
-elif A2A_AUTH_SHARED_KEY:
+if A2A_AUTH_SHARED_KEY:
     logger.info("Using shared key authentication")
     from ai_platform_engineering.utils.auth.shared_key_middleware import SharedKeyMiddleware
     app.add_middleware(
@@ -226,6 +218,13 @@ elif A2A_AUTH_OAUTH2:
     )
 else:
     logger.info("Using no authentication")
+
+# JWT user context middleware — extracts user identity from the Bearer token
+# and stores it in a per-request contextvar. Runs after auth so the token is
+# already validated. Active whenever a Bearer token is present (no extra flag).
+from ai_platform_engineering.utils.auth.jwt_user_context_middleware import JwtUserContextMiddleware
+app.add_middleware(JwtUserContextMiddleware)
+logger.info("JWT user context middleware enabled")
 
 # Add CORSMiddleware to allow requests from any origin
 app.add_middleware(

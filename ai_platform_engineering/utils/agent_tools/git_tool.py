@@ -80,16 +80,9 @@ def _detect_git_provider(url: str) -> str:
     Also checks GITLAB_HOST and GITHUB_HOST environment variables for
     custom/enterprise instances (e.g., gitlab.customhost.com for GitLab).
     """
-    import re as _re
     url_lower = url.lower()
     parsed = urlparse(url_lower)
     host = parsed.netloc or url_lower
-
-    # Handle SSH-style git URLs: git@hostname:path (urlparse leaves netloc empty)
-    if not parsed.netloc and '@' in host:
-        m = _re.match(r'^(?:[^@]+@)?([^/:]+)', host)
-        if m:
-            host = m.group(1)
 
     # Check for custom GitLab host from environment
     gitlab_host = os.getenv("GITLAB_HOST", "").lower()
@@ -101,12 +94,12 @@ def _detect_git_provider(url: str) -> str:
     if github_host and github_host in host:
         return 'github'
 
-    # Standard detection using parsed host (avoids substring-match false positives)
-    if host == 'github.com' or host.endswith('.github.com') or host == 'github':
+    # Standard detection
+    if 'github.com' in url_lower or 'github' in url_lower:
         return 'github'
-    elif host == 'gitlab.com' or host.endswith('.gitlab.com') or host == 'gitlab':
+    elif 'gitlab.com' in url_lower or 'gitlab' in url_lower:
         return 'gitlab'
-    elif 'bitbucket' in host:
+    elif 'bitbucket' in url_lower:
         return 'bitbucket'
     return 'unknown'
 

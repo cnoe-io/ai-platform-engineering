@@ -121,24 +121,6 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
 
-# Vertical Pod Autoscaler - applies resource recommendations automatically (updateMode: "InPlaceOrRecreate").
-# Requires VPA to be installed in the cluster before deploying with vpa.enabled=true.
-# Do not enable alongside autoscaling.enabled - VPA conflicts with HPA on both CPU-based and memory-based scaling.
-# Setting initial resource requests (see resources: above) improves the quality of early VPA recommendations.
-vpa:
-  enabled: false
-  # "InPlaceOrRecreate" applies recommendations in-place (Kubernetes 1.29+) or recreates the pod.
-  # Use "Off" for recommendations only (no restarts), or "Recreate" on older clusters.
-  updateMode: "InPlaceOrRecreate"
-  controlledResources: ["cpu", "memory"]
-  controlledValues: "RequestsAndLimits"
-  minAllowed:
-    cpu: 50m
-    memory: 128Mi
-  maxAllowed: {}
-  #   cpu: 2
-  #   memory: 2Gi
-
 # Additional volumes on the output Deployment definition.
 volumes: []
 # - name: foo

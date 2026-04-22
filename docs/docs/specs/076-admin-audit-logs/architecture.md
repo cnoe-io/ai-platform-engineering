@@ -31,7 +31,7 @@ AUDIT_LOGS_ENABLED=true  # Set to enable; omit or set false to disable
 The gate is enforced at three levels:
 1. **Env var**: `AUDIT_LOGS_ENABLED=true` must be set (disabled by default)
 2. **UI**: The Audit Logs tab is only rendered when `auditLogsEnabled` is true AND the user is a full admin (`isAdmin`) — read-only admin viewers do not see the tab
-3. **API**: All endpoints return HTTP 403 if the feature is disabled OR if the user is not a full admin (`requireAdmin`, not `requireAdminView`)
+3. **API**: All endpoints return HTTP 403 if the feature is disabled OR if the user is not a full admin (`requireAdmin`)
 
 ### API Endpoints
 
@@ -115,7 +115,7 @@ No additional configuration is required. The feature inherits MongoDB connection
 ## Security
 
 - Triple-gated: env var + full admin role (`requireAdmin`) + UI visibility check
-- Read-only admin viewers (`canViewAdmin`) cannot access audit logs — only full admins (`session.role === 'admin'`) can
+- Only full admins (`session.role === 'admin'`) can access audit logs
 - Server-side enforcement: all 4 API endpoints reject with 403 when feature is disabled or user is not a full admin
 - Read-only: no mutation endpoints exposed
 - MongoDB queries use parameterized aggregation pipelines

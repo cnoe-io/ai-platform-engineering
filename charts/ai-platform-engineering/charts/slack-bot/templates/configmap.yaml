@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "slack-bot.fullname" . }}-config
+  labels:
+    {{- include "slack-bot.labels" . | nindent 4 }}
+data:
+  caipe-bot-config.yaml: |
+    {{- .Values.botConfig | toYaml | nindent 4 }}

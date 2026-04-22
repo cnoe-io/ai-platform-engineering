@@ -8,7 +8,6 @@ import {
   successResponse,
   ApiError,
   requireAdmin,
-  requireAdminView,
 } from "@/lib/api-middleware";
 
 interface PolicyDocument {
@@ -25,8 +24,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return await withAuth(request, async (_req, _user, session) => {
-    requireAdminView(session);
-
     const collection = await getCollection<PolicyDocument>("policies");
     const policy = await collection.findOne({ name: "default" });
 

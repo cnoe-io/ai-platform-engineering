@@ -283,9 +283,9 @@ All handlers (`handle_mention`, `handle_dm_message`, `handle_qanda_message`, fee
 - `test_slack_formatter_plan.py` (Slack Block Kit formatting unchanged)
 - `test_thread_guard.py` (thread verification unchanged)
 
-### ~~Phase 8: ClientContext + Jinja2 System Prompt Templating~~ ✅
+### Phase 8: ClientContext + Jinja2 System Prompt Templating
 
-~~**Commits**: `feat(dynamic-agents): add ClientContext and Jinja2 system prompt rendering`, `refactor(slack-bot): remove hardcoded prompts, send ClientContext`~~
+**Commits**: `feat(dynamic-agents): add ClientContext and Jinja2 system prompt rendering`, `refactor(slack-bot): remove hardcoded prompts, send ClientContext`
 
 #### Goal
 
@@ -503,17 +503,15 @@ Currently prepended ad-hoc as `f"The user email is {user_email}\n\n{final_messag
 
 ## Future Work
 
-~~**Config Centralization (spec 101)**: The Slack bot currently loads channel configuration from the `SLACK_INTEGRATION_BOT_CONFIG` YAML env var at startup. The future direction is to centralize all configuration in the NextJS API server (backed by MongoDB), so the Slack bot fetches its config from `GET {CAIPE_UI_URL}/api/slack-bot/config` at startup and supports hot-reload. This is out of scope for 0.4.0 and will be specified separately. The `agent_id` field added to `ChannelConfig` in Phase 1 is the foundation that spec 101 will build on.~~ (deferred to future release)
+**Config Centralization (spec 101)**: The Slack bot currently loads channel configuration from the `SLACK_INTEGRATION_BOT_CONFIG` YAML env var at startup. The future direction is to centralize all configuration in the NextJS API server (backed by MongoDB), so the Slack bot fetches its config from `GET {CAIPE_UI_URL}/api/slack-bot/config` at startup and supports hot-reload. This is out of scope for 0.4.0 and will be specified separately. The `agent_id` field added to `ChannelConfig` in Phase 1 is the foundation that spec 101 will build on.
 
 **UI: Send ClientContext from web chat**: The web chat should send `ClientContext(source="webui")` in chat requests. Agent config editor could add a UI for previewing how system prompts render with different client contexts.
 
 **UI: Jinja2 template preview in agent config editor**: The system prompt textarea in the agent config editor should render a live preview of the Jinja2 template with sample `client_context` values. This would let agent creators see how conditionals resolve (e.g. Slack vs web UI, overthink on/off) without deploying and testing in Slack. Could use a client-side Jinja2-compatible renderer (e.g. Nunjucks) or call a backend preview endpoint.
 
-~~**UI: Text rendering between tool calls**: The custom encoder's `_handle_updates` closes text messages and new ones aren't properly started during active streaming. This causes gaps in rendered text between tool calls. Separate PR fix.~~ (resolved — was an LLM configuration issue)
+**UI: Text rendering between tool calls**: The custom encoder's `_handle_updates` closes text messages and new ones aren't properly started during active streaming. This causes gaps in rendered text between tool calls. Separate PR fix.
 
-~~**AuthContext**: The Next.js API server should add authenticated user context (from JWT) that the dynamic agents backend trusts. Currently `AgentContext` has `user_id`, `user_name`, `user_groups` but `user_name` and `user_groups` are never populated. This would formalize the auth context flow: Next.js validates JWT, extracts claims, passes `AuthContext` to dynamic agents which trusts it without re-validating.~~ (deferred to 0.5.0 — will be addressed by RBA)
+**AuthContext**: The Next.js API server should add authenticated user context (from JWT) that the dynamic agents backend trusts. Currently `AgentContext` has `user_id`, `user_name`, `user_groups` but `user_name` and `user_groups` are never populated. This would formalize the auth context flow: Next.js validates JWT, extracts claims, passes `AuthContext` to dynamic agents which trusts it without re-validating.
 
-~~**UI bug fix: Interleaved content not rendered in dynamic agent chats**: The custom encoder closes text messages on tool call boundaries, but new text messages aren't properly started when the agent resumes writing after a tool call completes. This causes content interleaved between tool calls to be silently dropped in the UI. Separate PR fix.~~ (resolved — same LLM configuration issue as text rendering between tool calls)
-
-**Configurable middleware as agent advanced settings**: Expose LangChain built-in middleware (`ModelCallLimitMiddleware`, `ToolCallLimitMiddleware`, `ModelFallbackMiddleware`, etc.) as configurable "advanced settings" on agent configs. Currently subagents have no iteration/call limits — `recursion_limit` defaults to 10,000 (from `langchain/agents/factory.py`) and there's no `max_tokens`, `max_iterations`, or wall-clock timeout. This caused an infinite subagent streaming loop when parallel subagents generated unbounded output. **Immediate fix**: add `ModelCallLimitMiddleware(run_limit=N)` to parent and subagent middleware in `agent_runtime.py` plus `asyncio.timeout()` around `astream()`. **Full solution**: add a `middleware` section to `DynamicAgentConfig` (MongoDB agent config) with typed settings for each middleware, exposed in the UI agent config editor as an "Advanced" panel. Per-agent tunables: `model_call_limit` (run/thread), `tool_call_limit` (run/thread, per-tool), `recursion_limit`, `max_tokens`, `timeout_seconds`, `model_fallback` (ordered list of fallback models). This lets agent creators set guardrails per agent without code changes.
+**UI bug fix: Interleaved content not rendered in dynamic agent chats**: The custom encoder closes text messages on tool call boundaries, but new text messages aren't properly started when the agent resumes writing after a tool call completes. This causes content interleaved between tool calls to be silently dropped in the UI. Separate PR fix.
 

@@ -443,13 +443,9 @@ export class TimelineManager {
     }
     
     // If no tools at all, all content segments become final answer
-    // (plus any unflushed buffer content already added above)
     if (!hasTools) {
       const contentSegments = segments.filter(s => s.type === "content") as ContentSegment[];
-      if (contentSegments.length > 0) {
-        // Prepend flushed content segments before the buffer
-        finalAnswerParts = [...contentSegments.map(s => s.text), ...finalAnswerParts];
-      }
+      finalAnswerParts = contentSegments.map(s => s.text);
       // Remove content segments from segments (they go to finalAnswer)
       const nonContentSegments = segments.filter(s => s.type !== "content");
       segments.length = 0;

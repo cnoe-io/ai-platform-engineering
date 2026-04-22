@@ -11,16 +11,20 @@ Auto-generated from all feature plans. Last updated: 2026-04-08
 ## Active Technologies
 - N/A (UI state only) (095-fix-thinking-panel-expand)
 - Python 3.11+ (supervisor, `skills_middleware`), TypeScript / Next.js 16 + React 19 (UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI (`skills_middleware.router`), A2A binding (`AIPlatformEngineerA2ABinding`), httpx, PyJWT/jose for JWKS (097-skills-middleware-integration)
-- MongoDB (skills, skill_hubs, agent_skills projection); optional filesystem / `SKILLS_DIR` for built-ins; in-process `StateBackend` for middleware file injection (097-skills-middleware-integration)
-- Python 3.11+ (backend), TypeScript / Next.js App Router (UI) + LangGraph, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI (supervisor bindings), Motor/pymongo (MongoDB), Next.js API routes + existing JWT/JWKS helpers (097-skills-middleware-integration)
-- MongoDB (`skill_hubs`, optional `skills`, agent projections); filesystem `SKILLS_DIR`; in-process `StateBackend` for middleware (097-skills-middleware-integration)
-- Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind (097-skills-middleware-integration)
 - MongoDB (`agent_skills`, optional `skills`, `skill_hubs`, `catalog_api_keys`, `skill_scan_findings`); filesystem `SKILLS_DIR` for packaged defaults; in-process catalog cache with explicit generation counters (097-skills-middleware-integration)
 - Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional **`cisco-ai-skill-scanner`** CLI/package for hub/CI scans per [skill-scanner](https://github.com/cisco-ai-defense/skill-scanner) (097-skills-middleware-integration)
 - Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI (098-unify-single-distributed-binding)
 - MongoDB/Redis (checkpointer/store — unchanged by this feature) (098-unify-single-distributed-binding)
 - Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8) (098-unify-single-distributed-binding)
 - MongoDB (checkpoints, store), Redis (alternative checkpointer), InMemorySaver (fallback) (098-unify-single-distributed-binding)
+- Python 3.11+ (supervisor, agents, slack-bot); TypeScript / Next.js (CAIPE UI, BFF API routes) + NextAuth.js (OIDC), MongoDB (users, policies, app metadata), RAG server (existing group-based roles), Slack Bolt (or equivalent) for Slack surfaces (098-enterprise-rbac-slack-ui)
+- Hybrid — **Keycloak** for authz policies (resources, scopes, permissions), realm roles, user attributes (slack_user_id); **MongoDB** for team/KB assignments, app metadata, operational state (FR-023) (098-enterprise-rbac-slack-ui)
+- TypeScript (Next.js 16, React 19) + NextAuth.js, Keycloak Admin REST API, MongoDB (teams), Tailwind CSS, shadcn/ui components (098-enterprise-rbac-slack-ui)
+- Keycloak (users, roles, user attributes, sessions) + MongoDB (team memberships, slack_user_metrics) (098-enterprise-rbac-slack-ui)
+- TypeScript (Next.js 16, React 19) + Python 3.11+ (Slack bot) + NextAuth.js, Keycloak Admin REST API, MongoDB, Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui (098-enterprise-rbac-slack-ui)
+- Keycloak (users, roles, attributes, sessions) + MongoDB (teams, slack_link_nonces, slack_user_metrics) (098-enterprise-rbac-slack-ui)
+- Python 3.11+ (supervisor, agents, Slack bot, RAG server), TypeScript / Next.js 16 + React 19 (UI) + LangGraph, LangChain, FastAPI, NextAuth.js, Keycloak (OIDC + AuthZ Services), Agent Gateway, MongoDB, cel-python (Python CEL), cel-js (TypeScript CEL), Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui (098-enterprise-rbac-slack-ui)
+- MongoDB (teams, KB ownership, app metadata, nonces, metrics), Keycloak (policies, resources, roles, user attributes) (098-enterprise-rbac-slack-ui)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -43,6 +47,10 @@ TypeScript (UI), React 19: Follow standard conventions
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI
+- 098-enterprise-rbac-slack-ui: Added Python 3.11+ (supervisor, agents, Slack bot, RAG server), TypeScript / Next.js 16 + React 19 (UI) + LangGraph, LangChain, FastAPI, NextAuth.js, Keycloak (OIDC + AuthZ Services), Agent Gateway, MongoDB, cel-python (Python CEL), cel-js (TypeScript CEL), Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui
+- 098-enterprise-rbac-slack-ui: Added TypeScript (Next.js 16, React 19) + Python 3.11+ (Slack bot) + NextAuth.js, Keycloak Admin REST API, MongoDB, Slack Web API (`@slack/web-api`), Tailwind CSS, shadcn/ui
+- 098-enterprise-rbac-slack-ui: Added TypeScript (Next.js 16, React 19) + NextAuth.js, Keycloak Admin REST API, MongoDB (teams), Tailwind CSS, shadcn/ui components
+- 098-enterprise-rbac-slack-ui: Added Python 3.11+ (supervisor, agents, slack-bot); TypeScript / Next.js 16 (CAIPE UI, BFF API routes)
 
 
 <!-- MANUAL ADDITIONS START -->

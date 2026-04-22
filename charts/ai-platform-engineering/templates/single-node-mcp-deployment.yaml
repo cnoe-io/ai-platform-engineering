@@ -2,8 +2,7 @@
 In single-node mode, agent subcharts are disabled so their mcp-deployment templates
 don't run.  This template creates MCP HTTP server Deployments at the parent chart
 level for every enabled subagent whose mcp.mode is "http" (and that isn't using a
-remote MCP server). ServiceAccounts are created by single-node-mcp-serviceaccount.yaml
-using the same naming convention as the agent subchart ({prefix}-agent-<name>); see global.singleNode.mcpResourcePrefix.
+remote MCP server).
 */ -}}
 {{- if eq .Values.global.deploymentMode "single-node" }}
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
@@ -20,31 +19,29 @@ using the same naming convention as the agent subchart ({prefix}-agent-<name>); 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
+  name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
   labels:
     {{- include "ai-platform-engineering.labels" $ | nindent 4 }}
-    app.kubernetes.io/name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
+    app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
     app.kubernetes.io/component: mcp
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
+      app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
       app.kubernetes.io/component: mcp
       app.kubernetes.io/instance: {{ $.Release.Name }}
   template:
     metadata:
       labels:
         {{- include "ai-platform-engineering.labels" $ | nindent 8 }}
-        app.kubernetes.io/name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
+        app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
         app.kubernetes.io/component: mcp
     spec:
-      serviceAccountName: {{ printf "%s-%s" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
-      automountServiceAccountToken: {{ $mcp.automountServiceAccountToken | default false }}
       containers:
         - name: mcp
-          image: "{{ $mcpImageRepo }}:{{ $mcpImage.tag | default (include "ai-platform-engineering.appVersion" $) }}"
+          image: "{{ $mcpImageRepo }}:{{ $mcpImage.tag | default $.Chart.AppVersion }}"
           imagePullPolicy: {{ $mcpImage.pullPolicy | default "Always" }}
           ports:
             - name: http

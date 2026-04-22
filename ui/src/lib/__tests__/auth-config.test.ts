@@ -172,7 +172,7 @@ describe('auth-config', () => {
       process.env = originalEnv
     })
 
-    it('should include offline_access scope when refresh tokens enabled', () => {
+    it('should request groups scope when refresh tokens enabled (no offline_access)', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'true'
 
       jest.isolateModules(() => {
@@ -181,11 +181,12 @@ describe('auth-config', () => {
 
         const provider = authOptions.providers[0]
         const scope = provider.authorization.params.scope
-        expect(scope).toContain('offline_access')
+        expect(scope).toContain('groups')
+        expect(scope).not.toContain('offline_access')
       })
     })
 
-    it('should not include offline_access scope when refresh tokens disabled', () => {
+    it('should still request groups scope when refresh tokens disabled', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'false'
 
       jest.isolateModules(() => {
@@ -194,6 +195,7 @@ describe('auth-config', () => {
 
         const provider = authOptions.providers[0]
         const scope = provider.authorization.params.scope
+        expect(scope).toContain('groups')
         expect(scope).not.toContain('offline_access')
       })
     })
@@ -216,6 +218,7 @@ describe('auth-config', () => {
         expect(scope).toContain('openid')
         expect(scope).toContain('email')
         expect(scope).toContain('profile')
+        expect(scope).toContain('groups')
       })
     })
   })

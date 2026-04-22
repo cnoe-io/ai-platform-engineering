@@ -18,6 +18,7 @@ from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from jinja2 import ChainableUndefined, TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
+from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.types import Command
@@ -47,7 +48,6 @@ from dynamic_agents.services.mcp_client import (
     get_tools_with_resilience,
     wrap_tools_with_error_handling,
 )
-from dynamic_agents.services.middleware import build_middleware
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -87,9 +87,8 @@ class SystemPromptRenderError(Exception):
 def _render_system_prompt(
     template_str: str,
     client_context: ClientContext | None,
-    user: UserContext | None = None,
 ) -> str:
-    """Render a system prompt template with client and user context via Jinja2.
+    """Render a system prompt template with client context via Jinja2.
 
     Uses a restricted ``SandboxedEnvironment`` to prevent code execution
     in templates.  All built-in globals (``lipsum``, ``range``, ``cycler``,
@@ -98,18 +97,11 @@ def _render_system_prompt(
 
     ``ChainableUndefined`` ensures missing keys evaluate to falsy empty
     strings instead of raising errors — agent creators can safely write
-    ``{%% if client_context.overthink %%}`` or ``{%% if user.is_admin %%}``
-    without worrying about KeyError.
-
-    Template variables:
-        - ``client_context``: dict with ``source`` and any extra client fields
-        - ``user``: dict with ``email`` and any extra auth fields (``name``,
-          ``is_admin``, ``groups``, etc.)
+    ``{%% if client_context.overthink %%}`` without worrying about KeyError.
 
     Args:
         template_str: The system prompt, possibly containing Jinja2 syntax.
         client_context: ClientContext from ChatRequest, or None.
-        user: UserContext for the current user, or None.
 
     Returns:
         Rendered system prompt string.
@@ -119,10 +111,9 @@ def _render_system_prompt(
             attempts unsafe attribute access, or otherwise fails to render.
     """
     ctx = client_context.model_dump() if client_context else {}
-    user_ctx = user.model_dump(exclude={"raw_claims"}) if user else {}
     try:
         template = _jinja_env.from_string(template_str)
-        return template.render(client_context=ctx, user=user_ctx)
+        return template.render(client_context=ctx)
     except TemplateSyntaxError as exc:
         raise SystemPromptRenderError(f"Invalid system prompt template syntax: {exc}") from exc
     except SecurityError as exc:
@@ -142,7 +133,6 @@ class AgentRuntime:
         mongo_service: "MongoDBService | None" = None,
         user: UserContext | None = None,
         client_context: ClientContext | None = None,
-        session_id: str | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
@@ -150,9 +140,9 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._client_context = client_context
-        self._session_id = session_id
+        self._auth_bearer: str | None = (user.obo_jwt or user.access_token) if user else None
         self._graph = None
-        self._mongo_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)
+        self._mongo_client = MongoClient(self.settings.mongodb_uri)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
         self._checkpointer = MongoDBSaver(
             self._mongo_client,
@@ -187,7 +177,12 @@ class AgentRuntime:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
         else:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+            )
 
             if not connections:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
@@ -224,8 +219,7 @@ class AgentRuntime:
                 )
 
         # 4 Add built-in tools based on agent config
-        client_ctx = self._client_context.model_dump() if self._client_context else None
-        builtin_tools = self._build_builtin_tools(self._user, client_context=client_ctx)
+        builtin_tools = self._build_builtin_tools(self._user)
         if builtin_tools:
             tools = tools + builtin_tools
 
@@ -236,7 +230,7 @@ class AgentRuntime:
 
         # 6. System prompt from agent config, rendered with client context
         try:
-            system_prompt = _render_system_prompt(self.config.system_prompt, self._client_context, self._user)
+            system_prompt = _render_system_prompt(self.config.system_prompt, self._client_context)
         except SystemPromptRenderError as exc:
             logger.error(f"Agent '{self.config.name}' failed to initialize: {exc}")
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
@@ -277,7 +271,9 @@ class AgentRuntime:
             name=safe_name,
             subagents=subagents if subagents else None,
             interrupt_on={"request_user_input": True},
-            middleware=build_middleware(self.config.features, self._session_id),
+            middleware=[
+                ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+            ],
         )
 
         self._initialized = True
@@ -290,7 +286,6 @@ class AgentRuntime:
         self,
         user: UserContext | None = None,
         agent_config: DynamicAgentConfig | None = None,
-        client_context: dict | None = None,
     ) -> list:
         """Build list of built-in tools based on agent config.
 
@@ -298,7 +293,6 @@ class AgentRuntime:
             user: User context for tools that need user info
             agent_config: Agent config to use. Defaults to self.config (parent agent).
                           Pass subagent config to build tools for a subagent.
-            client_context: Optional client context dict for the user_info tool.
 
         Returns:
             List of LangChain tools to add to the agent.
@@ -327,7 +321,7 @@ class AgentRuntime:
         user_info_config = config.builtin_tools.user_info
         if user_info_config and user_info_config.enabled:
             if user:
-                tools.append(create_user_info_tool(user, client_context=client_context))
+                tools.append(create_user_info_tool(user))
                 config_summary["user_info"] = {"user": user.email}
             else:
                 logger.warning(f"Agent '{config.name}': user_info enabled but no user context available")
@@ -429,7 +423,9 @@ class AgentRuntime:
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
-                "middleware": build_middleware(subagent_config.features, self._session_id),
+                "middleware": [
+                    ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+                ],
             }
 
             # Note: Nested subagents (subagent of subagent) are not supported in this MVP.
@@ -453,9 +449,15 @@ class AgentRuntime:
         tools: list = []
 
         # 1. Build MCP tools from subagent's allowed_tools config
+        #    Inherit parent's AG routing and auth (FR-038f)
         server_ids = list(subagent_config.allowed_tools.keys())
         if server_ids:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+            )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent
                 all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
@@ -466,8 +468,7 @@ class AgentRuntime:
                 tools.extend(mcp_tools)
 
         # 2. Add built-in tools based on subagent's config
-        client_ctx = self._client_context.model_dump() if self._client_context else None
-        builtin_tools = self._build_builtin_tools(self._user, subagent_config, client_context=client_ctx)
+        builtin_tools = self._build_builtin_tools(self._user, subagent_config)
         if builtin_tools:
             tools.extend(builtin_tools)
 
@@ -501,8 +502,11 @@ class AgentRuntime:
 
         config["context"] = AgentContext(
             user_id=user_id,
+            user_name=self._user.name if self._user else None,
+            user_groups=list(self._user.groups) if self._user else [],
             agent_config_id=self.config.id,
             session_id=session_id,
+            obo_jwt=self._auth_bearer,
         )
 
         if "metadata" not in config:
@@ -559,11 +563,7 @@ class AgentRuntime:
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
 
-        logger.info(
-            f"[stream] Starting stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
-            f"user_context={self._user}, client_context={self._client_context}"
-        )
+        logger.info(f"[stream] Starting stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
 
         # ── Core lifecycle: run start ──
         for frame in encoder.on_run_start(run_id, session_id):
@@ -720,11 +720,7 @@ class AgentRuntime:
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
 
-        logger.info(
-            f"[resume] Resuming stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
-            f"user_context={self._user}, client_context={self._client_context}"
-        )
+        logger.info(f"[resume] Resuming stream for agent '{self.config.name}': user={user_id}, conv={session_id}")
 
         # ── Core lifecycle: run start ──
         for frame in encoder.on_run_start(run_id, session_id):
@@ -941,7 +937,6 @@ class AgentRuntimeCache:
             mongo_service=self._mongo_service,
             user=user,
             client_context=client_context,
-            session_id=session_id,
         )
         await runtime.initialize()
         self._cache[key] = runtime

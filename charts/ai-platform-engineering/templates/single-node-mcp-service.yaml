@@ -1,8 +1,7 @@
 {{- /*
 Companion Service for single-node MCP Deployments.
 Creates a ClusterIP Service for every enabled subagent whose mcp.mode is "http"
-so the supervisor pod can reach the MCP server at <mcpResourcePrefix>-agent-<name>-mcp:<port>
-(default prefix is the Helm release name; override with global.singleNode.mcpResourcePrefix).
+so the supervisor pod can reach the MCP server at <release>-agent-<name>-mcp:<port>.
 */ -}}
 {{- if eq .Values.global.deploymentMode "single-node" }}
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
@@ -19,10 +18,10 @@ so the supervisor pod can reach the MCP server at <mcpResourcePrefix>-agent-<nam
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
+  name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
   labels:
     {{- include "ai-platform-engineering.labels" $ | nindent 4 }}
-    app.kubernetes.io/name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
+    app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
     app.kubernetes.io/component: mcp
 spec:
   type: ClusterIP
@@ -32,7 +31,7 @@ spec:
       protocol: TCP
       name: http
   selector:
-    app.kubernetes.io/name: {{ printf "%s-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $agentKey }}
+    app.kubernetes.io/name: {{ printf "%s-%s-mcp" $.Release.Name $agentKey }}
     app.kubernetes.io/component: mcp
     app.kubernetes.io/instance: {{ $.Release.Name }}
 {{- end }}

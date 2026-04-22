@@ -46,7 +46,7 @@ spec:
       automountServiceAccountToken: {{ $.Values.serviceAccount.automount | default true }}
       containers:
         - name: ingestor
-          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default (include "rag-ingestors.appVersion" $) }}"
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default $.Chart.AppVersion }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           env:
             # Core ingestor configuration

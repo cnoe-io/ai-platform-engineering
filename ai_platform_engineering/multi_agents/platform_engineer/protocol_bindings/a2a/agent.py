@@ -6,7 +6,6 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterable
-from dataclasses import dataclass, field
 from typing import Any, Optional
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
@@ -50,18 +49,6 @@ logger = logging.getLogger(__name__)
 # LangGraph state and tries to parse any string starting with "data:" as a
 # base64 data URI.  Skill SKILL.md content triggers this harmlessly.
 logging.getLogger("langfuse.media").setLevel(logging.CRITICAL)
-
-@dataclass
-class PlanState:
-    """Per-request execution plan tracking.
-
-    Instantiated as a local in stream() so concurrent requests on the
-    singleton AIPlatformEngineerA2ABinding cannot cross-contaminate.
-    """
-    execution_plan_sent: bool = False
-    previous_todos: dict[int, dict] = field(default_factory=dict)
-    task_plan_entries: dict[str, dict] = field(default_factory=dict)
-    in_self_service_workflow: bool = False
 
 
 def _tool_narration(tool_name: str, tool_args: dict) -> str | None:
@@ -117,6 +104,10 @@ class AIPlatformEngineerA2ABinding:
       set_mas_instance(self._mas_instance)
       self.graph = None  # Set after ensure_initialized()
       self.tracing = TracingManager()
+      self._execution_plan_sent = False
+      self._previous_todos: dict[int, dict] = {}  # Track todo states for notifications
+      self._task_plan_entries: dict[str, dict] = {}  # Track task (subagent) calls for execution plan
+      self._in_self_service_workflow = False  # Suppress intermediate text during deterministic workflows
       self._initialized = False
 
   async def ensure_initialized(self) -> None:
@@ -293,7 +284,7 @@ class AIPlatformEngineerA2ABinding:
               continue
       return None
 
-  def _build_task_plan_text(self, plan: PlanState) -> str:
+  def _build_task_plan_text(self) -> str:
       """Build execution plan text from tracked task (subagent) calls.
 
       Returns text in the emoji+bracket format the UI expects, e.g.:
@@ -307,14 +298,14 @@ class AIPlatformEngineerA2ABinding:
           "failed": "❌",
       }
       lines = []
-      for entry in plan.task_plan_entries.values():
+      for entry in self._task_plan_entries.values():
           icon = status_icons.get(entry["status"], "⏳")
           agent = entry["subagent"].title()
           lines.append(f"{icon} [{agent}] {entry['description']}")
       return "\n".join(lines)
 
-  def _build_todo_plan_text(self, plan: PlanState) -> str:
-      """Build execution plan text from tracked todos (plan.previous_todos).
+  def _build_todo_plan_text(self) -> str:
+      """Build execution plan text from tracked todos (_previous_todos).
 
       Todo content already contains [AgentName] prefix from the middleware/prompt.
       We just need to prepend the status emoji.
@@ -327,10 +318,10 @@ class AIPlatformEngineerA2ABinding:
       }
       lines = []
       for todo_id in sorted(
-          plan.previous_todos.keys(),
+          self._previous_todos.keys(),
           key=lambda x: (int(x) if str(x).isdigit() else float('inf')),
       ):
-          entry = plan.previous_todos[todo_id]
+          entry = self._previous_todos[todo_id]
           icon = status_icons.get(entry["status"], "⏳")
           content = entry["content"]
           lines.append(f"{icon} {content}")
@@ -490,10 +481,6 @@ class AIPlatformEngineerA2ABinding:
   ) -> AsyncIterable[dict[str, Any]]:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}")
 
-      # Per-request plan state — local variable so concurrent streams cannot
-      # cross-contaminate on the singleton binding instance.
-      plan = PlanState()
-
       # Ensure agent is initialized with MCP tools (lazy loading on first stream)
       await self.ensure_initialized()
 
@@ -528,6 +515,21 @@ class AIPlatformEngineerA2ABinding:
       # model + tools cycles). Match the multi-node agent's limit of 100.
       config['recursion_limit'] = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "500"))
 
+      # Attach audit callback so tool invocations are logged to audit_events
+      try:
+          from ai_platform_engineering.utils.audit_callback import AuditCallbackHandler
+          _audit_cb = AuditCallbackHandler(
+              agent_name="supervisor",
+              user_email=user_email,
+              context_id=context_id,
+              trace_id=trace_id or config.get("metadata", {}).get("trace_id"),
+          )
+          _cbs = list(config.get("callbacks") or [])
+          _cbs.append(_audit_cb)
+          config["callbacks"] = _cbs
+      except Exception as _audit_err:
+          logging.debug(f"Audit callback not attached: {_audit_err}")
+
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
           config['metadata'] = {}
@@ -555,29 +557,48 @@ class AIPlatformEngineerA2ABinding:
           else:
               logging.debug("No trace_id available from parameter or context")
 
+      # Inject OBO token into configurable so auth-aware proxy tools can read it (FR-038e)
+      obo_token = getattr(self, '_obo_token', None)
+      if obo_token:
+          if 'configurable' not in config:
+              config['configurable'] = {}
+          config['configurable']['obo_token'] = obo_token
+          logging.info("Injected obo_token into config.configurable for AG routing")
+
       logging.debug(f"Created tracing config: {config}")
 
       # ========================================================================
-      # EXECUTION PLAN STATE: re-seed on HITL resume
+      # EXECUTION PLAN STATE: re-seed on HITL resume, reset on fresh query
       # ========================================================================
-      # plan is already a fresh PlanState(); only HITL resumes need re-seeding.
       if command is not None:
+          self._task_plan_entries = {}
+          self._in_self_service_workflow = False
           try:
               state = await self.graph.aget_state(config)
               existing_todos = (state.values or {}).get("todos", []) if state else []
               if existing_todos:
-                  plan.execution_plan_sent = True
+                  self._execution_plan_sent = True
+                  self._previous_todos = {}
                   for todo in existing_todos:
                       if isinstance(todo, dict):
-                          plan.previous_todos[todo.get("id")] = {
+                          self._previous_todos[todo.get("id")] = {
                               "status": todo.get("status", "pending"),
                               "content": todo.get("content", f"Step {todo.get('id')}"),
                           }
-                  logging.info(f"📋 HITL resume: re-seeded {len(plan.previous_todos)} todos from graph state")
+                  logging.info(f"📋 HITL resume: re-seeded {len(self._previous_todos)} todos from graph state")
               else:
+                  self._execution_plan_sent = False
+                  self._previous_todos = {}
                   logging.debug("HITL resume: no existing todos in graph state")
           except Exception as e:
               logging.warning(f"Could not re-seed todos on resume: {e}")
+              self._execution_plan_sent = False
+              self._previous_todos = {}
+      else:
+          self._execution_plan_sent = False
+          self._previous_todos = {}
+          self._task_plan_entries = {}
+          self._in_self_service_workflow = False
 
       # Reset RAG caps and hard-stop state so each new query starts fresh.
       # Cap counters use a TTL-based cleanup that spans 5 minutes; without an
@@ -889,8 +910,8 @@ class AIPlatformEngineerA2ABinding:
                               if len(task_desc) > 120:
                                   display_desc += "..."
 
-                              if tc_id not in plan.task_plan_entries:
-                                  plan.task_plan_entries[tc_id] = {
+                              if tc_id not in self._task_plan_entries:
+                                  self._task_plan_entries[tc_id] = {
                                       "subagent": subagent_type,
                                       "description": display_desc,
                                       "status": "in_progress",
@@ -900,13 +921,13 @@ class AIPlatformEngineerA2ABinding:
 
                   # Re-emit plan when new tasks detected or existing entries refined
                   if plan_dirty:
-                      if plan.previous_todos:
-                          plan_text = self._build_todo_plan_text(plan)
+                      if self._previous_todos:
+                          plan_text = self._build_todo_plan_text()
                       else:
-                          plan_text = self._build_task_plan_text(plan)
-                      artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
-                      plan.execution_plan_sent = True
-                      logging.info(f"📋 Emitting {artifact_name} from updates (entries={len(plan.task_plan_entries)})")
+                          plan_text = self._build_task_plan_text()
+                      artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                      self._execution_plan_sent = True
+                      logging.info(f"📋 Emitting {artifact_name} from updates (entries={len(self._task_plan_entries)})")
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -927,15 +948,15 @@ class AIPlatformEngineerA2ABinding:
                           if not isinstance(msg, ToolMessage):
                               continue
                           tc_id = msg.tool_call_id if hasattr(msg, 'tool_call_id') else None
-                          if tc_id and tc_id in plan.task_plan_entries:
-                              if plan.task_plan_entries[tc_id]["status"] != "completed":
-                                  plan.task_plan_entries[tc_id]["status"] = "completed"
+                          if tc_id and tc_id in self._task_plan_entries:
+                              if self._task_plan_entries[tc_id]["status"] != "completed":
+                                  self._task_plan_entries[tc_id]["status"] = "completed"
                                   completion_dirty = True
                                   logging.info(f"✅ Task completed (from updates stream): {tc_id}")
 
                   if completion_dirty:
-                      plan_text = self._build_todo_plan_text(plan) if plan.previous_todos else self._build_task_plan_text(plan)
-                      logging.info(f"📋 Emitting execution_plan_status_update: {sum(1 for e in plan.task_plan_entries.values() if e['status'] == 'completed')}/{len(plan.task_plan_entries)} tasks completed")
+                      plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
+                      logging.info(f"📋 Emitting execution_plan_status_update: {sum(1 for e in self._task_plan_entries.values() if e['status'] == 'completed')}/{len(self._task_plan_entries)} tasks completed")
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -954,13 +975,13 @@ class AIPlatformEngineerA2ABinding:
                               continue
                           todo_id = todo.get("id") if todo.get("id") is not None else idx
                           new_status = todo.get("status", "pending")
-                          old_status = plan.previous_todos.get(todo_id, {}).get("status", "pending")
+                          old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
                           todo_content = todo.get("content", f"Step {todo_id}")
 
                           # New todo → always counts as a plan change
-                          if todo_id not in plan.previous_todos:
+                          if todo_id not in self._previous_todos:
                               plan_changed = True
-                              plan.previous_todos[todo_id] = {
+                              self._previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
                               }
@@ -992,17 +1013,17 @@ class AIPlatformEngineerA2ABinding:
                                       }
                                   }
 
-                              plan.previous_todos[todo_id] = {
+                              self._previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
                               }
 
                   # Re-emit execution plan artifact so the UI sidebar updates
-                  if plan_changed and plan.previous_todos:
-                      plan_text = self._build_todo_plan_text(plan)
-                      artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
-                      plan.execution_plan_sent = True
-                      logging.info(f"📋 Emitting {artifact_name} from todo transition ({len(plan.previous_todos)} todos)")
+                  if plan_changed and self._previous_todos:
+                      plan_text = self._build_todo_plan_text()
+                      artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                      self._execution_plan_sent = True
+                      logging.info(f"📋 Emitting {artifact_name} from todo transition ({len(self._previous_todos)} todos)")
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -1152,7 +1173,7 @@ class AIPlatformEngineerA2ABinding:
 
                           # invoke_self_service_task — enter self-service mode to suppress intermediate text
                           if tool_name == "invoke_self_service_task":
-                              plan.in_self_service_workflow = True
+                              self._in_self_service_workflow = True
                               logging.info("🔄 Self-service workflow detected — suppressing intermediate text streaming")
                               continue
 
@@ -1282,7 +1303,7 @@ class AIPlatformEngineerA2ABinding:
                   # During self-service workflows, suppress intermediate text
                   # (execution plan updates and tool notifications are still emitted
                   # via the write_todos and task handlers above)
-                  if content and plan.in_self_service_workflow:
+                  if content and self._in_self_service_workflow:
                       logging.debug(f"Suppressed intermediate text ({len(content)} chars) during self-service workflow")
                       continue
 
@@ -1405,7 +1426,7 @@ class AIPlatformEngineerA2ABinding:
 
                       # ── invoke_self_service_task: enter self-service mode ──
                       if tool_name == "invoke_self_service_task":
-                          plan.in_self_service_workflow = True
+                          self._in_self_service_workflow = True
                           logging.info("🔄 Self-service workflow detected (AIMessage) — suppressing intermediate text streaming")
                           continue
 
@@ -1416,10 +1437,10 @@ class AIPlatformEngineerA2ABinding:
                           for idx, todo in enumerate(todos):
                               todo_id = todo.get("id") if todo.get("id") is not None else idx
                               new_status = todo.get("status", "pending")
-                              old_status = plan.previous_todos.get(todo_id, {}).get("status", "pending")
+                              old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
                               todo_content = todo.get("content", f"Step {todo_id}")
 
-                              if todo_id not in plan.previous_todos:
+                              if todo_id not in self._previous_todos:
                                   plan_changed = True
 
                               if old_status != new_status:
@@ -1450,7 +1471,7 @@ class AIPlatformEngineerA2ABinding:
                                       }
 
                               # Update tracked state
-                              plan.previous_todos[todo_id] = {
+                              self._previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
                               }
@@ -1458,10 +1479,10 @@ class AIPlatformEngineerA2ABinding:
                           # Emit execution plan from write_todos args directly
                           # (don't rely on ToolMessage path — write_todos returns a
                           # Command whose inner ToolMessage may not stream)
-                          if todos and (plan_changed or not plan.execution_plan_sent):
-                              plan_text = self._build_todo_plan_text(plan)
-                              artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
-                              plan.execution_plan_sent = True
+                          if todos and (plan_changed or not self._execution_plan_sent):
+                              plan_text = self._build_todo_plan_text()
+                              artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                              self._execution_plan_sent = True
                               logging.info(f"📋 Emitting {artifact_name} from write_todos AIMessage ({len(todos)} todos)")
                               yield {
                                   "is_task_complete": False,
@@ -1483,15 +1504,15 @@ class AIPlatformEngineerA2ABinding:
                           if len(task_desc) > 120:
                               display_desc += "..."
                           tc_id = tool_call.get("id", "")
-                          if tc_id and tc_id not in plan.task_plan_entries:
-                              plan.task_plan_entries[tc_id] = {
+                          if tc_id and tc_id not in self._task_plan_entries:
+                              self._task_plan_entries[tc_id] = {
                                   "subagent": subagent_type,
                                   "description": display_desc,
                                   "status": "in_progress",
                               }
-                              plan_text = self._build_todo_plan_text(plan) if plan.previous_todos else self._build_task_plan_text(plan)
-                              artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
-                              plan.execution_plan_sent = True
+                              plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
+                              artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                              self._execution_plan_sent = True
                               logging.info(f"📋 Emitting {artifact_name} from task call: [{subagent_type}] {display_desc}")
                               yield {
                                   "is_task_complete": False,
@@ -1593,9 +1614,9 @@ class AIPlatformEngineerA2ABinding:
                   rag_tool_names = self._mas_instance.get_rag_tool_names()
 
                   # Mark task (subagent) completion in execution plan
-                  if tool_name == "task" and tool_call_id and tool_call_id in plan.task_plan_entries:
-                      plan.task_plan_entries[tool_call_id]["status"] = "completed"
-                      plan_text = self._build_todo_plan_text(plan) if plan.previous_todos else self._build_task_plan_text(plan)
+                  if tool_name == "task" and tool_call_id and tool_call_id in self._task_plan_entries:
+                      self._task_plan_entries[tool_call_id]["status"] = "completed"
+                      plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
                       logging.info(f"✅ Emitting execution_plan_status_update: task {tool_call_id} completed")
                       yield {
                           "is_task_complete": False,
@@ -1617,13 +1638,13 @@ class AIPlatformEngineerA2ABinding:
                   if tool_name == "write_todos":
                       logging.debug("📋 Skipping write_todos ToolMessage for exec plan (handled by updates handler)")
                   elif tool_name in rag_tool_names:
-                      # For RAG tools, suppress raw content from stream (client uses tool_call notification)
-                      logging.debug(f"Suppressing tool content for {tool_name} (tool_call notification already sent)")
+                    # For RAG tools, we don't want to stream the content, as its a LOT of text
+                      logging.debug(f"Suppressing RAG tool content for {tool_name} (tool_call notification already sent)")
                   # Stream other tool content as a tool notification (not chat text)
                   # During self-service workflows, suppress intermediate tool output —
                   # the final structured response will contain a clean summary
                   elif tool_content and tool_content.strip():
-                      if plan.in_self_service_workflow:
+                      if self._in_self_service_workflow:
                           logging.debug(f"Suppressed tool output ({tool_name}, {len(tool_content)} chars) during self-service workflow")
                       else:
                           yield {
@@ -1640,7 +1661,7 @@ class AIPlatformEngineerA2ABinding:
                   # Stream completion notification (skip for write_todos and task —
                   # their lifecycle is handled via per-task notifications above)
                   # Also skip during self-service workflows to avoid noisy notifications
-                  if tool_name not in ("write_todos", "task") and not plan.in_self_service_workflow:
+                  if tool_name not in ("write_todos", "task") and not self._in_self_service_workflow:
                       tool_name_formatted = (tool_name or "unknown").title()
                       yield {
                           "is_task_complete": False,
@@ -1933,18 +1954,18 @@ class AIPlatformEngineerA2ABinding:
                       continue
                   tid = todo.get("id")
                   new_s = todo.get("status", "pending")
-                  old_s = plan.previous_todos.get(tid, {}).get("status", "pending")
-                  if tid not in plan.previous_todos or old_s != new_s:
+                  old_s = self._previous_todos.get(tid, {}).get("status", "pending")
+                  if tid not in self._previous_todos or old_s != new_s:
                       plan_dirty = True
-                      plan.previous_todos[tid] = {
+                      self._previous_todos[tid] = {
                           "status": new_s,
                           "content": todo.get("content", f"Step {tid}"),
                       }
               if plan_dirty:
-                  plan_text = self._build_todo_plan_text(plan)
-                  artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
-                  plan.execution_plan_sent = True
-                  logging.info(f"📋 Post-stream catch-all: emitting {artifact_name} ({len(plan.previous_todos)} todos)")
+                  plan_text = self._build_todo_plan_text()
+                  artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
+                  self._execution_plan_sent = True
+                  logging.info(f"📋 Post-stream catch-all: emitting {artifact_name} ({len(self._previous_todos)} todos)")
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,

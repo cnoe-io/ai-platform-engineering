@@ -63,7 +63,6 @@ class SessionManager:
   def __init__(self):
     self._user_info_cache = TTLCache(ttl_seconds=600)
     self._skipped_cache = TTLCache(ttl_seconds=300)
-    self._channel_info_cache = TTLCache(ttl_seconds=3600)
     self._escalated_threads: set[str] = set()
 
   # ------------------------------------------------------------------
@@ -110,18 +109,6 @@ class SessionManager:
     self._user_info_cache.set(user_id, user_info)
 
   # ------------------------------------------------------------------
-  # Channel info cache (conversations.info — topic, purpose, etc.)
-  # ------------------------------------------------------------------
-
-  def get_channel_info(self, channel_id: str) -> Optional[dict]:
-    """Get cached channel info."""
-    return self._channel_info_cache.get(channel_id)
-
-  def set_channel_info(self, channel_id: str, channel_info: dict) -> None:
-    """Cache channel info to avoid rate limits."""
-    self._channel_info_cache.set(channel_id, channel_info)
-
-  # ------------------------------------------------------------------
   # Introspection
   # ------------------------------------------------------------------
 
@@ -132,7 +119,6 @@ class SessionManager:
     return {
       "type": "memory",
       "user_cache_size": len(self._user_info_cache),
-      "channel_cache_size": len(self._channel_info_cache),
       "skipped_cache_size": len(self._skipped_cache),
       "escalated_threads": len(self._escalated_threads),
     }

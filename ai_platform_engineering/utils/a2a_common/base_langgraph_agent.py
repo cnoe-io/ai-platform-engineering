@@ -35,12 +35,15 @@ import tiktoken
 from langgraph.prebuilt import create_react_agent
 
 from ai_platform_engineering.utils.checkpointer import get_checkpointer
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from ai_platform_engineering.utils.mcp_config import (
     resolve_mcp_mode, resolve_mcp_url, is_http_mode,
 )
 
 from .context_config import get_context_limit_for_provider, get_min_messages_to_keep, is_auto_compression_enabled
 from ai_platform_engineering.utils.metrics import MetricsCallbackHandler
+
+FORWARD_JWT_TO_MCP = os.getenv("FORWARD_JWT_TO_MCP", "false").lower() in ("true", "1", "yes")
 
 
 logger = logging.getLogger(__name__)
@@ -367,14 +370,20 @@ Use this as the reference point for all date calculations. When users say "today
         elif is_http_mode(mcp_mode):
             logger.info(f"{agent_name}: Using HTTP transport for MCP client (default localhost)")
             mcp_url = resolve_mcp_url(agent_name)
-            user_jwt = "TBD_USER_JWT"
+            headers: dict[str, str] = {}
+            if FORWARD_JWT_TO_MCP:
+                user_jwt_ctx = get_jwt_user_context()
+                user_jwt = user_jwt_ctx.token if user_jwt_ctx else ""
+                if user_jwt:
+                    headers["Authorization"] = f"Bearer {user_jwt}"
+                    logger.info(f"{agent_name}: Forwarding user JWT to MCP server")
+                else:
+                    logger.warning(f"{agent_name}: FORWARD_JWT_TO_MCP enabled but no JWT available in request context")
             client = MultiServerMCPClient({
                 agent_name: {
                     "transport": "streamable_http",
                     "url": mcp_url,
-                    "headers": {
-                        "Authorization": f"Bearer {user_jwt}",
-                    },
+                    "headers": headers,
                 }
             })
         else:
@@ -1964,6 +1973,19 @@ Use this as the reference point for all date calculations. When users say "today
         # Add metrics callback handler to track MCP tool calls
         callbacks = list(config.get("callbacks") or [])
         callbacks.append(MetricsCallbackHandler(agent_name=agent_name))
+
+        # Add audit callback handler to persist tool actions to audit_events
+        try:
+            from ai_platform_engineering.utils.audit_callback import AuditCallbackHandler
+            _meta = config.get("metadata") or {}
+            callbacks.append(AuditCallbackHandler(
+                agent_name=agent_name,
+                user_email=_meta.get("user_email"),
+                context_id=_meta.get("context_id") or sessionId,
+                trace_id=_meta.get("trace_id"),
+            ))
+        except Exception:
+            pass
 
         config = RunnableConfig(
             callbacks=callbacks,

@@ -82,7 +82,7 @@ from ai_platform_engineering.utils.prompt_config import (
 from ai_platform_engineering.multi_agents.platform_engineer.rag_prompts import get_rag_instructions
 
 from ai_platform_engineering.multi_agents.tools import (
-    curl,
+    fetch_url,
     get_current_date,
     jq,
     yq,
@@ -1375,7 +1375,7 @@ class PlatformEngineerDeepAgent:
 
         # Utility tools
         utility_tools = [
-            curl,
+            fetch_url,
             get_current_date,
             jq,
             yq,
@@ -1417,6 +1417,11 @@ class PlatformEngineerDeepAgent:
                                 if self.rag_tools:
                                     logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools")
                                     logger.info(f"📋 RAG tool names: {[t.name for t in self.rag_tools]}")
+                                    try:
+                                        from ai_platform_engineering.utils.auth_mcp_tools import wrap_rag_tools_with_auth
+                                        self.rag_tools = wrap_rag_tools_with_auth(self.rag_tools)
+                                    except Exception as wrap_err:
+                                        logger.warning(f"Failed to wrap RAG tools with auth: {wrap_err}")
                                 else:
                                     logger.warning("No RAG tools loaded (empty list returned)")
                                 break
@@ -1516,7 +1521,7 @@ class PlatformEngineerDeepAgent:
         if USE_STRUCTURED_RESPONSE:
             system_prompt += (
                 "\n\n**Before invoking any tool, write one brief natural-language sentence describing what you are about to do.** "
-                "Describe the *intent* in plain English — NEVER mention internal tool names (search, fetch_document, curl, write_todos, task, etc.). "
+                "Describe the *intent* in plain English — NEVER mention internal tool names (search, fetch_document, fetch_url, write_todos, task, etc.). "
                 "For example: \"I'll search the knowledge base for information about X.\" or "
                 "\"Let me look up the full documentation for more details.\" or "
                 "\"I'll check with the GitHub agent for repository information.\"\n"

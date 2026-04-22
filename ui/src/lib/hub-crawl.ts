@@ -376,7 +376,7 @@ export async function getHubSkills(
       // Normalize full URLs to owner/repo
       try {
         const url = new URL(loc);
-        if (url.hostname === "github.com" || url.hostname.endsWith(".github.com")) {
+        if (url.hostname.includes("github.com")) {
           loc = url.pathname.replace(/^\/+|\/+$/g, "");
         }
       } catch {

@@ -107,6 +107,11 @@ export interface Config {
    * Set AUDIT_LOGS_ENABLED=true to enable.
    */
   auditLogsEnabled: boolean;
+  /**
+   * Whether the unified action audit log (auth + tool + delegation) is enabled.
+   * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
+   */
+  actionAuditEnabled: boolean;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -150,6 +155,8 @@ export interface Config {
   ticketProvider: 'jira' | 'github' | null;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
+  /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
+  userInfoToolEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +177,7 @@ const DEFAULT_GRADIENT_THEME = 'default';
 
 const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
 const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
-const VALID_THEMES = ['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
+const VALID_THEMES = ['light', 'dark', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
 const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 'sunset', 'cyberpunk', 'tron', 'matrix'];
 
 /** Default config used as client fallback before the layout script executes. */
@@ -203,13 +210,14 @@ const DEFAULT_CONFIG: Config = {
   feedbackEnabled: true,
   npsEnabled: false,
   auditLogsEnabled: false,
+  actionAuditEnabled: true,
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
-  agentProtocol: 'agui',
+  agentProtocol: 'custom',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
   jiraTicketProject: null,
@@ -220,6 +228,7 @@ const DEFAULT_CONFIG: Config = {
   ticketEnabled: false,
   ticketProvider: null,
   oidcRequiredGroup: 'backstage-access',
+  userInfoToolEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -301,13 +310,15 @@ export function getServerConfig(): Config {
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
+  const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
 
   const agentProtocolEnv = env('AGENT_PROTOCOL');
-  const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
+  const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'agui' ? 'agui' : 'custom';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
@@ -360,6 +371,7 @@ export function getServerConfig(): Config {
     feedbackEnabled,
     npsEnabled,
     auditLogsEnabled,
+    actionAuditEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
@@ -377,6 +389,7 @@ export function getServerConfig(): Config {
     ticketEnabled,
     ticketProvider,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
+    userInfoToolEnabled,
   };
 }
 

@@ -55,7 +55,6 @@ import {
   errorResponse,
   requireOwnership,
   requireAdmin,
-  requireAdminView,
   getAuthenticatedUser,
   withAuth,
 } from '../api-middleware';
@@ -535,33 +534,5 @@ describe('requireAdmin', () => {
 
   it('throws ApiError 403 for empty string role', () => {
     expect(() => requireAdmin({ role: '' })).toThrow(ApiError);
-  });
-});
-
-describe('requireAdminView', () => {
-  it('does not throw for admin role (admin always has view access)', () => {
-    expect(() => requireAdminView({ role: 'admin' })).not.toThrow();
-  });
-
-  it('does not throw when canViewAdmin is true', () => {
-    expect(() => requireAdminView({ role: 'user', canViewAdmin: true })).not.toThrow();
-  });
-
-  it('throws ApiError 403 when canViewAdmin is false', () => {
-    expect(() => requireAdminView({ role: 'user', canViewAdmin: false })).toThrow(ApiError);
-    try {
-      requireAdminView({ role: 'user', canViewAdmin: false });
-    } catch (e) {
-      expect((e as ApiError).statusCode).toBe(403);
-      expect((e as ApiError).message).toContain('Admin view access required');
-    }
-  });
-
-  it('throws ApiError 403 when canViewAdmin is undefined', () => {
-    expect(() => requireAdminView({ role: 'user' })).toThrow(ApiError);
-  });
-
-  it('does not throw for admin role even if canViewAdmin is false', () => {
-    expect(() => requireAdminView({ role: 'admin', canViewAdmin: false })).not.toThrow();
   });
 });

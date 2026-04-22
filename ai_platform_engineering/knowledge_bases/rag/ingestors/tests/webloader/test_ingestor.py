@@ -811,10 +811,7 @@ class TestReloadDatasource:
 
     create_call_kwargs = client.create_job.call_args.kwargs
     assert create_call_kwargs["job_status"] == JobStatus.IN_PROGRESS
-    from urllib.parse import urlparse as _urlparse
-    _msg = create_call_kwargs["message"]
-    _msg_urls = [p for p in _msg.split() if p.startswith("https://")]
-    assert any(_urlparse(u).hostname == "reload-target.com" for u in _msg_urls)
+    assert "https://reload-target.com" in create_call_kwargs["message"]
 
 
 # ---------------------------------------------------------------------------

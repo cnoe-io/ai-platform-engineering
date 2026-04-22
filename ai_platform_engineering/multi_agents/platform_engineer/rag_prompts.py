@@ -46,13 +46,11 @@ _ALL_GRAPH_TOOLS_PROMPT = _rag_prompt_config.get("graph_tools_prompt", "") if _r
 _GRAPH_RAW_QUERY_NOTES = _rag_prompt_config.get("graph_raw_query_notes", "") if _rag_prompt_config else ""
 _RAG_ANSWER_FORMAT_PROMPT = _rag_prompt_config.get("answer_format_prompt", "") if _rag_prompt_config else ""
 _START_RAG_PROMPT = _rag_prompt_config.get("start_rag_prompt", "") if _rag_prompt_config else ""
-_TOOL_ARBITRATION_PROMPT = _rag_prompt_config.get("tool_arbitration_prompt", "") if _rag_prompt_config else ""
 
 _RAG_ONLY_INSTRUCTIONS = f"""
 {_START_RAG_PROMPT}
 {_SEARCH_TOOL_PROMPT}
 {_RAG_ANSWER_FORMAT_PROMPT}
-{_TOOL_ARBITRATION_PROMPT}
 """
 
 _RAG_WITH_GRAPH_INSTRUCTIONS = f"""
@@ -62,7 +60,6 @@ _RAG_WITH_GRAPH_INSTRUCTIONS = f"""
 {_ALL_GRAPH_TOOLS_PROMPT}
 {_GRAPH_RAW_QUERY_NOTES}
 {_RAG_ANSWER_FORMAT_PROMPT}
-{_TOOL_ARBITRATION_PROMPT}
 """
 
 

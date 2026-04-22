@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Server,
   Plus,
+  Pencil,
   Trash2,
   Loader2,
   ToggleLeft,
@@ -18,11 +19,10 @@ import {
   Globe,
   AlertCircle,
   CheckCircle2,
-  Download,
+  Ban,
 } from "lucide-react";
 import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
 import { MCPServerEditor } from "./MCPServerEditor";
-import { toYaml } from "@/lib/yaml-serializer";
 
 interface ProbeResult {
   server_id: string;
@@ -157,34 +157,6 @@ export function MCPServersTab() {
     }
   };
 
-  /**
-   * Export server configuration as YAML file
-   */
-  const handleExportYaml = (server: MCPServerConfig) => {
-    const exportConfig = {
-      id: server._id,
-      name: server.name,
-      description: server.description || undefined,
-      transport: server.transport,
-      endpoint: server.transport !== "stdio" ? server.endpoint : undefined,
-      command: server.transport === "stdio" ? server.command : undefined,
-      args: server.transport === "stdio" && server.args?.length ? server.args : undefined,
-      env: server.transport === "stdio" && server.env && Object.keys(server.env).length ? server.env : undefined,
-      enabled: server.enabled,
-    };
-
-    const yamlContent = toYaml(exportConfig);
-    const blob = new Blob([yamlContent], { type: "text/yaml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${server._id}.yaml`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
   const getTransportIcon = (transport: string) => {
     switch (transport) {
       case "stdio":
@@ -215,7 +187,6 @@ export function MCPServersTab() {
     return (
       <MCPServerEditor
         server={editingServer}
-        readOnly={editingServer?.config_driven}
         onSave={() => {
           setEditingServer(null);
           setIsCreating(false);
@@ -291,10 +262,7 @@ export function MCPServersTab() {
               const probe = probeResults[server._id];
               return (
                 <div key={server._id} className="space-y-2">
-                  <div
-                    className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer"
-                    onClick={() => setEditingServer(server)}
-                  >
+                  <div className="grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center">
                     <div className="col-span-3">
                       <div className="flex items-center gap-3">
                         <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
@@ -329,7 +297,7 @@ export function MCPServersTab() {
 
                     <div className="col-span-2">
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (!server.config_driven) handleToggleEnabled(server); }}
+                        onClick={() => !server.config_driven && handleToggleEnabled(server)}
                         className={`flex items-center gap-1.5 ${server.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
                         disabled={server.config_driven}
                         title={server.config_driven ? "Config-driven servers cannot be modified" : undefined}
@@ -350,7 +318,7 @@ export function MCPServersTab() {
                       </button>
                     </div>
 
-                    <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                    <div className="col-span-2 flex items-center justify-end gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -365,33 +333,35 @@ export function MCPServersTab() {
                           <Zap className="h-4 w-4" />
                         )}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleExportYaml(server)}
-                        title="Export as YAML"
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
                       {server.config_driven && (
                         <Badge
                           variant="outline"
                           className="gap-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
                           title="Loaded from config.yaml - cannot be edited"
                         >
+                          <Ban className="h-3 w-3" />
                           Config
                         </Badge>
                       )}
                       {!server.config_driven && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(server._id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setEditingServer(server)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleDelete(server._id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>

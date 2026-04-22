@@ -38,7 +38,20 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
+  '@/lib/rbac/keycloak-authz'
+).checkPermission;
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
@@ -80,7 +93,6 @@ function createMockCollection() {
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     countDocuments: jest.fn().mockResolvedValue(0),
-    distinct: jest.fn().mockResolvedValue([]),
     aggregate: jest.fn().mockReturnValue({
       toArray: jest.fn().mockResolvedValue([]),
     }),
@@ -91,6 +103,15 @@ function makeRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
 }
 
+/** Minimal JWT body so requireRbacPermission can decode realm_access.roles. */
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 /**
  * Admin session via OIDC role — getAuthenticatedUser sees session.role === 'admin'
  * and skips the MongoDB fallback check entirely.
@@ -99,6 +120,7 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -110,6 +132,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
@@ -117,6 +140,11 @@ function resetMocks() {
   mockGetServerSession.mockReset();
   mockGetCollection.mockClear();
   mockIsMongoDBConfigured = true;
+  mockCheckPermission.mockReset();
+  mockCheckPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -173,7 +201,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('returns 403 when user lacks admin_ui#view (no admin realm role / PDP deny)', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
@@ -184,7 +212,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin view access required');
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
   it('allows non-admin users with view access to read stats (readonly)', async () => {
@@ -250,6 +278,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
 
   it('returns 503 when MongoDB is not configured', async () => {
     mockIsMongoDBConfigured = false;
+    mockGetServerSession.mockResolvedValue(adminSession());
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(503);

@@ -44,11 +44,23 @@ class Settings(BaseSettings):
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
 
+    # Auth
+    auth_enabled: bool = True  # Set to false to disable auth for local dev
+
     # CORS
     cors_origins: list[str] = ["*"]
 
     # Runtime
     agent_runtime_ttl_seconds: int = 3600  # 1 hour cache TTL for agent runtimes
+
+    # Seed configuration path (for MCP servers and agents loaded at startup)
+    seed_config_path: str | None = None
+
+    # CEL (FR-029) — optional per-agent policy; when empty, legacy visibility checks apply
+    cel_dynamic_agent_access_expression: str = ""
+
+    # When set, MCP HTTP/SSE clients use this base URL (e.g. http://agentgateway:4000/mcp/{server_id})
+    agent_gateway_url: str | None = None
 
 
 @lru_cache

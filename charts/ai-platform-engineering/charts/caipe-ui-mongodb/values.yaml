@@ -136,19 +136,6 @@ externalSecrets:
     #     key: dev/mongodb
     #     property: password
 
-# VPA configuration. Requires VPA to be installed in the cluster.
-# Targets the MongoDB StatefulSet. Inherits global.vpa defaults; override any field here
-# to customise for caipe-ui-mongodb.
-vpa:
-  enabled: false
-  updateMode: "InPlaceOrRecreate"
-  controlledResources: ["cpu", "memory"]
-  controlledValues: "RequestsAndLimits"
-  minAllowed:
-    cpu: 50m
-    memory: 128Mi
-  maxAllowed: {}
-
 # Export values for parent chart import-values
 exports:
   host: "mongodb"

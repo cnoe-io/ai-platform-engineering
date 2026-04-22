@@ -58,10 +58,7 @@ async def search(
         return "Error: Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL"
 
     # Validate URL doesn't contain example.com placeholder
-    from urllib.parse import urlparse as _urlparse
-    _parsed = _urlparse(base_url or "")
-    _hostname = (_parsed.hostname or base_url or "").lower()
-    if base_url and (_hostname in ("example.com", "jira.example.com") or _hostname.endswith(".example.com")):
+    if base_url and ("example.com" in base_url.lower() or "jira.example.com" in base_url.lower()):
         error_msg = f"Invalid ATLASSIAN_API_URL: '{base_url}'. Please set ATLASSIAN_API_URL to your actual Jira instance URL (e.g., https://your-domain.atlassian.net)."
         logger.error(error_msg)
         return f"Error: {error_msg}"

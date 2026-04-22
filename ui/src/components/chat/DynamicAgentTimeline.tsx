@@ -152,9 +152,6 @@ export function AgentTimeline({
   const [machineryExpanded, setMachineryExpanded] = useState(!turnEnded);
   const prevStreamingRef = useRef(isStreaming);
   const prevFinalAnswerRef = useRef(finalAnswer);
-  // Track whether this turn transitioned from streaming → final.
-  // When true, skip the reveal animation since content was already visible.
-  const wasStreamingRef = useRef(false);
   
   // For ref to timeline container (kept for potential future use)
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -163,7 +160,6 @@ export function AgentTimeline({
     // Collapse when streaming ends
     if (prevStreamingRef.current && !isStreaming) {
       setMachineryExpanded(false);
-      wasStreamingRef.current = true;
     }
     // Also collapse when final answer first appears AND streaming has stopped
     // (Don't collapse while still streaming - keep answer visible as "thinking")
@@ -280,7 +276,6 @@ export function AgentTimeline({
                     <TimelineDot color="primary" />
                     <MarkdownRenderer
                       content={finalAnswer}
-                      isStreaming={true}
                     />
                   </div>
                 )}
@@ -312,10 +307,7 @@ export function AgentTimeline({
 
         {/* Final answer - only shown after streaming completes */}
         {showFinalAnswerOutside && (
-          <div className={cn(
-            "bg-muted/30 border border-border/30 rounded-lg px-4 py-3",
-            !wasStreamingRef.current && "animate-reveal-ltr"
-          )}>
+          <div className="animate-reveal-ltr bg-muted/30 border border-border/30 rounded-lg px-4 py-3">
             <MarkdownRenderer
               content={finalAnswer}
             />

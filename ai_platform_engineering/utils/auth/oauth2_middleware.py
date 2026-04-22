@@ -116,7 +116,7 @@ def verify_token(token: str) -> bool:
                 logger.debug(f"Token CID matches allowed client ID: {token_cid}")
                 return True
             else:
-                logger.warning("Token CID not in allowed client IDs")
+                logger.warning(f"Token CID '{token_cid}' not in allowed client IDs {OAUTH2_CLIENT_IDS}")
                 return False
         else:
             print("\n" + "="*40)

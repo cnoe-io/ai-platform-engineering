@@ -50,10 +50,6 @@ RUN find /app/dynamic_agents/.venv -type d -name "__pycache__" -exec rm -rf {} +
 # =============================================================================
 FROM python:3.13-slim-bookworm
 
-# Patch system packages to address CVEs
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
 # Create non-root user (UID/GID 1001 for Kubernetes compatibility)
 RUN groupadd --gid 1001 app && \
     useradd --uid 1001 --gid app --shell /bin/bash --create-home app

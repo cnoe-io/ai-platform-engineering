@@ -20,7 +20,14 @@ logger = utils.get_logger(__name__)
 class OIDCProvider:
   """Represents an OIDC provider configuration with JWKS caching."""
 
-  def __init__(self, issuer: str, audience: str, name: str, discovery_url: Optional[str] = None):
+  def __init__(
+    self,
+    issuer: str,
+    audience: str,
+    name: str,
+    discovery_url: Optional[str] = None,
+    jwks_url: Optional[str] = None,
+  ):
     """
     Initialize OIDC provider.
 
@@ -29,12 +36,15 @@ class OIDCProvider:
         audience: Expected audience claim (typically client_id)
         name: Human-readable name for this provider (e.g., "ui", "ingestor")
         discovery_url: Optional explicit discovery URL (if not provided, constructs from issuer)
+        jwks_url: Optional JWKS URL (e.g. Docker-internal Keycloak certs endpoint); skips discovery for JWKS fetch
     """
     self.issuer = issuer
     self.audience = audience
     self.name = name
     self.discovery_url = discovery_url
     self.jwks_uri: Optional[str] = None
+    if jwks_url and str(jwks_url).strip():
+      self.jwks_uri = str(jwks_url).strip()
     self.jwks_cache: Dict[str, Any] = {}
     self.jwks_cache_time: float = 0
     self.jwks_cache_ttl: int = 3600  # Cache JWKS for 1 hour
@@ -43,6 +53,8 @@ class OIDCProvider:
       logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}, discovery_url={discovery_url}")
     else:
       logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}")
+    if self.jwks_uri:
+      logger.info(f"OIDC provider '{name}': explicit JWKS URI configured")
 
   async def _fetch_jwks(self) -> Dict[str, Any]:
     """
@@ -55,7 +67,7 @@ class OIDCProvider:
     Returns:
         JWKS dictionary with keys
     """
-    # Get JWKS URI from well-known configuration if not cached
+    # Get JWKS URI from well-known configuration if not set (explicit jwks_url sets self.jwks_uri in __init__)
     if not self.jwks_uri:
       discovery_attempts = []
       oidc_config = None
@@ -327,21 +339,25 @@ class AuthManager:
   def _load_providers(self):
     """Load OIDC provider configurations from environment variables."""
     # Load UI provider
-    ui_issuer = os.getenv("OIDC_ISSUER")
-    ui_client_id = os.getenv("OIDC_CLIENT_ID")
+    ui_issuer = os.getenv("OIDC_ISSUER_URL") or os.getenv("OIDC_ISSUER")
+    ui_audience = os.getenv("OIDC_AUDIENCE") or os.getenv("OIDC_CLIENT_ID")
     ui_discovery_url = os.getenv("OIDC_DISCOVERY_URL")
+    ui_jwks_url = os.getenv("OIDC_JWKS_URL")
 
-    # Require either issuer or discovery URL, plus client_id
-    if (ui_issuer or ui_discovery_url) and ui_client_id:
+    # Require either issuer or discovery URL, plus audience (client id or resource-server audience)
+    if (ui_issuer or ui_discovery_url) and ui_audience:
       self.providers["ui"] = OIDCProvider(
         issuer=ui_issuer.rstrip("/") if ui_issuer else "",  # Empty string if only discovery URL
-        audience=ui_client_id,
+        audience=ui_audience.strip(),
         name="ui",
         discovery_url=ui_discovery_url,
+        jwks_url=ui_jwks_url,
       )
       logger.info("UI OIDC provider configured")
     else:
-      logger.warning("UI OIDC provider not configured (need OIDC_CLIENT_ID and either OIDC_ISSUER or OIDC_DISCOVERY_URL)")
+      logger.warning(
+        "UI OIDC provider not configured (need OIDC_AUDIENCE or OIDC_CLIENT_ID, and either OIDC_ISSUER / OIDC_ISSUER_URL or OIDC_DISCOVERY_URL)"
+      )
 
     # Load Ingestor provider
     ingestor_issuer = os.getenv("INGESTOR_OIDC_ISSUER")
@@ -355,6 +371,7 @@ class AuthManager:
         audience=ingestor_client_id,
         name="ingestor",
         discovery_url=ingestor_discovery_url,
+        jwks_url=os.getenv("INGESTOR_OIDC_JWKS_URL"),
       )
       logger.info("Ingestor OIDC provider configured")
     else:
@@ -382,6 +399,7 @@ class AuthManager:
       raise JWTError("No OIDC providers configured for token validation")
 
     errors = []
+    userinfo_errors = []
 
     for provider in self.providers.values():
       try:
@@ -390,10 +408,20 @@ class AuthManager:
         return provider, claims
       except JWTError as e:
         errors.append(f"{provider.name}: {str(e)}")
-        continue
+        # JWKS validation failed — fall back to userinfo endpoint.
+        # This handles providers (e.g. Duo) that issue access tokens signed with
+        # keys not published in their public JWKS. If the provider's userinfo
+        # endpoint accepts the token, it is implicitly valid.
+        try:
+          userinfo = await provider.fetch_userinfo(token)
+          logger.info(f"Token validated via userinfo fallback for provider '{provider.name}' (JWKS failed: {e})")
+          return provider, userinfo
+        except Exception as ui_err:
+          userinfo_errors.append(f"{provider.name}: {str(ui_err)}")
+          continue
 
-    # All providers failed
-    error_msg = f"Token validation failed for all providers: {'; '.join(errors)}"
+    # All providers failed both JWKS and userinfo
+    error_msg = f"Token validation failed for all providers — JWKS: {'; '.join(errors)}; userinfo: {'; '.join(userinfo_errors)}"
     logger.warning(error_msg)
     raise JWTError(error_msg)
 

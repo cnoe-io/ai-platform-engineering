@@ -2,11 +2,10 @@
 FROM python:3.13-slim
 
 # Install system dependencies and uv
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y \
     curl \
     git \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/

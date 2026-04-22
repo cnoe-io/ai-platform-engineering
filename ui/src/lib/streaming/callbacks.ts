@@ -51,8 +51,6 @@ export interface StreamParams {
   source?: string;
   /** Additional properties forwarded to the backend */
   forwardedProps?: Record<string, unknown>;
-  /** Opaque client context passed to the backend for system prompt rendering */
-  clientContext?: Record<string, unknown>;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -71,13 +69,12 @@ export interface StreamCallbacks {
     namespace?: string[],
   ): void;
 
-  /** A tool invocation completed (with optional error and accumulated args) */
+  /** A tool invocation completed (with optional error) */
   onToolEnd?(
     toolCallId: string,
     toolName?: string,
     error?: string,
     namespace?: string[],
-    args?: string,
   ): void;
 
   /** Agent is requesting user input via a form (HITL) */

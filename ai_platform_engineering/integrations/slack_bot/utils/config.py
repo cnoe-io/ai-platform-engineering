@@ -8,8 +8,9 @@ from loguru import logger
 from .config_models import Config
 
 # Load all configuration
-config = Config.from_env()
-if config.channels:
+try:
+  config = Config.from_env()
   logger.info(f"Loaded configuration for {len(config.channels)} channel(s)")
-else:
-  logger.warning("No channels configured — bot will ignore all channel messages until config is provided")
+except Exception as e:
+  logger.error(f"Failed to load config: {e}")
+  raise

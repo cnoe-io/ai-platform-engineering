@@ -201,7 +201,3 @@ Get Ontology Agent REST API address
     {{- end -}}
     {{- printf "http://%s:%s" $host ($port | toString) -}}
 {{- end -}}
-
-{{- define "rag-server.appVersion" -}}
-{{- .Values.global.image.tag | default .Chart.AppVersion -}}
-{{- end -}}

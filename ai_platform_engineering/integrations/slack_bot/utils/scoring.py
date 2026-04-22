@@ -12,6 +12,10 @@ import requests
 from typing import Optional
 from loguru import logger
 
+try:
+  from sse_client import thread_ts_to_conversation_id  # type: ignore[import]
+except ImportError:
+  from ..sse_client import thread_ts_to_conversation_id
 from .session_manager import SessionManager
 from .config_models import Config
 
@@ -44,7 +48,6 @@ def submit_feedback_score(
   slack_client,
   session_manager: SessionManager,
   config: Config,
-  conversation_id: str,
   comment: Optional[str] = None,
   message_ts: Optional[str] = None,
 ) -> bool:
@@ -52,20 +55,9 @@ def submit_feedback_score(
   Submit feedback by calling POST /api/feedback on the CAIPE UI.
 
   The API handles both Langfuse scoring and MongoDB writes.
-
-  Args:
-      thread_ts: Slack thread timestamp.
-      user_id: Slack user ID.
-      channel_id: Slack channel ID.
-      feedback_value: Feedback type (e.g. thumbs_up, thumbs_down, retry).
-      slack_client: Slack WebClient.
-      session_manager: Session manager for user info caching.
-      config: Bot configuration.
-      conversation_id: Server-side conversation ID (resolved via idempotency_key).
-      comment: Optional feedback comment text.
-      message_ts: Optional specific message timestamp.
   """
   trace_id = None  # Trace ID tracking removed in AG-UI migration
+  context_id = thread_ts_to_conversation_id(thread_ts)
 
   # Resolve user email from Slack
   user_email = None
@@ -106,7 +98,7 @@ def submit_feedback_score(
     "messageId": message_ts if message_ts and "." in message_ts and message_ts.replace(".", "").isdigit() else None,
     "feedbackType": feedback_type,
     "value": feedback_value,
-    "conversationId": conversation_id,
+    "conversationId": context_id or f"slack-{thread_ts}",
     "source": "slack",
     "channelId": channel_id,
     "channelName": display_channel_name,

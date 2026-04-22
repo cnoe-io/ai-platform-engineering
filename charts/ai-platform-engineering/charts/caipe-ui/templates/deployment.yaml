@@ -41,7 +41,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "caipe-ui.appVersion" .) }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.image.command }}
           command:
@@ -59,14 +59,15 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          {{- $hasModels := and .Values.appConfig.models (gt (len .Values.appConfig.models) 0) }}
-          {{- $hasMcpServers := and .Values.appConfig.mcp_servers (gt (len .Values.appConfig.mcp_servers) 0) }}
-          {{- $hasAgents := and .Values.appConfig.agents (gt (len .Values.appConfig.agents) 0) }}
-          {{- $hasAppConfig := or $hasModels $hasMcpServers $hasAgents }}
+          {{- if or .Values.env .Values.config .Values.existingSecret .Values.externalSecrets.enabled }}
           env:
-            {{- if $hasAppConfig }}
-            - name: APP_CONFIG_PATH
-              value: "/etc/caipe-ui/app-config.yaml"
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.seedConfig.enabled }}
+            - name: SEED_CONFIG_PATH
+              value: "/etc/caipe-ui/seed-config.yaml"
             {{- end }}
           envFrom:
             # Mount ConfigMap as environment variables (non-sensitive config)
@@ -81,6 +82,7 @@ spec:
             - secretRef:
                 name: {{ include "caipe-ui.fullname" . }}-secret
             {{- end }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -101,8 +103,8 @@ spec:
             - name: task-config
               mountPath: /app/config/task-config
               readOnly: true
-            {{- if $hasAppConfig }}
-            - name: app-config
+            {{- if .Values.seedConfig.enabled }}
+            - name: seed-config
               mountPath: /etc/caipe-ui
               readOnly: true
             {{- end }}
@@ -118,10 +120,10 @@ spec:
           configMap:
             name: task-config
             optional: true
-        {{- if $hasAppConfig }}
-        - name: app-config
+        {{- if .Values.seedConfig.enabled }}
+        - name: seed-config
           configMap:
-            name: {{ include "caipe-ui.fullname" . }}-app-config
+            name: {{ include "caipe-ui.fullname" . }}-seed
         {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}

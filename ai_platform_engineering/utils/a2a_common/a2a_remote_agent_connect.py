@@ -178,9 +178,13 @@ class A2ARemoteAgentConnectTool(BaseTool):
         # If we get here, stop_event was set - exit the loop
         break
       except asyncio.TimeoutError:
-        # Timeout means we should send a heartbeat (log only, don't pollute the stream)
+        # Timeout means we should send a heartbeat
         wait_count += 1
         elapsed = wait_count * heartbeat_interval
+        writer({
+          "type": "a2a_event",
+          "data": f"⏳ Waiting for {agent_name}... ({int(elapsed)}s)"
+        })
         logger.debug(f"Heartbeat: Waiting for {agent_name} ({int(elapsed)}s)")
 
   async def _arun(self, prompt: str, trace_id: Optional[str] = None, context_id: Optional[str] = None) -> Any:
@@ -279,6 +283,24 @@ class A2ARemoteAgentConnectTool(BaseTool):
           duration=duration,
       )
       logger.debug(f"📊 Metrics: subagent={self.name}, status={call_status}, duration={duration:.2f}s")
+
+      # Persist agent delegation audit event
+      try:
+          from ai_platform_engineering.utils.audit_logger import log_audit_event
+          log_audit_event(
+              event_type="agent_delegation",
+              outcome="success" if call_status == "success" else "error",
+              action=f"delegate_to_{self.name}",
+              agent_name=self.name,
+              user_email=user_email or None,
+              duration_ms=duration * 1000,
+              correlation_id=trace_id,
+              context_id=context_id,
+              component="supervisor",
+              reason_code=last_error[:500] if last_error and call_status != "success" else None,
+          )
+      except Exception as _ae:
+          logger.debug(f"Audit delegation log failed: {_ae}")
 
   async def _execute_once(
       self,

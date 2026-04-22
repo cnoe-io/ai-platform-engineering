@@ -23,7 +23,7 @@ data:
   {{- else if $mcp.mode }}
   {{ $ENV }}_MCP_MODE: {{ $mcp.mode | quote }}
   {{- if eq $mcp.mode "http" }}
-  {{ $ENV }}_MCP_HOST: {{ printf "%s-agent-%s-mcp" (include "ai-platform-engineering.singleNodeMcpResourcePrefix" $) $name | quote }}
+  {{ $ENV }}_MCP_HOST: {{ printf "%s-agent-%s-mcp" $.Release.Name $name | quote }}
   {{ $ENV }}_MCP_PORT: {{ $mcp.port | default 8000 | quote }}
   {{- end }}
   {{- end }}

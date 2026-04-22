@@ -74,7 +74,3 @@ Get RAG Server URL with per-ingestor override support
 {{- end }}
 {{- end }}
 
-{{- define "rag-ingestors.appVersion" -}}
-{{- .Values.global.image.tag | default .Chart.AppVersion -}}
-{{- end -}}
-

@@ -44,7 +44,6 @@ class TestScoringUtility:
       slack_client=self._make_slack_client(),
       session_manager=self._make_session_manager(),
       config=self._make_config(),
-      conversation_id="test-conv-id",
     )
 
     assert result is True
@@ -58,8 +57,8 @@ class TestScoringUtility:
     assert payload["value"] == "thumbs_up"
     # traceId is now always None (trace tracking removed in AG-UI migration)
     assert payload["traceId"] is None
-    # conversationId is the server-side ID passed by the caller
-    assert payload["conversationId"] == "test-conv-id"
+    # conversationId is now deterministic UUID v5 from thread_ts
+    assert payload["conversationId"] is not None
     assert payload["channelId"] == "C123"
     assert payload["channelName"] == "#test-channel"
     assert payload["threadTs"] == "thread_123"
@@ -84,7 +83,6 @@ class TestScoringUtility:
       slack_client=self._make_slack_client(),
       session_manager=self._make_session_manager(),
       config=self._make_config(channel_id="C02AVQ61E3H"),
-      conversation_id="test-conv-id",
       message_ts="1775145010.565959",
     )
 
@@ -111,7 +109,6 @@ class TestScoringUtility:
       slack_client=self._make_slack_client(),
       session_manager=self._make_session_manager(),
       config=self._make_config(channel_id="C02AVQ61E3H"),
-      conversation_id="test-conv-id",
       message_ts="wrong_answer",  # invalid — from old button format
     )
 
@@ -139,7 +136,6 @@ class TestScoringUtility:
       slack_client=self._make_slack_client(),
       session_manager=self._make_session_manager(),
       config=self._make_config(),
-      conversation_id="test-conv-id",
     )
 
     assert result is False
@@ -159,7 +155,6 @@ class TestScoringUtility:
       slack_client=self._make_slack_client(),
       session_manager=self._make_session_manager(),
       config=self._make_config(),
-      conversation_id="test-conv-id",
     )
 
     assert result is False
@@ -183,7 +178,6 @@ class TestScoringUtility:
       slack_client=self._make_slack_client(),
       session_manager=self._make_session_manager(),
       config=self._make_config(),
-      conversation_id="test-conv-id",
       comment="The endpoint doesn't exist",
     )
 
@@ -214,7 +208,6 @@ class TestScoringUtility:
       slack_client=self._make_slack_client(),
       session_manager=self._make_session_manager(),
       config=mock_config,
-      conversation_id="test-conv-id",
     )
 
     payload = mock_post.call_args[1]["json"]

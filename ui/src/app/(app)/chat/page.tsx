@@ -74,17 +74,17 @@ function ChatRedirectPage() {
         router.replace(`/chat/${latestId}`);
       } else {
         // 3. No owned conversations — create a new one
-        const newId = await createConversation();
+        const newId = createConversation();
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }
     };
 
-    resolve().catch(async (error) => {
+    resolve().catch((error) => {
       console.error("[ChatRedirect] Failed to resolve conversation:", error);
       // Fallback: create a new conversation
       if (!redirected.current) {
-        const newId = await createConversation();
+        const newId = createConversation();
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }

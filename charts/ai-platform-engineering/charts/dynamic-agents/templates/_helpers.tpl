@@ -77,7 +77,3 @@ Determine if ingress is enabled - global takes precedence
         {{- .Values.ingress.enabled | default false -}}
     {{- end -}}
 {{- end }}
-
-{{- define "dynamic-agents.appVersion" -}}
-{{- .Values.global.image.tag | default .Chart.AppVersion -}}
-{{- end -}}

@@ -9,9 +9,17 @@ import {
   withErrorHandler,
   successResponse,
   requireAdmin,
+  requireRbacPermission,
   ApiError,
   validateEmail,
 } from '@/lib/api-middleware';
+import {
+  searchRealmUsers,
+  createRealmRole,
+  getRoleByName,
+  assignRealmRolesToUser,
+  removeRealmRolesFromUser,
+} from '@/lib/rbac/keycloak-admin';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -34,6 +42,44 @@ function parseTeamId(id: string): ObjectId {
   return new ObjectId(id);
 }
 
+/**
+ * Ensure the team_member:<teamId> Keycloak realm role exists and assign it
+ * to the user identified by email. Best-effort — logs warnings on failure
+ * so that MongoDB membership is never blocked by Keycloak issues.
+ */
+async function syncKeycloakTeamRole(email: string, teamId: string, action: 'assign' | 'remove') {
+  const roleName = `team_member:${teamId}`;
+  try {
+    // Find Keycloak user by email
+    const users = await searchRealmUsers({ search: email, first: 0, max: 1 });
+    const kcUser = users.find(u => (u.email as string)?.toLowerCase() === email.toLowerCase());
+    if (!kcUser?.id) {
+      console.warn(`[TeamSync] Keycloak user not found for ${email} — skipping role ${action}`);
+      return;
+    }
+    const userId = String(kcUser.id);
+
+    if (action === 'assign') {
+      // Ensure role exists (create if missing)
+      let role;
+      try {
+        role = await getRoleByName(roleName);
+      } catch {
+        await createRealmRole(roleName, `Team member role for team ${teamId}`);
+        role = await getRoleByName(roleName);
+      }
+      await assignRealmRolesToUser(userId, [role]);
+      console.log(`[TeamSync] Assigned ${roleName} to ${email}`);
+    } else {
+      const role = await getRoleByName(roleName);
+      await removeRealmRolesFromUser(userId, [role]);
+      console.log(`[TeamSync] Removed ${roleName} from ${email}`);
+    }
+  } catch (err) {
+    console.warn(`[TeamSync] Failed to ${action} ${roleName} for ${email}:`, err);
+  }
+}
+
 // POST /api/admin/teams/[id]/members
 export const POST = withErrorHandler(async (
   request: NextRequest,
@@ -43,6 +89,7 @@ export const POST = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
+    await requireRbacPermission(session, 'admin_ui', 'admin');
     requireAdmin(session);
 
     const params = await context.params;
@@ -96,6 +143,9 @@ export const POST = withErrorHandler(async (
 
     const updated = await teams.findOne({ _id: teamId });
 
+    // Sync Keycloak team role (best-effort)
+    await syncKeycloakTeamRole(email, teamId.toString(), 'assign');
+
     console.log(`[Admin] Member added to team ${team.name}: ${email} (${role}) by ${user.email}`);
 
     return successResponse({ team: updated }, 201);
@@ -111,6 +161,7 @@ export const DELETE = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   return withAuth(request, async (req, user, session) => {
+    await requireRbacPermission(session, 'admin_ui', 'admin');
     requireAdmin(session);
 
     const params = await context.params;
@@ -153,6 +204,9 @@ export const DELETE = withErrorHandler(async (
     );
 
     const updated = await teams.findOne({ _id: teamId });
+
+    // Revoke Keycloak team role (best-effort)
+    await syncKeycloakTeamRole(email, teamId.toString(), 'remove');
 
     console.log(`[Admin] Member removed from team ${team.name}: ${email} by ${user.email}`);
 

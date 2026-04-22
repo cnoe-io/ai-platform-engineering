@@ -66,3 +66,6 @@ class DeepAgentState(AgentState):
     pending_task_tool_call_id: NotRequired[str]  # Track the task tool call ID
     task_execution_pending: NotRequired[bool]  # Signal for before_model to start task
     files: Annotated[dict[str, str], file_reducer]
+    user_email: NotRequired[str]
+    user_name: NotRequired[str]
+    user_groups: NotRequired[list[str]]

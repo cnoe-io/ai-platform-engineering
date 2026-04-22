@@ -1,12 +1,11 @@
 # ---------- Stage 0: Go toolchain (for github-mcp-server STDIO) ----------
-FROM golang:1.26.2-bookworm AS golang
+FROM golang:1.24-bookworm AS golang
 
 # ---------- Stage 1: Build dependencies ----------
 FROM python:3.13-slim AS builder
 
 # Install system dependencies and uv in one layer
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     git \
     && pip install uv \
@@ -38,30 +37,18 @@ RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bed
         { echo "ERROR: langchain_aws patch was not applied — sed substitution had no effect."; exit 1; }
 
 # ---------- Stage 2: Final runtime image ----------
-# Wolfi (Chainguard) base: 0 CVEs, continuously patched packages.
-FROM cgr.dev/chainguard/wolfi-base
+FROM python:3.13-slim
 
-# Override APK repo to public Wolfi OS packages (no auth required).
-RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
-
-# Install runtime dependencies. shadow provides groupadd/useradd.
-RUN for i in 1 2 3; do \
-        apk add --no-cache python-3.13 git wget curl grep unzip bash shadow && break; \
-        [ $i -lt 3 ] && sleep $((i * 10)); \
-    done && \
-    apk upgrade --no-cache
-
-# Use the official uv binary (astral-sh) — the Wolfi apk uv package bundles
-# outdated Rust crates (rand, rustls-webpki) with known CVEs.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-# The builder stage uses python:3.13-slim which places Python at
-# /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13.
-# These symlinks keep the venv's internal python symlinks from breaking.
-RUN mkdir -p /usr/local/bin \
-    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
-    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
-    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
+# Install only runtime dependencies (including uv for MCP STDIO subprocess execution)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    curl \
+    grep \
+    unzip \
+    && pip install uv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # AWS CLI v2 — used by aws_cli_execute tool in single-node AWS subagent
 RUN ARCH=$(uname -m) && \
@@ -88,21 +75,19 @@ RUN ARCH=$(uname -m) && \
     mv kubectl /usr/local/bin/kubectl
 
 # Terraform CLI — used by terraform_fmt tool for HCL formatting in self-service tasks
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then ARCH="arm64"; else ARCH="amd64"; fi && \
-    wget -q "https://releases.hashicorp.com/terraform/1.14.8/terraform_1.14.8_linux_${ARCH}.zip" -O /tmp/terraform.zip \
+RUN ARCH=$(dpkg --print-architecture) \
+    && wget -q "https://releases.hashicorp.com/terraform/1.11.2/terraform_1.11.2_linux_${ARCH}.zip" -O /tmp/terraform.zip \
     && unzip -o /tmp/terraform.zip -d /usr/local/bin/ \
     && rm /tmp/terraform.zip \
     && chmod +x /usr/local/bin/terraform
 
 # GitHub CLI — used by gh_cli_execute tool in single-node GitHub subagent
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then ARCH="arm64"; else ARCH="amd64"; fi && \
-    curl -sfL --retry 5 --retry-delay 3 \
-       "https://github.com/cli/cli/releases/download/v2.90.0/gh_2.90.0_linux_${ARCH}.tar.gz" \
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -sfL --retry 5 --retry-delay 3 \
+       "https://github.com/cli/cli/releases/download/v2.89.0/gh_2.89.0_linux_${ARCH}.tar.gz" \
        -o /tmp/gh.tar.gz \
     && tar -xzf /tmp/gh.tar.gz -C /tmp \
-    && mv /tmp/gh_2.90.0_linux_${ARCH}/bin/gh /usr/local/bin/gh \
+    && mv /tmp/gh_2.89.0_linux_${ARCH}/bin/gh /usr/local/bin/gh \
     && chmod +x /usr/local/bin/gh \
     && rm -rf /tmp/gh.tar.gz /tmp/gh_*
 

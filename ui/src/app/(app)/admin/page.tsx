@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,14 +25,23 @@ import {
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
+import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
+import { AgMcpPoliciesEditor } from "@/components/admin/AgMcpPoliciesEditor";
+import { RolesAccessTab } from "@/components/admin/RolesAccessTab";
+import { SlackUsersTab } from "@/components/admin/SlackUsersTab";
+import { SlackChannelMappingTab } from "@/components/admin/SlackChannelMappingTab";
+import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
 import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
 import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
+import { UserManagementTab } from "@/components/admin/UserManagementTab";
+import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
@@ -101,7 +110,6 @@ interface AdminStats {
     daily: Array<{ date: string; interactions: number; unique_users: number; resolved: number; escalated: number }>;
     top_channels: Array<{ channel_name: string; interactions: number; resolved: number; resolution_rate: number }>;
   };
-  available_channels?: string[];
 }
 
 interface FeedbackEntry {
@@ -168,19 +176,6 @@ interface NPSData {
   }>;
 }
 
-interface UserInfo {
-  email: string;
-  name: string;
-  role: string;
-  created_at: Date;
-  last_login: Date;
-  last_activity: Date;
-  stats: {
-    conversations: number;
-    messages: number;
-  };
-}
-
 interface Team {
   _id: string;
   name: string;
@@ -194,7 +189,73 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'action-audit', 'roles', 'slack', 'ag-policies'] as const;
+
+type CategoryKey = 'people' | 'insights' | 'platform' | 'security';
+
+interface Category {
+  key: CategoryKey;
+  label: string;
+  icon: LucideIcon;
+  tabs: Array<{
+    value: string;
+    label: string;
+    icon: LucideIcon;
+    gateKey: string;
+  }>;
+}
+
+const CATEGORIES: Category[] = [
+  {
+    key: 'people',
+    label: 'People & Access',
+    icon: Users,
+    tabs: [
+      { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
+      { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
+      { value: 'roles', label: 'Roles', icon: Shield, gateKey: 'roles' },
+      { value: 'slack', label: 'Slack', icon: MessageSquare, gateKey: 'slack' },
+    ],
+  },
+  {
+    key: 'insights',
+    label: 'Insights',
+    icon: TrendingUp,
+    tabs: [
+      { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
+      { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gateKey: 'feedback' },
+      { value: 'nps', label: 'NPS', icon: Star, gateKey: 'nps' },
+      { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
+    ],
+  },
+  {
+    key: 'platform',
+    label: 'Platform',
+    icon: Activity,
+    tabs: [
+      { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
+      { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
+    ],
+  },
+  {
+    key: 'security',
+    label: 'Security & Policy',
+    icon: Shield,
+    tabs: [
+      { value: 'audit-logs', label: 'Audits', icon: FileText, gateKey: 'audit_logs' },
+      { value: 'action-audit', label: 'Action Audit', icon: Shield, gateKey: 'action_audit' },
+      { value: 'policy', label: 'Policy', icon: Shield, gateKey: 'policy' },
+      { value: 'ag-policies', label: 'AG MCP Policies', icon: Shield, gateKey: 'ag_policies' },
+    ],
+  },
+];
+
+function categoryForTab(tab: string): CategoryKey {
+  for (const cat of CATEGORIES) {
+    if (cat.tabs.some((t) => t.value === tab)) return cat.key;
+  }
+  return 'people';
+}
 
 function AdminPage() {
   const { status } = useSession();
@@ -202,24 +263,60 @@ function AdminPage() {
   const router = useRouter();
   const pathname = usePathname();
   const { isAdmin } = useAdminRole();
+  const { gates, loading: gatesLoading } = useAdminTabGates();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
-  const [users, setUsers] = useState<UserInfo[]>([]);
-  const [userSearch, setUserSearch] = useState('');
-  const [userPage, setUserPage] = useState(1);
-  const [userTotal, setUserTotal] = useState(0);
-  const [userTotalPages, setUserTotalPages] = useState(1);
-  const [usersLoading, setUsersLoading] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const initialTab = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState(
-    initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'users'
+  const [activeTab, setActiveTab] = useState<string>(
+    initialTab && (VALID_TABS as readonly string[]).includes(initialTab) ? initialTab : 'users'
+  );
+  const initialCat = searchParams.get('cat') as CategoryKey | null;
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>(
+    initialCat && CATEGORIES.some((c) => c.key === initialCat)
+      ? initialCat
+      : categoryForTab(activeTab)
+  );
+
+  const visibleCategories = useMemo(
+    () =>
+      CATEGORIES.filter((cat) =>
+        cat.tabs.some((t) => (gates as Record<string, boolean>)[t.gateKey])
+      ),
+    [gates]
+  );
+
+  const visibleTabsForCategory = useMemo(
+    () =>
+      (CATEGORIES.find((c) => c.key === activeCategory)?.tabs ?? []).filter(
+        (t) => (gates as Record<string, boolean>)[t.gateKey]
+      ),
+    [activeCategory, gates]
+  );
+
+  const handleCategoryChange = useCallback(
+    (catKey: CategoryKey) => {
+      setActiveCategory(catKey);
+      const cat = CATEGORIES.find((c) => c.key === catKey);
+      if (!cat) return;
+      const firstVisible = cat.tabs.find(
+        (t) => (gates as Record<string, boolean>)[t.gateKey]
+      );
+      if (firstVisible) {
+        setActiveTab(firstVisible.value);
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('cat', catKey);
+        params.set('tab', firstVisible.value);
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      }
+    },
+    [gates, searchParams, router, pathname]
   );
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
@@ -308,9 +405,9 @@ function AdminPage() {
   const [stoppingCampaign, setStoppingCampaign] = useState<string | null>(null);
   const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
   const [statsRefreshing, setStatsRefreshing] = useState(false);
-  const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
-  const [statsChannels, setStatsChannels] = useState<string[]>([]);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
+  const [slackSubTab, setSlackSubTab] = useState<"slack-users" | "slack-channels">("slack-users");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch admin data when authenticated or when SSO is disabled (local dev)
@@ -334,26 +431,21 @@ function AdminPage() {
   };
 
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
-  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter });
-  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
+  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter });
+  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     setStatsRefreshing(true);
     try {
       const r = range ?? dateRange;
       const s = source ?? sourceFilter;
       const u = userEmails ?? expandStatsUsers(userFilter);
-      const ch = channels ?? statsChannelFilter;
       const params = new URLSearchParams({ from: r.from, to: r.to });
       if (s !== 'all') params.set('source', s);
       if (u.length > 0) params.set('user', u.join(','));
-      if (s === 'slack' && ch.length > 0) params.set('channel', ch.join(','));
       const res = await fetch(`/api/admin/stats?${params}`);
       if (res.ok) {
         const json = await res.json();
-        if (json.success) {
-          setStats(json.data);
-          if (json.data.available_channels) setStatsChannels(json.data.available_channels);
-        }
+        if (json.success) setStats(json.data);
       }
     } catch {
       // keep existing stats on failure
@@ -362,11 +454,10 @@ function AdminPage() {
     }
   };
   useEffect(() => {
-    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter };
+    const current = { range: dateRange, source: sourceFilter, users: userFilter };
     if (statsFilterRef.current.range === current.range
       && statsFilterRef.current.source === current.source
-      && statsFilterRef.current.users === current.users
-      && statsFilterRef.current.channels === current.channels) return; // skip initial
+      && statsFilterRef.current.users === current.users) return; // skip initial
     statsFilterRef.current = current;
     fetchStatsWithFilters();
   }, [dateRange, sourceFilter, userFilter, status]);
@@ -396,8 +487,14 @@ function AdminPage() {
         npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
       ]);
 
-      if (statsRes.status === 401 || usersRes.status === 401) {
+      if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
+        setLoading(false);
+        return;
+      }
+
+      if (statsRes.status === 403) {
+        setError('Access denied. Try signing out and back in to refresh your session.');
         setLoading(false);
         return;
       }
@@ -411,25 +508,11 @@ function AdminPage() {
 
       if (statsResponse.success) {
         setStats(statsResponse.data);
-        if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
         // Use unfiltered response for global overview, or the main response if no filters were applied
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
       } else {
         throw new Error(statsResponse.error || 'Failed to load stats');
-      }
-
-      if (usersResponse.success) {
-        setUsers(usersResponse.data.users);
-        if (usersResponse.data.pagination) {
-          setUserTotal(usersResponse.data.pagination.total);
-          setUserTotalPages(usersResponse.data.pagination.total_pages);
-          setUserPage(usersResponse.data.pagination.page);
-        } else {
-          setUserTotal(usersResponse.data.total || usersResponse.data.users.length);
-        }
-      } else {
-        throw new Error(usersResponse.error || 'Failed to load users');
       }
 
       if (teamsResponse.success) {
@@ -463,29 +546,6 @@ function AdminPage() {
       setError(err.message || 'Failed to load admin data');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadUsers = async (search?: string, page = 1) => {
-    setUsersLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '50' });
-      const q = search ?? userSearch;
-      if (q) params.set('search', q);
-      const res = await fetch(`/api/admin/users?${params}`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success) {
-          setUsers(json.data.users);
-          setUserTotal(json.data.pagination.total);
-          setUserTotalPages(json.data.pagination.total_pages);
-          setUserPage(json.data.pagination.page);
-        }
-      }
-    } catch (err) {
-      console.error('[Admin] Failed to load users:', err);
-    } finally {
-      setUsersLoading(false);
     }
   };
 
@@ -623,40 +683,6 @@ function AdminPage() {
       alert(`Failed to stop campaign: ${err.message}`);
     } finally {
       setStoppingCampaign(null);
-    }
-  };
-
-  const handleRoleChange = async (email: string, newRole: 'admin' | 'user') => {
-    if (!confirm(`Are you sure you want to change ${email} to ${newRole}?`)) {
-      return;
-    }
-
-    setUpdatingRole(email);
-
-    try {
-      const response = await fetch(`/api/admin/users/${encodeURIComponent(email)}/role`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole }),
-      });
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to update role');
-      }
-
-      // Update local state
-      setUsers(users.map(u =>
-        u.email === email ? { ...u, role: newRole } : u
-      ));
-
-      console.log(`[Admin] Successfully changed ${email} to ${newRole}`);
-    } catch (err: any) {
-      console.error('[Admin] Failed to update role:', err);
-      alert(`Failed to update role: ${err.message}`);
-    } finally {
-      setUpdatingRole(null);
     }
   };
 
@@ -799,197 +825,56 @@ function AdminPage() {
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={(tab) => {
               setActiveTab(tab);
+              setActiveCategory(categoryForTab(tab));
               const params = new URLSearchParams(searchParams.toString());
+              params.set('cat', categoryForTab(tab));
               params.set('tab', tab);
               router.replace(`${pathname}?${params.toString()}`, { scroll: false });
             }} className="space-y-4">
-              <TabsList className={`grid w-full ${(() => {
-                const n = 6
-                  + (getConfig('feedbackEnabled') ? 1 : 0)
-                  + (getConfig('npsEnabled') ? 1 : 0)
-                  + (auditLogsEnabled && isAdmin ? 1 : 0)
-                  + (isAdmin ? 1 : 0);
-                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10' };
-                return cols[n] ?? 'grid-cols-6';
-              })()}`}>
-                <TabsTrigger value="users" className="gap-2">
-                  <Users className="h-4 w-4" />
-                  Users
-                </TabsTrigger>
-                <TabsTrigger value="teams" className="gap-2">
-                  <UsersIcon className="h-4 w-4" />
-                  Teams
-                </TabsTrigger>
-                <TabsTrigger value="skills" className="gap-2">
-                  <Layers className="h-4 w-4" />
-                  Skills
-                </TabsTrigger>
-                {getConfig('feedbackEnabled') && (
-                <TabsTrigger value="feedback" className="gap-2">
-                  <ThumbsUp className="h-4 w-4" />
-                  Feedback
-                </TabsTrigger>
-                )}
-                {getConfig('npsEnabled') && (
-                <TabsTrigger value="nps" className="gap-2">
-                  <Star className="h-4 w-4" />
-                  NPS
-                </TabsTrigger>
-                )}
-                <TabsTrigger value="stats" className="gap-2">
-                  <TrendingUp className="h-4 w-4" />
-                  Statistics
-                </TabsTrigger>
-                <TabsTrigger value="metrics" className="gap-2">
-                  <Activity className="h-4 w-4" />
-                  Metrics
-                </TabsTrigger>
-                <TabsTrigger value="health" className="gap-2">
-                  <Database className="h-4 w-4" />
-                  Health
-                </TabsTrigger>
-                {auditLogsEnabled && isAdmin && (
-                  <TabsTrigger value="audit-logs" className="gap-2">
-                    <FileText className="h-4 w-4" />
-                    Audit Logs
-                  </TabsTrigger>
-                )}
-                {isAdmin && (
-                  <TabsTrigger value="policy" className="gap-2">
-                    <Shield className="h-4 w-4" />
-                    Policy
-                  </TabsTrigger>
-                )}
+              {/* Category selector */}
+              <div className="flex flex-wrap gap-1.5">
+                {visibleCategories.map((cat) => {
+                  const Icon = cat.icon;
+                  const isActive = activeCategory === cat.key;
+                  return (
+                    <button
+                      key={cat.key}
+                      onClick={() => handleCategoryChange(cat.key)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        isActive
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Filtered sub-tabs for the active category */}
+              <TabsList className="flex w-full justify-start gap-0">
+                {visibleTabsForCategory.map((t) => {
+                  const Icon = t.icon;
+                  return (
+                    <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
+                      <Icon className="h-4 w-4" />
+                      {t.label}
+                    </TabsTrigger>
+                  );
+                })}
               </TabsList>
 
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
-                {/* Search */}
-                <div className="flex items-center gap-3">
-                  <div className="relative flex-1 max-w-sm">
-                    <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder="Search by name or email..."
-                      value={userSearch}
-                      onChange={(e) => {
-                        setUserSearch(e.target.value);
-                        const q = e.target.value;
-                        clearTimeout((window as any).__userSearchTimer);
-                        (window as any).__userSearchTimer = setTimeout(() => {
-                          loadUsers(q, 1);
-                        }, 300);
-                      }}
-                      className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
-                    {userSearch && (
-                      <button
-                        onClick={() => { setUserSearch(''); loadUsers('', 1); }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2"
-                      >
-                        <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-                      </button>
-                    )}
-                  </div>
-                  <span className="text-xs text-muted-foreground">{userTotal} users</span>
-                </div>
-
-                {/* Table */}
-                <div className="space-y-2 relative">
-                  {usersLoading && (
-                    <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                    <div>Email</div>
-                    <div>Name</div>
-                    <div>Role</div>
-                    <div>Activity</div>
-                    <div>Stats</div>
-                    {isAdmin && <div className="text-right">Actions</div>}
-                  </div>
-                  {users.length === 0 && !usersLoading ? (
-                    <div className="text-center py-8 text-sm text-muted-foreground">
-                      {userSearch ? 'No users matching your search' : 'No users found'}
-                    </div>
-                  ) : users.map((user) => (
-                    <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                      <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.email}</div>
-                      <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.name}</div>
-                      <div>
-                        <span className={`px-2 py-0.5 rounded text-xs ${
-                          user.role === 'admin'
-                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                        }`}>
-                          {user.role}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(user.last_activity).toLocaleDateString()}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {user.stats.conversations} chats, {user.stats.messages} msgs
-                      </div>
-                      {isAdmin && (
-                        <div className="flex justify-end gap-1">
-                          {user.role === 'user' ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleRoleChange(user.email, 'admin')}
-                              disabled={updatingRole === user.email}
-                              className="h-7 text-xs gap-1"
-                            >
-                              <ShieldCheck className="h-3 w-3" />
-                              Make Admin
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleRoleChange(user.email, 'user')}
-                              disabled={updatingRole === user.email}
-                              className="h-7 text-xs gap-1"
-                            >
-                              <ShieldOff className="h-3 w-3" />
-                              Remove Admin
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Pagination */}
-                {userTotalPages > 1 && (
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <p className="text-xs text-muted-foreground">
-                      Page {userPage} of {userTotalPages}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        disabled={userPage <= 1 || usersLoading}
-                        onClick={() => loadUsers(undefined, userPage - 1)}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        disabled={userPage >= userTotalPages || usersLoading}
-                        onClick={() => loadUsers(undefined, userPage + 1)}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
+                <UserManagementTab onSelectUser={(id) => setSelectedUserId(id)} />
+                {selectedUserId && (
+                  <UserDetailModal
+                    userId={selectedUserId}
+                    onClose={() => setSelectedUserId(null)}
+                    onSaved={() => {}}
+                  />
                 )}
               </TabsContent>
 
@@ -1077,6 +962,13 @@ function AdminPage() {
                               >
                                 View Details
                               </Button>
+                            </div>
+                            <div className="mt-4">
+                              <TeamKbAssignmentPanel
+                                teamId={team._id}
+                                teamName={team.name}
+                                isAdmin={isAdmin}
+                              />
                             </div>
                           </div>
                         </CardContent>
@@ -1452,7 +1344,7 @@ function AdminPage() {
               </TabsContent>}
 
               {/* NPS Tab */}
-              {getConfig('npsEnabled') && <TabsContent value="nps" className="space-y-4">
+              {gates.nps && <TabsContent value="nps" className="space-y-4">
                 {/* Campaign Management */}
                 {isAdmin && (
                   <Card>
@@ -1868,8 +1760,7 @@ function AdminPage() {
                       onChange={(e) => {
                         const src = e.target.value as 'all' | 'web' | 'slack';
                         setSourceFilter(src);
-                        setStatsChannelFilter([]);
-                        fetchStatsWithFilters(undefined, src, undefined, []);
+                        fetchStatsWithFilters(undefined, src);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
                       }}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
@@ -1878,24 +1769,10 @@ function AdminPage() {
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
                     </select>
-                    {sourceFilter === 'slack' && statsChannels.length > 0 && (
-                      <MultiSelect
-                        options={statsChannels}
-                        selected={statsChannelFilter}
-                        onChange={(channels) => {
-                          setStatsChannelFilter(channels);
-                          fetchStatsWithFilters(undefined, undefined, undefined, channels);
-                        }}
-                        placeholder="All Channels"
-                        searchPlaceholder="Search channels..."
-                        emptyLabel="No channels found"
-                        badgeLabel="channels"
-                      />
-                    )}
                     <MultiSelect
                       options={[
                         ...teams.map((t) => `team:${t.name}`),
-                        ...users.map((u) => u.email),
+                        ...feedbackUsers,
                       ]}
                       selected={userFilter}
                       onChange={(selected) => {
@@ -1947,12 +1824,7 @@ function AdminPage() {
                 </div>
 
                 {stats && (
-                  <div className="relative space-y-4">
-                    {statsRefreshing && (
-                      <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
+                  <>
                     {/* Platform Summary Cards */}
                     {stats.platform_summary && (
                       <div className="grid grid-cols-2 gap-4">
@@ -2477,7 +2349,7 @@ function AdminPage() {
 
                     {/* Checkpoint Persistence */}
                     <CheckpointStatsSection />
-                  </div>
+                  </>
                 )}
               </TabsContent>
 
@@ -2491,19 +2363,50 @@ function AdminPage() {
                 <HealthTab />
               </TabsContent>
 
-              {/* Audit Logs Tab (optional, gated by AUDIT_LOGS_ENABLED + full admin role) */}
-              {auditLogsEnabled && isAdmin && (
+              {gates.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
                   <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 
-              {/* Policy Tab (admin only) */}
-              {isAdmin && (
-                <TabsContent value="policy" className="space-y-4">
-                  <PolicyTab isAdmin={isAdmin} />
+              {gates.action_audit && (
+                <TabsContent value="action-audit" className="space-y-4">
+                  <UnifiedAuditTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
+
+              <TabsContent value="policy" className="space-y-4">
+                <PolicyTab isAdmin={isAdmin} />
+              </TabsContent>
+
+              <TabsContent value="ag-policies" className="space-y-4">
+                <AgMcpPoliciesEditor isAdmin={isAdmin} />
+              </TabsContent>
+
+              <TabsContent value="roles" className="space-y-4">
+                <RolesAccessTab isAdmin={isAdmin} />
+              </TabsContent>
+
+              <TabsContent value="slack" className="space-y-4">
+                <Tabs value={slackSubTab} onValueChange={(v) => setSlackSubTab(v as "slack-users" | "slack-channels")} className="space-y-4">
+                  <TabsList className="w-full sm:w-auto justify-start">
+                    <TabsTrigger value="slack-users" className="gap-1.5">
+                      <Users className="h-4 w-4" />
+                      Slack users
+                    </TabsTrigger>
+                    <TabsTrigger value="slack-channels" className="gap-1.5">
+                      <Layers className="h-4 w-4" />
+                      Channel mappings
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="slack-users" className="mt-4">
+                    <SlackUsersTab isAdmin={isAdmin} />
+                  </TabsContent>
+                  <TabsContent value="slack-channels" className="mt-4">
+                    <SlackChannelMappingTab isAdmin={isAdmin} />
+                  </TabsContent>
+                </Tabs>
+              </TabsContent>
             </Tabs>
           </div>
         </ScrollArea>

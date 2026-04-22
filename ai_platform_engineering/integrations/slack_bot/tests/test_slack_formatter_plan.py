@@ -105,10 +105,17 @@ class TestBuildTodoTaskUpdates:
     assert chunks[2]["id"] == "todo_3"
     assert chunks[2]["status"] == "pending"
 
-  def test_no_output_by_default(self):
+  def test_with_details_and_outputs(self):
     todos = [{"id": 1, "content": "Research", "status": "in_progress"}]
-    chunks = build_todo_task_updates(todos)
-    assert "output" not in chunks[0]
+    details = {1: "Searching knowledge base..."}
+    outputs = {1: "Found 3 relevant docs"}
+    chunks = build_todo_task_updates(todos, todo_details=details, todo_outputs=outputs)
+    assert chunks[0]["details"] == "Searching knowledge base..."
+    assert chunks[0]["output"] == "Found 3 relevant docs"
+
+  def test_missing_details_not_included(self):
+    todos = [{"id": 1, "content": "Research", "status": "pending"}]
+    chunks = build_todo_task_updates(todos, todo_details={2: "irrelevant"})
     assert "details" not in chunks[0]
 
   def test_empty_todos(self):

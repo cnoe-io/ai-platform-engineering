@@ -57,7 +57,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         let loc = location.trim();
         try {
           const parsed = new URL(loc);
-          if (parsed.hostname === "github.com" || parsed.hostname.endsWith(".github.com")) {
+          if (parsed.hostname.includes("github.com")) {
             loc = parsed.pathname.replace(/^\/+|\/+$/g, "");
           }
         } catch { /* not a URL */ }

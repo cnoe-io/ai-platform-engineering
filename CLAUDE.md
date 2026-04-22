@@ -3,18 +3,8 @@
 ## Git Workflow
 
 - Always work on a **new branch** -- never commit directly to `main`
-- Use **git worktree** to work in isolated branches (preferred over `git checkout -b`):
-  ```bash
-  # Claude Code: use EnterWorktree tool with the branch name
-  # Manual equivalent (run from repo root):
-  git worktree add ../ai-platform-engineering-<short-name> -b prebuild/<type>/<short-name>
-  ```
-  Worktrees live **sibling to the repo** at the cnoe level: `../ai-platform-engineering-<short-name>`
-- Branch naming convention: `prebuild/<type>/<short-description>`
-  - `<type>` matches the conventional commit type: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `ci`
-  - e.g. `prebuild/fix/supervisor-streaming-json-and-orphaned-tool-calls`
-  - e.g. `prebuild/docs/enterprise-identity-federation`
-  - e.g. `prebuild/feat/langgraph-redis-checkpoint-persistence`
+- Branch naming convention: `prebuild/<short-description>`
+  - e.g. `prebuild/fix-supervisor-streaming-json-and-orphaned-tool-calls`
 - Push the branch and **create a PR using `gh pr create`** (see below)
 
 ## Commit Style -- Conventional Commits + DCO
@@ -103,16 +93,6 @@ PYTHONPATH=. uv run pytest tests/<test_file>.py -v
 PYTHONPATH=. uv run pytest tests/<test_file>.py::<TestClass> -v
 ```
 
-## Container & Helm Security Standards
-
-These standards apply to every new agent Dockerfile and every new Helm chart subchart.
-
-### Dockerfiles
-
-All agent and MCP server images should run as a non-root user at **UID 1001 / GID 1001**.
-
-If a Dockerfile does not have a `USER` directive, `runAsNonRoot: true` in the Helm chart will cause the pod to fail at startup. Check `docker inspect <image> --format '{{.Config.User}}'` to confirm before setting that value in a chart.
-
 ## Reusable Skills
 
 The `skills/` directory contains reusable tools organized by category:
@@ -137,6 +117,27 @@ python skills/persistence/test_langgraph_persistence.py mongodb
 ```
 
 See [skills/README.md](./skills/README.md) for full documentation.
+
+## RBAC Living Documentation Rule
+
+**Whenever you make any change to the RBAC system, you MUST update `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` in the same session.**
+
+This file is the canonical plain-language reference for junior engineers. Keep it in sync with code reality.
+
+Changes that require a docs update include (but are not limited to):
+
+| Change type | What to update in how-rbac-works.md |
+|-------------|--------------------------------------|
+| New role or permission | Role table in Component 1 (Keycloak) section |
+| New env var on any service | Env var table for that component |
+| New middleware or auth layer | Add/update the relevant component section + flow diagram |
+| New service added to the stack | Add a new Component section + update the big-picture diagram |
+| Auth flow change (e.g. Keycloak flows, OBO) | Update the sequence diagram and flow description |
+| New file added to auth path | Add it to the File Map table at the bottom |
+| Keycloak `init-idp.sh` behaviour change | Update Component 1 or the OBO section as applicable |
+| Dynamic agents auth change | Update Component 5 |
+
+The file map table at the bottom of `how-rbac-works.md` must always reflect where every auth-relevant file lives.
 
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)

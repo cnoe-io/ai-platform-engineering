@@ -1,0 +1,214 @@
+import { NextRequest } from "next/server";
+import {
+  withAuth,
+  withErrorHandler,
+  requireAdmin,
+  getPaginationParams,
+  paginatedResponse,
+} from "@/lib/api-middleware";
+import { getCollection } from "@/lib/mongodb";
+import {
+  listRealmRoleMappingsForUser,
+  listRealmUsersPage,
+} from "@/lib/rbac/keycloak-admin";
+
+type SlackUserMetrics = {
+  slack_user_id: string;
+  last_interaction_at?: Date;
+  obo_success_count?: number;
+  obo_fail_count?: number;
+  active_channel_ids?: string[];
+};
+
+type SlackUserRow = {
+  keycloak_user_id: string;
+  username?: string;
+  email?: string;
+  display_name?: string;
+  slack_user_id: string;
+  link_status: "linked" | "pending" | "unlinked";
+  enabled?: boolean;
+  roles: string[];
+  teams: string[];
+  last_interaction: string | null;
+  obo_success_count: number;
+  obo_fail_count: number;
+  active_channels: string[];
+};
+
+function readSlackId(attrs: unknown): string | undefined {
+  if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) return undefined;
+  const a = attrs as Record<string, string[]>;
+  const v = a.slack_user_id;
+  return v?.[0]?.trim() || undefined;
+}
+
+export const GET = withErrorHandler(async (request: NextRequest) => {
+  return withAuth(request, async (_req, _user, session) => {
+    requireAdmin(session);
+    const { page, pageSize, skip } = getPaginationParams(request);
+    const status = (request.nextUrl.searchParams.get("status") || "all").toLowerCase();
+
+    const linked: Array<{
+      keycloak_user_id: string;
+      username?: string;
+      email?: string;
+      display_name?: string;
+      slack_user_id: string;
+      enabled?: boolean;
+    }> = [];
+
+    for (let first = 0; first < 8000; first += 100) {
+      const batch = await listRealmUsersPage(first, 100);
+      if (batch.length === 0) break;
+      for (const u of batch) {
+        const sid = readSlackId(u.attributes);
+        if (!sid) continue;
+        linked.push({
+          keycloak_user_id: String(u.id ?? ""),
+          username: u.username !== undefined && u.username !== null ? String(u.username) : undefined,
+          email: u.email !== undefined && u.email !== null ? String(u.email) : undefined,
+          display_name:
+            [u.firstName, u.lastName].filter(Boolean).join(" ").trim() ||
+            (u.username !== undefined && u.username !== null ? String(u.username) : undefined),
+          slack_user_id: sid,
+          enabled: u.enabled !== false,
+        });
+      }
+      if (batch.length < 100) break;
+    }
+
+    const slackIdsLinked = new Set(linked.map((l) => l.slack_user_id));
+
+    let pendingSet = new Set<string>();
+    try {
+      const nonceColl = await getCollection<{
+        slack_user_id: string;
+        expires_at?: Date;
+        created_at?: Date;
+        consumed?: boolean;
+      }>("slack_link_nonces");
+      const now = Date.now();
+      const ttlMs = 10 * 60 * 1000;
+      const pendingRows = await nonceColl
+        .find({
+          consumed: { $ne: true },
+          $or: [
+            { expires_at: { $gt: new Date() } },
+            { created_at: { $gte: new Date(now - ttlMs) } },
+          ],
+        })
+        .project({ slack_user_id: 1 })
+        .toArray();
+      pendingSet = new Set(pendingRows.map((r) => r.slack_user_id));
+    } catch {
+      pendingSet = new Set();
+    }
+
+    const unlinkedFromMetrics: Array<{ slack_user_id: string }> = [];
+    try {
+      const metricsColl = await getCollection<SlackUserMetrics>("slack_user_metrics");
+      const orphans = await metricsColl
+        .find({ slack_user_id: { $nin: Array.from(slackIdsLinked) } })
+        .limit(100)
+        .toArray();
+      for (const m of orphans) {
+        unlinkedFromMetrics.push({ slack_user_id: m.slack_user_id });
+      }
+    } catch {
+      // optional collection
+    }
+
+    type RowIn = (typeof linked)[number] | { slack_user_id: string; unlinked: true };
+    const baseRows: RowIn[] = [
+      ...linked,
+      ...unlinkedFromMetrics.map((u) => ({ ...u, unlinked: true as const })),
+    ];
+
+    const filtered: RowIn[] = baseRows.filter((row) => {
+      if ("unlinked" in row && row.unlinked) {
+        return status === "all" || status === "unlinked";
+      }
+      const isPending = pendingSet.has(row.slack_user_id);
+      if (status === "all") return true;
+      if (status === "unlinked") return false;
+      if (status === "pending") return isPending;
+      if (status === "linked") return !isPending;
+      return true;
+    });
+
+    const total = filtered.length;
+    const pageSlice = filtered.slice(skip, skip + pageSize);
+
+    const metricsColl = await getCollection<SlackUserMetrics>("slack_user_metrics").catch(() => null);
+    const teamsColl = await getCollection<{ name: string; members: { user_id: string }[] }>("teams").catch(
+      () => null
+    );
+
+    const items: SlackUserRow[] = await Promise.all(
+      pageSlice.map(async (row) => {
+        if ("unlinked" in row && row.unlinked) {
+          let metrics: Partial<SlackUserMetrics> = {};
+          if (metricsColl) {
+            metrics = (await metricsColl.findOne({ slack_user_id: row.slack_user_id })) ?? {};
+          }
+          return {
+            keycloak_user_id: "",
+            slack_user_id: row.slack_user_id,
+            link_status: "unlinked" as const,
+            roles: [],
+            teams: [],
+            last_interaction: metrics.last_interaction_at?.toISOString() ?? null,
+            obo_success_count: metrics.obo_success_count ?? 0,
+            obo_fail_count: metrics.obo_fail_count ?? 0,
+            active_channels: metrics.active_channel_ids ?? [],
+          };
+        }
+
+        const r = row as (typeof linked)[number];
+        let roles: string[] = [];
+        try {
+          const rm = await listRealmRoleMappingsForUser(r.keycloak_user_id);
+          roles = rm.map((x) => x.name);
+        } catch {
+          roles = [];
+        }
+
+        let teamNames: string[] = [];
+        if (teamsColl && r.email) {
+          const t = await teamsColl
+            .find({ "members.user_id": r.email })
+            .project({ name: 1 })
+            .limit(20)
+            .toArray();
+          teamNames = t.map((x) => String(x.name ?? ""));
+        }
+
+        let metrics: Partial<SlackUserMetrics> = {};
+        if (metricsColl) {
+          metrics = (await metricsColl.findOne({ slack_user_id: r.slack_user_id })) ?? {};
+        }
+
+        const isPending = pendingSet.has(r.slack_user_id);
+
+        return {
+          keycloak_user_id: r.keycloak_user_id,
+          username: r.username,
+          email: r.email,
+          display_name: r.display_name,
+          slack_user_id: r.slack_user_id,
+          link_status: isPending ? ("pending" as const) : ("linked" as const),
+          enabled: r.enabled,
+          roles,
+          teams: teamNames,
+          last_interaction: metrics.last_interaction_at?.toISOString() ?? null,
+          obo_success_count: metrics.obo_success_count ?? 0,
+          obo_fail_count: metrics.obo_fail_count ?? 0,
+          active_channels: metrics.active_channel_ids ?? [],
+        };
+      })
+    );
+
+    return paginatedResponse(items, total, page, pageSize);
+  });
+});

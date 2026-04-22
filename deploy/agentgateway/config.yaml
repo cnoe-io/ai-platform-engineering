@@ -1,0 +1,137 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Agent Gateway configuration for CAIPE platform (098 Enterprise RBAC)
+# PDP-2: validates JWTs issued by Keycloak and enforces CEL authorization
+# rules for MCP, A2A, and agent traffic.
+#
+# Docs: https://agentgateway.dev/docs/standalone/latest/configuration/security/
+
+binds:
+- port: 4000
+  listeners:
+  # Listener policies: LocalGatewayPolicy (jwtAuth only). HTTP CEL rules belong on the route (FilterOrPolicy).
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: http://localhost:7080/realms/caipe
+        audiences: [caipe-platform]
+        # Docker DNS resolves "keycloak" via compose service name.
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+    routes:
+    - policies:
+        authorization:
+          rules:
+          - deny: '!has(jwt.sub)'
+          - deny: 'has(jwt.org) && has(request.headers.x_tenant_id) && jwt.org != request.headers.x_tenant_id'
+          - allow: 'has(jwt.sub)'
+      backends:
+      - policies:
+          mcpAuthorization:
+            rules:
+            # ── Admin-only operations (FR-013, FR-014) ──────────────
+            # Supervisor routing configuration, platform admin tools
+            - |
+              "admin" in jwt.realm_access.roles &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("admin_")
+            - |
+              "admin" in jwt.realm_access.roles &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("supervisor_config")
+
+            # ── RAG operations (FR-015, FR-016) ─────────────────────
+            # RAG query: chat_user, team_member, kb_admin, admin
+            - |
+              ("chat_user" in jwt.realm_access.roles ||
+               "team_member" in jwt.realm_access.roles ||
+               "kb_admin" in jwt.realm_access.roles ||
+               "admin" in jwt.realm_access.roles) &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("rag_query")
+            # RAG ingest: kb_admin, admin only
+            - |
+              ("kb_admin" in jwt.realm_access.roles ||
+               "admin" in jwt.realm_access.roles) &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("rag_ingest")
+            # RAG tool CRUD: team_member (own team), kb_admin, admin
+            - |
+              ("team_member" in jwt.realm_access.roles ||
+               "kb_admin" in jwt.realm_access.roles ||
+               "admin" in jwt.realm_access.roles) &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("rag_tool")
+
+            # ── Team-scoped tool invocation (FR-009, T051) ──────────
+            # Tools prefixed with "team_" require a matching
+            # team_member(<team>) role or admin/kb_admin.
+            # The tool name convention is team_<team-id>_<action>.
+            # Admin and kb_admin bypass team scoping.
+            - |
+              "admin" in jwt.realm_access.roles &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("team_")
+            - |
+              "kb_admin" in jwt.realm_access.roles &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("team_")
+            # team_member must have a matching team role — AG evaluates
+            # rules as allow-if-any-match; the BFF/RAG server performs
+            # the fine-grained team_id check at data-plane level.
+            - |
+              "team_member" in jwt.realm_access.roles &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("team_")
+
+            # ── Dynamic agent MCP via Agent Gateway (FR-030, US8) ───
+            # LangChain prefixes tools as ``{server_id}_{tool}``. Route templates use
+            # ``/mcp/{server_id}``. Fine-grained per-agent checks use realm roles
+            # ``agent_user:<agent-id>`` / ``agent_admin:<agent-id>`` from Keycloak sync;
+            # list those roles in JWT ``realm_access.roles`` when mapping composite roles.
+            - |
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("dynamic_agent_") &&
+              ("admin" in jwt.realm_access.roles ||
+               "kb_admin" in jwt.realm_access.roles ||
+               "team_member" in jwt.realm_access.roles ||
+               "chat_user" in jwt.realm_access.roles)
+
+            # ── GitHub operations ──────────────────────────────────
+            # chat_user+ can invoke GitHub MCP tools
+            - |
+              ("chat_user" in jwt.realm_access.roles ||
+               "team_member" in jwt.realm_access.roles ||
+               "kb_admin" in jwt.realm_access.roles ||
+               "admin" in jwt.realm_access.roles) &&
+              has(mcp.tool) &&
+              mcp.tool.name.startsWith("github_")
+
+            # ── General MCP tool invocation (FR-016) ────────────────
+            # chat_user+ can invoke non-admin, non-rag tools
+            - |
+              ("chat_user" in jwt.realm_access.roles ||
+               "team_member" in jwt.realm_access.roles ||
+               "kb_admin" in jwt.realm_access.roles ||
+               "admin" in jwt.realm_access.roles) &&
+              has(mcp.tool) &&
+              !(mcp.tool.name.startsWith("admin_")) &&
+              !(mcp.tool.name.startsWith("rag_ingest")) &&
+              !(mcp.tool.name.startsWith("supervisor_config"))
+
+        mcp:
+          targets:
+          - name: github
+            mcp:
+              host: http://github-mcp:8000/sse
+          - name: rag
+            mcp:
+              host: http://rag_server:9446/mcp
+
+config:
+  # Default is localhost-only; use 0.0.0.0 so Docker can publish :15000 to the host.
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: info
+    format: json

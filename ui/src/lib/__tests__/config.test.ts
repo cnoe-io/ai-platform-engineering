@@ -72,6 +72,7 @@ describe('getServerConfig', () => {
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'ACTION_AUDIT_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
@@ -107,6 +108,7 @@ describe('getServerConfig', () => {
       expect(cfg.supportEmail).toBe('support@example.com');
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
+      expect(cfg.actionAuditEnabled).toBe(true);
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -142,6 +144,7 @@ describe('getServerConfig', () => {
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
+        'actionAuditEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl',
         'reportProblemEnabled',
@@ -149,6 +152,7 @@ describe('getServerConfig', () => {
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
         'oidcRequiredGroup',
+        'userInfoToolEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -573,7 +577,7 @@ describe('getServerConfig', () => {
       expect(getServerConfig().defaultTheme).toBe('dark');
     });
 
-    it.each(['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
+    it.each(['light', 'dark', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
       'should accept valid value "%s"',
       (theme) => {
         process.env.DEFAULT_THEME = theme;
@@ -914,13 +918,18 @@ describe('getClientConfigScript (XSS safety)', () => {
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
+      'actionAuditEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
       'reportProblemEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
+<<<<<<< HEAD
       'oidcRequiredGroup',
+=======
+      'userInfoToolEnabled',
+>>>>>>> 7982deba (fix(ui): fix ui test)
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

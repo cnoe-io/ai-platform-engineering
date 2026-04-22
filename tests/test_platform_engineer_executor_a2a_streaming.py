@@ -1625,14 +1625,16 @@ class TestStreamingArtifactIdStability:
             )
 
     @pytest.mark.asyncio
-    async def test_plan_step_id_on_streaming_chunks(
+    async def test_plan_step_id_only_on_final_answer_chunks(
         self, executor, mock_context, mock_event_queue
     ):
-        """Verify plan_step_id tagging on streaming_result chunks.
+        """Regression test for #1120 — plan_step_id only appears on tool notification chunks.
 
-        Pre-plan chunks must NOT carry plan_step_id (no plan emitted yet).
-        Post-plan chunks SHOULD carry plan_step_id so the UI can nest them
-        under the active plan step (agent_executor.py:830-835).
+        Uses the same raw dict paths as test_streaming_artifact_id_stable_across_plan_arrival.
+
+        Regular streaming_result chunks (narrative text) do NOT carry plan_step_id;
+        only tool notification artifacts get plan_step_id for UI nesting. Final-answer
+        chunks carry is_final_answer=True metadata instead.
         """
         mock_context.get_user_input.return_value = "summarize our incident response"
 
@@ -1669,14 +1671,13 @@ class TestStreamingArtifactIdStability:
                 f"got metadata={pre_plan_meta}"
             )
 
-            # Post-plan streaming chunks SHOULD have plan_step_id so the UI
-            # nests them under the active plan step instead of rendering as
-            # orphaned content below the plan.
+            # Post-plan streaming chunks also should NOT have plan_step_id
+            # (plan_step_id goes on tool_notification artifacts, not streaming_result)
             for evt in streaming_events[1:]:
                 meta = evt.artifact.metadata or {}
-                assert "plan_step_id" in meta, (
-                    "Post-plan streaming_result chunks must carry plan_step_id "
-                    f"for UI nesting; got metadata={meta}"
+                assert "plan_step_id" not in meta, (
+                    "streaming_result chunks should not carry plan_step_id; "
+                    f"got metadata={meta}"
                 )
 
 

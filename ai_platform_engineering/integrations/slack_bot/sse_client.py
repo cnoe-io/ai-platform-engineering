@@ -24,11 +24,7 @@ SLACK_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "slack.caipe.io")
 def thread_ts_to_conversation_id(thread_ts: str) -> str:
   """Convert a Slack thread_ts to a deterministic conversation UUID.
 
-  .. deprecated::
-      Use ``SSEClient.create_conversation()`` instead.  This function is
-      kept only as a fallback for secondary handlers (button actions) that
-      operate on threads whose conversation was already created by a primary
-      handler.  It will be removed once all handlers are migrated.
+  Same thread_ts always produces the same UUID v5.
 
   Args:
       thread_ts: Slack thread timestamp string.
@@ -169,125 +165,6 @@ class SSEClient:
       token = self.auth_client.get_access_token()
       headers["Authorization"] = f"Bearer {token}"
     return headers
-
-  def create_conversation(
-    self,
-    title: str,
-    agent_id: str,
-    owner_id: Optional[str] = None,
-    idempotency_key: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-  ) -> Dict[str, Any]:
-    """Create or retrieve an existing conversation via the shared API.
-
-    Uses the Next.js ``POST /api/chat/conversations`` endpoint. When an
-    ``idempotency_key`` is provided, the server returns the existing
-    conversation instead of creating a duplicate. This maintains a 1-1
-    mapping between integration-specific identities (e.g. Slack thread_ts)
-    and the conversation_id used by UI and LangGraph checkpoints.
-
-    Args:
-        title: Conversation title (first message truncated).
-        agent_id: Dynamic agent config ID.
-        owner_id: User email. If omitted, server uses the service account identity.
-        idempotency_key: Dedup key mapping integration identity to conversation_id
-            (e.g. Slack thread_ts).
-        metadata: Arbitrary metadata (channel_id, channel_name, etc.).
-
-    Returns:
-        Dict with ``conversation_id`` (str) and ``created`` (bool).
-
-    Raises:
-        Exception: On HTTP errors or invalid response.
-    """
-    url = f"{self.base_url}/api/chat/conversations"
-    headers = self._get_headers()
-    # Conversation API expects JSON, not SSE
-    headers["Accept"] = "application/json"
-
-    payload: Dict[str, Any] = {
-      "title": title,
-      "client_type": "slack",
-      "agent_id": agent_id,
-    }
-    if owner_id:
-      payload["owner_id"] = owner_id
-    if idempotency_key:
-      payload["idempotency_key"] = idempotency_key
-    if metadata:
-      payload["metadata"] = metadata
-
-    logger.debug(
-      "Creating conversation: url={} owner_id={} idempotency_key={}",
-      url,
-      owner_id,
-      idempotency_key,
-    )
-
-    with httpx.Client(timeout=30) as client:
-      response = client.post(url, json=payload, headers=headers)
-
-    if response.status_code not in (200, 201):
-      logger.error(
-        "Failed to create conversation: status={} body={}",
-        response.status_code,
-        response.text[:500],
-      )
-      raise Exception(f"Failed to create conversation: HTTP {response.status_code}")
-
-    data = response.json()
-    result = data.get("data", data)
-    conversation = result.get("conversation", {})
-    created = result.get("created", True)
-
-    conversation_id = conversation.get("_id", "")
-    logger.info(
-      "Conversation {}: id={} created={}",
-      "created" if created else "found existing",
-      conversation_id,
-      created,
-    )
-
-    return {
-      "conversation_id": conversation_id,
-      "created": created,
-      "metadata": conversation.get("metadata", {}),
-    }
-
-  def update_conversation_metadata(
-    self,
-    conversation_id: str,
-    metadata: Dict[str, Any],
-  ) -> None:
-    """Merge keys into an existing conversation's metadata.
-
-    Calls ``PATCH /api/chat/conversations/{id}/metadata``.  Only the
-    ``metadata`` field is updated — no other conversation fields are
-    touched.
-
-    Args:
-        conversation_id: UUID of the conversation to update.
-        metadata: Dict of keys to shallow-merge into existing metadata.
-
-    Raises:
-        Exception: On HTTP errors.
-    """
-    url = f"{self.base_url}/api/chat/conversations/{conversation_id}/metadata"
-    headers = self._get_headers()
-    headers["Accept"] = "application/json"
-
-    with httpx.Client(timeout=30) as client:
-      response = client.patch(url, json={"metadata": metadata}, headers=headers)
-
-    if response.status_code not in (200, 204):
-      logger.error(
-        "Failed to update conversation metadata: status={} body={}",
-        response.status_code,
-        response.text[:500],
-      )
-      raise Exception(f"Failed to update conversation metadata: HTTP {response.status_code}")
-
-    logger.debug("Updated metadata for conversation {}: {}", conversation_id, metadata)
 
   def stream_chat(
     self,

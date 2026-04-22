@@ -10,18 +10,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
     -o /github-mcp-server ./cmd/github-mcp-server
 
 # ---------- Stage 2: Minimal runtime ----------
-# Wolfi (Chainguard) base: 0 CVEs, continuously patched packages.
-FROM cgr.dev/chainguard/wolfi-base
+FROM alpine:3.21
 
-# Override APK repo to public Wolfi OS packages (no auth required).
-RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
-    for i in 1 2 3; do apk add --no-cache ca-certificates wget shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
-    apk upgrade --no-cache && \
-    groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
+RUN apk add --no-cache ca-certificates wget && \
+    adduser -D -u 10001 nonroot
 
 COPY --from=builder /github-mcp-server /github-mcp-server
 
-USER appuser
+USER nonroot
 
 EXPOSE 8000
 

@@ -38,8 +38,8 @@ LITELLM_ENDPOINT="${LITELLM_ENDPOINT:-}"
 LITELLM_API_KEY="${LITELLM_API_KEY:-}"
 LITELLM_MODEL_NAME="${LITELLM_MODEL_NAME:-gpt-oss-20B}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
-ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001-v1:0"
-AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-6}"
+ANTHROPIC_MODEL_NAME="claude-haiku-4-5"
+AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-us.anthropic.claude-3-7-sonnet-20250219-v1:0}"
 AWS_BEDROCK_PROVIDER="${AWS_BEDROCK_PROVIDER:-anthropic}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_PROFILE="${AWS_PROFILE:-}"
@@ -51,12 +51,9 @@ EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
 EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"
 ENABLE_GRAPH_RAG=false
 ENABLE_VLLM="${ENABLE_VLLM:-false}"
-ENABLE_OLLAMA="${ENABLE_OLLAMA:-false}"
 ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-false}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
-OLLAMA_PORT=11434
 HF_TOKEN="${HF_TOKEN:-}"
 AGENTGATEWAY_VERSION="${AGENTGATEWAY_VERSION:-v2.2.1}"
 AGENTGATEWAY_PORT=8080
@@ -99,7 +96,7 @@ fi
 
 cleanup_on_exit() {
   # Kill tracked PIDs
-  for pid in "${PF_PIDS[@]:-}"; do
+  for pid in "${PF_PIDS[@]}"; do
     kill "$pid" 2>/dev/null || true
   done
   # Fallback: kill any kubectl port-forward processes started for our services
@@ -281,47 +278,6 @@ _install_helm_linux() {
   log "helm installed"
 }
 
-_install_kind_linux() {
-  log "Installing kind..."
-  local ver
-  ver=$(curl -sL https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
-  curl -sLo /tmp/kind "https://kind.sigs.k8s.io/dl/${ver}/kind-linux-amd64"
-  chmod +x /tmp/kind
-  sudo mv /tmp/kind /usr/local/bin/kind || mv /tmp/kind "$HOME/.local/bin/kind"
-  log "kind ${ver} installed"
-}
-
-_install_kind_macos() {
-  log "Installing kind..."
-  if command -v brew &>/dev/null; then
-    brew install kind
-  else
-    local ver
-    ver=$(curl -sL https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
-    curl -sLo /tmp/kind "https://kind.sigs.k8s.io/dl/${ver}/kind-darwin-arm64"
-    chmod +x /tmp/kind
-    sudo mv /tmp/kind /usr/local/bin/kind || mv /tmp/kind "$HOME/.local/bin/kind"
-    log "kind ${ver} installed"
-  fi
-}
-
-_install_ollama_linux() {
-  log "Installing Ollama..."
-  curl -fsSL https://ollama.ai/install.sh | sh
-  log "Ollama installed"
-}
-
-_install_ollama_macos() {
-  log "Installing Ollama..."
-  if command -v brew &>/dev/null; then
-    brew install ollama
-  else
-    log "Please install Ollama manually: https://ollama.ai/download"
-    log "Or install Homebrew and run: brew install ollama"
-  fi
-  log "Ollama installed"
-}
-
 check_prerequisites() {
   step "Checking prerequisites"
   local missing=()
@@ -416,15 +372,14 @@ choose_cluster() {
         labels+=("Kind cluster: ${c}")
       fi
     done
+
+    options+=("kind:new")
+    labels+=("Create a new Kind cluster")
   fi
 
   # Option: switch to another kubectl context
   options+=("context")
   labels+=("Use a different kubectl context")
-
-  # Option: create a new Kind cluster (always available)
-  options+=("kind:new")
-  labels+=("Create a new Kind cluster")
 
   echo ""
   local i=1
@@ -452,17 +407,6 @@ choose_cluster() {
       log "Using current context '${current_ctx}'"
       ;;
     kind:new)
-      if ! command -v kind &>/dev/null; then
-        step "Installing kind"
-        if [[ "$(uname -s)" == "Linux" ]]; then
-          _install_kind_linux
-        elif [[ "$(uname -s)" == "Darwin" ]]; then
-          _install_kind_macos
-        else
-          err "Unsupported OS for automatic kind installation. Install kind manually: https://kind.sigs.k8s.io/docs/user/quick-start/"
-          exit 1
-        fi
-      fi
       prompt "Enter a name for the new cluster ${CYAN}[caipe]${NC}${BOLD}: "
       tty_read -r CLUSTER_NAME
       CLUSTER_NAME="${CLUSTER_NAME:-caipe}"
@@ -648,7 +592,6 @@ collect_credentials() {
     echo -e "    ${BOLD}2)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
     echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
     echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
-    echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(local models: llama2, mistral, neural-chat, etc.)${NC}"
     echo ""
     prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
     tty_read -r provider_choice
@@ -658,7 +601,6 @@ collect_credentials() {
       2) LLM_PROVIDER="aws-bedrock" ;;
       3) LLM_PROVIDER="openai" ;;
       4) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
-      5) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
       *) err "Invalid choice"; exit 1 ;;
     esac
   fi
@@ -668,12 +610,6 @@ collect_credentials() {
   if $ENABLE_VLLM; then
     LLM_PROVIDER="openai"
     _collect_vllm_credentials
-  fi
-
-  # If ENABLE_OLLAMA was set via env or option 5, ensure Ollama is installed
-  if $ENABLE_OLLAMA; then
-    LLM_PROVIDER="openai"
-    _collect_ollama_config
   fi
 
   # ── Collect credentials per provider ─────────────────────────────────
@@ -726,7 +662,7 @@ _collect_anthropic_credentials() {
     tty_read -r model_choice
     model_choice="${model_choice:-1}"
     case "$model_choice" in
-      1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001-v1:0" ;;
+      1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5" ;;
       2) ANTHROPIC_MODEL_NAME="claude-sonnet-4-20250514" ;;
       3) ANTHROPIC_MODEL_NAME="claude-opus-4-20250514" ;;
       4)
@@ -928,18 +864,18 @@ _collect_bedrock_credentials() {
 
     echo ""
     echo -e "  ${DIM}Bedrock model:${NC}"
-    echo -e "    ${BOLD}1)${NC} global.anthropic.claude-sonnet-4-6           ${DIM}(recommended)${NC}"
-    echo -e "    ${BOLD}2)${NC} global.anthropic.claude-haiku-4-5            ${DIM}(fast, low cost)${NC}"
-    echo -e "    ${BOLD}3)${NC} global.anthropic.claude-3-5-sonnet"
+    echo -e "    ${BOLD}1)${NC} us.anthropic.claude-3-7-sonnet-20250219-v1:0  ${DIM}(default)${NC}"
+    echo -e "    ${BOLD}2)${NC} us.anthropic.claude-sonnet-4-20250514-v1:0"
+    echo -e "    ${BOLD}3)${NC} us.anthropic.claude-haiku-4-20250414-v1:0     ${DIM}(fast, low cost)${NC}"
     echo -e "    ${BOLD}4)${NC} Custom"
     echo ""
     prompt "Select model ${CYAN}[1]${NC}${BOLD}: "
     tty_read -r model_choice
     model_choice="${model_choice:-1}"
     case "$model_choice" in
-      1) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-sonnet-4-6" ;;
-      2) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-haiku-4-5" ;;
-      3) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-3-5-sonnet" ;;
+      1) AWS_BEDROCK_MODEL_ID="us.anthropic.claude-3-7-sonnet-20250219-v1:0" ;;
+      2) AWS_BEDROCK_MODEL_ID="us.anthropic.claude-sonnet-4-20250514-v1:0" ;;
+      3) AWS_BEDROCK_MODEL_ID="us.anthropic.claude-haiku-4-20250414-v1:0" ;;
       4)
         prompt "Enter Bedrock model ID: "
         tty_read -r AWS_BEDROCK_MODEL_ID
@@ -1064,67 +1000,6 @@ _collect_vllm_credentials() {
   log "Provider: openai (via LiteLLM proxy)  Model: ${LITELLM_MODEL_NAME}"
   log "vLLM will serve ${VLLM_MODEL} in-cluster"
   log "Embeddings will also use LiteLLM proxy"
-}
-
-_collect_ollama_config() {
-  if ! command -v ollama &>/dev/null; then
-    step "Installing Ollama"
-    if [[ "$(uname -s)" == "Linux" ]]; then
-      _install_ollama_linux
-    elif [[ "$(uname -s)" == "Darwin" ]]; then
-      _install_ollama_macos
-    else
-      err "Unsupported OS for automatic Ollama installation"
-      exit 1
-    fi
-  fi
-
-  if ! $NON_INTERACTIVE; then
-    echo ""
-    echo -e "  ${DIM}Available Ollama models: llama2, mistral, neural-chat, dolphin-mixtral, vicuna${NC}"
-    prompt "Ollama model to use ${CYAN}[${OLLAMA_MODEL}]${NC}${BOLD}: "
-    tty_read -r input
-    OLLAMA_MODEL="${input:-$OLLAMA_MODEL}"
-  fi
-
-  step "Starting Ollama service"
-  # Start ollama in background if not already running
-  if ! curl -s "http://localhost:${OLLAMA_PORT}/api/tags" &>/dev/null; then
-    log "Starting Ollama service..."
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-      # macOS: start via launchctl if installed via brew
-      launchctl start com.ollama.ollama 2>/dev/null || {
-        log "Starting ollama serve in background..."
-        nohup ollama serve &>/dev/null &
-      }
-    else
-      # Linux: start ollama serve
-      log "Starting ollama serve in background..."
-      nohup ollama serve &>/dev/null &
-    fi
-    sleep 2
-  fi
-
-  log "Pulling Ollama model: ${OLLAMA_MODEL}"
-  ollama pull "$OLLAMA_MODEL" || warn "Failed to pull model — you may need to run 'ollama pull ${OLLAMA_MODEL}' manually"
-
-  # Verify Ollama is responding
-  if curl -s "http://localhost:${OLLAMA_PORT}/api/tags" &>/dev/null; then
-    log "Ollama service is running"
-  else
-    warn "Ollama service may not be running. Verify with: curl http://localhost:${OLLAMA_PORT}/api/tags"
-  fi
-
-  # Configure OpenAI-compatible endpoint for Ollama
-  # Ollama API listens on http://localhost:11434/api/generate, but we need OpenAI-compatible format
-  # So we'll use the localhost endpoint directly
-  OPENAI_ENDPOINT="http://localhost:${OLLAMA_PORT}"
-  OPENAI_API_KEY="ollama"
-  OPENAI_MODEL_NAME="${OLLAMA_MODEL}"
-
-  EMBEDDINGS_PROVIDER="ollama"
-
-  log "Provider: openai (via Ollama local)  Model: ${OLLAMA_MODEL}  Port: ${OLLAMA_PORT}"
 }
 
 _collect_openai_embeddings_key() {
@@ -1606,37 +1481,33 @@ _create_secret_from_env() {
 # declare -A can't hold arrays so we use parallel indexed arrays.
 _AGENT_TAGS=(argocd github jira confluence backstage slack pagerduty webex komodor aws splunk)
 
-_agent_enable_key() {
-  case "$1" in
-    argocd) echo "ENABLE_ARGOCD" ;;
-    github) echo "ENABLE_GITHUB" ;;
-    jira) echo "ENABLE_JIRA" ;;
-    confluence) echo "ENABLE_CONFLUENCE" ;;
-    backstage) echo "ENABLE_BACKSTAGE" ;;
-    slack) echo "ENABLE_SLACK" ;;
-    pagerduty) echo "ENABLE_PAGERDUTY" ;;
-    webex) echo "ENABLE_WEBEX" ;;
-    komodor) echo "ENABLE_KOMODOR" ;;
-    aws) echo "ENABLE_AWS" ;;
-    splunk) echo "ENABLE_SPLUNK" ;;
-  esac
-}
+declare -A _AGENT_ENABLE_KEY=(
+  [argocd]="ENABLE_ARGOCD"
+  [github]="ENABLE_GITHUB"
+  [jira]="ENABLE_JIRA"
+  [confluence]="ENABLE_CONFLUENCE"
+  [backstage]="ENABLE_BACKSTAGE"
+  [slack]="ENABLE_SLACK"
+  [pagerduty]="ENABLE_PAGERDUTY"
+  [webex]="ENABLE_WEBEX"
+  [komodor]="ENABLE_KOMODOR"
+  [aws]="ENABLE_AWS"
+  [splunk]="ENABLE_SPLUNK"
+)
 
-_agent_secret_keys() {
-  case "$1" in
-    argocd) echo "ARGOCD_TOKEN ARGOCD_API_URL ARGOCD_VERIFY_SSL" ;;
-    github) echo "GITHUB_PERSONAL_ACCESS_TOKEN" ;;
-    jira) echo "ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL JIRA_URL JIRA_USERNAME JIRA_API_TOKEN JIRA_SSL_VERIFY" ;;
-    confluence) echo "CONFLUENCE_API_TOKEN CONFLUENCE_USERNAME CONFLUENCE_URL CONFLUENCE_API_URL CONFLUENCE_SSL_VERIFY ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL ATLASSIAN_VERIFY_SSL" ;;
-    backstage) echo "BACKSTAGE_API_TOKEN BACKSTAGE_URL" ;;
-    slack) echo "SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET SLACK_TEAM_ID" ;;
-    pagerduty) echo "PAGERDUTY_API_KEY PAGERDUTY_API_URL" ;;
-    webex) echo "WEBEX_TOKEN" ;;
-    komodor) echo "KOMODOR_TOKEN KOMODOR_API_URL" ;;
-    aws) echo "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE" ;;
-    splunk) echo "SPLUNK_TOKEN SPLUNK_API_URL" ;;
-  esac
-}
+declare -A _AGENT_SECRET_KEYS=(
+  [argocd]="ARGOCD_TOKEN ARGOCD_API_URL ARGOCD_VERIFY_SSL"
+  [github]="GITHUB_PERSONAL_ACCESS_TOKEN"
+  [jira]="ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL JIRA_URL JIRA_USERNAME JIRA_API_TOKEN JIRA_SSL_VERIFY"
+  [confluence]="CONFLUENCE_API_TOKEN CONFLUENCE_USERNAME CONFLUENCE_URL CONFLUENCE_API_URL CONFLUENCE_SSL_VERIFY ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL ATLASSIAN_VERIFY_SSL"
+  [backstage]="BACKSTAGE_API_TOKEN BACKSTAGE_URL"
+  [slack]="SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET SLACK_TEAM_ID"
+  [pagerduty]="PAGERDUTY_API_KEY PAGERDUTY_API_URL"
+  [webex]="WEBEX_TOKEN"
+  [komodor]="KOMODOR_TOKEN KOMODOR_API_URL"
+  [aws]="AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE"
+  [splunk]="SPLUNK_TOKEN SPLUNK_API_URL"
+)
 
 # Called from create_namespace_and_secrets when ENV_FILE is set.
 # Creates per-agent k8s secrets and populates HELM_AGENT_ARGS (global array)
@@ -1648,8 +1519,7 @@ provision_agent_secrets() {
   step "Provisioning agent secrets from env file"
 
   for agent in "${_AGENT_TAGS[@]}"; do
-    local enable_key
-    enable_key=$(_agent_enable_key "$agent")
+    local enable_key="${_AGENT_ENABLE_KEY[$agent]}"
     local enable_val
     enable_val=$(_env_get "$env_file" "$enable_key")
     if ! _env_true "$enable_val"; then
@@ -1657,7 +1527,7 @@ provision_agent_secrets() {
     fi
 
     # shellcheck disable=SC2206
-    local keys=($(_agent_secret_keys "$agent"))
+    local keys=(${_AGENT_SECRET_KEYS[$agent]})
     local secret_name="caipe-${agent}-secret"
 
     _create_secret_from_env "$env_file" "$secret_name" caipe "${keys[@]}"
@@ -3439,8 +3309,7 @@ DAEOF
     # Enabled agents from _AGENT_TAGS
     for _a in "${_AGENT_TAGS[@]}"; do
       [[ -n "${_MCP_META[$_a]+_}" ]] || continue
-      local _enable_key
-      _enable_key=$(_agent_enable_key "$_a")
+      local _enable_key="${_AGENT_ENABLE_KEY[$_a]}"
       local _ev=""
       [[ -n "$ENV_FILE" ]] && _ev=$(_env_get "$ENV_FILE" "$_enable_key")
       _env_true "$_ev" || continue
@@ -4570,7 +4439,7 @@ monitor_port_forwards() {
     local now
     now=$(date +%s)
 
-    for i in "${!PF_PIDS[@]:-}"; do
+    for i in "${!PF_PIDS[@]}"; do
       local _pf_port
       # shellcheck disable=SC2086
       _pf_port=$(echo ${PF_SVCS[$i]} | awk '{print $3}')
@@ -5133,7 +5002,7 @@ Environment variables (all optional):
   AWS_SECRET_ACCESS_KEY   AWS secret key for Bedrock
   AWS_PROFILE             AWS profile name (keys resolved from ~/.aws/credentials)
   AWS_REGION              AWS region (default: us-east-2)
-  AWS_BEDROCK_MODEL_ID    Bedrock model (default: global.anthropic.claude-sonnet-4-6)
+  AWS_BEDROCK_MODEL_ID    Bedrock model (default: us.anthropic.claude-3-7-sonnet-20250219-v1:0)
   CAIPE_CHART_VERSION     Pre-set chart version (skips version picker)
   EMBEDDINGS_MODEL        Embedding model (default: text-embedding-3-large)
   EMBEDDINGS_PROVIDER     Embedding provider (default: openai)

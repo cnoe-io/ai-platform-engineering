@@ -1,0 +1,2322 @@
+openapi: 3.1.0
+info:
+  title: CAIPE RAG Server API
+  version: 1.0.0
+  description: |
+    REST API for the CAIPE RAG server (FastAPI): datasource metadata, ingestion jobs,
+    hybrid vector search, graph exploration (when enabled), MCP tool configuration, and health.
+    Validates Bearer JWT (OIDC/Keycloak) via JWKS unless noted otherwise.
+servers:
+  - url: /
+    description: RAG Server
+tags:
+  - name: datasources
+    description: Datasource metadata CRUD and listing
+  - name: ingestion
+    description: Ingestors, jobs, document ingest, and web/Confluence queue endpoints
+  - name: query
+    description: Semantic/sparse hybrid search over the vector collection
+  - name: graph-explore
+    description: Neo4j data and ontology graph exploration (requires ENABLE_GRAPH_RAG)
+  - name: mcp-tools
+    description: MCP search tool configs and built-in tool toggles in Redis
+  - name: health
+    description: Process health and configuration snapshot
+security:
+  - bearerAuth: []
+paths:
+  /v1/user/info:
+    get:
+      operationId: getUserInfo
+      summary: Get current user information
+      description: |
+        Returns resolved role, groups, and permission strings for UI gating.
+        No authentication required; anonymous and trusted-network contexts are supported.
+      tags:
+        - query
+      security: []
+      parameters: []
+      responses:
+        "200":
+          description: User context and permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfoResponse"
+
+  /v1/ingestors:
+    get:
+      operationId: listIngestors
+      summary: List registered ingestors
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Array of ingestor records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IngestorInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingestor/heartbeat:
+    post:
+      operationId: pingIngestor
+      summary: Register or refresh ingestor heartbeat
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestorPingRequest"
+      responses:
+        "200":
+          description: Heartbeat accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestorPingResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingestor/delete:
+    delete:
+      operationId: deleteIngestor
+      summary: Delete ingestor metadata
+      tags:
+        - ingestion
+      parameters:
+        - name: ingestor_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Ingestor removed from metadata
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Ingestor not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/datasource:
+    post:
+      operationId: upsertDatasource
+      summary: Create or update datasource metadata
+      tags:
+        - datasources
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataSourceInfo"
+      responses:
+        "202":
+          description: Datasource metadata accepted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteDatasource
+      summary: Delete datasource and associated vector/graph data
+      tags:
+        - datasources
+      parameters:
+        - name: datasource_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Datasource deleted
+        "400":
+          description: Ingestion job in progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Datasource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/datasources:
+    get:
+      operationId: listDatasources
+      summary: List datasources
+      tags:
+        - datasources
+      parameters:
+        - name: ingestor_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Datasource list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatasourceListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/job/{job_id}:
+    get:
+      operationId: getJob
+      summary: Get ingestion job by ID
+      tags:
+        - ingestion
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/jobs/datasource/{datasource_id}:
+    get:
+      operationId: getJobsByDatasource
+      summary: List jobs for a datasource
+      tags:
+        - ingestion
+      parameters:
+        - name: datasource_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status_filter
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/JobStatus"
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Jobs for datasource
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No jobs for datasource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/jobs/batch:
+    post:
+      operationId: getJobsBatch
+      summary: Batch fetch jobs for multiple datasources
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobsBatchRequest"
+      responses:
+        "200":
+          description: Jobs grouped by datasource_id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobsBatchResponse"
+        "400":
+          description: Too many datasource IDs or invalid status filter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/job:
+    post:
+      operationId: createJob
+      summary: Create a new ingestion job
+      tags:
+        - ingestion
+      parameters:
+        - name: datasource_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: job_status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/JobStatus"
+        - name: message
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: total
+          in: query
+          required: false
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobCreateResponse"
+        "400":
+          description: Failed to create job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Datasource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/job/{job_id}:
+    patch:
+      operationId: updateJob
+      summary: Update job status or metadata
+      tags:
+        - ingestion
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: job_status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/JobStatus"
+        - name: message
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: total
+          in: query
+          required: false
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Job updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobPatchResponse"
+        "400":
+          description: Update failed (e.g. terminated job)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/job/{job_id}/terminate:
+    post:
+      operationId: terminateJob
+      summary: Terminate an ingestion job
+      tags:
+        - ingestion
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Job terminated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobTerminateResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/job/{job_id}/increment-progress:
+    post:
+      operationId: incrementJobProgress
+      summary: Increment job progress counter
+      tags:
+        - ingestion
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: increment
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: New progress value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobProgressResponse"
+        "400":
+          description: Job terminated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/job/{job_id}/increment-failure:
+    post:
+      operationId: incrementJobFailure
+      summary: Increment job failure counter
+      tags:
+        - ingestion
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: increment
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: New failure count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobFailureResponse"
+        "400":
+          description: Job terminated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/job/{job_id}/add-errors:
+    post:
+      operationId: addJobErrors
+      summary: Append error messages to a job
+      tags:
+        - ingestion
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: Errors recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAddErrorsResponse"
+        "400":
+          description: Empty list or job terminated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/query:
+    post:
+      operationId: queryDocuments
+      summary: Hybrid semantic and sparse (BM25) search
+      tags:
+        - query
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryRequest"
+      responses:
+        "200":
+          description: Ranked document hits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QueryResult"
+        "400":
+          description: Limit exceeds server maximum
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingest:
+    post:
+      operationId: ingestDocuments
+      summary: Bulk ingest documents into Milvus (and graph when enabled)
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentIngestRequest"
+      responses:
+        "202":
+          description: Ingestion started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestAcceptedMessage"
+        "400":
+          description: Validation error, document limit, or wrong job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageBody"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Datasource or job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingest/webloader/url:
+    post:
+      operationId: ingestWebloaderUrl
+      summary: Queue URL crawl for webloader ingestor
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UrlIngestRequest"
+      responses:
+        "202":
+          description: Request queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebIngestQueuedResponse"
+        "400":
+          description: URL already ingested or job pending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingest/webloader/reload:
+    post:
+      operationId: reloadWebloaderDatasource
+      summary: Re-queue URL datasource reload
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UrlReloadRequest"
+      responses:
+        "202":
+          description: Reload queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatasourceMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Datasource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingest/webloader/reload-all:
+    post:
+      operationId: reloadAllWebloaderUrls
+      summary: Re-queue reload for all web URL datasources
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "202":
+          description: Bulk reload queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimpleMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingest/confluence/page:
+    post:
+      operationId: ingestConfluencePage
+      summary: Queue Confluence page (and optional children) for ingestion
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfluenceIngestRequest"
+      responses:
+        "202":
+          description: Request queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebIngestQueuedResponse"
+        "400":
+          description: Invalid URL, host mismatch, or job pending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingest/confluence/reload:
+    post:
+      operationId: reloadConfluenceDatasource
+      summary: Re-queue Confluence datasource reload
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfluenceReloadRequest"
+      responses:
+        "202":
+          description: Reload queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatasourceMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Datasource not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/ingest/confluence/reload-all:
+    post:
+      operationId: reloadAllConfluencePages
+      summary: Re-queue reload for all Confluence datasources
+      tags:
+        - ingestion
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "202":
+          description: Bulk reload queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimpleMessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/entity_type:
+    get:
+      operationId: listGraphEntityTypes
+      summary: List ontology entity types
+      description: Requires graph RAG and Neo4j. Returns payload from ontology graph driver.
+      tags:
+        - graph-explore
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Entity types (structure varies by deployment)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/data/entities/batch:
+    get:
+      operationId: fetchDataEntitiesBatch
+      summary: Paginated entities from data graph
+      tags:
+        - graph-explore
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: entity_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Entity batch page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityBatchResponse"
+        "400":
+          description: Limit exceeds maximum
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/data/relations/batch:
+    get:
+      operationId: fetchDataRelationsBatch
+      summary: Paginated relations from data graph
+      tags:
+        - graph-explore
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: relation_name
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Relation batch page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelationBatchResponse"
+        "400":
+          description: Limit exceeds maximum
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/data/entity/neighborhood:
+    post:
+      operationId: exploreDataEntityNeighborhood
+      summary: Neighborhood subgraph for a data entity
+      tags:
+        - graph-explore
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExploreNeighborhoodRequest"
+      responses:
+        "200":
+          description: Neighborhood payload (entity, neighbors, edges)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphNotFoundMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/data/entity/start:
+    get:
+      operationId: getDataGraphRandomStartNodes
+      summary: Random seed entities for data graph visualization
+      tags:
+        - graph-explore
+      parameters:
+        - name: n
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Array of entity stubs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/data/stats:
+    get:
+      operationId: getDataGraphStats
+      summary: Data graph statistics
+      tags:
+        - graph-explore
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Node and relation counts (schema from Neo4j layer)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/ontology/entities/batch:
+    get:
+      operationId: fetchOntologyEntitiesBatch
+      summary: Paginated entities from ontology graph
+      tags:
+        - graph-explore
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: entity_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Entity batch page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityBatchResponse"
+        "400":
+          description: Limit exceeds maximum
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/ontology/relations/batch:
+    get:
+      operationId: fetchOntologyRelationsBatch
+      summary: Paginated relations from ontology graph
+      tags:
+        - graph-explore
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: relation_name
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Relation batch page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelationBatchResponse"
+        "400":
+          description: Limit exceeds maximum
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/ontology/entity/neighborhood:
+    post:
+      operationId: exploreOntologyEntityNeighborhood
+      summary: Neighborhood subgraph for an ontology entity
+      tags:
+        - graph-explore
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExploreNeighborhoodRequest"
+      responses:
+        "200":
+          description: Neighborhood payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphNotFoundMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/ontology/entity/start:
+    get:
+      operationId: getOntologyGraphRandomStartNodes
+      summary: Random seed entities for ontology graph visualization
+      tags:
+        - graph-explore
+      parameters:
+        - name: n
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Array of entity stubs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/explore/ontology/stats:
+    get:
+      operationId: getOntologyGraphStats
+      summary: Ontology graph statistics
+      tags:
+        - graph-explore
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Node and relation counts
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/graph/ontology/agent/{path}:
+    get:
+      operationId: proxyOntologyAgentGet
+      summary: Reverse proxy to ontology agent (GET)
+      description: |
+        Proxies to ONTOLOGY_AGENT_RESTAPI_ADDR. GET paths ending with `/status` require readonly;
+        other GET paths require admin. Response is streamed from upstream.
+      tags:
+        - graph-explore
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Upstream response (streaming body; media type varies)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: proxyOntologyAgentPost
+      summary: Reverse proxy to ontology agent (POST)
+      description: Requires admin role. Streams upstream response.
+      tags:
+        - graph-explore
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        description: Forwarded verbatim to ontology agent
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Upstream response (streaming)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      operationId: proxyOntologyAgentDelete
+      summary: Reverse proxy to ontology agent (DELETE)
+      description: Requires admin role.
+      tags:
+        - graph-explore
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Upstream response (streaming)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/mcp/tools:
+    get:
+      operationId: listMcpTools
+      summary: List MCP search tool configurations
+      tags:
+        - mcp-tools
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Map of tool_id to MCPToolConfig
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/MCPToolConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createMcpTool
+      summary: Create custom MCP search tool
+      tags:
+        - mcp-tools
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MCPToolConfig"
+      responses:
+        "201":
+          description: Stored configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPToolConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Reserved or duplicate tool_id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/mcp/tools/{tool_id}:
+    put:
+      operationId: updateMcpTool
+      summary: Update MCP search tool configuration
+      tags:
+        - mcp-tools
+      parameters:
+        - name: tool_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MCPToolConfig"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPToolConfig"
+        "400":
+          description: tool_id body/path mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Tool not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "409":
+          description: Reserved tool_id cannot be managed here
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteMcpTool
+      summary: Delete custom MCP search tool
+      tags:
+        - mcp-tools
+      parameters:
+        - name: tool_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Tool deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpToolDeletedResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Tool not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "409":
+          description: Built-in tool cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/mcp/builtin-config:
+    get:
+      operationId: getMcpBuiltinConfig
+      summary: Get built-in MCP tools enable/disable flags
+      tags:
+        - mcp-tools
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      responses:
+        "200":
+          description: Builtin tool toggles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPBuiltinToolsConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: updateMcpBuiltinConfig
+      summary: Update built-in MCP tools configuration
+      tags:
+        - mcp-tools
+      parameters:
+        - $ref: "#/components/parameters/XTenantId"
+        - $ref: "#/components/parameters/XTeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MCPBuiltinToolsConfig"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MCPBuiltinToolsConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /healthz:
+    get:
+      operationId: healthCheck
+      summary: Health check and configuration snapshot
+      tags:
+        - health
+      security: []
+      parameters: []
+      responses:
+        "200":
+          description: Healthy or unhealthy with details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthzResponse"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OIDC / Keycloak access token (optional on some routes; trusted network may apply per server config)
+
+  parameters:
+    XTenantId:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Tenant/org for team/KB datasource scoping when enterprise RBAC is enabled
+    XTeamId:
+      name: X-Team-Id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Team for KB-scoped datasource resolution when enterprise RBAC is enabled
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    Forbidden:
+      description: Authenticated but insufficient role or policy denied
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    InternalError:
+      description: Server error or dependency not initialized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+
+  schemas:
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          oneOf:
+            - type: string
+            - type: array
+              items: {}
+      additionalProperties: true
+
+    MessageBody:
+      type: object
+      properties:
+        message:
+          type: string
+      additionalProperties: true
+
+    UserInfoResponse:
+      type: object
+      required:
+        - email
+        - role
+        - is_authenticated
+        - groups
+        - permissions
+        - in_trusted_network
+      properties:
+        email:
+          type: string
+        role:
+          type: string
+          description: anonymous | readonly | ingestonly | admin
+        is_authenticated:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: string
+        permissions:
+          type: array
+          items:
+            type: string
+          description: e.g. read, ingest, delete
+        in_trusted_network:
+          type: boolean
+
+    DataSourceInfo:
+      type: object
+      required:
+        - datasource_id
+        - ingestor_id
+        - source_type
+      properties:
+        datasource_id:
+          type: string
+        ingestor_id:
+          type: string
+        description:
+          type: string
+          default: ""
+        source_type:
+          type: string
+        last_updated:
+          type: integer
+        default_chunk_size:
+          type: integer
+          nullable: true
+        default_chunk_overlap:
+          type: integer
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    DatasourceListResponse:
+      type: object
+      required:
+        - success
+        - datasources
+        - count
+      properties:
+        success:
+          type: boolean
+        datasources:
+          type: array
+          items:
+            $ref: "#/components/schemas/DataSourceInfo"
+        count:
+          type: integer
+
+    IngestorInfo:
+      type: object
+      required:
+        - ingestor_id
+        - ingestor_type
+        - ingestor_name
+      properties:
+        ingestor_id:
+          type: string
+        ingestor_type:
+          type: string
+        ingestor_name:
+          type: string
+        description:
+          type: string
+          default: ""
+        metadata:
+          type: object
+          additionalProperties: true
+        last_seen:
+          type: integer
+          default: 0
+
+    IngestorPingRequest:
+      type: object
+      required:
+        - ingestor_type
+        - ingestor_name
+      properties:
+        ingestor_type:
+          type: string
+        ingestor_name:
+          type: string
+        description:
+          type: string
+          default: ""
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+
+    IngestorPingResponse:
+      type: object
+      required:
+        - ingestor_id
+        - max_documents_per_ingest
+        - message
+      properties:
+        ingestor_id:
+          type: string
+        max_documents_per_ingest:
+          type: integer
+        message:
+          type: string
+
+    JobStatus:
+      type: string
+      enum:
+        - pending
+        - in_progress
+        - completed
+        - completed_with_errors
+        - terminated
+        - failed
+
+    JobInfo:
+      type: object
+      required:
+        - job_id
+        - status
+        - created_at
+      properties:
+        job_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        message:
+          type: string
+          nullable: true
+        created_at:
+          type: integer
+        completed_at:
+          type: integer
+          nullable: true
+        total:
+          type: integer
+          nullable: true
+        progress_counter:
+          type: integer
+          default: 0
+        failed_counter:
+          type: integer
+          default: 0
+        error_msgs:
+          type: array
+          items:
+            type: string
+          default: []
+        datasource_id:
+          type: string
+          nullable: true
+        document_count:
+          type: integer
+          default: 0
+        chunk_count:
+          type: integer
+          default: 0
+
+    JobsBatchRequest:
+      type: object
+      required:
+        - datasource_ids
+      properties:
+        datasource_ids:
+          type: array
+          items:
+            type: string
+          maxItems: 100
+        status_filter:
+          type: array
+          items:
+            type: string
+          nullable: true
+
+    JobsBatchResponse:
+      type: object
+      required:
+        - jobs
+        - total_jobs
+        - datasource_count
+      properties:
+        jobs:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/JobInfo"
+        total_jobs:
+          type: integer
+        datasource_count:
+          type: integer
+
+    JobCreateResponse:
+      type: object
+      required:
+        - job_id
+        - datasource_id
+      properties:
+        job_id:
+          type: string
+        datasource_id:
+          type: string
+
+    JobPatchResponse:
+      type: object
+      required:
+        - job_id
+        - datasource_id
+      properties:
+        job_id:
+          type: string
+        datasource_id:
+          type: string
+
+    JobTerminateResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+
+    JobProgressResponse:
+      type: object
+      required:
+        - job_id
+        - progress_counter
+      properties:
+        job_id:
+          type: string
+        progress_counter:
+          type: integer
+
+    JobFailureResponse:
+      type: object
+      required:
+        - job_id
+        - failed_counter
+      properties:
+        job_id:
+          type: string
+        failed_counter:
+          type: integer
+
+    JobAddErrorsResponse:
+      type: object
+      required:
+        - job_id
+        - errors_added
+        - total_errors
+      properties:
+        job_id:
+          type: string
+        errors_added:
+          type: integer
+        total_errors:
+          type: integer
+
+    LangChainDocument:
+      type: object
+      required:
+        - page_content
+      properties:
+        page_content:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+
+    QueryRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+          default: 3
+        similarity_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.3
+        filters:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: e.g. datasource_id; values may be string, bool, or array
+        ranker_type:
+          type: string
+          default: weighted
+        ranker_params:
+          type: object
+          additionalProperties: true
+          nullable: true
+
+    QueryResult:
+      type: object
+      required:
+        - document
+        - score
+      properties:
+        document:
+          $ref: "#/components/schemas/LangChainDocument"
+        score:
+          type: number
+
+    DocumentIngestRequest:
+      type: object
+      required:
+        - documents
+        - ingestor_id
+        - datasource_id
+      properties:
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/LangChainDocument"
+        ingestor_id:
+          type: string
+        datasource_id:
+          type: string
+        job_id:
+          type: string
+          nullable: true
+        fresh_until:
+          type: integer
+          default: 0
+          description: Epoch seconds until data is considered fresh
+
+    IngestAcceptedMessage:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: Text data ingestion started successfully
+
+    CrawlMode:
+      type: string
+      enum:
+        - single
+        - sitemap
+        - recursive
+
+    ScrapySettings:
+      type: object
+      properties:
+        crawl_mode:
+          $ref: "#/components/schemas/CrawlMode"
+        max_depth:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 2
+        max_pages:
+          type: integer
+          minimum: 1
+          default: 2000
+        render_javascript:
+          type: boolean
+          default: false
+        wait_for_selector:
+          type: string
+          nullable: true
+        page_load_timeout:
+          type: integer
+          minimum: 5
+          maximum: 120
+          default: 15
+        follow_external_links:
+          type: boolean
+          default: false
+        allowed_url_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+        denied_url_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+        download_delay:
+          type: number
+          minimum: 0
+          default: 0.05
+        concurrent_requests:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 30
+        respect_robots_txt:
+          type: boolean
+          default: true
+        chunk_size:
+          type: integer
+          minimum: 100
+          maximum: 100000
+          default: 10000
+        chunk_overlap:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          default: 2000
+        user_agent:
+          type: string
+          nullable: true
+
+    UrlIngestRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+          default: ""
+        settings:
+          $ref: "#/components/schemas/ScrapySettings"
+        reload_interval:
+          type: integer
+          nullable: true
+          description: Auto-reload interval in seconds (minimum 60 if set)
+
+    UrlReloadRequest:
+      type: object
+      required:
+        - datasource_id
+      properties:
+        datasource_id:
+          type: string
+
+    ConfluenceIngestRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+        description:
+          type: string
+          default: ""
+        get_child_pages:
+          type: boolean
+          default: false
+        allowed_title_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+        denied_title_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+
+    ConfluenceReloadRequest:
+      type: object
+      required:
+        - datasource_id
+      properties:
+        datasource_id:
+          type: string
+
+    WebIngestQueuedResponse:
+      type: object
+      required:
+        - datasource_id
+        - job_id
+        - message
+      properties:
+        datasource_id:
+          type: string
+        job_id:
+          type: string
+        message:
+          type: string
+
+    DatasourceMessageResponse:
+      type: object
+      required:
+        - datasource_id
+        - message
+      properties:
+        datasource_id:
+          type: string
+        message:
+          type: string
+
+    SimpleMessageResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+
+    ExploreNeighborhoodRequest:
+      type: object
+      required:
+        - entity_type
+        - entity_pk
+      properties:
+        entity_type:
+          type: string
+        entity_pk:
+          type: string
+        depth:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 1
+
+    EntityBatchResponse:
+      type: object
+      required:
+        - entities
+        - count
+        - offset
+        - limit
+      properties:
+        entities:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        count:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+
+    RelationBatchResponse:
+      type: object
+      required:
+        - relations
+        - count
+        - offset
+        - limit
+      properties:
+        relations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        count:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+
+    GraphNotFoundMessage:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: Entity not found
+
+    ParallelSearch:
+      type: object
+      required:
+        - label
+      properties:
+        label:
+          type: string
+        datasource_ids:
+          type: array
+          items:
+            type: string
+          default: []
+        is_graph_entity:
+          type: boolean
+          nullable: true
+        extra_filters:
+          type: object
+          additionalProperties: true
+          default: {}
+        semantic_weight:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.5
+
+    MCPToolConfig:
+      type: object
+      required:
+        - tool_id
+      properties:
+        tool_id:
+          type: string
+        description:
+          type: string
+          default: ""
+        parallel_searches:
+          type: array
+          items:
+            $ref: "#/components/schemas/ParallelSearch"
+        allow_runtime_filters:
+          type: boolean
+          default: false
+        enabled:
+          type: boolean
+          default: true
+        created_at:
+          type: integer
+          default: 0
+        updated_at:
+          type: integer
+          default: 0
+
+    MCPBuiltinToolsConfig:
+      type: object
+      properties:
+        search_enabled:
+          type: boolean
+          default: true
+        fetch_document_enabled:
+          type: boolean
+          default: true
+        fetch_datasources_enabled:
+          type: boolean
+          default: true
+        graph_explore_ontology_entity_enabled:
+          type: boolean
+          default: true
+        graph_explore_data_entity_enabled:
+          type: boolean
+          default: true
+        graph_fetch_data_entity_details_enabled:
+          type: boolean
+          default: true
+        graph_shortest_path_between_entity_types_enabled:
+          type: boolean
+          default: true
+        graph_raw_query_data_enabled:
+          type: boolean
+          default: true
+        graph_raw_query_ontology_enabled:
+          type: boolean
+          default: true
+
+    McpToolDeletedResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+
+    HealthzResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - details
+        - config
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+            - unhealthy
+        timestamp:
+          type: integer
+        details:
+          type: object
+          additionalProperties: true
+        config:
+          type: object
+          additionalProperties: true
+          description: Milvus, Redis, embeddings, datasources, optional graph_db when enabled

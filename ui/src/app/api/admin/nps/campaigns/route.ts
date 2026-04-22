@@ -11,7 +11,6 @@ import {
   withErrorHandler,
   successResponse,
   requireAdmin,
-  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -97,8 +96,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
-
     const campaigns = await getCollection('nps_campaigns');
     const npsResponses = await getCollection('nps_responses');
 

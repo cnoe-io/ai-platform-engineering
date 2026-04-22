@@ -7,8 +7,6 @@ thinking text and thought extraction, stopStream final answer, and StreamBuffer 
 import time
 from unittest.mock import Mock, patch
 
-import pytest
-
 from ai_platform_engineering.integrations.slack_bot.utils.ai import (
   stream_response,
   StreamBuffer,
@@ -88,13 +86,6 @@ def _get_task_updates(mock_slack):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _disable_status_rate_limit():
-  """Disable status rate limiting in tests so all setStatus calls fire immediately."""
-  with patch("ai_platform_engineering.integrations.slack_bot.utils.ai._STATUS_RATE_LIMIT_SECS", 0):
-    yield
 
 
 class TestLazyStreamAndSetStatus:
@@ -285,7 +276,7 @@ class TestToolEvents:
 
 
 class TestThinkingBuffer:
-  """Text between tool calls is buffered as 'thinking' and shown in typing indicator."""
+  """Text between tool calls is buffered as 'thinking' and shown as details on tools."""
 
   def test_thinking_text_shown_as_typing_status(self):
     """Text before a tool call appears in the typing indicator status on TEXT_MESSAGE_END."""
@@ -703,7 +694,7 @@ class TestOverthinkSkipStatus:
     assert status_calls[-1] == ""  # last call clears the status
 
     # Should sleep 2s to keep the status visible
-    mock_sleep.assert_called_once_with(7)
+    mock_sleep.assert_called_once_with(2)
 
   @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
   def test_defer_flashes_status(self, mock_sleep):
@@ -736,7 +727,7 @@ class TestOverthinkSkipStatus:
     assert _STATUS_SKIP_DEFER in status_calls
     assert status_calls[-1] == ""
 
-    mock_sleep.assert_called_once_with(7)
+    mock_sleep.assert_called_once_with(2)
 
   @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
   def test_overthink_shows_thinking_then_skip_status(self, mock_sleep):
@@ -838,7 +829,7 @@ class TestOverthinkSkipStatus:
     assert _STATUS_ERROR in status_calls
     assert status_calls[-1] == ""
 
-    mock_sleep.assert_called_once_with(7)
+    mock_sleep.assert_called_once_with(2)
 
     # No error message posted to Slack
     mock_slack.chat_startStream.assert_not_called()
@@ -882,7 +873,7 @@ class TestOverthinkSkipStatus:
     assert _STATUS_ERROR in status_calls
     assert status_calls[-1] == ""
 
-    mock_sleep.assert_called_once_with(7)
+    mock_sleep.assert_called_once_with(2)
 
     # No error message posted to Slack
     mock_slack.chat_stopStream.assert_not_called()

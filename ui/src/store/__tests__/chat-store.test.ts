@@ -24,7 +24,7 @@ jest.mock('@/lib/api-client', () => ({
     addMessage: jest.fn().mockResolvedValue({}),
     getMessages: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     getConversations: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, page_size: 100, has_more: false }),
-    createConversation: jest.fn().mockResolvedValue({ conversation: { _id: 'server-generated-id' }, created: true }),
+    createConversation: jest.fn().mockResolvedValue({}),
     deleteConversation: jest.fn().mockResolvedValue({ deleted: true }),
     updateConversation: jest.fn().mockResolvedValue({}),
   },
@@ -1046,26 +1046,29 @@ describe('chat-store', () => {
 
   describe('createConversation', () => {
     it('creates conversation on server in MongoDB mode', async () => {
-      const id = await useChatStore.getState().createConversation();
+      const id = useChatStore.getState().createConversation();
 
-      expect(id).toBe('server-generated-id');
+      expect(id).toBeDefined();
       expect(useChatStore.getState().conversations).toHaveLength(1);
       expect(useChatStore.getState().activeConversationId).toBe(id);
 
+      // Wait for async server call
+      await jest.runAllTimersAsync();
+
       expect(mockApiClient.createConversation).toHaveBeenCalledWith(
         expect.objectContaining({
+          id,
           title: 'New Conversation',
-          client_type: 'webui',
         })
       );
     });
 
-    it('does not call server in localStorage mode', async () => {
+    it('does not call server in localStorage mode', () => {
       (global as any).__mockStorageMode = 'localStorage';
 
       // The store is already created, but createConversation checks
       // getStorageMode() internally on each call
-      const id = await useChatStore.getState().createConversation();
+      const id = useChatStore.getState().createConversation();
 
       expect(id).toBeDefined();
       expect(useChatStore.getState().conversations).toHaveLength(1);

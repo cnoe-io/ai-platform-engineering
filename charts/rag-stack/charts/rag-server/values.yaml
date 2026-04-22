@@ -116,15 +116,3 @@ llmSecrets:
 
 livenessProbe: {}
 readinessProbe: {}
-
-# VPA configuration. Requires VPA to be installed in the cluster.
-# Inherits global.vpa defaults; override any field here to customise for rag-server.
-vpa:
-  enabled: false
-  updateMode: "InPlaceOrRecreate"
-  controlledResources: ["cpu", "memory"]
-  controlledValues: "RequestsAndLimits"
-  minAllowed:
-    cpu: 50m
-    memory: 128Mi
-  maxAllowed: {}
