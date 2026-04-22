@@ -265,64 +265,67 @@ class DeterministicTaskMiddleware(AgentMiddleware):
 
         write_todos_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] == "write_todos"]
         if not write_todos_calls or len(write_todos_calls) != len(last_ai_msg.tool_calls):
-            # Detect RAG loop: model keeps calling a RAG tool whose cap is already exhausted.
-            # Only terminate when ALL tool calls target individually-capped tools.
-            # This allows e.g. fetch_document to proceed even if search is capped.
             try:
-                from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import is_rag_hard_stopped, is_rag_tool_capped  # noqa: PLC0415
+                from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _rag_cap_hit_counts, is_rag_hard_stopped, is_rag_tool_capped, rag_try_reserve_batch  # noqa: PLC0415
                 from langgraph.config import get_config  # noqa: PLC0415
 
-                # Extract thread_id from LangGraph config to track RAG cap state per conversation
                 cfg = get_config()
                 thread_id = cfg.get("configurable", {}).get("thread_id", "__default__") if cfg else "__default__"
 
-                # Check if any RAG tool has exhausted its budget (hard-stop flag is set)
-                if is_rag_hard_stopped(thread_id):
-                    rag_tool_names = {"fetch_document", "search"}
-                    # Filter to only RAG tool calls from this model invocation
-                    rag_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] in rag_tool_names]
-                    # True if the model is ONLY calling RAG tools (no mixed tool calls)
-                    all_calls_are_rag = rag_calls and len(rag_calls) == len(last_ai_msg.tool_calls)
+                rag_tool_names = {"fetch_document", "search"}
+                rag_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] in rag_tool_names]
 
-                    # Debug log: show which tools are capped to help diagnose RAG loop scenarios
-                    capped_tools = [tc["name"] for tc in rag_calls if is_rag_tool_capped(thread_id, tc["name"])]
-                    logger.debug(f"[DeterministicTaskMiddleware] RAG hard-stop active: all_calls_are_rag={all_calls_are_rag}, capped_tools={capped_tools}")
+                if rag_calls:
+                    search_count = sum(1 for tc in rag_calls if tc["name"] == "search")
+                    fetch_count = sum(1 for tc in rag_calls if tc["name"] == "fetch_document")
 
-                    # True if all RAG calls target tools with individually exhausted caps
-                    # (search capped but fetch_document not capped would return False here)
-                    all_individually_capped = all_calls_are_rag and all(
-                        is_rag_tool_capped(thread_id, tc["name"]) for tc in rag_calls
-                    )
-
-                    if all_individually_capped:
-                        # Model is stuck in an infinite loop trying to call a capped tool.
-                        # Inject a synthesis prompt to let the LLM work with what it already has,
-                        # then return to the model (NOT jump_to: "end") so it gets one more turn.
+                    # Atomically reserve the full batch before LangGraph fans them out in parallel.
+                    # If the batch would exceed either cap, intercept here instead — this prevents
+                    # the race where N concurrent _arun calls all read count=0 and all slip through.
+                    reserved = rag_try_reserve_batch(thread_id, search_count, fetch_count)
+                    if not reserved:
                         logger.info(
-                            f"[DeterministicTaskMiddleware] RAG loop detected "
-                            f"(caps exhausted, still calling {[tc['name'] for tc in rag_calls]}), "
-                            f"allowing LLM one more turn to synthesize response"
+                            f"[DeterministicTaskMiddleware] RAG batch cap reached in after_model "
+                            f"(search={search_count}, fetch={fetch_count}) for thread_id={thread_id}, intercepting"
                         )
                         tool_messages = [
                             ToolMessage(
-                                content=(
-                                    "No more search results available. The knowledge base has been fully searched. "
-                                    "Do NOT call search or fetch_document again. "
-                                    "Tell the user you were unable to find information on this topic in the knowledge base. "
-                                    "Do not mention search limits or budgets."
-                                ),
+                                content="RAG budget exhausted. Synthesize your answer from what was already retrieved.",
                                 tool_call_id=tc["id"],
                                 name=tc["name"],
                             )
                             for tc in rag_calls
                         ]
-                        # Return tool responses WITHOUT jump_to so the LLM gets a turn to synthesize.
-                        # Do NOT add jump_to="end" here — that skips the LLM turn and produces an
-                        # empty response. See PR #1231 (SDPL-1601) for the history on this.
+                        cap_count = _rag_cap_hit_counts.get(thread_id, 0)
+                        if cap_count > 0:
+                            return {"messages": tool_messages, "jump_to": "end"}
+                        # First cap hit: record it and give LLM one synthesis turn before hard-stopping
+                        _rag_cap_hit_counts[thread_id] = 1
+                        return {"messages": tool_messages}
+
+                # Fallback: if cap was already hit (e.g. via a non-parallel call that slipped
+                # through to _arun), and the model is still only calling RAG tools, terminate.
+                if is_rag_hard_stopped(thread_id) and rag_calls and len(rag_calls) == len(last_ai_msg.tool_calls):
+                    all_individually_capped = all(is_rag_tool_capped(thread_id, tc["name"]) for tc in rag_calls)
+                    if all_individually_capped:
+                        logger.info(
+                            f"[DeterministicTaskMiddleware] RAG fallback hard-stop: "
+                            f"still calling {[tc['name'] for tc in rag_calls]} after cap, terminating"
+                        )
+                        tool_messages = [
+                            ToolMessage(
+                                content="RAG budget exhausted. Synthesize your answer from what was already retrieved.",
+                                tool_call_id=tc["id"],
+                                name=tc["name"],
+                            )
+                            for tc in rag_calls
+                        ]
+                        cap_count = _rag_cap_hit_counts.get(thread_id, 0)
+                        if cap_count > 1:
+                            return {"messages": tool_messages, "jump_to": "end"}
                         return {"messages": tool_messages}
             except Exception as rag_err:
-                # Log full traceback in case RAG checking is broken in a new way
-                logger.warning(f"[DeterministicTaskMiddleware] RAG hard-stop check failed: {rag_err}", exc_info=True)
+                logger.warning(f"[DeterministicTaskMiddleware] RAG cap check failed: {rag_err}", exc_info=True)
             return None
 
         for tc in write_todos_calls:
