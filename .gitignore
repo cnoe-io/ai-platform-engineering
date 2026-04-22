@@ -286,3 +286,14 @@ tests/reports/
 
 # We no longer have a separate docker-compose directory.
 docker-compose/*
+# ...except the e2e override file (spec 102, Clarification 2026-04-22) which
+# is a thin overlay on docker-compose.dev.yaml used by `make test-rbac`.
+!docker-compose/docker-compose.e2e.override.yaml
+
+# Spec 102 — RBAC test artifacts (junit, playwright traces, html reports)
+test-results/
+ui/test-results/
+tests/rbac/e2e/test-results/
+tests/rbac/e2e/playwright-report/
+tests/rbac/e2e/node_modules/
+

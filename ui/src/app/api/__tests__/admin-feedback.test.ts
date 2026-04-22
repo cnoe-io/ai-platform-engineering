@@ -37,6 +37,19 @@ jest.mock('@/lib/auth-config', () => ({
   REQUIRED_ADMIN_GROUP: '',
 }));
 
+// Spec 102 / T052 — mock the Keycloak PDP wrapper so requireRbacPermission
+// resolves locally. Each test sets the response per persona.
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
+  '@/lib/rbac/keycloak-authz'
+).checkPermission;
+
 let mockFeedbackEnabled = true;
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => {
@@ -103,10 +116,20 @@ function makeRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
 }
 
+/** Minimal JWT body so requireRbacPermission can decode realm_access.roles. */
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin' },
     role: 'admin',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -114,6 +137,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'User' },
     role: 'user',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
@@ -174,18 +198,22 @@ function setupFeedbackCollection(docs: any[], totalCount: number) {
 // Tests
 // ============================================================================
 
-describe('GET /api/admin/feedback', () => {
-  let GET: any;
+// Import after mocks are registered (cf. admin-stats.test.ts pattern). We
+// intentionally do NOT call jest.resetModules() in beforeEach because that
+// detaches our mock instance and triggers `Cannot read properties of undefined
+// (reading 'allowed')` from requireRbacPermission's response unwrap.
+// eslint-disable-next-line import/first
+import { GET } from '../admin/feedback/route';
 
-  beforeEach(async () => {
-    jest.resetModules();
+describe('GET /api/admin/feedback', () => {
+  beforeEach(() => {
     Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
     mockGetCollection.mockClear();
+    mockCheckPermission.mockReset();
+    // Default to allow — individual tests override for deny scenarios.
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
     mockIsMongoDBConfigured = true;
     mockFeedbackEnabled = true;
-
-    const mod = await import('@/app/api/admin/feedback/route');
-    GET = mod.GET;
   });
 
   it('returns 404 when feedback feature is disabled', async () => {
@@ -203,17 +231,19 @@ describe('GET /api/admin/feedback', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 200 for any authenticated user (no admin gate on route)', async () => {
+  // Spec 102 / FR-001 — route was migrated in T052 from withAuth-only to
+  // requireRbacPermission(session, 'admin_ui', 'view'). Non-admin users now
+  // hit a Keycloak PDP deny.
+  it('returns 403 for non-admin users (admin_ui#view denied)', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
-    const messagesCol = createMockCollection();
-    messagesCol.aggregate.mockReturnValue({
-      toArray: jest.fn().mockResolvedValue([]),
+    mockCheckPermission.mockResolvedValue({
+      allowed: false,
+      reason: 'DENY_NO_CAPABILITY',
     });
-    mockCollections['messages'] = messagesCol;
     const res = await GET(makeRequest('/api/admin/feedback'));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.success).toBe(true);
+    expect(body.success).toBe(false);
   });
 
   it('returns 503 when MongoDB is not configured', async () => {

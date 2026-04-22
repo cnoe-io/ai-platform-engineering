@@ -18,6 +18,7 @@ const EMPTY_GATES: AdminTabGatesMap = {
   audit_logs: false,
   action_audit: false,
   policy: false,
+  ag_policies: false,
 };
 
 interface AdminTabGatesState {

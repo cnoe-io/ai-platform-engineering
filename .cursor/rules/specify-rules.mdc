@@ -6,7 +6,7 @@ alwaysApply: true
 
 # ai-platform-engineering-fix-thinking-collapse Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-08
+Auto-generated from all feature plans. Last updated: 2026-04-22
 
 ## Active Technologies
 - N/A (UI state only) (095-fix-thinking-panel-expand)
@@ -44,6 +44,7 @@ npm test && npm run lint
 TypeScript (UI), React 19: Follow standard conventions
 
 ## Recent Changes
+- 102-comprehensive-rbac-tests-and-completion: Added Python 3.11+ (supervisor, dynamic_agents, RAG server, agent MCPs, slack bot), TypeScript / Next.js 16 + React 19 (UI BFF + Playwright suite) + Keycloak Authorization Services, MongoDB (`authz_decisions` collection NEW), Playwright (NEW for E2E), `tests/rbac/rbac-matrix.yaml` (NEW source-of-truth), `make test-rbac` target (NEW)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 - 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI

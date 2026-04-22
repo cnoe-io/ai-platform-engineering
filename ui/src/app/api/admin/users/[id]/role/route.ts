@@ -4,7 +4,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
+  requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
 import type { User } from '@/types/mongodb';
@@ -29,7 +29,7 @@ export const PATCH = withErrorHandler(async (
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+    await requireRbacPermission(session, 'admin_ui', 'admin');
 
     const params = await context.params;
     const identifier = decodeURIComponent(params.id);

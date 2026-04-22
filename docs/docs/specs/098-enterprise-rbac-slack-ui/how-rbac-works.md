@@ -31,26 +31,26 @@ public keys — no shared secrets, no per-hop re-authentication.
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                              CAIPE Trust Boundary                            │
 │                                                                              │
-│  ┌────────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────┐  │
-│  │  Keycloak  │    │   CAIPE UI   │    │  Supervisor  │    │   Dynamic    │  │
-│  │  (OIDC IdP)│    │  (Next.js)   │    │  A2A Server  │    │   Agents     │  │
-│  │  port 7080 │    │  port 3000   │    │  port 8000   │    │  port 8001   │  │
-│  └────────────┘    └──────────────┘    └─────────────┘    └──────────────┘  │
-│    Token issuer     NextAuth + RBAC     JwtUserContext      get_current_user  │
-│    JWKS endpoint    middleware          middleware           FastAPI Depends   │
-│    User profile     Session → API       contextvar          JWKS validation   │
+│  ┌────────────┐    ┌──────────────┐    ┌─────────────┐    ┌──────────────┐   │
+│  │  Keycloak  │    │   CAIPE UI   │    │  Supervisor │    │   Dynamic    │   │
+│  │  (OIDC IdP)│    │  (Next.js)   │    │  A2A Server │    │   Agents     │   │
+│  │  port 7080 │    │  port 3000   │    │  port 8000  │    │  port 8001   │   │
+│  └────────────┘    └──────────────┘    └─────────────┘    └──────────────┘   │
+│    Token issuer     NextAuth + RBAC     JwtUserContext     get_current_user  │
+│    JWKS endpoint    middleware          middleware          FastAPI Depends  │
+│    User profile     Session → API       contextvar         JWKS validation   │
 │                                                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                 AgentGateway  (Policy Enforcement Point)              │   │
-│  │                 port 4000  ·  CEL policy engine  ·  JWT passthrough   │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────────────────────┐    │
+│  │                 AgentGateway  (Policy Enforcement Point)             │    │
+│  │                 port 4000  ·  CEL policy engine  ·  JWT passthrough  │    │
+│  └──────────────────────────────────────────────────────────────────────┘    │
 │                                       │                                      │
-│         ┌─────────────────────────────┼──────────────────┐                  │
-│         ▼                             ▼                   ▼                  │
-│   ┌───────────┐                ┌───────────┐       ┌───────────┐            │
-│   │  RAG MCP  │                │ ArgoCD MCP│       │GitHub MCP │  ...       │
-│   │  Server   │                │  Server   │       │  Server   │            │
-│   └───────────┘                └───────────┘       └───────────┘            │
+│         ┌─────────────────────────────┼──────────────────┐                   │
+│         ▼                             ▼                  ▼                   │
+│   ┌───────────┐                ┌───────────┐       ┌───────────┐             │
+│   │  RAG MCP  │                │ ArgoCD MCP│       │GitHub MCP │  ...        │
+│   │  Server   │                │  Server   │       │  Server   │             │
+│   └───────────┘                └───────────┘       └───────────┘             │
 │   JWKS validation at each MCP — tokens verified independently                │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -462,6 +462,408 @@ jwt.claims.realm_access.roles.exists(r, r == "chat_user")
   same gateway with the same JWT. No tool can be accidentally left unenforced.
 - **Token passthrough:** AgentGateway forwards the JWT to the MCP backend unchanged.
   The backend can do its own secondary validation (e.g. tenant isolation).
+
+---
+
+## AgentGateway + OIDC + Keycloak — The Integrated Picture
+
+> **Badge analogy:** **Duo SSO is the national ID office** — it issues the underlying
+> identity. **Keycloak is HR** — it takes that national ID, prints a CAIPE-branded
+> employee badge with your roles stamped on it, and publishes a **public fingerprint
+> scanner** (JWKS) in the lobby so anyone can verify a badge is really HR-issued.
+> **AgentGateway is the armed checkpoint** at the server room door. The checkpoint has
+> a photocopy of the scanner taped to its desk so it can verify badges instantly without
+> calling HR (or Duo). The checkpoint's rulebook (CEL) is kept up to date by a small
+> courier (`ag-config-bridge`) that walks between the head office (MongoDB) and the
+> checkpoint every few seconds with the latest rule updates.
+
+**Technically:** Three distinct services cooperate to put a verified, role-carrying JWT
+in front of AgentGateway on every request. AG itself is the **Policy Enforcement Point
+(PEP)** — it doesn't authenticate users, it doesn't store roles, and it never talks to
+Duo. It only verifies that the JWT in the request was signed by Keycloak (using a cached
+copy of Keycloak's JWKS) and that the claims inside satisfy the CEL policy for the
+target MCP tool.
+
+| Layer | Role | What it owns | What it does NOT own |
+|-------|------|--------------|----------------------|
+| **Upstream IdP** (e.g. Duo SSO, Okta, Azure AD) | Identity provider | User authentication (password, MFA, device trust), email ownership | Application roles, per-tool access rules |
+| **Keycloak** | OIDC AS + IdP broker | Realm roles (`chat_user`, `admin`), JWT issuance, JWKS publication, OBO token exchange (RFC 8693) | Tool-level decisions, user password (delegated to Duo) |
+| **AgentGateway (PEP)** | Policy Enforcement Point | Per-route CEL rules, per-tool `mcpAuthorization` rules, local JWT verification against cached JWKS | Identity store, role store, token minting |
+
+Keycloak **brokers** the upstream IdP — Duo SSO doesn't issue the JWT that AG sees.
+Duo authenticates the user, returns an OIDC authorization code to Keycloak, and
+Keycloak then mints the CAIPE JWT with the realm roles that CEL evaluates. From AG's
+perspective, **Keycloak is the only issuer it trusts** (`iss = http://localhost:7080/realms/caipe`);
+the existence of Duo is invisible to AG. This is the standard OIDC/OAuth 2.0
+resource-server pattern applied to an MCP-aware proxy.
+
+### Identity Provenance: Duo SSO → Keycloak → JWT → AG → MCP
+
+```mermaid
+flowchart LR
+  subgraph IdP["Upstream IdP<br/>(Duo SSO / Okta / Azure AD)"]
+    DUO["Duo Universal Prompt<br/>(MFA, device trust, password)"]
+    DUO_OIDC["OIDC token endpoint<br/>sso-xxx.sso.duosecurity.com"]
+    DUO --> DUO_OIDC
+  end
+
+  subgraph KC["Keycloak — Realm: caipe"]
+    direction TB
+    KC_IDP["IdP broker<br/>alias: duo-sso<br/>IDP_ISSUER, IDP_CLIENT_ID"]
+    KC_MAP["IdP mappers<br/>email, given_name/firstname → userinfo"]
+    KC_ROLES["Realm roles<br/>chat_user, admin<br/>(assigned via init-idp.sh)"]
+    KC_TOK["Token endpoint<br/>signs JWT with realm's RS256 key"]
+    KC_JWKS["JWKS endpoint<br/>public keys (for AG to fetch)"]
+    KC_IDP --> KC_MAP --> KC_ROLES --> KC_TOK
+    KC_TOK --> KC_JWKS
+  end
+
+  subgraph CAIPE["CAIPE Callers (all hold the same JWT)"]
+    UI["CAIPE UI<br/>(Next.js, NextAuth)"]
+    SB["Slack Bot<br/>(uses OBO token-exchange)"]
+    SUP["Supervisor<br/>(forwards user JWT)"]
+    DA["Dynamic Agents<br/>(forwards user JWT)"]
+  end
+
+  AG["AgentGateway :4000<br/><b>PEP</b><br/>jwtAuth + CEL"]
+  MCP["Backend MCP servers<br/>rag_server, github-mcp, …"]
+
+  DUO_OIDC -. "1. OIDC auth code" .-> KC_IDP
+  KC_TOK -. "2. JWT (iss=caipe, sub=alice,<br/>realm_access.roles=[chat_user])" .-> UI
+  KC_TOK -. "2. JWT" .-> SB
+  KC_JWKS -. "3. JWKS fetch (startup, TTL, unknown kid)" .-> AG
+
+  UI --> SUP
+  SB --> SUP
+  SUP --> AG
+  DA --> AG
+  AG -->|"4. proxied + JWT unchanged"| MCP
+```
+
+**Read this as the badge's lifecycle:**
+
+1. **Duo SSO authenticates the human.** It doesn't know about CAIPE roles. It only
+   proves "this really is `alice@cisco.com` with working MFA" and hands an OIDC
+   authorization code to Keycloak. Duo's issuer (`IDP_ISSUER`) is configured in
+   Keycloak as `IDP_ALIAS=duo-sso`; this is the only direct contact between CAIPE and
+   Duo.
+2. **Keycloak brokers and rebrands the identity.** It validates the Duo code, runs its
+   IdP mappers (e.g. `firstname` → `given_name` to handle Duo's non-standard claim),
+   assigns realm roles (`chat_user` via the default role composite, plus `admin` if
+   explicitly granted), and signs a **fresh JWT** with its own RS256 key. This is the
+   only token CAIPE services ever see. Duo's identity token is discarded at the
+   Keycloak boundary.
+3. **Every CAIPE caller holds the same JWT.** The Slack Bot additionally does an RFC
+   8693 token-exchange to produce an **OBO (On-Behalf-Of) JWT** that pins `sub=alice`
+   and `act.sub=caipe-slack-bot` — but it's still a Keycloak-signed JWT with
+   `iss = http://localhost:7080/realms/caipe`. From AG's perspective there's no
+   difference between a UI JWT and an OBO JWT; both pass `jwtAuth` as long as they're
+   signed by a key in AG's JWKS cache.
+4. **AG verifies locally, evaluates CEL locally, forwards unchanged.** The JWT
+   reaches the MCP server with Alice's identity intact, so MCP-level defense-in-depth
+   checks (e.g. the RAG server's per-tenant document ACLs) see the real user — not
+   the supervisor's service account and not the Slack bot.
+
+The practical consequence: **to switch CAIPE from Duo SSO to Okta or Azure AD you
+don't touch AgentGateway at all.** You change `IDP_ISSUER`, `IDP_CLIENT_ID`,
+`IDP_CLIENT_SECRET`, `IDP_ALIAS`, and maybe a mapper in Keycloak, and every component
+downstream — including the CEL rules on AG — keeps working without modification. This
+is the whole point of making Keycloak the IdP broker instead of having each service
+integrate directly with the upstream IdP.
+
+### How AG Is Wired to Keycloak (at boot and at steady state)
+
+```mermaid
+flowchart LR
+  subgraph Keycloak["Keycloak — OIDC Authorization Server"]
+    direction TB
+    KC_ISS["Realm: caipe<br/>iss = http://localhost:7080/realms/caipe"]
+    KC_JWKS["JWKS endpoint<br/>/protocol/openid-connect/certs<br/>(public RS256 keys)"]
+    KC_TOK["Token endpoint<br/>/protocol/openid-connect/token"]
+  end
+
+  subgraph Bridge["ag-config-bridge (sidecar)"]
+    direction TB
+    MDB[("MongoDB<br/>ag_mcp_policies<br/>ag_mcp_backends")]
+    TPL["config.yaml.j2"]
+    REND["Renderer<br/>(polls every 5s)"]
+    MDB -->|read policies & backends| REND
+    TPL -->|template| REND
+  end
+
+  subgraph AG["AgentGateway :4000"]
+    direction TB
+    CFG["/etc/agentgateway/config.yaml<br/>(hot-reload on file change)"]
+    JWKS_CACHE[("In-memory JWKS cache<br/>TTL from Cache-Control")]
+    JWT_VAL["jwtAuth:<br/>• mode: strict<br/>• issuer, audiences<br/>• jwks.url"]
+    CEL["CEL mcpAuthorization<br/>rules per route/backend"]
+    PROXY["MCP proxy<br/>mcp.targets"]
+    CFG --> JWT_VAL
+    CFG --> CEL
+    CFG --> PROXY
+    JWT_VAL --> JWKS_CACHE
+  end
+
+  KC_JWKS -.->|1. fetch at startup + TTL refresh| JWKS_CACHE
+  REND -->|2. write rendered config atomically| CFG
+  Client["Caller<br/>(Supervisor / Slack Bot / Dynamic Agent)"] -->|3. Bearer JWT| JWT_VAL
+  JWT_VAL --> CEL
+  CEL --> PROXY
+  PROXY --> MCP["Backend MCP servers<br/>(rag_server, github-mcp, …)"]
+  KC_TOK -.->|token issuance| Client
+```
+
+**Three independent channels between Keycloak and AG — all pull-based, all public:**
+
+| # | Channel | Direction | Purpose | Cadence |
+|---|---------|-----------|---------|---------|
+| 1 | JWKS | AG → Keycloak | Fetch public keys to verify JWT signatures | On startup; on unknown `kid`; on Cache-Control TTL expiry |
+| 2 | CEL policy rendering | `ag-config-bridge` → AG (file) | Keep `config.yaml` in sync with admin-editable policies in MongoDB | Every 5s poll; hot-reload on file change |
+| 3 | Token issuance | Client → Keycloak → Client | Users/bots obtain JWTs to present to AG; AG **never** mints tokens | On login / OBO exchange |
+
+There is **no direct API call from AG to Keycloak per request**. JWKS fetching is a
+pure cache-refresh operation, not a live auth check.
+
+### The Exact `jwtAuth` Contract (from `config.yaml`)
+
+```yaml
+binds:
+- port: 4000
+  listeners:
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict           # reject request if no valid JWT present
+        issuer: http://localhost:7080/realms/caipe
+        audiences: [caipe-platform]
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+```
+
+What `mode: strict` means in practice:
+
+- **`iss` must equal `issuer`** — tokens from any other realm or IdP are rejected with 401.
+- **`aud` must contain at least one of `audiences`** — protects against token substitution
+  where a token was issued to a different service client.
+- **`exp`, `nbf`, `iat` enforced** — expired or not-yet-valid tokens rejected.
+- **Signature verified against JWKS** — `kid` in the JWT header must match a cached key.
+- **Unknown `kid` triggers one forced JWKS refresh** — handles Keycloak key rotation without
+  manual intervention.
+
+Only after `jwtAuth` passes does AG evaluate the `authorization` and `mcpAuthorization`
+CEL rules. If `jwtAuth` fails, the request never reaches policy evaluation.
+
+### Per-Request Authorization Flow — End to End
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Alice (Slack user)
+    participant Duo as Duo SSO<br/>(upstream IdP)
+    participant SB as Slack Bot
+    participant UI as CAIPE UI<br/>(NextAuth)
+    participant KC as Keycloak<br/>(OIDC server + JWKS + IdP broker)
+    participant SUP as Supervisor A2A
+    participant AG as AgentGateway :4000
+    participant AGB as ag-config-bridge
+    participant MDB as MongoDB<br/>(ag_mcp_policies)
+    participant RAG as RAG MCP :9446
+
+    rect rgb(245, 245, 252)
+      note over AGB, MDB: Policy sync path (out-of-band, every ~5s)
+      AGB->>MDB: find({}) on ag_mcp_policies + ag_mcp_backends
+      MDB-->>AGB: [ {tool_pattern, expression, enabled}, ... ]
+      AGB->>AGB: render config.yaml.j2 → sha256 changed?
+      AGB->>AG: atomic write /etc/agentgateway/config.yaml
+      note over AG: File watcher reloads CEL rules + jwtAuth config<br/>(no restart needed)
+    end
+
+    rect rgb(245, 252, 245)
+      note over AG, KC: JWKS refresh (out-of-band, on TTL or unknown kid)
+      AG->>KC: GET /realms/caipe/protocol/openid-connect/certs
+      KC-->>AG: { keys: [ { kid, kty: RSA, n, e, ... }, ... ] }
+      AG->>AG: cache keys by kid, TTL = Cache-Control max-age
+    end
+
+    rect rgb(252, 250, 240)
+      note over User, KC: One-time login path (per user session,<br/>typically once per workday)
+      User->>UI: opens CAIPE UI
+      UI->>KC: GET /auth?kc_idp_hint=duo-sso
+      KC->>Duo: OIDC auth code request<br/>(IDP_CLIENT_ID, redirect_uri=KC/broker/duo-sso/endpoint)
+      Duo->>User: Duo Universal Prompt<br/>(password + MFA + device trust)
+      User-->>Duo: authenticated
+      Duo-->>KC: auth code → /token → id_token + userinfo<br/>(email, firstname, lastname)
+
+      note over KC: IdP mappers normalize claims<br/>(firstname→given_name, email→email)<br/>First login also creates local user + assigns<br/>default realm role chat_user
+      KC-->>UI: CAIPE JWT<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>realm_access.roles=[chat_user, argocd-admin]
+      note over UI: NextAuth stores JWT in<br/>encrypted server-side session cookie
+      UI-->>User: logged in (Duo identity never leaves KC boundary)
+    end
+
+    rect rgb(252, 248, 245)
+      note over User, RAG: Hot path — one user request
+      User->>SB: "list my ArgoCD apps"
+      note over SB: Slack already linked to Keycloak user via<br/>/api/admin/slack-links → uses stored slack_user_id→sub mapping
+      SB->>KC: POST /token (RFC 8693 token-exchange for Alice)<br/>subject_token=slack-bot-service-account<br/>requested_subject=alice
+      KC-->>SB: OBO JWT<br/>iss=http://localhost:7080/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>realm_access.roles=[chat_user], aud=[caipe-platform]
+
+      SB->>SUP: POST /a2a<br/>Authorization: Bearer OBO_JWT
+
+      note over SUP: JwtUserContextMiddleware validates & stashes JWT
+      SUP->>AG: POST /rag/... Authorization: Bearer OBO_JWT<br/>(same token, unmodified)
+
+      note over AG: jwtAuth: validate signature + iss + aud + exp<br/>(all local — AG never talks to Duo or KC on this path)
+      AG->>AG: lookup kid in JWKS cache → verify RS256
+      AG->>AG: iss == http://localhost:7080/realms/caipe ✓
+      AG->>AG: "caipe-platform" in aud ✓
+      AG->>AG: now < exp ✓
+
+      note over AG: CEL authorization: per-route + per-tool
+      AG->>AG: route rule:<br/>"chat_user" in jwt.realm_access.roles → ALLOW
+      AG->>AG: mcpAuthorization rule for tool "rag_query":<br/>roles ∋ chat_user && tool.name.startsWith("rag_query") → ALLOW
+
+      AG->>RAG: proxied POST /mcp<br/>Authorization: Bearer OBO_JWT (untouched)
+      note over RAG: MCP does its own JWKS validation<br/>(defense in depth)
+      RAG->>KC: (optional) JWKS fetch if cache miss
+      KC-->>RAG: JWKS (cached)
+      RAG-->>AG: { documents: [...] }
+      AG-->>SUP: proxied response
+      SUP-->>SB: streamed
+      SB-->>User: DM with results
+    end
+```
+
+**Read this diagram as four independent timelines that happen to converge:**
+
+1. **Policy timeline** — admins edit CEL rules in the UI (`/admin/rbac/ag-policies`),
+   which writes to MongoDB. `ag-config-bridge` polls MongoDB and re-renders `config.yaml`
+   on change. AG hot-reloads via its file watcher. **Mean time from admin save to
+   enforcement: ≤10s.**
+2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG
+   fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a
+   runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable,
+   as long as the cached JWKS has a valid key for the JWT's `kid`.
+3. **Login timeline** — Duo SSO authenticates the human exactly **once per session**
+   (typically once per workday; SAML assertion / OIDC id_token then carries forward via
+   Duo's own session). Keycloak exchanges that Duo assertion for a CAIPE-signed JWT
+   that travels through every subsequent request. **Duo is not on the request hot
+   path** — it is only touched on login. This is why AG's CEL rules can assume a JWT
+   exists without ever needing to understand what Duo is.
+4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end.
+   The *same token* is verified by AG (edge) and optionally re-verified by the MCP
+   server (depth). This is deliberate: a misconfigured CEL rule doesn't leave the MCP
+   open; a compromised AG doesn't let tokens past MCP without signature check.
+
+> **Demo tip:** when presenting this diagram live, start by highlighting the
+> **Login timeline** (steps ~5–13) and note "this happens once per day". Then trace
+> through the **Request timeline** (steps ~14–28) and ask the audience where Duo
+> appears — the answer is *nowhere*, because every downstream check uses the
+> Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs
+> without touching agent code.
+
+### Policy Storage: Two Surfaces, One Source of Truth
+
+AG's CEL rules can be authored two ways — they end up in the same MongoDB collection:
+
+| Surface | Use case | Path |
+|---------|----------|------|
+| **Admin UI** (dynamic) | Change policy without a redeploy; audit trail per edit | `CAIPE UI → Admin → AG MCP Policies` → `ui/src/app/api/rbac/ag-policies/route.ts` → MongoDB `ag_mcp_policies` |
+| **Static bootstrap** | First-run seed in environments that start from empty MongoDB | `deploy/agentgateway/config-bridge.py` → `SEED_POLICIES` (upserts once if collection empty) |
+
+In both cases the **only consumer** is `ag-config-bridge`, which renders to
+`config.yaml.j2` and writes the final `config.yaml` that AG reads. There is no other
+path by which a CEL rule can reach AG.
+
+### CEL Cheat Sheet — JWT Claims Available in Rules
+
+AG evaluates CEL expressions against a context object that includes the **verified**
+JWT payload. The most useful fields:
+
+```cel
+# Realm roles (set in realm-config.json + init-idp.sh composites)
+"chat_user" in jwt.realm_access.roles
+"admin"     in jwt.realm_access.roles
+
+# Client-level roles (rare — most roles live at the realm level in CAIPE)
+"resource_access" in jwt && "caipe-ui" in jwt.resource_access
+
+# User identity
+jwt.sub             // opaque Keycloak user UUID
+jwt.email           // human-readable
+jwt.preferred_username
+
+# Delegation (OBO tokens only — set by Slack bot's token-exchange)
+has(jwt.act) && jwt.act.sub == "caipe-slack-bot"
+
+# Multi-tenant scoping
+jwt.org == request.headers.x_tenant_id
+
+# MCP tool introspection (only inside mcpAuthorization, not on route-level authorization)
+has(mcp.tool) && mcp.tool.name.startsWith("admin_")
+```
+
+The existing production ruleset in `deploy/agentgateway/config.yaml` shows the common
+patterns: admin-only prefixes (`admin_*`, `supervisor_config`), role-gated prefixes
+(`rag_query`, `rag_ingest`, `rag_tool`, `team_*`, `dynamic_agent_*`, `github_*`), and
+a catch-all for non-admin, non-ingest tools.
+
+### Operational Guarantees
+
+| Guarantee | Mechanism |
+|-----------|-----------|
+| AG restart does not invalidate user sessions | User JWTs are self-contained; AG just re-fetches JWKS on startup |
+| Keycloak key rotation is zero-downtime | Unknown `kid` triggers one forced JWKS refresh; cached keys remain valid until `exp` |
+| Policy update is zero-downtime | Atomic `os.replace()` write in `ag-config-bridge` + AG file watcher = no dropped requests |
+| Admin UI edit audit trail | Every policy write to `ag_mcp_policies` records `updated_by` and `updated_at` |
+| MongoDB outage doesn't take AG down | AG keeps running against the last-rendered `config.yaml`; `ag-config-bridge` logs `bridge_error` but doesn't crash AG |
+| Keycloak outage doesn't take AG down for already-issued tokens | JWKS is cached; new logins fail at Keycloak, not at AG |
+
+### Demo Walkthrough: Prove Every Gate
+
+```bash
+# 1) Get a real chat_user token from Keycloak (no UI involved)
+TOKEN=$(curl -s -X POST http://localhost:7080/realms/caipe/protocol/openid-connect/token \
+  -d 'grant_type=password' \
+  -d 'client_id=caipe-ui' \
+  -d 'client_secret=caipe-ui-dev-secret' \
+  -d 'username=standard-user' \
+  -d 'password=standard' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+
+# 2) Inspect the claims — prove iss, aud, roles match AG's jwtAuth expectations
+echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool \
+  | grep -E '"(iss|aud|exp|realm_access)"'
+
+# 3) Call AG with a valid token → CEL rule evaluates → proxied to RAG MCP
+curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+  -X POST http://localhost:4000/rag/v1/query \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"hello"}'
+# → HTTP 200 (jwtAuth passed, chat_user role matches CEL rule)
+
+# 4) Call AG with a denied-user token → CEL evaluates → 403
+DENIED=$(curl -s -X POST http://localhost:7080/realms/caipe/protocol/openid-connect/token \
+  -d 'grant_type=password&client_id=caipe-ui&client_secret=caipe-ui-dev-secret' \
+  -d 'username=denied-user&password=denied' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+  -H "Authorization: Bearer $DENIED" \
+  http://localhost:4000/rag/v1/query
+# → HTTP 403 (jwtAuth passed — denied-user is authenticated — but CEL deny)
+
+# 5) Call AG with a forged token → jwtAuth rejects before CEL even runs
+curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+  -H "Authorization: Bearer not.a.real.jwt" \
+  http://localhost:4000/rag/v1/query
+# → HTTP 401 (signature verification fails against JWKS)
+
+# 6) Show live config as AG sees it
+curl -s http://localhost:15000/config | python3 -m json.tool | head -40
+```
+
+The three outcomes (200, 403, 401) map directly onto the three distinct layers
+the diagram above: **CEL allow**, **CEL deny**, and **jwtAuth reject**.
 
 ---
 
@@ -948,7 +1350,11 @@ same call — the Secret is overwritten in place.
 | Supervisor agent executor (ENABLE_USER_INFO_TOOL) | `ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/agent_executor.py` |
 | Dynamic agents JWT validation & userinfo | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/auth.py` |
 | Dynamic agents agent-level authorization (CEL / visibility) | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/access.py` |
-| AgentGateway CEL policies | `deploy/agentgateway/config.yaml` |
+| AgentGateway static CEL policies (rendered) | `deploy/agentgateway/config.yaml` |
+| AgentGateway Jinja template (source of truth for rendering) | `deploy/agentgateway/config.yaml.j2` |
+| `ag-config-bridge` (MongoDB → config.yaml sync + seed) | `deploy/agentgateway/config-bridge.py` |
+| Admin UI: edit AG CEL policies at runtime | `ui/src/app/api/rbac/ag-policies/route.ts` |
+| MongoDB collections: `ag_mcp_policies`, `ag_mcp_backends`, `ag_sync_state` | managed by `config-bridge.py` |
 | Slack OBO token exchange (RFC 8693) | `ai_platform_engineering/integrations/slack_bot/utils/obo_exchange.py` |
 | Slack identity auto-bootstrap + manual link | `ai_platform_engineering/integrations/slack_bot/utils/identity_linker.py` |
 | Slack account linking UI callback | `ui/src/app/api/auth/slack-link/route.ts` |

@@ -19,15 +19,22 @@ from ai_platform_engineering.utils.auth.jwt_context import (
     extract_user_context_from_token,
     set_jwt_user_context,
 )
+from ai_platform_engineering.utils.auth.keycloak_authz import current_bearer_token
 
 logger = logging.getLogger(__name__)
 
 
 class JwtUserContextMiddleware(BaseHTTPMiddleware):
-    """Extract user identity from the Bearer token and store it in a contextvar."""
+    """Extract user identity from the Bearer token and store it in a contextvar.
+
+    Spec 102 T022: also binds `current_bearer_token` so FastAPI handlers can
+    forward the raw token to `require_rbac_permission(...)` without re-reading
+    the request headers.
+    """
 
     async def dispatch(self, request: Request, call_next):
         authorization = request.headers.get("authorization", "")
+        token: str | None = None
         if authorization.lower().startswith("bearer "):
             token = authorization[7:]
             try:
@@ -42,4 +49,11 @@ class JwtUserContextMiddleware(BaseHTTPMiddleware):
             except Exception:
                 logger.warning("Failed to extract JWT user context", exc_info=True)
 
-        return await call_next(request)
+        # Bind the raw token for the duration of this request so the Keycloak
+        # PDP helper (`require_rbac_permission`) can read it via ContextVar
+        # without depending on request-header plumbing in every call site.
+        token_var_token = current_bearer_token.set(token)
+        try:
+            return await call_next(request)
+        finally:
+            current_bearer_token.reset(token_var_token)

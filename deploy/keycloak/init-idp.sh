@@ -31,6 +31,127 @@ set +B 2>/dev/null || true
 REALM="${KC_REALM:-caipe}"
 KC_URL="${KC_URL:-http://localhost:7080}"
 
+# -------------------------------------------------------------------
+# Persona seeding (spec 102 T019).
+#
+# Always runs (regardless of IDP_* env vars) because the spec-102
+# RBAC tests need the six personas in the realm whether or not an
+# upstream IdP broker is configured.  Idempotent — re-runnable.
+#
+# Personas (see spec.md §Personas):
+#   alice_admin            → realm role "admin"
+#   bob_chat_user          → realm role "chat_user"
+#   carol_kb_ingestor      → realm role "chat_user" + client role "kb_ingestor" (caipe-platform)
+#   dave_no_role           → no roles (assigned default "offline_access" only)
+#   eve_dynamic_agent_user → realm role "chat_user"
+#   frank_service_account  → ALREADY EXISTS as caipe-platform's service account user
+#                            (we don't create a regular user for frank)
+#
+# All passwords are "test-password-123" — overridable per-persona via env
+# (e.g. ALICE_ADMIN_PASSWORD). Matches the default in
+# tests/rbac/fixtures/keycloak.{py,ts} _DEFAULT_PASSWORD.
+# -------------------------------------------------------------------
+seed_personas_main() {
+  echo "[init-idp] [spec-102] seeding personas in realm ${REALM} ..."
+
+  PERSONA_ADMIN_TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" \
+    2>/dev/null) || {
+    echo "[init-idp] [spec-102] WARN: could not authenticate to seed personas — skipping."
+    return 0
+  }
+  PERSONA_ADMIN=$(json_field "${PERSONA_ADMIN_TOKEN}" "access_token")
+  if [ -z "${PERSONA_ADMIN}" ]; then
+    echo "[init-idp] [spec-102] WARN: empty admin token — skipping persona seed."
+    return 0
+  fi
+  PERSONA_AUTH="Authorization: Bearer ${PERSONA_ADMIN}"
+
+  upsert_persona() {
+    local USERNAME="$1"
+    local EMAIL="$2"
+    local PASSWORD="$3"
+    local FIRSTNAME="$4"
+    local LASTNAME="$5"
+
+    local USER_ID
+    USER_ID=$(curl -sf -H "${PERSONA_AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/users?username=${USERNAME}&exact=true" 2>/dev/null \
+      | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+    if [ -z "${USER_ID}" ]; then
+      echo "[init-idp] [spec-102]   creating persona ${USERNAME} ..."
+      curl -sf -X POST -H "${PERSONA_AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/users" \
+        -d "{\"username\":\"${USERNAME}\",\"email\":\"${EMAIL}\",\"firstName\":\"${FIRSTNAME}\",\"lastName\":\"${LASTNAME}\",\"enabled\":true,\"emailVerified\":true}" \
+        2>/dev/null || echo "[init-idp] [spec-102]   WARN: failed to create ${USERNAME}"
+
+      USER_ID=$(curl -sf -H "${PERSONA_AUTH}" \
+        "${KC_URL}/admin/realms/${REALM}/users?username=${USERNAME}&exact=true" 2>/dev/null \
+        | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    else
+      echo "[init-idp] [spec-102]   persona ${USERNAME} already exists (id=${USER_ID})."
+    fi
+
+    if [ -n "${USER_ID}" ]; then
+      curl -sf -X PUT -H "${PERSONA_AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/users/${USER_ID}/reset-password" \
+        -d "{\"type\":\"password\",\"value\":\"${PASSWORD}\",\"temporary\":false}" \
+        2>/dev/null && \
+        echo "[init-idp] [spec-102]   set password for ${USERNAME}." || \
+        echo "[init-idp] [spec-102]   WARN: failed to set password for ${USERNAME}."
+    fi
+    echo "${USER_ID}"
+  }
+
+  assign_realm_role() {
+    local USER_ID="$1"
+    local ROLE_NAME="$2"
+    [ -z "${USER_ID}" ] && return 0
+    local ROLE_JSON
+    ROLE_JSON=$(curl -sf -H "${PERSONA_AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/roles/${ROLE_NAME}" 2>/dev/null)
+    [ -z "${ROLE_JSON}" ] && {
+      echo "[init-idp] [spec-102]   WARN: realm role ${ROLE_NAME} not found"
+      return 0
+    }
+    curl -sf -X POST -H "${PERSONA_AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/users/${USER_ID}/role-mappings/realm" \
+      -d "[${ROLE_JSON}]" 2>/dev/null && \
+      echo "[init-idp] [spec-102]     assigned realm role ${ROLE_NAME}." || \
+      echo "[init-idp] [spec-102]     (already had ${ROLE_NAME} or assign failed)."
+  }
+
+  PASS_ALICE="${ALICE_ADMIN_PASSWORD:-test-password-123}"
+  PASS_BOB="${BOB_CHAT_USER_PASSWORD:-test-password-123}"
+  PASS_CAROL="${CAROL_KB_INGESTOR_PASSWORD:-test-password-123}"
+  PASS_DAVE="${DAVE_NO_ROLE_PASSWORD:-test-password-123}"
+  PASS_EVE="${EVE_DYNAMIC_AGENT_USER_PASSWORD:-test-password-123}"
+
+  ALICE_ID=$(upsert_persona "alice_admin" "alice@example.com" "${PASS_ALICE}" "Alice" "Admin")
+  assign_realm_role "${ALICE_ID}" "admin"
+
+  BOB_ID=$(upsert_persona "bob_chat_user" "bob@example.com" "${PASS_BOB}" "Bob" "ChatUser")
+  assign_realm_role "${BOB_ID}" "chat_user"
+
+  CAROL_ID=$(upsert_persona "carol_kb_ingestor" "carol@example.com" "${PASS_CAROL}" "Carol" "Ingestor")
+  assign_realm_role "${CAROL_ID}" "chat_user"
+  # KB ingestor role is granted via the team_kb_ownership document in MongoDB
+  # (Phase 7 RAG hybrid model — see plan.md §Phase 4). Realm role chat_user is
+  # the baseline; KB-scoped permissions are layered on top by spec-098 ACL.
+
+  DAVE_ID=$(upsert_persona "dave_no_role" "dave@example.com" "${PASS_DAVE}" "Dave" "NoRole")
+  # No additional roles — intentionally; default-roles-caipe (offline_access) is auto-applied.
+
+  EVE_ID=$(upsert_persona "eve_dynamic_agent_user" "eve@example.com" "${PASS_EVE}" "Eve" "DynamicAgent")
+  assign_realm_role "${EVE_ID}" "chat_user"
+
+  echo "[init-idp] [spec-102] persona seeding done. Verify with:"
+  echo "[init-idp] [spec-102]   curl -sf -H \"\${PERSONA_AUTH}\" \"${KC_URL}/admin/realms/${REALM}/users?max=20\""
+}
+
+seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (see above)"
+
 if [ -z "${IDP_ISSUER:-}" ] || [ -z "${IDP_CLIENT_ID:-}" ] || [ -z "${IDP_CLIENT_SECRET:-}" ]; then
   echo "[init-idp] IDP_ISSUER / IDP_CLIENT_ID / IDP_CLIENT_SECRET not set — skipping IdP broker setup."
   exit 0

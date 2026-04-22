@@ -157,8 +157,6 @@ export interface Config {
   userInfoToolEnabled: boolean;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
-  /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
-  userInfoToolEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +229,6 @@ const DEFAULT_CONFIG: Config = {
   ticketProvider: null,
   userInfoToolEnabled: false,
   oidcRequiredGroup: 'backstage-access',
-  userInfoToolEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -393,7 +390,6 @@ export function getServerConfig(): Config {
     ticketProvider,
     userInfoToolEnabled,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
-    userInfoToolEnabled,
   };
 }
 

@@ -524,6 +524,109 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 	@[ -n "$(IMG)" ] || { echo "Usage: make scan-image IMG=<image:tag>"; exit 1; }
 	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"
 
+## ========== Comprehensive RBAC tests (spec 102) ==========
+# See docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md
+
+# Profile selection. Override with E2E_PROFILES=...
+E2E_PROFILES   ?= rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot
+E2E_COMPOSE    := -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml
+E2E_KC_URL     ?= http://localhost:7080
+E2E_KC_REALM   ?= cnoe
+E2E_KC_RESOURCE_SERVER_ID ?= caipe-resource-server
+E2E_WAIT_SECS  ?= 120
+RBAC_PYTEST_DIRS ?= tests/rbac/unit/py tests/rbac/fixtures
+RBAC_E2E_DIRS    ?= tests/rbac/e2e
+
+.PHONY: test-rbac test-rbac-lint test-rbac-up test-rbac-down test-rbac-jest test-rbac-pytest test-rbac-e2e
+
+test-rbac-lint: ## Lint the RBAC matrix + realm-config-extras (T009/T011/T012). No services required.
+	@echo "[test-rbac-lint] running matrix linter (T009)…"
+	@if [ "$(RBAC_LINT_STRICT)" = "1" ]; then \
+	   PYTHONPATH=. uv run python scripts/validate-rbac-matrix.py; \
+	 else \
+	   PYTHONPATH=. uv run python scripts/validate-rbac-matrix.py || \
+	     echo "[test-rbac-lint] matrix lint failed (expected during phase rollout — set RBAC_LINT_STRICT=1 to hard-fail)"; \
+	 fi
+	@echo "[test-rbac-lint] running realm-config + extras validator (T011/T012)…"
+	@PYTHONPATH=. uv run python scripts/validate-realm-config.py
+	@echo "[test-rbac-lint] running requireAdmin deprecation guard (T051)…"
+	@if [ "$(RBAC_LINT_STRICT)" = "1" ]; then \
+	   STRICT=1 bash scripts/check-no-new-requireAdmin.sh; \
+	 else \
+	   bash scripts/check-no-new-requireAdmin.sh || \
+	     echo "[test-rbac-lint] requireAdmin guard reported drift — set RBAC_LINT_STRICT=1 to hard-fail"; \
+	 fi
+
+test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo) and seed personas via init-idp.sh.
+	@echo "[test-rbac-up] starting stack with profiles: $(E2E_PROFILES)"
+	@COMPOSE_PROFILES='$(E2E_PROFILES)' docker compose $(E2E_COMPOSE) up -d --wait --wait-timeout $(E2E_WAIT_SECS)
+	@echo "[test-rbac-up] waiting for Keycloak readiness on $(E2E_KC_URL)…"
+	@for i in $$(seq 1 60); do \
+	   if curl -fsS $(E2E_KC_URL)/realms/master/.well-known/openid-configuration >/dev/null 2>&1; then \
+	     echo "[test-rbac-up] Keycloak is up"; break; \
+	   fi; \
+	   sleep 2; \
+	   if [ $$i -eq 60 ]; then echo "[test-rbac-up] FAIL: Keycloak never became ready"; exit 1; fi; \
+	 done
+	@echo "[test-rbac-up] running init-idp.sh to seed realm + personas…"
+	@KEYCLOAK_URL=$(E2E_KC_URL) KEYCLOAK_REALM=$(E2E_KC_REALM) bash deploy/keycloak/init-idp.sh
+	@echo "[test-rbac-up] stack is ready. KEYCLOAK_URL=$(E2E_KC_URL) KEYCLOAK_REALM=$(E2E_KC_REALM)"
+
+test-rbac-down: ## Tear down the e2e stack (volumes removed).
+	@echo "[test-rbac-down] tearing down e2e stack…"
+	@COMPOSE_PROFILES='$(E2E_PROFILES)' docker compose $(E2E_COMPOSE) down -v --remove-orphans
+
+test-rbac-pytest: ## Run RBAC pytest helper-unit + matrix-driver tests. Pass --rbac-online via PYTEST_ARGS to enable live-Keycloak tests.
+	@echo "[test-rbac-pytest] running RBAC pytest suite ($(RBAC_PYTEST_DIRS))…"
+	@mkdir -p test-results
+	@PYTHONPATH=. \
+	   KEYCLOAK_URL=$(E2E_KC_URL) \
+	   KEYCLOAK_REALM=$(E2E_KC_REALM) \
+	   KEYCLOAK_RESOURCE_SERVER_ID=$(E2E_KC_RESOURCE_SERVER_ID) \
+	   uv run pytest $(RBAC_PYTEST_DIRS) -v \
+	     --junitxml=test-results/rbac-pytest.xml \
+	     $(PYTEST_ARGS)
+
+test-rbac-jest: ## Run RBAC Jest matrix-driver tests (TS helper parity + UI BFF). Emits ui/test-results/junit.xml for T058 to consume.
+	@if [ -d ui ] && [ -f ui/package.json ]; then \
+	   echo "[test-rbac-jest] running ui/ jest suite filtered to rbac…"; \
+	   mkdir -p ui/test-results; \
+	   cd ui && JEST_JUNIT_OUTPUT_DIR=test-results JEST_JUNIT_OUTPUT_NAME=junit.xml \
+	     npx jest \
+	       'src/__tests__/rbac-matrix-driver.test.ts' \
+	       'src/lib/rbac/__tests__/' \
+	       'src/app/api/__tests__/rag-rbac.test.ts' \
+	       --reporters=default --reporters=jest-junit \
+	       --passWithNoTests; \
+	 else \
+	   echo "[test-rbac-jest] ui/ not found; skipping jest stage"; \
+	 fi
+
+test-rbac-e2e: ## Run RBAC Playwright e2e suite (tests/rbac/e2e/). Requires `make test-rbac-up` first.
+	@if [ -d tests/rbac/e2e ] && [ -f tests/rbac/e2e/package.json ]; then \
+	   echo "[test-rbac-e2e] running playwright RBAC e2e tests from tests/rbac/e2e/…"; \
+	   if [ ! -d tests/rbac/e2e/node_modules ]; then \
+	     echo "[test-rbac-e2e] installing tests/rbac/e2e/node_modules (one-time)…"; \
+	     cd tests/rbac/e2e && npm install --no-audit --no-fund; cd $(CURDIR); \
+	   fi; \
+	   cd tests/rbac/e2e && npx playwright test --grep @rbac; \
+	 else \
+	   echo "[test-rbac-e2e] tests/rbac/e2e/ not found; skipping"; \
+	 fi
+
+test-rbac: ## Full comprehensive RBAC suite: lint + (optional online stack) + pytest + jest + e2e.
+	@$(MAKE) test-rbac-lint
+	@$(MAKE) test-rbac-pytest
+	@$(MAKE) test-rbac-jest
+	@if [ "$(RBAC_E2E)" = "1" ]; then \
+	   echo "[test-rbac] RBAC_E2E=1 — bringing up stack and running playwright"; \
+	   $(MAKE) test-rbac-up && $(MAKE) test-rbac-e2e || RC=$$?; \
+	   $(MAKE) test-rbac-down; \
+	   exit $${RC:-0}; \
+	 else \
+	   echo "[test-rbac] skipping e2e stage (set RBAC_E2E=1 to enable)"; \
+	 fi
+
 ## ========== Help ==========
 
 help: ## Show this help message

@@ -14,7 +14,7 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
       KC_LOG_LEVEL: info
-    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443"]
+    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
     volumes:
     - keycloak-data:/opt/keycloak/data
     - ./realm-config.json:/opt/keycloak/data/import/realm-config.json

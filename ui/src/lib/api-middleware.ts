@@ -198,7 +198,21 @@ export async function getAuthFromBearerOrSession(
 }
 
 /**
- * Require admin role for write operations.
+ * @deprecated Spec 102 / FR-001 — use {@link requireRbacPermission} instead.
+ *
+ * `requireAdmin` is the legacy OIDC-group-based gate. Under the
+ * 098-enterprise-rbac spec, every BFF route is gated by Keycloak Authorization
+ * Services (via `requireRbacPermission(session, '<resource>', '<scope>')`).
+ *
+ * Existing call sites are tracked in `tests/rbac/rbac-matrix.yaml` with
+ * `migration_status: pending`. As each route migrates (Phase 3 — T040–T049
+ * in `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/tasks.md`)
+ * the matrix entry flips to `migration_status: migrated` and the matrix-driver
+ * test goes live.
+ *
+ * `scripts/check-no-new-requireAdmin.sh` runs in CI (T051) and fails the build
+ * if a new call site is added in a route file that isn't already pending.
+ *
  * Throws 403 if user is not admin.
  */
 export function requireAdmin(session: { role?: string }): void {
@@ -208,14 +222,13 @@ export function requireAdmin(session: { role?: string }): void {
 }
 
 /**
- * Require admin view access for read-only admin endpoints.
- * Checks session.canViewAdmin (set from OIDC_REQUIRED_ADMIN_VIEW_GROUP).
- * Admin users always have view access.
- * Throws 403 if user lacks the required group.
+ * @deprecated Spec 102 / FR-001 — use {@link requireRbacPermission} instead.
  *
- * Brought in from release/0.4.0 to support read-only analytics endpoints
- * (e.g. GET /api/admin/users/stats) that should be accessible to viewers
- * who can see the admin dashboard but cannot mutate it.
+ * Same migration story as {@link requireAdmin}. Read-only admin endpoints
+ * should call `requireRbacPermission(session, '<resource>', 'view')` (or
+ * `'audit.view'` for audit surfaces).
+ *
+ * Throws 403 if user lacks the required group.
  */
 export function requireAdminView(session: { role?: string; canViewAdmin?: boolean }): void {
   if (session.role === 'admin') return;
@@ -305,6 +318,9 @@ const RESOURCE_ROLE_FALLBACK: Partial<Record<RbacResource, string>> = {
   admin_ui: 'admin',
   supervisor: 'chat_user',
   rag: 'chat_user',
+  team: 'admin',
+  mcp_server: 'admin',
+  dynamic_agent: 'chat_user',
 };
 
 /**

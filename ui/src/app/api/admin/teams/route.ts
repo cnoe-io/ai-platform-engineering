@@ -7,7 +7,6 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
@@ -63,7 +62,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   return withAuth(request, async (req, user, session) => {
     await requireRbacPermission(session, 'admin_ui', 'admin');
-    requireAdmin(session);
 
     const body: CreateTeamRequest = await request.json();
 

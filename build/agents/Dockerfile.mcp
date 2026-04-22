@@ -17,8 +17,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy the entire MCP directory structure first since uv sync needs it to build
-COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME}/mcp ./
+# Mirror the source-tree layout under /app so that relative path sources in
+# `[tool.uv.sources]` (e.g. `mcp-agent-auth = { path = "../../common/mcp-auth" }`)
+# resolve inside the project base directory. uv refuses to follow `..` paths
+# that escape the project root, so we cannot use a flat layout here.
+COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME}/mcp \
+     /app/ai_platform_engineering/agents/${AGENT_NAME}/mcp/
+COPY --chown=root:root ./ai_platform_engineering/agents/common \
+     /app/ai_platform_engineering/agents/common/
+
+WORKDIR /app/ai_platform_engineering/agents/${AGENT_NAME}/mcp
 
 # Install dependencies into venv (no dev deps)
 # Increase timeout for large packages (e.g., pyarrow 39MB)
@@ -65,16 +73,19 @@ RUN mkdir -p /usr/local/bin \
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
 
-WORKDIR /app
-
-# Set env vars for uv & PATH
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
-    PATH="/app/.venv/bin:${PATH}" \
+# Mirror the layout used in the builder stage so the editable
+# `mcp-agent-auth` install (whose .pth file points to ../../common/mcp-auth)
+# still resolves at runtime. Pin WORKDIR + venv to the per-agent mcp dir.
+ENV UV_PROJECT_ENVIRONMENT=/app/ai_platform_engineering/agents/${AGENT_NAME}/mcp/.venv \
+    PATH="/app/ai_platform_engineering/agents/${AGENT_NAME}/mcp/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     AGENT_NAME=${AGENT_NAME}
 
-# Copy venv & code from builder
+WORKDIR /app/ai_platform_engineering/agents/${AGENT_NAME}/mcp
+
+# Copy venv & code from builder (whole /app to preserve the agents/common/
+# sibling directory referenced by the editable mcp-agent-auth package).
 COPY --from=builder --chown=appuser:appuser /app /app
 
 USER appuser

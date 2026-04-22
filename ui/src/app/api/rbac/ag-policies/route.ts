@@ -15,10 +15,11 @@ const AG_DRY_CONTEXT = {
   request: { headers: { "x-forwarded-for": "10.0.0.1" } },
 };
 
-async function requireAdmin(): Promise<
-  | { email: string; ok: true }
-  | { response: NextResponse; ok: false }
-> {
+type AdminAuthResult =
+  | { ok: true; email: string; response?: undefined }
+  | { ok: false; email?: undefined; response: NextResponse };
+
+async function requireAdmin(): Promise<AdminAuthResult> {
   const session = (await getServerSession(authOptions)) as {
     role?: string;
     user?: { email?: string | null };

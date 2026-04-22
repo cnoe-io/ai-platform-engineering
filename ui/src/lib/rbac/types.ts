@@ -15,7 +15,10 @@ export type RbacResource =
   | "tool"
   | "skill"
   | "a2a"
-  | "mcp";
+  | "mcp"
+  | "team"
+  | "mcp_server"
+  | "dynamic_agent";
 
 /** Common capability scopes from the permission matrix */
 export type RbacScope =
@@ -35,7 +38,9 @@ export type RbacScope =
   | "tool.view"
   | "kb.admin"
   | "kb.ingest"
-  | "kb.query";
+  | "kb.query"
+  | "read"
+  | "manage";
 
 /** Keycloak realm roles aligned with IdP group mapping (FR-010) */
 export type RbacRole =

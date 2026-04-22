@@ -553,6 +553,25 @@ wheels = [
 ]
 
 [[package]]
+name = "mcp-agent-auth"
+version = "0.1.0"
+source = { editable = "../../common/mcp-auth" }
+dependencies = [
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "starlette" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.0" },
+    { name = "python-dotenv", specifier = ">=0.20" },
+    { name = "requests", specifier = ">=2.28" },
+    { name = "starlette", specifier = ">=0.27" },
+]
+
+[[package]]
 name = "mcp-argocd"
 version = "0.1.0"
 source = { editable = "." }
@@ -560,6 +579,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "mcp" },
+    { name = "mcp-agent-auth" },
     { name = "pydantic" },
     { name = "python-dotenv" },
 ]
@@ -569,6 +589,7 @@ requires-dist = [
     { name = "fastmcp", specifier = "==3.2.3" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mcp", specifier = "==1.26.0" },
+    { name = "mcp-agent-auth", editable = "../../common/mcp-auth" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "python-dotenv", specifier = "==1.2.1" },
 ]
