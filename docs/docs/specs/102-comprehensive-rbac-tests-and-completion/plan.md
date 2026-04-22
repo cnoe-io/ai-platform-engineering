@@ -338,11 +338,12 @@ This is the largest behaviour change. It implements **all 5 layers** identified 
 **Files modified**:
 - `ai_platform_engineering/integrations/slack_bot/app.py` — every command path uses `impersonate_user(keycloak_sub)` to mint the OBO
 - `ai_platform_engineering/integrations/slack_bot/utils/rbac_middleware.py` — remove channel-allowlist gate (it becomes a Keycloak `slack#use` scope check)
-- `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` — full update per FR-014, including:
-  - File Map table (auto-validated by `scripts/validate-rbac-doc.py`)
-  - Sequence diagrams for all post-migration flows (cross-reference `call-sequences.md`)
-  - Component sections for all NEW Python helpers and the DA migration
+- `docs/docs/security/rbac/{architecture,workflows,usage,file-map}.md` — full update per FR-014, including:
+  - File map table in `file-map.md` (auto-validated by `scripts/validate-rbac-doc.py`)
+  - Sequence diagrams for all post-migration flows in `workflows.md` (cross-reference `call-sequences.md`)
+  - Component sections in `architecture.md` for all NEW Python helpers and the DA migration
   - Removed-features callouts: `requireAdmin`, `requireAdminView` (production), `X-User-Context` header trust, `SharedKeyMiddleware`, channel-allowlist
+  - (The original `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` is now a redirect stub.)
 - `Makefile` — `test-rbac` target now real (was stub in Phase 0)
 
 **Files added**:
@@ -353,14 +354,14 @@ This is the largest behaviour change. It implements **all 5 layers** identified 
 1. Wire Slack OBO via `impersonate_user` (the helper exists at `slack_bot/utils/obo_exchange.py:89`).
 2. Verify Keycloak's token-exchange + impersonation permissions are granted to `caipe-slack-bot` client in `realm-config.json` (Phase 0 enabled the feature flag; this phase wires the policies).
 3. Build the Playwright suite incrementally, one user story per spec file under `tests/rbac/e2e/`.
-4. Final pass: rewrite `how-rbac-works.md` end-to-end using the now-true post-migration code state. Run the doc validator. Run the 10-question quiz against a junior reviewer (SC-007).
+4. Final pass: rewrite the four RBAC docs under `docs/docs/security/rbac/` end-to-end using the now-true post-migration code state. Run the doc validator. Run the 10-question quiz against a junior reviewer (SC-007).
 
 **Acceptance**:
 - All 8 user stories' Playwright suites pass against `docker-compose.dev.yaml` + `docker-compose/docker-compose.e2e.override.yaml` driven by `COMPOSE_PROFILES`.
 - `make test-rbac` total time ≤ 10 minutes locally (SC-005, SC-008).
 - `scripts/validate-rbac-doc.py` passes (file-map current).
 - 10-question quiz passes 9/10 with a junior reviewer (SC-007).
-- `how-rbac-works.md` review checklist signed off by a security-architect-equivalent reviewer.
+- `docs/docs/security/rbac/` review checklist signed off by a security-architect-equivalent reviewer.
 
 **Maps to**: Stories 5 + 7 + 8, FR-008, FR-009, FR-010, FR-011, FR-014
 
@@ -422,4 +423,4 @@ This is a `/speckit.plan` output. It deliberately stops short of:
 
 - **`tasks.md`** — produced by the next command, `/speckit.tasks`. That command will break each phase above into individually-trackable tasks (one per route migration, one per MCP server, one per test file, etc.).
 - **Code changes** — no source files have been modified by this plan command. All edits begin in the implementation phase, after `/speckit.tasks` is approved.
-- **`how-rbac-works.md` updates** — explicitly deferred to Phase 5 per spec §"Pending Tasks".
+- **`docs/docs/security/rbac/` updates** — explicitly deferred to Phase 5 per spec §"Pending Tasks".

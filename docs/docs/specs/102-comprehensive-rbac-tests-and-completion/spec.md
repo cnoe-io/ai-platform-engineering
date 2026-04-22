@@ -43,14 +43,14 @@ Without comprehensive tests this gap is invisible to reviewers and easy to regre
    - pytest unit tests for every Python middleware × every persona × allow/deny permutation.
    - Playwright end-to-end tests against a real Keycloak (docker-compose) covering the canonical user journeys.
 6. Add audit logging at every new gate using the existing `logAuthzDecision` (TS) / equivalent Python helper.
-7. Update `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` so its diagrams, file map, and component sections reflect the post-migration reality.
+7. Update the canonical RBAC reference under `docs/docs/security/rbac/` (`architecture.md`, `workflows.md`, `usage.md`, `file-map.md`) so its diagrams, file map, and component sections reflect the post-migration reality. (The original single-file doc at `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` is now a redirect stub.)
 
 ## Out of scope (explicitly)
 
 - Replacing NextAuth with another auth library.
 - Replacing MongoDB as the team / KB-ownership store.
 - Replacing the existing CEL evaluator implementations (`ui/src/lib/rbac/cel-evaluator.ts`, `ai_platform_engineering/dynamic_agents/src/dynamic_agents/cel_evaluator.py`).
-- Designing a new Admin UI layout. Admin UI changes are limited to wiring forms to the new Keycloak APIs and documenting the migration in `how-rbac-works.md`.
+- Designing a new Admin UI layout. Admin UI changes are limited to wiring forms to the new Keycloak APIs and documenting the migration under `docs/docs/security/rbac/`.
 - Performance benchmarking. The PDP cache TTL (`RBAC_CACHE_TTL_SECONDS`, default 60s) is taken as given.
 - Multi-realm or multi-Keycloak federation. Single realm only.
 
@@ -197,19 +197,19 @@ There is one pass/fail signal per RBAC area, runnable locally and in CI. Adding 
 
 ---
 
-### User Story 8 — `how-rbac-works.md` is the canonical, accurate reference (Priority: P2)
+### User Story 8 — `docs/docs/security/rbac/` is the canonical, accurate reference (Priority: P2)
 
-After the migration, `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` accurately describes every component, every gate, every flow, and every file involved. A junior engineer who reads it can locate the code that enforces any given decision in under 5 minutes.
+After the migration, the RBAC reference under `docs/docs/security/rbac/` (`index.md`, `architecture.md`, `workflows.md`, `usage.md`, `file-map.md`) accurately describes every component, every gate, every flow, and every file involved. A junior engineer who reads it can locate the code that enforces any given decision in under 5 minutes.
 
 **Why this priority**: The earlier session-summary already noted the docs are out-of-sync; this is the user-facing manifestation of the migration.
 
-**Independent Test**: A reviewer reads `how-rbac-works.md` end-to-end and answers a 10-question quiz (e.g., "Where is the dynamic-agent invoke gate enforced?", "Which env var controls the PDP cache TTL?", "What does `RESOURCE_ROLE_FALLBACK` do when Keycloak is unreachable?"). 9/10 correct = pass.
+**Independent Test**: A reviewer reads the four RBAC docs end-to-end and answers a 10-question quiz (e.g., "Where is the dynamic-agent invoke gate enforced?", "Which env var controls the PDP cache TTL?", "What does `RESOURCE_ROLE_FALLBACK` do when Keycloak is unreachable?"). 9/10 correct = pass.
 
 **Acceptance Scenarios**:
 
-1. **Given** the post-migration code, **When** the file map at the bottom of `how-rbac-works.md` is checked, **Then** every authz-relevant file is listed with its current path.
-2. **Given** the new components (DA backend JWT middleware, RAG hybrid gate, etc.), **When** the document is read, **Then** each one has a dedicated section with: purpose, env vars, error responses, file paths.
-3. **Given** the post-migration sequence diagram, **When** read end-to-end, **Then** it shows: browser → BFF (PDP check) → supervisor (JWT validation + OBO mint) → agent (PDP check) → MCP (PDP check) → upstream system, with the audit log written at each gate.
+1. **Given** the post-migration code, **When** `docs/docs/security/rbac/file-map.md` is checked, **Then** every authz-relevant file is listed with its current path.
+2. **Given** the new components (DA backend JWT middleware, RAG hybrid gate, etc.), **When** `docs/docs/security/rbac/architecture.md` is read, **Then** each one has a dedicated section with: purpose, env vars, error responses, file paths.
+3. **Given** the post-migration sequence diagram in `docs/docs/security/rbac/workflows.md`, **When** read end-to-end, **Then** it shows: browser → BFF (PDP check) → supervisor (JWT validation + OBO mint) → agent (PDP check) → MCP (PDP check) → upstream system, with the audit log written at each gate.
 4. **Given** the migration changes the meaning of any env var or removes any legacy gate, **When** the doc is read, **Then** the change is called out in a "Migrated from 098 partial implementation" callout.
 
 ---
@@ -249,7 +249,7 @@ After the migration, `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-work
 - **FR-011**: Slack bot MUST mint per-command OBO tokens via Keycloak token-exchange (`urn:ietf:params:oauth:grant-type:token-exchange`) using the linked `slack_user_id ↔ keycloak_sub` mapping from FR-025 of 098, and use them as the `Authorization` header for every supervisor call.
 - **FR-012**: Every MCP server MUST replace `SharedKeyMiddleware`-based auth with `JwtUserContextMiddleware` + `requireRbacPermission`. The shared-key path MUST be removed (not deprecated-with-warning) in this PR.
 - **FR-013**: The RAG server MUST implement hybrid authorization: Keycloak `rag#ingest` / `rag#retrieve` as the coarse gate, then per-KB filtering via the union of `TeamKbOwnership` (Mongo) and per-KB realm roles (`kb_reader:<id>`, `kb_ingestor:<id>`).
-- **FR-014**: `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` MUST be updated in the same PR to reflect every change: components, env vars, sequence diagrams, file map. The doc's "File Map" table MUST be auto-validated by `scripts/validate-rbac-doc.py` against the actual files referenced from the protected routes.
+- **FR-014**: The canonical RBAC reference under `docs/docs/security/rbac/` (`architecture.md`, `workflows.md`, `usage.md`, `file-map.md`) MUST be updated in the same PR to reflect every change: components, env vars, sequence diagrams, file map. The table in `docs/docs/security/rbac/file-map.md` MUST be auto-validated by `scripts/validate-rbac-doc.py` against the actual files referenced from the protected routes.
 - **FR-015**: All migrations and tests MUST land on the existing `prebuild/feat/comprehensive-rbac` branch (PR #1257). No new branches.
 
 ### Key Entities
@@ -270,7 +270,7 @@ After the migration, `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-work
 - **SC-004**: 100% of Python services in scope have at least one pytest test asserting JWKS validation, allow, deny, and PDP-unavailable role-fallback.
 - **SC-005**: Playwright E2E suite covers at least 8 canonical user journeys (the 8 user stories above) end-to-end against real Keycloak, runs in under 10 minutes locally.
 - **SC-006**: Adding a new BFF route to a protected prefix without a matrix entry causes `make test-rbac` to exit non-zero with a specific, actionable error message.
-- **SC-007**: `how-rbac-works.md` quiz (10 questions auto-generated from the file map and component sections) is answerable in under 5 minutes by a reviewer who has not worked on this PR.
+- **SC-007**: RBAC docs quiz (10 questions auto-generated from `docs/docs/security/rbac/file-map.md` and `architecture.md` component sections) is answerable in under 5 minutes by a reviewer who has not worked on this PR.
 - **SC-008**: Total CI time for `make test-rbac` increases by no more than 4 minutes over the current `make test` + `make caipe-ui-tests` baseline.
 
 ## Open questions (for the user, before plan)

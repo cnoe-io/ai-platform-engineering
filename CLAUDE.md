@@ -130,24 +130,27 @@ See [skills/README.md](./skills/README.md) for full documentation.
 
 ## RBAC Living Documentation Rule
 
-**Whenever you make any change to the RBAC system, you MUST update `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` in the same session.**
+**Whenever you make any change to the RBAC system, you MUST update the canonical RBAC reference under `docs/docs/security/rbac/` in the same session.**
 
-This file is the canonical plain-language reference for junior engineers. Keep it in sync with code reality.
+The RBAC reference is split into four focused files (plus an `index.md` landing page) so contributors don't have to scroll through one mega-doc. Pick the right file for the change and update it — when in doubt, also touch `index.md` if the change affects the big-picture summary.
 
-Changes that require a docs update include (but are not limited to):
+(The legacy single-file doc at `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` is now a redirect stub; do not edit it — edit the split files instead.)
 
-| Change type | What to update in how-rbac-works.md |
-|-------------|--------------------------------------|
-| New role or permission | Role table in Component 1 (Keycloak) section |
-| New env var on any service | Env var table for that component |
-| New middleware or auth layer | Add/update the relevant component section + flow diagram |
-| New service added to the stack | Add a new Component section + update the big-picture diagram |
-| Auth flow change (e.g. Keycloak flows, OBO) | Update the sequence diagram and flow description |
-| New file added to auth path | Add it to the File Map table at the bottom |
-| Keycloak `init-idp.sh` behaviour change | Update Component 1 or the OBO section as applicable |
-| Dynamic agents auth change | Update Component 5 |
+| Change type | File to update | Section / table |
+|-------------|----------------|-----------------|
+| New role, scope, or permission | `architecture.md` | Component 1 (Keycloak) role/scope tables |
+| New env var on any service | `architecture.md` | Env var table for that component |
+| New middleware, gate, or auth layer | `architecture.md` (component) **and** `workflows.md` (flow diagram) | The relevant component section + sequence diagram |
+| New service added to the stack | `architecture.md` (new Component section) **and** `index.md` (big-picture) | New Component N section + the architecture overview diagram |
+| Auth flow change (Keycloak flows, OBO, token-exchange, broker login) | `workflows.md` | Update the affected sequence diagram and prose |
+| New file added to the auth path | `file-map.md` | The File Map table |
+| Keycloak `init-idp.sh` / realm-config behaviour change | `architecture.md` (Component 1) **and**, if it changes a flow, `workflows.md` |
+| Dynamic Agents auth change | `architecture.md` (Component 5) |
+| New test user, demo step, troubleshooting tip | `usage.md` | Test users / demo walkthrough / common questions |
+| Spec 102 e2e port band, `make test-rbac-*`, or compose-profile change | `usage.md` (link to spec-102 quickstart) **and** `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md` |
+| Threat-model or trust-boundary change | `index.md` | Threat Model Considerations |
 
-The file map table at the bottom of `how-rbac-works.md` must always reflect where every auth-relevant file lives.
+`docs/docs/security/rbac/file-map.md` must always reflect where every auth-relevant file lives. `scripts/validate-rbac-doc.py` (added in spec 102 Phase 10) is the CI guard for this.
 
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)

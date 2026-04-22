@@ -350,18 +350,20 @@ description: "Task list for spec 102 — Comprehensive RBAC Tests + Completion o
 
 ---
 
-## Phase 10: User Story 8 — `how-rbac-works.md` is the canonical reference (Priority: P2)
+## Phase 10: User Story 8 — `docs/docs/security/rbac/` is the canonical reference (Priority: P2)
 
-**Goal**: `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` accurately reflects the post-migration state. File map is auto-validated.
+> **Note (post-split):** the canonical RBAC reference was previously a single file at `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md`. It has been split into focused files under `docs/docs/security/rbac/` (`index.md`, `architecture.md`, `workflows.md`, `usage.md`, `file-map.md`). Tasks below have been retargeted accordingly. The old path still exists as a redirect stub.
+
+**Goal**: `docs/docs/security/rbac/` accurately reflects the post-migration state. File map is auto-validated.
 
 **Independent Test**: A junior reviewer answers a 10-question quiz auto-generated from the file map and component sections; passes 9/10 in <5 min.
 
 **Maps to**: Story 8, FR-014, SC-007.
 
-- [ ] T121 [US8] Implement `scripts/validate-rbac-doc.py`: parses the "File Map" table at the bottom of `how-rbac-works.md`; asserts every listed file exists; asserts every authz-relevant production file (referenced by `requireRbacPermission` / `require_rbac_permission` calls or by `JwtUserContextMiddleware` registrations) appears in the table; exits non-zero on drift (FR-014). Wire into `make test-rbac` after the matrix linter
-- [ ] T122 [US8] Update `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` Component sections: add a NEW Component for "Python RBAC helpers" (T020–T024) with env vars table, error responses, file paths; update Component 5 (Dynamic Agents) to reflect the post-Phase-8 state; add a "Migrated from 098 partial implementation" callout box on every section affected
-- [ ] T123 [P] [US8] Update `how-rbac-works.md` File Map table: add the new files from Phases 2, 6, 7, 8, 9 — `tests/rbac/**`, `ai_platform_engineering/utils/auth/{jwks_validate,keycloak_authz,audit,realm_extras}.py`, `ai_platform_engineering/dynamic_agents/.../auth/{jwt_middleware,token_context,keycloak_authz,obo_exchange}.py`, `deploy/keycloak/realm-config-extras.json`, `scripts/validate-rbac-{matrix,doc,realm-config}.py`, `scripts/extract-rbac-resources.py`
-- [ ] T124 [US8] Update sequence diagrams in `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md`: the existing AgentGateway end-to-end diagram is fine — add a sister `sequenceDiagram` for the **non-AG** paths (BFF → Supervisor → MCP and BFF → DA → MCP), and add a fresh diagram for the per-agent gate at the chat endpoint introduced by Phase 8
+- [ ] T121 [US8] Implement `scripts/validate-rbac-doc.py`: parses the table in `docs/docs/security/rbac/file-map.md`; asserts every listed file exists; asserts every authz-relevant production file (referenced by `requireRbacPermission` / `require_rbac_permission` calls or by `JwtUserContextMiddleware` registrations) appears in the table; exits non-zero on drift (FR-014). Wire into `make test-rbac` after the matrix linter
+- [ ] T122 [US8] Update `docs/docs/security/rbac/architecture.md` component sections: add a NEW Component for "Python RBAC helpers" (T020–T024) with env vars table, error responses, file paths; update Component 5 (Dynamic Agents) to reflect the post-Phase-8 state; add a "Migrated from 098 partial implementation" callout box on every section affected
+- [ ] T123 [P] [US8] Update `docs/docs/security/rbac/file-map.md` table: add the new files from Phases 2, 6, 7, 8, 9 — `tests/rbac/**`, `ai_platform_engineering/utils/auth/{jwks_validate,keycloak_authz,audit,realm_extras}.py`, `ai_platform_engineering/dynamic_agents/.../auth/{jwt_middleware,token_context,keycloak_authz,obo_exchange}.py`, `deploy/keycloak/realm-config-extras.json`, `scripts/validate-rbac-{matrix,doc,realm-config}.py`, `scripts/extract-rbac-resources.py`
+- [ ] T124 [US8] Update sequence diagrams in `docs/docs/security/rbac/workflows.md`: the existing AgentGateway end-to-end diagram is fine — add a sister `sequenceDiagram` for the **non-AG** paths (BFF → Supervisor → MCP and BFF → DA → MCP), and add a fresh diagram for the per-agent gate at the chat endpoint introduced by Phase 8
 - [ ] T125 [P] [US8] Generate the 10-question quiz at `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quiz.md`. Sample questions: "Which env var controls the PDP cache TTL?" (`RBAC_CACHE_TTL_SECONDS`), "Which file maps Keycloak resources to PDP-unavailable fallback rules?" (`deploy/keycloak/realm-config-extras.json`), etc. Include answer key
 - [ ] T126 [US8] Run `python scripts/validate-rbac-doc.py` after all updates. Confirm exit 0. Run the quiz on a junior reviewer (or the team's "least-RBAC-aware" engineer); record score in `quiz.md`. Pass = 9/10
 

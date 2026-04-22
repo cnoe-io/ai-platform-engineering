@@ -1,0 +1,8 @@
+{
+  "label": "RBAC",
+  "position": 1,
+  "link": {
+    "type": "doc",
+    "id": "security/rbac/index"
+  }
+}
