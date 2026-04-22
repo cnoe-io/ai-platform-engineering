@@ -245,6 +245,33 @@ export interface AvailableSubagent {
 }
 
 // =============================================================================
+// LLM Model Types
+// =============================================================================
+
+export interface LLMModelConfig {
+  _id: string;          // model_id
+  model_id: string;
+  name: string;
+  provider: string;
+  description?: string;
+  config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  updated_at: string;
+}
+
+export interface LLMModelCreate {
+  model_id: string;     // Unique model identifier (e.g., "gpt-4o")
+  name: string;
+  provider: string;
+  description?: string;
+}
+
+export interface LLMModelUpdate {
+  name?: string;
+  provider?: string;
+  description?: string;
+}
+
+// =============================================================================
 // Chat Types
 // =============================================================================
 

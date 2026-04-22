@@ -1,5 +1,9 @@
 // GET /api/chat/conversations/[id]/messages - Get all messages in conversation
+//   Kept for reading legacy `messages` data during migration (Phase 3).
 // POST /api/chat/conversations/[id]/messages - Add message to conversation
+//   Kept for migration tooling. The UI no longer calls this — the A2A server
+//   persists all streaming data directly (Phase 1/3). Future cleanup: remove
+//   POST once all conversations have been migrated to server-side persistence.
 
 import { NextRequest } from 'next/server';
 import { getCollection } from '@/lib/mongodb';
@@ -51,9 +55,8 @@ export const GET = withErrorHandler(async (
 
 // POST /api/chat/conversations/[id]/messages
 // Uses UPSERT on message_id: if a message with this client-generated ID already
-// exists, it is updated (content, metadata, events). This lets the UI call
-// saveMessagesToServer idempotently — mid-stream periodic saves and the final
-// save all go through the same code path without duplicating rows.
+// exists, it is updated (content, metadata, events). Idempotent — safe to call
+// multiple times for the same message without duplicating rows.
 export const POST = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -117,7 +120,7 @@ export const POST = withErrorHandler(async (
             ...(body.metadata?.timeline_segments && { timeline_segments: body.metadata.timeline_segments }),
           },
           ...(body.a2a_events !== undefined && { a2a_events: body.a2a_events }),
-          ...(body.sse_events !== undefined && { sse_events: body.sse_events }),
+          ...(body.stream_events !== undefined && { stream_events: body.stream_events }),
           ...(body.artifacts !== undefined && { artifacts: body.artifacts }),
           updated_at: now,
         },

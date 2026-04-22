@@ -2,30 +2,131 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-A2A Streaming Integration
+AG-UI Streaming Integration
 
-This module handles all interactions with the CAIPE supervisor, including:
-- Streaming responses from AI agents
-- Alert processing and Jira ticket creation
+This module handles all interactions with dynamic agents via AG-UI protocol:
+- Streaming responses from AI agents (stream_response)
+- Non-streaming invoke for bot users (invoke_response)
+- Alert processing with AI agents
 - Real-time progress updates in Slack
 """
 
 import json
 import os
+import re
+import threading
 import time
 
 from loguru import logger
 
+try:
+  from sse_client import SSEClient, SSEEventType  # type: ignore[import]
+except ImportError:
+  from ..sse_client import SSEClient, SSEEventType
 from . import slack_formatter
 from . import utils as _utils
 from .config import config
-from .event_parser import (
-  parse_event,
-  EventType,
-)
-from .throttler import create_throttled_updater
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
+
+# Keys to search for in tool arguments to find reasoning/thought text.
+# Matches the UI's extractToolThought() in ui/src/types/timeline.ts.
+_THOUGHT_KEYS = (
+  "thought",
+  "thoughts",
+  "reason",
+  "thinking",
+  "rationale",
+  "explanation",
+  "description",
+  "purpose",
+  "intent",
+  "goal",
+)
+
+_MAX_DETAILS_LEN = 200
+
+# Typing indicator constants (overridable via env vars)
+_STATUS_PREFIX = "💭 "
+_STATUS_MAX_LEN = 50  # Slack loading_messages hard limit is 50 chars
+_DEFAULT_LOADING_MESSAGES = [
+  "👀 takin a look...",
+  "👀 checking...",
+  "👀 on it...",
+]
+_raw_loading = os.environ.get("SLACK_LOADING_MESSAGES")
+_INITIAL_LOADING_MESSAGES = ([m.strip() for m in _raw_loading.split(",") if m.strip()] if _raw_loading else _DEFAULT_LOADING_MESSAGES) or _DEFAULT_LOADING_MESSAGES  # fall back if split produces empty list
+_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "😅 not sure about this")
+_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "🙋 letting the team handle this")
+_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "😕 something went wrong")
+_OVERTHINK_STATUS_DISPLAY_SECS = int(os.environ.get("SLACK_OVERTHINK_STATUS_DISPLAY_SECS", "7"))
+
+# Overthink-mode keepalive: cycle these messages when no SSE events arrive.
+_OVERTHINK_KEEPALIVE_INTERVAL = 60  # seconds between keepalive messages
+_OVERTHINK_KEEPALIVE_MESSAGES = [
+  "👀 still working on it...",
+  "😳 taking longer than expected...",
+  "😅 really overthinking this...",
+]
+_STATUS_OVERTHINK_WRITE_TODOS = "📋 checking notes..."
+_STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
+
+
+def _parse_write_todos_args(raw_args_json: str) -> list[dict] | None:
+  """Parse the todo list from write_todos tool arguments.
+
+  The write_todos tool is called with args like:
+  {"todos": [{"id": 1, "content": "...", "status": "in_progress"}, ...]}
+
+  Args:
+      raw_args_json: JSON string of write_todos tool arguments.
+
+  Returns:
+      List of todo dicts, or None if parsing fails.
+  """
+  if not raw_args_json:
+    return None
+  try:
+    args = json.loads(raw_args_json)
+  except (json.JSONDecodeError, TypeError):
+    return None
+  if not isinstance(args, dict):
+    return None
+  todos = args.get("todos")
+  if not isinstance(todos, list) or not todos:
+    return None
+  return todos
+
+
+def _extract_tool_thought(raw_args_json: str) -> str | None:
+  """Extract a thought/reason string from JSON-encoded tool arguments.
+
+  Searches for well-known keys (thought, reason, etc.) in the parsed
+  args dict and returns the first non-empty string value found, truncated
+  to _MAX_DETAILS_LEN characters.
+
+  Args:
+      raw_args_json: JSON string of tool arguments (may be truncated by backend).
+
+  Returns:
+      Truncated thought string, or None if no thought field found.
+  """
+  if not raw_args_json:
+    return None
+  try:
+    args = json.loads(raw_args_json)
+  except (json.JSONDecodeError, TypeError):
+    return None
+  if not isinstance(args, dict):
+    return None
+  for key in _THOUGHT_KEYS:
+    value = args.get(key)
+    if isinstance(value, str) and value.strip():
+      trimmed = value.strip()
+      if len(trimmed) > _MAX_DETAILS_LEN:
+        return trimmed[:_MAX_DETAILS_LEN] + "..."
+      return trimmed
+  return None
 
 
 class StreamBuffer:
@@ -44,27 +145,18 @@ class StreamBuffer:
     self.stream_ts = stream_ts
     self.flush_interval = flush_interval
     self._buffer = ""
-    self._last_flush = None  # set on first append, not init — avoids stale elapsed from LLM think time
+    self._last_flush = time.monotonic()
     self._flushed_any = False
-    self._trailing_newlines = 0  # count of trailing \n chars in last flushed text
-    self._dead = False  # True after msg_too_long — stop trying to append
 
   @property
   def has_flushed(self):
     return self._flushed_any
 
-  @property
-  def trailing_newlines(self):
-    return self._trailing_newlines
-
   def append(self, text):
     """Add text to the buffer; auto-flush on newline or after the interval."""
     self._buffer += text
 
-    now = time.monotonic()
-    if self._last_flush is None:
-      self._last_flush = now  # start interval from first token, not from init
-    elapsed = now - self._last_flush
+    elapsed = time.monotonic() - self._last_flush
 
     # Prefer flushing on newline boundaries so markdown isn't split mid-token
     if "\n" in self._buffer:
@@ -88,26 +180,19 @@ class StreamBuffer:
 
   def _send(self, text):
     """Send *text* to Slack and update bookkeeping."""
-    if self._dead:
-      return False  # stream hit msg_too_long — stop spamming Slack
     self._last_flush = time.monotonic()
     try:
+      chunks = [{"type": "markdown_text", "text": text}]
+      logger.debug(f"SLACK appendStream text: {text[:100]!r}")
       self.slack_client.chat_appendStream(
         channel=self.channel_id,
         ts=self.stream_ts,
-        chunks=[{"type": "markdown_text", "text": text}],
+        chunks=chunks,
       )
       self._flushed_any = True
-      self._trailing_newlines = len(text) - len(text.rstrip('\n'))
-      preview = text[:80].replace('\n', '\\n')
-      logger.info(f"SLACK appendStream text ({len(text)} chars): {preview}{'...' if len(text) > 80 else ''}")
       return True
     except Exception as e:
-      if "msg_too_long" in str(e):
-        self._dead = True
-        logger.warning("SLACK appendStream msg_too_long — disabling further appends")
-      else:
-        logger.warning(f"SLACK appendStream text FAILED: {e}")
+      logger.warning(f"SLACK appendStream text FAILED: {e}")
       return False
 
 
@@ -123,100 +208,272 @@ def _build_footer_text(triggered_by_user_id=None, additional_footer=None) -> str
 
 
 # Prefix added to retry messages after tool failures
-RETRY_PROMPT_PREFIX = """IMPORTANT: A previous attempt to answer this question failed because some tools/subagents were unavailable or timed out.
+# Prefix added to retry messages after tool failures
+_DEFAULT_RETRY_PREFIX = """IMPORTANT: A previous attempt to answer this question failed because some tools or subagents were unavailable or timed out.
 
 Please try a different approach:
-- If you don't have access to certain tools (GitLab, VictorOps, etc.), say so and offer alternatives
+- If certain tools are unavailable, say so and offer alternatives
 - Ask the user to paste relevant information directly if needed
-- Avoid spawning complex subagents - keep it simple
+- Keep it simple — avoid complex subagent chains
 
 """
+RETRY_PROMPT_PREFIX = os.environ.get("SLACK_INTEGRATION_PROMPT_RETRY_PREFIX", _DEFAULT_RETRY_PREFIX)
 
 
-def stream_a2a_response(
-  a2a_client,
+def stream_response(
+  sse_client: SSEClient,
   slack_client,
-  channel_id,
-  thread_ts,
-  message_text,
-  team_id,
-  user_id,
-  context_id=None,
-  metadata=None,
-  session_manager=None,
+  channel_id: str,
+  thread_ts: str,
+  message_text: str,
+  team_id: str,
+  user_id: str,
+  agent_id: str,
+  conversation_id: str,
   triggered_by_user_id=None,
   additional_footer=None,
   overthink_mode=False,
   escalation_config=None,
+  is_resume=False,
+  resume_form_data=None,
+  resume_trace_id=None,
+  client_context=None,
 ):
   """
-  Stream an A2A response to Slack.
+  Stream an AG-UI response to Slack.
 
   Hybrid approach:
-  1. Throttled updates during processing (tools, execution plan)
-  2. Stream final output using Slack's streaming API
+  1. Show typing indicator while waiting for first content
+  2. Open Slack stream on first text chunk
+  3. Buffer and flush markdown via StreamBuffer
+  4. Show tool call progress as task_update chunks
+  5. Finalize with feedback blocks on RUN_FINISHED
+
+  Args:
+      sse_client: SSEClient instance for dynamic agents.
+      slack_client: Slack WebClient instance.
+      channel_id: Slack channel ID.
+      thread_ts: Slack thread timestamp.
+      message_text: User's message text (ignored for resume).
+      team_id: Slack team ID.
+      user_id: Slack user ID.
+      agent_id: Dynamic agent config ID.
+      conversation_id: Deterministic UUID v5 from thread_ts.
+      triggered_by_user_id: Optional user ID for footer attribution.
+      additional_footer: Optional footer text.
+      overthink_mode: If True, process silently and skip low-confidence responses.
+      escalation_config: Optional escalation config for delete buttons.
+      is_resume: If True, use resume_stream() instead of stream_chat().
+      resume_form_data: JSON string of form data for resume.
+      resume_trace_id: Trace ID for resume.
 
   Returns:
-      List of Slack blocks for the final response, or dict with retry_needed=True on recoverable errors,
-      or dict with skipped=True if overthink_mode filtered the response
+      List of Slack blocks for the final response, or dict with retry_needed=True
+      on recoverable errors, or dict with skipped=True if overthink_mode filtered.
   """
-  from .hitl_handler import parse_form_data, format_hitl_form_blocks
+  from .hitl_handler import parse_agui_interrupt, format_hitl_form_blocks
 
   # Streaming requires a valid user_id (starts with U or W), bot_ids (B) don't work
   can_stream = user_id and user_id[0] in ("U", "W")
 
-  # In overthink mode, process silently - don't show "working" message
-  # Only post if we have a confident response
-  response_ts = None
-  throttler = None
+  # Slack stream state
+  thread_deleted = False
+  stream_ts = None
+  stream_buf = None
+  response_ts = None  # progress message ts for non-streaming fallback
 
-  # Plan-mode streaming state
-  thread_deleted = False  # True if Slack reports the thread_ts is gone
-  stream_ts = None  # ts from chat.startStream (None = not started)
-  stream_buf = None  # StreamBuffer instance (created when stream starts)
-  plan_steps = {}  # step_id -> step dict (latest plan state)
-  sent_step_status = {}  # step_id -> last status we sent to Slack
-  step_thinking = {}  # step_id -> accumulated thinking text per step
-  current_step_id = None  # which step is in_progress
-  needs_separator = False  # insert \n\n before next streamed markdown (after tool_end)
+  # Tool tracking for progress display (bot-user fallback)
+  current_tool = None
+  active_tools = {}  # tool_call_id -> tool_name
 
-  # Loading messages shown in the animated typing indicator before stream starts
-  _loading_messages = [
-    "is thinking...",
-    "Convincing the AI to stop overthinking...",
-    "is resorting to some magic",
-  ]
+  # Content accumulation
+  accumulated_text = []  # TEXT_MESSAGE_CONTENT deltas
+  needs_separator = False
+
+  # Thinking buffer: text between tool calls is treated as reasoning
+  # for the next tool call, shown as details on the tool's checklist item.
+  # Text after the last tool call is the final answer (streamed normally).
+  pending_thinking = []  # accumulated text chunks before next tool call
+  tool_args_buffer = {}  # tool_call_id -> accumulated JSON args string
+  typing_text_buf = []  # accumulated text for typing indicator (reset on TEXT_MESSAGE_END / TOOL_CALL_ARGS)
+
+  # Todo-aware progress display:
+  # When the agent uses write_todos, we show todos as task cards instead of
+  # raw tool names. Thinking text and tool thoughts attach to the active todo.
+  todo_items = []  # latest todo list from the API
+  active_todo_id = None  # id of the currently in_progress todo
+  has_todos = False  # True once we've seen any todos
+
+  # Subagent context: non-empty when events come from a subagent.
+  # Text from subagents is suppressed — only the main agent's text is shown.
+  in_subagent = False
+
+  # Overthink keepalive: self-rescheduling timer that cycles status messages
+  # when no SSE events arrive, preventing the typing indicator from expiring.
+  _keepalive_timer: threading.Timer | None = None
+  _keepalive_index = 0
+
+  def _fire_keepalive():
+    """Called by the timer when no events arrive within the interval."""
+    nonlocal _keepalive_index
+    msg = _OVERTHINK_KEEPALIVE_MESSAGES[_keepalive_index % len(_OVERTHINK_KEEPALIVE_MESSAGES)]
+    _keepalive_index += 1
+    _set_typing_status(msg)
+    _schedule_keepalive()
+
+  def _schedule_keepalive():
+    """(Re)start the keepalive timer. Cancels any pending timer first."""
+    nonlocal _keepalive_timer
+    _cancel_keepalive()
+    if not overthink_mode:
+      return
+    _keepalive_timer = threading.Timer(_OVERTHINK_KEEPALIVE_INTERVAL, _fire_keepalive)
+    _keepalive_timer.daemon = True
+    _keepalive_timer.start()
+
+  def _cancel_keepalive():
+    """Cancel any pending keepalive timer."""
+    nonlocal _keepalive_timer
+    if _keepalive_timer:
+      _keepalive_timer.cancel()
+      _keepalive_timer = None
+
+  def _cancel_pending_status():
+    """Cancel any rate-limited pending status timer."""
+    nonlocal _pending_status_timer, _pending_status
+    if _pending_status_timer:
+      _pending_status_timer.cancel()
+      _pending_status_timer = None
+    _pending_status = None
+
+  def _update_and_emit_todos(todos: list):
+    """Update todo state from the given list and emit plan_update + task_update chunks.
+
+    Assigns index-based IDs when the backend omits them (write_todos tool
+    does not include 'id' in its args).
+
+    Args:
+        todos: List of todo dicts with 'content', 'status', and optionally 'id'.
+    """
+    nonlocal todo_items, active_todo_id, has_todos
+    if not todos:
+      return
+
+    # Normalize: ensure every todo has an 'id' (use 1-based index as fallback)
+    for i, t in enumerate(todos):
+      if "id" not in t:
+        t["id"] = i + 1
+
+    todo_items = todos
+    has_todos = True
+
+    # Find the active (in_progress) todo
+    active_todo_id = None
+    for t in todos:
+      if t.get("status") == "in_progress":
+        active_todo_id = t["id"]
+        break
+
+    # Emit plan_update with the active todo's content as title
+    plan_title = None
+    if active_todo_id is not None:
+      for t in todos:
+        if t["id"] == active_todo_id:
+          plan_title = t.get("content")
+          break
+    if not plan_title and todos:
+      plan_title = todos[0].get("content", "Working...")
+
+    _start_stream_if_needed()
+    if not stream_ts:
+      return
+
+    try:
+      chunks = []
+      if plan_title:
+        chunks.append(slack_formatter.build_plan_update(plan_title))
+      chunks.extend(slack_formatter.build_todo_task_updates(todos))
+      logger.debug(f"[{thread_ts}] SLACK appendStream todos: {len(chunks)} chunks: {chunks}")
+      slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
+    except Exception as e:
+      logger.warning(f"[{thread_ts}] SLACK appendStream todos FAILED: {e}")
+
+  # Status rate limiting: at most one setStatus call per _STATUS_RATE_LIMIT_SECS.
+  # If a new status arrives within the cooldown, it's queued as pending
+  # and dispatched by a timer when the cooldown expires.
+  _last_status_time = 0.0
+  _pending_status: tuple | None = None  # (status_text, loading_messages)
+  _pending_status_timer: threading.Timer | None = None
+
+  def _flush_pending_status():
+    """Dispatch the pending status after the rate-limit cooldown."""
+    nonlocal _pending_status, _pending_status_timer
+    _pending_status_timer = None
+    if _pending_status:
+      text, msgs = _pending_status
+      _pending_status = None
+      _set_typing_status(text, msgs)
 
   def _set_typing_status(status_text, loading_messages=None):
     """Set the typing indicator status (best-effort, non-blocking).
 
+    Rate-limited to one call per second. If called more frequently, the
+    latest status is queued and dispatched when the cooldown expires.
+    Empty status (clear) is always sent immediately.
+
+    Truncates to _STATUS_MAX_LEN (Slack hard limit) with trailing "..."
+    when the text is too long.  ``loading_messages`` can be a list (passed
+    through) or omitted (defaults to ``[status_text]``).
+
     IMPORTANT: Only call this BEFORE startStream. Calling setStatus after
-    startStream creates a second message in the thread (Slack limitation).
+    startStream creates a second message in the thread.
+    Only works for streamable users (U/W prefix), not bot users (B prefix).
     """
-    if not can_stream or overthink_mode:
+    nonlocal _last_status_time, _pending_status, _pending_status_timer
+    if not can_stream:
       return
-    if stream_ts and status_text:
+    if status_text and len(status_text) > _STATUS_MAX_LEN:
+      status_text = status_text[: _STATUS_MAX_LEN - 3] + "..."
+    if loading_messages is None:
+      loading_messages = [status_text] if status_text else [_STATUS_PREFIX.rstrip()]
+
+    # Empty status (clear) always sends immediately
+    now = time.monotonic()
+    if status_text and (now - _last_status_time) < _STATUS_RATE_LIMIT_SECS:
+      # Within cooldown — queue as pending
+      _pending_status = (status_text, loading_messages)
+      if not _pending_status_timer:
+        delay = _STATUS_RATE_LIMIT_SECS - (now - _last_status_time)
+        _pending_status_timer = threading.Timer(delay, _flush_pending_status)
+        _pending_status_timer.daemon = True
+        _pending_status_timer.start()
       return
+
+    # Cancel any pending timer since we're sending now
+    if _pending_status_timer:
+      _pending_status_timer.cancel()
+      _pending_status_timer = None
+    _pending_status = None
+    _last_status_time = now
+
     try:
       kwargs = dict(
         channel_id=channel_id,
         thread_ts=thread_ts,
         status=status_text,
+        loading_messages=loading_messages,
       )
-      if loading_messages:
-        kwargs["loading_messages"] = loading_messages
       slack_client.assistant_threads_setStatus(**kwargs)
-      # logger.info(f"[{thread_ts}] SLACK setStatus('{status_text}')")
     except Exception as e:
       logger.warning(f"[{thread_ts}] SLACK setStatus('{status_text}') FAILED: {e}")
 
   def _start_stream_if_needed():
     """Lazily start the Slack stream on first real content. Returns stream_ts or None."""
-    nonlocal stream_ts, stream_buf, thread_deleted, can_stream
+    nonlocal stream_ts, stream_buf, thread_deleted
     if thread_deleted:
       return None
     if stream_ts:
-      return stream_ts  # Already started
+      return stream_ts
     if not can_stream or overthink_mode:
       return None
     try:
@@ -229,458 +486,402 @@ def stream_a2a_response(
       )
       stream_ts = start_response["ts"]
       stream_buf = StreamBuffer(slack_client, channel_id, stream_ts)
-      logger.info(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
-      # Clear the typing status now that the stream message is visible
+      logger.debug(f"[{thread_ts}] SLACK startStream -> ts={stream_ts}")
       _set_typing_status("")
       return stream_ts
     except Exception as e:
-      err_str = str(e)
-      if "invalid_thread_ts" in err_str or "thread_not_found" in err_str:
+      if "invalid_thread_ts" in str(e) or "thread_not_found" in str(e):
         thread_deleted = True
         logger.warning(f"[{thread_ts}] Thread was deleted mid-processing — aborting response")
-      elif "channel_type_not_supported" in err_str:
-        can_stream = False
-        logger.warning(f"[{thread_ts}] Channel {channel_id} does not support streaming — falling back to block kit")
       else:
         logger.warning(f"[{thread_ts}] SLACK startStream FAILED: {e}")
       return None
 
-  if not overthink_mode:
-    if can_stream:
-      # Show the animated typing indicator while we wait for content.
-      # The stream itself is deferred until we have something to show.
-      _set_typing_status("is thinking...", loading_messages=_loading_messages)
-    else:
-      # Non-streaming fallback: post a "working..." message + throttler
-      initial_blocks = [
-        {
-          "type": "section",
-          "text": {"type": "mrkdwn", "text": f"*{APP_NAME} is working...*"},
-        }
-      ]
-      initial_response = slack_client.chat_postMessage(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        blocks=initial_blocks,
-        text=f"*{APP_NAME} is working...*",
-      )
-      response_ts = initial_response["ts"]
+  if can_stream:
+    _set_typing_status(_INITIAL_LOADING_MESSAGES[0], _INITIAL_LOADING_MESSAGES)
+  elif not overthink_mode:
+    # Non-streaming fallback: post a "working..." message
+    # (skip in overthink mode — don't post visible messages for silent evaluation)
+    initial_blocks = [
+      {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": f"*{APP_NAME} is working...*"},
+      }
+    ]
+    initial_response = slack_client.chat_postMessage(
+      channel=channel_id,
+      thread_ts=thread_ts,
+      blocks=initial_blocks,
+      text=f"*{APP_NAME} is working...*",
+    )
+    response_ts = initial_response["ts"]
 
-      # Create throttler for progress updates
-      throttler = create_throttled_updater(
-        slack_client=slack_client,
-        channel_id=channel_id,
-        message_ts=response_ts,
-        thread_ts=thread_ts,
-        min_interval=1.5,
-      )
-
-  # State tracking - keep final content separate, don't accumulate
-  final_message_text = None  # From MESSAGE events (role=agent)
-  final_result_text = None  # From FINAL_RESULT artifact
-  partial_result_text = None  # From PARTIAL_RESULT artifact (fallback)
-  last_artifacts = []
-  is_new_context = context_id is None
-  current_tool = None
-  task_error = None  # Track errors but don't raise immediately - allow recovery
-  trace_id = None  # Langfuse trace ID for feedback scoring
-  streaming_final_answer = False  # Latch: once last plan step streams, keep streaming
+  # Choose stream source: resume or new
+  logger.info(f"[{thread_ts}] stream_response: conv={conversation_id} agent={agent_id} resume={is_resume}")
+  if is_resume:
+    event_stream = sse_client.resume_stream(
+      agent_id=agent_id,
+      conversation_id=conversation_id,
+      form_data=resume_form_data or "",
+      trace_id=resume_trace_id,
+      client_context=client_context,
+    )
+  else:
+    event_stream = sse_client.stream_chat(
+      message=message_text,
+      conversation_id=conversation_id,
+      agent_id=agent_id,
+      client_context=client_context,
+    )
 
   try:
-    for event_data in a2a_client.send_message_stream(
-      message_text=message_text,
-      context_id=context_id,
-      metadata=metadata,
-    ):
+    for event in event_stream:
       if thread_deleted:
-        logger.info(f"[{thread_ts}] Thread deleted — stopping A2A stream processing")
+        logger.info(f"[{thread_ts}] Thread deleted — stopping stream processing")
         break
 
-      parsed = parse_event(event_data)
+      # Reset keepalive timer on every event (overthink mode only).
+      _schedule_keepalive()
 
-      # # Debug: uncomment to log every A2A event for diagnostics
-      # _artifact_name = parsed.artifact_name or ""
-      # _text_len = len(parsed.text_content) if parsed.text_content else 0
-      # _extra = ""
-      # if parsed.plan_data:
-      #   _statuses = [f"{s.get('step_id', '?')[:8]}:{s.get('status', '?')}" for s in parsed.plan_data.get("steps", [])]
-      #   _extra = f" steps=[{', '.join(_statuses)}]"
-      # elif parsed.tool_notification:
-      #   _extra = f" tool={parsed.tool_notification.tool_name} status={parsed.tool_notification.status}"
-      # elif _text_len:
-      #   _preview = (parsed.text_content or "")[:100].replace("\n", "\\n")
-      #   _extra = f" preview={_preview!r}"
-      # _meta_flags = ""
-      # if parsed.artifact:
-      #   _ameta = parsed.artifact.get("metadata", {})
-      #   if _ameta.get("is_final_answer"):
-      #     _meta_flags += " is_final_answer=True"
-      #   if _ameta.get("is_narration"):
-      #     _meta_flags += " is_narration=True"
-      # logger.info(
-      #   f"[{thread_ts}] A2A event: "
-      #   f"type={parsed.event_type.value} artifact={_artifact_name!r} "
-      #   f"text_len={_text_len} append={parsed.should_append}{_meta_flags}{_extra}"
-      # )
+      # --- RUN_STARTED ---
+      if event.type == SSEEventType.RUN_STARTED:
+        if event.run_id:
+          logger.info(f"[{thread_ts}] RUN_STARTED run_id={event.run_id} conv={conversation_id} agent={agent_id}")
 
-      if parsed.event_type == EventType.TASK:
-        if parsed.context_id and is_new_context and session_manager:
-          session_manager.set_context_id(thread_ts, parsed.context_id)
-          is_new_context = False
-          logger.info(f"[{thread_ts}] Stored context ID {parsed.context_id}")
+      # --- TEXT_MESSAGE_START ---
+      elif event.type == SSEEventType.TEXT_MESSAGE_START:
+        if in_subagent:
+          logger.debug(f"[{thread_ts}] TEXT_MESSAGE_START suppressed (subagent)")
+        else:
+          logger.debug(f"[{thread_ts}] TEXT_MESSAGE_START msg_id={event.message_id}")
 
-        if parsed.metadata:
-          # Extract trace_id for feedback scoring
-          if parsed.metadata.get("trace_id") and not trace_id:
-            trace_id = parsed.metadata["trace_id"]
-            logger.info(f"[{thread_ts}] Got trace_id from TASK: {trace_id}")
+      # --- TEXT_MESSAGE_CONTENT ---
+      elif event.type == SSEEventType.TEXT_MESSAGE_CONTENT:
+        if in_subagent:
+          # Don't accumulate as final answer, but update typing status
+          # so the user sees subagent thinking in the typing indicator.
+          if not stream_ts and event.delta:
+            typing_text_buf.append(event.delta)
+          continue
+        if event.delta:
+          accumulated_text.append(event.delta)
 
-      elif parsed.event_type == EventType.MESSAGE:
-        # Keep the last MESSAGE with role=agent as potential final content
-        if parsed.text_content:
-          final_message_text = parsed.text_content
-
-      elif parsed.event_type == EventType.STATUS_UPDATE:
-        # Extract trace_id from completion status metadata
-        if parsed.metadata and parsed.metadata.get("trace_id") and not trace_id:
-          trace_id = parsed.metadata["trace_id"]
-          logger.info(f"[{thread_ts}] Got trace_id from STATUS_UPDATE: {trace_id}")
-        if parsed.status:
-          state = parsed.status.get("state")
-          if state == "completed":
-            logger.info(f"[{thread_ts}] Task completed")
-          elif state == "failed":
-            # Log warning but continue - we may still get FINAL_RESULT with partial content
-            error_msg = _extract_error_message(parsed.status)
-            logger.warning(f"[{thread_ts}] Subtask failed: {error_msg}")
-            task_error = f"Agent task failed: {error_msg}"
-
-      elif parsed.event_type == EventType.STREAMING_RESULT:
-        if parsed.text_content:
-          # Skip chunks tagged as narration — these are the supervisor
-          # re-narrating what was already streamed (causes duplicates).
-          artifact_meta = (parsed.artifact or {}).get("metadata", {})
-          if artifact_meta.get("is_narration"):
-            continue
-
-          # Routing: intermediate step -> accumulate silently,
-          # last step or no plan -> stream markdown in real-time.
-          if current_step_id and plan_steps and not streaming_final_answer:
-            sorted_steps = sorted(plan_steps.values(), key=lambda s: s.get("order", 0))
-            last_step = sorted_steps[-1]
-            is_last = last_step.get("step_id") == current_step_id
-            if is_last:
-              streaming_final_answer = True
-            else:
-              # Intermediate step — accumulate thinking silently
-              if parsed.should_append is False:
-                step_thinking[current_step_id] = [parsed.text_content]
-              else:
-                step_thinking.setdefault(current_step_id, [])
-                step_thinking[current_step_id].append(parsed.text_content)
-              if not stream_ts:
-                step = plan_steps.get(current_step_id, {})
-                title = step.get("title", "working")
-                _set_typing_status(f"is {title}...")
-              continue
-
-          # Stream markdown (no plan, or final answer)
-          _start_stream_if_needed()
-          if stream_buf:
-            text = parsed.text_content
+          # Before any tool has been seen, buffer text as potential "thinking".
+          # Between tool calls (active_tools empty but seen_any_tool is True),
+          # also buffer as thinking for the *next* tool call.
+          # Once all tools are done and RUN_FINISHED comes, pending_thinking
+          # is flushed as the final answer in the finalization block.
+          #
+          # While a tool IS active and stream is open (todos), stream live.
+          # Otherwise buffer — the final answer will pick it up.
+          if active_tools and stream_buf:
+            # Mid-tool text — stream it live (only if stream already open)
+            text = event.delta
             if needs_separator and stream_buf.has_flushed:
               text = "\n\n" + text
               needs_separator = False
             stream_buf.append(text)
-
-        # Update progress for non-streaming fallback (bot users)
-        if throttler and throttler.should_update():
-          blocks = _build_progress_blocks(current_tool, plan_steps)
-          throttler.update(blocks, "Working on your request...")
-
-      elif parsed.event_type == EventType.FINAL_RESULT:
-        # This is the authoritative final content
-        if parsed.text_content:
-          final_result_text = parsed.text_content
-          logger.info(f"[{thread_ts}] Got FINAL_RESULT: {len(parsed.text_content)} chars, streaming_final_answer={streaming_final_answer}")
-          if streaming_final_answer:
-            # Answer was already streamed token-by-token via STREAMING_RESULT chunks.
-            # Skip re-streaming to avoid duplicate output in Slack.
-            logger.info(f"[{thread_ts}] Skipping FINAL_RESULT re-stream — already streamed via STREAMING_RESULT")
-          elif plan_steps:
-            # Plan flow: text chunks appended after block chunks aren't rendered by Slack.
-            # Leave final_result_text set so finalization puts it in stopStream.chunks.
-            logger.info(f"[{thread_ts}] Plan flow — deferring FINAL_RESULT to stopStream.chunks")
           else:
-            # No-plan flow: defer FINAL_RESULT to stopStream at finalization.
-            # Don't stream via appendStream — STREAMING_RESULT may contain raw
-            # ToolStrategy metadata that we need to keep out of the channel.
-            logger.info(f"[{thread_ts}] No-plan flow — deferring FINAL_RESULT to stopStream.chunks")
-        # Extract trace_id from artifact metadata
-        if parsed.artifact and not trace_id:
-          artifact_metadata = parsed.artifact.get("metadata", {})
-          if artifact_metadata.get("trace_id"):
-            trace_id = artifact_metadata["trace_id"]
-            logger.info(f"[{thread_ts}] Got trace_id from FINAL_RESULT: {trace_id}")
-        # Don't add FINAL_RESULT to last_artifacts - we already captured text_content
+            # No tool currently running — buffer as thinking
+            pending_thinking.append(event.delta)
 
-      elif parsed.event_type == EventType.PARTIAL_RESULT:
-        # Keep partial_result as fallback if no final_result comes
-        if parsed.text_content:
-          partial_result_text = parsed.text_content
-          logger.debug(f"[{thread_ts}] Got partial_result: {len(parsed.text_content)} chars")
+            if has_todos and active_todo_id is not None:
+              # Todo-aware mode: thinking text is NOT sent to the plan card.
+              # It only feeds the typing indicator (pre-stream).
+              pass
 
-      elif parsed.event_type == EventType.TOOL_NOTIFICATION_START:
+            # Accumulate text for typing indicator — status is updated
+            # on TEXT_MESSAGE_END (not on every chunk) to avoid flicker.
+            if not stream_ts:
+              typing_text_buf.append(event.delta)
+            # Don't stream yet — might be thinking for the next tool call.
+            # If RUN_FINISHED arrives, we'll stream it as the final answer.
+
+      # --- TEXT_MESSAGE_END ---
+      elif event.type == SSEEventType.TEXT_MESSAGE_END:
+        if in_subagent:
+          continue
         if stream_buf:
           stream_buf.flush()
-        if parsed.tool_notification:
-          tool_name = parsed.tool_notification.tool_name
-          tool_id = parsed.tool_notification.tool_id
-          current_tool = tool_name or tool_id or None
-          logger.info(f"[{thread_ts}] Tool started: {current_tool or '(unknown)'}")
-          if not stream_ts and current_tool:
-            _set_typing_status(f"is {current_tool}-ing...")
-          if throttler:
-            blocks = _build_progress_blocks(current_tool, plan_steps)
-            throttler.force_update(blocks, "Working on your request...")
+        # Update typing indicator with accumulated text, then reset buffer
+        if not stream_ts and typing_text_buf:
+          text = "".join(typing_text_buf).strip()
+          if text:
+            _set_typing_status(f"{_STATUS_PREFIX}{text}")
+          typing_text_buf.clear()
+        logger.debug(f"[{thread_ts}] TEXT_MESSAGE_END msg_id={event.message_id}")
 
-      elif parsed.event_type == EventType.TOOL_NOTIFICATION_END:
-        if parsed.tool_notification:
-          tool_name = parsed.tool_notification.tool_name
-          tool_id = parsed.tool_notification.tool_id
-          failed = parsed.tool_notification.status == "failed"
-          display_name = tool_name or tool_id or "(unknown)"
-          if failed:
-            logger.warning(f"[{thread_ts}] Tool failed: {display_name}")
-          else:
-            logger.info(f"[{thread_ts}] Tool completed: {display_name}")
-          current_tool = None
-          needs_separator = True
+      # --- TOOL_CALL_START ---
+      elif event.type == SSEEventType.TOOL_CALL_START:
+        if stream_buf:
+          stream_buf.flush()
+        tool_name = event.tool_call_name or event.tool_call_id or "unknown"
+        current_tool = tool_name
+        if event.tool_call_id:
+          active_tools[event.tool_call_id] = tool_name
+          tool_args_buffer[event.tool_call_id] = ""
+        logger.info(f"[{thread_ts}] Tool started: {tool_name}")
+
+        # Overthink mode: flash a status for write_todos so the user
+        # sees the bot is planning, even though there's no stream.
+        if overthink_mode and tool_name == "write_todos":
+          _set_typing_status(_STATUS_OVERTHINK_WRITE_TODOS)
+
+        # Consume pending thinking text — logged but not sent to Slack plan card
+        if pending_thinking:
+          thinking_text = "".join(pending_thinking).strip()
+          if thinking_text:
+            logger.debug(f"[{thread_ts}] Thinking before {tool_name}: {thinking_text[:300]}")
+          pending_thinking.clear()
+
+        if has_todos or tool_name == "write_todos":
+          # Todo-aware mode (or write_todos itself): open stream for todo cards.
+          _start_stream_if_needed()
+
+      # --- TOOL_CALL_ARGS ---
+      elif event.type == SSEEventType.TOOL_CALL_ARGS:
+        # Accumulate tool arguments; extract thought/reason for display
+        if event.tool_call_id and event.delta:
+          tool_args_buffer[event.tool_call_id] = tool_args_buffer.get(event.tool_call_id, "") + event.delta
+
+          # Extract thought from partial args and set status immediately,
+          # resetting the typing text buffer since the thought supersedes it.
           if not stream_ts:
-            _set_typing_status("is working...")
-          if throttler:
-            blocks = _build_progress_blocks(None, plan_steps)
-            throttler.force_update(blocks, "Working on your request...")
+            thought = _extract_tool_thought(tool_args_buffer[event.tool_call_id])
+            if thought:
+              typing_text_buf.clear()
+              _set_typing_status(f"{_STATUS_PREFIX}{thought}")
 
-      elif parsed.event_type == EventType.EXECUTION_PLAN:
-        if stream_buf:
-          stream_buf.flush()
-        if parsed.plan_data and parsed.plan_data.get("steps"):
-          # Update plan state from structured DataPart
-          for step in parsed.plan_data["steps"]:
-            plan_steps[step["step_id"]] = step
+      # --- TOOL_CALL_END ---
+      elif event.type == SSEEventType.TOOL_CALL_END:
+        tool_call_id = event.tool_call_id
+        tool_name = active_tools.pop(tool_call_id, None) if tool_call_id else None
+        display_name = tool_name or current_tool or "unknown"
+        logger.info(f"[{thread_ts}] Tool completed: {display_name}")
+        current_tool = None
+        needs_separator = True
 
-          # Track current in_progress step
-          for step in parsed.plan_data["steps"]:
-            if step.get("status") == "in_progress":
-              current_step_id = step["step_id"]
-              break
+        # Extract thought from accumulated tool args
+        raw_args = ""
+        if tool_call_id and tool_call_id in tool_args_buffer:
+          raw_args = tool_args_buffer.pop(tool_call_id, "")
+        tool_thought = _extract_tool_thought(raw_args) if display_name != "write_todos" else None
+        if tool_thought:
+          logger.debug(f"[{thread_ts}] Tool thought ({display_name}): {tool_thought}")
 
-          # Send only new or changed steps to avoid duplicate plan cards
-          if not overthink_mode:
-            _start_stream_if_needed()
-          if not overthink_mode and stream_ts:
-            changed_steps = []
-            for step in plan_steps.values():
-              sid = step["step_id"]
-              cur_status = step.get("status", "pending")
-              if sid not in sent_step_status or sent_step_status[sid] != cur_status:
-                changed_steps.append(step)
-                sent_step_status[sid] = cur_status
-            if changed_steps:
-              # Attach accumulated thinking as details for completed steps
-              details_map = {}
-              for step in changed_steps:
-                sid = step["step_id"]
-                if step.get("status") in ("completed", "failed") and sid in step_thinking:
-                  thinking = "".join(step_thinking[sid])
-                  if thinking:
-                    details_map[sid] = thinking[:500]
-              chunks = slack_formatter.build_task_update_chunks(changed_steps, step_details=details_map)
-              try:
-                slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=chunks)
-                logger.info(f"[{thread_ts}] SLACK appendStream plan chunks: {[c.get('id', '?') + ':' + c.get('status', '?') for c in chunks]}")
-              except Exception as e:
-                logger.warning(f"[{thread_ts}] SLACK appendStream plan FAILED: {e}")
+        if display_name == "write_todos":
+          # Parse todos directly from the tool's args — the checkpoint is not
+          # persisted mid-stream, so the REST API would return stale data.
+          parsed_todos = _parse_write_todos_args(raw_args)
+          logger.info(f"[{thread_ts}] write_todos raw_args({len(raw_args)} chars): {raw_args[:300]}")
+          logger.info(f"[{thread_ts}] write_todos parsed {len(parsed_todos) if parsed_todos else 0} todos")
+          if parsed_todos:
+            _update_and_emit_todos(parsed_todos)
+          else:
+            logger.warning(f"[{thread_ts}] write_todos completed but could not parse todos from args")
+        elif has_todos:
+          # Todo-aware mode: no output sent to plan card — keep it clean.
+          pass
+        # No raw tool cards in the else case — task cards are only for todos.
+        if not stream_ts:
+          if tool_thought:
+            _set_typing_status(f"{_STATUS_PREFIX}{tool_thought}")
 
-          # Non-streaming: update throttler with structured plan
-          if throttler:
-            blocks = _build_progress_blocks(current_tool, plan_steps)
-            throttler.force_update(blocks, "Working on your request...")
-          # Update typing status with current step title (only for non-stream mode;
-          # when streaming, the plan card itself shows progress)
-          elif not stream_ts and current_step_id and current_step_id in plan_steps:
-            step_title = plan_steps[current_step_id].get("title", "")
-            if step_title:
-              _set_typing_status(f"is working on: {step_title}")
+      # --- STEP_STARTED ---
+      elif event.type == SSEEventType.STEP_STARTED:
+        step_name = event.name or event.run_id or "step"
+        logger.info(f"[{thread_ts}] Step started: {step_name}")
+        if not stream_ts:
+          _set_typing_status(f"{_STATUS_PREFIX}{step_name}")
 
-          logger.info(f"[{thread_ts}] Received structured execution plan update ({len(plan_steps)} steps)")
-        elif parsed.text_content:
-          # Text-only plan — no structured data, just log it
-          logger.info(f"[{thread_ts}] Received text-only execution plan (no structured steps)")
+      # --- STEP_FINISHED ---
+      elif event.type == SSEEventType.STEP_FINISHED:
+        step_name = event.name or event.run_id or "step"
+        logger.info(f"[{thread_ts}] Step finished: {step_name}")
 
-      elif parsed.event_type == EventType.CAIPE_FORM:
-        if parsed.form_data:
-          logger.info(f"[{thread_ts}] Displaying HITL form")
-          form = parse_form_data(
-            parsed.form_data,
-            task_id=parsed.task_id,
-            context_id=parsed.context_id,
+      # --- CUSTOM ---
+      elif event.type == SSEEventType.CUSTOM:
+        if event.name == "WARNING":
+          warning_msg = (event.value or {}).get("message", "unknown warning")
+          logger.warning(f"[{thread_ts}] Agent warning: {warning_msg}")
+        elif event.name == "NAMESPACE_CONTEXT":
+          namespace = (event.value or {}).get("namespace", [])
+          in_subagent = len(namespace) > 0
+          logger.info(f"[{thread_ts}] Subagent context: {namespace}")
+        elif event.name == "TOOL_ERROR":
+          tool_error = (event.value or {}).get("error", "unknown error")
+          tool_id = (event.value or {}).get("tool_call_id")
+          logger.warning(f"[{thread_ts}] Tool error (call={tool_id}): {tool_error}")
+          # Tool errors are logged but not streamed to Slack — the agent
+          # recovers or RUN_ERROR fires for drastic failures.
+        else:
+          logger.debug(f"[{thread_ts}] CUSTOM event: name={event.name}")
+
+      # --- RUN_FINISHED ---
+      elif event.type == SSEEventType.RUN_FINISHED:
+        outcome = event.outcome or "success"
+        logger.info(f"[{thread_ts}] RUN_FINISHED outcome={outcome} conv={conversation_id} agent={agent_id}")
+
+        if outcome == "interrupt" and event.interrupt:
+          # HITL interrupt — render form and return
+          logger.info(f"[{thread_ts}] HITL interrupt: {event.interrupt.get('reason', 'unknown')}")
+          form = parse_agui_interrupt(
+            event,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
           )
           form_blocks = format_hitl_form_blocks(form)
-          if throttler:
-            throttler.force_update(form_blocks, "Action required")
+
+          # Stop any active stream before posting the form
+          if stream_ts:
+            try:
+              slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
+            except Exception as e:
+              logger.debug(f"[{thread_ts}] Failed to stop stream before HITL form: {e}")
+
+          # Post or update with form blocks
+          if response_ts:
+            try:
+              slack_client.chat_update(
+                channel=channel_id,
+                ts=response_ts,
+                blocks=form_blocks,
+                text="Action required",
+              )
+            except Exception:
+              slack_client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                blocks=form_blocks,
+                text="Action required",
+              )
           else:
-            # In overthink mode, post the form directly
             slack_client.chat_postMessage(
               channel=channel_id,
               thread_ts=thread_ts,
               blocks=form_blocks,
               text="Action required",
             )
-          # Stop any active stream before returning to prevent orphaned streams
-          if stream_ts:
-            try:
-              slack_client.chat_stopStream(channel=channel_id, ts=stream_ts)
-            except Exception as e:
-              logger.debug(f"[{thread_ts}] Failed to stop stream before HITL form: {e}")
           return form_blocks
 
-      elif parsed.event_type == EventType.OTHER_ARTIFACT:
-        # Collect artifacts that might contain response content
-        # Skip only tool/plan artifacts (shown as progress, not final response)
-        if parsed.artifact:
-          artifact_name = parsed.artifact.get("name", "").lower()
-          # Only skip tool notifications and execution plan artifacts
-          skip_patterns = [
-            "tool_notification_start",
-            "tool_notification_end",
-            "execution_plan_update",
-            "execution_plan_status_update",
-          ]
-          should_skip = any(p in artifact_name for p in skip_patterns)
-          if not should_skip:
-            logger.debug(f"[{thread_ts}] Collecting artifact: {artifact_name}")
-            last_artifacts.append(parsed.artifact)
-          else:
-            logger.debug(f"[{thread_ts}] Skipping artifact: {artifact_name}")
+        # outcome == "success" — handled in finalization below
+        break
 
-    # Store trace_id for feedback scoring if we have one
-    if trace_id and session_manager:
-      session_manager.set_trace_id(thread_ts, trace_id)
-      logger.info(f"[{thread_ts}] Stored trace_id for feedback: {trace_id}")
+      # --- RUN_ERROR ---
+      elif event.type == SSEEventType.RUN_ERROR:
+        error_msg = event.message or "Unknown agent error"
+        logger.error(f"[{thread_ts}] RUN_ERROR: {error_msg} conv={conversation_id} agent={agent_id}")
 
-    # Get final content - prefer FINAL_RESULT, fall back to PARTIAL_RESULT, then MESSAGE
-    logger.info(f"[{thread_ts}] Content sources:")
-    logger.info(f"[{thread_ts}]   final_result_text: {len(final_result_text) if final_result_text else 0} chars")
-    logger.info(f"[{thread_ts}]   partial_result_text: {len(partial_result_text) if partial_result_text else 0} chars")
-    logger.info(f"[{thread_ts}]   final_message_text: {len(final_message_text) if final_message_text else 0} chars")
-    logger.info(f"[{thread_ts}]   artifacts count: {len(last_artifacts)}")
-    if final_result_text:
-      logger.debug(f"[{thread_ts}]   FINAL_RESULT preview: {final_result_text[:200]}...")
-    if partial_result_text:
-      logger.debug(f"[{thread_ts}]   PARTIAL_RESULT preview: {partial_result_text[:200]}...")
-    if final_message_text:
-      logger.debug(f"[{thread_ts}]   MESSAGE preview: {final_message_text[:200]}...")
+        # Overthink mode: don't stream errors — flash a casual status and bail
+        if overthink_mode:
+          logger.info(f"[{thread_ts}] Overthink: suppressing error, flashing status")
+          _set_typing_status(_STATUS_ERROR)
+          time.sleep(_OVERTHINK_STATUS_DISPLAY_SECS)
+          _set_typing_status("")
+          return {"skipped": True, "reason": "error"}
 
-    final_text = _get_final_text(final_result_text, partial_result_text, final_message_text, last_artifacts, thread_ts)
+        # If we got any text content, show it despite the error
+        final_text = "".join(accumulated_text).strip()
+        if final_text and final_text != "I've completed your request.":
+          logger.info(f"[{thread_ts}] Recovered from error — showing {len(final_text)} chars of content")
+          # Fall through to finalization
+          break
 
-    # Overthink mode: check for skip markers before posting
+        # No content — return retry marker
+        if stream_ts:
+          try:
+            error_blocks = slack_formatter.format_error_message(error_msg)
+            error_blocks.extend(
+              _build_stream_final_blocks(
+                channel_id,
+                thread_ts,
+                response_ts,
+                triggered_by_user_id=triggered_by_user_id,
+                additional_footer=additional_footer,
+                escalation_config=escalation_config,
+              )
+            )
+            slack_client.chat_stopStream(channel=channel_id, ts=stream_ts, blocks=error_blocks)
+          except Exception as e:
+            logger.warning(f"[{thread_ts}] Failed to stop stream with error: {e}")
+        if response_ts:
+          try:
+            slack_client.chat_delete(channel=channel_id, ts=response_ts)
+          except Exception as e:
+            logger.debug(f"[{thread_ts}] Failed to delete message {response_ts}: {e}")
+        return {"retry_needed": True, "error": error_msg}
+
+      # --- RAW / unknown ---
+      elif event.type == SSEEventType.RAW:
+        logger.debug(f"[{thread_ts}] RAW event (ignored)")
+
+    # --- Finalization ---
+    _cancel_keepalive()
+    _cancel_pending_status()
+    # When tool calls interleaved with text messages, accumulated_text
+    # contains ALL text (thinking + final answer concatenated).  Only the
+    # last text segment — still sitting in pending_thinking — is the real
+    # answer.  Use it when available; fall back to accumulated_text only
+    # when there was no tool-interleaved thinking.
+    if pending_thinking:
+      final_text = "".join(pending_thinking).strip()
+    else:
+      final_text = "".join(accumulated_text).strip()
+
+    # Overthink mode: check for skip markers
     if overthink_mode and final_text:
       skip_result = _check_overthink_skip(final_text, thread_ts)
       if skip_result:
-        # No progress message to delete in overthink mode (silent processing)
+        # Flash a brief status so the user knows the bot noticed.
+        # Must block here — if we return immediately, Slack clears the
+        # typing indicator when the Bolt listener exits.
+        reason = skip_result.get("reason", "")
+        if reason == "defer":
+          _set_typing_status(_STATUS_SKIP_DEFER)
+        elif reason == "low_confidence":
+          _set_typing_status(_STATUS_SKIP_LOW_CONFIDENCE)
+        time.sleep(_OVERTHINK_STATUS_DISPLAY_SECS)
+        _set_typing_status("")
         return skip_result
+      # Strip confidence markers before posting (safety net — _post_final_response
+      # and stopStream also strip, but this catches the log message too).
+      cleaned = _strip_confidence_markers(final_text)
+      if cleaned != final_text:
+        logger.info(f"[{thread_ts}] Stripped confidence markers from overthink response")
+        final_text = cleaned
 
-      # Strip the [CONFIDENCE: HIGH] marker before posting
-      if "[CONFIDENCE: HIGH]" in final_text:
-        final_text = final_text.replace("[CONFIDENCE: HIGH]", "").rstrip()
-        logger.info(f"[{thread_ts}] Stripped [CONFIDENCE: HIGH] marker from response")
+    # Default fallback
+    if not final_text:
+      final_text = "I've completed your request."
 
-    # Handle graceful degradation: if we have content, show it even if there was an error
-    if final_text and final_text != "Oops, something went wrong :(.":
-      if task_error:
-        logger.info(f"[{thread_ts}] Recovered from error - showing final content despite: {task_error}")
-      logger.info(f"[{thread_ts}] Selected final text: {len(final_text)} chars, preview: {final_text[:100]}...")
-    elif task_error:
-      # No useful content AND we had an error - return retry marker for caller to handle
-      logger.error(f"[{thread_ts}] No content received and task had error: {task_error}")
-      # Clean up: stop active stream with error blocks, or delete progress message
-      if stream_ts:
-        try:
-          error_blocks = slack_formatter.format_error_message(str(task_error))
-          error_blocks.extend(
-            _build_stream_final_blocks(
-              channel_id, thread_ts, response_ts,
-              triggered_by_user_id=triggered_by_user_id,
-              additional_footer=additional_footer,
-              escalation_config=escalation_config,
-                          )
-          )
-          slack_client.chat_stopStream(
-            channel=channel_id, ts=stream_ts, blocks=error_blocks
-          )
-        except Exception as e:
-          logger.debug(f"[{thread_ts}] Failed to stop stream {stream_ts}: {e}")
-      if response_ts:
-        try:
-          slack_client.chat_delete(channel=channel_id, ts=response_ts)
-        except Exception as e:
-          logger.debug(f"[{thread_ts}] Failed to delete message {response_ts}: {e}")
-      # Return marker to trigger retry at caller level
-      return {"retry_needed": True, "error": task_error}
-    else:
-      logger.info(f"[{thread_ts}] Selected final text: {len(final_text)} chars, preview: {final_text[:100]}...")
+    logger.info(f"[{thread_ts}] Final text: {len(final_text)} chars, conv={conversation_id} agent={agent_id}")
 
-    # Clear typing status before final response
+    # Clear typing status
     _set_typing_status("")
 
-    # --- Finalization: single path per delivery mode ---
-    # If stream was never started (no content arrived), start it now for the final answer
+    # Start stream if never started (must happen BEFORE flushing
+    # pending_thinking so that stream_buf exists)
     _start_stream_if_needed()
 
+    # Flush any pending thinking text as the final answer (stream it live)
+    if pending_thinking and stream_buf:
+      final_thinking = "".join(pending_thinking)
+      if needs_separator and stream_buf.has_flushed:
+        final_thinking = "\n\n" + final_thinking
+      stream_buf.append(final_thinking)
+      pending_thinking.clear()
+
     if stream_ts:
-      # Everything in ONE stream message
-      # Flush any remaining buffered text before finalizing
+      # Flush remaining buffer
       if stream_buf:
         stream_buf.flush()
 
       streamed_any_text = stream_buf.has_flushed if stream_buf else False
-      logger.info(f"[{thread_ts}] Finalizing plan stream: {len(final_text)} chars, streamed_any_text={streamed_any_text}, plan_steps={len(plan_steps)}, sent_step_status={sent_step_status}")
 
-      # 1. Force-complete all plan steps at finalization.
-      # Steps left in_progress/pending when the stream ends cause Slack
-      # to show "Something went wrong". Mark them all as complete.
-      if plan_steps:
-        final_chunks = []
-        for step in plan_steps.values():
-          sid = step["step_id"]
-          cur_sent = sent_step_status.get(sid)
-          if cur_sent != "completed":
-            thinking = "".join(step_thinking.get(sid, []))
-            final_chunks.append(
-              slack_formatter.build_single_task_update(
-                step_id=sid,
-                title=slack_formatter._format_step_title(step),
-                status="completed",
-                details=thinking[:500] if thinking else None,
-              )
-            )
-        if final_chunks:
-          try:
-            slack_client.chat_appendStream(channel=channel_id, ts=stream_ts, chunks=final_chunks)
-            logger.info(f"[{thread_ts}] SLACK appendStream final step completions: {len(final_chunks)}")
-          except Exception as e:
-            logger.warning(f"[{thread_ts}] SLACK appendStream final steps FAILED: {e}")
-
-      # 2. Build stop call with final answer + feedback blocks.
-      # Skip final_text if the answer was already streamed live.
+      # Build stop call
       stop_chunks = []
-      streamed_any_text = stream_buf.has_flushed if stream_buf else False
-      already_streamed = streaming_final_answer or streamed_any_text
-      needs_final = not already_streamed
-      if needs_final and final_text:
-        stop_chunks.append({"type": "markdown_text", "text": final_text})
+      if not streamed_any_text and final_text:
+        stop_chunks.append({"type": "markdown_text", "text": _strip_confidence_markers(final_text)})
 
       stop_blocks = _build_stream_final_blocks(
         channel_id,
@@ -689,8 +890,8 @@ def stream_a2a_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
-              )
-      logger.info(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
+      )
+      logger.debug(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
       try:
         slack_client.chat_stopStream(
           channel=channel_id,
@@ -702,26 +903,7 @@ def stream_a2a_response(
       except Exception as stop_err:
         err_str = str(stop_err)
         if "message_not_in_streaming_state" in err_str or "not_in_streaming_state" in err_str:
-          # Stream expired (long-running query). Fall back to regular message.
-          logger.warning(
-            f"[{thread_ts}] Streaming message expired — posting final answer as regular message"
-          )
-          return _post_final_response(
-            slack_client,
-            channel_id,
-            thread_ts,
-            final_text,
-            response_ts,
-            triggered_by_user_id=triggered_by_user_id,
-            additional_footer=additional_footer,
-            escalation_config=escalation_config,
-          )
-        if "msg_too_long" in err_str:
-          # Response exceeded Slack streaming message limit. Fall back to
-          # a regular post which uses split_text_into_blocks to chunk it.
-          logger.warning(
-            f"[{thread_ts}] Streaming message too long — posting final answer as regular message"
-          )
+          logger.warning(f"[{thread_ts}] Streaming message expired — posting final answer as regular message")
           return _post_final_response(
             slack_client,
             channel_id,
@@ -736,9 +918,8 @@ def stream_a2a_response(
 
     elif can_stream:
       if thread_deleted:
-        logger.warning(f"[{thread_ts}] Thread deleted — dropping response to avoid posting in main channel")
+        logger.warning(f"[{thread_ts}] Thread deleted — dropping response")
         return None
-      # startStream failed earlier — post as regular message
       logger.warning(f"[{thread_ts}] Stream not started, falling back to regular post")
       return _post_final_response(
         slack_client,
@@ -749,10 +930,10 @@ def stream_a2a_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
-              )
+      )
     else:
       if thread_deleted:
-        logger.warning(f"[{thread_ts}] Thread deleted — dropping response to avoid posting in main channel")
+        logger.warning(f"[{thread_ts}] Thread deleted — dropping response")
         return None
       # Bot user — delete progress msg, post final
       if response_ts:
@@ -770,32 +951,48 @@ def stream_a2a_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
-              )
+      )
 
   except Exception as e:
+    _cancel_keepalive()
+    _cancel_pending_status()
     logger.exception(f"[{thread_ts}] Error during streaming: {e}")
+
+    # Overthink mode: don't stream errors — flash a casual status and bail
+    if overthink_mode:
+      logger.info(f"[{thread_ts}] Overthink: suppressing exception, flashing status")
+      _set_typing_status(_STATUS_ERROR)
+      time.sleep(_OVERTHINK_STATUS_DISPLAY_SECS)
+      _set_typing_status("")
+      return {"skipped": True, "reason": "error"}
+
     error_blocks = slack_formatter.format_error_message(str(e))
-    # Append feedback blocks so users can still rate even on errors
     try:
       error_blocks.extend(
         _build_stream_final_blocks(
-          channel_id, thread_ts, response_ts,
+          channel_id,
+          thread_ts,
+          response_ts,
           triggered_by_user_id=triggered_by_user_id,
           additional_footer=additional_footer,
           escalation_config=escalation_config,
-                  )
+        )
       )
     except Exception:
       logger.warning(f"[{thread_ts}] Failed to build feedback blocks for error response")
     if stream_ts:
-      # Stop the plan stream with error in blocks
       try:
         slack_client.chat_stopStream(channel=channel_id, ts=stream_ts, blocks=error_blocks)
       except Exception as slack_err:
         logger.warning(f"[{thread_ts}] Failed to stop stream with error: {slack_err}")
-    elif throttler:
+    elif response_ts:
       try:
-        throttler.force_update(error_blocks, "Error")
+        slack_client.chat_update(
+          channel=channel_id,
+          ts=response_ts,
+          blocks=error_blocks,
+          text="Error",
+        )
       except Exception as slack_err:
         logger.warning(f"[{thread_ts}] Failed to post error to Slack: {slack_err}")
     elif not thread_deleted:
@@ -811,29 +1008,79 @@ def stream_a2a_response(
     return error_blocks
 
 
-_STEP_STATUS_EMOJI = {
-  "pending": "⏳",
-  "in_progress": "🔄",
-  "completed": "✅",
-  "failed": "❌",
-}
+def invoke_response(
+  sse_client: SSEClient,
+  slack_client,
+  channel_id: str,
+  thread_ts: str,
+  message_text: str,
+  agent_id: str,
+  conversation_id: str,
+  triggered_by_user_id=None,
+  additional_footer=None,
+  escalation_config=None,
+  client_context=None,
+):
+  """
+  Non-streaming invoke for bot users.
 
+  Calls the invoke endpoint and posts the response as a regular message.
 
-def _build_progress_blocks(current_tool, plan_steps=None):
-  """Build progress blocks for throttled updates (bot-user fallback)."""
-  header_text = f"*{APP_NAME} is {current_tool}-ing...*" if current_tool else f"*{APP_NAME} is working...*"
-  blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": header_text}}]
-  if plan_steps:
-    lines = []
-    for step in sorted(plan_steps.values(), key=lambda s: s.get("order", 0)):
-      status = step.get("status", "pending")
-      emoji = _STEP_STATUS_EMOJI.get(status, "⏳")
-      title = slack_formatter._format_step_title(step)
-      lines.append(f"{emoji} {title}")
-    plan_text = "\n".join(lines)
-    if len(plan_text) <= 2000:
-      blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": plan_text}]})
-  return blocks
+  Returns:
+      List of Slack blocks for the response, or dict with retry_needed=True on errors.
+  """
+  logger.info(f"[{thread_ts}] invoke_response: conv={conversation_id} agent={agent_id}")
+  try:
+    result = sse_client.invoke(
+      message=message_text,
+      conversation_id=conversation_id,
+      agent_id=agent_id,
+      client_context=client_context,
+    )
+
+    if not result.get("success", True):
+      error_msg = result.get("error", "Invoke failed")
+      logger.error(f"[{thread_ts}] Invoke error: {error_msg}")
+      return {"retry_needed": True, "error": error_msg}
+
+    content = result.get("content", "I've completed your request.")
+    if not content or not content.strip():
+      content = "I've completed your request."
+
+    return _post_final_response(
+      slack_client,
+      channel_id,
+      thread_ts,
+      content.strip(),
+      None,
+      triggered_by_user_id=triggered_by_user_id,
+      additional_footer=additional_footer,
+      escalation_config=escalation_config,
+    )
+
+  except Exception as e:
+    logger.exception(f"[{thread_ts}] Error during invoke: {e}")
+    error_blocks = slack_formatter.format_error_message(str(e))
+    try:
+      error_blocks.extend(
+        _build_stream_final_blocks(
+          channel_id,
+          thread_ts,
+          None,
+          triggered_by_user_id=triggered_by_user_id,
+          additional_footer=additional_footer,
+          escalation_config=escalation_config,
+        )
+      )
+    except Exception:
+      logger.debug("Failed to build footer blocks for error response, continuing with base error blocks")
+    slack_client.chat_postMessage(
+      channel=channel_id,
+      thread_ts=thread_ts,
+      blocks=error_blocks,
+      text="Error",
+    )
+    return error_blocks
 
 
 def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
@@ -843,61 +1090,26 @@ def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
       None if response should be posted normally
       {"skipped": True, "reason": "..."} if response should be skipped
   """
-  # Check for DEFER marker anywhere in response
   if "[DEFER]" in final_text:
     logger.info(f"[{thread_ts}] Overthink: skipping response (DEFER - human action needed)")
     return {"skipped": True, "reason": "defer"}
 
-  # Check for LOW_CONFIDENCE marker anywhere in response
   if "[LOW_CONFIDENCE]" in final_text:
     logger.info(f"[{thread_ts}] Overthink: skipping response (LOW_CONFIDENCE - no good sources)")
     logger.debug(f"[{thread_ts}] LOW_CONFIDENCE response: {final_text}")
     return {"skipped": True, "reason": "low_confidence"}
 
-  # Response has content, allow posting
   return None
 
 
-def _get_final_text(final_result_text, partial_result_text, final_message_text, artifacts, thread_ts):
-  """Extract final response text - prefer FINAL_RESULT over PARTIAL_RESULT over MESSAGE.
+# Regex matching all confidence/control markers: [CONFIDENCE: HIGH], [LOW_CONFIDENCE], [DEFER], etc.
+_CONFIDENCE_MARKER_RE = re.compile(r"\[(?:CONFIDENCE:\s*\w+|LOW_CONFIDENCE|DEFER)\]")
 
-  Priority order:
-  1. FINAL_RESULT artifact text (authoritative, from CAIPE)
-  2. PARTIAL_RESULT artifact text (fallback, same content different name)
-  3. Last MESSAGE with role=agent (fallback)
-  4. Text from collected artifacts (last resort)
-  """
-  # Priority 1: FINAL_RESULT text (authoritative)
-  if final_result_text and final_result_text.strip():
-    logger.info(f"[{thread_ts}] Using FINAL_RESULT as response source")
-    return final_result_text.strip()
 
-  # Priority 2: PARTIAL_RESULT text (matches CAIPE UI behavior)
-  if partial_result_text and partial_result_text.strip():
-    logger.info(f"[{thread_ts}] Using PARTIAL_RESULT as response source (no FINAL_RESULT)")
-    return partial_result_text.strip()
-
-  # Priority 3: Last MESSAGE text
-  if final_message_text and final_message_text.strip():
-    logger.info(f"[{thread_ts}] Using MESSAGE as response source (no FINAL_RESULT)")
-    return final_message_text.strip()
-
-  # Priority 4: Extract from any collected artifact (fallback)
-  # Tool/plan artifacts are already filtered out in skip_patterns, so whatever
-  # is left should be valid response content that we should show (even if it may not be great)
-  for artifact in reversed(artifacts):
-    name = artifact.get("name", "")
-    parts = artifact.get("parts", [])
-    for part in parts:
-      if part.get("kind") == "text" and part.get("text"):
-        text = part["text"].strip()
-        if text:
-          logger.info(f"[{thread_ts}] Using artifact '{name}' as response source")
-          return text
-
-  # Final fallback
-  logger.warning(f"[{thread_ts}] No content extracted from response - using default message")
-  return "Oops, something went wrong :(."
+def _strip_confidence_markers(text: str) -> str:
+  """Remove all confidence/control markers from text before posting to Slack."""
+  stripped = _CONFIDENCE_MARKER_RE.sub("", text).strip()
+  return stripped
 
 
 def _post_final_response(
@@ -910,52 +1122,31 @@ def _post_final_response(
   additional_footer=None,
   escalation_config=None,
 ):
-  """Post final response as a regular message (fallback for bot messages).
-
-  Splits into multiple messages if the response exceeds Slack's 50-block limit.
-  """
+  """Post final response as a regular message (fallback for bot messages)."""
+  final_text = _strip_confidence_markers(final_text)
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
   content_blocks = [{"type": "markdown", "text": chunk} for chunk in text_chunks]
 
   footer_blocks = _build_stream_final_blocks(
-    channel_id, thread_ts, original_ts,
+    channel_id,
+    thread_ts,
+    original_ts,
     triggered_by_user_id=triggered_by_user_id,
     additional_footer=additional_footer,
     escalation_config=escalation_config,
   )
 
-  # Slack allows max 50 blocks per message.  Reserve space for footer blocks
-  # in the last batch so they always appear at the end.
-  max_blocks = 50
-  max_content_per_msg = max_blocks - len(footer_blocks)
+  final_blocks = slack_formatter.enforce_block_limit(content_blocks, footer_blocks)
 
-  all_blocks = []
-  if len(content_blocks) <= max_content_per_msg:
-    # Fits in one message
-    all_blocks = content_blocks + footer_blocks
-    slack_client.chat_postMessage(
-      channel=channel_id,
-      thread_ts=thread_ts,
-      blocks=all_blocks,
-      text=final_text[:100],
-    )
-  else:
-    # Split into multiple messages; footer on the last one
-    for i in range(0, len(content_blocks), max_content_per_msg):
-      batch = content_blocks[i:i + max_content_per_msg]
-      is_last = i + max_content_per_msg >= len(content_blocks)
-      if is_last:
-        batch.extend(footer_blocks)
-      slack_client.chat_postMessage(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        blocks=batch,
-        text=final_text[:100] if i == 0 else "(continued)",
-      )
-    all_blocks = content_blocks + footer_blocks
+  slack_client.chat_postMessage(
+    channel=channel_id,
+    thread_ts=thread_ts,
+    blocks=final_blocks,
+    text=final_text[:100],
+  )
 
-  return all_blocks
+  return final_blocks
 
 
 def _build_stream_final_blocks(
@@ -970,7 +1161,6 @@ def _build_stream_final_blocks(
   final_blocks = []
   action_value = f"{channel_id}|{thread_ts}|{original_ts or ''}"
 
-  # Add thumbs up/down feedback buttons (and optional trash icon)
   context_elements = [
     {
       "type": "feedback_buttons",
@@ -998,7 +1188,6 @@ def _build_stream_final_blocks(
     )
   final_blocks.append({"type": "context_actions", "elements": context_elements})
 
-  # Build footer
   footer_text = _build_footer_text(triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer)
   final_blocks.append(
     {
@@ -1010,29 +1199,30 @@ def _build_stream_final_blocks(
   return final_blocks
 
 
-def _extract_error_message(status):
-  """Extract error message from status dict."""
-  error_msg = status.get("message")
-  if isinstance(error_msg, dict):
-    parts = error_msg.get("parts", [])
-    if parts:
-      return parts[0].get("text", "Task failed")
-    return "Task failed"
-  return error_msg or "Task failed"
-
-
 def handle_ai_alert_processing(
-  a2a_client,
+  sse_client: SSEClient,
   slack_client,
   event,
   channel_id,
   bot_username,
   channel_config,
-  session_manager,
+  agent_id: str,
   custom_prompt=None,
   escalation_config=None,
 ):
-  """AI-powered alert processing."""
+  """AI-powered alert processing.
+
+  Args:
+      sse_client: SSEClient for dynamic agents.
+      slack_client: Slack WebClient.
+      event: Slack event dict.
+      channel_id: Slack channel ID.
+      bot_username: Name of the bot that triggered the alert.
+      channel_config: JiraConfig for the channel.
+      agent_id: Dynamic agent config ID.
+      custom_prompt: Optional custom prompt template.
+      escalation_config: Optional escalation config.
+  """
   alert_text = event.get("text", "")
   alert_blocks = event.get("blocks", [])
   alert_attachments = event.get("attachments", [])
@@ -1046,7 +1236,6 @@ def handle_ai_alert_processing(
     "attachments": json.dumps(alert_attachments) if alert_attachments else None,
   }
 
-  # channel_config is now a JiraConfig model
   jira_config_str = json.dumps(channel_config.model_dump(), indent=2)
   jira_project = channel_config.project_key
   prompt_template = custom_prompt if custom_prompt else config.defaults.default_ai_alerts_prompt
@@ -1066,7 +1255,7 @@ def handle_ai_alert_processing(
   team_id = event.get("team")
   user_id = event.get("user", event.get("bot_id"))
 
-  logger.info(f"[{thread_ts}] AI processing alert from {bot_username}")
+  logger.info(f"[{thread_ts}] AI processing alert from {bot_username}, agent={agent_id}")
 
   if not _utils.verify_thread_exists(slack_client, channel_id, thread_ts):
     logger.warning(f"[{thread_ts}] Ignoring alert — parent message was deleted")
@@ -1076,23 +1265,30 @@ def handle_ai_alert_processing(
     logger.info(f"[{thread_ts}] Silencing AI alert processing")
     return "Silenced"
 
-  context_id = session_manager.get_context_id(thread_ts)
+  # Resolve conversation_id via idempotency_key (thread_ts) — creates if first call
+  conv_result = sse_client.create_conversation(
+    title=f"Alert: {bot_username}"[:50],
+    agent_id=agent_id,
+    idempotency_key=thread_ts,
+    metadata={
+      "thread_ts": thread_ts,
+      "channel_id": channel_id,
+      "alert_bot": bot_username,
+      **({"workspace_url": os.environ.get("SLACK_WORKSPACE_URL", "")} if os.environ.get("SLACK_WORKSPACE_URL") else {}),
+    },
+  )
+  conversation_id = conv_result["conversation_id"]
 
-  result = stream_a2a_response(
-    a2a_client=a2a_client,
+  result = stream_response(
+    sse_client=sse_client,
     slack_client=slack_client,
     channel_id=channel_id,
     thread_ts=thread_ts,
     message_text=prompt,
     team_id=team_id,
     user_id=user_id,
-    context_id=context_id,
-    metadata={
-      "alert_bot": bot_username,
-      "channel_id": channel_id,
-      "jira_config": channel_config.model_dump(),
-    },
-    session_manager=session_manager,
+    agent_id=agent_id,
+    conversation_id=conversation_id,
     escalation_config=escalation_config,
   )
 

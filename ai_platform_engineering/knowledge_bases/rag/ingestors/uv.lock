@@ -927,7 +927,7 @@ requires-dist = [
     { name = "redis", specifier = "==6.4.0" },
     { name = "requests", specifier = "==2.33.0" },
     { name = "scrapy", specifier = "==2.15.0" },
-    { name = "scrapy-playwright", marker = "extra == 'playwright'", specifier = "==0.0.43" },
+    { name = "scrapy-playwright", marker = "extra == 'playwright'", specifier = "==0.0.46" },
     { name = "slack-sdk", specifier = "==3.38.0" },
 ]
 provides-extras = ["playwright", "dev"]
@@ -2384,15 +2384,15 @@ wheels = [
 
 [[package]]
 name = "scrapy-playwright"
-version = "0.0.43"
+version = "0.0.46"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "playwright" },
     { name = "scrapy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/04/12/ad0519aa5c01275d4462481da5db567acad5fa6c2a784d9073525acd7d1e/scrapy_playwright-0.0.43.tar.gz", hash = "sha256:a60f680af1080c86b1f128a4453bd3eb761864bea58c116f89a60ba2dd65c8f0", size = 47928, upload-time = "2025-02-22T20:02:04.061Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/bc/12435db52dcb0cb33698e499b35411fc2553bcddf228291083a2019036d4/scrapy_playwright-0.0.46.tar.gz", hash = "sha256:2efe31155b2bbbd13fb011f3c189c21a6f34409c7f7b958881780509ce14a6bb", size = 48429, upload-time = "2026-01-21T12:11:16.653Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/52/ee7c10e22e37bcfc4f7f1816f25d65c38290e0d800dc510998ab13d9673d/scrapy_playwright-0.0.43-py3-none-any.whl", hash = "sha256:02d09a0de0ac11efadb1f910a61f0fef03786c7f0a3119594b0b47096bc839ff", size = 27086, upload-time = "2025-02-22T20:02:02.946Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/6f/33fb13206fa4b93450484592cb5dbd243516b4ca63cf2ef1f641b51c3ca0/scrapy_playwright-0.0.46-py3-none-any.whl", hash = "sha256:8b20c504d773ec744ae81f5383989d04ba01dbf5e6c1991c0816e2f877398c54", size = 27749, upload-time = "2026-01-21T12:11:15.508Z" },
 ]
 
 [[package]]

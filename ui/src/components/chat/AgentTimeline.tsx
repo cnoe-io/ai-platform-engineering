@@ -15,9 +15,9 @@ import {
   PauseCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TimelineSegment, PlanStep, ToolCallInfo } from "@/types/a2a";
+import type { SupervisorTimelineSegment, PlanStep, ToolCallInfo } from "@/types/a2a";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
-import { StreamingMarkdown } from "@/components/shared/timeline";
+import { MarkdownRenderer } from "@/components/shared/timeline";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,15 +40,15 @@ interface ThinkingInfo {
  * ]
  */
 type RenderItem =
-  | { type: "segment"; segment: TimelineSegment }
-  | { type: "tool_run"; tools: TimelineSegment[] };
+  | { type: "segment"; segment: SupervisorTimelineSegment }
+  | { type: "tool_run"; tools: SupervisorTimelineSegment[] };
 
 function groupAdjacentTools(
-  segments: TimelineSegment[],
+  segments: SupervisorTimelineSegment[],
   standaloneIds: Set<string>,
 ): RenderItem[] {
   const items: RenderItem[] = [];
-  let currentToolRun: TimelineSegment[] = [];
+  let currentToolRun: SupervisorTimelineSegment[] = [];
 
   const flushToolRun = () => {
     if (currentToolRun.length > 0) {
@@ -72,14 +72,14 @@ function groupAdjacentTools(
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-interface AgentTimelineProps {
-  segments: TimelineSegment[];
+interface SupervisorTimelineProps {
+  segments: SupervisorTimelineSegment[];
   isStreaming: boolean;
   durationSec?: number;
   isCollapsed?: boolean;
 }
 
-export function AgentTimeline({ segments, isStreaming, durationSec, isCollapsed }: AgentTimelineProps) {
+export function SupervisorTimeline({ segments, isStreaming, durationSec, isCollapsed }: SupervisorTimelineProps) {
   // Machinery (plan, tools, thinking) is expanded during streaming, collapses after.
   const [machineryExpanded, setMachineryExpanded] = useState(true);
   const prevStreamingRef = React.useRef(isStreaming);
@@ -240,8 +240,8 @@ function SegmentRenderer({
   toolSegments,
   thinkingByStep,
 }: {
-  segment: TimelineSegment;
-  toolSegments?: TimelineSegment[];
+  segment: SupervisorTimelineSegment;
+  toolSegments?: SupervisorTimelineSegment[];
   thinkingByStep?: Map<string, ThinkingInfo[]>;
 }) {
   switch (segment.type) {
@@ -311,7 +311,7 @@ function TimelineSummary({
 
 function ThinkingSegment({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   return (
-    <StreamingMarkdown
+    <MarkdownRenderer
       content={content}
       isStreaming={isStreaming}
       variant="thinking"
@@ -362,7 +362,7 @@ function ToolGroupDropdown({
   tools,
   isStreaming,
 }: {
-  tools: TimelineSegment[];
+  tools: SupervisorTimelineSegment[];
   isStreaming: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -431,7 +431,7 @@ function PlanSegment({
   thinkingByStep,
 }: {
   steps: PlanStep[];
-  toolSegments: TimelineSegment[];
+  toolSegments: SupervisorTimelineSegment[];
   thinkingByStep: Map<string, ThinkingInfo[]>;
 }) {
   if (steps.length === 0) return null;
@@ -596,7 +596,7 @@ function FinalAnswerSegment({
   isStreaming?: boolean;
 }) {
   return (
-    <StreamingMarkdown
+    <MarkdownRenderer
       content={content}
       isStreaming={isStreaming}
       variant="final"

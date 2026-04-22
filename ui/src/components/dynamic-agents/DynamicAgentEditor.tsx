@@ -33,6 +33,7 @@ import { gradientThemes } from "@/lib/gradient-themes";
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
   cloneFrom?: DynamicAgentConfig | null; // Agent to clone from (for pre-filling)
+  readOnly?: boolean; // true for config-driven agents (view only)
   onSave: () => void;
   onCancel: () => void;
 }
@@ -144,7 +145,7 @@ function StepIndicator({
   );
 }
 
-export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: DynamicAgentEditorProps) {
+export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
@@ -206,11 +207,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
       import("@codemirror/lang-markdown"),
       import("@codemirror/language-data"),
       import("@codemirror/view"),
-    ]).then(([mdMod, langDataMod, viewMod]) => {
+      import("@/lib/codemirror/jinja2-highlight"),
+    ]).then(([mdMod, langDataMod, viewMod, jinja2Mod]) => {
       if (!cancelled) {
         setCmExtensions([
           mdMod.markdown({ codeLanguages: langDataMod.languages }),
           viewMod.EditorView.lineWrapping,
+          jinja2Mod.jinja2Highlight,
         ]);
       }
     });
@@ -556,10 +559,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           </Button>
           <div>
             <CardTitle>
-              {isEditing ? "Edit Custom Agent" : isCloning ? "Clone Custom Agent" : "Create Custom Agent"}
+              {readOnly ? "View Agent" : isEditing ? "Edit Agent" : isCloning ? "Clone Agent" : "Create Agent"}
             </CardTitle>
             <CardDescription>
-              {isEditing
+              {readOnly
+                ? "This agent is managed by configuration and cannot be edited"
+                : isEditing
                 ? "Update the agent configuration"
                 : isCloning
                 ? `Creating a copy of "${cloneFrom?.name}"`
@@ -582,6 +587,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
             <h3 className="font-medium">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
             <p className="text-sm text-muted-foreground">{currentStepConfig?.hint}</p>
           </div>
+
+          <fieldset disabled={readOnly} className={readOnly ? "opacity-70 space-y-4" : "space-y-4"}>
 
           {/* Basic Info Step */}
           {activeStep === "basic" && (
@@ -1109,6 +1116,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
+          </fieldset>
 
           {/* Step Navigation - Right aligned */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t">
@@ -1139,24 +1147,32 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
       {/* Action Buttons - Outside the card content */}
       <div className="flex items-center gap-2 px-6 py-4 border-t bg-muted/30">
         <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
-          {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
-          {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+          {readOnly ? (
+            "This agent is config-driven and cannot be modified"
+          ) : (
+            <>
+              {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
+              {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+            </>
+          )}
         </div>
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
-          Cancel
+          {readOnly ? "Close" : "Cancel"}
         </Button>
-        <Button onClick={handleSubmit} disabled={loading || !isValid}>
-          {loading ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              {isEditing ? "Saving..." : "Creating..."}
-            </>
-          ) : isEditing ? (
-            "Save Changes"
-          ) : (
-            "Create Agent"
-          )}
-        </Button>
+        {!readOnly && (
+          <Button onClick={handleSubmit} disabled={loading || !isValid}>
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {isEditing ? "Saving..." : "Creating..."}
+              </>
+            ) : isEditing ? (
+              "Save Changes"
+            ) : (
+              "Create Agent"
+            )}
+          </Button>
+        )}
       </div>
     </Card>
   );

@@ -26,7 +26,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
-FROM python:3.13-slim
+# Wolfi (Chainguard) base: 0 CVEs, continuously patched packages, replaces
+# python:3.13-slim to eliminate the ~300 Debian system-package CVEs per image.
+FROM cgr.dev/chainguard/wolfi-base
 
 ARG AGENT_NAME
 
@@ -35,11 +37,30 @@ RUN if [ -z "$AGENT_NAME" ]; then \
     exit 1; \
     fi
 
-# Install only runtime dependencies
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Override APK repo to public Wolfi OS packages (no auth required).
+# cgr.dev/chainguard/wolfi-base defaults to apk.cgr.dev/chainguard which
+# requires Chainguard credentials; packages.wolfi.dev/os is free and public.
+ARG INSTALL_NETUTILS=false
+
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
+    for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
+    if [ "$INSTALL_NETUTILS" = "true" ]; then \
+        for i in 1 2 3; do \
+            apk add --no-cache \
+                bind-tools iputils whois curl iproute2 net-tools \
+                dnsmasq mtr nmap net-snmp openssl tcpdump && break; \
+            [ $i -lt 3 ] && sleep $((i * 10)); \
+        done; \
+    fi && \
+    apk upgrade --no-cache
+
+# The builder stage uses python:3.13-slim which places Python at
+# /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13.
+# These symlinks keep the venv's internal python symlinks from breaking.
+RUN mkdir -p /usr/local/bin \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
 
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser

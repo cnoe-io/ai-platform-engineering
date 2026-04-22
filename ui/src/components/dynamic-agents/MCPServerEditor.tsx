@@ -17,6 +17,7 @@ import type {
 
 interface MCPServerEditorProps {
   server: MCPServerConfig | null; // null = creating new
+  readOnly?: boolean;
   onSave: () => void;
   onCancel: () => void;
 }
@@ -27,7 +28,7 @@ const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: str
   { value: "http", label: "HTTP", description: "HTTP/REST endpoint" },
 ];
 
-export function MCPServerEditor({ server, onSave, onCancel }: MCPServerEditorProps) {
+export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServerEditorProps) {
   const isEditing = !!server;
 
   // Form state
@@ -155,9 +156,11 @@ export function MCPServerEditor({ server, onSave, onCancel }: MCPServerEditorPro
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <CardTitle>{isEditing ? "Edit MCP Server" : "Add MCP Server"}</CardTitle>
+            <CardTitle>{readOnly ? "View MCP Server" : isEditing ? "Edit MCP Server" : "Add MCP Server"}</CardTitle>
             <CardDescription>
-              {isEditing
+              {readOnly
+                ? "This server is managed by configuration and cannot be edited."
+                : isEditing
                 ? "Update the server configuration"
                 : "Configure a new MCP server connection"}
             </CardDescription>
@@ -166,6 +169,7 @@ export function MCPServerEditor({ server, onSave, onCancel }: MCPServerEditorPro
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
+          <fieldset disabled={readOnly} className={readOnly ? "opacity-70" : ""}>
           {/* Basic Info */}
           <div className="space-y-4">
             <h3 className="text-sm font-medium">Basic Information</h3>
@@ -366,24 +370,32 @@ export function MCPServerEditor({ server, onSave, onCancel }: MCPServerEditorPro
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
+          </fieldset>
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t">
+            {readOnly && (
+              <span className="text-xs text-muted-foreground mr-auto">
+                Config-driven — managed by configuration file
+              </span>
+            )}
             <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
-              Cancel
+              {readOnly ? "Close" : "Cancel"}
             </Button>
-            <Button type="submit" disabled={loading || !isValid}>
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {isEditing ? "Saving..." : "Creating..."}
-                </>
-              ) : isEditing ? (
-                "Save Changes"
-              ) : (
-                "Create Server"
-              )}
-            </Button>
+            {!readOnly && (
+              <Button type="submit" disabled={loading || !isValid}>
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {isEditing ? "Saving..." : "Creating..."}
+                  </>
+                ) : isEditing ? (
+                  "Save Changes"
+                ) : (
+                  "Create Server"
+                )}
+              </Button>
+            )}
           </div>
         </form>
       </CardContent>

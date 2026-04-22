@@ -132,6 +132,12 @@ export interface Config {
   /** Custom label applied to GitHub issues for filtering (e.g., "caipe-reported") */
   githubTicketLabel: string;
   /**
+   * Streaming protocol used by agent servers: "custom" (default) or "agui".
+   * Controls the ?protocol= query param sent to the backend streaming endpoints.
+   * Set AGENT_PROTOCOL=agui to switch to AG-UI wire format.
+   */
+  agentProtocol: 'custom' | 'agui';
+  /**
    * Whether the "Report a Problem" button is shown in the header and feedback dialog.
    * Enabled by default. Set REPORT_PROBLEM_ENABLED=false to disable.
    * When ticketEnabled is also true, reports are routed to the configured ticket provider.
@@ -164,7 +170,7 @@ const DEFAULT_GRADIENT_THEME = 'default';
 
 const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
 const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
-const VALID_THEMES = ['light', 'dark', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
+const VALID_THEMES = ['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
 const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 'sunset', 'cyberpunk', 'tron', 'matrix'];
 
 /** Default config used as client fallback before the layout script executes. */
@@ -203,6 +209,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
   jiraTicketProject: null,
@@ -299,6 +306,9 @@ export function getServerConfig(): Config {
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
 
+  const agentProtocolEnv = env('AGENT_PROTOCOL');
+  const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'agui' ? 'agui' : 'custom';
+
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
@@ -356,6 +366,7 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,
     jiraTicketProject,

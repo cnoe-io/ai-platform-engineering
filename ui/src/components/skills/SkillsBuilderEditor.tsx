@@ -80,7 +80,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
-import { A2ASDKClient } from "@/lib/a2a-sdk-client";
+import { SSEClient } from "@/lib/sse-streaming-client";
 import { parseSkillMd, createBlankSkillMd, updateAllowedToolsInFrontmatter } from "@/lib/skill-md-parser";
 import { fetchSkillTemplates, getAllTemplateTags } from "@/skills";
 import { Panel, Group as PanelGroup, Separator } from "react-resizable-panels";
@@ -1112,7 +1112,6 @@ export function SkillsBuilderEditor({
   const { data: session } = useSession();
   const ssoEnabled = getConfig("ssoEnabled");
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
-  const caipeEndpoint = getConfig("caipeUrl");
 
   // Skill templates loaded from API
   const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
@@ -1324,7 +1323,7 @@ export function SkillsBuilderEditor({
   const [aiPromptSent, setAiPromptSent] = useState("");
   const [showPromptSection, setShowPromptSection] = useState(true);
   const aiDebugEndRef = useRef<HTMLDivElement | null>(null);
-  const aiClientRef = useRef<A2ASDKClient | null>(null);
+  const aiClientRef = useRef<SSEClient | null>(null);
   const aiContentSnapshotRef = useRef<string>("");
 
   // CodeMirror extensions (lazily loaded) and editor ref
@@ -1556,80 +1555,42 @@ Describe the expected output format here.
     setAiDebugLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${line}`]);
   };
 
-  const MAX_INPUT_REQUIRED_RETRIES = 3;
-
   const sendAiRequest = async (prompt: string): Promise<string> => {
-    if (!caipeEndpoint) {
-      throw new Error("CAIPE backend URL is not configured");
-    }
+    appendDebugLog("Connecting to SSE stream...");
 
-    appendDebugLog(`Connecting to ${caipeEndpoint}...`);
+    let finalContent = "";
+    let streamingAccum = "";
 
-    const client = new A2ASDKClient({
-      endpoint: caipeEndpoint,
+    const client = new SSEClient({
+      endpoint: "/api/chat/stream",
       accessToken: accessToken as string | undefined,
-      userEmail: session?.user?.email ?? undefined,
+      onEvent: (event) => {
+        const preview = (event.text || event.message || "")
+          .slice(0, 120)
+          .replace(/\n/g, "\\n") || "(no content)";
+        appendDebugLog(`← ${event.type}: ${preview}`);
+
+        if (event.type === "content" && event.text) {
+          streamingAccum += event.text;
+        } else if (event.type === "done") {
+          if (!finalContent && streamingAccum) {
+            finalContent = streamingAccum;
+          }
+        }
+      },
     });
     aiClientRef.current = client;
 
-    let finalContent = "";
-    let contextId: string | undefined;
-    let currentPrompt = prompt;
-    let retries = 0;
+    appendDebugLog("Stream opened, waiting for events...");
 
-    while (retries <= MAX_INPUT_REQUIRED_RETRIES) {
-      const stream = client.sendMessageStream(currentPrompt, contextId);
-      if (retries === 0) {
-        appendDebugLog("Stream opened, waiting for events...");
-      } else {
-        appendDebugLog(`Auto-replying to input-required (attempt ${retries})...`);
-      }
+    await client.sendMessage({
+      message: prompt,
+      user_email: session?.user?.email ?? undefined,
+      source: "web",
+    });
 
-      let gotInputRequired = false;
-      let streamingAccum = "";
-
-      for await (const event of stream) {
-        const label = event.artifactName || event.type || "event";
-        const preview = event.displayContent
-          ? event.displayContent.slice(0, 120).replace(/\n/g, "\\n")
-          : "(no content)";
-        appendDebugLog(`← ${label}${event.isFinal ? " [final]" : ""}${event.requireUserInput ? " [input-required]" : ""}: ${preview}`);
-
-        if (event.contextId) contextId = event.contextId;
-
-        if (event.requireUserInput) {
-          gotInputRequired = true;
-          appendDebugLog("Backend requested user input — auto-responding to continue...");
-        }
-
-        const name = event.artifactName || "";
-
-        if (name === "final_result" || name === "complete_result") {
-          if (event.displayContent) finalContent = event.displayContent;
-        } else if (name === "streaming_result" && event.type === "artifact") {
-          if (event.displayContent) {
-            if (event.shouldAppend) {
-              streamingAccum += event.displayContent;
-            } else {
-              streamingAccum = event.displayContent;
-            }
-          }
-        }
-      }
-
-      if (!finalContent && streamingAccum) {
-        finalContent = streamingAccum;
-      }
-
-      if (!gotInputRequired) break;
-
-      retries++;
-      if (retries > MAX_INPUT_REQUIRED_RETRIES) {
-        appendDebugLog("Max auto-reply retries reached. Using best content so far.");
-        break;
-      }
-
-      currentPrompt = "Please proceed with the task. Do not ask any questions. Generate the SKILL.md content now.";
+    if (!finalContent && streamingAccum) {
+      finalContent = streamingAccum;
     }
 
     appendDebugLog("Stream complete.");
