@@ -138,6 +138,11 @@ User message:
             "SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP",
             """You previously saw the user's message but did not respond automatically. The user is now following up by @mentioning you.
 
+**CRITICAL: Your previous response was NOT delivered to the user.** The Slack bot silently filtered it
+before the user ever saw it. The user has NO record of any reply from you.
+Do NOT say "I replied", "I responded", "I already answered", or "I shared what I found" —
+from the user's perspective, you were completely silent.
+
 Start by briefly explaining why you did not respond earlier. There are two possible reasons based on your earlier analysis:
 1. You recognized it as a request for human action (like MR reviews, approvals, or asking someone to do something) - explain you stepped back to let humans handle it
 2. You researched but were not confident in what you found - explain you are not an expert on this topic
@@ -204,6 +209,7 @@ class VictorOpsEscalation(BaseModel):
 
     enabled: bool = False
     team: str = ""
+    escalation_policy: str = ""
 
 
 class EmojiEscalation(BaseModel):
