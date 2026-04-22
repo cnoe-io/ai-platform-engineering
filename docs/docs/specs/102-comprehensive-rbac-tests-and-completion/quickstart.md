@@ -26,7 +26,91 @@ Runs Jest BFF tests + pytest middleware tests + Playwright E2E suite against a r
 | `uv` | latest | Python virtualenv management. |
 | `kcadm` | comes with Keycloak image | Used by `init-idp.sh` to seed personas; you do not invoke it directly. |
 
-All server-side dependencies are brought up by reusing the existing `docker-compose.dev.yaml` with a curated `COMPOSE_PROFILES` selection (see [spec Clarification 2026-04-22](./spec.md#session-2026-04-22) — there is **no** separate `docker-compose.e2e.yaml` and no overlay file). The e2e lane activates a handful of `${VAR:-default}` substitutions inside `docker-compose.dev.yaml` (host port for Mongo/supervisor, the `RBAC_FALLBACK_*` env+volume, and `E2E_RUN=true`) by exporting env vars from the Makefile (`E2E_COMPOSE_ENV`). `caipe-ui` keeps its host port at `3000` because Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI. Locally you only need Docker + Node + Python.
+All server-side dependencies are brought up by reusing the existing `docker-compose.dev.yaml` with a curated `COMPOSE_PROFILES` selection (see [spec Clarification 2026-04-22](./spec.md#session-2026-04-22) — there is **no** separate `docker-compose.e2e.yaml` and no overlay file). The e2e lane activates a handful of `${VAR:-default}` substitutions inside `docker-compose.dev.yaml` (host port for Mongo/supervisor, the `RBAC_FALLBACK_*` env+volume, and `E2E_RUN=true`) by exporting env vars from the Makefile (`E2E_COMPOSE_ENV`). Locally you only need Docker + Node + Python.
+
+---
+
+## E2E port band
+
+The e2e lane publishes services on a non-overlapping host-port band so it can coexist with a running dev stack without collisions. **`caipe-ui` is the one exception** — it must always publish on host port `3000` because Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI (see `deploy/keycloak/realm-config.json`). Remapping the UI breaks the OIDC redirect dance and makes login impossible.
+
+| Service           | Container port | Dev host port | E2E host port | Why this port? |
+|-------------------|----------------|---------------|---------------|----------------|
+| `caipe-ui`        | 3000           | 3000          | **3000**      | IdP-pinned. Never remap. |
+| `caipe-mongodb`   | 27017          | 27017         | 28017         | Avoid colliding with a host-side MongoDB on `27017`. |
+| `caipe-supervisor`| 8000           | 8000          | 28000         | Avoid colliding with `agent-splunk` (also publishes `8010` from the same compose project). |
+| `keycloak`        | 7080 / 7443    | 7080 / 7443   | 7080 / 7443   | Dev publishes these; e2e reuses the same singleton — one IdP for both lanes. |
+| `dynamic-agents`  | 8001           | 8100          | 8100          | Not remapped (no collisions). |
+| `rag_server`      | 9446           | 9446          | 9446          | Not remapped (no collisions). |
+
+The band is **`28xxx` for the in-stack e2e remaps**. If you need to add another service to the e2e remap list in the future, pick a port in the same band (`280xx`–`289xx`) so the convention stays predictable.
+
+### How it's wired
+
+The Makefile owns the env-var contract. `make test-rbac-up` exports `E2E_COMPOSE_ENV` and runs the dev compose file unchanged:
+
+```makefile
+# Makefile (excerpt — see the full target near "Comprehensive RBAC tests")
+E2E_MONGODB_HOST_PORT    ?= 28017
+E2E_SUPERVISOR_HOST_PORT ?= 28000
+
+E2E_COMPOSE_ENV := \
+  E2E_RUN=true \
+  MONGODB_HOST_PORT=$(E2E_MONGODB_HOST_PORT) \
+  SUPERVISOR_HOST_PORT=$(E2E_SUPERVISOR_HOST_PORT) \
+  RBAC_FALLBACK_FILE=$(CURDIR)/deploy/keycloak/realm-config-extras.json \
+  RBAC_FALLBACK_CONFIG_PATH=/etc/keycloak/realm-config-extras.json
+
+test-rbac-up:
+	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
+	   docker compose -f docker-compose.dev.yaml up -d --wait
+```
+
+Inside `docker-compose.dev.yaml`, each affected port is `${VAR:-default}` so the dev path is byte-identical when those env vars are unset:
+
+```yaml
+caipe-mongodb:
+  ports:
+    # MONGODB_HOST_PORT=28017 in the e2e lane; 27017 in dev.
+    - "${MONGODB_HOST_PORT:-27017}:27017"
+
+caipe-supervisor:
+  ports:
+    - "${SUPERVISOR_HOST_PORT:-8000}:8000"
+  environment:
+    - RBAC_FALLBACK_CONFIG_PATH=${RBAC_FALLBACK_CONFIG_PATH:-}
+  volumes:
+    # Defaults to /dev/null — a harmless inode mount the helper never reads
+    # because RBAC_FALLBACK_CONFIG_PATH is empty in the dev path.
+    - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
+
+caipe-ui:
+  ports: ["3000:3000"]    # NEVER parameterize — IdP-pinned.
+  environment:
+    - E2E_RUN=${E2E_RUN:-false}
+```
+
+### Env-var contract (what `E2E_COMPOSE_ENV` activates)
+
+| Env var                       | Dev default | E2E value                                         | Effect when set |
+|-------------------------------|-------------|---------------------------------------------------|-----------------|
+| `E2E_RUN`                     | `false`     | `true`                                            | Enables Playwright-only fixtures in the UI (`ui/src/lib/test-fixtures.ts`). |
+| `MONGODB_HOST_PORT`           | `27017`     | `28017`                                           | Host port published by `caipe-mongodb`. |
+| `SUPERVISOR_HOST_PORT`        | `8000`      | `28000`                                           | Host port published by `caipe-supervisor`. |
+| `RBAC_FALLBACK_FILE`          | `/dev/null` | `$(CURDIR)/deploy/keycloak/realm-config-extras.json` | Host file bind-mounted into supervisor / dynamic-agents / rag_server at `/etc/keycloak/realm-config-extras.json`. |
+| `RBAC_FALLBACK_CONFIG_PATH`   | `""` (empty)| `/etc/keycloak/realm-config-extras.json`          | Tells the in-container helper *which* file to read for the PDP-unavailable fallback. Empty = feature off. |
+
+### Verifying the dev path is unaffected
+
+```bash
+# Should print mongo:27017, supervisor:8000, ui:3000, RBAC_FALLBACK="" (empty).
+docker compose -f docker-compose.dev.yaml config | \
+  grep -E '(published|RBAC_FALLBACK|E2E_RUN)' | head -20
+
+# Same compose file, e2e env applied — should print 28017 / 28000 / 3000 / true.
+make test-rbac-up
+docker ps --format '{{.Names}}\t{{.Ports}}' | grep caipe-
+```
 
 ---
 
