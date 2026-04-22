@@ -26,7 +26,7 @@ Runs Jest BFF tests + pytest middleware tests + Playwright E2E suite against a r
 | `uv` | latest | Python virtualenv management. |
 | `kcadm` | comes with Keycloak image | Used by `init-idp.sh` to seed personas; you do not invoke it directly. |
 
-All server-side dependencies are brought up by reusing the existing `docker-compose.dev.yaml` with a curated `COMPOSE_PROFILES` selection (see [spec Clarification 2026-04-22](./spec.md#session-2026-04-22) — there is **no** separate `docker-compose.e2e.yaml`). A small `docker-compose/docker-compose.e2e.override.yaml` overlay remaps host ports to avoid collisions with a running dev stack. Locally you only need Docker + Node + Python.
+All server-side dependencies are brought up by reusing the existing `docker-compose.dev.yaml` with a curated `COMPOSE_PROFILES` selection (see [spec Clarification 2026-04-22](./spec.md#session-2026-04-22) — there is **no** separate `docker-compose.e2e.yaml` and no overlay file). The e2e lane activates a handful of `${VAR:-default}` substitutions inside `docker-compose.dev.yaml` (host port for Mongo/supervisor, the `RBAC_FALLBACK_*` env+volume, and `E2E_RUN=true`) by exporting env vars from the Makefile (`E2E_COMPOSE_ENV`). `caipe-ui` keeps its host port at `3000` because Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI. Locally you only need Docker + Node + Python.
 
 ---
 
@@ -56,7 +56,7 @@ docker pull quay.io/keycloak/keycloak:25.0
 make test-rbac
 ```
 
-This is what CI runs. Locally it brings up the dev compose file with `COMPOSE_PROFILES="rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot"` (plus the `e2e.override.yaml` overlay), seeds personas, runs all three test layers, then tears the stack down.
+This is what CI runs. Locally it brings up the dev compose file with `COMPOSE_PROFILES="rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot"` (with e2e env vars from `E2E_COMPOSE_ENV` in the Makefile), seeds personas, runs all three test layers, then tears the stack down.
 
 ### Run only one layer
 ```bash
@@ -74,17 +74,27 @@ Equivalent for Jest: `make test-rbac-jest -- --testNamePattern "User Story 4"`.
 
 ### Bring up the e2e stack without running tests (debugging)
 ```bash
+# Easiest — wraps the env vars + profiles for you:
+make test-rbac-up
+
+# Or by hand:
 export COMPOSE_PROFILES="rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot"
-docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml up -d
+export E2E_RUN=true
+export MONGODB_HOST_PORT=28017
+export SUPERVISOR_HOST_PORT=28000
+export RBAC_FALLBACK_FILE="$PWD/deploy/keycloak/realm-config-extras.json"
+export RBAC_FALLBACK_CONFIG_PATH=/etc/keycloak/realm-config-extras.json
+docker compose -f docker-compose.dev.yaml up -d --wait
+
 # Wait ~30s for Keycloak to be ready
 curl -fs http://localhost:7080/health/ready
-# UI: http://localhost:28030 (e2e band; dev uses 3000)
+# UI: http://localhost:3000          (IdP-pinned; same as dev)
 # Supervisor: http://localhost:28000 (e2e band; dev uses 8000)
-# Keycloak admin: http://localhost:7080/admin (master / admin)  -- not remapped, dev publishes this
-# Mongo: mongodb://localhost:28017 (e2e band; dev uses 27017)
+# Keycloak admin: http://localhost:7080/admin (master / admin)
+# Mongo: mongodb://localhost:28017   (e2e band; dev uses 27017)
 ```
 
-Tear down: `docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml down -v`.
+Tear down: `make test-rbac-down` (or `docker compose -f docker-compose.dev.yaml down -v` with the same env exported).
 
 ### Mint a persona token by hand
 ```bash
@@ -164,9 +174,9 @@ For non-trivial logic (custom filtering, special headers, multipart), add a hand
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `make test-rbac` fails immediately with "validate-rbac-matrix.py: route X not in matrix" | You added `requireRbacPermission` to a route but didn't add the matrix entry. | Add the matrix entry per Step 2 above. |
-| `make test-rbac` fails with "validate-realm-config.py: resource X scope Y not in realm-config.json" | You used a `(resource, scope)` pair the seed Keycloak realm doesn't know about. | Add it to `deploy/keycloak/realm-config.json` and rebuild the compose stack (`docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml up -d --force-recreate keycloak`). |
-| Persona token mint fails with 401 | Keycloak isn't seeded yet, or `init-idp.sh` failed silently. | `docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml logs keycloak \| tail -100`. Re-run `docker compose ... up -d --force-recreate keycloak`. |
-| Playwright says `webServer timed out` | UI image isn't building or supervisor is failing to start. | `docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml logs caipe-ui caipe-supervisor`. |
+| `make test-rbac` fails with "validate-realm-config.py: resource X scope Y not in realm-config.json" | You used a `(resource, scope)` pair the seed Keycloak realm doesn't know about. | Add it to `deploy/keycloak/realm-config.json` and rebuild the compose stack (`make test-rbac-down && make test-rbac-up`, or `docker compose -f docker-compose.dev.yaml up -d --force-recreate keycloak` with the e2e env exported). |
+| Persona token mint fails with 401 | Keycloak isn't seeded yet, or `init-idp.sh` failed silently. | `docker compose -f docker-compose.dev.yaml logs keycloak \| tail -100`. Re-run `make test-rbac-up`. |
+| Playwright says `webServer timed out` | UI image isn't building or supervisor is failing to start. | `docker compose -f docker-compose.dev.yaml logs caipe-ui caipe-supervisor`. |
 | Tests hang on Keycloak `/health/ready` for >30s | Token-exchange feature flag broke compose startup. | Check `KC_FEATURES` env in `deploy/keycloak/docker-compose.yml`; should include `token-exchange`. |
 | `permissionDecisionCache` returns stale allow after a role change | Expected — TTL is 60s. Wait it out, or restart the BFF. | Out of scope to fix; can be flushed in tests via `clearPersonaCache()` + container restart. |
 | Audit log assertion fails with "no document for (user, route)" | Audit-log Mongo write failed silently per FR-007. | Check `docker compose ... logs mongo` and the BFF/service logs for warn-level audit failures. |
@@ -186,7 +196,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20' }
       - uses: astral-sh/setup-uv@v4
-      - run: COMPOSE_PROFILES="rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot" docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml pull
+      - run: COMPOSE_PROFILES="rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot" docker compose -f docker-compose.dev.yaml pull
       - run: make test-rbac
       - if: failure()
         uses: actions/upload-artifact@v4

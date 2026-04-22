@@ -26,4 +26,4 @@ make test-rbac-pytest   # backend unit only (~3 min)
 make test-rbac-e2e      # Playwright only (~4 min)
 ```
 
-The compose stack used by these tests is `docker-compose.dev.yaml` driven by `COMPOSE_PROFILES`, with a thin overlay at [`docker-compose/docker-compose.e2e.override.yaml`](../../docker-compose/docker-compose.e2e.override.yaml) — see [spec.md Clarifications 2026-04-22](../../docs/docs/specs/102-comprehensive-rbac-tests-and-completion/spec.md#session-2026-04-22).
+The compose stack used by these tests is `docker-compose.dev.yaml` driven by `COMPOSE_PROFILES` — there is **no** separate e2e compose file. The e2e lane inlines a few `${VAR:-default}` substitutions (host port for Mongo/supervisor, `RBAC_FALLBACK_*`, `E2E_RUN`) into the dev compose file, activated by env vars set in the Makefile (`E2E_COMPOSE_ENV`). See [spec.md Clarifications 2026-04-22](../../docs/docs/specs/102-comprehensive-rbac-tests-and-completion/spec.md#session-2026-04-22) and `Makefile` `test-rbac-up`.

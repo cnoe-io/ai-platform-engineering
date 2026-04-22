@@ -8,8 +8,9 @@ Why a real Keycloak (not a mock)?
   Per the 2026-04-22 clarification (`real_kc` for the e2e fixture), every gate
   exercised by Jest+pytest+Playwright runs against a live Keycloak so we
   exercise the same JWT signing keys, claim shape, and PDP that production
-  uses. The compose stack at `docker-compose.dev.yaml` (or its e2e overlay
-  `docker-compose/docker-compose.e2e.override.yaml`) provides one.
+  uses. The compose stack at `docker-compose.dev.yaml` provides one (the e2e
+  lane reuses the same compose file via curated `COMPOSE_PROFILES` and a
+  handful of env-var substitutions — see Makefile `test-rbac-up`).
 
 Resource Owner Password Credentials grant is intentionally enabled ONLY on the
 test client `caipe-platform` (already `directAccessGrantsEnabled: true` in

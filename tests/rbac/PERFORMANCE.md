@@ -46,8 +46,12 @@ metadata cache) takes around **45–60 s**, dominated by `npm install` /
 Recorded against the live e2e stack brought up via:
 
 ```bash
-COMPOSE_PROFILES='rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag' \
-  docker compose -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml up -d
+make test-rbac-up   # wraps:
+# E2E_RUN=true MONGODB_HOST_PORT=28017 SUPERVISOR_HOST_PORT=28000 \
+#   RBAC_FALLBACK_FILE=$(pwd)/deploy/keycloak/realm-config-extras.json \
+#   RBAC_FALLBACK_CONFIG_PATH=/etc/keycloak/realm-config-extras.json \
+#   COMPOSE_PROFILES='rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot' \
+#   docker compose -f docker-compose.dev.yaml up -d
 ```
 
 | Spec                                    | Personas | Wall-clock | Result | Notes                                        |

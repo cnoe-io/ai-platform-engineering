@@ -32,8 +32,8 @@ parent conftest.
 
 Surface dispatch URLs
 ---------------------
-Default URLs are read from env (set by `make test-rbac-up` /
-`docker-compose/docker-compose.e2e.override.yaml`):
+Default URLs are read from env (set by `make test-rbac-up`, which inlines
+host ports into `docker-compose.dev.yaml` via ${VAR:-default} substitution):
 
 * `E2E_SUPERVISOR_URL`     — default `http://localhost:28000` (e2e port band)
 * `E2E_DA_URL`             — default `http://localhost:8200`

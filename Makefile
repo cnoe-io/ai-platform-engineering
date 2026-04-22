@@ -528,14 +528,33 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 # See docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md
 
 # Profile selection. Override with E2E_PROFILES=...
+# All profiles live in docker-compose.dev.yaml — no separate e2e compose file.
 E2E_PROFILES   ?= rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot
-E2E_COMPOSE    := -f docker-compose.dev.yaml -f docker-compose/docker-compose.e2e.override.yaml
+E2E_COMPOSE    := -f docker-compose.dev.yaml
 E2E_KC_URL     ?= http://localhost:7080
 E2E_KC_REALM   ?= cnoe
 E2E_KC_RESOURCE_SERVER_ID ?= caipe-resource-server
 E2E_WAIT_SECS  ?= 120
 RBAC_PYTEST_DIRS ?= tests/rbac/unit/py tests/rbac/fixtures
 RBAC_E2E_DIRS    ?= tests/rbac/e2e
+
+# E2E port band — host-side ports for the e2e lane. Container ports unchanged.
+# caipe-ui MUST stay on 3000 because Keycloak's caipe-ui client only allow-lists
+# http://localhost:3000/* as a redirect URI (see deploy/keycloak/realm-config.json).
+# Mongo + supervisor move to the 28xxx band to avoid collisions with a host-side
+# Mongo on 27017 and an in-stack agent-splunk that publishes 8010.
+E2E_MONGODB_HOST_PORT    ?= 28017
+E2E_SUPERVISOR_HOST_PORT ?= 28000
+
+# E2E env injected into docker-compose.dev.yaml via ${VAR:-default} substitution.
+# These are no-ops for `make test-up` (dev) — they only activate the e2e behavior
+# when the test-rbac-* targets export them.
+E2E_COMPOSE_ENV := \
+  E2E_RUN=true \
+  MONGODB_HOST_PORT=$(E2E_MONGODB_HOST_PORT) \
+  SUPERVISOR_HOST_PORT=$(E2E_SUPERVISOR_HOST_PORT) \
+  RBAC_FALLBACK_FILE=$(CURDIR)/deploy/keycloak/realm-config-extras.json \
+  RBAC_FALLBACK_CONFIG_PATH=/etc/keycloak/realm-config-extras.json
 
 .PHONY: test-rbac test-rbac-lint test-rbac-up test-rbac-down test-rbac-jest test-rbac-pytest test-rbac-e2e
 
@@ -559,7 +578,9 @@ test-rbac-lint: ## Lint the RBAC matrix + realm-config-extras (T009/T011/T012). 
 
 test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo) and seed personas via init-idp.sh.
 	@echo "[test-rbac-up] starting stack with profiles: $(E2E_PROFILES)"
-	@COMPOSE_PROFILES='$(E2E_PROFILES)' docker compose $(E2E_COMPOSE) up -d --wait --wait-timeout $(E2E_WAIT_SECS)
+	@echo "[test-rbac-up] e2e ports: ui=3000 (IdP-pinned) supervisor=$(E2E_SUPERVISOR_HOST_PORT) mongo=$(E2E_MONGODB_HOST_PORT) keycloak=7080"
+	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
+	   docker compose $(E2E_COMPOSE) up -d --wait --wait-timeout $(E2E_WAIT_SECS)
 	@echo "[test-rbac-up] waiting for Keycloak readiness on $(E2E_KC_URL)…"
 	@for i in $$(seq 1 60); do \
 	   if curl -fsS $(E2E_KC_URL)/realms/master/.well-known/openid-configuration >/dev/null 2>&1; then \
@@ -574,7 +595,8 @@ test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo
 
 test-rbac-down: ## Tear down the e2e stack (volumes removed).
 	@echo "[test-rbac-down] tearing down e2e stack…"
-	@COMPOSE_PROFILES='$(E2E_PROFILES)' docker compose $(E2E_COMPOSE) down -v --remove-orphans
+	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
+	   docker compose $(E2E_COMPOSE) down -v --remove-orphans
 
 test-rbac-pytest: ## Run RBAC pytest helper-unit + matrix-driver tests. Pass --rbac-online via PYTEST_ARGS to enable live-Keycloak tests.
 	@echo "[test-rbac-pytest] running RBAC pytest suite ($(RBAC_PYTEST_DIRS))…"

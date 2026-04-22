@@ -37,7 +37,7 @@ on:
       - 'scripts/check-no-new-requireAdmin.sh'
       - 'deploy/keycloak/realm-config.json'
       - 'deploy/keycloak/realm-config-extras.json'
-      - 'docker-compose/docker-compose.e2e.override.yaml'
+      - 'docker-compose.dev.yaml'
       - 'Makefile'
       - '.github/workflows/test-rbac.yaml'
   push:
@@ -223,7 +223,6 @@ jobs:
       - name: Pull docker images for the stack (warm cache)
         run: |
           docker compose -f docker-compose.dev.yaml \
-            -f docker-compose/docker-compose.e2e.override.yaml \
             pull --ignore-pull-failures || true
 
       - name: ▶ make test-rbac (full pipeline, RBAC_E2E=1)
@@ -236,7 +235,6 @@ jobs:
         run: |
           mkdir -p test-results/docker-logs
           docker compose -f docker-compose.dev.yaml \
-            -f docker-compose/docker-compose.e2e.override.yaml \
             logs --no-color > test-results/docker-logs/all.log 2>&1 || true
 
       - name: Upload e2e artifacts

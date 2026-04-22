@@ -285,10 +285,10 @@ integration/benchmark_results.md
 tests/reports/
 
 # We no longer have a separate docker-compose directory.
+# Spec 102: the previous e2e overlay was inlined into docker-compose.dev.yaml
+# via ${VAR:-default} substitution (see Makefile E2E_COMPOSE_ENV) so the
+# e2e lane reuses the dev compose file and a curated COMPOSE_PROFILES set.
 docker-compose/*
-# ...except the e2e override file (spec 102, Clarification 2026-04-22) which
-# is a thin overlay on docker-compose.dev.yaml used by `make test-rbac`.
-!docker-compose/docker-compose.e2e.override.yaml
 
 # Spec 102 — RBAC test artifacts (junit, playwright traces, html reports)
 test-results/

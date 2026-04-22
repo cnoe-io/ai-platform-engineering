@@ -47,13 +47,24 @@ services:
       - ${TASK_CONFIG_PATH:-./charts/ai-platform-engineering/data/task_config.yaml}:/app/task_config.yaml
       - ./ai_platform_engineering:/app/ai_platform_engineering
       - ${HOME}/.aws:/home/appuser/.aws:ro
+      # Spec 102 — PDP-unavailable fallback. Defaults to /dev/null so the mount
+      # is a harmless no-op in dev; the e2e lane sets RBAC_FALLBACK_FILE to the
+      # real path on the host (./deploy/keycloak/realm-config-extras.json) AND
+      # sets RBAC_FALLBACK_CONFIG_PATH so the helper actually reads it.
+      - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
     env_file:
       - .env
     ports:
-      - "8000:8000"
+      # Host port is parameterized so the e2e lane (spec 102) can publish on a
+      # non-conflicting port without a separate compose override file.
+      # Default keeps dev behavior unchanged (8000); e2e sets SUPERVISOR_HOST_PORT=28000.
+      - "${SUPERVISOR_HOST_PORT:-8000}:8000"
     environment:
       - AWS_CONFIG_FILE=/home/appuser/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
+      # Spec 102 — PDP-unavailable fallback. Path is a no-op unless the e2e lane
+      # mounts /etc/keycloak/realm-config-extras.json (see volumes below).
+      - RBAC_FALLBACK_CONFIG_PATH=${RBAC_FALLBACK_CONFIG_PATH:-}
       # Prompt configuration file path
       - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
       # Task config file path (self-service workflows)
@@ -234,7 +245,9 @@ services:
     image: mongo:7.0
     container_name: caipe-mongodb-dev
     ports:
-      - "27017:27017"
+      # Host port is parameterized for the spec 102 e2e lane (sets MONGODB_HOST_PORT=28017)
+      # to avoid collision with a host-side MongoDB on 27017. Container port is unchanged.
+      - "${MONGODB_HOST_PORT:-27017}:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGODB_ROOT_USERNAME:-admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_ROOT_PASSWORD:-changeme}
@@ -1183,11 +1196,17 @@ services:
         - BUILD_DATE=${BUILD_DATE:-}
     image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}
     container_name: caipe-ui
+    # IMPORTANT: caipe-ui host port MUST stay 3000 — Keycloak's caipe-ui client
+    # only allow-lists http://localhost:3000/* as a redirect URI (see
+    # deploy/keycloak/realm-config.json). The e2e lane reuses the same port.
     ports: ["3000:3000"]
     env_file:
       - .env
     environment:
       - NODE_ENV=production
+      # Spec 102 — Playwright sets E2E_RUN=true to enable test-only fixtures
+      # (see ui/src/lib/test-fixtures.ts). Defaults to false in dev.
+      - E2E_RUN=${E2E_RUN:-false}
       # CAIPE supervisor A2A endpoint URL
       # Override with A2A_BASE_URL environment variable
       - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
@@ -1278,10 +1297,13 @@ services:
       # Mount source for hot reload in development
       - ./ai_platform_engineering/dynamic_agents/src:/app/dynamic_agents/src
       - ${HOME}/.aws:/home/app/.aws:ro
+      # Spec 102 — PDP-unavailable fallback (no-op in dev; see caipe-supervisor).
+      - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
     env_file: [.env]
     environment:
       - AWS_CONFIG_FILE=/home/app/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
+      - RBAC_FALLBACK_CONFIG_PATH=${RBAC_FALLBACK_CONFIG_PATH:-}
       - AWS_BEDROCK_STREAMING=${AWS_BEDROCK_STREAMING:-false}
       - AWS_BEDROCK_USE_CONVERSE_API=${AWS_BEDROCK_USE_CONVERSE_API:-true}
       - AWS_BEDROCK_BASE_MODEL_ID=${AWS_BEDROCK_BASE_MODEL_ID:-}
@@ -1338,11 +1360,14 @@ services:
       - ./ai_platform_engineering/knowledge_bases/rag/server/src/server:/app/server/src/server
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
       - ${HOME}/.aws:/home/app/.aws:ro
+      # Spec 102 — PDP-unavailable fallback (no-op in dev; see caipe-supervisor).
+      - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
     ports: ["9446:9446"]
     environment:
       - AWS_CONFIG_FILE=/home/app/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
+      - RBAC_FALLBACK_CONFIG_PATH=${RBAC_FALLBACK_CONFIG_PATH:-}
       - ALLOW_UNAUTHENTICATED=true
       # Trusted Network Configuration
       - ALLOW_TRUSTED_NETWORK=${ALLOW_TRUSTED_NETWORK:-true}

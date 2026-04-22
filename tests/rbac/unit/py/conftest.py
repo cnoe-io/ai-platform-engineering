@@ -71,9 +71,9 @@ def _pymongo_module() -> Any:
 def audit_collection(_pymongo_module: Any) -> Any:
     """Return the live `authz_decisions` collection used for FR-007 assertions.
 
-    Skips the test if Mongo is unreachable. The compose stack maps Mongo to
-    `localhost:28017` per `docker-compose/docker-compose.e2e.override.yaml`;
-    override via `MONGODB_URI=…`.
+    Skips the test if Mongo is unreachable. The e2e lane in `make test-rbac-up`
+    publishes Mongo on `localhost:28017` (via `MONGODB_HOST_PORT=28017` injected
+    into `docker-compose.dev.yaml`); override via `MONGODB_URI=…`.
     """
     uri = os.environ.get("MONGODB_URI", DEFAULT_MONGODB_URI)
     db_name = os.environ.get("AUDIT_DB", DEFAULT_AUDIT_DB)
