@@ -37,12 +37,22 @@ def _reset_rag_state():
     from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
         _rag_capped_tools,
         _rag_cap_hit_counts,
+        FetchDocumentCapWrapper,
+        SearchCapWrapper,
     )
     _rag_capped_tools.clear()
     _rag_cap_hit_counts.clear()
+    FetchDocumentCapWrapper._global_counts.clear()
+    FetchDocumentCapWrapper._global_timestamps.clear()
+    SearchCapWrapper._global_counts.clear()
+    SearchCapWrapper._global_timestamps.clear()
     yield
     _rag_capped_tools.clear()
     _rag_cap_hit_counts.clear()
+    FetchDocumentCapWrapper._global_counts.clear()
+    FetchDocumentCapWrapper._global_timestamps.clear()
+    SearchCapWrapper._global_counts.clear()
+    SearchCapWrapper._global_timestamps.clear()
 
 
 def _patch_config(thread_id: str = "test-thread"):
@@ -56,14 +66,20 @@ def _patch_config(thread_id: str = "test-thread"):
 class TestMiddlewareRagLoopExit:
 
     def test_terminates_when_all_rag_calls_capped(self):
-        """When both search and fetch_document are capped and the model still calls them,
-        after_model should inject synthesis ToolMessages WITHOUT jump_to='end' so the LLM
-        gets one turn to produce a real answer. See PR #1231 (SDPL-1601)."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _record_rag_cap_hit
+        """When wrapper counters are at max, after_model should intercept via batch reservation
+        and inject synthesis ToolMessages WITHOUT jump_to='end' on the first cap hit,
+        giving the LLM one turn to produce a real answer. See PR #1231 (SDPL-1601)."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            SearchCapWrapper,
+            FetchDocumentCapWrapper,
+            _DEFAULT_MAX_SEARCH_CALLS,
+            _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
+        )
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
-        _record_rag_cap_hit("t1", "search")
-        _record_rag_cap_hit("t1", "fetch_document")
+        # Set wrapper counters to max so rag_try_reserve_batch returns False
+        SearchCapWrapper._global_counts["t1"] = _DEFAULT_MAX_SEARCH_CALLS
+        FetchDocumentCapWrapper._global_counts["t1"] = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS
 
         ai_msg = _make_ai_message_with_tool_calls([
             _tool_call("search", "tc-s"),
@@ -82,7 +98,7 @@ class TestMiddlewareRagLoopExit:
             result = middleware.after_model(state)
 
         assert result is not None, "Expected middleware to inject synthesis messages"
-        assert "jump_to" not in result, "Must NOT jump_to end — LLM needs a turn to synthesize"
+        assert "jump_to" not in result, "Must NOT jump_to end on first cap hit — LLM needs a turn to synthesize"
         assert len(result["messages"]) == 2
         assert all(isinstance(m, ToolMessage) for m in result["messages"])
 
