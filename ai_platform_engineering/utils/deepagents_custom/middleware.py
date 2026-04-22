@@ -132,14 +132,27 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         """
         task_pending = state.get("task_execution_pending", False)
         tasks = state.get("tasks") or []
-        
-        # Log all state keys to diagnose whether invoke_self_service_task's Command update was applied
-        state_keys = list(state.keys()) if hasattr(state, 'keys') else "N/A"
-        logger.info(f"[DeterministicTaskMiddleware] before_model: task_pending={task_pending}, tasks_count={len(tasks)}, state_keys={state_keys}")
 
+        # Idle-path no-op: every model turn passes through this hook even when no
+        # Quick Action workflow is active. Demoted to DEBUG so production logs
+        # aren't dominated by per-turn middleware tracing for skills/regular chat.
         if not task_pending or not tasks:
-            logger.info(f"[DeterministicTaskMiddleware] before_model: No pending tasks, passing through (task_pending={task_pending}, tasks={len(tasks)})")
+            logger.debug(
+                "[DeterministicTaskMiddleware] before_model: no pending tasks, "
+                "passing through (task_pending=%s, tasks=%d)",
+                task_pending,
+                len(tasks),
+            )
             return None
+
+        # An actual deterministic task is about to be injected; this IS interesting.
+        state_keys = list(state.keys()) if hasattr(state, "keys") else "N/A"
+        logger.info(
+            "[DeterministicTaskMiddleware] before_model: task_pending=%s, tasks_count=%d, state_keys=%s",
+            task_pending,
+            len(tasks),
+            state_keys,
+        )
         
         # Get next task
         task = tasks[0]
