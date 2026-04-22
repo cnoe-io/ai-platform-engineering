@@ -187,8 +187,6 @@ async def _fetch_userinfo(token: str) -> Optional[dict[str, Any]]:
 
 async def _fetch_userinfo_cached(token: str) -> Optional[dict[str, Any]]:
     """Fetch userinfo with caching to reduce OIDC provider load."""
-    global _userinfo_cache
-
     now = time.monotonic()
     token_hash = hashlib.sha256(token.encode()).hexdigest()
 

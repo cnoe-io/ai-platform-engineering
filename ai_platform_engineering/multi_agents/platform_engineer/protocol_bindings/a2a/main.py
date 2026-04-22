@@ -230,6 +230,13 @@ else:
 # JWT user context middleware — extracts user identity from the Bearer token
 # and stores it in a per-request contextvar. Runs after auth so the token is
 # already validated. Active whenever a Bearer token is present (no extra flag).
+#
+# Smart-merge note (PR #1257 + #1145): RBAC factored this middleware into
+# `jwt_user_context_middleware.py`. PR #1145 defined an inline class gated on
+# ENABLE_USER_INFO_TOOL. We keep RBAC's external-module pattern AND register
+# unconditionally because multiple downstream consumers depend on the
+# contextvar (e.g. base_langgraph_agent's MCP forwarder, OBO/agentgateway
+# integrations) — not just the user-info tool.
 from ai_platform_engineering.utils.auth.jwt_user_context_middleware import JwtUserContextMiddleware
 app.add_middleware(JwtUserContextMiddleware)
 logger.info("JWT user context middleware enabled")

@@ -116,6 +116,11 @@ global:
 
   agentgateway:
     enabled: false
+    # Set to true only if Istio CRDs are NOT already present in the cluster.
+    # If Istio is already installed (any version), leave this false to avoid conflicts.
+    installIstioCrds: false
+    # Port for the agentgateway proxy listener (Gateway resource)
+    proxyPort: 8080
 
   # LangGraph Redis for checkpoint and cross-thread store persistence.
   # Two deployment options:
@@ -347,6 +352,46 @@ agent-argocd:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    # Route MCP traffic through agentgateway proxy (requires global.agentgateway.enabled).
+    # When enabled, subagent MCP calls go through the agentgateway proxy which can
+    # enforce JWT validation and CEL-based access control on MCP tools.
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP # SSE or StreamableHTTP
+      # policy: (optional) AgentgatewayPolicy for this MCP backend.
+      #   Creates an AgentgatewayPolicy resource attached to the HTTPRoute.
+      #   Uses CEL expressions evaluated against jwt.* claims and mcp.tool.name.
+      #   See https://agentgateway.dev/docs/kubernetes/latest/reference/cel/
+      #
+      # policy:
+      #   mcpAuthorization:
+      #     action: Allow  # Allow (default) or Deny
+      #     rules:
+      #       # --- Team/group-based access ---
+      #       # Only users in the "sre-team" group can use any tool:
+      #       # - '"sre-team" in jwt.groups'
+      #
+      #       # Only users in "sre-team" OR "platform-team" can use any tool:
+      #       # - '"sre-team" in jwt.groups || "platform-team" in jwt.groups'
+      #
+      #       # --- User-based access ---
+      #       # Only a specific user (by email) can use any tool:
+      #       # - 'jwt.email == "admin@example.com"'
+      #
+      #       # --- Tool-level filtering ---
+      #       # Allow all authenticated users to list/read, but restrict writes:
+      #       # - 'mcp.tool.name.startsWith("get_") || mcp.tool.name.startsWith("list_")'
+      #       # - '"sre-team" in jwt.groups && mcp.tool.name.startsWith("sync_")'
+      #
+      #       # --- Combined: team + tool ---
+      #       # Read-only tools for everyone, write tools only for sre-team:
+      #       # - 'mcp.tool.name.startsWith("get_") || mcp.tool.name.startsWith("list_")'
+      #       # - '"sre-team" in jwt.groups'
+      #
+      #       # Deny mode example (block specific tools for everyone except admins):
+      #       # action: Deny
+      #       # rules:
+      #       #   - 'mcp.tool.name == "delete_application" && !("admin" in jwt.groups)'
 
 agent-backstage:
   nameOverride: "agent-backstage"
@@ -361,6 +406,9 @@ agent-backstage:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-confluence:
   nameOverride: "agent-confluence"
@@ -374,6 +422,9 @@ agent-confluence:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
     env:
       TRANSPORT: "streamable-http"
 
@@ -448,6 +499,9 @@ agent-jira:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-pagerduty:
   nameOverride: "agent-pagerduty"
@@ -462,6 +516,9 @@ agent-pagerduty:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-slack:
   nameOverride: "agent-slack"
@@ -475,6 +532,9 @@ agent-slack:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 3001
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
     command: ["--transport", "http"]
     env:
       SLACK_MCP_HOST: "0.0.0.0"
@@ -496,6 +556,9 @@ agent-aws:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
   env:
     # -- Block kubectl get/describe secret(s) and redact Secret data from output. Defaults to true (on).
     RESTRICT_KUBECTL_SECRETS: "true"
@@ -523,6 +586,9 @@ agent-splunk:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-victorops:
   nameOverride: "agent-victorops"
@@ -536,6 +602,9 @@ agent-victorops:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-webex:
   nameOverride: "agent-webex"
@@ -550,6 +619,9 @@ agent-webex:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-weather:
   nameOverride: "agent-weather"
@@ -578,6 +650,9 @@ agent-komodor:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-netutils:
   nameOverride: "agent-netutils"
@@ -594,6 +669,9 @@ agent-netutils:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-weather:
   nameOverride: "agent-weather"

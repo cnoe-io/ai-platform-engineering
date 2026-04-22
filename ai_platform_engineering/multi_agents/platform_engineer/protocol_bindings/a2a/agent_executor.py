@@ -25,9 +25,11 @@ from a2a.types import (
     TextPart,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import ENABLE_USER_INFO_TOOL
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
     AIPlatformEngineerA2ABinding
 )
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
@@ -1138,6 +1140,13 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         state.trace_id = trace_id
 
         try:
+            # Smart-merge: combine RBAC's OBO/user_id propagation (PR #1257) with
+            # 1145's user_name/user_groups JWT-claim forwarding. RBAC's executor
+            # sets attributes on the agent for `obo_token`, then uses
+            # inspect.signature to safely pass `user_id`/`obo_token` only if the
+            # current `agent.stream` signature accepts them. We always pass
+            # `user_name`/`user_groups` because the merged `agent.stream`
+            # signature accepts them (verified at merge time).
             self.agent._pending_user_email = user_email
             if obo_token:
                 self.agent._obo_token = obo_token
@@ -1145,7 +1154,16 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             stream_kwargs = {"user_id": user_id} if "user_id" in stream_params else {}
             if "obo_token" in stream_params and obo_token:
                 stream_kwargs["obo_token"] = obo_token
-            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email, **stream_kwargs):
+            async for event in self.agent.stream(
+                query,
+                context_id,
+                trace_id,
+                command=resume_cmd,
+                user_email=user_email,
+                user_name=user_name,
+                user_groups=user_groups,
+                **stream_kwargs,
+            ):
                 # Drain remaining events after the executor has finished
                 # processing to let the LangGraph generator close naturally.
                 if state.stream_finished:

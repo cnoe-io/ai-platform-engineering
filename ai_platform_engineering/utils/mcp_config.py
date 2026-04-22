@@ -60,6 +60,18 @@ def resolve_mcp_port(agent_name: str, default: str = _DEFAULT_PORT) -> str:
     )
 
 
+def resolve_mcp_path(agent_name: str, default: str = "/mcp/") -> str:
+    """Return the effective MCP path for *agent_name*.
+
+    Lookup: ``<AGENT>_MCP_PATH`` -> *default*.
+
+    When routing through agentgateway the Helm chart sets a per-agent
+    path prefix (e.g. ``/mcp/jira``) so the HTTPRoute can dispatch to
+    the correct backend.
+    """
+    return os.getenv(f"{agent_name.upper()}_MCP_PATH", default)
+
+
 def resolve_mcp_url(
     agent_name: str,
     *,
@@ -70,11 +82,13 @@ def resolve_mcp_url(
     """Build the full MCP HTTP URL for *agent_name*.
 
     Combines :func:`resolve_mcp_host` and :func:`resolve_mcp_port` with
-    the given *path* (defaults to ``/mcp/``).
+    the given *path* (defaults to ``/mcp/``).  If ``<AGENT>_MCP_PATH`` is
+    set it takes precedence over the *path* argument.
     """
     host = resolve_mcp_host(agent_name, default=default_host)
     port = resolve_mcp_port(agent_name, default=default_port)
-    url = f"http://{host}:{port}{path}"
+    effective_path = resolve_mcp_path(agent_name, default=path)
+    url = f"http://{host}:{port}{effective_path}"
     logger.info("Resolved MCP URL for %s: %s", agent_name, url)
     return url
 

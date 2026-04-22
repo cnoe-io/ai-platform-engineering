@@ -153,6 +153,8 @@ export interface Config {
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
   ticketProvider: 'jira' | 'github' | null;
+  /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
+  userInfoToolEnabled: boolean;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
   /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
@@ -227,6 +229,7 @@ const DEFAULT_CONFIG: Config = {
   githubTicketLabel: 'caipe-reported',
   ticketEnabled: false,
   ticketProvider: null,
+  userInfoToolEnabled: false,
   oidcRequiredGroup: 'backstage-access',
   userInfoToolEnabled: false,
 };
@@ -388,6 +391,7 @@ export function getServerConfig(): Config {
     githubTicketLabel,
     ticketEnabled,
     ticketProvider,
+    userInfoToolEnabled,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
     userInfoToolEnabled,
   };

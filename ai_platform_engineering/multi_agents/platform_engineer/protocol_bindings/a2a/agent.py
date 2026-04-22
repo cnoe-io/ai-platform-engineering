@@ -487,6 +487,8 @@ class AIPlatformEngineerA2ABinding:
       trace_id: Optional[str] = None,
       command: Optional[Command] = None,
       user_email: Optional[str] = None,
+      user_name: Optional[str] = None,
+      user_groups: Optional[list[str]] = None,
   ) -> AsyncIterable[dict[str, Any]]:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}")
 
@@ -512,9 +514,13 @@ class AIPlatformEngineerA2ABinding:
       else:
 
           state_dict = {'messages': [('user', query or '')]}
-          # Store user_email in graph state for middleware to use in task prompts
+          # Store user context in graph state for middleware and tools
           if user_email:
               state_dict['user_email'] = user_email
+          if user_name is not None:
+              state_dict['user_name'] = user_name
+          if user_groups is not None:
+              state_dict['user_groups'] = user_groups
           # Inject skills files into state for SkillsMiddleware / StateBackend
           skills_files = getattr(self._mas_instance, '_skills_files', None)
           if skills_files:

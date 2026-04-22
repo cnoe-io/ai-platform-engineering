@@ -151,8 +151,8 @@ describe('getServerConfig', () => {
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
-        'oidcRequiredGroup',
         'userInfoToolEnabled',
+        'oidcRequiredGroup',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -925,11 +925,8 @@ describe('getClientConfigScript (XSS safety)', () => {
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
-<<<<<<< HEAD
-      'oidcRequiredGroup',
-=======
       'userInfoToolEnabled',
->>>>>>> 7982deba (fix(ui): fix ui test)
+      'oidcRequiredGroup',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });
