@@ -1,40 +1,23 @@
-## 0.3.9 (2026-04-21)
+## 0.3.10 (2026-04-21)
+
+## 0.3.9-rc.2 (2026-04-21)
+
+### Fix
+
+- **admin**: resolve stats bugs, add users pagination, channel filter, and loading indicators (#1266)
+
+## 0.3.9-rc.1 (2026-04-21)
 
 ### Fix
 
 - **helm**: single-node MCP ServiceAccounts and configurable name prefix (#1267)
-
-## 0.3.8-rc.6 (2026-04-19)
-
-### Fix
-
 - **supervisor**: stream curl tool responses to client (#1255)
-
-## 0.3.8-rc.5 (2026-04-18)
-
-### Fix
-
 - **security**: resolve CodeQL source code alerts and update GitHub Actions (#1252)
-
-## 0.3.8-rc.4 (2026-04-18)
-
-### Fix
-
 - **docker**: upgrade base images, binaries, and patch system CVEs (#1251)
-
-## 0.3.8-rc.3 (2026-04-18)
-
-### Fix
-
 - **deps**: bump pypdf, python-multipart, authlib, langsmith to fix CVEs
-
-## 0.3.8-rc.2 (2026-04-17)
-
-### Fix
-
 - **deps**: bump langchain-openai, langchain-core, langchain-text-splitters to fix CVEs (#1248)
 
-## 0.3.8-rc.1 (2026-04-17)
+## 0.3.8 (2026-04-17)
 
 ### Feat
 
