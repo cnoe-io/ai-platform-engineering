@@ -25,6 +25,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import clear_rag_state, set_rag_conversation_id
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from ai_platform_engineering.utils.a2a_common.langmem_utils import (
@@ -586,9 +587,9 @@ class AIPlatformEngineerA2ABinding:
       thread_id_for_rag = (config or {}).get("configurable", {}).get("thread_id")
       if thread_id_for_rag:
           try:
-              from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import clear_rag_state  # noqa: PLC0415
               clear_rag_state(thread_id_for_rag)
-              logging.debug(f"RAG state cleared for thread_id={thread_id_for_rag}")
+              set_rag_conversation_id(thread_id_for_rag)
+              logging.debug(f"RAG state cleared and conversation ID set for thread_id={thread_id_for_rag}")
           except Exception as rag_clear_err:
               logging.debug(f"Could not clear RAG state: {rag_clear_err}")
 

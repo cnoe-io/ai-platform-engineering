@@ -174,11 +174,14 @@ class TestMiddlewareRagLoopExit:
 
     def test_terminates_with_only_search_capped_and_only_search_called(self):
         """When only search is capped and model calls ONLY search,
-        middleware should inject synthesis messages WITHOUT jump_to='end'."""
-        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _record_rag_cap_hit
+        middleware should inject synthesis messages WITHOUT jump_to='end' on first cap hit."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _rag_capped_tools
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
-        _record_rag_cap_hit("t5", "search")
+        # Populate _rag_capped_tools directly so is_rag_hard_stopped returns True
+        # without incrementing _rag_cap_hit_counts — simulates _arun having capped
+        # the tool but this being the first after_model intercept (count still 0).
+        _rag_capped_tools["t5"] = {"search"}
 
         ai_msg = _make_ai_message_with_tool_calls([
             _tool_call("search", "tc-s1"),
@@ -242,3 +245,39 @@ class TestMiddlewareRagLoopExit:
         state = _make_state([AIMessage(content="Just a text response")])
         middleware = DeterministicTaskMiddleware()
         assert middleware.after_model(state) is None
+
+    def test_mixed_batch_only_blocks_capped_tool(self):
+        """When fetch is capped but search is not, a mixed batch should block only
+        the fetch calls — search calls must be allowed through (not falsely blocked)."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            FetchDocumentCapWrapper,
+            _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
+        )
+        from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
+        from langchain_core.messages import ToolMessage
+
+        FetchDocumentCapWrapper._global_counts["t9"] = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS
+
+        ai_msg = _make_ai_message_with_tool_calls([
+            _tool_call("search", "tc-s1"),
+            _tool_call("fetch_document", "tc-f1"),
+        ])
+        state = _make_state([ai_msg])
+
+        middleware = DeterministicTaskMiddleware()
+        with __import__("unittest.mock", fromlist=["patch"]).patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.get_config",
+            return_value={"configurable": {"thread_id": "t9"}},
+        ), __import__("unittest.mock", fromlist=["patch"]).patch(
+            "langgraph.config.get_config",
+            return_value={"configurable": {"thread_id": "t9"}},
+        ):
+            result = middleware.after_model(state)
+
+        # Only fetch_document should be blocked; search has budget remaining
+        assert result is not None, "Expected middleware to block the capped fetch_document call"
+        assert len(result["messages"]) == 1
+        blocked = result["messages"][0]
+        assert isinstance(blocked, ToolMessage)
+        assert blocked.tool_call_id == "tc-f1"
+        assert blocked.name == "fetch_document"
