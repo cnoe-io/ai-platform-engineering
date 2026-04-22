@@ -25,9 +25,24 @@ REPO_ROOT = str(Path(__file__).resolve().parents[4])
 # ---------------------------------------------------------------------------
 
 def _stub_modules():
-    stubs = {
+    """Stub out heavy optional deps only when not already importable.
+
+    Spec 102 fix (2026-04-22): the previous version unconditionally injected a
+    bare ``types.ModuleType("jwt")`` stub into ``sys.modules`` if no module of
+    that name was already loaded. That worked in isolation but corrupted
+    pytest collection once ``ai_platform_engineering.utils.auth.jwks_validate``
+    started doing ``from jwt import InvalidTokenError`` — the stub had no such
+    attribute, so collection of any test that imported the real PyJWT failed
+    with ``ImportError: cannot import name 'InvalidTokenError' from 'jwt'``.
+
+    Real PyJWT is now a hard dependency (declared in ``pyproject.toml`` for the
+    auth helpers), so we only stub the truly-optional ``prometheus_client`` and
+    fall through to the real ``jwt`` package whenever it is importable.
+    """
+    import importlib.util
+
+    stubs: dict[str, types.ModuleType] = {
         "prometheus_client": types.ModuleType("prometheus_client"),
-        "jwt": types.ModuleType("jwt"),
     }
 
     stubs["prometheus_client"].Counter = MagicMock
@@ -36,8 +51,13 @@ def _stub_modules():
     stubs["prometheus_client"].Info = MagicMock
     stubs["prometheus_client"].generate_latest = lambda: b""
     stubs["prometheus_client"].CONTENT_TYPE_LATEST = "text/plain"
-    stubs["jwt"].decode = Mock(return_value={})
-    stubs["jwt"].PyJWTError = Exception
+
+    # Only stub `jwt` if real PyJWT isn't installed in this environment.
+    if "jwt" not in sys.modules and importlib.util.find_spec("jwt") is None:
+        jwt_stub = types.ModuleType("jwt")
+        jwt_stub.decode = Mock(return_value={})
+        jwt_stub.PyJWTError = Exception
+        stubs["jwt"] = jwt_stub
 
     for name, mod in stubs.items():
         if name not in sys.modules:

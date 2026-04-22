@@ -197,6 +197,13 @@ describe('PATCH /api/admin/users/[id]/role', () => {
   });
 
   it('returns 403 when not admin', async () => {
+    // Spec 102 / Phase 3 — this route migrated from requireAdmin (which threw
+    // "Admin access required - must be member of admin group") to
+    // requireRbacPermission, which throws the standard ApiError(403)
+    // "You do not have permission to perform this action." The default
+    // checkPermission mock at the top of this file already returns
+    // { allowed: false, reason: 'DENY_NO_CAPABILITY' }, so non-admin sessions
+    // hit the new 403 path.
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest('/api/admin/users/user@example.com/role', {
       method: 'PATCH',
@@ -206,7 +213,7 @@ describe('PATCH /api/admin/users/[id]/role', () => {
     const res = await PATCH(req, makeContext('user@example.com'));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
   it('returns 503 when MongoDB not configured', async () => {

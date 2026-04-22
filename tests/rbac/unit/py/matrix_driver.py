@@ -64,7 +64,7 @@ import httpx
 import pytest
 import yaml
 
-from tests.rbac.fixtures.keycloak import PERSONAS, PersonaToken, get_persona_token
+from tests.rbac.fixtures.keycloak import PERSONAS, PersonaToken
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MATRIX_YAML = REPO_ROOT / "tests" / "rbac" / "rbac-matrix.yaml"
