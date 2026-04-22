@@ -21,9 +21,15 @@
  *                   to the request origin.
  *
  * Security notes:
- *   - The script NEVER prints or logs the API key. The key arrives via the
- *     `CAIPE_CATALOG_KEY` env var (preferred) or `--api-key=<value>` flag
- *     (printed once with a warning that it leaks into shell history).
+ *   - The script NEVER prints or logs the API key. Resolution order:
+ *       1. `--api-key=<value>` flag (warns: visible in `ps` to other users on
+ *          the same host)
+ *       2. `$CAIPE_CATALOG_KEY` env var
+ *       3. `~/.config/caipe/config.json` { "api_key": "..." }
+ *       4. `~/.config/grid/config.json`  { "api_key": "..." } (fallback for
+ *          shared dotfiles between Grid and CAIPE)
+ *     The Step-3 UI walks users through creating the config.json file, so the
+ *     happy path is "set it once, never type the key again."
  *   - The rendered template body is NOT baked into the script. Instead the
  *     script does a fresh GET to /api/skills/bootstrap?... at install time,
  *     so users always get the latest canonical template and the script stays
@@ -31,9 +37,10 @@
  *   - We refuse to overwrite an existing target file unless `--upgrade` (for
  *     a previously-installed CAIPE skill) or `--force` (escape hatch) is
  *     passed, so re-running the one-liner is safe.
- *   - Every file the script writes carries a marker line
- *     (`caipe-skill: <agent>/<command>`) in a format-appropriate comment so
- *     `--upgrade` can verify it's only overwriting files it owns.
+ *   - Ownership of installed files is tracked in a sidecar manifest at
+ *     `~/.config/caipe/installed.json`. `--upgrade` consults the manifest to
+ *     decide whether it's safe to overwrite a file. The manifest is the only
+ *     state we keep on disk besides the installed skills themselves.
  *
  * Response:
  *   - Content-Type: text/x-shellscript; charset=utf-8
@@ -252,31 +259,44 @@ API_KEY="\${CAIPE_CATALOG_KEY:-}"
 FORCE=0
 UPGRADE=0
 
-# Marker baked into every file we write. Lets --upgrade verify ownership
-# before clobbering. Format-specific comment syntax is applied below.
-MARKER_TAG="caipe-skill: \$AGENT_ID/\$COMMAND_NAME"
+# Sidecar manifest of files this installer has written, used by --upgrade to
+# decide whether it's safe to overwrite an existing target. Lives next to the
+# config.json the bootstrap helper already reads, so a single dotfile sync
+# moves both with the user.
+MANIFEST_PATH="\${CAIPE_INSTALL_MANIFEST:-\${HOME:-.}/.config/caipe/installed.json}"
 
 usage() {
   cat <<USAGE
 install-skills.sh — installs the CAIPE bootstrap skill for \$AGENT_LABEL.
 
 Usage:
-  CAIPE_CATALOG_KEY=<key> $0 [--upgrade|--force]
-  $0 --api-key=<key> [--upgrade|--force]
-  $0 --help
+  $0 [--upgrade|--force] [--api-key=<key>]
+
+API key resolution (first match wins):
+  1. --api-key=<key>           passed on the command line
+  2. \\\$CAIPE_CATALOG_KEY        environment variable
+  3. ~/.config/caipe/config.json   { "api_key": "..." }   (recommended)
+  4. ~/.config/grid/config.json    { "api_key": "..." }   (shared dotfile)
+
+The Step-3 UI walks you through creating the config.json file, so on a host
+where you've already done that you don't need to pass the key at all.
 
 Options:
-  --api-key=<key>   Supply the catalog API key as a flag. Prefer the
-                    CAIPE_CATALOG_KEY env var; flags appear in shell history.
-  --upgrade         Replace an existing CAIPE skill at the target path with
-                    the latest version. Refuses to touch a file that wasn't
-                    written by this installer (no marker found).
+  --api-key=<key>   Supply the catalog API key as a flag. WARNING: visible in
+                    \\\`ps\\\` output to other users on the same host. Prefer
+                    putting the key in ~/.config/caipe/config.json once.
+  --upgrade         Replace a previously-installed CAIPE skill at the target
+                    path with the latest version. Looks up ownership in the
+                    manifest at $MANIFEST_PATH and refuses to touch files it
+                    doesn't own.
   --force           Overwrite the target file unconditionally. Use this only
                     if you know you want to discard the existing contents.
   --help            Show this message.
 
 Environment:
-  CAIPE_CATALOG_KEY  Catalog API key (preferred). Never echoed by this script.
+  CAIPE_CATALOG_KEY        Catalog API key. Never echoed by this script.
+  CAIPE_INSTALL_MANIFEST   Override path of the sidecar install manifest
+                           (default: ~/.config/caipe/installed.json).
 USAGE
 }
 
@@ -286,15 +306,16 @@ while [ "\$#" -gt 0 ]; do
   case "\$1" in
     --api-key=*)
       API_KEY="\${1#--api-key=}"
-      echo "warning: --api-key passes the secret on the command line and will" >&2
-      echo "         be recorded in your shell history. Prefer:" >&2
-      echo "             CAIPE_CATALOG_KEY=<key> $0" >&2
+      echo "warning: --api-key passes the secret on the process command line." >&2
+      echo "         It will appear in 'ps' output to other users on this host." >&2
+      echo "         Prefer storing the key in ~/.config/caipe/config.json once." >&2
       ;;
     --api-key)
       shift
       API_KEY="\${1:-}"
-      echo "warning: --api-key passes the secret on the command line and will" >&2
-      echo "         be recorded in your shell history." >&2
+      echo "warning: --api-key passes the secret on the process command line." >&2
+      echo "         It will appear in 'ps' output to other users on this host." >&2
+      echo "         Prefer storing the key in ~/.config/caipe/config.json once." >&2
       ;;
     --force) FORCE=1 ;;
     --upgrade) UPGRADE=1 ;;
@@ -308,9 +329,45 @@ while [ "\$#" -gt 0 ]; do
   shift || true
 done
 
+# Try the on-disk config files when no key has been supplied yet. We use
+# python3 (always available where this script runs because the bootstrap
+# helper requires it) so we don't need to ship a JSON parser in bash.
+read_api_key_from_config() {
+  local cfg_path="\$1"
+  if [ ! -r "\$cfg_path" ]; then
+    return 1
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import json, sys
+try:
+  data = json.load(open(sys.argv[1]))
+except Exception:
+  sys.exit(1)
+key = (data.get("api_key") or "").strip()
+if not key:
+  sys.exit(1)
+sys.stdout.write(key)
+' "\$cfg_path" 2>/dev/null && return 0
+  fi
+  return 1
+}
+
+if [ -z "\$API_KEY" ]; then
+  for cfg in "\${HOME:-.}/.config/caipe/config.json" "\${HOME:-.}/.config/grid/config.json"; do
+    if k="\$(read_api_key_from_config "\$cfg")" && [ -n "\$k" ]; then
+      API_KEY="\$k"
+      echo "==> using API key from \$cfg" >&2
+      break
+    fi
+  done
+fi
+
 if [ -z "\$API_KEY" ]; then
   echo "error: catalog API key is required." >&2
-  echo "       Set CAIPE_CATALOG_KEY=<key> or pass --api-key=<key>." >&2
+  echo "       Easiest fix: create ~/.config/caipe/config.json with:" >&2
+  echo "           { \\"api_key\\": \\"<your-key>\\" }" >&2
+  echo "       Or pass --api-key=<key> / set CAIPE_CATALOG_KEY=<key>." >&2
   exit 64
 fi
 
@@ -348,21 +405,107 @@ case "\$SCOPE" in
   project) COMMANDS_DIR="\$COMMANDS_DIR_RAW" ;;
 esac
 
-# Pick a marker comment template appropriate to the file format. Used by both
-# single-skill and bulk-install paths so --upgrade can verify ownership.
-case "\$FORMAT" in
-  gemini-toml)             MARKER_PREFIX="# " ; MARKER_SUFFIX="" ;;
-  markdown-frontmatter|markdown-plain)
-                           MARKER_PREFIX="<!-- " ; MARKER_SUFFIX=" -->" ;;
-  *)                       MARKER_PREFIX="" ; MARKER_SUFFIX="" ;;
-esac
+# ---------- sidecar install manifest helpers ----------
+#
+# Ownership of installed files is tracked in a JSON manifest at
+# \$MANIFEST_PATH. The on-disk file body is unmodified — no comment markers,
+# no preamble lines — so what we write is byte-for-byte what the catalog
+# returned, and \`grep\`/\`diff\` against the upstream skill source produces a
+# clean diff.
+
+manifest_owns() {
+  # manifest_owns <abs-path>  →  exit 0 if the manifest records this path as
+  # installed by us, exit 1 otherwise. Missing manifest means "we own
+  # nothing". Robust to a corrupt file (treated as empty).
+  local target="\$1"
+  if [ ! -r "\$MANIFEST_PATH" ]; then
+    return 1
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import json, sys
+try:
+  data = json.load(open(sys.argv[1]))
+except Exception:
+  sys.exit(1)
+target = sys.argv[2]
+for entry in (data or {}).get("installed", []) or []:
+  if entry.get("path") == target:
+    sys.exit(0)
+sys.exit(1)
+' "\$MANIFEST_PATH" "\$target" 2>/dev/null
+    return \$?
+  fi
+  return 1
+}
+
+manifest_register() {
+  # manifest_register <abs-path>
+  # Idempotently insert/update an entry for this path in the manifest. We
+  # scope by (agent, scope, path) so re-installing the same skill at the same
+  # path replaces its record rather than duplicating it.
+  local target="\$1"
+  local cfg_dir
+  cfg_dir="\$(dirname "\$MANIFEST_PATH")"
+  if ! mkdir -p "\$cfg_dir" 2>/dev/null; then
+    echo "warning: could not create \$cfg_dir; --upgrade will not work next time" >&2
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    # No python3 means we also couldn't have parsed config.json above; skip
+    # tracking gracefully so the install itself still succeeds.
+    return 0
+  fi
+  python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$target" <<'PY' 2>/dev/null || true
+import datetime, json, os, sys, tempfile
+
+manifest_path, agent, scope, target = sys.argv[1:]
+data = {"version": 1, "installed": []}
+if os.path.isfile(manifest_path):
+    try:
+        data = json.load(open(manifest_path))
+        if not isinstance(data, dict):
+            data = {"version": 1, "installed": []}
+        data.setdefault("version", 1)
+        data.setdefault("installed", [])
+    except Exception:
+        data = {"version": 1, "installed": []}
+
+now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+entry = {
+    "agent": agent,
+    "scope": scope,
+    "path": target,
+    "installed_at": now,
+}
+# Replace any existing entry for the same (agent, scope, path).
+data["installed"] = [
+    e for e in data["installed"]
+    if not (e.get("agent") == agent and e.get("scope") == scope and e.get("path") == target)
+] + [entry]
+
+# Atomic write via tempfile in the same dir.
+fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=os.path.dirname(manifest_path) or ".")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, manifest_path)
+    os.chmod(manifest_path, 0o600)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+PY
+}
 
 # ---------- bulk install ("Pick your skills" selection) ----------
 #
 # Triggered when the gateway templated a non-empty CATALOG_URL into the
 # script. We fetch the catalog listing, then write one file per returned
-# skill into \$COMMANDS_DIR with the same marker/--upgrade semantics as the
-# single-skill flow below.
+# skill into \$COMMANDS_DIR with the same manifest/--upgrade semantics as
+# the single-skill flow below.
 if [ "\$BULK_MODE" = "1" ]; then
   if [ "\$IS_FRAGMENT" = "1" ]; then
     echo "error: bulk install is not supported for \$AGENT_LABEL" >&2
@@ -370,12 +513,6 @@ if [ "\$BULK_MODE" = "1" ]; then
     echo "       file; merging multiple skills automatically would risk" >&2
     echo "       clobbering your editor settings)." >&2
     exit 64
-  fi
-
-  if [ -z "\$MARKER_PREFIX\$MARKER_SUFFIX" ]; then
-    : # No marker syntax for this format — bulk writes still work but won't
-      # be eligible for --upgrade detection. Single-skill flow has the same
-      # caveat; this is intentional, not new.
   fi
 
   CATALOG_TMP="\$(mktemp -t caipe-catalog-XXXXXX)"
@@ -445,24 +582,19 @@ for s in data.get("skills", []) or []:
       continue
     fi
     TARGET="\$COMMANDS_DIR/\$SKILL_NAME.\$FILE_EXT"
-    MARKER_TAG="caipe-skill: \$AGENT_ID/\$SKILL_NAME"
-    MARKER_LINE=""
-    if [ -n "\$MARKER_PREFIX\$MARKER_SUFFIX" ]; then
-      MARKER_LINE="\$MARKER_PREFIX\$MARKER_TAG\$MARKER_SUFFIX"
-    fi
 
     # Per-file overwrite policy mirrors the single-skill flow:
     #   --force   : overwrite anything
-    #   --upgrade : overwrite only if our marker is present
+    #   --upgrade : overwrite only if our manifest records this path
     #   neither   : skip (don't error — partial bulk should still complete)
     if [ -e "\$TARGET" ]; then
       if [ "\$FORCE" -eq 1 ]; then
         :
       elif [ "\$UPGRADE" -eq 1 ]; then
-        if [ -n "\$MARKER_LINE" ] && grep -Fq -- "\$MARKER_TAG" "\$TARGET" 2>/dev/null; then
+        if manifest_owns "\$TARGET"; then
           :
         else
-          echo "skip: \$TARGET exists but was not installed by this script" >&2
+          echo "skip: \$TARGET exists but is not tracked by \$MANIFEST_PATH" >&2
           SKIPPED=\$((SKIPPED + 1))
           continue
         fi
@@ -474,16 +606,13 @@ for s in data.get("skills", []) or []:
     fi
 
     # Decode the base64 body into a tempfile in the same dir, then atomic-rename.
+    # The body is written verbatim — no marker line, no preamble — so what
+    # lands on disk is byte-for-byte the catalog's content.
     PER_TMP="\$(mktemp "\$COMMANDS_DIR/.caipe-install-XXXXXX")"
-    if [ -n "\$MARKER_LINE" ]; then
-      printf '%s\\n' "\$MARKER_LINE" > "\$PER_TMP"
-    else
-      : > "\$PER_TMP"
-    fi
     if command -v base64 >/dev/null 2>&1; then
       # macOS uses -D, GNU uses -d. Try -d first, fall back to -D.
-      if ! printf '%s' "\$SKILL_B64" | base64 -d >> "\$PER_TMP" 2>/dev/null; then
-        if ! printf '%s' "\$SKILL_B64" | base64 -D >> "\$PER_TMP" 2>/dev/null; then
+      if ! printf '%s' "\$SKILL_B64" | base64 -d > "\$PER_TMP" 2>/dev/null; then
+        if ! printf '%s' "\$SKILL_B64" | base64 -D > "\$PER_TMP" 2>/dev/null; then
           echo "error: failed to decode body for \$SKILL_NAME" >&2
           rm -f "\$PER_TMP"
           continue
@@ -496,6 +625,7 @@ for s in data.get("skills", []) or []:
     fi
     mv -f "\$PER_TMP" "\$TARGET"
     chmod 0644 "\$TARGET"
+    manifest_register "\$TARGET"
     echo "==> wrote \$TARGET"
     WROTE=\$((WROTE + 1))
   done < <(emit_records)
@@ -566,27 +696,20 @@ if [ -z "\$RENDERED" ]; then
   exit 76
 fi
 
-# Build the format-appropriate marker line for the single-skill write.
-# Bulk-install mode constructs its own per-skill markers in the loop above.
-MARKER_LINE=""
-if [ -n "\$MARKER_PREFIX\$MARKER_SUFFIX" ]; then
-  MARKER_LINE="\$MARKER_PREFIX\$MARKER_TAG\$MARKER_SUFFIX"
-fi
-
 # Decide if we may write to \$INSTALL_PATH.
 #   --force   : overwrite anything (escape hatch)
-#   --upgrade : overwrite ONLY if the existing file carries our marker
+#   --upgrade : overwrite ONLY if the manifest records this path as ours
 #   neither   : refuse if the file already exists
 if [ -e "\$INSTALL_PATH" ]; then
   if [ "\$FORCE" -eq 1 ]; then
     : # caller asked for unconditional overwrite
   elif [ "\$UPGRADE" -eq 1 ]; then
-    if [ -n "\$MARKER_LINE" ] && grep -Fq -- "\$MARKER_TAG" "\$INSTALL_PATH" 2>/dev/null; then
-      : # safe to upgrade — we wrote this file previously
+    if manifest_owns "\$INSTALL_PATH"; then
+      : # safe to upgrade — manifest says we wrote this file previously
     else
-      echo "error: \$INSTALL_PATH exists but was not installed by this script" >&2
-      echo "       (no '\$MARKER_TAG' marker found). Re-run with --force to" >&2
-      echo "       overwrite anyway, or remove the file first." >&2
+      echo "error: \$INSTALL_PATH exists but is not tracked by" >&2
+      echo "       \$MANIFEST_PATH. Re-run with --force to overwrite anyway," >&2
+      echo "       or remove the file first." >&2
       exit 73
     fi
   else
@@ -599,16 +722,15 @@ fi
 
 mkdir -p "\$INSTALL_DIR"
 
-# Atomic write: render to a tempfile in the same dir, then rename. Prepend
-# the marker (when applicable) so the next --upgrade run can recognize it.
+# Atomic write: render to a tempfile in the same dir, then rename. The body
+# is written verbatim — no marker line, no preamble — so what lands on disk
+# is byte-for-byte the gateway's rendered template. Ownership is recorded in
+# the sidecar manifest after the rename succeeds.
 TARGET_TMP="\$(mktemp "\$INSTALL_DIR/.caipe-install-XXXXXX")"
-if [ -n "\$MARKER_LINE" ]; then
-  printf '%s\\n%s' "\$MARKER_LINE" "\$RENDERED" > "\$TARGET_TMP"
-else
-  printf '%s' "\$RENDERED" > "\$TARGET_TMP"
-fi
+printf '%s' "\$RENDERED" > "\$TARGET_TMP"
 mv -f "\$TARGET_TMP" "\$INSTALL_PATH"
 chmod 0644 "\$INSTALL_PATH"
+manifest_register "\$INSTALL_PATH"
 
 echo "==> wrote \$INSTALL_PATH"
 echo "==> agent : \$AGENT_LABEL (\$AGENT_ID)"

@@ -130,13 +130,28 @@ describe("GET /api/skills/install.sh — script content", () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
-    // The script must source the key from the environment / a flag, not from
-    // a baked-in constant. None of these literals should appear.
+    // The script must source the key from the environment / a flag / config
+    // file, not from a baked-in constant. None of these literals should
+    // appear.
     expect(res.body).not.toMatch(/CAIPE_CATALOG_KEY=['"][A-Za-z0-9]/);
     expect(res.body).not.toContain("X-Caipe-Catalog-Key: sk-");
     // It MUST read the env var and provide a flag fallback.
     expect(res.body).toContain('API_KEY="${CAIPE_CATALOG_KEY:-}"');
     expect(res.body).toContain("--api-key=");
+  });
+
+  it("falls back to ~/.config/caipe/config.json when no key is supplied", async () => {
+    const res = await callGET(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    // Per Jeff Napper's PR #1268 review feedback (#1): the install script
+    // should read the API key out of the same config.json the bootstrap
+    // helper writes, so users don't have to pass it on every invocation.
+    expect(res.body).toContain("read_api_key_from_config");
+    expect(res.body).toContain("/.config/caipe/config.json");
+    // We also try the shared dotfile location used by other Outshift
+    // tooling, so a single key works across surfaces.
+    expect(res.body).toContain("/.config/grid/config.json");
   });
 
   it.each([
@@ -228,53 +243,47 @@ describe("GET /api/skills/install.sh — script content", () => {
     expect(res.body).toContain("UPGRADE=0");
   });
 
-  it("--upgrade is a recognised flag and gates on the marker", async () => {
+  it("--upgrade is a recognised flag and gates on the sidecar manifest", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
     // Argument parser
     expect(res.body).toContain("--upgrade) UPGRADE=1");
-    // Marker check uses grep -F (literal) against the agent/command tag
-    expect(res.body).toContain('MARKER_TAG="caipe-skill: $AGENT_ID/$COMMAND_NAME"');
-    expect(res.body).toContain('grep -Fq -- "$MARKER_TAG"');
-    // Refusal path when marker is absent
-    expect(res.body).toContain("was not installed by this script");
+    // Per PR #1268 review feedback (Shubham Bakshi #C): we no longer prepend
+    // a `<!-- caipe-skill: … -->` marker into the installed file. Ownership
+    // is tracked in a sidecar manifest at ~/.config/caipe/installed.json so
+    // the file on disk is byte-for-byte the catalog content. --upgrade
+    // consults the manifest, not a marker grep.
+    expect(res.body).toContain("MANIFEST_PATH=");
+    expect(res.body).toContain("/.config/caipe/installed.json");
+    expect(res.body).toContain("manifest_owns");
+    expect(res.body).toContain("manifest_register");
+    // Refusal path now mentions the manifest, not a marker.
+    expect(res.body).toContain("not tracked by");
     // Usage block mentions both flags
     expect(res.body).toContain("[--upgrade|--force]");
   });
 
-  it.each([
-    ["claude", "user", '"<!-- "', '" -->"'],
-    ["cursor", "project", '"<!-- "', '" -->"'],
-    ["specify", "project", '"<!-- "', '" -->"'],
-    ["codex", "user", '"<!-- "', '" -->"'],
-    ["gemini", "user", '"# "', '""'],
-  ])(
-    "agent=%s scope=%s writes a format-appropriate marker comment",
-    async (agent, scope, expectedPrefix, expectedSuffix) => {
-      const res = await callGET(
-        `https://app.example.com/api/skills/install.sh?agent=${agent}&scope=${scope}`,
-      );
-      // Marker prefix/suffix are emitted as separate vars so the same case
-      // statement can serve both single-skill and bulk-install flows.
-      expect(res.body).toContain(`MARKER_PREFIX=${expectedPrefix}`);
-      expect(res.body).toContain(`MARKER_SUFFIX=${expectedSuffix}`);
-    },
-  );
-
-  it("does not attempt to write a marker for fragment agents (Continue)", async () => {
-    const res = await callGET(
-      "https://app.example.com/api/skills/install.sh?agent=continue&scope=user",
+  it("does NOT prepend ownership markers into installed files", async () => {
+    // Per PR #1268 review feedback (Shubham Bakshi): the
+    // `<!-- caipe-skill: … -->` marker line was confusing reviewers who
+    // diffed the installed file against the upstream skill source. The
+    // installed body is now written verbatim and ownership lives in the
+    // sidecar manifest. Guard against any regression that re-introduces
+    // marker comments.
+    const claudeRes = await callGET(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
-    // For Continue we deliberately fall through to MARKER_LINE="" so the
-    // install short-circuits to the merge-instructions path. The HTML-comment
-    // and TOML-comment branches MUST NOT be selected for it.
-    expect(res.body).toContain("IS_FRAGMENT=1");
-    // Defensive: if the case statement ever started emitting a marker for
-    // Continue we'd corrupt user config.json. The script's MARKER_LINE for
-    // unrecognised formats stays empty, and the `if [ -n "$MARKER_LINE" ]`
-    // guard around the prepend keeps the write path JSON-safe.
-    expect(res.body).toContain('if [ -n "$MARKER_LINE" ]; then');
+    expect(claudeRes.body).not.toContain("MARKER_TAG=");
+    expect(claudeRes.body).not.toContain("MARKER_PREFIX=");
+    expect(claudeRes.body).not.toContain("MARKER_SUFFIX=");
+    expect(claudeRes.body).not.toContain("MARKER_LINE=");
+    expect(claudeRes.body).not.toContain('caipe-skill: $AGENT_ID');
+
+    const geminiRes = await callGET(
+      "https://app.example.com/api/skills/install.sh?agent=gemini&scope=user",
+    );
+    expect(geminiRes.body).not.toContain("MARKER_PREFIX=");
   });
 
   it("honours a custom base_url on the bootstrap callback", async () => {
@@ -313,9 +322,10 @@ describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => 
     expect(res.body).toContain("COMMANDS_DIR_RAW='~/.claude/commands'");
     expect(res.body).toContain("FILE_EXT='md'");
     expect(res.body).toContain('mkdir -p "$COMMANDS_DIR"');
-    // The per-skill marker tag must be built per-iteration so --upgrade only
-    // overwrites files this installer wrote.
-    expect(res.body).toContain('MARKER_TAG="caipe-skill: $AGENT_ID/$SKILL_NAME"');
+    // Per-skill ownership in bulk mode is also tracked through the sidecar
+    // manifest (no marker comments prepended into the file body).
+    expect(res.body).toContain("manifest_register");
+    expect(res.body).not.toContain("MARKER_TAG=");
   });
 
   it("rejects a catalog_url that points off-origin", async () => {
@@ -346,14 +356,14 @@ describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => 
     expect(res.body).toContain("bulk install via ?catalog_url= is not supported");
   });
 
-  it("derives gemini-toml extension and toml-style markers in bulk mode", async () => {
+  it("derives gemini-toml extension in bulk mode", async () => {
     const res = await callGET(
       `https://app.example.com/api/skills/install.sh?agent=gemini&scope=user&catalog_url=${sameOriginCatalog}`,
     );
     expect(res.body).toContain("FILE_EXT='toml'");
-    // TOML uses '#' line comments; markdown formats use HTML comments. The
-    // marker prefix/suffix machinery picks per FORMAT.
-    expect(res.body).toContain('MARKER_PREFIX="# "');
+    // No marker prefix/suffix is emitted any more — see the
+    // "does NOT prepend ownership markers" test for the rationale.
+    expect(res.body).not.toContain("MARKER_PREFIX=");
   });
 
   it("does not switch to bulk mode when catalog_url is absent", async () => {

@@ -10,11 +10,13 @@
  *      install path (the "what is about to happen?" preview).
  *   2. The API-key gate renders amber when no key is present and exposes
  *      a Generate button that POSTs to `/api/catalog-api-keys`.
- *   3. After minting, the gate flips to green, the raw key is shown in a
- *      copyable block (one-time visibility warning), and the curl snippet
- *      auto-fills `CAIPE_CATALOG_KEY` with the real value.
- *   4. The Copy button writes the verbatim two-line `export ... ; curl ...`
- *      to the clipboard (no URL-encoded soup).
+ *   3. After minting, the gate flips to green and the raw key is shown in a
+ *      copyable block with the one-time-visibility warning. Per PR #1268
+ *      review feedback (Jeff Napper #6): the install snippet itself never
+ *      embeds the minted key — install.sh reads the key out of
+ *      `~/.config/caipe/config.json` (Step 1).
+ *   4. The Copy button writes the single-line `curl … | bash` snippet
+ *      verbatim (no `export CAIPE_CATALOG_KEY=…` prefix, no key inline).
  *   5. The footer action closes the dialog.
  *
  * We mock `fetch` per-URL so the component receives realistic shapes from
@@ -233,11 +235,19 @@ async function renderAndOpenModal({
       expect.anything(),
     ),
   );
+  // After PR #1268 review feedback (Shubham Bakshi), "Quick install" is
+  // now both the primary CTA in Step 3 ("Install the bootstrap skill") AND
+  // the inline button under the Query Builder's Preview button. Either one
+  // opens the same dialog, so we just pick the first match.
   await waitFor(() => {
-    expect(screen.getByRole("button", { name: /quick install/i })).toBeEnabled();
+    const buttons = screen.getAllByRole("button", { name: /quick install/i });
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons[0]).toBeEnabled();
   });
 
-  await user.click(screen.getByRole("button", { name: /quick install/i }));
+  await user.click(
+    screen.getAllByRole("button", { name: /quick install/i })[0],
+  );
   await screen.findByRole("heading", { name: /quick install/i });
 
   // The component starts with `selectedScope = null`, so the snippet area
@@ -304,8 +314,15 @@ describe("TrySkillsGateway → Quick install modal", () => {
       within(dialog).getByRole("button", { name: /generate api key/i }),
     ).toBeEnabled();
 
-    // The two-line snippet uses the placeholder until a key is minted.
-    expect(within(dialog).getByText(/<your-catalog-api-key>/)).toBeInTheDocument();
+    // Per PR #1268 review feedback (Jeff Napper #6): the snippet no longer
+    // embeds the API key in any state — it's always a clean
+    // `curl … | bash`, and install.sh reads the key from
+    // ~/.config/caipe/config.json (Step 1). So we should NOT see the
+    // `<your-catalog-api-key>` placeholder leak into the modal snippet
+    // either.
+    expect(
+      within(dialog).queryByText(/<your-catalog-api-key>/),
+    ).toBeNull();
   });
 
   it("POSTs to /api/catalog-api-keys and flips the gate green after Generate", async () => {
@@ -322,31 +339,39 @@ describe("TrySkillsGateway → Quick install modal", () => {
       expect.objectContaining({ method: "POST", credentials: "include" }),
     );
 
-    // Green "API key ready" row appears, amber row disappears.
-    await within(dialog).findByText(/API key ready/i);
+    // Green "API key minted" row appears, amber row disappears.
+    await within(dialog).findByText(/API key minted/i);
     expect(within(dialog).queryByText(/API key required/i)).toBeNull();
 
-    // The raw key is rendered in its own copyable block with the
-    // one-time-visibility warning.
+    // The raw key is rendered in its own copyable block with a one-time
+    // visibility warning — this is the only place the key is shown after
+    // mint, per Jeff Napper's review feedback.
     expect(within(dialog).getByText(mintedKeyValue)).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/shown only once/i),
+      within(dialog).getByText(/cannot show it again/i),
     ).toBeInTheDocument();
 
-    // The snippet now embeds the real key value; the placeholder is gone.
-    expect(within(dialog).queryByText(/<your-catalog-api-key>/)).toBeNull();
+    // The install snippet must NOT embed the real key value — it's always
+    // a clean `curl … | bash` regardless of mint state.
+    expect(
+      within(dialog).queryByText(new RegExp(mintedKeyValue, "g")),
+    ).not.toBeNull(); // shown in CopyableBlock above
+    // But not in the snippet block (no `export CAIPE_CATALOG_KEY=…` line).
+    expect(within(dialog).queryByText(/export CAIPE_CATALOG_KEY/)).toBeNull();
   });
 
-  it("Copy writes the verbatim two-line snippet (export + curl) to clipboard", async () => {
+  it("Copy writes the single-line `curl … | bash` snippet to clipboard", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
 
-    // Mint first so the snippet contains the real key (more useful assertion
-    // than copying the placeholder version).
+    // Minting changes the API-key gate but should NOT affect the snippet,
+    // which is always a clean one-liner (install.sh reads the key from
+    // ~/.config/caipe/config.json). Mint anyway so we can verify the key
+    // is *not* leaking into the copy payload.
     await user.click(
       within(dialog).getByRole("button", { name: /generate api key/i }),
     );
-    await within(dialog).findByText(/API key ready/i);
+    await within(dialog).findByText(/API key minted/i);
 
     // The minted-key block exposes its own Copy button (CopyableBlock),
     // which may have already been clicked or auto-focused depending on
@@ -372,18 +397,20 @@ describe("TrySkillsGateway → Quick install modal", () => {
     });
     // Find the call whose payload looks like the install snippet — the
     // minted-key block also writes to clipboard, but its payload is just
-    // the bare key, not a multi-line `export ; curl` script.
+    // the bare key, not a curl invocation.
     const snippetCall = liveWriteText.mock.calls.find(
       ([arg]) => typeof arg === "string" && arg.includes("curl -fsSL"),
     );
     expect(snippetCall).toBeDefined();
     const copied = snippetCall![0] as string;
 
-    // Must be the two-line `export ; curl | bash` form, NOT the placeholder.
-    expect(copied).toMatch(
-      new RegExp(`^export CAIPE_CATALOG_KEY='${FAKE_MINT_KEY}'\\n`),
-    );
-    expect(copied).toContain("curl -fsSL");
+    // Per PR #1268 review feedback (Jeff Napper #6): the snippet is a clean
+    // single-line `curl … | bash`. No `export CAIPE_CATALOG_KEY=`, no key
+    // baked in — install.sh resolves the key from
+    // ~/.config/caipe/config.json (Step 1).
+    expect(copied).toMatch(/^curl -fsSL/);
+    expect(copied).not.toContain("export CAIPE_CATALOG_KEY");
+    expect(copied).not.toContain(FAKE_MINT_KEY);
     expect(copied).toContain("/api/skills/install.sh?");
     expect(copied).toContain("agent=claude");
     expect(copied).toMatch(/\| bash$/);
@@ -393,17 +420,19 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await within(dialog).findByRole("button", { name: /copied/i });
   });
 
-  it("snippet shows the placeholder + idempotency hint when no key has been minted", async () => {
+  it("snippet is a clean curl one-liner regardless of mint state", async () => {
+    // Per PR #1268 review feedback (Jeff Napper #6): the snippet must NEVER
+    // embed the API key — not as `<your-catalog-api-key>`, not as the
+    // freshly minted value. install.sh resolves the key from
+    // ~/.config/caipe/config.json (Step 1).
     await renderAndOpenModal();
     const dialog = getDialog();
 
-    expect(within(dialog).getByText(/<your-catalog-api-key>/)).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/idempotent and safe to re-run/i),
-    ).toBeInTheDocument();
-    // `--upgrade` is referenced in both the idempotency hint AND the
-    // optional "after minting" copy section if it's rendered, so just
-    // assert at-least-one occurrence.
+      within(dialog).queryByText(/<your-catalog-api-key>/),
+    ).toBeNull();
+    expect(within(dialog).queryByText(/export CAIPE_CATALOG_KEY/)).toBeNull();
+    // The `--upgrade` hint (idempotency advice) still belongs in the modal.
     expect(within(dialog).getAllByText(/--upgrade/).length).toBeGreaterThan(0);
   });
 
@@ -437,7 +466,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
       expect(screen.getByText(/10 skill(s)? found/i)).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByRole("button", { name: /quick install/i }));
+    await user.click(
+      screen.getAllByRole("button", { name: /quick install/i })[0],
+    );
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText(/^10 skills$/i)).toBeInTheDocument();

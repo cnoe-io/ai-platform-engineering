@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Terminal, Loader2, AlertCircle, CheckCircle2, Search, Copy, Check, ExternalLink, Zap } from "lucide-react";
+import { Terminal, Loader2, AlertCircle, CheckCircle2, Search, Copy, Check, ChevronRight, ExternalLink, Zap } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -105,9 +105,9 @@ export function TrySkillsGateway() {
 
   const [mintedKey, setMintedKey] = useState<string | null>(null);
   const [mintBusy, setMintBusy] = useState(false);
-  const [keys, setKeys] = useState<
-    { key_id: string; created_at?: number; revoked_at?: number | null }[]
-  >([]);
+  // The "Active / past keys" list was removed per PR #1268 review feedback;
+  // revocation/listing lives on the admin page now, so this component no
+  // longer needs to fetch /api/catalog-api-keys.
 
   // Query builder state
   const [queryQ, setQueryQ] = useState("");
@@ -147,19 +147,7 @@ export function TrySkillsGateway() {
 
   const catalogUrl = buildCatalogUrl();
 
-  const loadKeys = useCallback(async () => {
-    try {
-      const res = await fetch("/api/catalog-api-keys", { credentials: "include" });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && Array.isArray(data.keys)) setKeys(data.keys);
-    } catch {
-      /* optional */
-    }
-  }, []);
-
   useEffect(() => {
-    void loadKeys();
-
     // Fetch catalog to populate autocomplete tags and search suggestions
     fetch("/api/skills?page_size=100", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
@@ -190,7 +178,7 @@ export function TrySkillsGateway() {
         );
       })
       .catch(() => {});
-  }, [loadKeys]);
+  }, []);
 
   // Re-fetch the per-agent rendered bootstrap whenever the agent, scope,
   // command name, or description changes. Debounced lightly so typing is
@@ -260,7 +248,6 @@ export function TrySkillsGateway() {
         return;
       }
       if (typeof data.key === "string") setMintedKey(data.key);
-      await loadKeys();
     } finally {
       setMintBusy(false);
     }
@@ -287,7 +274,13 @@ export function TrySkillsGateway() {
     }
   };
 
-  const keyPlaceholder = mintedKey || "<key_id.secret>";
+  // Always show a placeholder in copy-paste snippets, even after the user
+  // has just minted a key. The minted value is shown ONCE in the dedicated
+  // "Copy once" callout under the Generate button — interleaving it into
+  // every example contradicts the "save it now, we can't show it again"
+  // warning and makes users assume the value is recoverable later. Per
+  // PR #1268 review feedback (Jeff Napper).
+  const keyPlaceholder = "<key_id.secret>";
 
   const curlKey = `curl -sS "${catalogUrl}" \\\n  -H "${DEFAULT_KEY_HEADER}: ${keyPlaceholder}"`;
 
@@ -331,9 +324,12 @@ export function TrySkillsGateway() {
   })();
 
   // Build the curl|bash one-liner and the "download then run" snippet for
-  // the install.sh endpoint. We pre-fill the API key from `mintedKey` (the
-  // key the user just minted on this page); if there's no minted key we fall
-  // back to a placeholder the user must replace.
+  // the install.sh endpoint. install.sh reads the API key from
+  // `~/.config/caipe/config.json` (set up in Step 1), so we deliberately do
+  // NOT inject `CAIPE_CATALOG_KEY=…` into the snippets — the recommended
+  // path is "Step 1 once, then a clean curl one-liner forever after." Users
+  // who haven't completed Step 1 yet get a clear error from install.sh
+  // itself telling them to create the config file or pass --api-key=…
   const installerSnippets = (() => {
     if (!selectedScope) return null;
     const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
@@ -341,16 +337,11 @@ export function TrySkillsGateway() {
     )}&scope=${encodeURIComponent(selectedScope)}&command_name=${encodeURIComponent(
       safeCommandName,
     )}`;
-    // CAIPE_CATALOG_KEY=... goes BEFORE the command, not after, so the env
-    // var only scopes the single invocation and doesn't pollute the parent
-    // shell. Quoting around the key value keeps things sane if the user
-    // pastes a key with shell-significant characters.
-    const keyForSnippet = mintedKey ?? "<your-catalog-api-key>";
-    const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash`;
+    const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
     // Upgrade variant: forwards `--upgrade` to the script via `bash -s`,
     // which is `bash`'s standard way of passing flags to a piped script.
-    const oneLinerUpgrade = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash -s -- --upgrade`;
-    const downloadSnippet = `curl -fsSL -o install-skills.sh ${shellQuote(installShUrl)}\nchmod +x ./install-skills.sh\nCAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} ./install-skills.sh`;
+    const oneLinerUpgrade = `curl -fsSL ${shellQuote(installShUrl)} | bash -s -- --upgrade`;
+    const downloadSnippet = `curl -fsSL -o install-skills.sh ${shellQuote(installShUrl)}\nchmod +x ./install-skills.sh\n./install-skills.sh`;
     return { oneLiner, oneLinerUpgrade, downloadSnippet, installShUrl };
   })();
 
@@ -371,9 +362,10 @@ export function TrySkillsGateway() {
     const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
       selectedAgent,
     )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}`;
-    const keyForSnippet = mintedKey ?? "<your-catalog-api-key>";
-    const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash`;
-    const oneLinerUpgrade = `curl -fsSL ${shellQuote(installShUrl)} \\\n  | CAIPE_CATALOG_KEY=${shellQuote(keyForSnippet)} bash -s -- --upgrade`;
+    // No CAIPE_CATALOG_KEY=… injection — install.sh reads the key from
+    // ~/.config/caipe/config.json (Step 1). See installerSnippets above.
+    const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
+    const oneLinerUpgrade = `curl -fsSL ${shellQuote(installShUrl)} | bash -s -- --upgrade`;
     return { oneLiner, oneLinerUpgrade, installShUrl, count: previewSkillCount };
   })();
 
@@ -828,12 +820,10 @@ export function TrySkillsGateway() {
             scripts, env vars, or installers that use it. Previously-issued keys keep working
             until an admin revokes them.
           </p>
-          {keys.length > 0 ? (
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">Active / past keys: </span>
-              {keys.map((k) => k.key_id).join(", ")}
-            </div>
-          ) : null}
+          {/* The "Active / past keys" listing was dropped per PR #1268 review
+              feedback (Jeff Napper #7): the line was confusing because it
+              showed key IDs but no useful action — revocation lives on the
+              admin page. */}
 
           <div className="border-t border-border pt-4 text-xs text-muted-foreground">
             Supervisor sync status and the <strong>Refresh skills</strong> action live on the
@@ -893,14 +883,59 @@ EOF`}
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
                 2
               </span>
-              Create the bootstrap skill
+              Install the bootstrap skill
             </p>
             <p className="ml-8 leading-relaxed">
-              Customize the slash command below. It calls the gateway and lets
-              your coding agent browse, search, run, install, and update
-              skills.
+              Most users should hit{" "}
+              <span className="font-semibold text-foreground">
+                Quick install
+              </span>{" "}
+              — pick agent + scope, copy one curl command, done. Need a
+              custom slash command name, description, or want to inspect the
+              rendered file first? Open{" "}
+              <span className="font-semibold text-foreground">
+                Advanced
+              </span>{" "}
+              below.
             </p>
-            <div className="ml-8 inline-flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] leading-relaxed">
+
+            {/* PRIMARY ACTION — Quick install. Per Shubham Bakshi's review
+                feedback (PR #1268): the per-agent customization grid is
+                overwhelming for the common case, so we surface Quick install
+                as the front-and-center primary CTA and tuck the grid into a
+                collapsible "Advanced" disclosure. */}
+            <div className="ml-8 rounded-lg border-2 border-primary/40 bg-primary/5 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 text-primary" />
+                  Recommended: Quick install
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Opens a single-screen dialog: pick agent + scope → get one
+                  curl command. Uses sensible defaults for the slash command
+                  name and description.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={() => setQuickInstallOpen(true)}
+                className="gap-1.5 shrink-0 self-start sm:self-auto"
+              >
+                <Zap className="h-3.5 w-3.5" />
+                Quick install
+              </Button>
+            </div>
+
+            <details className="ml-8 group rounded-md border border-border bg-background/40 [&[open]>summary]:border-b [&[open]>summary]:border-border">
+              <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-2">
+                <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+                Advanced — customize the slash command (name, description,
+                preview the rendered file)
+              </summary>
+              <div className="p-4 space-y-5">
+            <div className="inline-flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] leading-relaxed">
               <span className="font-semibold text-primary uppercase tracking-wide">
                 Tip
               </span>
@@ -1308,16 +1343,15 @@ EOF`}
                       <span className="font-medium text-foreground">
                         Security:
                       </span>{" "}
-                      the script never echoes your API key. The
-                      {" "}<code>CAIPE_CATALOG_KEY</code>{" "}
-                      env var is preferred over <code>--api-key=…</code>{" "}
-                      (which would land in your shell history).
-                      {!mintedKey ? (
-                        <>
-                          {" "}
-                          Mint a key above to auto-fill the snippets.
-                        </>
-                      ) : null}
+                      the script never echoes your API key. The recommended
+                      path is to put the key in{" "}
+                      <code>~/.config/caipe/config.json</code> once (Step 1)
+                      — install.sh reads it from there.{" "}
+                      <code>--api-key=…</code> and{" "}
+                      <code>CAIPE_CATALOG_KEY=…</code> still work, but both
+                      can leak: <code>--api-key</code> shows up in{" "}
+                      <code>ps</code> output to other users on the host, and
+                      either form lands in your shell history.
                     </p>
                   </div>
                 ) : (
@@ -1408,6 +1442,8 @@ EOF`}
                     <Copy className="h-3.5 w-3.5" />
                   )}
                 </Button>
+              </div>
+            </details>
               </div>
             </details>
           </section>
@@ -1592,13 +1628,13 @@ EOF`}
                 const targetPath =
                   bootstrap?.install_paths?.[selectedScope] ?? null;
                 const skillCount = previewData?.meta?.total ?? null;
-                // Build a multi-line snippet that exposes the URLs as
-                // shell variables FIRST, then uses them. This is much
-                // easier to scan than a single huge URL-encoded line,
-                // and lets users edit either URL without re-parsing.
-                const oneLiner = mintedKey
-                  ? `export CAIPE_CATALOG_KEY=${shellQuote(mintedKey)}\ncurl -fsSL ${shellQuote(installShUrl)} | bash`
-                  : `# 1. Paste your catalog API key (generate one below if you don't have it)\nexport CAIPE_CATALOG_KEY='<your-catalog-api-key>'\n\n# 2. Run the installer\ncurl -fsSL ${shellQuote(installShUrl)} | bash`;
+                // Single-line install snippet. install.sh reads the API key
+                // from ~/.config/caipe/config.json (Step 1), so we don't
+                // bake the key into the curl. This keeps the snippet short,
+                // copy-pasteable, and makes the "API key cannot be
+                // recovered" message in the key card actually true — we
+                // never echo the key into examples after minting it.
+                const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
                 return (
                   <div className="space-y-3">
                     {/* Summary chips: tell the user *what* will happen
@@ -1632,10 +1668,14 @@ EOF`}
                       <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 space-y-2">
                         <div className="flex items-center gap-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
                           <CheckCircle2 className="h-3.5 w-3.5" />
-                          API key ready — pre-filled in the snippet below.
+                          API key minted.
                         </div>
                         <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                          ⚠ Save this key now — it&rsquo;s shown only once:
+                          ⚠ Copy it now and paste it into{" "}
+                          <code className="font-mono">
+                            ~/.config/caipe/config.json
+                          </code>{" "}
+                          (Step 1) — we cannot show it again:
                         </div>
                         <CopyableBlock
                           as="code"
@@ -1651,7 +1691,12 @@ EOF`}
                             <span className="font-medium">
                               API key required
                             </span>{" "}
-                            — generate one to auto-fill the snippet.
+                            — install.sh reads it from{" "}
+                            <code className="font-mono">
+                              ~/.config/caipe/config.json
+                            </code>
+                            . Generate one and finish Step 1 before running
+                            the snippet.
                           </span>
                         </div>
                         <Button

@@ -382,9 +382,19 @@ export function scopesAvailableFor(agent: AgentSpec): AgentScope[] {
 
 export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderResult {
   const parsed = parseFrontmatter(inputs.canonicalTemplate);
+
+  // The canonical bootstrap.md ships `description: {{DESCRIPTION}}` so the
+  // single template can be reused across agents. If we picked that string up
+  // verbatim it would land in the rendered frontmatter as
+  // `description: "{{DESCRIPTION}}"` (quoteYaml double-quotes anything with
+  // curly braces) and the agent would see the literal placeholder. Treat any
+  // value that still contains an unsubstituted `{{...}}` token as missing and
+  // fall through to the inputs/default. (See PR #1268 review feedback.)
+  const parsedDesc = parsed.description.trim();
+  const parsedDescIsPlaceholder = /\{\{\w+\}\}/.test(parsedDesc);
   const description =
     inputs.description.trim() ||
-    parsed.description.trim() ||
+    (parsedDescIsPlaceholder ? "" : parsedDesc) ||
     "Browse and install skills from the CAIPE skill catalog";
 
   const body = substitutePlaceholders(parsed.body, {

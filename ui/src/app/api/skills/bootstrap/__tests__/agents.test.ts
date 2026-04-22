@@ -283,6 +283,48 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
     );
     expect(out.template).toContain('description: Custom catalog');
   });
+
+  it('treats an unsubstituted {{DESCRIPTION}} placeholder as missing', () => {
+    // Regression for PR #1268 review feedback (Jeff Napper #4): the canonical
+    // template at charts/.../bootstrap.md ships
+    // `description: {{DESCRIPTION}}` so a single template can be reused
+    // across agents. Before the fix, parseFrontmatter picked up the literal
+    // `{{DESCRIPTION}}` string and quoteYaml emitted
+    // `description: "{{DESCRIPTION}}"` into the rendered file — which agents
+    // then interpreted as a literal description containing curly braces.
+    const placeholderTemplate =
+      '---\n' +
+      'description: {{DESCRIPTION}}\n' +
+      '---\n' +
+      '\n' +
+      'Body using {{ARG_REF}}.\n';
+
+    // No input description → fall back to the default (NOT the placeholder).
+    const out = renderForAgent(
+      AGENTS.claude,
+      baseInputs({
+        canonicalTemplate: placeholderTemplate,
+        description: '',
+      }),
+    );
+    expect(out.template).toContain(
+      'description: Browse and install skills from the CAIPE skill catalog',
+    );
+    expect(out.template).not.toContain('{{DESCRIPTION}}');
+    expect(out.template).not.toContain('description: "{{DESCRIPTION}}"');
+
+    // Explicit input description wins over both the placeholder and the
+    // default.
+    const overridden = renderForAgent(
+      AGENTS.claude,
+      baseInputs({
+        canonicalTemplate: placeholderTemplate,
+        description: 'Custom catalog',
+      }),
+    );
+    expect(overridden.template).toContain('description: Custom catalog');
+    expect(overridden.template).not.toContain('{{DESCRIPTION}}');
+  });
 });
 
 describe('renderForAgent — Codex (plain Markdown)', () => {
