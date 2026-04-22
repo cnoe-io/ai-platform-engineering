@@ -6,7 +6,7 @@ import sys
 from typing import Literal
 
 import click
-from mcp.server.fastmcp.server import FastMCP
+from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from mcp_agent_auth.middleware import MCPAuthMiddleware
 
@@ -20,7 +20,6 @@ InputTransport = Literal[
 RuntimeTransport = Literal[
     "stdio", "sse", "streamable-http"
 ]  # Actual transports supported by FastMCP
-LogLevel = Literal["WARNING", "INFO", "DEBUG"]
 
 
 @click.command()
@@ -86,28 +85,22 @@ def main(
     if selected_transport not in allowed_transports:
         raise ValueError(f"Invalid transport: {selected_transport}")
 
-    log_levels: dict[int, LogLevel] = {0: "INFO", 1: "INFO", 2: "DEBUG"}  # Changed WARNING to INFO
-    log_level: LogLevel = log_levels.get(verbose, "INFO")
-
     logger.info(f"🔧 Initializing FastMCP server with transport: {selected_transport}")
-    
-    # Instantiate FastMCP server
-    server = FastMCP(
-        name="mcp-webex",
-        host=host,
-        port=port,
-        debug=logging_level == logging.DEBUG,
-        log_level=log_level,
-    )
+
+    server = FastMCP(name="mcp-webex")
 
     logger.info("🛠️ Registering Webex tools...")
     register_tools(server, auth_token=auth_token)
     logger.info("✅ Tools registered successfully")
 
     logger.info(f"🎯 Starting server on {host}:{port} with transport {selected_transport}")
-    # Run server with selected transport; inject auth middleware in HTTP mode.
     if selected_transport == "streamable-http":
-        server.run(transport=selected_transport, middleware=[Middleware(MCPAuthMiddleware)])
+        server.run(
+            transport=selected_transport,
+            host=host,
+            port=port,
+            middleware=[Middleware(MCPAuthMiddleware)],
+        )
     else:
         server.run(transport=selected_transport)
 
