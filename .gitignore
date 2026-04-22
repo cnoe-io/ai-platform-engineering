@@ -286,3 +286,7 @@ tests/reports/
 
 # We no longer have a separate docker-compose directory.
 docker-compose/*
+
+# Local Keycloak realm config (generated from realm-config.example.json,
+# may contain dev fixture passwords/secrets — never commit).
+deploy/keycloak/realm-config.json
