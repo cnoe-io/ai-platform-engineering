@@ -32,6 +32,7 @@ def execute_escalation(
         result = _ping_victorops_oncall(
             a2a_client, slack_client, channel_id, thread_ts,
             escalation_config.victorops.team,
+            escalation_config.victorops.escalation_policy,
         )
         results.append(result)
 
@@ -48,12 +49,13 @@ def execute_escalation(
     return results
 
 
-def _ping_victorops_oncall(a2a_client, slack_client, channel_id, thread_ts, team):
+def _ping_victorops_oncall(a2a_client, slack_client, channel_id, thread_ts, team, escalation_policy=""):
     """Query the AI for VictorOps on-call, resolve to Slack user, and ping them."""
     try:
+        policy_clause = f" under escalation policy {escalation_policy}" if escalation_policy else ""
         prompt = (
-            f"RESPOND IN 1 WORD THAT IS USER EMAIL. "
-            f"WHO IS ON CALL FOR TEAM {team}?"
+            f"Respond with 1 email only. "
+            f"Who is on call RIGHT NOW for team {team}{policy_clause}?"
         )
         logger.info(f"[{thread_ts}] VictorOps: querying on-call for team {team}")
         oncall_email = None
