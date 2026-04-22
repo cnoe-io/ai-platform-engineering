@@ -519,12 +519,23 @@ export class A2ASDKClient {
       }
     }
 
-    // If no text content from artifacts, create a meaningful default message
-    if (!textContent) {
-      const status = task.status?.state || "unknown";
-      textContent = `Task ${status} (ID: ${task.id.substring(0, 8)}...)`;
-    }
-
+    // Intentionally do NOT synthesize a "Task <status> (ID: ...)" placeholder
+    // when the task event carries no artifact text.
+    //
+    // Task events (especially the initial `submitted` snapshot) frequently
+    // arrive without artifacts — they're a lifecycle signal, not user-facing
+    // content. Downstream consumers (SubAgentCard, ChatPanel timeline) join
+    // every event's `displayContent` into the visible card, so any synthetic
+    // filler we put here ends up rendered as a chat message like:
+    //   "Task submitted (ID: 2a538eba...)"
+    // which is misleading UX — especially for skills that render their output
+    // out-of-band (e.g. IDE filesystem skills) where this is the ONLY message
+    // the user ever sees, making it look like the assistant gave up.
+    //
+    // Leaving displayContent empty makes consumers correctly treat this event
+    // as lifecycle-only. The task id is still available via `taskId` and the
+    // raw status via `raw.status?.state` for any consumer that wants to
+    // surface it explicitly (e.g. timeline status chips).
     const isFinal = task.status?.state === "completed";
 
     return {
