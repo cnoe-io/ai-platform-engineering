@@ -88,6 +88,11 @@ function createMockCollection() {
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     countDocuments: jest.fn().mockResolvedValue(0),
+    // The /api/admin/feedback route calls `feedbackColl.distinct(...)` to
+    // populate the channels and users filter dropdowns. Without this in the
+    // base shape, any test that doesn't go through `setupFeedbackCollection`
+    // (which used to add it locally) hits a TypeError → 500.
+    distinct: jest.fn().mockResolvedValue([]),
     aggregate: jest.fn().mockReturnValue({
       toArray: jest.fn().mockResolvedValue([]),
     }),

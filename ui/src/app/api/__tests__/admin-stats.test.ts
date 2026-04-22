@@ -216,39 +216,43 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(body.error).toContain('You do not have permission to perform this action');
   });
 
-  it('allows non-admin users with view access to read stats (readonly)', async () => {
+  // ────────────────────────────────────────────────────────────────────────
+  // RBAC contract: Keycloak is the single source of truth for admin_ui#view.
+  //
+  // Older drafts of the admin layer let `session.canViewAdmin` (set from the
+  // OIDC view-only group) or the MongoDB `metadata.role: 'admin'` fallback
+  // grant access to read-only admin endpoints. Under the 098-enterprise-rbac
+  // spec we deprecated those side-channels for any endpoint guarded by
+  // `requireRbacPermission(...)` — only the access-token's `realm_access.roles`
+  // (and bootstrap-admin emails) can grant `admin_ui#view`.
+  //
+  // The two assertions below pin that contract. If you want to grant viewer
+  // access to /api/admin/stats, do it in Keycloak (give the user the `admin`
+  // realm role or assign `admin_ui#view` to a `viewer` realm role and add it
+  // to RESOURCE_ROLE_FALLBACK in api-middleware.ts).
+  // ────────────────────────────────────────────────────────────────────────
+
+  it('returns 403 for a viewer-only OIDC session (canViewAdmin alone is NOT honored by RBAC)', async () => {
+    // Pre-RBAC code paths used `session.canViewAdmin` to grant read-only admin
+    // access. Under Keycloak-only RBAC this MUST be ignored — the access
+    // token has no `admin` realm role, so `admin_ui#view` is denied.
     mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
 
     const usersCol = createMockCollection();
     usersCol.findOne.mockResolvedValue(null);
-    usersCol.countDocuments.mockResolvedValue(5);
-    usersCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
     mockCollections['users'] = usersCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(10);
-    convCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['conversations'] = convCol;
-
-    const msgCol = createMockCollection();
-    msgCol.countDocuments.mockResolvedValue(50);
-    msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['messages'] = msgCol;
-
-    const feedbackCol = createMockCollection();
-    feedbackCol.countDocuments.mockResolvedValue(0);
-    mockCollections['feedback'] = feedbackCol;
-    mockCollections['platform_config'] = createMockCollection();
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.success).toBe(true);
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
-  it('grants access when user is admin via MongoDB fallback', async () => {
-    // Session says 'user' but MongoDB has admin role
+  it('returns 403 when MongoDB has admin role but realm_access does not (Mongo fallback NOT honored by RBAC)', async () => {
+    // Pre-RBAC code paths upgraded `session.role` to 'admin' if the user's
+    // MongoDB profile said so. Under Keycloak-only RBAC this MUST be ignored —
+    // only realm_access.roles (and bootstrap emails) count.
     mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
@@ -256,25 +260,13 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
       email: 'user@example.com',
       metadata: { role: 'admin' },
     });
-    usersCol.countDocuments.mockResolvedValue(5);
     mockCollections['users'] = usersCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(10);
-    mockCollections['conversations'] = convCol;
-
-    const msgCol = createMockCollection();
-    msgCol.countDocuments.mockResolvedValue(50);
-    mockCollections['messages'] = msgCol;
-
-    const feedbackCol = createMockCollection();
-    feedbackCol.countDocuments.mockResolvedValue(0);
-    mockCollections['feedback'] = feedbackCol;
-    mockCollections['platform_config'] = createMockCollection();
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
   it('returns 503 when MongoDB is not configured', async () => {
