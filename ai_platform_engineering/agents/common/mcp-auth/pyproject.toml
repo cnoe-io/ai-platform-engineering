@@ -1,0 +1,11 @@
+[project]
+name = "mcp-agent-auth"
+version = "0.1.0"
+description = "Shared authentication middleware for MCP servers"
+requires-python = ">=3.13"
+dependencies = [
+    "starlette>=0.27",
+    "pyjwt[crypto]>=2.0",
+    "requests>=2.28",
+    "python-dotenv>=0.20",
+]

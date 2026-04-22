@@ -4,19 +4,20 @@ import os
 import logging
 from typing import Optional, Dict, Tuple, Any
 import httpx
+from mcp_agent_auth.token import get_request_token
 
 # Load environment variables
 API_URL = os.getenv("KOMODOR_API_URL")
-API_TOKEN = os.getenv("KOMODOR_TOKEN")
 
 if not API_URL:
   raise ValueError("KOMODOR_API_URL environment variable is not set.")
-if not API_TOKEN:
-  raise ValueError("KOMODOR_API_TOKEN environment variable is not set.")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_komodor")
+
+if not os.getenv("KOMODOR_TOKEN"):
+  logger.warning("KOMODOR_TOKEN is not set; token must be supplied via Authorization: Bearer header")
 
 
 def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,8 +57,7 @@ async def make_api_request(
   logger.debug(f"Making {method} request to {path}")
 
   if not token:
-    logger.debug("No token provided, using default token")
-    token = API_TOKEN
+    token = get_request_token("KOMODOR_TOKEN")
 
   if not token:
     logger.error("No token available - neither provided nor found in environment")
@@ -67,7 +67,7 @@ async def make_api_request(
     )
 
   try:
-    headers = {"X-API-KEY": API_TOKEN}
+    headers = {"X-API-KEY": token}
 
     # DO NOT accidentally log headers that contain API tokens
     logger.debug("Request headers prepared (Authorization header masked)")
