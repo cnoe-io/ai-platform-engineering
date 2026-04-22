@@ -22,6 +22,11 @@
 #   KC_REALM           – realm name (default: caipe)
 # -------------------------------------------------------------------
 set -eu
+# Disable brace expansion — bash 3.2 (macOS /bin/sh) mis-expands `{a,b}`
+# inside `$(cat <<EOF)` even when the whole expression is quoted, which
+# splits our JSON payloads across args. No-op under dash/ash/POSIX sh.
+# assisted-by claude code claude-opus-4-7
+set +B 2>/dev/null || true
 
 REALM="${KC_REALM:-caipe}"
 KC_URL="${KC_URL:-http://localhost:7080}"
@@ -595,6 +600,42 @@ if [ -n "${REDIR_ID}" ]; then
   fi
 else
   echo "[init-idp]   WARNING: identity-provider-redirector execution not found in browser flow."
+fi
+
+# -------------------------------------------------------------------
+# Ensure the caipe-slack-bot service account's access tokens include
+# 'caipe-ui' as an audience. The bot talks to caipe-ui with a Bearer
+# token; caipe-ui validates audience==OIDC_CLIENT_ID (which is caipe-ui).
+# Without this mapper the default audience is caipe-platform only.
+# assisted-by claude code claude-opus-4-7
+# -------------------------------------------------------------------
+echo "[init-idp] Ensuring caipe-slack-bot token includes 'caipe-ui' audience ..."
+SB_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=caipe-slack-bot" 2>/dev/null \
+  | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+if [ -n "${SB_CLIENT_ID}" ]; then
+  SB_MAPPERS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/protocol-mappers/models" 2>/dev/null || echo "[]")
+  if echo "${SB_MAPPERS}" | grep -q '"name" *: *"aud-caipe-ui"'; then
+    echo "[init-idp]   Audience mapper 'aud-caipe-ui' already exists — skipping."
+  else
+    echo "[init-idp]   Creating audience mapper 'aud-caipe-ui' on caipe-slack-bot ..."
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/protocol-mappers/models" \
+      -d '{
+        "name":"aud-caipe-ui",
+        "protocol":"openid-connect",
+        "protocolMapper":"oidc-audience-mapper",
+        "config":{
+          "included.client.audience":"caipe-ui",
+          "id.token.claim":"false",
+          "access.token.claim":"true"
+        }
+      }' && echo "[init-idp]   Mapper created."
+  fi
+else
+  echo "[init-idp]   WARNING: caipe-slack-bot client not found — skipping audience mapper."
 fi
 
 echo "[init-idp] Done — IdP '${ALIAS}' is ready (auto-redirect enabled)."

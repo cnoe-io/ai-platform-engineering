@@ -861,12 +861,85 @@ No code changes required.
 
 ---
 
+## Service-to-Service Authentication (Slack bot → caipe-ui)
+
+The Slack bot calls caipe-ui's API as a machine client, not as a logged-in
+user. It uses the OAuth2 `client_credentials` grant against the `caipe`
+realm:
+
+| Env var | Purpose |
+|---------|---------|
+| `SLACK_INTEGRATION_ENABLE_AUTH=true` | Enables Bearer-token path in `app.py` |
+| `SLACK_INTEGRATION_AUTH_TOKEN_URL` | `${KEYCLOAK_URL}/realms/caipe/protocol/openid-connect/token` |
+| `SLACK_INTEGRATION_AUTH_CLIENT_ID` | `caipe-slack-bot` (pre-created in `realm-config.json`) |
+| `SLACK_INTEGRATION_AUTH_CLIENT_SECRET` | Fetched from Keycloak — see "Provisioning service-client secrets" below |
+
+**Token shape** (fields that matter):
+
+- `iss` — `${KEYCLOAK_URL}/realms/caipe`
+- `aud` — `[caipe-ui, caipe-platform]` — both audiences are needed. `caipe-platform`
+  is added by Keycloak's default audience resolution; `caipe-ui` comes from an
+  `oidc-audience-mapper` protocol mapper (`aud-caipe-ui`) on the `caipe-slack-bot`
+  client. caipe-ui's JWT validator rejects tokens whose audience doesn't include
+  `OIDC_CLIENT_ID` (i.e. `caipe-ui`), so this mapper is required.
+- `azp` — `caipe-slack-bot`
+- `sub` — service account UUID (stable)
+- `preferred_username` — `service-account-caipe-slack-bot`
+- `scope` — `groups email profile org roles`
+
+The mapper is created automatically by `deploy/keycloak/init-idp.sh` (idempotent).
+
+**This token represents the bot, not the user.** User identity is carried
+separately by the OBO flow in `utils/obo_exchange.py` (RFC 8693 token
+exchange), which produces a second token with `act.sub=caipe-slack-bot`
+and the real user's `sub`/`email`.
+
+### Provisioning service-client secrets in production
+
+In dev, secrets are embedded in `deploy/keycloak/realm-config.json`. In
+production, operators should treat them as rotating credentials:
+
+**Option A — manual (Keycloak Admin UI):**
+
+1. Log into Keycloak Admin Console → `caipe` realm → Clients →
+   `caipe-slack-bot` → Credentials tab.
+2. Copy the Secret value (or click **Regenerate Secret** for rotation).
+3. Store it in your secret manager (Vault, AWS SSM, K8s Secret) as
+   `SLACK_INTEGRATION_AUTH_CLIENT_SECRET`.
+4. Redeploy / restart the Slack bot pod so it picks up the new secret.
+
+**Option B — scripted (`deploy/keycloak/export-client-secrets.sh`):**
+
+The script fetches secrets via the Keycloak Admin API and emits them in
+one of three formats:
+
+```bash
+# shell (source into current session)
+eval "$(KC_URL=https://keycloak.example.com ./export-client-secrets.sh)"
+
+# dotenv (append to a .env file)
+KC_URL=https://keycloak.example.com FORMAT=dotenv \
+  ./export-client-secrets.sh >> slack-bot.env
+
+# kubernetes Secret (pipe to kubectl)
+KC_URL=https://keycloak.example.com FORMAT=k8s \
+  K8S_NAMESPACE=caipe K8S_SECRET_NAME=caipe-service-secrets \
+  ./export-client-secrets.sh | kubectl apply -f -
+```
+
+The Helm chart can wire this up as a post-install Job so fresh installs
+get the Secret populated without operator intervention. Rotation is the
+same call — the Secret is overwritten in place.
+
+---
+
 ## File Map
 
 | What you want to change | File |
 |-------------------------|------|
 | Keycloak realm: roles, clients, test users | `deploy/keycloak/realm-config.json` |
-| Keycloak runtime patches: silent flow, user profile, role composites | `deploy/keycloak/init-idp.sh` |
+| Keycloak runtime patches: silent flow, user profile, role composites, slack-bot audience mapper | `deploy/keycloak/init-idp.sh` |
+| Export client secrets to env/dotenv/K8s Secret | `deploy/keycloak/export-client-secrets.sh` |
 | UI session & NextAuth OIDC config | `ui/src/lib/auth.ts` |
 | UI RBAC middleware (per-route role enforcement) | `ui/src/lib/api-middleware.ts` |
 | Supervisor middleware stack (auth + JWT context) | `ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/main.py` |
