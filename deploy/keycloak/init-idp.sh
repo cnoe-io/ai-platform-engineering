@@ -51,6 +51,16 @@ KC_URL="${KC_URL:-http://localhost:7080}"
 # (e.g. ALICE_ADMIN_PASSWORD). Matches the default in
 # tests/rbac/fixtures/keycloak.{py,ts} _DEFAULT_PASSWORD.
 # -------------------------------------------------------------------
+
+# --- helper: extract a string field from JSON (no jq needed) -------------
+# Defined here (above seed_personas_main) so the spec-102 persona seed call
+# at line 153 can use it. The original IdP-broker section also defines this
+# below (line 165) — both definitions are identical; the later one is
+# harmless because shells re-bind on each function declaration.
+json_field() {
+  echo "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:.*"\(.*\)"/\1/'
+}
+
 seed_personas_main() {
   echo "[init-idp] [spec-102] seeding personas in realm ${REALM} ..."
 

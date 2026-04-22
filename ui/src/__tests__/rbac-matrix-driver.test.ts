@@ -234,7 +234,12 @@ if (UI_BFF_ROUTES.length === 0) {
   describe('rbac-matrix-driver (ui_bff)', () => {
     UI_BFF_ROUTES.forEach((route) => {
       const status = route.migration_status ?? 'migrated';
-      const groupTitle = `${route.method} ${route.path} → ${route.resource}#${route.scope}` +
+      // Spec 102 / Story 7 (FR-009/SC-006): the matrix-completeness Playwright
+      // spec asserts that the matrix `id` appears verbatim in a JUnit
+      // <testcase name=…>. Embedding `[id=${route.id}]` in the describe title
+      // makes Jest's emitted name include it (jest-junit concatenates the
+      // describe + it names) without sacrificing human readability.
+      const groupTitle = `${route.method} ${route.path} → ${route.resource}#${route.scope} [id=${route.id}]` +
         (status === 'pending' ? ' [PENDING MIGRATION]' : '');
       describe(groupTitle, () => {
         Object.entries(route.expectations).forEach(([persona, expectation]) => {
