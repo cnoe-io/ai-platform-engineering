@@ -66,9 +66,8 @@ def _patch_config(thread_id: str = "test-thread"):
 class TestMiddlewareRagLoopExit:
 
     def test_terminates_when_all_rag_calls_capped(self):
-        """When wrapper counters are at max, after_model should intercept via batch reservation
-        and inject synthesis ToolMessages WITHOUT jump_to='end' on the first cap hit,
-        giving the LLM one turn to produce a real answer. See PR #1231 (SDPL-1601)."""
+        """When both wrapper counters are at max, after_model blocks all calls and injects
+        synthesis ToolMessages WITHOUT jump_to='end' on the first cap hit."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             SearchCapWrapper,
             FetchDocumentCapWrapper,
@@ -77,7 +76,6 @@ class TestMiddlewareRagLoopExit:
         )
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
-        # Set wrapper counters to max so rag_try_reserve_batch returns False
         SearchCapWrapper._global_counts["t1"] = _DEFAULT_MAX_SEARCH_CALLS
         FetchDocumentCapWrapper._global_counts["t1"] = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS
 
@@ -101,6 +99,8 @@ class TestMiddlewareRagLoopExit:
         assert "jump_to" not in result, "Must NOT jump_to end on first cap hit — LLM needs a turn to synthesize"
         assert len(result["messages"]) == 2
         assert all(isinstance(m, ToolMessage) for m in result["messages"])
+        # Both caps exhausted — message should tell LLM to synthesize, not mention remaining calls
+        assert "synthesize" in result["messages"][0].content.lower()
 
     def test_does_not_terminate_when_only_search_capped(self):
         """When only search is capped but model calls fetch_document too,
@@ -248,7 +248,7 @@ class TestMiddlewareRagLoopExit:
 
     def test_mixed_batch_only_blocks_capped_tool(self):
         """When fetch is capped but search is not, a mixed batch should block only
-        the fetch calls — search calls must be allowed through (not falsely blocked)."""
+        the fetch calls and the message should mention remaining search budget."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             FetchDocumentCapWrapper,
             _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
@@ -265,19 +265,62 @@ class TestMiddlewareRagLoopExit:
         state = _make_state([ai_msg])
 
         middleware = DeterministicTaskMiddleware()
-        with __import__("unittest.mock", fromlist=["patch"]).patch(
+        with patch(
             "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.get_config",
             return_value={"configurable": {"thread_id": "t9"}},
-        ), __import__("unittest.mock", fromlist=["patch"]).patch(
+        ), patch(
             "langgraph.config.get_config",
             return_value={"configurable": {"thread_id": "t9"}},
         ):
             result = middleware.after_model(state)
 
-        # Only fetch_document should be blocked; search has budget remaining
+        # Only fetch_document should be blocked; search passes through (no ToolMessage for it)
         assert result is not None, "Expected middleware to block the capped fetch_document call"
         assert len(result["messages"]) == 1
         blocked = result["messages"][0]
         assert isinstance(blocked, ToolMessage)
         assert blocked.tool_call_id == "tc-f1"
         assert blocked.name == "fetch_document"
+        # Message should tell LLM it has search calls remaining
+        assert "search" in blocked.content.lower() and "remaining" in blocked.content.lower()
+
+    def test_partial_excess_blocks_only_overflow(self):
+        """When cap=5 and 3 calls already used, a batch of 5 should allow 2 through
+        and block the excess 3, with the message reporting 0 remaining."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            SearchCapWrapper,
+            _DEFAULT_MAX_SEARCH_CALLS,
+        )
+        from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
+        from langchain_core.messages import ToolMessage
+
+        # 3 of 5 search slots already used
+        SearchCapWrapper._global_counts["t10"] = _DEFAULT_MAX_SEARCH_CALLS - 2
+
+        ai_msg = _make_ai_message_with_tool_calls([
+            _tool_call("search", "tc-s1"),
+            _tool_call("search", "tc-s2"),
+            _tool_call("search", "tc-s3"),
+            _tool_call("search", "tc-s4"),
+            _tool_call("search", "tc-s5"),
+        ])
+        state = _make_state([ai_msg])
+
+        middleware = DeterministicTaskMiddleware()
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.get_config",
+            return_value={"configurable": {"thread_id": "t10"}},
+        ), patch(
+            "langgraph.config.get_config",
+            return_value={"configurable": {"thread_id": "t10"}},
+        ):
+            result = middleware.after_model(state)
+
+        # 2 slots remain → 2 allowed, 3 blocked
+        assert result is not None
+        assert len(result["messages"]) == 3
+        assert all(isinstance(m, ToolMessage) for m in result["messages"])
+        # All blocked calls are the overflow search calls (last 3)
+        assert {m.tool_call_id for m in result["messages"]} == {"tc-s3", "tc-s4", "tc-s5"}
+        # Budget fully exhausted after this batch → synthesize message
+        assert "synthesize" in result["messages"][0].content.lower()
