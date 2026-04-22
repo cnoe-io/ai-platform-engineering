@@ -9,7 +9,12 @@
  *
  * Features tested:
  * - Authentication: 401 when unauthenticated
- * - Authorization: 403 when non-admin
+ * - Authorization (Keycloak-only):
+ *     - 403 when PDP denies and user lacks the `admin` realm role
+ *     - 200 when Keycloak Authorization Services grants `admin_ui#view`
+ *     - 200 when PDP denies but user has `admin` realm role (RESOURCE_ROLE_FALLBACK)
+ *     - 403 for legacy signals only (canViewAdmin / Mongo metadata.role / bootstrap email)
+ *       — these are intentionally NOT honored by the Keycloak-only contract
  * - MongoDB guard: 503 when MongoDB is not configured
  * - Pagination (page, limit, search params)
  * - Batch aggregation for conversation counts, message counts, last activity
@@ -43,6 +48,19 @@ jest.mock('@/lib/auth-config', () => ({
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
+
+// Keycloak Authorization Services PDP — mocked at the module level so we can
+// flip allow/deny per test. Mirrors the pattern used by admin-stats.test.ts.
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
+  '@/lib/rbac/keycloak-authz'
+).checkPermission;
 
 const mockCollections: Record<string, any> = {};
 const mockGetCollection = jest.fn((name: string) => {
@@ -90,17 +108,46 @@ function makeRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
 }
 
+/**
+ * Build an unsigned (h.payload.s) JWT whose payload only contains the
+ * `realm_access.roles` claim. `requireRbacPermission` decodes this claim
+ * via `hasRoleFallback` when the Keycloak PDP denies — that path is what
+ * the role-based fallback assertions exercise.
+ */
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
+/**
+ * Admin session with the `admin` realm role baked into the access token.
+ * Even if the Keycloak PDP is mocked to deny, the `RESOURCE_ROLE_FALLBACK`
+ * for `admin_ui` (= 'admin') will allow this session through.
+ */
 function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    accessToken: accessTokenWithRoles(['admin']),
+    sub: 'admin-sub',
+    org: 'test-org',
   };
 }
 
+/**
+ * Regular user session — no admin realm role. Combined with the default
+ * `mockCheckPermission` deny, this should always be 403.
+ */
 function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    accessToken: accessTokenWithRoles(['chat_user']),
+    sub: 'user-sub',
+    org: 'test-org',
   };
 }
 
@@ -108,6 +155,12 @@ function resetMocks() {
   mockGetServerSession.mockReset();
   mockGetCollection.mockClear();
   mockIsMongoDBConfigured = true;
+  // Default-deny on the PDP so each test must explicitly opt in to allow.
+  mockCheckPermission.mockReset();
+  mockCheckPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -166,7 +219,7 @@ import { GET } from '../admin/users/stats/route';
 // Tests: Authentication & Authorization
 // ============================================================================
 
-describe('GET /api/admin/users/stats — Auth', () => {
+describe('GET /api/admin/users/stats — Auth (Keycloak-only)', () => {
   beforeEach(resetMocks);
 
   it('returns 401 when not authenticated', async () => {
@@ -176,22 +229,21 @@ describe('GET /api/admin/users/stats — Auth', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('returns 403 when PDP denies and user has no admin realm role', async () => {
+    // Default mock = PDP deny + user has only `chat_user` role.
     mockGetServerSession.mockResolvedValue(userSession());
-
-    const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue(null);
-    mockCollections['users'] = usersCol;
 
     const req = makeRequest('/api/admin/users/stats');
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin view access required');
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
-  it('allows non-admin users with view access to read user list (readonly)', async () => {
-    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+  it('returns 200 when Keycloak Authorization Services grants admin_ui#view', async () => {
+    // PDP allows the call regardless of realm roles.
+    mockCheckPermission.mockResolvedValue({ allowed: true });
+    mockGetServerSession.mockResolvedValue(userSession());
 
     setupUsersCol([]);
     setupConvCol([]);
@@ -202,6 +254,51 @@ describe('GET /api/admin/users/stats — Auth', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
+  });
+
+  it('returns 200 via role-fallback when PDP denies but user has admin realm role', async () => {
+    // PDP deny, but `admin` realm role triggers RESOURCE_ROLE_FALLBACK['admin_ui'].
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    setupUsersCol([]);
+    setupConvCol([]);
+    setupMsgCol([]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+  });
+
+  it('returns 403 for legacy canViewAdmin signal (Keycloak-only contract)', async () => {
+    // Pre-RBAC sessions used `canViewAdmin: true` (OIDC group claim match).
+    // Per the Keycloak-only policy, that signal is intentionally NOT honored
+    // — the user must have either an `admin_ui#view` permission grant or
+    // the `admin` realm role.
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('You do not have permission to perform this action');
+  });
+
+  it('returns 403 for legacy MongoDB metadata.role=admin signal (Keycloak-only contract)', async () => {
+    // Pre-RBAC sessions could be elevated by setting `metadata.role: 'admin'`
+    // in the MongoDB users collection. Per the Keycloak-only policy, that
+    // signal is intentionally NOT honored either.
+    mockGetServerSession.mockResolvedValue({ ...userSession(), role: 'admin' });
+    // `role: 'admin'` on the session object alone (without a matching claim
+    // in the access token) is not enough; the role-fallback check inspects
+    // `realm_access.roles` from the token.
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
   it('returns 503 when MongoDB is not configured', async () => {
