@@ -52,13 +52,35 @@ _DEFAULT_MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("RAG_MAX_FETCH_DOCUMENT_CALLS"
 _DEFAULT_MAX_SEARCH_CALLS = int(os.getenv("RAG_MAX_SEARCH_CALLS", "5"))
 _STALE_ENTRY_TTL_SECONDS = 300
 
-# Canonical cap-hit message used by both _arun wrappers and after_model.
-# Single source of truth so the model always receives identical guidance.
-RAG_CAP_EXHAUSTED_MESSAGE = (
-    "No more search results available. The knowledge base has been fully searched. "
-    "Do NOT call search or fetch_document again. "
-    "You MUST now synthesize your final answer from the information already retrieved above."
-)
+def rag_cap_message(search_remaining: int = 0, fetch_remaining: int = 0) -> str:
+    """Build the cap-hit message for a blocked RAG call.
+
+    When calls remain in other tool budgets, the message tells the model exactly
+    how many it can still use so it doesn't leave budget on the table.
+    When all budgets are exhausted, it tells the model to synthesize immediately.
+    """
+    parts = []
+    if search_remaining > 0:
+        parts.append(f"{search_remaining} search call{'s' if search_remaining != 1 else ''} remaining")
+    if fetch_remaining > 0:
+        parts.append(f"{fetch_remaining} fetch_document call{'s' if fetch_remaining != 1 else ''} remaining")
+
+    if parts:
+        return (
+            "This specific RAG call has been blocked because the cap for this tool was reached. "
+            f"You still have: {', '.join(parts)}. "
+            "Use those remaining calls to gather any additional information needed, "
+            "then synthesize your final answer."
+        )
+    return (
+        "No more search results available. The knowledge base has been fully searched. "
+        "Do NOT call search or fetch_document again. "
+        "You MUST now synthesize your final answer from the information already retrieved above."
+    )
+
+
+# Convenience alias for the fully-exhausted case (used by _arun wrappers).
+RAG_CAP_EXHAUSTED_MESSAGE = rag_cap_message()
 
 
 # Per-call output truncation limits (chars). Prevents a single tool call from
@@ -283,32 +305,75 @@ def is_rag_hard_stopped(thread_id: str) -> bool:
         return bool(_rag_capped_tools.get(thread_id))
 
 
-def rag_batch_would_exceed_cap(
+class RagBatchCapResult:
+    """Result of a per-tool cap check for a batch of RAG calls.
+
+    Attributes:
+        search_allowed:   how many search calls may proceed (0..search_count)
+        fetch_allowed:    how many fetch_document calls may proceed (0..fetch_count)
+        search_excess:    how many search calls are over the cap
+        fetch_excess:     how many fetch_document calls are over the cap
+        search_remaining: budget left after allowing search_allowed calls
+        fetch_remaining:  budget left after allowing fetch_allowed calls
+    """
+
+    __slots__ = (
+        "search_allowed", "fetch_allowed",
+        "search_excess", "fetch_excess",
+        "search_remaining", "fetch_remaining",
+    )
+
+    def __init__(
+        self,
+        search_allowed: int, fetch_allowed: int,
+        search_excess: int, fetch_excess: int,
+        search_remaining: int, fetch_remaining: int,
+    ) -> None:
+        self.search_allowed = search_allowed
+        self.fetch_allowed = fetch_allowed
+        self.search_excess = search_excess
+        self.fetch_excess = fetch_excess
+        self.search_remaining = search_remaining
+        self.fetch_remaining = fetch_remaining
+
+    @property
+    def any_excess(self) -> bool:
+        return self.search_excess > 0 or self.fetch_excess > 0
+
+
+def rag_batch_cap_check(
     thread_id: str,
     search_count: int,
     fetch_count: int,
     search_max: int = _DEFAULT_MAX_SEARCH_CALLS,
     fetch_max: int = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
-) -> bool:
-    """Check whether dispatching a batch of RAG calls would exceed either cap.
+) -> RagBatchCapResult:
+    """Return a per-tool breakdown of which RAG calls in the batch are within cap.
 
     Called from after_model before LangGraph fans out tool calls in parallel.
-    Holding both wrapper locks simultaneously gives a consistent snapshot —
-    no concurrent _arun can increment between the two reads.
+    Holds both wrapper locks simultaneously for a consistent snapshot — no
+    concurrent _arun can increment between the two reads.
 
-    Returns True if the batch should be intercepted (cap would be exceeded).
-    Returns False if the batch is within budget — let the tools run normally.
-
-    Intentionally does NOT increment counters. _arun owns all incrementing so
-    there is no double-count.
+    Does NOT increment counters. _arun owns all incrementing (no double-count).
     """
     with SearchCapWrapper._global_lock:
         with FetchDocumentCapWrapper._global_lock:
             current_search = SearchCapWrapper._global_counts.get(thread_id, 0)
             current_fetch = FetchDocumentCapWrapper._global_counts.get(thread_id, 0)
-            return (
-                (search_count > 0 and current_search + search_count > search_max)
-                or (fetch_count > 0 and current_fetch + fetch_count > fetch_max)
+
+            search_budget = max(0, search_max - current_search)
+            fetch_budget = max(0, fetch_max - current_fetch)
+
+            search_allowed = min(search_count, search_budget)
+            fetch_allowed = min(fetch_count, fetch_budget)
+
+            return RagBatchCapResult(
+                search_allowed=search_allowed,
+                fetch_allowed=fetch_allowed,
+                search_excess=search_count - search_allowed,
+                fetch_excess=fetch_count - fetch_allowed,
+                search_remaining=max(0, search_budget - search_allowed),
+                fetch_remaining=max(0, fetch_budget - fetch_allowed),
             )
 
 

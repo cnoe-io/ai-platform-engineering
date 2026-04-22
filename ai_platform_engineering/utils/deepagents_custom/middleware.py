@@ -275,7 +275,8 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                     _record_rag_cap_hit,
                     is_rag_hard_stopped,
                     is_rag_tool_capped,
-                    rag_batch_would_exceed_cap,
+                    rag_batch_cap_check,
+                    rag_cap_message,
                 )
                 from langgraph.config import get_config  # noqa: PLC0415
 
@@ -293,42 +294,44 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                     search_calls = [tc for tc in rag_calls if tc["name"] == "search"]
                     fetch_calls = [tc for tc in rag_calls if tc["name"] == "fetch_document"]
 
-                    # Check per-tool caps atomically (reads both counters under both locks).
-                    # Only block calls whose specific cap would be exceeded — so a mixed batch
-                    # where only fetch is exhausted still allows search calls through.
-                    search_would_exceed = rag_batch_would_exceed_cap(
+                    # Atomic snapshot of remaining budgets for both tools.
+                    # Only block calls that exceed the cap; pass the rest through so
+                    # the LLM can use any remaining budget rather than losing those slots.
+                    cap = rag_batch_cap_check(
                         thread_id,
                         len(search_calls),
-                        0,
-                        search_max=SearchCapWrapper.get_max_calls(),
-                        fetch_max=FetchDocumentCapWrapper.get_max_calls(),
-                    ) if search_calls else False
-                    fetch_would_exceed = rag_batch_would_exceed_cap(
-                        thread_id,
-                        0,
                         len(fetch_calls),
                         search_max=SearchCapWrapper.get_max_calls(),
                         fetch_max=FetchDocumentCapWrapper.get_max_calls(),
-                    ) if fetch_calls else False
-
-                    capped_calls = (
-                        ([tc for tc in search_calls] if search_would_exceed else [])
-                        + ([tc for tc in fetch_calls] if fetch_would_exceed else [])
                     )
 
-                    if capped_calls:
+                    if cap.any_excess:
+                        # Block only the excess calls. Pass-through calls are not in this
+                        # list — LangGraph will fan them out normally to _arun.
+                        blocked_search = search_calls[cap.search_allowed:]
+                        blocked_fetch = fetch_calls[cap.fetch_allowed:]
+                        blocked_calls = blocked_search + blocked_fetch
+
                         logger.info(
-                            f"[DeterministicTaskMiddleware] RAG cap exceeded in after_model "
-                            f"(search_would_exceed={search_would_exceed}, fetch_would_exceed={fetch_would_exceed}) "
-                            f"for thread_id={thread_id}, blocking {len(capped_calls)}/{len(rag_calls)} RAG calls"
+                            f"[DeterministicTaskMiddleware] RAG cap in after_model: "
+                            f"search {len(search_calls)} req / {cap.search_allowed} allowed / {cap.search_excess} blocked, "
+                            f"fetch {len(fetch_calls)} req / {cap.fetch_allowed} allowed / {cap.fetch_excess} blocked "
+                            f"(search_remaining={cap.search_remaining}, fetch_remaining={cap.fetch_remaining}) "
+                            f"thread_id={thread_id}"
+                        )
+                        # Include remaining budget in the message so the LLM knows it can
+                        # still use any un-exhausted tool type.
+                        msg = rag_cap_message(
+                            search_remaining=cap.search_remaining,
+                            fetch_remaining=cap.fetch_remaining,
                         )
                         tool_messages = [
                             ToolMessage(
-                                content=RAG_CAP_EXHAUSTED_MESSAGE,
+                                content=msg,
                                 tool_call_id=tc["id"],
                                 name=tc["name"],
                             )
-                            for tc in capped_calls
+                            for tc in blocked_calls
                         ]
                         # Use _record_rag_cap_hit so the count increment is under the lock.
                         _record_rag_cap_hit(thread_id)
