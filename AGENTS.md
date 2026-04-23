@@ -32,14 +32,31 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 
 AI agents operating in this repository **must** follow these rules on every commit:
 
-1. **Never generate `Signed-off-by`** — this is a human-only DCO certification. Do not add, suggest, or insert this trailer on behalf of the AI.
+1. **Default rule — never generate `Signed-off-by`** — this is a human-only DCO certification. Do not add, suggest, or insert this trailer on behalf of the AI.
 2. **Always suggest `Assisted-by`** when code was materially AI-assisted:
-   ```
-   Assisted-by: Claude:claude-sonnet-4-6
-   ```
+ ```
+ Assisted-by: Claude:claude-opus-4-7
+ ```
 3. **Always remind the human** to add their own `Signed-off-by` before the commit is finalized.
 
-Full pre-commit checklist and examples: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
+### Explicit-authorization carve-out (this repo only)
+
+The maintainer **Sri Aradhyula `<sraradhy@cisco.com>`** has granted a session-scoped
+authorization for AI agents to invoke `git commit -s` on his behalf when (and only
+when) he has explicitly stated so in the current chat session (e.g. "sign off as me",
+"use `-s` on my behalf", "I delegate DCO sign-off for this session"). Under the
+carve-out:
+
+- The agent uses Sri's configured git identity — never a fictitious identity.
+- `Assisted-by: Claude:<model-version>` is still required.
+- The chat message granting the delegation is the audit record.
+- The delegation is revocable at any time within the session.
+
+Outside that explicit grant, rules 1–3 above apply unchanged. The agent must default
+to the strict rule whenever the authorization is unclear.
+
+Full pre-commit checklist (default rule and carve-out variant) and examples:
+[`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
 
 ## Git Guidelines
 

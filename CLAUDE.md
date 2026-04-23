@@ -12,9 +12,26 @@
 Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`).
 
 For AI-assisted commits, follow the [dco-ai-attribution](./skills/dco-ai-attribution/SKILL.md) skill:
-- AI must **never** add `Signed-off-by` — only the human author can certify the DCO
+- Default rule: AI must **never** add `Signed-off-by` — only the human author can certify the DCO
 - Always append `Assisted-by: Claude:<model-version>` when code was materially AI-assisted
-- See `agents.md` for the canonical policy reference used by AI coding agents
+- See `AGENTS.md` for the canonical policy reference used by AI coding agents
+
+### Explicit-authorization carve-out for this repository
+
+For this repository (`ai-platform-engineering-feat-comprehensive-rbac`), the maintainer
+**Sri Aradhyula `<sraradhy@cisco.com>`** has granted a session-scoped explicit
+authorization for AI agents to run `git commit -s` on his behalf when (and only when)
+he has stated so in the current chat session. Under that delegation:
+
+- The agent uses Sri's configured git identity (`git config user.name` /
+  `git config user.email`) — never a fictitious identity.
+- The `Assisted-by: Claude:<model-version>` trailer is still mandatory.
+- The delegation is recorded in the chat transcript (the message granting it).
+- The carve-out is revocable mid-session; once revoked the agent reverts to
+  the default rule.
+
+See [skills/dco-ai-attribution/SKILL.md](./skills/dco-ai-attribution/SKILL.md) for the
+full carve-out conditions and the alternate pre-commit checklist.
 
 ```
 <type>(<scope>): <short description>
