@@ -14,9 +14,9 @@ interface AuthGuardProps {
 /**
  * Auth Guard Component
  *
- * Protects routes when SSO is enabled.
- * If SSO is disabled, it renders children directly without authentication check.
- * Also checks for group-based authorization (backstage-access group).
+ * Always enforces authentication — unauthenticated users are redirected to /login
+ * regardless of whether SSO is enabled or not.
+ * When SSO is enabled, also checks OIDC group authorization and token expiry.
  */
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();
@@ -26,6 +26,25 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const [authChecked, setAuthChecked] = useState(status === "authenticated");
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [autoResetInitiated, setAutoResetInitiated] = useState(false);
+
+  // Check if first-run setup is needed (before any auth check)
+  useEffect(() => {
+    if (pathname === '/setup') return; // already on setup page
+    if (status === 'authenticated') return; // already authenticated
+
+    fetch('/api/setup/status')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.state === 'no_admin') {
+          router.replace('/setup');
+        }
+      })
+      .catch(() => {
+        // If setup status check fails, proceed normally (MongoDB may not be configured)
+      });
+  // Only run once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Build a login URL that preserves the current page as callbackUrl so the
@@ -98,22 +117,29 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }, [status, authChecked, autoResetInitiated]);
 
   useEffect(() => {
-    if (!getConfig('ssoEnabled')) {
-      setAuthChecked(true);
-      return;
-    }
-
     if (status === "loading") {
       return; // Still loading, wait
     }
 
+    // Always redirect unauthenticated users — regardless of SSO mode.
     if (status === "unauthenticated") {
       router.push(loginUrl());
       return;
     }
 
-    // User is authenticated, check authorization and token expiry
+    // User is authenticated — run additional OIDC checks only when SSO is active.
     if (status === "authenticated") {
+      const ssoEnabled = getConfig('ssoEnabled');
+
+      // Credentials (local admin) session: no token expiry or group checks needed.
+      if (!ssoEnabled) {
+        setAuthChecked(true);
+        console.log("[AuthGuard] ✅ Local credentials session verified");
+        return;
+      }
+
+      // --- OIDC session checks below ---
+
       // Check if TokenExpiryGuard is already handling expiry (prevents flickering)
       const isTokenExpiryHandling = typeof window !== 'undefined'
         ? sessionStorage.getItem('token-expiry-handling') === 'true'
@@ -167,11 +193,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
     }
   }, [status, session, router]);
 
-  // If SSO is not enabled, render children directly
-  if (!getConfig('ssoEnabled')) {
-    return <>{children}</>;
-  }
-
   // Show loading while checking authentication/authorization
   if (status === "loading" || !authChecked) {
     const message = status === "loading"
@@ -204,12 +225,12 @@ export function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
-  // If not authenticated and SSO is enabled, show nothing (redirect will happen)
+  // While redirect is in-flight, render nothing
   if (status === "unauthenticated") {
     return null;
   }
 
-  // If not authorized, show nothing (redirect will happen)
+  // If not authorized (OIDC group check failed), render nothing (redirect in-flight)
   if (session?.isAuthorized === false) {
     return null;
   }

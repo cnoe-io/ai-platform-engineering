@@ -6,7 +6,8 @@ import { AuthProvider } from "@/components/auth-provider";
 import { TokenExpiryGuard } from "@/components/token-expiry-guard";
 import { ThemeInjector } from "@/components/theme-injector";
 import { ToastProvider } from "@/components/ui/toast";
-import { getServerConfig, getClientConfigScript } from "@/lib/config";
+import { getServerConfig, withSsoOverride } from "@/lib/config";
+import { getCollection } from "@/lib/mongodb";
 import "./globals.css";
 
 // Primary font: Inter - Used by OpenAI, clean and highly readable
@@ -79,11 +80,49 @@ export default async function RootLayout({
   // not at build time when env vars are empty.
   await headers();
 
-  const cfg = getServerConfig();
+  // Start with env-var config, then overlay DB-backed feature flag overrides.
+  // This lets admins toggle features from the System → Options dialog without
+  // touching env vars or Kubernetes secrets. Env vars always take precedence.
+  const baseCfg = getServerConfig();
+  let dbSsoEnabled = false;
+  let dbRagEnabled: boolean | null = null;
+  let dbDynamicAgentsEnabled: boolean | null = null;
+
+  if (process.env.MONGODB_URI) {
+    try {
+      const platformConfig = await getCollection<{ _id: string; enabled?: boolean; flags?: Record<string, boolean> }>('platform_config');
+
+      // SSO: read from oidc_config.enabled
+      if (!baseCfg.ssoEnabled) {
+        const oidcDoc = await platformConfig.findOne({ _id: 'oidc_config' as any });
+        dbSsoEnabled = oidcDoc?.enabled === true;
+      }
+
+      // Other feature flags: read from feature_flags doc (only when env var is not set)
+      const flagsDoc = await platformConfig.findOne({ _id: 'feature_flags' as any });
+      if (flagsDoc?.flags) {
+        // Only use DB value if the env var is NOT explicitly set
+        if (process.env.RAG_ENABLED === undefined && flagsDoc.flags.rag_enabled !== undefined) {
+          dbRagEnabled = flagsDoc.flags.rag_enabled;
+        }
+        if (process.env.DYNAMIC_AGENTS_ENABLED === undefined && flagsDoc.flags.dynamic_agents_enabled !== undefined) {
+          dbDynamicAgentsEnabled = flagsDoc.flags.dynamic_agents_enabled;
+        }
+      }
+    } catch {
+      // MongoDB unavailable — fall through with env-only config
+    }
+  }
+
+  let cfg = withSsoOverride(baseCfg, dbSsoEnabled);
+
+  // Apply DB-backed feature flag overrides
+  if (dbRagEnabled !== null) cfg = { ...cfg, ragEnabled: dbRagEnabled };
+  if (dbDynamicAgentsEnabled !== null) cfg = { ...cfg, dynamicAgentsEnabled: dbDynamicAgentsEnabled };
 
   // Build the XSS-safe JSON for client-side config injection.
   // Only client-safe values are included (no secrets).
-  const configScript = getClientConfigScript();
+  const configScript = JSON.stringify(cfg).replace(/</g, '\\u003c');
 
   return (
     <html lang="en" suppressHydrationWarning>

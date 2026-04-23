@@ -1,14 +1,19 @@
 "use client";
 
 import React from "react";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import { ShieldX, LogOut, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { config } from "@/lib/config";
 
 export default function UnauthorizedPage() {
-  const requiredGroup = config.oidcRequiredGroup;
+  const { data: session } = useSession();
+  // Prefer the required group that was actually enforced at sign-in (recorded
+  // on the session when authorization was evaluated). Fall back to the
+  // build-time config only when the session is missing that field (older
+  // JWTs issued before this plumbing existed).
+  const requiredGroup = session?.requiredGroup || config.oidcRequiredGroup;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
