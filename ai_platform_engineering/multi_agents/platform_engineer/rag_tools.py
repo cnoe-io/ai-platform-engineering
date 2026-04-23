@@ -67,13 +67,13 @@ def rag_cap_message(search_remaining: int = 0, fetch_remaining: int = 0) -> str:
 
     if parts:
         return (
-            "This specific RAG call has been blocked because the cap for this tool was reached. "
+            "This RAG call was blocked because more queries were requested than are left under the limit. "
             f"You still have: {', '.join(parts)}. "
             "Use those remaining calls to gather any additional information needed, "
             "then synthesize your final answer."
         )
     return (
-        "No more search results available. The knowledge base has been fully searched. "
+        "RAG call limit reached. "
         "Do NOT call search or fetch_document again. "
         "You MUST now synthesize your final answer from the information already retrieved above."
     )
@@ -186,13 +186,20 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
   def get_max_calls(cls) -> int:
     return cls._active_max_calls
 
+  @classmethod
+  def get_call_count_for_thread(cls, thread_id: str) -> int:
+    with cls._global_lock:
+      return cls._global_counts.get(thread_id, 0)
+
   async def _arun(self, document_id: str, thought: str = "", **kwargs: Any) -> str:
     thread_id = self._get_thread_id()
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
       logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "fetch_document")
-      return RAG_CAP_EXHAUSTED_MESSAGE
+      search_used = SearchCapWrapper.get_call_count_for_thread(thread_id)
+      search_remaining = max(0, SearchCapWrapper.get_max_calls() - search_used)
+      return rag_cap_message(search_remaining=search_remaining)
 
     count = self._global_counts.get(thread_id, 0)
     logger.debug(f"fetch_document call {count}/{self.max_calls} for thread_id={thread_id}")
@@ -248,13 +255,20 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
   def get_max_calls(cls) -> int:
     return cls._active_max_calls
 
+  @classmethod
+  def get_call_count_for_thread(cls, thread_id: str) -> int:
+    with cls._global_lock:
+      return cls._global_counts.get(thread_id, 0)
+
   async def _arun(self, **kwargs: Any) -> str:
     thread_id = self._get_thread_id()
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
       logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "search")
-      return RAG_CAP_EXHAUSTED_MESSAGE
+      fetch_used = FetchDocumentCapWrapper.get_call_count_for_thread(thread_id)
+      fetch_remaining = max(0, FetchDocumentCapWrapper.get_max_calls() - fetch_used)
+      return rag_cap_message(fetch_remaining=fetch_remaining)
 
     # Cap per-call results to prevent context window flooding.
     if "limit" in kwargs and isinstance(kwargs["limit"], int):
