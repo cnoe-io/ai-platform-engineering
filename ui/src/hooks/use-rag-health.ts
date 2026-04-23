@@ -62,8 +62,8 @@ export function useRAGHealth(): UseRAGHealthResult {
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
       hasInitialCheckCompleted.current = true;
-    } catch (error) {
-      console.error("[RAG] Error checking health:", error);
+    } catch {
+      // RAG server not reachable — expected when not running locally
       setStatus("disconnected");
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;

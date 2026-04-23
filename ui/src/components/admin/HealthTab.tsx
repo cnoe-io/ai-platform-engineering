@@ -11,11 +11,15 @@ import {
   Database,
   Shield,
   Server,
+  Bot,
+  BrainCircuit,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useServiceHealth, type HealthStatus } from "@/hooks/use-service-health";
+import type { ServiceCheckResult } from "@/app/api/admin/system-health/route";
 
 const STATUS_CONFIG: Record<
   HealthStatus,
@@ -47,19 +51,59 @@ const STATUS_CONFIG: Record<
   },
 };
 
-interface HealthTabProps {
-  ssoEnabled?: boolean;
-  mongodbEnabled?: boolean;
-  ragEnabled?: boolean;
+const SERVICE_ICONS: Record<string, React.ReactNode> = {
+  mongodb:        <Database      className="h-4 w-4 text-muted-foreground" />,
+  local_auth:     <Shield        className="h-4 w-4 text-muted-foreground" />,
+  oidc:           <Shield        className="h-4 w-4 text-muted-foreground" />,
+  supervisor:     <Server        className="h-4 w-4 text-muted-foreground" />,
+  dynamic_agents: <Bot           className="h-4 w-4 text-muted-foreground" />,
+  rag:            <BookOpen      className="h-4 w-4 text-muted-foreground" />,
+  llm_providers:  <BrainCircuit  className="h-4 w-4 text-muted-foreground" />,
+};
+
+function useLiveSystemHealth(refreshInterval = 30_000) {
+  const [services, setServices] = React.useState<ServiceCheckResult[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const fetch_ = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/system-health');
+      const data = await res.json();
+      if (data.success) setServices(data.data.services);
+      else throw new Error(data.error || 'Failed');
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetch_();
+    const id = setInterval(fetch_, refreshInterval);
+    return () => clearInterval(id);
+  }, [fetch_, refreshInterval]);
+
+  return { services, loading, error, refetch: fetch_ };
 }
 
-export function HealthTab({
-  ssoEnabled = true,
-  mongodbEnabled = true,
-  ragEnabled = true,
-}: HealthTabProps) {
-  const { services, overall, loading, error, configured, refetch } =
+export function HealthTab() {
+  const { services, overall, loading: promLoading, error: promError, configured, refetch: refetchPrometheus } =
     useServiceHealth({ refreshInterval: 30_000 });
+
+  const { services: liveServices, loading: liveLoading, error: liveError, refetch: refetchLive } =
+    useLiveSystemHealth(30_000);
+
+  const loading = promLoading || liveLoading;
+  const error = promError || liveError;
+
+  const refetch = React.useCallback(() => {
+    refetchPrometheus();
+    refetchLive();
+  }, [refetchPrometheus, refetchLive]);
 
   const overallConfig = STATUS_CONFIG[overall];
   const OverallIcon = overallConfig.icon;
@@ -124,28 +168,24 @@ export function HealthTab({
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {/* Static services (always shown) */}
-            <ServiceRow
-              name="MongoDB"
-              description="Database connection"
-              icon={<Database className="h-4 w-4 text-muted-foreground" />}
-              status={mongodbEnabled ? "healthy" : "unknown"}
-              detail={mongodbEnabled ? "Connected" : "Not configured"}
-            />
-            <ServiceRow
-              name="Authentication"
-              description="OIDC SSO"
-              icon={<Shield className="h-4 w-4 text-muted-foreground" />}
-              status={ssoEnabled ? "healthy" : "unknown"}
-              detail={ssoEnabled ? "Active" : "Disabled"}
-            />
-            <ServiceRow
-              name="RAG Server"
-              description="Knowledge base operations"
-              icon={<Server className="h-4 w-4 text-muted-foreground" />}
-              status={ragEnabled ? "healthy" : "unknown"}
-              detail={ragEnabled ? "Operational" : "Disabled"}
-            />
+            {/* Live service checks */}
+            {liveLoading && liveServices.length === 0 ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground ml-2">Checking services…</span>
+              </div>
+            ) : (
+              liveServices.map((svc) => (
+                <ServiceRow
+                  key={svc.id}
+                  name={svc.name}
+                  description={svc.description}
+                  icon={SERVICE_ICONS[svc.id] ?? <Server className="h-4 w-4 text-muted-foreground" />}
+                  status={svc.status}
+                  detail={svc.detail}
+                />
+              ))
+            )}
 
             {/* Prometheus-sourced platform services */}
             {configured && platformServices.map((svc) => (
@@ -157,11 +197,11 @@ export function HealthTab({
               />
             ))}
 
-            {loading && services.length === 0 && (
+            {promLoading && services.length === 0 && configured && (
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 <span className="text-sm text-muted-foreground ml-2">
-                  Loading metrics...
+                  Loading Prometheus metrics…
                 </span>
               </div>
             )}
