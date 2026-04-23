@@ -222,16 +222,29 @@ runs:
         echo "Changed files:"
         echo "$CHANGED_FILES" | head -20
 
-        # Check if ALL changes are under charts/
-        NON_CHART_FILES=$(echo "$CHANGED_FILES" | grep -v '^charts/' || true)
+        # ── Paths that affect image builds (triggers full version bump) ──
+        # Keep in sync with pr-version-bump.yml paths filter.
+        IMAGE_PATTERNS='^(ai_platform_engineering|build|ui|pyproject\.toml|uv\.lock)(/|$)'
 
-        if [[ -z "$NON_CHART_FILES" ]]; then
-          echo "✅ All changes are under charts/ — chart-only"
+        IMAGE_FILES=$(echo "$CHANGED_FILES" | grep -E "$IMAGE_PATTERNS" || true)
+        CHART_FILES=$(echo "$CHANGED_FILES" | grep -E '^charts/' || true)
+        OTHER_FILES=$(echo "$CHANGED_FILES" | grep -vE "$IMAGE_PATTERNS" | grep -v '^charts/' || true)
+
+        if [[ -n "$OTHER_FILES" ]]; then
+          echo "🔇 Ignored (no build impact):"
+          echo "$OTHER_FILES" | head -10
+        fi
+
+        if [[ -n "$IMAGE_FILES" ]]; then
+          echo "📦 Image-affecting changes detected:"
+          echo "$IMAGE_FILES" | head -10
+          echo "chart_only=false" >> $GITHUB_OUTPUT
+        elif [[ -n "$CHART_FILES" ]]; then
+          echo "✅ Only chart changes detected — chart-only"
           echo "chart_only=true" >> $GITHUB_OUTPUT
         else
-          echo "📦 Non-chart changes detected:"
-          echo "$NON_CHART_FILES" | head -10
-          echo "chart_only=false" >> $GITHUB_OUTPUT
+          echo "ℹ️ Only build-irrelevant files changed; treating as chart-only (no-op)"
+          echo "chart_only=true" >> $GITHUB_OUTPUT
         fi
 
     - name: 🏷️ Compute final tag
