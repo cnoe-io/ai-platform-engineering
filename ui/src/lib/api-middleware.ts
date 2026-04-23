@@ -21,6 +21,75 @@ function decodeJwtPayloadForAuth(accessToken: string): Record<string, unknown> {
   return JSON.parse(json) as Record<string, unknown>;
 }
 
+/**
+ * Translate a Bearer JWT validation error (from `jose` / OIDC discovery /
+ * network) into a structured {@link ApiError} with a stable
+ * {@link AuthFailureReason}.
+ *
+ * The `jose` library attaches a stable `code` property to its errors
+ * (`ERR_JWT_EXPIRED`, `ERR_JWT_CLAIM_VALIDATION_FAILED`, `ERR_JWS_*`, etc.).
+ * Claim-validation errors additionally carry a `claim` property identifying
+ * which claim failed (most commonly `aud`, `iss`, `exp`, `nbf`).
+ *
+ * Returning a structured error here is what lets the web UI distinguish
+ * "your session expired, click sign in" from "your token is for the wrong
+ * service, contact admin" — both surface as HTTP 401 today but require
+ * different recovery paths.
+ */
+function classifyBearerError(err: unknown): ApiError {
+  const e = err as { code?: string; claim?: string; message?: string };
+  const code = typeof e?.code === 'string' ? e.code : '';
+  const claim = typeof e?.claim === 'string' ? e.claim : '';
+  const msg = typeof e?.message === 'string' ? e.message : String(err);
+
+  if (code === 'ERR_JWT_EXPIRED') {
+    return new ApiError(
+      'Your session has expired. Please sign in again.',
+      401,
+      'BEARER_EXPIRED',
+      'session_expired',
+      'sign_in'
+    );
+  }
+
+  if (code === 'ERR_JWT_CLAIM_VALIDATION_FAILED' && claim === 'aud') {
+    // Most operationally common: token issued for a different client / audience.
+    // Surface a contact-admin hint because the user can't fix this themselves.
+    return new ApiError(
+      'Your sign-in token is not authorized for this service. Contact your admin.',
+      401,
+      'BEARER_AUDIENCE_MISMATCH',
+      'audience_mismatch',
+      'contact_admin'
+    );
+  }
+
+  if (
+    code === 'ERR_JWT_CLAIM_VALIDATION_FAILED' ||
+    code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED' ||
+    code === 'ERR_JWS_INVALID' ||
+    code === 'ERR_JWT_INVALID' ||
+    code === 'ERR_JWKS_NO_MATCHING_KEY'
+  ) {
+    return new ApiError(
+      'Your sign-in token could not be verified. Please sign in again.',
+      401,
+      'BEARER_INVALID',
+      'bearer_invalid',
+      'sign_in'
+    );
+  }
+
+  // Discovery / network / config errors — not the user's fault.
+  return new ApiError(
+    `Authentication service error: ${msg}`,
+    503,
+    'AUTH_BACKEND_ERROR',
+    'pdp_unavailable',
+    'retry'
+  );
+}
+
 // ============================================================================
 // Authentication Middleware
 // ============================================================================
@@ -70,7 +139,13 @@ export async function getAuthenticatedUser(
       const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role };
       return { user: fallbackUser, session: { role, canViewAdmin: allowAnonAdmin } };
     }
-    throw new ApiError('Unauthorized', 401);
+    throw new ApiError(
+      'You are not signed in. Please sign in to continue.',
+      401,
+      'NOT_SIGNED_IN',
+      'not_signed_in',
+      'sign_in'
+    );
   }
 
   let role = session.role || 'user'; // Get role from OIDC session first
@@ -83,8 +158,14 @@ export async function getAuthenticatedUser(
     if (session.accessToken) {
       try {
         const payload = decodeJwtPayloadForAuth(session.accessToken);
-        const realmRoles: string[] =
+        // See `hasRoleFallback` for why we accept both the nested
+        // `realm_access.roles` shape and the flat top-level `roles` claim.
+        const fromRealmAccess: string[] =
           (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
+        const fromFlatRoles: string[] = Array.isArray(payload.roles)
+          ? (payload.roles as unknown[]).filter((r): r is string => typeof r === 'string')
+          : [];
+        const realmRoles = [...fromRealmAccess, ...fromFlatRoles];
         if (
           REQUIRED_ADMIN_GROUP &&
           realmRoles.some((r: string) => r.toLowerCase() === REQUIRED_ADMIN_GROUP.toLowerCase())
@@ -185,11 +266,33 @@ export async function getAuthFromBearerOrSession(
       };
     }
 
-    // Fall through to OIDC JWKS validation
-    const identity = await validateBearerJWT(token);
-    // Bearer users get 'user' role by default; admin escalation is session-only
+    // Fall through to OIDC JWKS validation. Translate jose / fetch errors
+    // into structured ApiError so the client receives a stable {reason, action}
+    // instead of a generic 500 / "Unauthorized" with no actionable hint.
+    let identity: Awaited<ReturnType<typeof validateBearerJWT>>;
+    try {
+      identity = await validateBearerJWT(token);
+    } catch (err) {
+      throw classifyBearerError(err);
+    }
+    // Bearer users get 'user' role by default; admin escalation is session-only.
+    // The validated bearer token MUST be propagated into the session so that
+    // downstream `requireRbacPermission(session, ...)` can present it to
+    // Keycloak's UMA ticket grant for AuthZ. Without `accessToken` here, the
+    // PDP path silently 401s with "Authentication required" even though the
+    // bearer was validated, breaking Slack-bot / first-party service callers
+    // that authenticate exclusively via Bearer JWT.
     const user = { email: identity.email, name: identity.name, role: 'user' };
-    return { user, session: { role: 'user' } };
+    return {
+      user,
+      session: {
+        role: 'user',
+        accessToken: token,
+        sub: identity.sub,
+        org: identity.org,
+        user: { email: identity.email, name: identity.name },
+      },
+    };
   }
 
   // Path 2: Session cookie (existing NextAuth flow)
@@ -217,7 +320,13 @@ export async function getAuthFromBearerOrSession(
  */
 export function requireAdmin(session: { role?: string }): void {
   if (session.role !== 'admin') {
-    throw new ApiError('Admin access required - must be member of admin group', 403);
+    throw new ApiError(
+      'This action requires admin access. Contact your admin to be added to the admin group.',
+      403,
+      'ADMIN_REQUIRED',
+      'missing_role',
+      'contact_admin'
+    );
   }
 }
 
@@ -233,7 +342,13 @@ export function requireAdmin(session: { role?: string }): void {
 export function requireAdminView(session: { role?: string; canViewAdmin?: boolean }): void {
   if (session.role === 'admin') return;
   if (session.canViewAdmin !== true) {
-    throw new ApiError('Admin view access required - must be member of admin view group', 403);
+    throw new ApiError(
+      'This page requires admin-view access. Contact your admin for access.',
+      403,
+      'ADMIN_VIEW_REQUIRED',
+      'missing_role',
+      'contact_admin'
+    );
   }
 }
 
@@ -340,8 +455,23 @@ function hasRoleFallback(
 
   try {
     const payload = decodeJwtPayloadForAuth(accessToken);
-    const realmRoles: string[] =
+    // Roles can land in two places depending on how the issuing Keycloak
+    // client's "roles" protocol mapper is configured:
+    //   1. Nested under `realm_access.roles` — the standard cookie-session
+    //      tokens minted for caipe-ui via the OIDC `code` flow.
+    //   2. A top-level flat `roles` array — what the realm's default `roles`
+    //      client scope produces for `client_credentials` tokens minted by
+    //      service accounts (e.g. caipe-slack-bot). Realm roles are still
+    //      authoritative here; only the JWT shape differs.
+    // We accept both so first-party service callers (Slack bot, future
+    // Webex/Teams bots) can satisfy the role-fallback path without us having
+    // to reshape every realm's mapper config.
+    const fromRealmAccess: string[] =
       (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
+    const fromFlatRoles: string[] = Array.isArray(payload.roles)
+      ? (payload.roles as unknown[]).filter((r): r is string => typeof r === 'string')
+      : [];
+    const realmRoles = [...fromRealmAccess, ...fromFlatRoles];
     return realmRoles.some((r: string) => r.toLowerCase() === requiredRole.toLowerCase());
   } catch {
     return false;
@@ -378,7 +508,13 @@ export async function requireRbacPermission(
       pdp: 'keycloak',
       email,
     });
-    throw new ApiError('Authentication required', 401);
+    throw new ApiError(
+      'Your session has expired. Please sign in again.',
+      401,
+      'NO_TOKEN',
+      'session_expired',
+      'sign_in'
+    );
   }
 
   const result = await checkPermission({ resource, scope, accessToken });
@@ -427,10 +563,22 @@ export async function requireRbacPermission(
         email,
       });
       if (result.reason === 'DENY_PDP_UNAVAILABLE') {
-        throw new ApiError('Authorization service unavailable — access denied (fail-closed)', 503);
+        throw new ApiError(
+          'Authorization service is temporarily unavailable. Please try again in a moment.',
+          503,
+          'PDP_UNAVAILABLE',
+          'pdp_unavailable',
+          'retry'
+        );
       }
       const denial = deniedApiResponse(resource, scope);
-      throw new ApiError(denial.message, 403, denial.capability);
+      throw new ApiError(
+        denial.message,
+        403,
+        denial.capability,
+        'pdp_denied',
+        'contact_admin'
+      );
     }
   }
 
@@ -452,7 +600,13 @@ export async function requireRbacPermission(
         pdp: 'keycloak',
         email,
       });
-      throw new ApiError('Policy denied (CEL)', 403, 'CEL_DENIED');
+      throw new ApiError(
+        'Access denied by policy. Contact your admin if you believe this is in error.',
+        403,
+        'CEL_DENIED',
+        'cel_denied',
+        'contact_admin'
+      );
     }
   }
 }
@@ -461,11 +615,47 @@ export async function requireRbacPermission(
 // Error Handling
 // ============================================================================
 
+/**
+ * Stable machine-readable reason codes for auth/authz failures.
+ *
+ * Designed so clients (web UI toast, slack-bot, future bots) can branch on a
+ * fixed vocabulary instead of fragile substring matches against `error`.
+ * Treat as a public API — adding values is fine, renaming/removing is a
+ * breaking change.
+ */
+export type AuthFailureReason =
+  | 'not_signed_in'        // No session and no bearer token
+  | 'session_expired'      // Session/token expired (jose: ERR_JWT_EXPIRED, NextAuth refresh failure)
+  | 'bearer_invalid'       // Bearer token signature/issuer/format invalid
+  | 'audience_mismatch'    // Token aud claim does not match this service
+  | 'missing_role'         // Authenticated but lacking required realm role
+  | 'pdp_denied'           // Keycloak Authorization Services (UMA) denied
+  | 'pdp_unavailable'      // PDP unreachable, fail-closed
+  | 'cel_denied'           // Supplementary CEL policy denied
+  | 'forbidden';           // Generic forbidden (ownership, etc.)
+
+/**
+ * UI hint indicating what the user can do to recover. Clients are free to
+ * ignore this and show their own affordances; it is purely advisory.
+ */
+export type AuthFailureAction =
+  | 'sign_in'        // Prompt re-authentication
+  | 'contact_admin'  // Out of the user's control — they need an admin grant
+  | 'retry'          // Transient (e.g. PDP unreachable) — retry later
+  | 'none';          // No recovery affordance
+
 export class ApiError extends Error {
   constructor(
     message: string,
     public statusCode: number = 500,
-    public code?: string
+    public code?: string,
+    /**
+     * Machine-readable failure category. Optional for backward compat with
+     * existing throw-sites; auth/authz code paths should set it.
+     */
+    public reason?: AuthFailureReason,
+    /** UI recovery hint. */
+    public action?: AuthFailureAction
   ) {
     super(message);
     this.name = 'ApiError';
@@ -484,6 +674,8 @@ export function handleApiError(error: unknown): NextResponse {
         success: false,
         error: error.message,
         code: error.code,
+        reason: error.reason,
+        action: error.action,
       },
       { status: error.statusCode }
     );
@@ -652,13 +844,17 @@ export function paginatedResponse<T>(
 export function errorResponse(
   message: string,
   statusCode: number = 400,
-  code?: string
+  code?: string,
+  reason?: AuthFailureReason,
+  action?: AuthFailureAction
 ): NextResponse {
   return NextResponse.json(
     {
       success: false,
       error: message,
       code,
+      reason,
+      action,
     },
     { status: statusCode }
   );
@@ -673,7 +869,13 @@ export function errorResponse(
  */
 export function requireOwnership(ownerId: string, userId: string) {
   if (ownerId !== userId) {
-    throw new ApiError('Forbidden: You do not own this resource', 403, 'FORBIDDEN');
+    throw new ApiError(
+      'You do not have access to this resource.',
+      403,
+      'FORBIDDEN',
+      'forbidden',
+      'contact_admin'
+    );
   }
 }
 
@@ -794,5 +996,11 @@ export async function requireConversationAccess(
     return { conversation, access_level: 'admin_audit' };
   }
 
-  throw new ApiError('Forbidden: You do not have access to this conversation', 403, 'FORBIDDEN');
+  throw new ApiError(
+    'You do not have access to this conversation.',
+    403,
+    'FORBIDDEN',
+    'forbidden',
+    'contact_admin'
+  );
 }

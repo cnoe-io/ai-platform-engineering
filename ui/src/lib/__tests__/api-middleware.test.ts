@@ -102,8 +102,32 @@ describe('handleApiError', () => {
         success: false,
         error: 'Resource not found',
         code: 'NOT_FOUND',
+        reason: undefined,
+        action: undefined,
       },
       { status: 404 }
+    );
+  });
+
+  it('handles ApiError with structured auth-error fields → propagates reason+action', () => {
+    const err = new ApiError(
+      'Sign in again',
+      401,
+      'BEARER_EXPIRED',
+      'session_expired',
+      'sign_in'
+    );
+    handleApiError(err);
+
+    expect(mockNextResponseJson).toHaveBeenCalledWith(
+      {
+        success: false,
+        error: 'Sign in again',
+        code: 'BEARER_EXPIRED',
+        reason: 'session_expired',
+        action: 'sign_in',
+      },
+      { status: 401 }
     );
   });
 
@@ -379,8 +403,22 @@ describe('errorResponse', () => {
   it('includes error code if provided', () => {
     errorResponse('Not found', 404, 'NOT_FOUND');
     expect(mockNextResponseJson).toHaveBeenCalledWith(
-      { success: false, error: 'Not found', code: 'NOT_FOUND' },
+      { success: false, error: 'Not found', code: 'NOT_FOUND', reason: undefined, action: undefined },
       { status: 404 }
+    );
+  });
+
+  it('includes reason and action when provided (structured auth-error contract)', () => {
+    errorResponse('Sign in again', 401, 'BEARER_EXPIRED', 'session_expired', 'sign_in');
+    expect(mockNextResponseJson).toHaveBeenCalledWith(
+      {
+        success: false,
+        error: 'Sign in again',
+        code: 'BEARER_EXPIRED',
+        reason: 'session_expired',
+        action: 'sign_in',
+      },
+      { status: 401 }
     );
   });
 });
@@ -390,16 +428,19 @@ describe('requireOwnership', () => {
     expect(() => requireOwnership('user-123', 'user-123')).not.toThrow();
   });
 
-  it('throws ApiError 403 when IDs differ', () => {
+  it('throws ApiError 403 when IDs differ with structured auth-error fields', () => {
     expect(() => requireOwnership('owner-1', 'user-2')).toThrow(ApiError);
     expect(() => requireOwnership('owner-1', 'user-2')).toThrow(
-      'Forbidden: You do not own this resource'
+      'You do not have access to this resource.'
     );
     try {
       requireOwnership('owner-1', 'user-2');
     } catch (e) {
-      expect((e as ApiError).statusCode).toBe(403);
-      expect((e as ApiError).code).toBe('FORBIDDEN');
+      const err = e as ApiError;
+      expect(err.statusCode).toBe(403);
+      expect(err.code).toBe('FORBIDDEN');
+      expect(err.reason).toBe('forbidden');
+      expect(err.action).toBe('contact_admin');
     }
   });
 });
@@ -410,14 +451,16 @@ describe('getAuthenticatedUser', () => {
     mockGetCollection.mockReset();
   });
 
-  it('throws 401 when no session', async () => {
+  it('throws 401 with structured auth-error fields when no session', async () => {
     mockGetServerSession.mockResolvedValue(null);
 
     const req = new Request('http://test.com') as unknown as NextRequest;
     await expect(getAuthenticatedUser(req)).rejects.toThrow(ApiError);
     await expect(getAuthenticatedUser(req)).rejects.toMatchObject({
       statusCode: 401,
-      message: 'Unauthorized',
+      code: 'NOT_SIGNED_IN',
+      reason: 'not_signed_in',
+      action: 'sign_in',
     });
   });
 
@@ -425,9 +468,10 @@ describe('getAuthenticatedUser', () => {
     mockGetServerSession.mockResolvedValue({ user: { name: 'Test' } });
 
     const req = new Request('http://test.com') as unknown as NextRequest;
-    await expect(getAuthenticatedUser(req)).rejects.toThrow(
-      'Unauthorized'
-    );
+    await expect(getAuthenticatedUser(req)).rejects.toMatchObject({
+      statusCode: 401,
+      reason: 'not_signed_in',
+    });
   });
 
   it('returns user when session has email', async () => {
@@ -503,7 +547,10 @@ describe('withAuth', () => {
     const handler = jest.fn();
     const req = new Request('http://test.com') as unknown as NextRequest;
 
-    await expect(withAuth(req, handler)).rejects.toThrow('Unauthorized');
+    await expect(withAuth(req, handler)).rejects.toMatchObject({
+      statusCode: 401,
+      reason: 'not_signed_in',
+    });
     expect(handler).not.toHaveBeenCalled();
   });
 });
@@ -513,13 +560,16 @@ describe('requireAdmin', () => {
     expect(() => requireAdmin({ role: 'admin' })).not.toThrow();
   });
 
-  it('throws ApiError 403 for user role', () => {
+  it('throws ApiError 403 for user role with missing_role/contact_admin hint', () => {
     expect(() => requireAdmin({ role: 'user' })).toThrow(ApiError);
     try {
       requireAdmin({ role: 'user' });
     } catch (e) {
-      expect((e as ApiError).statusCode).toBe(403);
-      expect((e as ApiError).message).toContain('Admin access required');
+      const err = e as ApiError;
+      expect(err.statusCode).toBe(403);
+      expect(err.message).toContain('admin access');
+      expect(err.reason).toBe('missing_role');
+      expect(err.action).toBe('contact_admin');
     }
   });
 

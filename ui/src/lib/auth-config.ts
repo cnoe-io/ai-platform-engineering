@@ -284,6 +284,10 @@ async function refreshAccessToken(token: {
 }) {
   try {
     const issuer = process.env.OIDC_ISSUER;
+    // Server-side calls (discovery + token refresh) prefer OIDC_DISCOVERY_URL so
+    // they can use the Docker-internal hostname while OIDC_ISSUER stays
+    // browser-facing. See provider config below for full rationale.
+    const serverIssuer = process.env.OIDC_DISCOVERY_URL || issuer;
     const clientId = process.env.OIDC_CLIENT_ID;
     const clientSecret = process.env.OIDC_CLIENT_SECRET;
 
@@ -331,7 +335,7 @@ async function refreshAccessToken(token: {
       // Falls back to Keycloak-style path if discovery fails.
       let tokenEndpoint: string;
       try {
-        const wellKnownUrl = `${issuer}/.well-known/openid-configuration`;
+        const wellKnownUrl = `${serverIssuer}/.well-known/openid-configuration`;
         const discoveryResponse = await fetch(wellKnownUrl, { next: { revalidate: 3600 } });
         if (discoveryResponse.ok) {
           const discoveryDoc = await discoveryResponse.json();
@@ -339,11 +343,11 @@ async function refreshAccessToken(token: {
           console.log("[Auth] Token endpoint from OIDC discovery:", tokenEndpoint);
         } else {
           console.warn("[Auth] OIDC discovery failed, falling back to Keycloak-style path");
-          tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+          tokenEndpoint = `${serverIssuer}/protocol/openid-connect/token`;
         }
       } catch (discoveryError) {
         console.warn("[Auth] OIDC discovery error, falling back to Keycloak-style path:", discoveryError);
-        tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+        tokenEndpoint = `${serverIssuer}/protocol/openid-connect/token`;
       }
 
       console.log("[Auth] Refreshing access token...");
@@ -439,9 +443,16 @@ export const authOptions: NextAuthOptions = {
       id: "oidc",
       name: "SSO",
       type: "oauth",
-      wellKnown: process.env.OIDC_ISSUER
-        ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
-        : undefined,
+      // OIDC_DISCOVERY_URL lets server-side discovery use a Docker-internal URL
+      // (e.g. http://keycloak:7080/realms/caipe) while OIDC_ISSUER stays as the
+      // browser-facing URL (e.g. http://localhost:7080/realms/caipe) so the
+      // "iss" claim in JWTs validates against what the browser was redirected to.
+      // Falls back to OIDC_ISSUER when not set (single-URL deployments).
+      wellKnown: process.env.OIDC_DISCOVERY_URL
+        ? `${process.env.OIDC_DISCOVERY_URL}/.well-known/openid-configuration`
+        : process.env.OIDC_ISSUER
+          ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
+          : undefined,
       // Keycloak issues regular refresh tokens for confidential clients
       // without needing offline_access scope. Requesting offline_access
       // requires extra Keycloak config and causes login failures if not

@@ -1,5 +1,6 @@
 // Client-side API SDK for calling MongoDB backend APIs
 
+import type { AuthFailureAction, AuthFailureReason } from "./auth-error";
 import type {
   Conversation,
   Message,
@@ -22,6 +23,26 @@ import type {
   ConversationBookmark,
   UserPublicInfo,
 } from '@/types/mongodb';
+
+/**
+ * Thrown by {@link APIClient.request} for any non-OK response. Carries the
+ * HTTP status plus the BFF's structured auth-error fields (`code`, `reason`,
+ * `action`) when present, so callers (chat panel, dynamic-agent editor, etc.)
+ * can distinguish auth failures from backend errors and render an
+ * appropriate toast (see `lib/auth-error.ts`).
+ */
+export class APIClientError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+    public reason?: AuthFailureReason,
+    public action?: AuthFailureAction,
+  ) {
+    super(message);
+    this.name = "APIClientError";
+  }
+}
 
 class APIClient {
   private baseURL: string;
@@ -70,13 +91,27 @@ class APIClient {
         });
       }
       
-      let error;
+      // Parse structured BFF error body. Preserves {code, reason, action}
+      // for callers (auth-error.ts consumers) so they can branch on stable
+      // machine-readable codes instead of substring-matching English.
+      let parsed: {
+        error?: string;
+        code?: string;
+        reason?: AuthFailureReason;
+        action?: AuthFailureAction;
+      } = {};
       try {
-        error = JSON.parse(errorText);
+        parsed = JSON.parse(errorText) as typeof parsed;
       } catch {
-        error = { error: response.statusText || errorText };
+        parsed = { error: response.statusText || errorText };
       }
-      throw new Error(error.error || `HTTP ${response.status}`);
+      throw new APIClientError(
+        parsed.error || `HTTP ${response.status}`,
+        response.status,
+        parsed.code,
+        parsed.reason,
+        parsed.action,
+      );
     }
 
     const responseText = await response.text();

@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
+import { ApiError, getAuthFromBearerOrSession } from "@/lib/api-middleware";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -73,11 +73,41 @@ export async function authenticateRequest(
     return { userContextHeader: encoded };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+
+    // Forward structured ApiError shape so the web UI / slack-bot can render
+    // a specific message (e.g. "session expired — sign in again" vs
+    // "token audience mismatch — contact admin") instead of a generic
+    // "Unauthorized". Falls back to 401 NOT_SIGNED_IN for any non-ApiError
+    // throw — current call sites only throw ApiError, but this keeps us
+    // safe if a new auth path leaks a plain Error.
+    if (err instanceof ApiError) {
+      console.error(
+        `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} ` +
+          `status=${err.statusCode} reason=${err.reason ?? "unknown"} code=${err.code ?? "-"} msg=${err.message}`,
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          error: err.message,
+          code: err.code,
+          reason: err.reason,
+          action: err.action,
+        },
+        { status: err.statusCode },
+      );
+    }
+
     console.error(
       `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} reason=${message}`,
     );
     return NextResponse.json(
-      { success: false, error: "Unauthorized" },
+      {
+        success: false,
+        error: "You are not signed in. Please sign in to continue.",
+        code: "NOT_SIGNED_IN",
+        reason: "not_signed_in",
+        action: "sign_in",
+      },
       { status: 401 },
     );
   }
