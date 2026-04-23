@@ -22,7 +22,14 @@ from urllib.parse import quote
 
 import httpx
 
-from .keycloak_admin import get_user_by_attribute, get_user_by_email, set_user_attribute
+from .email_masking import mask_email
+from .keycloak_admin import (
+    JitError,
+    create_user_from_slack,
+    get_user_by_attribute,
+    get_user_by_email,
+    set_user_attribute,
+)
 
 logger = logging.getLogger("caipe.slack_bot.identity_linker")
 
@@ -36,6 +43,37 @@ _LINK_BASE_URL = os.environ.get(
 # When False (default), the bot auto-links on first message by matching the
 # Slack profile email to an existing Keycloak user.
 SLACK_FORCE_LINK = os.environ.get("SLACK_FORCE_LINK", "false").lower() == "true"
+
+
+def _jit_enabled() -> bool:
+    """Read the JIT feature flag at call time (not import time) so tests
+    and runtime config changes both apply without re-importing the module.
+
+    Spec 103 FR-001 / G3: defaults to ``true`` so the user-visible value
+    (no more "Slack account could not be automatically linked" dead-end)
+    ships on by default in dev. Operators in production explicitly opt
+    out by setting ``SLACK_JIT_CREATE_USER=false`` in their values.yaml /
+    .env, which falls back to the existing HMAC link-onboarding flow.
+    """
+    return os.environ.get("SLACK_JIT_CREATE_USER", "true").lower() == "true"
+
+
+def _jit_allowed_email_domains() -> Optional[set[str]]:
+    """Optional comma-separated allowlist of email domains eligible for JIT.
+
+    Empty/unset => any domain is allowed. Spec FR-006 — defense-in-depth
+    against accidentally provisioning external users from a federated IdP
+    that returns a non-corporate email.
+    """
+    raw = os.environ.get("SLACK_JIT_ALLOWED_EMAIL_DOMAINS", "").strip()
+    if not raw:
+        return None
+    return {d.strip().lower() for d in raw.split(",") if d.strip()}
+
+
+def _email_domain(email: str) -> str:
+    at = email.rfind("@")
+    return email[at + 1:].lower() if at >= 0 else ""
 
 _SLACK_BOT_TOKEN = os.environ.get(
     "SLACK_INTEGRATION_BOT_TOKEN",
@@ -112,11 +150,23 @@ async def _get_slack_user_email(slack_user_id: str) -> Optional[str]:
 async def auto_bootstrap_slack_user(slack_user_id: str) -> Optional[str]:
     """Auto-link a Slack user to Keycloak by matching their email.
 
-    Fetches the user's Slack profile email, finds the matching Keycloak user
-    by email, then writes the ``slack_user_id`` attribute to complete the link.
+    Fetches the user's Slack profile email and:
 
-    Returns the Keycloak user ID on success, or ``None`` if auto-bootstrap
-    is not possible (no email, no matching Keycloak user, etc.).
+    1. If a Keycloak user with that email already exists, write the
+       ``slack_user_id`` attribute to complete the link (the original
+       behaviour, unchanged).
+    2. Else, if ``SLACK_JIT_CREATE_USER=true`` (the default) and the
+       email domain passes the optional
+       ``SLACK_JIT_ALLOWED_EMAIL_DOMAINS`` allowlist, create a
+       federated-only Keycloak shell user via
+       :func:`keycloak_admin.create_user_from_slack` and return its
+       UUID. Spec 103 G1 / FR-002.
+    3. Else, return ``None`` so the caller can send the existing HMAC
+       link-onboarding prompt (FR-007).
+
+    Logging contract (FR-010, FR-011): all log lines that reference the
+    Slack profile email do so via :func:`mask_email`. JIT failures log
+    a stable ``error_kind=...`` token so SIEM rules can group on it.
     """
     email = await _get_slack_user_email(slack_user_id)
     if not email:
@@ -124,25 +174,64 @@ async def auto_bootstrap_slack_user(slack_user_id: str) -> Optional[str]:
         return None
 
     kc_user = await get_user_by_email(email)
-    if kc_user is None:
+    if kc_user is not None:
+        if not kc_user.get("enabled", True):
+            logger.warning(
+                "Auto-bootstrap: Keycloak user %s (email=%s) is disabled",
+                kc_user.get("id"), mask_email(email),
+            )
+            return None
+
+        kc_user_id = kc_user["id"]
+        await set_user_attribute(kc_user_id, "slack_user_id", slack_user_id)
         logger.info(
-            "Auto-bootstrap: no Keycloak user with email=%s for slack_user_id=%s",
-            email, slack_user_id,
+            "Auto-bootstrapped (existing user): slack=%s -> keycloak=%s (email=%s)",
+            slack_user_id, kc_user_id, mask_email(email),
+        )
+        return kc_user_id
+
+    # No Keycloak user with that email yet. Decide whether to JIT.
+    if not _jit_enabled():
+        logger.info(
+            "JIT disabled (SLACK_JIT_CREATE_USER=false); falling back to "
+            "link-onboarding for slack=%s email=%s",
+            slack_user_id, mask_email(email),
         )
         return None
 
-    if not kc_user.get("enabled", True):
+    allowlist = _jit_allowed_email_domains()
+    if allowlist is not None:
+        domain = _email_domain(email)
+        if domain not in allowlist:
+            logger.info(
+                "JIT skipped: domain=%s not in SLACK_JIT_ALLOWED_EMAIL_DOMAINS "
+                "for slack=%s email=%s",
+                domain, slack_user_id, mask_email(email),
+            )
+            return None
+
+    try:
+        kc_user_id = await create_user_from_slack(slack_user_id, email)
+    except JitError as jerr:
         logger.warning(
-            "Auto-bootstrap: Keycloak user %s (email=%s) is disabled",
-            kc_user.get("id"), email,
+            "JIT user creation failed: event=jit_failed error_kind=%s "
+            "slack=%s email=%s detail=%s",
+            jerr.error_kind, slack_user_id, mask_email(email), jerr,
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001 — last-resort guard
+        # Belt-and-suspenders: any unexpected exception falls back to the
+        # link flow rather than blowing up the Slack request handler.
+        logger.warning(
+            "JIT user creation failed (unexpected): event=jit_failed "
+            "error_kind=unexpected slack=%s email=%s detail=%s",
+            slack_user_id, mask_email(email), exc,
         )
         return None
 
-    kc_user_id = kc_user["id"]
-    await set_user_attribute(kc_user_id, "slack_user_id", slack_user_id)
     logger.info(
-        "Auto-bootstrapped: slack=%s → keycloak=%s (email=%s)",
-        slack_user_id, kc_user_id, email,
+        "JIT user provisioned: event=jit_created slack=%s keycloak=%s email=%s",
+        slack_user_id, kc_user_id, mask_email(email),
     )
     return kc_user_id
 

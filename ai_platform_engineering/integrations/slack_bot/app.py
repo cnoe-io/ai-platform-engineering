@@ -13,6 +13,14 @@ import sys
 import time
 import requests as _requests
 
+# 098: install the log redaction filter BEFORE importing slack_bolt / slack_sdk
+# so their module-level loggers pick it up. Slack Bolt has been observed to log
+# entire request payloads (containing the per-request `token`, OAuth bearers,
+# JWTs, etc.) when a middleware short-circuits without calling next() — see
+# `utils.log_redaction` for the full list of patterns scrubbed.
+from utils.log_redaction import install as _install_log_redaction  # noqa: E402
+_install_log_redaction()
+
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
@@ -393,17 +401,32 @@ def rbac_global_middleware(body, context, next, logger):
             return
         if channel:
             try:
-                if SLACK_FORCE_LINK:
+                # Spec 103 FR-007: replace the previous dead-end message
+                # with an actionable HMAC-signed linking URL whenever the
+                # auto-link path returns "unlinked" — regardless of whether
+                # JIT was disabled, the email domain was not allow-listed,
+                # JIT failed (e.g. Keycloak 5xx), or the operator has
+                # SLACK_FORCE_LINK enabled. The user always gets a path
+                # forward; the previous text told them to "contact your
+                # admin" which is not a path the user can self-serve.
+                try:
                     linking_url = asyncio.run(generate_linking_url(slack_user_id))
+                except Exception:
+                    linking_url = None
+
+                if linking_url:
                     text = (
                         "Your Slack account is not linked to an enterprise identity. "
-                        f"<{linking_url}|Click here to link your account> before using this feature."
+                        f"<{linking_url}|Click here to link your account> "
+                        "before using this feature."
                     )
                 else:
+                    # Last-resort: no HMAC secret configured, so we cannot
+                    # mint a link. Keep the old dead-end message but make
+                    # it accurate (it really is a config issue at this point).
                     text = (
-                        "Your Slack account could not be automatically linked. "
-                        "Make sure your Slack email matches your enterprise account, "
-                        "or contact your admin."
+                        "Your Slack account could not be linked because the bot is "
+                        "not configured to mint linking URLs. Please contact your admin."
                     )
                 context["client"].chat_postEphemeral(
                     channel=channel,
