@@ -417,6 +417,77 @@ describe('A2ASDKClient', () => {
       expect(events[0].shouldAppend).toBe(true)
     })
 
+    it('should NOT synthesize "Task <status> (ID: ...)" filler when task event has no artifacts', async () => {
+      // Regression: previously parseTaskEvent generated a placeholder string
+      // when a Task event arrived with no artifacts (typical of the initial
+      // `submitted` snapshot). That filler bubbled up through SubAgentCard
+      // and rendered as a misleading chat message like
+      // "Task submitted (ID: 2a538eba...)" — especially confusing for IDE-only
+      // skills whose real output never reaches the chat surface.
+      const taskEvent = {
+        kind: 'task',
+        id: 'task-no-artifacts-deadbeef',
+        contextId: 'test-ctx',
+        status: { state: 'submitted' },
+        // intentionally: no artifacts
+      }
+
+      mockTransport.sendMessageStream.mockImplementation(async function* () {
+        yield taskEvent
+      })
+
+      const transport = (client as any).transport
+      transport.sendMessageStream = mockTransport.sendMessageStream
+
+      const events: any[] = []
+
+      for await (const event of client.sendMessageStream('test')) {
+        events.push(event)
+      }
+
+      const parsed = events.find(e => e.type === 'task')
+      expect(parsed).toBeDefined()
+      // taskId still propagates so consumers (timeline chips, recovery) work
+      expect(parsed?.taskId).toBe('task-no-artifacts-deadbeef')
+      // displayContent is empty so SubAgentCard skips it instead of rendering filler
+      expect(parsed?.displayContent).toBe('')
+      expect(parsed?.displayContent).not.toMatch(/Task .* \(ID:/)
+    })
+
+    it('should still extract displayContent from task artifacts when present', async () => {
+      // Guardrail: only the no-artifact case is suppressed. When the supervisor
+      // does send artifact text on the task event, we must still surface it.
+      const taskEvent = {
+        kind: 'task',
+        id: 'task-with-final',
+        contextId: 'test-ctx',
+        status: { state: 'completed' },
+        artifacts: [
+          {
+            name: 'final_result',
+            parts: [{ kind: 'text', text: 'The real answer' }],
+          },
+        ],
+      }
+
+      mockTransport.sendMessageStream.mockImplementation(async function* () {
+        yield taskEvent
+      })
+
+      const transport = (client as any).transport
+      transport.sendMessageStream = mockTransport.sendMessageStream
+
+      const events: any[] = []
+      for await (const event of client.sendMessageStream('test')) {
+        events.push(event)
+      }
+
+      const parsed = events.find(e => e.type === 'task')
+      expect(parsed?.displayContent).toBe('The real answer')
+      expect(parsed?.artifactName).toBe('final_result')
+      expect(parsed?.isFinal).toBe(true)
+    })
+
     it('should detect final results correctly', async () => {
       const events = [
         {
