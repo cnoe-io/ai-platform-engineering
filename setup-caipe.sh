@@ -649,6 +649,7 @@ collect_credentials() {
     echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
     echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
     echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(local models: llama2, mistral, neural-chat, etc.)${NC}"
+    echo -e "    ${BOLD}6)${NC} ${DIM}Skip for now — configure in CAIPE UI after deployment${NC}"
     echo ""
     prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
     tty_read -r provider_choice
@@ -659,6 +660,15 @@ collect_credentials() {
       3) LLM_PROVIDER="openai" ;;
       4) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
       5) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
+      6)
+        warn "No LLM provider selected — CAIPE will deploy but agents won't run until a"
+        warn "provider is configured. After deployment, go to:"
+        warn "  CAIPE UI → Custom Agents → Models → configure your provider key"
+        warn "Then restart the supervisor pod:"
+        warn "  kubectl rollout restart deployment/caipe-supervisor-agent -n caipe"
+        LLM_PROVIDER="none"
+        return 0
+        ;;
       *) err "Invalid choice"; exit 1 ;;
     esac
   fi
@@ -694,6 +704,7 @@ collect_credentials() {
 }
 
 _collect_anthropic_credentials() {
+  [[ "${LLM_PROVIDER:-}" == "none" ]] && return 0
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
     log "Using ANTHROPIC_API_KEY from environment"
   elif [[ -f "${HOME}/.config/claude.txt" ]]; then
@@ -1678,8 +1689,12 @@ provision_ui_secret() {
   local ui_env_file="$1"
   step "Provisioning UI secret from env file"
 
+  # NEXTAUTH_SECRET is intentionally omitted — CAIPE auto-generates and persists
+  # it in MongoDB on first startup. Set it explicitly only for production
+  # deployments that require a pre-shared secret (e.g. multi-replica, key rotation
+  # from GitOps). If set here it takes precedence and disables auto-generation.
   local ui_keys=(
-    NEXTAUTH_SECRET NEXTAUTH_URL
+    NEXTAUTH_URL
     OIDC_ISSUER OIDC_CLIENT_ID OIDC_CLIENT_SECRET
     OIDC_REQUIRED_GROUP OIDC_REQUIRED_ADMIN_GROUP OIDC_ENABLE_REFRESH_TOKEN
     INGESTOR_OIDC_ISSUER INGESTOR_OIDC_CLIENT_ID INGESTOR_OIDC_CLIENT_SECRET
@@ -4558,6 +4573,44 @@ monitor_port_forwards() {
   fi
   echo -e "  ${BOLD}CLI chat:${NC}"
   echo -e "    ${DIM}uvx https://github.com/cnoe-io/agent-chat-cli.git a2a${NC}"
+  echo ""
+  echo -e "  ${CYAN}${BOLD}━━━ What's next? ━━━${NC}"
+  echo ""
+  echo -e "  ${BOLD}Quick configuration (no YAML required):${NC}"
+  echo -e "    Open CAIPE UI → ${BOLD}System${NC} menu (top right)"
+  echo -e "    • ${BOLD}OIDC Configuration${NC}  — connect your identity provider (Duo, Okta, Azure AD)"
+  echo -e "    • ${BOLD}Custom Agents → Models${NC} — add LLM provider API keys"
+  echo -e "    • ${BOLD}Custom Agents → MCP Servers${NC} — add tool integrations (GitHub, Jira, ArgoCD…)"
+  echo -e "    • ${BOLD}Options${NC} — enable/disable RAG, Custom Agents, SSO"
+  echo ""
+  echo -e "  ${BOLD}Production / GitOps configuration:${NC}"
+  echo -e "    ${DIM}All UI settings can be replaced or overridden with k8s resources.${NC}"
+  echo -e "    ${DIM}Environment variables always take precedence over UI-saved values.${NC}"
+  echo ""
+  echo -e "    LLM keys:"
+  echo -e "    ${DIM}kubectl create secret generic llm-secret -n caipe \\${NC}"
+  echo -e "    ${DIM}  --from-literal=ANTHROPIC_API_KEY=sk-ant-...${NC}"
+  echo ""
+  echo -e "    OIDC / session secret:"
+  echo -e "    ${DIM}kubectl create secret generic caipe-ui-secret -n caipe \\${NC}"
+  echo -e "    ${DIM}  --from-literal=NEXTAUTH_SECRET=\$(openssl rand -base64 32) \\${NC}"
+  echo -e "    ${DIM}  --from-literal=OIDC_ISSUER=https://your-idp.example.com \\${NC}"
+  echo -e "    ${DIM}  --from-literal=OIDC_CLIENT_ID=your-client-id \\${NC}"
+  echo -e "    ${DIM}  --from-literal=OIDC_CLIENT_SECRET=your-client-secret${NC}"
+  echo ""
+  echo -e "    Models / MCP servers (Helm values):"
+  echo -e "    ${DIM}# In your values.yaml — seeds the UI model selector and MCP list${NC}"
+  echo -e "    ${DIM}appConfig:${NC}"
+  echo -e "    ${DIM}  models:${NC}"
+  echo -e "    ${DIM}    - model_id: claude-sonnet-4-20250514${NC}"
+  echo -e "    ${DIM}      name: \"Claude Sonnet 4\"${NC}"
+  echo -e "    ${DIM}      provider: anthropic-claude${NC}"
+  echo -e "    ${DIM}  mcp_servers:${NC}"
+  echo -e "    ${DIM}    - id: github${NC}"
+  echo -e "    ${DIM}      transport: http${NC}"
+  echo -e "    ${DIM}      endpoint: http://agent-github-mcp:8000/mcp${NC}"
+  echo ""
+  echo -e "    ${DIM}Docs: https://cnoe-io.github.io/ai-platform-engineering/setup${NC}"
   echo ""
   echo -e "  ${YELLOW}${BOLD}Keep this script running to maintain port-forwarding.${NC}"
   echo -e "  ${DIM}Press Ctrl+C to stop all services.${NC}"

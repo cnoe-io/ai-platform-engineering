@@ -7,8 +7,11 @@ Supports both single-node (all-in-one, in-process MCP tools) and distributed
 (remote A2A agents) modes via the DISTRIBUTED_MODE environment variable.
 """
 
+import json
 import logging
 import os
+import urllib.error
+import urllib.request
 import httpx
 from pathlib import Path
 from dotenv import load_dotenv
@@ -47,6 +50,70 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
 from ai_platform_engineering.multi_agents.platform_engineer import platform_registry
 
 logger = logging.getLogger(__name__)
+
+
+def _inject_llm_provider_env_vars() -> None:
+    """Fetch decrypted LLM provider configs from the CAIPE UI env-export endpoint
+    and inject them into os.environ for any vars not already set.
+
+    Matches the DB-first, env-fallback pattern used by dynamic-agents: values
+    that are already in this process's env are never overridden; DB-configured
+    values fill in the gaps. This lets admins configure LLM providers once via
+    the UI and have them picked up by the supervisor on the next restart,
+    without hand-editing a Kubernetes Secret.
+
+    Authentication: DYNAMIC_AGENTS_SERVICE_TOKEN (preferred) or NEXTAUTH_SECRET
+    (fallback). Failures are non-fatal — the supervisor continues with whatever
+    LLMFactory can build from the existing env (and fails loudly on first
+    request if nothing is configured at all).
+    """
+    ui_url = os.environ.get("CAIPE_UI_URL", "").rstrip("/")
+    if not ui_url:
+        logger.debug("[LLM] CAIPE_UI_URL not set — skipping DB provider config injection")
+        return
+
+    secret = (
+        os.environ.get("DYNAMIC_AGENTS_SERVICE_TOKEN")
+        or os.environ.get("NEXTAUTH_SECRET")
+        or ""
+    )
+    if not secret:
+        logger.debug("[LLM] No service token — skipping DB provider config injection")
+        return
+    if not os.environ.get("DYNAMIC_AGENTS_SERVICE_TOKEN"):
+        logger.warning(
+            "[LLM] Using NEXTAUTH_SECRET as env-export credential. "
+            "Set DYNAMIC_AGENTS_SERVICE_TOKEN to a dedicated credential."
+        )
+
+    endpoint = f"{ui_url}/api/admin/llm-providers/env-export"
+    try:
+        req = urllib.request.Request(
+            endpoint,
+            headers={"Authorization": f"Bearer {secret}"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+            data = json.loads(resp.read())
+
+        env_vars: dict[str, str] = data.get("env_vars", {})
+        injected: list[str] = []
+        for key, value in env_vars.items():
+            # Treat empty strings as "unset" — manifest-injected secretKeyRef
+            # values (e.g. caipe-llm-secrets.llm-provider="") would otherwise
+            # block DB-configured values from reaching os.environ.
+            if not os.environ.get(key) and value:
+                os.environ[key] = value
+                injected.append(key)
+
+        if injected:
+            logger.info("[LLM] Injected %d provider config(s) from DB: %s", len(injected), injected)
+        else:
+            logger.debug("[LLM] No DB provider configs to inject")
+
+    except urllib.error.URLError as exc:
+        logger.debug("[LLM] Could not reach CAIPE UI (%s) — using env vars only", exc)
+    except Exception as exc:
+        logger.warning("[LLM] Unexpected error during provider config injection: %s", exc)
 
 
 def get_version():
@@ -107,6 +174,13 @@ load_dotenv()
 
 # Configure logging to suppress noisy health check logs
 configure_logging()
+
+# Pull DB-configured LLM credentials from the UI before anything reads them.
+# Must run before `AIPlatformEngineerA2AExecutor()` is constructed below,
+# because the executor's eager `_startup_initialize` calls LLMFactory() and
+# LLMFactory reads LLM_PROVIDER + provider-specific env vars from os.environ.
+# Non-fatal on failure (best effort; existing env still works).
+_inject_llm_provider_env_vars()
 
 # Check environment variables for host and port if not provided via CLI
 env_host = os.getenv('A2A_HOST')
