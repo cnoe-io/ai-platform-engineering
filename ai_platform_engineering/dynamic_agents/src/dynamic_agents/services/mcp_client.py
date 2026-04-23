@@ -2,14 +2,70 @@
 
 import asyncio
 import logging
-from typing import Any
+import os
+import ssl
+from typing import Any, Callable
 
+import httpx
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
+from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import MCPServerConfig, TransportType
 
 logger = logging.getLogger(__name__)
+
+
+def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
+    """Build an httpx.AsyncClient factory that injects the per-request user JWT.
+
+    Spec 102 Phase 8 / T106. Mirror of the supervisor's
+    ``base_langgraph_agent._build_httpx_client_factory``: each MCP HTTP
+    connection opened by ``langchain-mcp-adapters`` calls this factory,
+    which reads ``current_user_token`` (set by ``JwtAuthMiddleware``)
+    and forwards it as ``Authorization: Bearer <token>``. This is the
+    fix for the live HTTP 401 from agentgateway because the runtime no
+    longer relies on the (token-less) X-User-Context header for
+    outbound auth.
+
+    Honors ``CUSTOM_CA_BUNDLE`` / ``REQUESTS_CA_BUNDLE`` /
+    ``SSL_CERT_FILE`` and ``SSL_VERIFY=false`` for parity with the
+    supervisor stack.
+    """
+    ca_bundle = (
+        os.getenv("CUSTOM_CA_BUNDLE")
+        or os.getenv("REQUESTS_CA_BUNDLE")
+        or os.getenv("SSL_CERT_FILE")
+    )
+    ssl_verify = os.getenv("SSL_VERIFY", "true").lower()
+    if ca_bundle and os.path.exists(ca_bundle):
+        verify: Any = ssl.create_default_context(cafile=ca_bundle)
+    elif ssl_verify == "false":
+        logger.warning(
+            "SSL_VERIFY=false: disabling TLS verification for MCP HTTP transport. "
+            "Insecure; dev only."
+        )
+        verify = False
+    else:
+        verify = True
+
+    def _factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        merged = dict(headers or {})
+        token = current_user_token.get()
+        if token:
+            merged["Authorization"] = f"Bearer {token}"
+        return httpx.AsyncClient(
+            headers=merged,
+            timeout=timeout or httpx.Timeout(30.0),
+            auth=auth,
+            verify=verify,
+        )
+
+    return _factory
 
 
 def build_mcp_connection_config(
@@ -32,7 +88,13 @@ def build_mcp_connection_config(
     if auth_bearer:
         headers["Authorization"] = f"Bearer {auth_bearer}"
 
+    # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
+    # per-request user JWT (from current_user_token ContextVar) is injected
+    # on every outbound connection, even after this config is built.
+    factory = build_httpx_client_factory()
+
     def attach_headers(cfg: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**cfg, "httpx_client_factory": factory}
         if not headers:
             return cfg
         return {**cfg, "headers": {**cfg.get("headers", {}), **headers}}

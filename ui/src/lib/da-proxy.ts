@@ -23,6 +23,14 @@ import { ApiError, getAuthFromBearerOrSession } from "@/lib/api-middleware";
 export interface AuthResult {
   /** Base64-encoded JSON UserContext header, or undefined for anonymous */
   userContextHeader?: string;
+  /**
+   * The raw user JWT (Bearer access token) that authenticated this
+   * request, when available. Forwarded to DA as ``Authorization:
+   * Bearer <token>`` so DA's ``JwtAuthMiddleware`` can validate it
+   * against Keycloak and bind ``current_user_token`` for downstream
+   * MCP / agentgateway calls. See spec 102 Phase 8 / T103, T106.
+   */
+  bearerToken?: string;
 }
 
 /**
@@ -70,7 +78,8 @@ export async function authenticateRequest(
     };
 
     const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
-    return { userContextHeader: encoded };
+    const bearerToken = (s?.accessToken as string | undefined) || undefined;
+    return { userContextHeader: encoded, bearerToken };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 
@@ -166,6 +175,9 @@ export function buildBackendHeaders(
   };
   if (authResult.userContextHeader) {
     headers["X-User-Context"] = authResult.userContextHeader;
+  }
+  if (authResult.bearerToken) {
+    headers["Authorization"] = `Bearer ${authResult.bearerToken}`;
   }
   return headers;
 }

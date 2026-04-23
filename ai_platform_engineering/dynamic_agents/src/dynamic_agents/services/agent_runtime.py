@@ -150,7 +150,16 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._client_context = client_context
-        self._auth_bearer: str | None = (user.obo_jwt or user.access_token) if user else None
+        # Spec 102 Phase 8 / T107: prefer the per-request bearer from
+        # current_user_token (set by JwtAuthMiddleware) so the same token
+        # the BFF authenticated us with is forwarded to MCP servers.
+        # Fall back to UserContext-attached fields for backward compat
+        # with the X-User-Context legacy path.
+        from dynamic_agents.auth.token_context import current_user_token as _ctx_tok
+
+        ctx_token = _ctx_tok.get()
+        legacy_token = (user.obo_jwt or user.access_token) if user else None
+        self._auth_bearer: str | None = ctx_token or legacy_token
         self._session_id = session_id
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)

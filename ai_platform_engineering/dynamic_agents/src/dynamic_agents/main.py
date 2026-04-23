@@ -91,6 +91,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Spec 102 Phase 8 / T103: validate incoming Bearer JWTs against
+    # Keycloak and bind current_user_token so the MCP httpx factory can
+    # forward the user identity to agentgateway. Mounted AFTER CORS so
+    # CORS preflights are not auth-gated.
+    from dynamic_agents.auth.jwt_middleware import JwtAuthMiddleware
+
+    app.add_middleware(JwtAuthMiddleware)
+
     # Mount routes
     app.include_router(health.router)
     app.include_router(builtin_tools.router, prefix="/api/v1")
