@@ -1,18 +1,15 @@
-## 0.3.11 (2026-04-22)
+## 0.4.0 (2026-04-23)
 
-## 0.3.10-rc.3 (2026-04-22)
+## 0.3.11-rc.2 (2026-04-23)
+
+## 0.3.11-rc.1 (2026-04-22)
 
 ### Fix
 
 - **slack**: add escalation policy field and fix humble followup prompt (#1277)
-
-## 0.3.10-rc.2 (2026-04-22)
-
-### Fix
-
 - **admin**: correct feedback dedup, user linkage, and top user display (#1273)
 
-## 0.3.10-rc.1 (2026-04-21)
+## 0.3.10 (2026-04-21)
 
 ### Fix
 
