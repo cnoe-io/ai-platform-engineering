@@ -52,7 +52,7 @@ _DEFAULT_MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("RAG_MAX_FETCH_DOCUMENT_CALLS"
 _DEFAULT_MAX_SEARCH_CALLS = int(os.getenv("RAG_MAX_SEARCH_CALLS", "5"))
 _STALE_ENTRY_TTL_SECONDS = 300
 
-def rag_cap_message(search_remaining: int, fetch_remaining: int) -> str:
+def rag_cap_message(search_remaining: int = 0, fetch_remaining: int = 0) -> str:
     """Build the cap-hit message for a blocked RAG call.
 
     When calls remain in other tool budgets, the message tells the model exactly
@@ -77,10 +77,6 @@ def rag_cap_message(search_remaining: int, fetch_remaining: int) -> str:
         "Do NOT call search or fetch_document again. "
         "You MUST now synthesize your final answer from the information already retrieved above."
     )
-
-
-# Convenience alias for the fully-exhausted case (used by _arun wrappers).
-RAG_CAP_EXHAUSTED_MESSAGE = rag_cap_message(search_remaining=0, fetch_remaining=0)
 
 
 # Per-call output truncation limits (chars). Prevents a single tool call from
@@ -197,9 +193,7 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
     if capped is not None:
       logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "fetch_document")
-      search_used = SearchCapWrapper.get_call_count_for_thread(thread_id)
-      search_remaining = max(0, SearchCapWrapper.get_max_calls() - search_used)
-      return rag_cap_message(search_remaining=search_remaining, fetch_remaining=0)
+      return rag_cap_message_for_thread(thread_id)
 
     count = self._global_counts.get(thread_id, 0)
     logger.debug(f"fetch_document call {count}/{self.max_calls} for thread_id={thread_id}")
@@ -266,9 +260,7 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     if capped is not None:
       logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "search")
-      fetch_used = FetchDocumentCapWrapper.get_call_count_for_thread(thread_id)
-      fetch_remaining = max(0, FetchDocumentCapWrapper.get_max_calls() - fetch_used)
-      return rag_cap_message(search_remaining=0, fetch_remaining=fetch_remaining)
+      return rag_cap_message_for_thread(thread_id)
 
     # Cap per-call results to prevent context window flooding.
     if "limit" in kwargs and isinstance(kwargs["limit"], int):
@@ -285,6 +277,16 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
 
   def _run(self, *args: Any, **kwargs: Any) -> str:
     raise NotImplementedError("SearchCapWrapper only supports async execution via _arun")
+
+
+def rag_cap_message_for_thread(thread_id: str) -> str:
+    """Build the cap-hit message with accurate remaining counts for both tools."""
+    search_used = SearchCapWrapper.get_call_count_for_thread(thread_id)
+    fetch_used = FetchDocumentCapWrapper.get_call_count_for_thread(thread_id)
+    return rag_cap_message(
+        search_remaining=max(0, SearchCapWrapper.get_max_calls() - search_used),
+        fetch_remaining=max(0, FetchDocumentCapWrapper.get_max_calls() - fetch_used),
+    )
 
 
 # Hard-stop tracking: after the first post-cap call, mark the thread so
