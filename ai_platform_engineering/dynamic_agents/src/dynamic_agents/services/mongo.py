@@ -1,11 +1,12 @@
 """MongoDB service for Dynamic Agents.
 
-DA is a pure runtime reader — all config writes (CRUD, seeding) are
-handled by the Next.js gateway. This module provides read-only access
-to agent and MCP server configurations.
+Provides access to agent and MCP server configurations.
+Encrypted fields (env, headers) are transparently decrypted on read
+so the agent runtime always receives plain-text values.
 """
 
 import logging
+from typing import Any
 
 from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
@@ -13,6 +14,7 @@ from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
 from dynamic_agents.config import Settings, get_settings
+from dynamic_agents.crypto import decrypt_env_dict
 from dynamic_agents.models import (
     DynamicAgentConfig,
     MCPServerConfig,
@@ -38,7 +40,6 @@ class MongoDBService:
                 retryWrites=False,
                 tz_aware=True,
             )
-            # Verify connectivity
             self._client.admin.command("ping")
             self._db = self._client[self.settings.mongodb_database]
             logger.info(f"MongoDB connected (database: {self.settings.mongodb_database})")
@@ -58,37 +59,38 @@ class MongoDBService:
             self._db = None
 
     def _ensure_indexes(self) -> None:
-        """Create indexes for collections."""
+        """Create read-optimised indexes."""
         if self._db is None:
             return
 
-        # Dynamic agents indexes
         agents_coll = self._get_agents_collection()
         agents_coll.create_index([("owner_id", ASCENDING)])
         agents_coll.create_index([("visibility", ASCENDING)])
         agents_coll.create_index([("enabled", ASCENDING)])
-        agents_coll.create_index([("name", ASCENDING)])
 
-        # MCP servers indexes
         servers_coll = self._get_servers_collection()
         servers_coll.create_index([("enabled", ASCENDING)])
 
         logger.info("MongoDB indexes ensured")
 
     def _get_agents_collection(self) -> Collection:
-        """Get the dynamic_agents collection."""
         if self._db is None:
             raise RuntimeError("MongoDB not connected")
         return self._db[self.settings.dynamic_agents_collection]
 
     def _get_servers_collection(self) -> Collection:
-        """Get the mcp_servers collection."""
         if self._db is None:
             raise RuntimeError("MongoDB not connected")
         return self._db[self.settings.mcp_servers_collection]
 
+    def _get_platform_config_doc(self, doc_id: str) -> dict | None:
+        """Read a document from the platform_config collection by _id."""
+        if self._db is None:
+            return None
+        return self._db["platform_config"].find_one({"_id": doc_id})
+
     # =========================================================================
-    # Read-only agent access
+    # Agent reads
     # =========================================================================
 
     def get_agent(self, agent_id: str) -> DynamicAgentConfig | None:
@@ -99,28 +101,52 @@ class MongoDBService:
         return None
 
     # =========================================================================
-    # Read-only MCP server access
+    # MCP server reads
     # =========================================================================
 
     def get_server(self, server_id: str) -> MCPServerConfig | None:
-        """Get an MCP server config by ID."""
+        """Get an MCP server config by ID. Encrypted values are decrypted."""
         doc = self._get_servers_collection().find_one({"_id": server_id})
         if doc:
-            return MCPServerConfig(**doc)
+            return self._decrypt_server_doc(doc)
         return None
 
     def get_servers_by_ids(self, server_ids: list[str]) -> list[MCPServerConfig]:
-        """Get multiple MCP servers by their IDs."""
+        """Get multiple MCP servers by their IDs. Encrypted values are decrypted."""
         docs = self._get_servers_collection().find({"_id": {"$in": server_ids}})
-        return [MCPServerConfig(**doc) for doc in docs]
+        return [self._decrypt_server_doc(doc) for doc in docs]
+
+    def _decrypt_server_doc(self, doc: dict[str, Any]) -> MCPServerConfig:
+        """Build an MCPServerConfig, decrypting envelope-encrypted env and headers."""
+        if doc.get("env_encrypted") and isinstance(doc.get("env"), dict):
+            try:
+                doc = {**doc, "env": decrypt_env_dict(doc["env"])}
+            except Exception as exc:
+                logger.error(
+                    "Failed to decrypt MCP env for server %s: %s", doc.get("_id", "?"), exc
+                )
+                doc = {**doc, "env": {k: "**DECRYPTION_FAILED**" for k in doc["env"]}}
+
+        if doc.get("headers_encrypted") and isinstance(doc.get("headers"), dict):
+            try:
+                doc = {**doc, "headers": decrypt_env_dict(doc["headers"])}
+            except Exception as exc:
+                logger.error(
+                    "Failed to decrypt MCP headers for server %s: %s", doc.get("_id", "?"), exc
+                )
+                doc = {**doc, "headers": {k: "**DECRYPTION_FAILED**" for k in doc["headers"]}}
+
+        return MCPServerConfig(**doc)
 
 
-# Singleton instance
+# =========================================================================
+# Singleton
+# =========================================================================
+
 _mongo_service: MongoDBService | None = None
 
 
 def get_mongo_service() -> MongoDBService:
-    """Get or create the MongoDB service singleton."""
     global _mongo_service
     if _mongo_service is None:
         _mongo_service = MongoDBService()
@@ -129,7 +155,6 @@ def get_mongo_service() -> MongoDBService:
 
 
 def reset_mongo_service() -> None:
-    """Reset the MongoDB service singleton (for retry logic during startup)."""
     global _mongo_service
     if _mongo_service is not None:
         _mongo_service.disconnect()
