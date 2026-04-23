@@ -39,6 +39,7 @@ def _msg_link(channel_id: str, ts: str) -> str:
     return ""
   return f" {_WORKSPACE_URL}/archives/{channel_id}/p{ts.replace('.', '')}"
 
+
 AUTH_ENABLED = os.environ.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
 
 SLACK_WORKSPACE_URL = os.environ.get("SLACK_WORKSPACE_URL", "")
@@ -137,6 +138,48 @@ def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = ""
   return conv_result["conversation_id"]
 
 
+def _track_interaction(
+  conversation_id: str,
+  thread_ts: str,
+  channel_id: str,
+  interaction_type: str,
+  user_id: str,
+  user_email: str | None = None,
+  user_name: str | None = None,
+  response_time_ms: int | None = None,
+  last_processed_ts: str | None = None,
+) -> None:
+  """PATCH conversation metadata with interaction tracking fields.
+
+  Called after each successful AI response to record who interacted,
+  how long it took, and what kind of interaction it was.  Also updates
+  ``last_processed_ts`` for delta context on follow-ups.
+  """
+  metadata: dict[str, object] = {
+    "interaction_type": interaction_type,
+    "user_id": user_id,
+  }
+  if user_email:
+    metadata["user_email"] = user_email
+  if user_name:
+    metadata["user_name"] = user_name
+  if response_time_ms is not None:
+    metadata["response_time_ms"] = response_time_ms
+
+  # Build Slack permalink
+  workspace = _WORKSPACE_URL
+  if workspace and thread_ts:
+    metadata["slack_link"] = f"{workspace}/archives/{channel_id}/p{thread_ts.replace('.', '')}"
+
+  if last_processed_ts:
+    metadata["last_processed_ts"] = last_processed_ts
+
+  try:
+    sse_client.update_conversation_metadata(conversation_id, metadata)
+  except Exception:
+    logger.warning(f"[{thread_ts}] Failed to update interaction metadata")
+
+
 def _call_ai(
   client,
   channel_id,
@@ -196,6 +239,7 @@ def _call_ai(
 def handle_mention(event, say, client):
   """Handle @mentions of the bot to query CAIPE."""
   try:
+    t0 = time.monotonic()
     if event.get("edited") or event.get("subtype") == "message_changed":
       logger.debug("Skipping edited @mention message")
       return
@@ -328,12 +372,17 @@ def handle_mention(event, say, client):
 
     logger.info(f"[{thread_ts}] Completed CAIPE request for {user_name}")
 
-    # Record the timestamp of the last processed message so subsequent
-    # interactions can fetch only the delta.
-    try:
-      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
-    except Exception:
-      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
+    _track_interaction(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      interaction_type="mention",
+      user_id=user_id,
+      user_email=user_email,
+      user_name=user_name,
+      response_time_ms=int((time.monotonic() - t0) * 1000),
+      last_processed_ts=event.get("ts"),
+    )
 
   except Exception as e:
     logger.exception(f"Error handling CAIPE mention: {e}")
@@ -352,6 +401,7 @@ def handle_mention(event, say, client):
 # =============================================================================
 def handle_qanda_message(event, say, client):
   try:
+    t0 = time.monotonic()
     # Ignore system messages (channel_purpose, channel_topic, channel_join, etc.)
     if event.get("subtype"):
       logger.debug(f"Q&A ignoring system message subtype={event['subtype']} in {event.get('channel')}")
@@ -430,6 +480,17 @@ def handle_qanda_message(event, say, client):
 
     logger.info(f"[{thread_ts}] Completed Q&A request for {user_name}")
 
+    _track_interaction(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      interaction_type="qanda",
+      user_id=user_id,
+      user_email=user_email,
+      user_name=user_name,
+      response_time_ms=int((time.monotonic() - t0) * 1000),
+    )
+
   except Exception as e:
     logger.exception(f"Error handling Q&A message: {e}")
     try:
@@ -445,6 +506,7 @@ def handle_qanda_message(event, say, client):
 def handle_dm_message(event, say, client):
   """Handle direct messages to the bot."""
   try:
+    t0 = time.monotonic()
     if event.get("bot_id"):
       return
 
@@ -557,12 +619,17 @@ def handle_dm_message(event, say, client):
 
     logger.info(f"[{thread_ts}] Completed DM request for {user_name}")
 
-    # Record the timestamp of the last processed message so subsequent
-    # interactions can fetch only the delta.
-    try:
-      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
-    except Exception:
-      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
+    _track_interaction(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      interaction_type="dm",
+      user_id=user_id,
+      user_email=user_email,
+      user_name=user_name,
+      response_time_ms=int((time.monotonic() - t0) * 1000),
+      last_processed_ts=event.get("ts"),
+    )
 
   except Exception as e:
     logger.exception(f"Error handling DM message: {e}")
@@ -1020,6 +1087,13 @@ def handle_escalation_get_help(ack, body, client):
       user_id=user_id,
       escalation_config=esc_config,
     )
+
+    # Mark conversation as escalated for admin dashboard resolution stats
+    try:
+      sse_client.update_conversation_metadata(conversation_id, {"escalated": True})
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to mark conversation as escalated in metadata")
+
   except Exception as e:
     logger.exception(f"Error handling escalation: {e}")
 
