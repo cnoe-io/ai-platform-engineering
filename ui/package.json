@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:e2e:rbac": "playwright test --config=playwright.rbac.config.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.13",

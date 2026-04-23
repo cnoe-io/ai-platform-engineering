@@ -65,14 +65,19 @@ The "hybrid ACL" promotion (collection-level filter combined with
 per-document tags) requires a schema migration and is sized
 separately.
 
-### 1.4 US7 e2e Playwright runs (Phase 10)
+### 1.4 US7 e2e Playwright runs (Phase 10) — partially DONE 2026-04-23
 
-US7 calls for full browser-driven regression of the BFF auth contract
-across sign-in, sign-out, expired-session, missing-role, and
-PDP-down paths. The supporting unit tests are in place
-(`ui/src/lib/__tests__/auth-error.test.ts`,
-`ui/src/lib/streaming/__tests__/stream-error.test.ts`); the
-Playwright harness itself is not yet wired into CI.
+**Harness landed**: `ui/e2e/rbac/` contains 5 Playwright specs
+covering sign-in, sign-out, expired-session, missing-role, and
+PDP-down. Config in `ui/playwright.rbac.config.ts`. Skip-by-default
+behind `RUN_RBAC_E2E=1` so CI Jest runs and `npx playwright test`
+defaults are not affected. `npm run test:e2e:rbac` is the entry point.
+See `ui/e2e/rbac/README.md` for full operator docs.
+
+**Still pending**: wiring the harness into a GitHub Actions workflow
+once the live stack (Keycloak + supervisor + DA + BFF) can be
+provisioned in CI (kind cluster + Helm, or hosted preview). This is
+infra, not test code, and is sized as a separate piece of work.
 
 ### 1.5 US8 doc validator (Phase 10) ✅ DONE 2026-04-23
 
