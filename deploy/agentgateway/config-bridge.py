@@ -126,6 +126,10 @@ SEED_POLICIES = [
     },
 ]
 
+# Standalone MCP servers fronted by agentgateway. AWS and ServiceNow MCPs are
+# embedded inside their agent containers (agent-aws, agent-servicenow) and are
+# NOT routable through agentgateway, so they are intentionally absent here.
+# Spec 102 BLOCKERS §1.1 — RBAC enforcement at the gateway hop.
 SEED_BACKENDS = [
     {
         "id": "rag",
@@ -133,7 +137,55 @@ SEED_BACKENDS = [
         "description": "Knowledge Base (RAG Server)",
         "enabled": True,
     },
+    {"id": "mcp_jira", "upstream_url": "http://mcp-jira:8000/mcp",
+     "description": "Jira MCP", "enabled": True},
+    {"id": "mcp_argocd", "upstream_url": "http://mcp-argocd:8000/mcp",
+     "description": "ArgoCD MCP", "enabled": True},
+    {"id": "mcp_github", "upstream_url": "http://github-mcp-server:8082/mcp",
+     "description": "GitHub MCP (upstream image)", "enabled": True},
+    {"id": "mcp_slack", "upstream_url": "http://mcp-slack:3001/mcp",
+     "description": "Slack MCP (upstream image)", "enabled": True},
+    {"id": "mcp_confluence", "upstream_url": "http://mcp-confluence:8000/mcp",
+     "description": "Confluence MCP (mcp-atlassian)", "enabled": True},
+    {"id": "mcp_backstage", "upstream_url": "http://mcp-backstage:8000/mcp",
+     "description": "Backstage MCP", "enabled": True},
+    {"id": "mcp_pagerduty", "upstream_url": "http://mcp-pagerduty:8000/mcp",
+     "description": "PagerDuty MCP", "enabled": True},
+    {"id": "mcp_splunk", "upstream_url": "http://mcp-splunk:8000/mcp",
+     "description": "Splunk MCP", "enabled": True},
+    {"id": "mcp_webex", "upstream_url": "http://mcp-webex:8000/mcp",
+     "description": "Webex MCP", "enabled": True},
+    {"id": "mcp_komodor", "upstream_url": "http://mcp-komodor:8000/mcp",
+     "description": "Komodor MCP", "enabled": True},
 ]
+
+
+# Default tool-invoke policies: any caller with `chat_user` (or above) may
+# invoke any tool on these per-MCP backends. Operators may tighten via the
+# Admin UI > Security & Policy > AG MCP Policies (e.g. require team_member
+# for *_create / *_delete tools on a given MCP).
+_CHAT_USER_OR_ABOVE_EXPR = (
+    '("chat_user" in jwt.realm_access.roles || '
+    '"team_member" in jwt.realm_access.roles || '
+    '"kb_admin" in jwt.realm_access.roles || '
+    '"admin" in jwt.realm_access.roles)'
+)
+
+for _backend in SEED_BACKENDS:
+    if _backend["id"] == "rag":
+        continue  # rag has its own per-tool policies above
+    SEED_POLICIES.append(
+        {
+            "backend_id": _backend["id"],
+            "tool_pattern": "",  # empty pattern = matches every tool name
+            "expression": _CHAT_USER_OR_ABOVE_EXPR,
+            "description": (
+                f"{_backend['id']} default invoke: chat_user, team_member, "
+                "kb_admin, admin (Spec 102 BLOCKERS §1.1)"
+            ),
+            "enabled": True,
+        }
+    )
 
 running = True
 
@@ -149,40 +201,41 @@ signal.signal(signal.SIGINT, handle_signal)
 
 
 def seed_collections(db: object) -> None:
-    """Seed policies and backends if the collections are empty."""
-    policies_col = db["ag_mcp_policies"]
-    if policies_col.count_documents({}) == 0:
-        log.info("Seeding ag_mcp_policies with %d default rules", len(SEED_POLICIES))
-        now = datetime.now(timezone.utc).isoformat()
-        for p in SEED_POLICIES:
-            policies_col.update_one(
-                {"backend_id": p["backend_id"], "tool_pattern": p["tool_pattern"]},
-                {
-                    "$set": {
-                        **p,
-                        "updated_by": "config-bridge-seed",
-                        "updated_at": now,
-                    }
-                },
-                upsert=True,
-            )
+    """Seed policies and backends.
 
+    Strategy: upsert each seed entry **only if it does not already exist**.
+    Operators editing entries via the Admin UI must not have their changes
+    silently overwritten on bridge restart. Empty-collection bootstrap and
+    incremental "new MCP added to seed list" rollouts both work this way.
+    """
+    policies_col = db["ag_mcp_policies"]
     backends_col = db["ag_mcp_backends"]
-    if backends_col.count_documents({}) == 0:
-        log.info("Seeding ag_mcp_backends with %d default targets", len(SEED_BACKENDS))
-        now = datetime.now(timezone.utc).isoformat()
-        for b in SEED_BACKENDS:
-            backends_col.update_one(
-                {"id": b["id"]},
-                {
-                    "$set": {
-                        **b,
-                        "updated_by": "config-bridge-seed",
-                        "updated_at": now,
-                    }
-                },
-                upsert=True,
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    new_policies = 0
+    for p in SEED_POLICIES:
+        existing = policies_col.find_one(
+            {"backend_id": p["backend_id"], "tool_pattern": p["tool_pattern"]}
+        )
+        if existing is None:
+            policies_col.insert_one(
+                {**p, "updated_by": "config-bridge-seed", "updated_at": now}
             )
+            new_policies += 1
+    if new_policies:
+        log.info("Seeded %d new ag_mcp_policies entries", new_policies)
+
+    new_backends = 0
+    for b in SEED_BACKENDS:
+        existing = backends_col.find_one({"id": b["id"]})
+        if existing is None:
+            backends_col.insert_one(
+                {**b, "updated_by": "config-bridge-seed", "updated_at": now}
+            )
+            new_backends += 1
+    if new_backends:
+        log.info("Seeded %d new ag_mcp_backends entries", new_backends)
 
 
 def render_config(

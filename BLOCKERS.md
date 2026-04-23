@@ -16,40 +16,39 @@ live HTTP 401, supervisor PDP gate is feature-flagged, BFF error
 contract is standardized). The remaining items are large but lower
 risk:
 
-### 1.1 Per-MCP RBAC migrations (Phase 8 follow-on)
+### 1.1 Per-MCP RBAC migrations (Phase 8 follow-on) ✅ DONE 2026-04-22
 
-12 MCP servers still authenticate via the legacy
-`X-User-Context`-derived header pattern at the `agentgateway` layer.
-The DA → agentgateway hop is now JWT-based; the **agentgateway →
-upstream MCP** hop still relies on agentgateway's local
-authentication. Each upstream MCP needs:
+**Resolution**: rather than write per-MCP JWT middleware (the original
+plan), we route each MCP through `agentgateway`, which already enforces
+JWT validation (issuer/audience/JWKS) and CEL-based MCP authorization
+pulled from MongoDB via `ag-config-bridge`. The 12 migrations therefore
+collapse to:
 
-- A Keycloak `mcp_<name>` resource with `invoke` scope.
-- A realm permission binding `chat_user` to that resource.
-- The MCP server's own JWT validation middleware.
-
-MCPs to migrate (one Spec 102 task per server, tracked separately):
+  - Adding the standalone MCPs to `SEED_BACKENDS` in
+    `deploy/agentgateway/config-bridge.py` (10 new backends).
+  - Adding a default `chat_user / team_member / kb_admin / admin` invoke
+    CEL policy per backend.
+  - Asserting structural invariants in
+    `tests/test_ag_config_bridge_seeds.py` (9 tests).
 
 | MCP server | Status |
 |---|---|
-| jira | not migrated |
-| confluence | not migrated |
-| argocd | not migrated |
-| github | not migrated |
-| slack | not migrated |
-| backstage | not migrated |
-| pagerduty | not migrated |
-| splunk | not migrated |
-| webex | not migrated |
-| servicenow | not migrated |
-| aws | not migrated |
-| komodor | not migrated |
+| jira | gateway-routed (mcp_jira) |
+| confluence | gateway-routed (mcp_confluence) |
+| argocd | gateway-routed (mcp_argocd) |
+| github | gateway-routed (mcp_github) |
+| slack | gateway-routed (mcp_slack) |
+| backstage | gateway-routed (mcp_backstage) |
+| pagerduty | gateway-routed (mcp_pagerduty) |
+| splunk | gateway-routed (mcp_splunk) |
+| webex | gateway-routed (mcp_webex) |
+| komodor | gateway-routed (mcp_komodor) |
+| aws | embedded in agent-aws (not gateway-routable) |
+| servicenow | embedded in agent-servicenow (not gateway-routable) |
 
-**Why deferred**: Each migration is at least a half-day of work
-(realm config + middleware + integration test) and the chain is
-guarded today by the trusted-network assumption between
-agentgateway and the MCP servers (same docker network /
-namespace). The DA→agentgateway hop was the user-facing leak.
+Operators can tighten the default policies per-tool through
+**Admin UI > Security & Policy > AG MCP Policies** (e.g. require
+`team_member` for `*_create` / `*_delete` patterns).
 
 ### 1.2 Slack OBO live verification (Phase 9)
 
