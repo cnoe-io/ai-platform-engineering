@@ -285,11 +285,13 @@ class TestMiddlewareRagLoopExit:
         assert "search" in blocked.content.lower() and "remaining" in blocked.content.lower()
 
     def test_over_budget_batch_blocks_all_and_reports_remaining(self):
-        """When cap=5 and 3 calls already used, a batch of 5 should block ALL 5
-        and tell the LLM it has 2 remaining so it can choose the best queries."""
+        """When cap=5 and 3 calls already used, a batch of 5 should block ALL 5,
+        tell the LLM it has 2 remaining, and NOT increment cap_hit_count
+        (budget still exists — this is a batch-size correction, not a true cap hit)."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             SearchCapWrapper,
             _DEFAULT_MAX_SEARCH_CALLS,
+            _rag_cap_hit_counts,
         )
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
         from langchain_core.messages import ToolMessage
@@ -323,3 +325,7 @@ class TestMiddlewareRagLoopExit:
         # Message must tell LLM it has 2 search calls remaining
         content = result["messages"][0].content
         assert "2" in content and "search" in content.lower() and "remaining" in content.lower()
+        # Budget still exists — must NOT have incremented cap_hit_count
+        assert _rag_cap_hit_counts.get("t10", 0) == 0, "cap_hit_count must stay 0 when budget remains"
+        # No jump_to=end when budget remains
+        assert "jump_to" not in result
