@@ -193,91 +193,24 @@ export interface FeaturesConfig {
 
 /**
  * Metadata for a middleware type in the registry.
+ * Fetched from the backend GET /api/dynamic-agents/middleware endpoint.
  * Used by the UI to render toggles, param editors, and "Add" menu.
  */
 export interface MiddlewareDefinition {
   key: string;
   label: string;
   description: string;
-  enabledByDefault: boolean;
-  allowMultiple: boolean;
-  defaultParams: Record<string, unknown>;
+  enabled_by_default: boolean;
+  allow_multiple: boolean;
+  default_params: Record<string, unknown>;
   /** Whether this middleware needs model_id/model_provider params. */
-  modelParams?: boolean;
+  model_params?: boolean;
+  /**
+   * Type hints for params.
+   * Values: "number", "boolean", "string", or "opt1|opt2|..." for selects.
+   */
+  param_schema?: Record<string, string>;
 }
-
-/**
- * Static registry of known middleware for the UI.
- * Mirrors MIDDLEWARE_REGISTRY in services/middleware.py.
- */
-export const MIDDLEWARE_DEFINITIONS: MiddlewareDefinition[] = [
-  {
-    key: "model_retry",
-    label: "Model Retry",
-    description: "Retries failed LLM calls with exponential backoff",
-    enabledByDefault: true,
-    allowMultiple: false,
-    defaultParams: { max_retries: 5, backoff_factor: 2.0, on_failure: "continue" },
-  },
-  {
-    key: "tool_retry",
-    label: "Tool Retry",
-    description: "Retries failed tool calls with exponential backoff",
-    enabledByDefault: true,
-    allowMultiple: false,
-    defaultParams: { max_retries: 3, backoff_factor: 2.0, initial_delay: 2.0, on_failure: "return_message" },
-  },
-  {
-    key: "model_call_limit",
-    label: "Model Call Limit",
-    description: "Caps total LLM calls per run to prevent runaway loops",
-    enabledByDefault: true,
-    allowMultiple: false,
-    defaultParams: { run_limit: 200, exit_behavior: "end" },
-  },
-  {
-    key: "tool_call_limit",
-    label: "Tool Call Limit",
-    description: "Caps total tool invocations per run",
-    enabledByDefault: false,
-    allowMultiple: true,
-    defaultParams: { run_limit: 500, exit_behavior: "continue" },
-  },
-  {
-    key: "context_editing",
-    label: "Context Editing",
-    description: "Clears older tool outputs when approaching token limits",
-    enabledByDefault: false,
-    allowMultiple: false,
-    defaultParams: { trigger: 100000, keep: 3 },
-  },
-  {
-    key: "pii",
-    label: "PII Detection",
-    description: "Detects and handles Personally Identifiable Information",
-    enabledByDefault: false,
-    allowMultiple: true,
-    defaultParams: { pii_type: "email", strategy: "redact" },
-  },
-  {
-    key: "llm_tool_selector",
-    label: "LLM Tool Selector",
-    description: "Uses an LLM to select relevant tools before calling main model",
-    enabledByDefault: false,
-    allowMultiple: false,
-    defaultParams: { max_tools: 10 },
-    modelParams: true,
-  },
-  {
-    key: "model_fallback",
-    label: "Model Fallback",
-    description: "Falls back to an alternative model when primary fails",
-    enabledByDefault: false,
-    allowMultiple: false,
-    defaultParams: {},
-    modelParams: true,
-  },
-];
 
 // =============================================================================
 // Dynamic Agent Types
