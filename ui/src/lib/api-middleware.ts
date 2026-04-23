@@ -2,6 +2,21 @@
 // Provides authentication, error handling, and validation
 
 import { NextRequest, NextResponse } from 'next/server';
+
+// ---------------------------------------------------------------------------
+// Production safety check: warn loudly if ALLOW_ANONYMOUS_ADMIN is set outside
+// of local dev. This flag bypasses all authentication for admin API routes.
+// ---------------------------------------------------------------------------
+if (
+  process.env.ALLOW_ANONYMOUS_ADMIN === 'true' &&
+  process.env.NODE_ENV === 'production'
+) {
+  console.error(
+    '[SECURITY] ALLOW_ANONYMOUS_ADMIN=true in production — ' +
+    'this flag disables authentication for all admin API routes. ' +
+    'Remove it immediately from production environments.'
+  );
+}
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
