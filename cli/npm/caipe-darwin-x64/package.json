@@ -1,0 +1,15 @@
+{
+  "name": "caipe-darwin-x64",
+  "version": "0.1.0",
+  "description": "caipe platform binary for macOS x64",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "bin": {
+    "caipe": "bin/caipe"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cnoe-io/ai-platform-engineering"
+  }
+}

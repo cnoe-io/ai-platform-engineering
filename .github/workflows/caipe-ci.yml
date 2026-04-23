@@ -1,0 +1,66 @@
+name: caipe-cli CI
+
+on:
+  pull_request:
+    paths:
+      - "cli/**"
+      - ".github/workflows/caipe-ci.yml"
+  push:
+    branches:
+      - main
+      - "100-caipe-v1-core"
+    paths:
+      - "cli/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: cli
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        working-directory: cli
+        run: bun tsc --noEmit
+
+      - name: Lint (Biome)
+        working-directory: cli
+        run: bun run lint
+
+      - name: Run unit tests (vitest)
+        working-directory: cli
+        run: bun run test
+
+      - name: Build (verify compilation succeeds)
+        working-directory: cli
+        run: bun build src/index.ts --outdir dist --target bun
+
+      - name: Cold-start check (<1s)
+        working-directory: cli
+        run: |
+          start=$(date +%s%N)
+          node dist/index.js --version
+          end=$(date +%s%N)
+          elapsed=$(( (end - start) / 1000000 ))
+          echo "Cold-start: ${elapsed}ms"
+          if [ "$elapsed" -gt 1000 ]; then
+            echo "FAIL: cold-start exceeded 1000ms (${elapsed}ms)"
+            exit 1
+          fi
