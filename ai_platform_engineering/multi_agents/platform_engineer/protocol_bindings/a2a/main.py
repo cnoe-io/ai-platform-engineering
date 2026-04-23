@@ -237,6 +237,20 @@ else:
 # unconditionally because multiple downstream consumers depend on the
 # contextvar (e.g. base_langgraph_agent's MCP forwarder, OBO/agentgateway
 # integrations) — not just the user-info tool.
+# Spec 102 Phase 6 / T083: optional Keycloak PDP gate on supervisor#invoke.
+# Enabled with SUPERVISOR_PDP_GATE_ENABLED=true. Added BEFORE the JWT
+# context middleware so it runs AFTER it (Starlette middleware order is
+# reverse-of-addition), which guarantees current_bearer_token is bound
+# before the PDP read.
+from ai_platform_engineering.utils.auth.supervisor_pdp_middleware import (
+    SupervisorPdpMiddleware,
+)
+
+app.add_middleware(SupervisorPdpMiddleware)
+logger.info(
+    "Supervisor PDP gate middleware mounted (enable with SUPERVISOR_PDP_GATE_ENABLED=true)"
+)
+
 from ai_platform_engineering.utils.auth.jwt_user_context_middleware import JwtUserContextMiddleware
 app.add_middleware(JwtUserContextMiddleware)
 logger.info("JWT user context middleware enabled")
