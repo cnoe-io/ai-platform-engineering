@@ -47,6 +47,7 @@ export interface ToolStartEventData {
 export interface ToolEndEventData {
   tool_call_id: string;
   error?: string;
+  args?: Record<string, unknown>;
 }
 
 /** Type guard: check if toolData is from a tool_start event */
@@ -281,10 +282,11 @@ export function createStreamEvent(
     }
 
     case "tool_end": {
-      // Tool end has { tool_call_id, error?, namespace }
+      // Tool end has { tool_call_id, error?, args?, namespace }
       const toolData: ToolEndEventData = {
         tool_call_id: data.tool_call_id!,
         ...(data.error ? { error: data.error as string } : {}),
+        ...(data.args ? { args: data.args as Record<string, unknown> } : {}),
       };
       return {
         ...base,
