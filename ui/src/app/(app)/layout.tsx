@@ -1,26 +1,16 @@
-"use client";
+import { getServerConfig } from "@/lib/config";
+import { AppLayoutClient } from "./app-layout-client";
 
-import React from "react";
-import { AppHeader } from "@/components/layout/AppHeader";
-import { LiveStreamBanner } from "@/components/layout/LiveStreamBanner";
-import { NPSSurvey } from "@/components/nps/NPSSurvey";
-import { useUserInit } from "@/hooks/use-user-init";
-import { getConfig } from "@/lib/config";
-
+/**
+ * Server wrapper: pass NPS flag from the same config source as `window.__APP_CONFIG__`
+ * so the client tree matches SSR and avoids hydration mismatches.
+ */
 export default function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Initialize user in MongoDB on first login
-  useUserInit();
-  
-  return (
-    <div className="h-screen flex flex-col bg-background noise-overlay">
-      <AppHeader />
-      <LiveStreamBanner />
-      {children}
-      {getConfig('npsEnabled') && <NPSSurvey />}
-    </div>
-  );
+  const npsEnabled = getServerConfig().npsEnabled;
+
+  return <AppLayoutClient npsEnabled={npsEnabled}>{children}</AppLayoutClient>;
 }
