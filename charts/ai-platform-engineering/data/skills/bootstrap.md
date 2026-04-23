@@ -35,33 +35,47 @@ Parse `{{ARG_REF}}` to determine the mode:
 
 ## API Helper
 
-Use this python3 snippet for ALL API calls. Replace `QUERY` with the search
-term (empty string to list all) and set `INCLUDE_CONTENT` to `true` when you
-need the full skill markdown:
+All API calls go through a small stdlib-only Python helper that the
+gateway hosts. The helper keeps the API key out of shell history, reads
+config from `~/.config/caipe/config.json`, and is identical for every
+agent.
+
+### One-time bootstrap (first run only)
+
+If `~/.config/caipe/caipe-skills.py` does not exist, fetch it once:
 
 ```bash
-python3 -c "
-import json, urllib.request, urllib.parse, os, sys
-cfg = {}
-for p in [os.path.expanduser('~/.config/caipe/config.json'), os.path.expanduser('~/.config/grid/config.json')]:
-    if os.path.isfile(p):
-        cfg = json.load(open(p)); break
-key = cfg.get('api_key', os.environ.get('CAIPE_CATALOG_KEY', ''))
-base = cfg.get('base_url', os.environ.get('CAIPE_BASE_URL', '{{BASE_URL}}'))
-if not key:
-    print(json.dumps({'error': 'No API key. Create ~/.config/caipe/config.json with {\"api_key\": \"<key>\"}'}))
-    sys.exit(0)
-q = ' '.join(sys.argv[1:])
-include = os.environ.get('INCLUDE_CONTENT', '')
-params = {'source': 'github', 'q': q, 'page': '1', 'page_size': '50'}
-if include:
-    params['include_content'] = 'true'
-qs = urllib.parse.urlencode(params)
-req = urllib.request.Request(f'{base}/api/skills?{qs}', headers={'X-Caipe-Catalog-Key': key})
-resp = urllib.request.urlopen(req, timeout=15)
-print(resp.read().decode())
-" QUERY
+mkdir -p ~/.config/caipe
+curl -fsSL "{{BASE_URL}}/api/skills/helpers/caipe-skills.py" \
+  -o ~/.config/caipe/caipe-skills.py
 ```
+
+To upgrade later, re-run the same `curl` — the file is small and always
+served fresh (`Cache-Control: no-store`).
+
+### Calling the helper
+
+Replace `QUERY` with the search term (omit to list all skills). Set
+`INCLUDE_CONTENT=true` when you need the full skill markdown:
+
+```bash
+python3 ~/.config/caipe/caipe-skills.py QUERY
+INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
+```
+
+Useful flags (all optional):
+
+| Flag | Purpose |
+|------|---------|
+| `--source github` | Catalog source (default `github`; also `gitlab`, `default`). |
+| `--repo owner/name` | Restrict to a specific hub repository. |
+| `--page N --page-size 50` | Pagination (page-size 1-100). |
+| `--include-content` | Same as `INCLUDE_CONTENT=true`. |
+| `--api-key …` / `--base-url …` | Override config (rarely needed). |
+
+The helper prints the catalog JSON to stdout on success, or a JSON
+`{"error": "..."}` envelope on client-side errors (no key, bad config).
+On HTTP / network errors it writes a short message to stderr and exits 1.
 
 ## Steps — Browse / Search mode
 
@@ -79,9 +93,9 @@ print(resp.read().decode())
 
 This is the **primary** mode. Skills are fetched live and executed without saving to disk.
 
-1. Call the API helper with `QUERY` set to the exact skill name and `INCLUDE_CONTENT=true`:
+1. Call the API helper with the exact skill name and `INCLUDE_CONTENT=true`:
    ```bash
-   INCLUDE_CONTENT=true python3 -c "..." SKILL_NAME
+   INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
    ```
 2. Parse the JSON response. Extract the `content` field from the first matching skill.
 3. If no match: report the error and suggest `/{{COMMAND_NAME}}` to browse.
