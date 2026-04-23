@@ -221,14 +221,32 @@ Copy from **`ui/.env.example`** and **`ui/env.example`** into `.env.local`. Belo
 | `OIDC_GROUP_CLAIM` | Optional: claim name(s) for groups |
 | `OIDC_ENABLE_REFRESH_TOKEN` | Optional: disable refresh if IdP lacks `offline_access` |
 
-### Keycloak Admin API (FR-024)
+### Keycloak Admin API — UI BFF (FR-024)
+
+Used by the Next.js BFF (`ui/src/lib/rbac/keycloak-admin.ts`) for role-mapping CRUD, IdP config, etc. Reads in this order:
+
+1. `client_credentials` grant against the `caipe` realm using `KEYCLOAK_ADMIN_CLIENT_ID` + `KEYCLOAK_ADMIN_CLIENT_SECRET` (when both are non-empty).
+2. Otherwise falls back to the `master` realm `password` grant with hardcoded `admin-cli`/`admin`/`admin` (dev only).
 
 | Variable | Description |
 |----------|-------------|
 | `KEYCLOAK_URL` | Keycloak base URL |
 | `KEYCLOAK_REALM` | Realm name (`caipe`) |
-| `KEYCLOAK_ADMIN_CLIENT_ID` | Admin API client (`admin-cli` dev or dedicated client prod) |
-| `KEYCLOAK_ADMIN_CLIENT_SECRET` | Optional; empty may trigger password grant in dev (see comments in `.env.example`) |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | UI BFF admin client (`admin-cli` dev or dedicated client prod) |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | Optional; empty triggers password grant in dev (see `.env.example`) |
+
+### Keycloak Admin API — Slack bot (FR-025 identity lookup)
+
+Used by `ai_platform_engineering/integrations/slack_bot/utils/keycloak_admin.py` to find a Keycloak user by `slack_user_id` user attribute and read/write `team_id`. Always uses `client_credentials` against the `caipe` realm — there is no password fallback.
+
+The client referenced here MUST be **confidential** and have these realm-management roles: `view-users`, `query-users` (and `manage-users` if you also use the bot to set attributes).
+
+| Variable | Description |
+|----------|-------------|
+| `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID` | Slack bot's admin client. Default `caipe-platform` (the realm seeder grants the required roles). Do NOT set this to `admin-cli` — it's a public client and rejects `client_credentials` with HTTP 401. |
+| `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET` | Matching client_secret. In dev, defaults to `caipe-platform-dev-secret`. |
+
+> **Why a separate name from `KEYCLOAK_ADMIN_*`, and why include the surface name?** Pre-098 the slack-bot read the same `KEYCLOAK_ADMIN_*` vars as the UI. A single `KEYCLOAK_ADMIN_CLIENT_ID=admin-cli` line in `.env` (intended for the UI's password-grant fallback) would silently override the slack-bot's client_credentials path, producing `HTTP 401 "Public client not allowed to retrieve service account"` on every Slack mention. The surface-specific `KEYCLOAK_SLACK_BOT_ADMIN_*` names eliminate that namespace collision permanently and leave room for future bot surfaces — e.g. `KEYCLOAK_WEBEX_BOT_ADMIN_*`, `KEYCLOAK_TEAMS_BOT_ADMIN_*` — without another rename.
 
 ### Keycloak Authorization Services client (UMA checks)
 

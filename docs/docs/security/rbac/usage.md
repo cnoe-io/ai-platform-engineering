@@ -134,7 +134,7 @@ See [Architecture › Component 5: Dynamic Agents](./architecture.md#component-5
 3. Click link → SSO login → `slack_user_id` written to Keycloak via Admin API
 4. Subsequent messages: OBO exchange happens automatically
 
-The full sequence (HMAC URL shape, TTL enforcement, what happens server-side) is in [Workflows › Slack identity linking](./workflows.md#slack-identity-linking-auto-bootstrap--forced-link).
+The full sequence (HMAC URL shape, TTL enforcement, **JIT user creation** for unknown emails, what happens server-side) is in [Workflows › Slack identity linking](./workflows.md#slack-identity-linking-auto-bootstrap--jit--forced-link).
 
 ---
 

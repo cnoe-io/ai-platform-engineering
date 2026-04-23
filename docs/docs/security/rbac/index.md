@@ -10,6 +10,7 @@ This is the canonical reference for how authentication and authorization work in
 | Trace a request — login, OBO token-exchange, end-to-end Slack flow, Slack channel → agent routing | [Workflows](./workflows.md) |
 | Log in, exercise a role, verify a denial, link a Slack user, run the demo | [Usage](./usage.md) |
 | Find the file that owns a specific piece of the auth path | [File map](./file-map.md) |
+| **Install CAIPE on a real K8s cluster** — bootstrap admin, IdP, and slack-bot client secrets via dev defaults, manual K8s Secrets, or ESO (Vault / AWS-SM / GCP-SM) | [Secrets bootstrap](./secrets-bootstrap.md) |
 
 Every component-level doc opens with a **badge analogy** to build intuition, followed by the precise technical detail. Read the analogy first, then the technical section — they describe the same thing at different levels of abstraction.
 
@@ -19,7 +20,7 @@ Every component-level doc opens with a **badge analogy** to build intuition, fol
 
 Think of CAIPE like a **secure corporate office building**:
 
-- **Keycloak** is HR + the front desk. It issues ID badges, manages who works here, and verifies contractors through a partner agency (Duo SSO).
+- **Keycloak** is HR + the front desk. It issues ID badges, manages who works here, and verifies contractors through a partner agency (your enterprise IdP — typically **Okta** or **Duo SSO**).
 - **Every service** is a room with its own badge reader. You prove who you are once at the front desk, get a badge, and that badge is checked at every door — no calling HR again each time.
 - **AgentGateway** is the armed security checkpoint between the office and the server room. Everyone must show their badge, and the checkpoint has a rulebook specifying exactly which roles are allowed in which room.
 - **The badge itself** is a JWT — a tamper-proof, digitally signed card that any badge reader can verify independently without phoning HR.

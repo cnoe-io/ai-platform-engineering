@@ -8,7 +8,7 @@ Sequence diagrams and flow narratives for "what happens when X". Pair this with 
 
 ## Login + First-Time Broker Login
 
-This is the **once-per-session** flow. After it completes, the user holds a Keycloak-signed JWT in their session and never sees Keycloak (or Duo) again until the JWT expires.
+This is the **once-per-session** flow. After it completes, the user holds a Keycloak-signed JWT in their session and never sees Keycloak (or the upstream IdP — Okta / Duo SSO / etc.) again until the JWT expires.
 
 The default Keycloak "first broker login" flow shows a "Review Profile" page and, if a local account with the same email already exists, a "Confirm Link Account" page. **Both are eliminated** by the custom flow patched in by `init-idp.sh`:
 
@@ -24,11 +24,11 @@ caipe-silent-broker-login  (both executions: ALTERNATIVE)
         Action:    link external identity to existing account silently
 ```
 
-This only works correctly because `trustEmail=true` is set on the IdP. That flag tells Keycloak to treat the email claim from Duo SSO as authoritative for account matching.
+This only works correctly because `trustEmail=true` is set on the IdP. That flag tells Keycloak to treat the email claim from the upstream IdP (Okta, Duo SSO, Azure AD, …) as authoritative for account matching.
 
-**Security implication:** if the upstream IdP can be compromised to issue arbitrary email claims, an attacker could link to any existing account. This is acceptable here because Duo SSO is a corporate SSO — trust in the email claim is the same as trust in the IdP.
+**Security implication:** if the upstream IdP can be compromised to issue arbitrary email claims, an attacker could link to any existing account. This is acceptable here because Okta and Duo SSO (and other supported IdPs) are corporate SSO providers — trust in the email claim is the same as trust in the IdP.
 
-The complete one-time login sequence (Browser → Keycloak → Duo → Keycloak → CAIPE UI) is shown inline in [Per-request authorization](#per-request-authorization-end-to-end) below — look for the "One-time login path" rectangle. It only happens once per workday.
+The complete one-time login sequence (Browser → Keycloak → upstream IdP → Keycloak → CAIPE UI) is shown inline in [Per-request authorization](#per-request-authorization-end-to-end) below — look for the "One-time login path" rectangle. It only happens once per workday.
 
 ---
 
@@ -40,7 +40,7 @@ This is **the** RBAC sequence diagram. It traces a single Slack message ("list m
 sequenceDiagram
     autonumber
     actor User as Alice (Slack user)
-    participant Duo as Duo SSO<br/>(upstream IdP)
+    participant IDP as Upstream IdP<br/>(Okta / Duo SSO / Azure AD)
     participant SB as Slack Bot
     participant UI as CAIPE UI<br/>(NextAuth)
     participant KC as Keycloak<br/>(OIDC server + JWKS + IdP broker)
@@ -210,22 +210,36 @@ sequenceDiagram
 
 ---
 
-## Slack Identity Linking (Auto-Bootstrap + Forced Link)
+## Slack Identity Linking (Auto-Bootstrap + JIT + Forced Link)
 
-There are two modes, controlled by `SLACK_FORCE_LINK`:
+There are three onboarding paths, in priority order: **(1) auto-link to existing Keycloak user**, **(2) JIT-create a new shell user** (spec 103), **(3) HMAC-signed link URL** as fallback.
 
-### Auto-bootstrap (default, `SLACK_FORCE_LINK=false`)
+### 1. Auto-bootstrap (default, `SLACK_FORCE_LINK=false`)
 
 On the user's first Slack message the bot:
 
 1. Calls Slack `users.info` → fetches `profile.email`
 2. Queries Keycloak Admin API for a user with that exact email
 3. **If found:** writes `slack_user_id` attribute → linked silently, zero user action required
-4. **If not found** (email mismatch or user not yet in Keycloak): falls back to the manual link prompt below
+4. **If not found:** the bot continues to step 2 (JIT) below.
 
-### Explicit link (`SLACK_FORCE_LINK=true`)
+### 2. Just-In-Time user creation (default ON, `SLACK_JIT_CREATE_USER=true`)
 
-Slack users link their account by clicking an HMAC-signed URL:
+When no existing Keycloak user matches the Slack email, and JIT is enabled, the bot:
+
+1. **Optionally checks** the email domain against `SLACK_JIT_ALLOWED_EMAIL_DOMAINS` (comma-separated allowlist; empty = any domain).
+2. **POSTs to `/admin/realms/{realm}/users`** using the same `KEYCLOAK_SLACK_BOT_ADMIN_*` credentials (`caipe-platform` service account, holds `realm-management:{view-users, query-users, manage-users}`).
+3. The created user is **federated-only**: no password, no required actions, `emailVerified=true`, with attributes `slack_user_id`, `created_by=slack-bot:jit`, `created_at=<RFC3339>`.
+4. **Race-safe**: an HTTP 409 from a concurrent create is resolved by re-querying the email and returning the surviving UUID.
+5. **On failure** (4xx/5xx/network), the bot logs `event=jit_failed error_kind=<auth_failure|forbidden|server_error|network_error|unexpected>` and falls through to step 3.
+
+JIT is **default ON in dev** so first-time DMs work without an admin handshake. **Set `SLACK_JIT_CREATE_USER=false` in production** if you want web-UI onboarding to be a hard prerequisite — in which case all unknown emails go to the link URL below.
+
+> **Single-credential design (spec 103, plan R-8).** JIT deliberately reuses the existing `caipe-platform` admin client rather than introducing a separate `caipe-slack-bot-provisioner`. This trades strict privilege separation (one secret can both read and create users) for operational simplicity (one Secret to manage, one rotation procedure, one audit identity). Compensating mitigations: only the `create_user_from_slack` helper writes `/users`; `init-idp.sh` and `realm-config.json` pin the service account to exactly `{view-users, query-users, manage-users}`; all JIT actions are logged with stable `event=jit_*` tokens for SIEM.
+
+### 3. Explicit link URL (fallback or `SLACK_FORCE_LINK=true`)
+
+Whenever auto-link returns no user **and** JIT is disabled / domain not allow-listed / JIT failed, the bot DMs an HMAC-signed URL:
 
 ```
 /api/auth/slack-link?slack_user_id=U09TC6RR8KX&ts=1713196400&sig=<HMAC-SHA256>
@@ -233,7 +247,13 @@ Slack users link their account by clicking an HMAC-signed URL:
 
 The HMAC signature uses `SLACK_LINK_HMAC_SECRET`, prevents forged links, and is time-bound (TTL enforced server-side). After OIDC login, the server writes `slack_user_id` to the Keycloak user via the Admin API.
 
-In both modes, once the link is established, all future Slack messages carry the user's Keycloak identity automatically — no repeated login.
+The user **always** gets an actionable path forward — the previous "contact your admin" dead-end was removed in spec 103 (FR-007).
+
+In all three modes, once the link is established, all future Slack messages carry the user's Keycloak identity automatically — no repeated login.
+
+### Privacy in logs
+
+All log lines that reference a Slack profile email run it through `mask_email()` (spec 103 FR-010): `alice@corp.com` → `ali***@corp.com`. The domain stays visible for SIEM tenant attribution; the local part is redacted.
 
 ---
 
