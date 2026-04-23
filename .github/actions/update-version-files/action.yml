@@ -28,6 +28,9 @@ outputs:
   final_version:
     description: 'The version used as the git tag (always equals the input version)'
     value: ${{ steps.write.outputs.final_version }}
+  skip_commit:
+    description: 'true if the top-level parent chart already has the target version (no changes needed)'
+    value: ${{ steps.write.outputs.skip_commit }}
 
 runs:
   using: "composite"
@@ -82,6 +85,19 @@ runs:
             echo "❌ diff_target is required for chart-only updates"
             exit 1
           fi
+
+          # ── Early exit: check if top-level parent already has target version ──
+          # The cascade always bubbles up to ai-platform-engineering (the root chart).
+          # If its version already matches $VERSION, the bump was already applied — skip.
+          ROOT_CHART="charts/ai-platform-engineering/Chart.yaml"
+          ROOT_VER=$(yq '.version' "$ROOT_CHART" | tr -d '"')
+          if [[ "$ROOT_VER" == "$VERSION" ]]; then
+            echo "✅ Root chart already at $VERSION — nothing to do"
+            echo "skip_commit=true" >> $GITHUB_OUTPUT
+            echo "final_version=$VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "skip_commit=false" >> $GITHUB_OUTPUT
 
           # ── 1. Detect changed chart directories ─────────────────────
           echo "📋 Diffing against: $DIFF_TARGET"
@@ -231,6 +247,7 @@ runs:
           # version + appVersion + local dep refs — all set to $VERSION.
           # ─────────────────────────────────────────────────────────────
           echo ""
+          echo "skip_commit=false" >> $GITHUB_OUTPUT
           echo "🔄 Full update: setting version to '$VERSION' everywhere"
 
           # Build list of local chart names

@@ -91,6 +91,7 @@ jobs:
 
       # ── Commit changes to PR branch ────────────────────────────────────
       - name: 📤 Commit version bump
+        if: steps.update.outputs.skip_commit != 'true'
         id: commit
         run: |
           if git diff --quiet && git diff --cached --quiet; then
