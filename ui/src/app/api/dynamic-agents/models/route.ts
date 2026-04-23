@@ -28,6 +28,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         name: m.name,
         provider: m.provider,
         description: m.description ?? "",
+        // Surface whether this row came from the IaC seed (config.yaml) or was
+        // added via the UI. Lets the Available Models panel render a single
+        // deduplicated list with a source badge per row, instead of calling
+        // two endpoints and duplicating whatever they have in common.
+        config_driven: m.config_driven === true,
       })),
     );
   });
