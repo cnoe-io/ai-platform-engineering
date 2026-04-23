@@ -89,7 +89,14 @@ not yet written.
   - Wired into `keycloak_authz.py` decision sites and timed Keycloak round-trips.
   - DA exposes `/metrics` (supervisor already did).
   - Tests: `tests/test_rbac_pdp_metrics.py` (6 tests).
-- Audit log shipping to centralized sink. ⏳ NEXT
+- Audit log shipping to centralized sink. ✅ DONE 2026-04-22
+  - Added optional stdout JSON sink in `utils/auth/audit.py` gated on
+    `AUDIT_STDOUT_ENABLED=true` (best-effort, independent of Mongo write).
+  - Each line: `AUDIT {...schema-conformant payload, ts ISO-8601 UTC...}\n`.
+  - Operator docs + fluent-bit example in
+    `scripts/audit-log-shipping/{README.md,fluent-bit.conf}`.
+  - Tests: `tests/test_audit_stdout_sink.py` (9 tests, sink-independence
+    verified).
 - Removal of the dual-auth `X-User-Context` legacy path once the
   BFF migration is fully baked. Today the new `JwtAuthMiddleware`
   is intentionally lenient (no Bearer => pass through) so the

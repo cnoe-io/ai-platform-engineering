@@ -9,16 +9,38 @@ documents that validate against the same schema (FR-007, SC-007).
 Failure mode: writes are best-effort. A failure to write the audit document MUST
 NEVER block or mutate the authorization decision. Failures are logged at WARN with
 structured fields so operators can detect a degraded audit pipeline.
+
+Sinks (Spec 102 Phase 11.3 — audit log shipping):
+
+  - MongoDB (default; collection name overridable via AUDIT_COLLECTION).
+  - Stdout JSON line, one per decision, gated on AUDIT_STDOUT_ENABLED=true.
+    The line is a single-line JSON object suitable for fluent-bit / loki /
+    datadog / vector / cloudwatch logs. The marker prefix `AUDIT ` is
+    included so log aggregators can filter on it cheaply.
+
+Both sinks are best-effort and independent: failure of one never affects
+the other or the in-flight authorization decision.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _stdout_enabled() -> bool:
+    """Whether the stdout JSON sink is active (Spec 102 Phase 11.3)."""
+    return os.environ.get("AUDIT_STDOUT_ENABLED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 _REQUIRED_REASONS = frozenset(
@@ -107,6 +129,21 @@ def log_authz_decision(
             scope,
             allowed,
         )
+
+    # Spec 102 Phase 11.3 — optional stdout JSON sink for centralized log
+    # aggregators. Independent of the Mongo write — Mongo failure must not
+    # suppress this and vice versa.
+    if _stdout_enabled():
+        try:
+            payload = {**doc}
+            # `ts` is a datetime; serialize as ISO-8601 UTC for log aggregators.
+            ts = payload.get("ts")
+            if isinstance(ts, datetime):
+                payload["ts"] = ts.isoformat()
+            sys.stdout.write("AUDIT " + json.dumps(payload, default=str) + "\n")
+            sys.stdout.flush()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("audit stdout sink failed: %s", exc)
 
 
 __all__ = ["log_authz_decision"]
