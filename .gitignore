@@ -297,3 +297,11 @@ tests/rbac/e2e/test-results/
 tests/rbac/e2e/playwright-report/
 tests/rbac/e2e/node_modules/
 
+# Local-only seed config overrides (e.g. config/app-config.local.yaml,
+# config/slack-bot-config.local.yaml). The committed *.yaml files in
+# config/ stay as example templates; *.local.yaml is where each developer
+# stores their populated dev seed (LLM models, MCP endpoints, etc).
+app-config.local.yaml
+config/*.local.yaml
+config/*.local.yml
+
