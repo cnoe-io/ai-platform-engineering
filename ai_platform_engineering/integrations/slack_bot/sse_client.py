@@ -10,33 +10,10 @@ request body.  Uses httpx for streaming HTTP requests.
 """
 
 import json
-import uuid
 from typing import Any, Dict, Iterator, Optional
 
 import httpx
 from loguru import logger
-
-# Deterministic namespace for Slack conversation IDs.
-# uuid5(NAMESPACE_URL, "slack.caipe.io") — fixed constant.
-SLACK_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "slack.caipe.io")
-
-
-def thread_ts_to_conversation_id(thread_ts: str) -> str:
-  """Convert a Slack thread_ts to a deterministic conversation UUID.
-
-  .. deprecated::
-      Use ``SSEClient.create_conversation()`` instead.  This function is
-      kept only as a fallback for secondary handlers (button actions) that
-      operate on threads whose conversation was already created by a primary
-      handler.  It will be removed once all handlers are migrated.
-
-  Args:
-      thread_ts: Slack thread timestamp string.
-
-  Returns:
-      UUID v5 string derived from thread_ts.
-  """
-  return str(uuid.uuid5(SLACK_NAMESPACE, thread_ts))
 
 
 class SSEEventType(str):

@@ -56,8 +56,7 @@ class TTLCache:
 class SessionManager:
   """In-memory session manager for ephemeral bot state.
 
-  Conversation IDs are deterministic (UUID v5 from thread_ts via
-  sse_client.thread_ts_to_conversation_id) and need no caching.
+  Conversation IDs are managed server-side via SSEClient.create_conversation().
   """
 
   def __init__(self):

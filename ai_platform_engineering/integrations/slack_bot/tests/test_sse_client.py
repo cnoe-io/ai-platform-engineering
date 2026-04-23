@@ -3,7 +3,6 @@
 """Tests for the AG-UI SSE client."""
 
 import json
-import uuid
 
 from unittest.mock import Mock
 
@@ -11,35 +10,7 @@ from ai_platform_engineering.integrations.slack_bot.sse_client import (
   SSEClient,
   SSEEvent,
   SSEEventType,
-  thread_ts_to_conversation_id,
-  SLACK_NAMESPACE,
 )
-
-
-class TestThreadTsToConversationId:
-  """Tests for deterministic conversation ID generation."""
-
-  def test_returns_uuid_string(self):
-    result = thread_ts_to_conversation_id("1234567890.123456")
-    # Should be a valid UUID string
-    uuid.UUID(result)  # Raises if invalid
-
-  def test_deterministic(self):
-    """Same thread_ts always produces the same UUID."""
-    ts = "1234567890.123456"
-    assert thread_ts_to_conversation_id(ts) == thread_ts_to_conversation_id(ts)
-
-  def test_different_threads_different_ids(self):
-    """Different thread_ts values produce different UUIDs."""
-    id1 = thread_ts_to_conversation_id("1234567890.123456")
-    id2 = thread_ts_to_conversation_id("1234567890.789012")
-    assert id1 != id2
-
-  def test_is_uuid5_with_slack_namespace(self):
-    """Verify the UUID is constructed with the SLACK_NAMESPACE."""
-    ts = "1234567890.123456"
-    expected = str(uuid.uuid5(SLACK_NAMESPACE, ts))
-    assert thread_ts_to_conversation_id(ts) == expected
 
 
 class TestSSEEventType:
