@@ -9,8 +9,6 @@ on:
       - 'ai_platform_engineering/multi_agents/**'
       - 'ai_platform_engineering/agents/**'
       - 'ai_platform_engineering/utils/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
       - 'ai_platform_engineering/__init__.py'
 env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering

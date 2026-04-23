@@ -290,6 +290,12 @@ runs:
           echo "✅ Full update complete"
         fi
 
+        # Check git diff to see if any changes were made (if not, likely the version was already correct)
+        if git diff --quiet && git diff --cached --quiet; then
+          echo "ℹ️ No changes detected after update — versions already match"
+          echo "skip_commit=true" >> $GITHUB_OUTPUT
+        fi
+
         echo ""
         echo "final_version=$VERSION" >> $GITHUB_OUTPUT
         echo "✅ Output final_version: $VERSION"
