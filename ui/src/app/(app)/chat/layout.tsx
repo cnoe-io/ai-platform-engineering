@@ -52,8 +52,15 @@ export default function ChatLayout({
         onCollapse={setSidebarCollapsed}
       />
 
-      {/* Chat content - ChatContainer persists, children used only for /chat redirect */}
-      {hasUuid ? <AuthGuard><ChatContainer /></AuthGuard> : children}
+      {/* ChatContainer always renders — handles existing conversations and
+          the empty new-chat state (no UUID). The /chat page (children) handles
+          server-sync and redirects to existing conversations; it no longer
+          creates conversations eagerly. */}
+      <AuthGuard>
+        <ChatContainer />
+        {/* Mount the redirect page invisibly so it can load conversations */}
+        {!hasUuid && <div className="hidden">{children}</div>}
+      </AuthGuard>
     </div>
   );
 }

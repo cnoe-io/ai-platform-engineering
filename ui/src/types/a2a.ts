@@ -273,6 +273,8 @@ export interface ChatMessage {
   taskId?: string;
   /** True when streaming was interrupted by a crash/reload before completion */
   isInterrupted?: boolean;
+  /** True when the message is a connection/service error (styled as a warning callout) */
+  isError?: boolean;
   /**
    * Sender identity — who actually typed this message.
    * Required for shared conversations where multiple users participate.
@@ -285,8 +287,6 @@ export interface ChatMessage {
   timelineSegments?: SupervisorTimelineSegment[];
   /** Turn status for Dynamic Agents: done, interrupted, or waiting_for_input */
   turnStatus?: TurnStatus;
-  /** Connection/server error — rendered as inline banner, not as bot content */
-  error?: string;
 }
 
 // Input field configuration for use case forms

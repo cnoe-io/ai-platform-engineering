@@ -88,6 +88,14 @@ export function ChatContainer() {
   const [fetchDone, setFetchDone] = useState(existingHasMessages);
   const [error, setError] = useState<string | null>(null);
 
+  // When on /chat (no uuid), navigate to the new conversation URL once one is created
+  const activeConversationId = useChatStore((s) => s.activeConversationId);
+  useEffect(() => {
+    if (!uuid && activeConversationId) {
+      router.replace(`/chat/${activeConversationId}`);
+    }
+  }, [uuid, activeConversationId, router]);
+
   // Track the current uuid to detect conversation switches
   const currentUuidRef = useRef<string | undefined>(uuid);
 
@@ -358,9 +366,27 @@ export function ChatContainer() {
     // (e.g., on page refresh or after navigating away and back)
   }, [uuid, selectedAgentId, dynamicAgentsEnabled, agentInfo]);
 
-  // If no uuid, render nothing (this is the /chat redirect page case)
+  // No uuid — show the chat panel in "new conversation" mode.
+  // The first message the user sends will create a conversation and
+  // navigate to /chat/[uuid] automatically.
   if (!uuid) {
-    return null;
+    // No conversation yet — show empty chat input. First message will create
+    // a conversation and ChatContainer navigates to /chat/[uuid].
+    return selectedAgentId && dynamicAgentsEnabled ? (
+      <ChatView
+        endpoint={chatEndpoint}
+        conversationId=""
+        selectedAgentId={selectedAgentId}
+        agentName={agentInfo?.name}
+        agentDescription={agentInfo?.description}
+        agentGradient={agentInfo?.ui?.gradient_theme}
+      />
+    ) : (
+      <SupervisorChatView
+        endpoint={chatEndpoint}
+        conversationId=""
+      />
+    );
   }
 
   // Show loading spinner only for initial load

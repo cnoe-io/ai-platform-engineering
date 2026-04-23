@@ -7,11 +7,11 @@ import { AuthGuard } from "@/components/auth-guard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Server, Loader2, ShieldAlert, MessageSquare, Cpu } from "lucide-react";
+import { Bot, Server, Loader2, ShieldAlert, MessageSquare, BrainCircuit } from "lucide-react";
 import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
-import { LLMModelsTab } from "@/components/dynamic-agents/LLMModelsTab";
 import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
+import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 
 function DynamicAgentsPageContent() {
   const router = useRouter();
@@ -41,7 +41,7 @@ function DynamicAgentsPageContent() {
               <CardTitle>Access Denied</CardTitle>
             </div>
             <CardDescription>
-              You need admin privileges to access the Agents configuration.
+              You need admin privileges to access the Custom Agents configuration.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -55,7 +55,7 @@ function DynamicAgentsPageContent() {
         <div className="p-6 space-y-6 max-w-7xl mx-auto">
           {/* Header */}
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Custom Agents</h1>
             <p className="text-muted-foreground">
               Create and configure custom AI agents with MCP tool integrations.
             </p>
@@ -72,9 +72,9 @@ function DynamicAgentsPageContent() {
                 <Server className="h-4 w-4" />
                 MCP Servers
               </TabsTrigger>
-              <TabsTrigger value="llm-models" className="gap-2">
-                <Cpu className="h-4 w-4" />
-                LLM Models
+              <TabsTrigger value="models" className="gap-2">
+                <BrainCircuit className="h-4 w-4" />
+                Models
               </TabsTrigger>
               <TabsTrigger value="conversations" className="gap-2">
                 <MessageSquare className="h-4 w-4" />
@@ -90,8 +90,8 @@ function DynamicAgentsPageContent() {
               <MCPServersTab />
             </TabsContent>
 
-            <TabsContent value="llm-models" className="space-y-4">
-              <LLMModelsTab />
+            <TabsContent value="models" className="space-y-4">
+              <LLMProvidersTab />
             </TabsContent>
 
             <TabsContent value="conversations" className="space-y-4">

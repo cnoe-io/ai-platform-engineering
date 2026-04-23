@@ -294,7 +294,13 @@ export class A2ASDKClient {
       if ((error as Error).name === "AbortError") {
         console.log(`[A2A SDK] Stream aborted after ${eventCount} events`);
       } else {
-        console.error(`[A2A SDK] Stream error:`, error);
+        const msg = (error as Error).message || "";
+        const isConnectionError = msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("ECONNREFUSED");
+        if (isConnectionError) {
+          console.warn(`[A2A SDK] Supervisor not reachable`);
+        } else {
+          console.error(`[A2A SDK] Stream error:`, error);
+        }
         throw error;
       }
     } finally {

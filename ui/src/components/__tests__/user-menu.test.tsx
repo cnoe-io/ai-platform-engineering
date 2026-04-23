@@ -162,6 +162,7 @@ describe("UserMenu", () => {
       data: {
         user: { name: "John Doe", email: "john@example.com" },
         role: "user",
+        authMethod: "oidc",
       },
       status: "authenticated",
       update: jest.fn(),
@@ -244,10 +245,27 @@ describe("UserMenu", () => {
     expect(screen.getByText("User")).toBeInTheDocument();
   });
 
-  it("shows 'Authenticated via SSO'", () => {
+  it("shows 'Authenticated via SSO' for OIDC sessions", () => {
     render(<UserMenu />);
     fireEvent.click(screen.getByText("John"));
     expect(screen.getByText("Authenticated via SSO")).toBeInTheDocument();
+  });
+
+  it("hides 'Authenticated via SSO' for local credentials sessions", () => {
+    // Local admin: authenticated via username/password + TOTP, not SSO.
+    // The shield/banner would be misleading — make sure it is omitted.
+    mockUseSession.mockReturnValue({
+      data: {
+        user: { name: "Local Admin", email: "admin@example.com" },
+        role: "admin",
+        authMethod: "credentials",
+      },
+      status: "authenticated",
+      update: jest.fn(),
+    });
+    render(<UserMenu />);
+    fireEvent.click(screen.getByText("Local"));
+    expect(screen.queryByText("Authenticated via SSO")).not.toBeInTheDocument();
   });
 
   it("shows System button", () => {
