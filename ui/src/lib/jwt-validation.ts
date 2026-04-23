@@ -13,6 +13,8 @@
  */
 
 import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTPayload, errors as joseErrors } from 'jose';
+import { getCollection, isMongoDBConfigured } from './mongodb';
+import type { OidcConfig } from '@/types/mongodb';
 
 export interface JWTIdentity {
   email: string;
@@ -20,17 +22,85 @@ export interface JWTIdentity {
   groups: string[];
 }
 
+/** Effective OIDC config resolved from env first, then DB. Matches the
+ *  precedence used by auth-config.ts so Bearer JWT validation accepts the
+ *  same tokens the UI's NextAuth flow mints. */
+interface ResolvedOidcConfig {
+  issuer: string;
+  clientId?: string;
+  source: 'env' | 'db';
+}
+
 let _cachedJWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
 let _cachedJWKSUri: string | null = null;
+
+// In-memory cache for the resolved OIDC config. Invalidated when
+// invalidateOidcCache() is called from auth-config, so DB edits take effect.
+let _cachedOidcConfig: { config: ResolvedOidcConfig | null; cachedAt: number } | null = null;
+const OIDC_CONFIG_CACHE_TTL_MS = 30_000;
+
+async function resolveOidcConfig(): Promise<ResolvedOidcConfig | null> {
+  // Env vars win if any of them are set — this is the IaC-trumps-UI pattern
+  // used everywhere else. When `OIDC_ISSUER` is set we treat the issuer as
+  // env-configured even if OIDC_CLIENT_ID comes from DB (unusual, but safe
+  // — audience check just falls back to `undefined`).
+  const envIssuer = process.env.OIDC_ISSUER;
+  if (envIssuer) {
+    return {
+      issuer: envIssuer,
+      clientId: process.env.OIDC_CLIENT_ID || undefined,
+      source: 'env',
+    };
+  }
+
+  const now = Date.now();
+  if (_cachedOidcConfig && now - _cachedOidcConfig.cachedAt < OIDC_CONFIG_CACHE_TTL_MS) {
+    return _cachedOidcConfig.config;
+  }
+
+  if (!isMongoDBConfigured) {
+    _cachedOidcConfig = { config: null, cachedAt: now };
+    return null;
+  }
+
+  try {
+    const col = await getCollection<OidcConfig>('platform_config');
+    const doc = await col.findOne({ _id: 'oidc_config' as any });
+    if (!doc || !doc.enabled || !doc.issuer) {
+      _cachedOidcConfig = { config: null, cachedAt: now };
+      return null;
+    }
+    const resolved: ResolvedOidcConfig = {
+      issuer: doc.issuer,
+      clientId: doc.clientId || undefined,
+      source: 'db',
+    };
+    _cachedOidcConfig = { config: resolved, cachedAt: now };
+    return resolved;
+  } catch (err) {
+    console.warn('[jwt] Failed to read oidc_config from MongoDB:', err);
+    _cachedOidcConfig = { config: null, cachedAt: now };
+    return null;
+  }
+}
+
+/** Drop the cached resolved OIDC config. Called by invalidateOidcCache() in
+ *  auth-config when an admin saves a new OIDC config via the UI, so the next
+ *  Bearer validation uses the new issuer without waiting out the TTL. */
+export function invalidateBearerJwtOidcCache(): void {
+  _cachedOidcConfig = null;
+  _cachedJWKS = null;
+  _cachedJWKSUri = null;
+}
 
 // Cache for additional JWKS endpoints (keyed by URL)
 const _additionalJWKSCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 /**
  * Fetch the JWKS URI from OIDC discovery and cache the keyset.
+ * Uses whichever issuer the resolver returns (env or DB).
  */
-async function getJWKS(): Promise<ReturnType<typeof createRemoteJWKSet>> {
-  const issuer = process.env.OIDC_ISSUER!;
+async function getJWKS(issuer: string): Promise<ReturnType<typeof createRemoteJWKSet>> {
   const discoveryUrl =
     process.env.OIDC_DISCOVERY_URL ||
     `${issuer}/.well-known/openid-configuration`;
@@ -94,21 +164,26 @@ function getAdditionalJWKSets(): ReturnType<typeof createRemoteJWKSet>[] {
 export async function validateBearerJWT(
   token: string,
 ): Promise<JWTIdentity> {
-  const issuer = process.env.OIDC_ISSUER;
+  // Resolve OIDC config from env (IaC) first, MongoDB (UI-configured) as
+  // fallback. This matches auth-config's behavior so the Bearer validator
+  // accepts the same tokens that the UI sign-in flow mints.
+  const resolved = await resolveOidcConfig();
 
-  if (!issuer) {
-    throw new Error('OIDC_ISSUER is not configured — Bearer JWT validation is unavailable');
+  if (!resolved) {
+    throw new Error(
+      'OIDC is not configured — Bearer JWT validation is unavailable. Configure OIDC via the UI (System → OIDC) or set OIDC_ISSUER.',
+    );
   }
 
-  const jwks = await getJWKS();
-  const audience = process.env.OIDC_CLIENT_ID || undefined;
+  const jwks = await getJWKS(resolved.issuer);
+  const audience = resolved.clientId;
 
   try {
     const { payload } = await jwtVerify(token, jwks, {
-      issuer,
+      issuer: resolved.issuer,
       audience,
     });
-    console.log(`[jwt] Validated via primary JWKS (iss=${issuer})`);
+    console.log(`[jwt] Validated via primary JWKS (iss=${resolved.issuer}, source=${resolved.source})`);
     return extractIdentity(payload);
   } catch (primaryError) {
     // Only fall back to additional JWKS on key-not-found errors.

@@ -16,10 +16,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const users = await getCollection<User>('users');
 
     let userProfile = await users.findOne({ email: user.email });
+    const now = new Date();
 
     // Create user profile if it doesn't exist
     if (!userProfile) {
-      const now = new Date();
       const newUser = {
         email: user.email,
         name: user.name,
@@ -36,11 +36,38 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       const result = await users.insertOne(newUser as any);
       userProfile = { _id: result.insertedId, ...newUser } as any;
     } else {
-      // Update last login
-      await users.updateOne(
-        { email: user.email },
-        { $set: { last_login: new Date() } }
-      );
+      // Sync fields that can change upstream (e.g. IdP display name after a
+      // name change — married, nickname, etc). Email is the stable identifier
+      // and is never updated. We also refresh last_login on every call.
+      //
+      // Behavior: if the session carries a non-empty display name that differs
+      // from what we have stored, update our `name` field. Manual overrides
+      // via PUT /api/users/me will be re-synced on the next call once the
+      // session's name updates from the IdP, which matches the "OIDC is the
+      // source of truth for display name" product decision.
+      const update: Record<string, unknown> = { last_login: now };
+      if (
+        user.name &&
+        typeof user.name === 'string' &&
+        user.name !== userProfile.name
+      ) {
+        update.name = user.name;
+        update.updated_at = now;
+      }
+
+      await users.updateOne({ email: user.email }, { $set: update });
+
+      // Reflect the update in the response without a second round trip.
+      if ('name' in update) {
+        userProfile = {
+          ...userProfile,
+          name: user.name as string,
+          updated_at: now,
+          last_login: now,
+        };
+      } else {
+        userProfile = { ...userProfile, last_login: now };
+      }
     }
 
     return successResponse(userProfile);
