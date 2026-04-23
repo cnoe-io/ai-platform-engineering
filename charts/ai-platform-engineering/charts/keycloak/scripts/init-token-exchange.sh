@@ -8,7 +8,7 @@
 #
 # Idempotent — safe to re-run on every container start.
 #
-# Depends on: sh, curl, grep, sed (all in alpine/curl or Alpine).
+# Depends on: sh, curl, grep, sed (provided by build/Dockerfile.keycloak-init).
 #
 # Required env vars:
 #   KEYCLOAK_ADMIN / KC_BOOTSTRAP_ADMIN_USERNAME  (default: admin)
@@ -87,7 +87,11 @@ else
   echo "${TAG}   Adding slack_user_id to user profile ..."
   # Use sed to inject the attribute and set unmanagedAttributePolicy
   # We rebuild the profile JSON to add slack_user_id and set the policy
-  UPDATED_PROFILE=$(echo "${PROFILE}" | sed 's/\("attributes"[[:space:]]*:[[:space:]]*\[/\1{"name":"slack_user_id","displayName":"Slack User ID","validations":{},"annotations":{},"permissions":{"view":["admin"],"edit":["admin"]},"multivalued":false},/')
+  # NB: capture group must be explicitly closed with `\)` for busybox sed
+  # (alpine/curl). GNU sed auto-closes at the end of the pattern; busybox
+  # does not, and aborts with "bad regex: Missing ')'". Closing the group
+  # right after `\[` matches the same text and works in both GNU + busybox.
+  UPDATED_PROFILE=$(echo "${PROFILE}" | sed 's/\("attributes"[[:space:]]*:[[:space:]]*\[\)/\1{"name":"slack_user_id","displayName":"Slack User ID","validations":{},"annotations":{},"permissions":{"view":["admin"],"edit":["admin"]},"multivalued":false},/')
 
   # Set unmanagedAttributePolicy
   if echo "${UPDATED_PROFILE}" | grep -q '"unmanagedAttributePolicy"'; then
@@ -145,6 +149,38 @@ else
     -d "{\"clientId\":\"${BOT_CLIENT_ID}\",\"fullScopeAllowed\":true}" 2>/dev/null && \
     echo "${TAG}   Set fullScopeAllowed=true." || \
     echo "${TAG}   WARNING: could not set fullScopeAllowed."
+fi
+
+# ------------------------------------------------------------------
+# 4b. (Optional) Reconcile client_secret to the value supplied by the
+#     orchestration layer (Helm chart Secret / ESO ExternalSecret).
+#
+# Set when KC_BOT_CLIENT_SECRET env var is non-empty. Skipped silently
+# in dev/local scenarios where the secret is left to whatever Keycloak
+# auto-generated on realm import (current behavior is preserved).
+#
+# The Admin API accepts the secret as a regular client field on PUT.
+# Idempotent — re-applying the same value is a no-op as far as Keycloak
+# is concerned (it just overwrites the same string). Keycloak does NOT
+# return the current value via GET, so we cannot conditionally skip;
+# we always PUT when the env is supplied.
+#
+# Security: we deliberately do not log the secret. Only success/failure.
+# ------------------------------------------------------------------
+if [ -n "${KC_BOT_CLIENT_SECRET:-}" ]; then
+  echo "${TAG} Reconciling client_secret on '${BOT_CLIENT_ID}' from KC_BOT_CLIENT_SECRET ..."
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}" \
+    -d "{\"clientId\":\"${BOT_CLIENT_ID}\",\"secret\":\"${KC_BOT_CLIENT_SECRET}\"}" 2>/dev/null || echo "000")
+  if [ "${HTTP_CODE}" = "204" ] || [ "${HTTP_CODE}" = "200" ]; then
+    echo "${TAG}   client_secret reconciled (HTTP ${HTTP_CODE})."
+  else
+    echo "${TAG}   ERROR: failed to set client_secret (HTTP ${HTTP_CODE})." >&2
+    exit 1
+  fi
+else
+  echo "${TAG} KC_BOT_CLIENT_SECRET not set — leaving Keycloak-managed client_secret unchanged."
 fi
 
 # ------------------------------------------------------------------

@@ -7,7 +7,7 @@
 # lightweight Alpine container that shares the Keycloak network
 # (network_mode: "service:keycloak").
 #
-# Depends on: sh, curl, grep, sed (all in alpine/curl or Alpine).
+# Depends on: sh, curl, grep, sed, python3 (provided by build/Dockerfile.keycloak-init).
 #
 # Required env vars (set in .env / docker-compose):
 #   IDP_ISSUER         – OIDC issuer URL of the upstream IdP
@@ -22,9 +22,223 @@
 #   KC_REALM           – realm name (default: caipe)
 # -------------------------------------------------------------------
 set -eu
+# Disable brace expansion — bash 3.2 (macOS /bin/sh) mis-expands `{a,b}`
+# inside `$(cat <<EOF)` even when the whole expression is quoted, which
+# splits our JSON payloads across args. No-op under dash/ash/POSIX sh.
+# assisted-by claude code claude-opus-4-7
+#
+# NB: busybox `sh` (alpine/curl) treats `set +B` as a parse-time error
+# and aborts with exit 2 *before* the `2>/dev/null || true` guard runs.
+# Probe in a subshell first so the parse error is contained.
+if (set +B) 2>/dev/null; then set +B; fi
 
 REALM="${KC_REALM:-caipe}"
 KC_URL="${KC_URL:-http://localhost:7080}"
+
+# -------------------------------------------------------------------
+# Persona seeding (spec 102 T019).
+#
+# Always runs (regardless of IDP_* env vars) because the spec-102
+# RBAC tests need the six personas in the realm whether or not an
+# upstream IdP broker is configured.  Idempotent — re-runnable.
+#
+# Personas (see spec.md §Personas):
+#   alice_admin            → realm role "admin"
+#   bob_chat_user          → realm role "chat_user"
+#   carol_kb_ingestor      → realm role "chat_user" + client role "kb_ingestor" (caipe-platform)
+#   dave_no_role           → no roles (assigned default "offline_access" only)
+#   eve_dynamic_agent_user → realm role "chat_user"
+#   frank_service_account  → ALREADY EXISTS as caipe-platform's service account user
+#                            (we don't create a regular user for frank)
+#
+# All passwords are "test-password-123" — overridable per-persona via env
+# (e.g. ALICE_ADMIN_PASSWORD). Matches the default in
+# tests/rbac/fixtures/keycloak.{py,ts} _DEFAULT_PASSWORD.
+# -------------------------------------------------------------------
+
+# --- helper: extract a string field from JSON (no jq needed) -------------
+# Defined here (above seed_personas_main) so the spec-102 persona seed call
+# at line 153 can use it. The original IdP-broker section also defines this
+# below (line 165) — both definitions are identical; the later one is
+# harmless because shells re-bind on each function declaration.
+json_field() {
+  echo "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:.*"\(.*\)"/\1/'
+}
+
+seed_personas_main() {
+  echo "[init-idp] [spec-102] seeding personas in realm ${REALM} ..."
+
+  PERSONA_ADMIN_TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" \
+    2>/dev/null) || {
+    echo "[init-idp] [spec-102] WARN: could not authenticate to seed personas — skipping."
+    return 0
+  }
+  PERSONA_ADMIN=$(json_field "${PERSONA_ADMIN_TOKEN}" "access_token")
+  if [ -z "${PERSONA_ADMIN}" ]; then
+    echo "[init-idp] [spec-102] WARN: empty admin token — skipping persona seed."
+    return 0
+  fi
+  PERSONA_AUTH="Authorization: Bearer ${PERSONA_ADMIN}"
+
+  upsert_persona() {
+    local USERNAME="$1"
+    local EMAIL="$2"
+    local PASSWORD="$3"
+    local FIRSTNAME="$4"
+    local LASTNAME="$5"
+
+    local USER_ID
+    USER_ID=$(curl -sf -H "${PERSONA_AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/users?username=${USERNAME}&exact=true" 2>/dev/null \
+      | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+    if [ -z "${USER_ID}" ]; then
+      echo "[init-idp] [spec-102]   creating persona ${USERNAME} ..."
+      curl -sf -X POST -H "${PERSONA_AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/users" \
+        -d "{\"username\":\"${USERNAME}\",\"email\":\"${EMAIL}\",\"firstName\":\"${FIRSTNAME}\",\"lastName\":\"${LASTNAME}\",\"enabled\":true,\"emailVerified\":true}" \
+        2>/dev/null || echo "[init-idp] [spec-102]   WARN: failed to create ${USERNAME}"
+
+      USER_ID=$(curl -sf -H "${PERSONA_AUTH}" \
+        "${KC_URL}/admin/realms/${REALM}/users?username=${USERNAME}&exact=true" 2>/dev/null \
+        | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    else
+      echo "[init-idp] [spec-102]   persona ${USERNAME} already exists (id=${USER_ID})."
+    fi
+
+    if [ -n "${USER_ID}" ]; then
+      curl -sf -X PUT -H "${PERSONA_AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/users/${USER_ID}/reset-password" \
+        -d "{\"type\":\"password\",\"value\":\"${PASSWORD}\",\"temporary\":false}" \
+        2>/dev/null && \
+        echo "[init-idp] [spec-102]   set password for ${USERNAME}." || \
+        echo "[init-idp] [spec-102]   WARN: failed to set password for ${USERNAME}."
+    fi
+    echo "${USER_ID}"
+  }
+
+  assign_realm_role() {
+    local USER_ID="$1"
+    local ROLE_NAME="$2"
+    [ -z "${USER_ID}" ] && return 0
+    local ROLE_JSON
+    ROLE_JSON=$(curl -sf -H "${PERSONA_AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/roles/${ROLE_NAME}" 2>/dev/null)
+    [ -z "${ROLE_JSON}" ] && {
+      echo "[init-idp] [spec-102]   WARN: realm role ${ROLE_NAME} not found"
+      return 0
+    }
+    curl -sf -X POST -H "${PERSONA_AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/users/${USER_ID}/role-mappings/realm" \
+      -d "[${ROLE_JSON}]" 2>/dev/null && \
+      echo "[init-idp] [spec-102]     assigned realm role ${ROLE_NAME}." || \
+      echo "[init-idp] [spec-102]     (already had ${ROLE_NAME} or assign failed)."
+  }
+
+  PASS_ALICE="${ALICE_ADMIN_PASSWORD:-test-password-123}"
+  PASS_BOB="${BOB_CHAT_USER_PASSWORD:-test-password-123}"
+  PASS_CAROL="${CAROL_KB_INGESTOR_PASSWORD:-test-password-123}"
+  PASS_DAVE="${DAVE_NO_ROLE_PASSWORD:-test-password-123}"
+  PASS_EVE="${EVE_DYNAMIC_AGENT_USER_PASSWORD:-test-password-123}"
+
+  ALICE_ID=$(upsert_persona "alice_admin" "alice@example.com" "${PASS_ALICE}" "Alice" "Admin")
+  assign_realm_role "${ALICE_ID}" "admin"
+
+  BOB_ID=$(upsert_persona "bob_chat_user" "bob@example.com" "${PASS_BOB}" "Bob" "ChatUser")
+  assign_realm_role "${BOB_ID}" "chat_user"
+
+  CAROL_ID=$(upsert_persona "carol_kb_ingestor" "carol@example.com" "${PASS_CAROL}" "Carol" "Ingestor")
+  assign_realm_role "${CAROL_ID}" "chat_user"
+  # KB ingestor role is granted via the team_kb_ownership document in MongoDB
+  # (Phase 7 RAG hybrid model — see plan.md §Phase 4). Realm role chat_user is
+  # the baseline; KB-scoped permissions are layered on top by spec-098 ACL.
+
+  DAVE_ID=$(upsert_persona "dave_no_role" "dave@example.com" "${PASS_DAVE}" "Dave" "NoRole")
+  # No additional roles — intentionally; default-roles-caipe (offline_access) is auto-applied.
+
+  EVE_ID=$(upsert_persona "eve_dynamic_agent_user" "eve@example.com" "${PASS_EVE}" "Eve" "DynamicAgent")
+  assign_realm_role "${EVE_ID}" "chat_user"
+
+  echo "[init-idp] [spec-102] persona seeding done. Verify with:"
+  echo "[init-idp] [spec-102]   curl -sf -H \"\${PERSONA_AUTH}\" \"${KC_URL}/admin/realms/${REALM}/users?max=20\""
+}
+
+seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (see above)"
+
+# Spec 103: the realm-management role pinning for service-account-caipe-platform
+# ({view-users, query-users, manage-users}) is a hard requirement for the
+# slack-bot path and is independent of whether this realm has an external IdP
+# configured. Run it BEFORE the early-exit below so dev/CI stacks that don't
+# wire IDP_ISSUER still get the correct role mapping.
+_ensure_caipe_platform_user_roles() {
+  echo "[init-idp] Ensuring caipe-platform service account has {view-users, query-users, manage-users} ..."
+  # Spec 103: AUTH may not be set yet when this helper runs from the
+  # pre-IdP path (we run it right after persona seeding so dev stacks without
+  # IDP_ISSUER still get role-pinned). Acquire a master-realm admin token
+  # locally if AUTH is empty. This mirrors the token-acquisition pattern used
+  # by the IdP-setup block below (line ~253).
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   WARNING: could not acquire admin token from ${KC_URL}/realms/master — skipping role check."
+      return 0
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+  CP_SA_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users?username=service-account-caipe-platform&exact=true" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+  RM_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -z "${CP_SA_ID}" ] || [ -z "${RM_CLIENT_ID}" ]; then
+    echo "[init-idp]   WARNING: could not resolve service-account-caipe-platform (id=${CP_SA_ID}) or realm-management client (id=${RM_CLIENT_ID}) — skipping role check."
+    return 0
+  fi
+
+  CP_CURRENT_ROLES=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users/${CP_SA_ID}/role-mappings/clients/${RM_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"name" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | sort -u | tr '\n' ',')
+  echo "[init-idp]   Current realm-management roles on caipe-platform: ${CP_CURRENT_ROLES%,}"
+
+  for desired in view-users query-users manage-users; do
+    if echo ",${CP_CURRENT_ROLES}" | grep -q ",${desired},"; then
+      echo "[init-idp]     ✓ ${desired} already present."
+    else
+      ROLE_JSON=$(curl -sf -H "${AUTH}" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles/${desired}" 2>/dev/null)
+      ROLE_ID=$(echo "${ROLE_JSON}" | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+      if [ -z "${ROLE_ID}" ]; then
+        echo "[init-idp]     WARNING: realm-management role '${desired}' not found in realm '${REALM}' — skipping."
+        continue
+      fi
+      echo "[init-idp]     + Granting ${desired} ..."
+      curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/users/${CP_SA_ID}/role-mappings/clients/${RM_CLIENT_ID}" \
+        -d "[{\"id\":\"${ROLE_ID}\",\"name\":\"${desired}\"}]" \
+        && echo "[init-idp]       Granted." \
+        || echo "[init-idp]       WARNING: POST failed for ${desired}."
+    fi
+  done
+
+  CP_FINAL_ROLES=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users/${CP_SA_ID}/role-mappings/clients/${RM_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"name" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | sort -u | tr '\n' ',')
+  echo "[init-idp]   Final realm-management roles on caipe-platform: ${CP_FINAL_ROLES%,}"
+  for needed in view-users query-users manage-users; do
+    if ! echo ",${CP_FINAL_ROLES}" | grep -q ",${needed},"; then
+      echo "[init-idp]   AUDIT-FAILURE: caipe-platform service account is MISSING required role '${needed}'."
+      echo "[init-idp]   Slack-bot lookup or JIT user creation will fail until this is fixed."
+    fi
+  done
+}
+
+_ensure_caipe_platform_user_roles
 
 if [ -z "${IDP_ISSUER:-}" ] || [ -z "${IDP_CLIENT_ID:-}" ] || [ -z "${IDP_CLIENT_SECRET:-}" ]; then
   echo "[init-idp] IDP_ISSUER / IDP_CLIENT_ID / IDP_CLIENT_SECRET not set — skipping IdP broker setup."
@@ -33,6 +247,7 @@ fi
 
 ALIAS="${IDP_ALIAS:-upstream-oidc}"
 DISPLAY="${IDP_DISPLAY_NAME:-Upstream OIDC}"
+SILENT_FLOW_ALIAS="caipe-silent-broker-login"
 
 # --- helper: extract a string field from JSON (no jq needed) ---
 json_field() {
@@ -119,6 +334,172 @@ else
   echo "[init-idp]   WARNING: default-roles-caipe role not found."
 fi
 
+# --- ensure chat_user is also in default-roles-caipe ---
+echo "[init-idp] Ensuring chat_user is in default-roles-caipe ..."
+if [ -n "${DEFAULT_ROLE_ID}" ]; then
+  COMPOSITES=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" 2>/dev/null || echo "[]")
+  if echo "${COMPOSITES}" | grep -q '"chat_user"'; then
+    echo "[init-idp]   chat_user already in default-roles-caipe."
+  else
+    CHAT_ROLE_ID=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
+      | grep -B1 '"chat_user"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    if [ -n "${CHAT_ROLE_ID}" ]; then
+      curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" \
+        -d "[{\"id\":\"${CHAT_ROLE_ID}\",\"name\":\"chat_user\"}]" && \
+        echo "[init-idp]   Added chat_user to default-roles-caipe." || \
+        echo "[init-idp]   WARNING: failed to add chat_user to default-roles-caipe."
+    else
+      echo "[init-idp]   WARNING: chat_user role not found in realm."
+    fi
+  fi
+fi
+
+# --- configure user profile: allow slack_user_id attribute ---
+# Keycloak 26+ silently drops custom attributes not in the user profile schema.
+# We add slack_user_id and enable unmanagedAttributePolicy=ADMIN_EDIT so that
+# the Admin API (used by identity linking and user management) can set attributes.
+echo "[init-idp] Configuring user profile for slack_user_id ..."
+PROFILE=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/users/profile" 2>/dev/null || echo "")
+
+if [ -n "${PROFILE}" ]; then
+  UPDATED_PROFILE=$(echo "${PROFILE}" | python3 -c "
+import sys, json
+try:
+    p = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+# Add slack_user_id if not already present
+names = [a['name'] for a in p.get('attributes', [])]
+if 'slack_user_id' not in names:
+    p.setdefault('attributes', []).append({
+        'name': 'slack_user_id',
+        'displayName': 'Slack User ID',
+        'permissions': {'view': ['admin'], 'edit': ['admin']},
+        'multivalued': False
+    })
+# Enable unmanaged attributes for admin
+p['unmanagedAttributePolicy'] = 'ADMIN_EDIT'
+json.dump(p, sys.stdout)
+" 2>/dev/null)
+
+  if [ -n "${UPDATED_PROFILE}" ]; then
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/users/profile" \
+      -d "${UPDATED_PROFILE}" && \
+      echo "[init-idp]   User profile updated (slack_user_id + unmanagedAttributePolicy=ADMIN_EDIT)." || \
+      echo "[init-idp]   WARNING: failed to update user profile."
+  else
+    echo "[init-idp]   WARNING: failed to parse user profile JSON (python3 required)."
+  fi
+else
+  echo "[init-idp]   WARNING: could not fetch user profile."
+fi
+
+# --- create silent broker login flow (auto-link by email, zero user prompts) ---
+# Uses two executions (both ALTERNATIVE):
+#   1. idp-create-user-if-unique  — creates a new local account when no match exists
+#   2. idp-auto-link              — silently links the brokered identity to the matching
+#                                   local account (matched by email) without showing any
+#                                   "Account already exists" or confirmation page.
+# trustEmail=true on the IdP (set below) is required for idp-auto-link to match by email.
+echo "[init-idp] Ensuring silent broker login flow '${SILENT_FLOW_ALIAS}' ..."
+
+ALL_FLOWS=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/authentication/flows" 2>/dev/null || echo "[]")
+
+SILENT_FLOW_ID=$(echo "${ALL_FLOWS}" | python3 -c "
+import sys, json
+try:
+    flows = json.load(sys.stdin)
+    for f in flows:
+        if f.get('alias') == '${SILENT_FLOW_ALIAS}':
+            print(f.get('id', ''))
+            break
+except Exception:
+    pass
+" 2>/dev/null)
+
+if [ -z "${SILENT_FLOW_ID}" ]; then
+  echo "[init-idp]   Creating flow '${SILENT_FLOW_ALIAS}' ..."
+  curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows" \
+    -d "{\"alias\":\"${SILENT_FLOW_ALIAS}\",\"description\":\"Silent broker login - auto-link or create without user prompts\",\"providerId\":\"basic-flow\",\"topLevel\":true,\"builtIn\":false}" \
+    && echo "[init-idp]   Flow created." \
+    || echo "[init-idp]   WARNING: failed to create silent broker flow."
+
+  SILENT_FLOW_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows" 2>/dev/null \
+    | python3 -c "
+import sys, json
+try:
+    flows = json.load(sys.stdin)
+    for f in flows:
+        if f.get('alias') == '${SILENT_FLOW_ALIAS}':
+            print(f.get('id', ''))
+            break
+except Exception:
+    pass
+" 2>/dev/null)
+fi
+
+if [ -n "${SILENT_FLOW_ID}" ]; then
+  # NOTE: Keycloak's executions/execution POST endpoint uses the flow ALIAS, not the ID.
+  FLOW_EXECS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions" 2>/dev/null || echo "[]")
+
+  if ! echo "${FLOW_EXECS}" | grep -q '"idp-create-user-if-unique"'; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions/execution" \
+      -d '{"provider":"idp-create-user-if-unique"}' \
+      && echo "[init-idp]   Added idp-create-user-if-unique." \
+      || echo "[init-idp]   WARNING: failed to add idp-create-user-if-unique."
+  else
+    echo "[init-idp]   idp-create-user-if-unique already present."
+  fi
+
+  if ! echo "${FLOW_EXECS}" | grep -q '"idp-auto-link"'; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions/execution" \
+      -d '{"provider":"idp-auto-link"}' \
+      && echo "[init-idp]   Added idp-auto-link." \
+      || echo "[init-idp]   WARNING: failed to add idp-auto-link."
+  else
+    echo "[init-idp]   idp-auto-link already present."
+  fi
+
+  # Set all executions to ALTERNATIVE (re-fetch after additions)
+  UPDATED_EXECS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions" 2>/dev/null || echo "[]")
+
+  echo "${UPDATED_EXECS}" | python3 -c "
+import sys, json
+try:
+    execs = json.load(sys.stdin)
+    for e in execs:
+        eid = e.get('id', '')
+        if eid:
+            print(eid)
+except Exception:
+    pass
+" 2>/dev/null | while read EXEC_ID; do
+    [ -z "${EXEC_ID}" ] && continue
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/flows/${SILENT_FLOW_ALIAS}/executions" \
+      -d "{\"id\":\"${EXEC_ID}\",\"requirement\":\"ALTERNATIVE\"}" 2>/dev/null \
+      && echo "[init-idp]   Set execution ${EXEC_ID} to ALTERNATIVE." \
+      || echo "[init-idp]   WARNING: could not set requirement for ${EXEC_ID}."
+  done
+
+  echo "[init-idp]   Silent broker flow ready (ID: ${SILENT_FLOW_ID})."
+else
+  echo "[init-idp]   WARNING: silent broker flow ID not found — falling back to 'first broker login'."
+  SILENT_FLOW_ALIAS="first broker login"
+fi
+
 # --- create or update IdP ---
 IDP_JSON=$(cat <<ENDJSON
 {
@@ -129,7 +510,7 @@ IDP_JSON=$(cat <<ENDJSON
   "trustEmail": true,
   "storeToken": false,
   "addReadTokenRoleOnCreate": false,
-  "firstBrokerLoginFlowAlias": "first broker login",
+  "firstBrokerLoginFlowAlias": "${SILENT_FLOW_ALIAS}",
   "config": {
     "clientId": "${IDP_CLIENT_ID}",
     "clientSecret": "${IDP_CLIENT_SECRET}",
@@ -139,12 +520,30 @@ IDP_JSON=$(cat <<ENDJSON
     "issuer": "${IDP_ISSUER}",
     "jwksUrl": "${JWKS_EP}",
     "defaultScope": "openid email profile groups",
-    "syncMode": "FORCE",
+    "syncMode": "IMPORT",
     "validateSignature": "true",
     "useJwksUrl": "true"
   }
 }
 ENDJSON
+# syncMode: IMPORT (NOT "FORCE")
+# -----------------------------------------------------------------------------
+# IMPORT runs the IdP attribute mappers exactly once, during the
+# firstBrokerLogin flow that creates or links the local Keycloak user.
+# Subsequent SSO logins do NOT re-run mappers, which means anything we put
+# on the user record afterwards (notably the slack_user_id attribute the
+# slack-bot writes via JIT or auto-bootstrap) survives across logins.
+#
+# FORCE would re-run mappers on every login and rebuild the user's
+# attributes from the IdP claims, wiping any sidecar attributes set by
+# other surfaces (Slack, future Teams/Webex bots, manual Admin patches).
+# Spec 103 R-12: see docs/docs/specs/103-slack-jit-user-creation/plan.md
+# for the full discussion of FORCE vs IMPORT vs selective-FORCE trade-offs.
+#
+# If you need live propagation of a specific IdP claim (e.g. group changes),
+# add a per-mapper syncMode=FORCE override on JUST that mapper — never
+# flip the IdP-level setting back to FORCE.
+# -----------------------------------------------------------------------------
 )
 
 EXISTING_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -395,4 +794,246 @@ curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
   echo "[init-idp]   Realm profile updated." || \
   echo "[init-idp]   WARNING: could not update realm profile settings."
 
-echo "[init-idp] Done — IdP '${ALIAS}' is ready."
+# --- auto-redirect to the IdP (skip Keycloak login page) ---
+# Configures the "Identity Provider Redirector" execution in the browser
+# flow to default to this IdP.  Users can still bypass with ?kc_idp_hint=
+# or by navigating to the Keycloak login page directly.
+echo "[init-idp] Setting '${ALIAS}' as default IdP redirector in browser flow ..."
+BROWSER_EXECS=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/authentication/flows/browser/executions" 2>/dev/null || echo "[]")
+
+REDIR_ID=$(echo "${BROWSER_EXECS}" | grep -B2 '"identity-provider-redirector"' \
+  | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+
+if [ -n "${REDIR_ID}" ]; then
+  # Get existing authenticator config (if any)
+  REDIR_CONFIG_ID=$(echo "${BROWSER_EXECS}" | grep -A5 '"identity-provider-redirector"' \
+    | grep -o '"authenticationConfig" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+
+  if [ -n "${REDIR_CONFIG_ID}" ]; then
+    # Update existing config
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/config/${REDIR_CONFIG_ID}" \
+      -d "{\"id\":\"${REDIR_CONFIG_ID}\",\"alias\":\"${ALIAS}-redirector\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
+      echo "[init-idp]   Updated IdP redirector to default to '${ALIAS}'." || \
+      echo "[init-idp]   WARNING: failed to update IdP redirector config."
+  else
+    # Create new config for the execution
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/authentication/executions/${REDIR_ID}/config" \
+      -d "{\"alias\":\"${ALIAS}-redirector\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
+      echo "[init-idp]   Created IdP redirector defaulting to '${ALIAS}'." || \
+      echo "[init-idp]   WARNING: failed to create IdP redirector config."
+  fi
+else
+  echo "[init-idp]   WARNING: identity-provider-redirector execution not found in browser flow."
+fi
+
+# Spec 103: caipe-platform realm-management role pinning was already invoked
+# above (right after persona seeding) so it runs even on stacks without an
+# external IdP. Re-running here is idempotent and harmless when this branch
+# is reached (i.e. when IDP_ISSUER was set), and it serves as a final audit
+# pass after the IdP setup is complete.
+_ensure_caipe_platform_user_roles
+
+# -------------------------------------------------------------------
+# Ensure the caipe-slack-bot service account's access tokens include
+# 'caipe-ui' as an audience. The bot talks to caipe-ui with a Bearer
+# token; caipe-ui validates audience==OIDC_CLIENT_ID (which is caipe-ui).
+# Without this mapper the default audience is caipe-platform only.
+# assisted-by claude code claude-opus-4-7
+# -------------------------------------------------------------------
+echo "[init-idp] Ensuring caipe-slack-bot token includes 'caipe-ui' audience ..."
+SB_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=caipe-slack-bot" 2>/dev/null \
+  | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+if [ -n "${SB_CLIENT_ID}" ]; then
+  SB_MAPPERS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/protocol-mappers/models" 2>/dev/null || echo "[]")
+  if echo "${SB_MAPPERS}" | grep -q '"name" *: *"aud-caipe-ui"'; then
+    echo "[init-idp]   Audience mapper 'aud-caipe-ui' already exists — skipping."
+  else
+    echo "[init-idp]   Creating audience mapper 'aud-caipe-ui' on caipe-slack-bot ..."
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/protocol-mappers/models" \
+      -d '{
+        "name":"aud-caipe-ui",
+        "protocol":"openid-connect",
+        "protocolMapper":"oidc-audience-mapper",
+        "config":{
+          "included.client.audience":"caipe-ui",
+          "id.token.claim":"false",
+          "access.token.claim":"true"
+        }
+      }' && echo "[init-idp]   Mapper created."
+  fi
+else
+  echo "[init-idp]   WARNING: caipe-slack-bot client not found — skipping audience mapper."
+fi
+
+# -------------------------------------------------------------------
+# Same fix, applied to the caipe-ui client itself.
+#
+# Keycloak quirk: when a client mints an access token for one of its
+# own users via the OIDC code flow, the resulting token does NOT
+# automatically include the issuing client in `aud`. The `aud` claim
+# is only populated by audience protocol mappers. Without one, caipe-ui's
+# own bearer-validation code (which checks `aud === OIDC_CLIENT_ID`)
+# rejects the very tokens that caipe-ui itself issued — manifesting as
+# `auth=bearer DENIED reason=unexpected "aud" claim value` on the
+# /api/v1/chat/stream/start path used by the web UI's chat panel.
+#
+# Adding `aud-caipe-ui` here makes the validator accept tokens that the
+# UI's own session minted, without weakening the `aud` check (which is
+# still required to reject tokens issued for other clients).
+# -------------------------------------------------------------------
+echo "[init-idp] Ensuring caipe-ui token includes 'caipe-ui' audience ..."
+UI_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=caipe-ui" 2>/dev/null \
+  | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+if [ -n "${UI_CLIENT_ID}" ]; then
+  UI_MAPPERS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models" 2>/dev/null || echo "[]")
+  if echo "${UI_MAPPERS}" | grep -q '"name" *: *"aud-caipe-ui"'; then
+    echo "[init-idp]   Audience mapper 'aud-caipe-ui' already exists on caipe-ui — skipping."
+  else
+    echo "[init-idp]   Creating audience mapper 'aud-caipe-ui' on caipe-ui ..."
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models" \
+      -d '{
+        "name":"aud-caipe-ui",
+        "protocol":"openid-connect",
+        "protocolMapper":"oidc-audience-mapper",
+        "config":{
+          "included.client.audience":"caipe-ui",
+          "id.token.claim":"false",
+          "access.token.claim":"true"
+        }
+      }' && echo "[init-idp]   Mapper created."
+  fi
+else
+  echo "[init-idp]   WARNING: caipe-ui client not found — skipping audience mapper."
+fi
+
+
+# -------------------------------------------------------------------
+# Spec 103 / dev unblock — first-party service callers (Slack bot today,
+# Webex/Teams bots later) authenticate to caipe-ui via Bearer JWT minted
+# from their own Keycloak client. To pass caipe-ui's RBAC PDP we need:
+#
+#   (a) the bot's client-credentials token to satisfy the role-fallback
+#       path → grant `chat_user` realm role to its service account user.
+#   (b) the bot to be able to mint impersonated (OBO) tokens that carry
+#       the *real Slack user's* identity → grant token-exchange + users
+#       impersonate permissions, scoped to ONLY this client (least
+#       privilege — the bot can impersonate any realm user, but no other
+#       client can use the bot's identity to do so).
+#
+# Both (a) and (b) are idempotent — re-running this block is safe.
+# Implemented imperatively (not via realm import) because Keycloak's
+# realm export does not round-trip the realm-management authz policies
+# in a stable way across versions.
+# assisted-by claude code claude-sonnet-4-7
+# -------------------------------------------------------------------
+echo "[init-idp] Configuring caipe-slack-bot RBAC + OBO permissions ..."
+
+if [ -n "${SB_CLIENT_ID}" ]; then
+  # ---- (a) grant chat_user realm role to bot service account ----
+  SB_SVC_USER_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/service-account-user" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -n "${SB_SVC_USER_ID}" ]; then
+    CHAT_USER_ROLE=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/roles/chat_user" 2>/dev/null)
+    if [ -n "${CHAT_USER_ROLE}" ]; then
+      EXISTING_REALM_ROLES=$(curl -sf -H "${AUTH}" \
+        "${KC_URL}/admin/realms/${REALM}/users/${SB_SVC_USER_ID}/role-mappings/realm" 2>/dev/null || echo "[]")
+      if echo "${EXISTING_REALM_ROLES}" | grep -q '"name" *: *"chat_user"'; then
+        echo "[init-idp]   chat_user already granted to caipe-slack-bot service account."
+      else
+        curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+          "${KC_URL}/admin/realms/${REALM}/users/${SB_SVC_USER_ID}/role-mappings/realm" \
+          -d "[${CHAT_USER_ROLE}]" \
+          && echo "[init-idp]   Granted chat_user to caipe-slack-bot service account."
+      fi
+    fi
+  fi
+
+  # ---- (b) enable client management permissions (creates token-exchange perm) ----
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/management/permissions" \
+    -d '{"enabled": true}' >/dev/null \
+    && echo "[init-idp]   Enabled management permissions on caipe-slack-bot."
+
+  # ---- (b) enable realm-level users-management (creates impersonate perm) ----
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/users-management-permissions" \
+    -d '{"enabled": true}' >/dev/null \
+    && echo "[init-idp]   Enabled users-management permissions (realm)."
+
+  # ---- (b) look up realm-management client + the two scope-perm IDs we need ----
+  RM_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  TE_PERM_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/management/permissions" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['token-exchange'])" 2>/dev/null)
+
+  IMP_PERM_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users-management-permissions" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['impersonate'])" 2>/dev/null)
+
+  if [ -n "${RM_CLIENT_ID}" ] && [ -n "${TE_PERM_ID}" ] && [ -n "${IMP_PERM_ID}" ]; then
+    # ---- (b) create / re-use a 'client' authz policy that names caipe-slack-bot ----
+    POL_NAME="caipe-slack-bot-token-exchange"
+    POL_ID=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy?name=${POL_NAME}" 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
+
+    if [ -z "${POL_ID}" ]; then
+      POL_ID=$(curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy/client" \
+        -d "{
+          \"name\": \"${POL_NAME}\",
+          \"description\": \"Allows caipe-slack-bot to perform token exchange / OBO impersonation. Scoped to ONLY this client.\",
+          \"clients\": [\"${SB_CLIENT_ID}\"]
+        }" 2>/dev/null \
+        | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+      [ -n "${POL_ID}" ] && echo "[init-idp]   Created token-exchange policy ${POL_NAME}."
+    else
+      echo "[init-idp]   token-exchange policy ${POL_NAME} already exists."
+    fi
+
+    # ---- (b) attach our policy to BOTH the client-token-exchange and users-impersonate scope perms ----
+    if [ -n "${POL_ID}" ]; then
+      for PERM_ID in "${TE_PERM_ID}" "${IMP_PERM_ID}"; do
+        CUR=$(curl -sf -H "${AUTH}" \
+          "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${PERM_ID}" 2>/dev/null)
+        UPDATED=$(echo "${CUR}" | python3 -c "
+import sys, json
+p = json.load(sys.stdin)
+p.setdefault('policies', [])
+if '${POL_ID}' not in p['policies']:
+    p['policies'].append('${POL_ID}')
+print(json.dumps(p))
+" 2>/dev/null)
+        if [ -n "${UPDATED}" ]; then
+          curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+            "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${PERM_ID}" \
+            -d "${UPDATED}" >/dev/null \
+            && echo "[init-idp]   Attached policy to scope permission ${PERM_ID}."
+        fi
+      done
+    fi
+  else
+    echo "[init-idp]   WARNING: realm-management client / scope permissions not found — OBO setup incomplete."
+  fi
+else
+  echo "[init-idp]   WARNING: caipe-slack-bot client not found — RBAC/OBO setup skipped."
+fi
+
+echo "[init-idp] Done — IdP '${ALIAS}' is ready (auto-redirect enabled)."

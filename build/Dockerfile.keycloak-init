@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+#
+# Keycloak post-install init container.
+#
+# Used by:
+#   - docker-compose.dev.yaml  → `keycloak-init` and `keycloak-init-token-exchange` services
+#   - charts/.../keycloak/templates/job-init-*.yaml → Helm post-install Jobs
+#
+# The two scripts (canonical at charts/.../keycloak/scripts/init-*.sh, with
+# symlinks at deploy/keycloak/init-*.sh) need:
+#   - sh + sed + grep + awk  → portable shell munging
+#   - curl                   → talk to Keycloak Admin API
+#   - python3                → JSON munging for the user-profile / slack_user_id
+#                              section in init-idp.sh (~line 295)
+#
+# We base on Chainguard's wolfi-base for:
+#   - small footprint (~80 MB final, vs Debian slim ~210 MB)
+#   - nightly CVE rebuilds + signed provenance
+#   - apk package manager so we install only what we need
+#
+# NB: wolfi-base's /bin/sh is busybox-derived. The init scripts already
+# encode busybox-portability fixes (`set +B` probe, explicit `\)` in sed
+# capture groups) — DO NOT remove them, even though Wolfi *also* ships
+# bash if `apk add bash` is used.
+FROM cgr.dev/chainguard/wolfi-base:latest
+
+RUN apk add --no-cache \
+      python-3.13 \
+      curl \
+      ca-certificates-bundle \
+      grep \
+      sed \
+      gawk \
+ && rm -rf /var/cache/apk/*
+
+# Non-root by default. The init scripts only read from /scripts (mounted RO
+# via ConfigMap or bind-mount) and talk to Keycloak over HTTP — no local
+# file writes. Wolfi ships a `nonroot` user (uid 65532) for exactly this.
+USER nonroot
+
+ENTRYPOINT ["/bin/sh"]

@@ -46,11 +46,14 @@ spec:
               value: {{ .Values.idp.issuer | quote }}
             - name: IDP_CLIENT_ID
               value: {{ .Values.idp.clientId | quote }}
-            {{- if .Values.idp.secretRef }}
+            {{- /* IDP_CLIENT_SECRET source — explicit secretRef wins; else
+                   ESO-managed Secret <fullname>-idp; else (idp.enabled but
+                   no source) the script will exit non-zero before bootstrap. */}}
+            {{- if or .Values.idp.secretRef .Values.idp.externalSecret.enabled }}
             - name: IDP_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.idp.secretRef }}
+                  name: {{ include "keycloak.idpSecretName" . }}
                   key: IDP_CLIENT_SECRET
             {{- end }}
             - name: IDP_ACCESS_GROUP

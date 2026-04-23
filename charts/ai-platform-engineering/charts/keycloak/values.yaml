@@ -5,10 +5,17 @@ image:
   tag: "26.3"
   pullPolicy: IfNotPresent
 
-# Init container image (alpine/curl) used by post-install Jobs
+# Init container image used by post-install Jobs (init-idp + init-token-exchange).
+#
+# Default points at our project image — `build/Dockerfile.keycloak-init` —
+# which is wolfi-base + python-3.13 + curl + sed + grep + awk. We need
+# python3 because init-idp.sh does richer JSON munging on the realm user
+# profile (`alpine/curl` lacks python3 and the script exits 127).
+#
+# Override with --set initImage.repository=… for air-gapped registries.
 initImage:
-  repository: alpine/curl
-  tag: latest
+  repository: caipe/keycloak-init
+  tag: dev
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -20,17 +27,33 @@ serviceAccount:
   name: ""
 
 # ---------- Admin credentials ----------
-# The chart generates a K8s Secret with a random password by default.
-# For prod: either supply admin.secretRef (existing Secret) or enable
-# externalSecrets to pull from Vault / AWS Secrets Manager.
+# Three ways to provide:
+#   (1) DEV          — leave password empty ("") → chart generates a Secret
+#                      with username + random 32-char password.
+#   (2) PROD K8S     — pre-create a K8s Secret with keys "username" + "password"
+#                      and set `admin.secretRef: <secret-name>`. Chart will
+#                      not create its own Secret.
+#   (3) PROD ESO     — set `admin.externalSecret.enabled: true` and supply
+#                      `secretStoreRef` + `remoteRefs`. Chart emits an
+#                      ExternalSecret that reconciles a K8s Secret which
+#                      both init Jobs read from.
 admin:
   username: admin
-  # Dev-only shortcut — set a fixed password. Leave empty ("") for
-  # auto-generated random 32-char password (recommended for prod).
   password: ""
-  # Reference to an existing K8s Secret with keys: username, password.
-  # When set, the chart does NOT create a Secret.
   secretRef: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRefs:
+      username:
+        key: ""           # e.g. "secret/data/prod/keycloak"
+        property: ""      # e.g. "admin_username"
+      password:
+        key: ""
+        property: ""
 
 # ---------- Keycloak features ----------
 features:
@@ -45,23 +68,58 @@ realm:
 
 # ---------- Upstream Identity Provider (generic OIDC) ----------
 # Configures an external IDP broker (e.g. Okta, Azure AD, Duo SSO).
-# The init-idp Job creates the broker post-import — no vendor secrets
-# are stored in this chart.
+# Three ways to provide IDP_CLIENT_SECRET:
+#   (1) Skip entirely — `idp.enabled: false` (no broker, only local users).
+#   (2) PROD K8S      — set `idp.secretRef: <secret-name>` (key: IDP_CLIENT_SECRET).
+#   (3) PROD ESO      — `idp.externalSecret.enabled: true` + `secretStoreRef`
+#                       + `remoteRef`. Chart creates K8s Secret + ExternalSecret.
 idp:
   enabled: false
-  alias: ""              # e.g. "upstream-sso"
-  displayName: ""        # e.g. "Enterprise SSO"
-  issuer: ""             # OIDC issuer URL
+  alias: ""
+  displayName: ""
+  issuer: ""
   clientId: ""
-  # clientSecret must be in the K8s Secret referenced by idp.secretRef
-  secretRef: ""          # K8s Secret with key: IDP_CLIENT_SECRET
-  accessGroup: ""        # IdP group claim mapped to chat_user role
-  adminGroup: ""         # IdP group claim mapped to admin role
+  secretRef: ""
+  accessGroup: ""
+  adminGroup: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
 
-# ---------- Token exchange (RFC 8693) ----------
+# ---------- Token exchange (RFC 8693) for the Slack bot ----------
+# The init-token-exchange Job configures Keycloak's authorization service
+# so caipe-slack-bot can mint OBO tokens. If `botClientSecret` (or the
+# Secret it points at) is provided, the Job ALSO sets that value as the
+# client_secret on the caipe-slack-bot client in Keycloak — meaning the
+# slack-bot deployment and Keycloak share a single source of truth.
+#
+# Three ways to provide:
+#   (1) DEV       — leave botClientSecret empty → chart generates a random
+#                   32-char password Secret. The same Secret can be referenced
+#                   by the slack-bot subchart for `SLACK_INTEGRATION_AUTH_CLIENT_SECRET`.
+#   (2) PROD K8S  — set `tokenExchange.secretRef: <secret-name>` (key: KC_BOT_CLIENT_SECRET).
+#   (3) PROD ESO  — `tokenExchange.externalSecret.enabled: true` + `secretStoreRef`
+#                   + `remoteRef`. Same single-source-of-truth guarantee.
 tokenExchange:
   enabled: true
   botClientId: "caipe-slack-bot"
+  botClientSecret: ""
+  secretRef: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
 
 # ---------- User profile ----------
 userProfile:
@@ -73,7 +131,16 @@ userProfile:
         view: ["admin"]
         edit: ["admin"]
 
-# ---------- ExternalSecrets ----------
+# ---------- ExternalSecrets API version ----------
+# Single knob shared by all per-secret blocks above. external-secrets.io
+# CRDs are at v1beta1 today; bump here when ESO promotes to v1.
+externalSecretsApiVersion: "v1beta1"
+
+# DEPRECATED — kept for back-compat with charts/values that pre-date the
+# per-secret `admin.externalSecret`/`idp.externalSecret`/`tokenExchange.externalSecret`
+# blocks. When `externalSecrets.enabled=true` the chart still emits a
+# legacy ExternalSecret targeting the admin Secret, but a NOTES.txt
+# warning is printed. New consumers SHOULD use the per-secret blocks.
 externalSecrets:
   enabled: false
   apiVersion: "v1beta1"
@@ -81,11 +148,6 @@ externalSecrets:
     name: "vault"
     kind: "ClusterSecretStore"
   data: []
-    # Example: pull admin password from Vault
-    # - secretKey: password
-    #   remoteRef:
-    #     key: prod/keycloak
-    #     property: admin_password
 
 # ---------- Service ----------
 service:

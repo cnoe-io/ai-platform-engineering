@@ -42,6 +42,20 @@ spec:
               value: {{ .Values.tokenExchange.botClientId | quote }}
             - name: KC_SSL_REQUIRED
               value: {{ .Values.realm.sslRequired | quote }}
+            {{- /* When KC_BOT_CLIENT_SECRET is set, init-token-exchange.sh
+                   will PUT it to /admin/realms/{realm}/clients/{uuid} so
+                   Keycloak's stored secret matches what the slack-bot pod
+                   uses. Idempotent — re-applying the same value is a no-op
+                   from Keycloak's perspective. */}}
+            {{- if or .Values.tokenExchange.secretRef
+                      .Values.tokenExchange.externalSecret.enabled
+                      (eq (include "keycloak.shouldCreateBotSecret" .) "true") }}
+            - name: KC_BOT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.botSecretName" . }}
+                  key: KC_BOT_CLIENT_SECRET
+            {{- end }}
           volumeMounts:
             - name: init-scripts
               mountPath: /scripts

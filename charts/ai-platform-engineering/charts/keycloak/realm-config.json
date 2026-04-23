@@ -1205,6 +1205,7 @@
       "clientRoles": {
         "realm-management": [
           "view-users",
+          "query-users",
           "manage-users"
         ]
       }
