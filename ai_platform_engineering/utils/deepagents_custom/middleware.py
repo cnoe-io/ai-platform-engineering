@@ -333,11 +333,18 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             )
                             for tc in blocked_calls
                         ]
-                        # Use _record_rag_cap_hit so the count increment is under the lock.
-                        _record_rag_cap_hit(thread_id)
-                        cap_count = _rag_cap_hit_counts.get(thread_id, 0)
-                        if cap_count > 1:
-                            return {"messages": tool_messages, "jump_to": "end"}
+                        # Only record a cap hit (and eventually jump_to=end) when the budget
+                        # is truly exhausted. If calls remain, this is just a batch-size
+                        # correction — the LLM re-strategizes and tries again.
+                        truly_exhausted = (
+                            (cap.search_excess > 0 and cap.search_allowed == 0)
+                            or (cap.fetch_excess > 0 and cap.fetch_allowed == 0)
+                        )
+                        if truly_exhausted:
+                            _record_rag_cap_hit(thread_id)
+                            cap_count = _rag_cap_hit_counts.get(thread_id, 0)
+                            if cap_count > 1:
+                                return {"messages": tool_messages, "jump_to": "end"}
                         return {"messages": tool_messages}
 
                 # Fallback: a non-parallel call slipped through to _arun and was capped there.
