@@ -732,8 +732,10 @@ describe('getServerConfig', () => {
       delete process.env.OIDC_REQUIRED_GROUP;
     });
 
-    it('defaults to "backstage-access" when OIDC_REQUIRED_GROUP is not set', () => {
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+    it('defaults to "" (no group restriction) when OIDC_REQUIRED_GROUP is not set', () => {
+      // Default is open access: any authenticated user may log in unless
+      // OIDC_REQUIRED_GROUP is explicitly set by the operator.
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
 
     it('reads a custom value from OIDC_REQUIRED_GROUP', () => {
@@ -741,10 +743,10 @@ describe('getServerConfig', () => {
       expect(getServerConfig().oidcRequiredGroup).toBe('my-org-platform-users');
     });
 
-    it('falls back to the default when OIDC_REQUIRED_GROUP is an empty string', () => {
-      // config.ts uses || so an empty string is treated as absent
+    it('preserves an empty string from OIDC_REQUIRED_GROUP (disables group check)', () => {
+      // Empty string is a valid value — it explicitly disables the group check.
       process.env.OIDC_REQUIRED_GROUP = '';
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
   });
 });

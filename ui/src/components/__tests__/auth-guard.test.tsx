@@ -66,10 +66,29 @@ describe('AuthGuard', () => {
       })
     })
 
-    it('should render children directly when SSO is disabled', async () => {
+    it('should redirect to login when SSO is disabled and user is unauthenticated', async () => {
+      // With local admin auth, SSO-disabled deployments still require login.
+      // Unauthenticated users are redirected to /login where they can use local admin credentials.
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
+      } as any)
+
+      render(
+        <AuthGuard>
+          <div data-testid="protected-content">Protected Content</div>
+        </AuthGuard>
+      )
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/login'))
+      })
+    })
+
+    it('should render children when SSO is disabled and user has a local admin session', async () => {
+      mockUseSession.mockReturnValue({
+        data: { user: { email: 'admin@local', name: 'Admin' }, role: 'admin' },
+        status: 'authenticated',
       } as any)
 
       render(
