@@ -82,15 +82,20 @@ not yet written.
 
 ### 1.6 Phase 11 — performance / cleanup
 
-Not started:
-- Decision-cache observability (hit/miss metrics).
-- Audit log shipping to centralized sink.
+- Decision-cache observability ✅ DONE 2026-04-22
+  - `ai_platform_engineering/utils/auth/metrics.py` — Prometheus counters/histogram
+    (`rbac_pdp_decisions_total`, `rbac_pdp_cache_hits_total`,
+    `rbac_pdp_cache_misses_total`, `rbac_pdp_request_seconds`).
+  - Wired into `keycloak_authz.py` decision sites and timed Keycloak round-trips.
+  - DA exposes `/metrics` (supervisor already did).
+  - Tests: `tests/test_rbac_pdp_metrics.py` (6 tests).
+- Audit log shipping to centralized sink. ⏳ NEXT
 - Removal of the dual-auth `X-User-Context` legacy path once the
   BFF migration is fully baked. Today the new `JwtAuthMiddleware`
   is intentionally lenient (no Bearer => pass through) so the
   legacy path keeps working; flip `DA_REQUIRE_BEARER=true` once
   every BFF caller is sending a Bearer.
-- Bench: PDP cache TTL tuning.
+- Bench: PDP cache TTL tuning. (operator-driven, depends on metrics above)
 
 ---
 

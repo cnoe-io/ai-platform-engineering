@@ -29,6 +29,12 @@ import httpx
 from cachetools import TTLCache
 
 from ai_platform_engineering.utils.auth.audit import log_authz_decision
+from ai_platform_engineering.utils.auth.metrics import (
+    record_cache_hit,
+    record_cache_miss,
+    record_decision,
+    time_pdp,
+)
 from ai_platform_engineering.utils.auth.realm_extras import get_fallback_rule
 
 logger = logging.getLogger(__name__)
@@ -193,6 +199,15 @@ def _record(
         request_id=request_id,
         pdp=decision.source,
     )
+    # Best-effort Prometheus emit (Spec 102 Phase 11.2).
+    record_decision(
+        resource=resource,
+        scope=scope,
+        allowed=decision.allowed,
+        reason=decision.reason.value,
+        source=decision.source,
+        service=service,
+    )
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -221,10 +236,12 @@ async def require_rbac_permission(
 
     cached = _CACHE.get(_cache_key(token, resource, scope))
     if cached is not None:
+        record_cache_hit(resource=resource, scope=scope, service=service)
         decision = AuthzDecision(cached.allowed, cached.reason, "cache")
         _record(decision, token=token, resource=resource, scope=scope,
                 service=service, route=route, request_id=request_id)
         return decision
+    record_cache_miss(resource=resource, scope=scope, service=service)
 
     claims = _decode_jwt_payload_unsafe(token)
     if _is_bootstrap_admin(claims):
@@ -242,15 +259,16 @@ async def require_rbac_permission(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.post(
-                token_endpoint,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-                data=body,
-            )
+        with time_pdp(resource=resource, scope=scope, source="keycloak"):
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.post(
+                    token_endpoint,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    data=body,
+                )
     except httpx.HTTPError as exc:
         logger.warning("keycloak_authz: PDP unreachable (%s); evaluating fallback", exc)
         decision = _evaluate_pdp_unavailable_fallback(token, resource)
