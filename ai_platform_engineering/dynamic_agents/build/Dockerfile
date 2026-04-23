@@ -25,16 +25,21 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
 
 # Patch langchain_aws ChatBedrock._as_converse to forward base_model_id to
-# ChatBedrockConverse. Without this, switching to the Converse API (e.g. when
-# beta_use_converse_api=True) creates a new ChatBedrockConverse without base_model_id,
-# triggering a GetInferenceProfile API call that fails when the IAM role only
-# grants bedrock:InvokeModel / bedrock-runtime:Converse on the AIP ARN.
-# Remove this patch once langchain-aws fixes _as_converse to forward base_model_id.
+# ChatBedrockConverse when (and only when) it is set.
+#
+# Without forwarding: inference-profile flows trigger a GetInferenceProfile
+# API call that fails when the IAM role only grants bedrock:InvokeModel /
+# bedrock-runtime:Converse on the AIP ARN.
+#
+# The dict-spread form below skips the kwarg entirely when base_model_id is
+# falsy, so foundation-model paths work unaffected while inference-profile
+# paths get the required forwarding.
+# Remove this patch once langchain-aws fixes _as_converse upstream.
 RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bedrock.py" && \
     grep -q 'guardrail_config=(self.guardrails if self._guardrails_enabled else None),  # type: ignore\[call-arg\]' "$BEDROCK_PY" || \
         { echo "ERROR: langchain_aws patch target not found — upstream may have changed. Review dynamic_agents/build/Dockerfile patch."; exit 1; } && \
-    sed -i 's/guardrail_config=(self.guardrails if self._guardrails_enabled else None),  # type: ignore\[call-arg\]/guardrail_config=(self.guardrails if self._guardrails_enabled else None),  # type: ignore[call-arg]\n            base_model_id=self.base_model_id,/' "$BEDROCK_PY" && \
-    grep -q 'base_model_id=self.base_model_id,' "$BEDROCK_PY" || \
+    sed -i 's|guardrail_config=(self.guardrails if self._guardrails_enabled else None),  # type: ignore\[call-arg\]|guardrail_config=(self.guardrails if self._guardrails_enabled else None),  # type: ignore[call-arg]\n            **({"base_model_id": self.base_model_id} if self.base_model_id else {}),|' "$BEDROCK_PY" && \
+    grep -q '"base_model_id": self.base_model_id' "$BEDROCK_PY" || \
         { echo "ERROR: langchain_aws patch was not applied — sed substitution had no effect."; exit 1; }
 
 # Cleanup to reduce image size (~50-100MB savings)
