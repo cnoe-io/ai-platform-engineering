@@ -245,7 +245,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // ═══════════════════════════════════════════════════════════════
 
     // Top users by conversation count (direct — conversations have owner_id)
-    const topUsersByConversations = await conversations.aggregate([
+    const rawTopByConvs = await conversations.aggregate([
       { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
       { $group: { _id: '$owner_id', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
@@ -254,7 +254,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Top users by message count — $lookup through conversations for old
     // messages that lack owner_id, $coalesce with direct owner_id for new ones.
-    const topUsersByMessages = await messages.aggregate([
+    const rawTopByMsgs = await messages.aggregate([
       { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
       {
         $lookup: {
@@ -276,6 +276,36 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       { $sort: { count: -1 } },
       { $limit: 10 },
     ]).toArray();
+
+    // Resolve display names for top user IDs — owner_id may be an email
+    // or a raw Slack/bot ID when email resolution failed at interaction time.
+    const topOwnerIds = [...new Set([
+      ...rawTopByConvs.map((u) => u._id),
+      ...rawTopByMsgs.map((u) => u._id),
+    ])].filter(Boolean);
+
+    const userDocs = topOwnerIds.length > 0
+      ? await users.find(
+          { $or: [{ email: { $in: topOwnerIds } }, { slack_user_id: { $in: topOwnerIds } }] },
+          { projection: { email: 1, name: 1, slack_user_id: 1 } },
+        ).toArray()
+      : [];
+
+    const nameByOwner = new Map<string, string>();
+    for (const u of userDocs) {
+      if (u.email) nameByOwner.set(u.email, u.name || u.email);
+      if (u.slack_user_id) nameByOwner.set(u.slack_user_id, u.name || u.email);
+    }
+
+    const enrichTopUsers = (raw: typeof rawTopByConvs) =>
+      raw.map((u) => ({
+        _id: u._id,
+        count: u.count,
+        name: nameByOwner.get(u._id) || u._id,
+      }));
+
+    const topUsersByConversations = enrichTopUsers(rawTopByConvs);
+    const topUsersByMessages = enrichTopUsers(rawTopByMsgs);
 
     // ═══════════════════════════════════════════════════════════════
     // ENHANCED ANALYTICS
