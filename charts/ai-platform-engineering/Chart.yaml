@@ -179,12 +179,12 @@ dependencies:
         parent: global.enabledSubAgents.rag
   # CAIPE UI
   - name: caipe-ui
-    version: 0.3.11 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.3.11-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - caipe-ui
   # Dynamic Agents - Standalone agent builder with MCP tool support
   - name: dynamic-agents
-    version: 0.3.11 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.3.11-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - dynamic-agents
   # MongoDB for CAIPE UI persistence
@@ -198,6 +198,6 @@ dependencies:
     condition: global.langgraphRedis.enabled
   # Slack Bot Integration (client, not an agent)
   - name: slack-bot
-    version: 0.3.11 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    version: 0.3.11-rc.helm.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
