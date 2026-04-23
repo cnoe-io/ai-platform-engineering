@@ -79,6 +79,35 @@ Requires a Slack workspace with the dev `caipe-slack-bot` installed.
 
 ---
 
+## D-pre. Spec 102 Phase 9 — Slack OBO live verification
+
+The token-exchange path is unit-tested
+(`integrations/slack_bot/tests/test_obo_exchange.py`) but a live
+verification against the running Keycloak catches realm-bootstrap
+regressions early. Use the helper script:
+
+- [ ] Pick a Keycloak username/UUID present in the realm (e.g. the
+      bootstrap admin or a test user).
+- [ ] Read the bot client secret out of the env (or `.env`):
+      `KEYCLOAK_BOT_CLIENT_SECRET=...`.
+- [ ] Run:
+
+      KEYCLOAK_URL=http://localhost:7080 \
+      KEYCLOAK_REALM=caipe \
+      KEYCLOAK_BOT_CLIENT_ID=caipe-slack-bot \
+      KEYCLOAK_BOT_CLIENT_SECRET=... \
+      TARGET_USER=admin \
+      ./scripts/verify-slack-obo.sh
+
+- [ ] Expected: HTTP 200 with `sub` = target user, `azp` =
+      `caipe-slack-bot`, and an `act.sub` claim pointing at the bot
+      service account.
+- [ ] If the script prints the `WARNING: no act claim` banner, the
+      bot client policy is misconfigured — fix per the script's
+      remediation hints before relying on OBO in production.
+
+---
+
 ## D. Spec 103 — Email masking sanity (already unit-tested, double-check)
 
 - [ ] Run `slack-bot` with `LOG_LEVEL=DEBUG`. Send a JIT DM. Inspect

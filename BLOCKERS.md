@@ -50,13 +50,21 @@ Operators can tighten the default policies per-tool through
 **Admin UI > Security & Policy > AG MCP Policies** (e.g. require
 `team_member` for `*_create` / `*_delete` patterns).
 
-### 1.2 Slack OBO live verification (Phase 9)
+### 1.2 Slack OBO live verification (Phase 9) — helper landed 2026-04-23
 
-The OBO exchange path (`obo_exchange.py` in DA + the existing
-`caipe-slack-bot` token-exchange config in Keycloak) is unit-tested
-but has not been executed end-to-end against a live Keycloak with
-real Slack-bot OAuth flows. Required steps documented in
-`CHECKLIST.md`.
+The OBO exchange path (`integrations/slack_bot/utils/obo_exchange.py` +
+the existing `caipe-slack-bot` token-exchange config in Keycloak) is
+unit-tested. Live verification is now scriptable via
+`scripts/verify-slack-obo.sh`, which talks to the real Keycloak token
+endpoint, performs an RFC 8693 impersonation exchange, decodes the
+returned access_token, and prints the key claims (`sub`, `azp`,
+`act.sub`) so an operator can confirm delegation worked. Failure
+modes (missing client policy, missing impersonation permission,
+disabled token-exchange feature) are listed inline in the script's
+error path. Operator steps in `CHECKLIST.md` §D-pre.
+
+Still pending: an actual end-to-end run against the running stack —
+that's a one-shot operator action, captured in CHECKLIST.md.
 
 ### 1.3 RAG hybrid ACL (Phase 7 follow-on)
 
