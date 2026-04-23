@@ -1078,6 +1078,7 @@ def handle_escalation_get_help(ack, body, client):
     message = body.get("message", {})
     parent_ts = message.get("thread_ts") or thread_ts
 
+    agent_id = _get_agent_id(channel_config)
     execute_escalation(
       slack_client=client,
       sse_client=sse_client,
@@ -1086,6 +1087,8 @@ def handle_escalation_get_help(ack, body, client):
       parent_ts=parent_ts,
       user_id=user_id,
       escalation_config=esc_config,
+      agent_id=agent_id,
+      conversation_id=conversation_id,
     )
 
     # Mark conversation as escalated for admin dashboard resolution stats

@@ -72,6 +72,7 @@ class VictorOpsEscalation(BaseModel):
 
   enabled: bool = False
   team: str = ""
+  agent_id: Optional[str] = None  # Falls back to the channel's agent_id
 
 
 class EmojiEscalation(BaseModel):
