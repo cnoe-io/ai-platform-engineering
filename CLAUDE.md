@@ -21,11 +21,6 @@
 
 Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`).
 
-For AI-assisted commits, follow the [dco-ai-attribution](./skills/dco-ai-attribution/SKILL.md) skill:
-- AI agents may add `Signed-off-by` on the configured git author's behalf (the human submitter remains responsible for reviewing every commit before push)
-- Always append `Assisted-by <tool> (model: <model-or-unknown>)` (no colon directly after `Assisted-by` — GitHub's DCO check treats `Trailer-Name:` lines as signatures) when code was materially AI-assisted, e.g. `Assisted-by claude (model: opus-4.7)` or `Assisted-by cursor (model: unknown)` if the runtime cannot determine the model
-- See `agents.md` for the canonical policy reference used by AI coding agents
-
 ```
 <type>(<scope>): <short description>
 
@@ -117,7 +112,6 @@ If a Dockerfile does not have a `USER` directive, `runAsNonRoot: true` in the He
 
 The `skills/` directory contains reusable tools organized by category:
 
-- **dco-ai-attribution**: DCO compliance and AI attribution rules for AI-assisted commits (see [skills/dco-ai-attribution/SKILL.md](./skills/dco-ai-attribution/SKILL.md))
 - **persistence**: Test LangGraph backends (Redis, PostgreSQL, MongoDB) and fact extraction
 - **debugging**: (future) Debugging and troubleshooting tools
 - **monitoring**: (future) Observability and metrics helpers

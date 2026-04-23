@@ -169,6 +169,117 @@ export interface AgentUIConfig {
 }
 
 // =============================================================================
+// Features / Middleware Config
+// =============================================================================
+
+/**
+ * A single middleware entry in the agent's middleware stack.
+ * Entries are ordered — the list defines execution order.
+ */
+export interface MiddlewareEntry {
+  type: string;    // Middleware type key (e.g. 'model_retry', 'pii')
+  enabled: boolean;
+  params: Record<string, unknown>;
+}
+
+/**
+ * Agent feature flags and middleware configuration.
+ * When absent (features is undefined), all default-enabled middleware
+ * are applied with their default params on the server side.
+ */
+export interface FeaturesConfig {
+  middleware: MiddlewareEntry[];
+}
+
+/**
+ * Metadata for a middleware type in the registry.
+ * Used by the UI to render toggles, param editors, and "Add" menu.
+ */
+export interface MiddlewareDefinition {
+  key: string;
+  label: string;
+  description: string;
+  enabledByDefault: boolean;
+  allowMultiple: boolean;
+  defaultParams: Record<string, unknown>;
+  /** Whether this middleware needs model_id/model_provider params. */
+  modelParams?: boolean;
+}
+
+/**
+ * Static registry of known middleware for the UI.
+ * Mirrors MIDDLEWARE_REGISTRY in services/middleware.py.
+ */
+export const MIDDLEWARE_DEFINITIONS: MiddlewareDefinition[] = [
+  {
+    key: "model_retry",
+    label: "Model Retry",
+    description: "Retries failed LLM calls with exponential backoff",
+    enabledByDefault: true,
+    allowMultiple: false,
+    defaultParams: { max_retries: 5, backoff_factor: 2.0, on_failure: "continue" },
+  },
+  {
+    key: "tool_retry",
+    label: "Tool Retry",
+    description: "Retries failed tool calls with exponential backoff",
+    enabledByDefault: true,
+    allowMultiple: false,
+    defaultParams: { max_retries: 3, backoff_factor: 2.0, initial_delay: 2.0, on_failure: "return_message" },
+  },
+  {
+    key: "model_call_limit",
+    label: "Model Call Limit",
+    description: "Caps total LLM calls per run to prevent runaway loops",
+    enabledByDefault: true,
+    allowMultiple: false,
+    defaultParams: { run_limit: 200, exit_behavior: "end" },
+  },
+  {
+    key: "tool_call_limit",
+    label: "Tool Call Limit",
+    description: "Caps total tool invocations per run",
+    enabledByDefault: false,
+    allowMultiple: true,
+    defaultParams: { run_limit: 500, exit_behavior: "continue" },
+  },
+  {
+    key: "context_editing",
+    label: "Context Editing",
+    description: "Clears older tool outputs when approaching token limits",
+    enabledByDefault: false,
+    allowMultiple: false,
+    defaultParams: { trigger: 100000, keep: 3 },
+  },
+  {
+    key: "pii",
+    label: "PII Detection",
+    description: "Detects and handles Personally Identifiable Information",
+    enabledByDefault: false,
+    allowMultiple: true,
+    defaultParams: { pii_type: "email", strategy: "redact" },
+  },
+  {
+    key: "llm_tool_selector",
+    label: "LLM Tool Selector",
+    description: "Uses an LLM to select relevant tools before calling main model",
+    enabledByDefault: false,
+    allowMultiple: false,
+    defaultParams: { max_tools: 10 },
+    modelParams: true,
+  },
+  {
+    key: "model_fallback",
+    label: "Model Fallback",
+    description: "Falls back to an alternative model when primary fails",
+    enabledByDefault: false,
+    allowMultiple: false,
+    defaultParams: {},
+    modelParams: true,
+  },
+];
+
+// =============================================================================
 // Dynamic Agent Types
 // =============================================================================
 
@@ -195,6 +306,7 @@ export interface DynamicAgentConfig {
   shared_with_teams?: string[];
   subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
   ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
+  features?: FeaturesConfig;  // Middleware and feature flags
   enabled: boolean;
   owner_id: string;
   is_system: boolean;
@@ -216,6 +328,7 @@ export interface DynamicAgentConfigCreate {
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   ui?: AgentUIConfig;
+  features?: FeaturesConfig;
   enabled?: boolean;
 }
 
@@ -231,6 +344,7 @@ export interface DynamicAgentConfigUpdate {
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   ui?: AgentUIConfig;
+  features?: FeaturesConfig;
   enabled?: boolean;
 }
 

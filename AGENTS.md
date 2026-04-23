@@ -25,31 +25,9 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 - **Configuration & code details** - Document in component READMEs
 - **Agent instructions** - Keep this file (`AGENTS.md`) up-to-date
 
-## DCO and AI Attribution Policy
-
-**Skill**: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
-
-AI agents operating in this repository **must** follow these rules on every commit:
-
-1. **Sign off every commit.** AI agents may add `Signed-off-by` on behalf of the configured git author (`user.name` / `user.email`) — typically by running `git commit -s`. The human submitter remains responsible for reviewing the commit before push.
-2. **Always add an `Assisted-by` line** in the commit body when code was materially AI-assisted. Format (no colon directly after `Assisted-by` — GitHub's DCO check treats `Trailer-Name:` lines as signature trailers and will reject the commit):
-   ```
-   Assisted-by <tool> (model: <model-or-unknown>)
-   ```
-   Examples:
-   ```
-   Assisted-by claude (model: opus-4.7)
-   Assisted-by cursor (model: unknown)
-   Assisted-by gemini (model: 2.5-pro)
-   Assisted-by codex (model: gpt-5)
-   ```
-   The agent fills in what it actually knows. If the runtime cannot determine the model identifier (most CLIs do not expose it as an env var), use `(model: unknown)` so the human author can correct it during review rather than guessing a stale model string.
-
-Full pre-commit checklist and examples: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
-
 ## Git Guidelines
 
-- **Sign off commits** - Use `git commit --signoff` (DCO requirement)
+- **Sign off every commit** - Use `git commit -s` (DCO requirement).
 - **Conventional Commits** - Format: `type(scope): description`
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
   - Example: `feat(rag): add userinfo caching`

@@ -815,7 +815,6 @@ slack-bot:
     SLACK_BOT_MODE: "socket"
     CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
     SLACK_INTEGRATION_SILENCE_ENV: "false"
-    MONGODB_DATABASE: "caipe"
     # MONGODB_URI: ""                          # Override per environment
     # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
     # SLACK_INTEGRATION_ENABLE_AUTH: "true"    # Enable OAuth2 Client Credentials

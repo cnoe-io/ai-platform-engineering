@@ -24,9 +24,11 @@ import type {
   SubAgentRef,
   BuiltinToolsConfig,
   AgentUIConfig,
+  FeaturesConfig,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
+import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
 import { gradientThemes } from "@/lib/gradient-themes";
 
@@ -172,6 +174,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
     source?.subagents || []
   );
+  const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
+    source?.features
+  );
   const [modelId, setModelId] = React.useState(source?.model_id || "");
   const [modelProvider, setModelProvider] = React.useState(source?.model_provider || "");
   const [gradientTheme, setGradientTheme] = React.useState<string>(
@@ -208,11 +213,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       import("@codemirror/language-data"),
       import("@codemirror/view"),
       import("@/lib/codemirror/jinja2-highlight"),
-    ]).then(([mdMod, langDataMod, viewMod, jinja2Mod]) => {
+      import("@/lib/codemirror/markdown-highlight"),
+    ]).then(([mdMod, langDataMod, viewMod, jinja2Mod, mdHighlightMod]) => {
       if (!cancelled) {
         setCmExtensions([
           mdMod.markdown({ codeLanguages: langDataMod.languages }),
           viewMod.EditorView.lineWrapping,
+          mdHighlightMod.markdownHighlight,
           jinja2Mod.jinja2Highlight,
         ]);
       }
@@ -499,6 +506,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           model_id: modelId,
           model_provider: modelProvider,
           ui: uiConfig,
+          features: features,
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -526,6 +534,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           model_id: modelId,
           model_provider: modelProvider,
           ui: uiConfig,
+          features: features,
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -1081,6 +1090,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   value={allowedTools}
                   onChange={setAllowedTools}
                   disabled={loading}
+                />
+              </div>
+
+              {/* Advanced: Middleware */}
+              <div className="border-t pt-4">
+                <MiddlewarePicker
+                  value={features}
+                  onChange={setFeatures}
+                  disabled={loading}
+                  availableModels={availableModels}
                 />
               </div>
             </div>

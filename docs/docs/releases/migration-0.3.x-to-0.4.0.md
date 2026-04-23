@@ -118,6 +118,17 @@ The `AUTH_ENABLED` config key is removed. It was being used as a development sho
 
 **Replacement:** Use `DEBUG: "true"` in `config:` to enable the dev admin user bypass. In production, omit it (auth is always enabled when the UI passes a valid token).
 
+#### OIDC and CORS config removed
+
+In 0.4.0, all authentication is handled by the **UI gateway** (Next.js server). Dynamic-agents no longer validates tokens or accepts direct browser requests, so the following keys should be **removed** from `dynamic-agents.config:`:
+
+- `OIDC_ISSUER`
+- `OIDC_CLIENT_ID`
+- `OIDC_REQUIRED_ADMIN_GROUP`
+- `CORS_ORIGINS`
+
+These are now only needed on the `caipe-ui` side.
+
 ---
 
 ### 3. Slack Bot (slack-bot) -- **Most Breaking Changes**
@@ -303,6 +314,10 @@ component:
 | caipe-ui | `seedConfig.*` | `appConfig.*` |
 | dynamic-agents | `env:` | `config:` |
 | dynamic-agents | `config.AUTH_ENABLED` | `config.DEBUG: "true"` for dev |
+| dynamic-agents | `config.OIDC_ISSUER` | Removed (auth handled by UI gateway) |
+| dynamic-agents | `config.OIDC_CLIENT_ID` | Removed (auth handled by UI gateway) |
+| dynamic-agents | `config.OIDC_REQUIRED_ADMIN_GROUP` | Removed (auth handled by UI gateway) |
+| dynamic-agents | `config.CORS_ORIGINS` | Removed (no direct browser access) |
 | slack-bot | `env:` | `config:` |
 | slack-bot | `appName` | `config.APP_NAME` |
 | slack-bot | `botMode` | `config.SLACK_BOT_MODE` |
@@ -317,11 +332,48 @@ component:
 
 ---
 
+## Image Tag Overrides
+
+When deploying RC builds (pre-release), the chart's default `appVersion` may not match the desired image tag. You must explicitly override image tags for each component:
+
+```yaml
+caipe-ui:
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-ui"
+    tag: "0.4.0-rc.16"
+    pullPolicy: "Always"
+
+dynamic-agents:
+  image:
+    tag: "0.4.0-rc.16"
+```
+
+For stable releases, the chart's `appVersion` is set automatically and no override is needed — you can remove the `image.tag` overrides after upgrading to the final 0.4.0 release.
+
+---
+
+## Known Gaps (to be addressed before GA)
+
+### Slack interaction tracking for admin statistics
+
+The `InteractionTracker` class (which recorded Slack thread metadata, user
+upserts, and lightweight message docs to MongoDB for the admin stats dashboard)
+has been removed as part of the slack bot rewrite. The admin statistics page
+will **not** show Slack-sourced data until equivalent tracking is re-implemented
+in the new AG-UI-based slack bot.
+
+**Impact:** Admin → Statistics page will under-report conversation counts,
+active users, and message volumes for Slack interactions.
+
+**Tracking:** This must be resolved before the 0.4.0 GA release.
+
+---
+
 ## Pre-Upgrade Checklist
 
 - [ ] **Back up current values:** `helm get values ai-platform-engineering -o yaml > values-backup.yaml`
 - [ ] **Migrate caipe-ui values:** merge `env:` into `config:`, rename `seedConfig` to `appConfig`
-- [ ] **Migrate dynamic-agents values:** merge `env:` into `config:`, remove `AUTH_ENABLED`
+- [ ] **Migrate dynamic-agents values:** merge `env:` into `config:`, remove `AUTH_ENABLED`, remove OIDC/CORS keys
 - [ ] **Migrate slack-bot values:** restructure all named keys into `config:` flat map (see mapping table above)
 - [ ] **Verify secret name:** `existingSecret` points to the correct K8s Secret containing Slack tokens
 - [ ] **Verify botConfig structure:** rename `default:` to `other:` if used

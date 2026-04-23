@@ -84,6 +84,7 @@ const AGENT_MUTABLE_FIELDS = [
   "shared_with_teams",
   "subagents",
   "ui",
+  "features",
   "enabled",
 ] as const;
 
@@ -295,6 +296,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       shared_with_teams: (body.shared_with_teams as string[]) ?? [],
       subagents,
       ui: body.ui ?? undefined,
+      features: body.features ?? undefined,
       enabled: (body.enabled as boolean) ?? true,
       // Server-controlled fields — never from request body
       owner_id: user.email,
