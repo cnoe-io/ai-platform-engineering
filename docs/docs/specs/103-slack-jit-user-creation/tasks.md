@@ -305,14 +305,14 @@ new env vars are the **feature flags** `SLACK_JIT_CREATE_USER` and
       defaults to ON in dev and reuses the existing slack-bot admin
       credentials.
 
-- [ ] **T029** [docs] Create
+- [x] **T029** [docs] Create
       `docs/docs/specs/103-slack-jit-user-creation/research.md`
       capturing: decisions and rejected alternatives (single-client
       `caipe-platform` chosen over a dedicated `caipe-slack-bot-provisioner`;
       auto-merge vs confirm; default ON vs OFF), references to
       Keycloak docs sections used.
 
-- [ ] **T030** [docs] Create
+- [x] **T030** [docs] Create
       `docs/docs/specs/103-slack-jit-user-creation/security-review.md`
       with a STRIDE walkthrough and the threat catalog from spec.md §7
       expanded.
