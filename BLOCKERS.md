@@ -74,11 +74,18 @@ PDP-down paths. The supporting unit tests are in place
 `ui/src/lib/streaming/__tests__/stream-error.test.ts`); the
 Playwright harness itself is not yet wired into CI.
 
-### 1.5 US8 doc validator (Phase 10)
+### 1.5 US8 doc validator (Phase 10) ✅ DONE 2026-04-23
 
-US8 wants a CI-side validator that asserts every RBAC code change
-also touches the canonical reference doc. The validator design is
-not yet written.
+- `scripts/validate_rbac_docs.py` walks the PR diff and fails when
+  RBAC-relevant code (auth helpers, middleware, BFF auth surface,
+  agentgateway seed, Keycloak bootstrap) changes without a matching
+  edit to `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md`.
+- Carve-outs: tests, markdown, BLOCKERS/CHECKLIST. Adding a path to
+  `RBAC_PATHS` in the script extends the gate.
+- Wired into CI via `.github/workflows/validate-rbac-docs.yml`
+  (runs on every PR targeting `main` or `release/**`).
+- Tests: `tests/test_validate_rbac_docs.py` (23 tests; classifier
+  cases + 5 end-to-end runs against a temp git repo).
 
 ### 1.6 Phase 11 — performance / cleanup
 
