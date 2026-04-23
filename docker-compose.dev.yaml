@@ -293,6 +293,14 @@ services:
   ####################################################################################################
   #                                         Sub-Agents                                               #
   ####################################################################################################
+  # Shared Dockerfile.a2a / Dockerfile.mcp no longer install aws-cli / kubectl /
+  # gh / glab by default to keep agent images small and free of transitive CVEs
+  # (e.g. Python bundled inside aws-cli). Per-agent opt-ins live in
+  # .github/agents.json under `agent_build_args` for CI; each service below
+  # mirrors the same flags in its `args:` block so `docker compose build`
+  # produces the same image. Valid flags: INSTALL_AWS_CLI, INSTALL_KUBECTL,
+  # INSTALL_GH_CLI, INSTALL_GLAB_CLI — all default to false.
+  #
   # AWS Agent
   agent-aws:
     build:
@@ -300,6 +308,8 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=aws
+        - INSTALL_AWS_CLI=true
+        - INSTALL_KUBECTL=true
     image: ghcr.io/cnoe-io/agent-aws:${IMAGE_TAG:-localtag}
     container_name: agent-aws
     volumes:
@@ -391,6 +401,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=github
+        - INSTALL_GH_CLI=true
     image: ghcr.io/cnoe-io/agent-github:${IMAGE_TAG:-localtag}
     container_name: agent-github
     volumes:
@@ -429,6 +440,7 @@ services:
       dockerfile: build/agents/Dockerfile.a2a
       args:
         - AGENT_NAME=gitlab # key for tracing
+        - INSTALL_GLAB_CLI=true
     image: ghcr.io/cnoe-io/agent-gitlab:${IMAGE_TAG:-localtag}
     container_name: agent-gitlab
     volumes:
@@ -492,7 +504,8 @@ services:
       - MAX_REQUESTS_PER_MINUTE=${GITLAB_MCP_MAX_REQUESTS_PER_MINUTE:-60}
       - USE_PIPELINE=true
       - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
-      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_TOKEN}
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN}}
+ 
       # Option 1: Simple read-only mode (blocks all write operations)
       - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
       # Option 2: Fine-grained control via regex (see examples in comments above)
@@ -1084,9 +1097,10 @@ services:
   mcp-netutils:
     build:
       context: .
-      dockerfile: ai_platform_engineering/agents/netutils/build/Dockerfile.mcp
+      dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=netutils
+        - INSTALL_NETUTILS=true
     image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
     container_name: mcp-netutils
     env_file: [.env]
@@ -1211,7 +1225,10 @@ services:
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # App config: loaded at Next.js startup via instrumentation.ts
+      - APP_CONFIG_PATH=/app/config/app-config.yaml
     volumes:
+      - ./config/app-config.yaml:/app/config/app-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       caipe-supervisor:
@@ -1229,7 +1246,6 @@ services:
   # Configuration:
   #   - Requires MongoDB for agent/MCP server configuration storage
   #   - Supports OIDC authentication (same config as CAIPE UI)
-  #   - MCP servers can be configured via UI or seed config
   #
   # Ports:
   #   - 8100: Dynamic Agents API (proxied via UI at /api/dynamic-agents)
@@ -1271,10 +1287,7 @@ services:
       # CORS_ORIGINS: must be a JSON array (bare "*" from prod default is not valid JSON for list[str])
       # To restrict origins, set DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]' in .env
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
-      # Seed config: use the volume-mounted source config so changes take effect
-      # without rebuilding the image (Python imports config.yaml from site-packages by
-      # default, which is frozen at image-build time)
-      - SEED_CONFIG_PATH=/app/dynamic_agents/src/dynamic_agents/services/config.yaml
+
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
@@ -1373,7 +1386,7 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
+    depends_on: [rag_server, neo4j, rag-redis]
     profiles:
       - graph_rag
 
@@ -1973,6 +1986,7 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
+      - ./config/slack-bot-config.yaml:/etc/caipe/bot-config.yaml:ro
     command: ["sh", "-c", "uv sync --no-dev && exec python -m app"]
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
@@ -1982,20 +1996,19 @@ services:
       - SLACK_INTEGRATION_APP_TOKEN=${SLACK_INTEGRATION_APP_TOKEN:-${SLACK_APP_TOKEN}}
       - SLACK_INTEGRATION_SIGNING_SECRET=${SLACK_INTEGRATION_SIGNING_SECRET:-}
       - SLACK_INTEGRATION_BOT_MODE=${SLACK_INTEGRATION_BOT_MODE:-socket}
-      - SLACK_INTEGRATION_BOT_CONFIG=${SLACK_INTEGRATION_BOT_CONFIG}
+      - SLACK_INTEGRATION_BOT_CONFIG=${SLACK_INTEGRATION_BOT_CONFIG:-/etc/caipe/bot-config.yaml}
       - SLACK_INTEGRATION_ENABLE_AUTH=${SLACK_INTEGRATION_ENABLE_AUTH:-false}
       - SLACK_INTEGRATION_AUTH_TOKEN_URL=${SLACK_INTEGRATION_AUTH_TOKEN_URL:-}
       - SLACK_INTEGRATION_AUTH_CLIENT_ID=${SLACK_INTEGRATION_AUTH_CLIENT_ID:-}
       - SLACK_INTEGRATION_AUTH_CLIENT_SECRET=${SLACK_INTEGRATION_AUTH_CLIENT_SECRET:-}
       - SLACK_INTEGRATION_AUTH_SCOPE=${SLACK_INTEGRATION_AUTH_SCOPE:-}
       - SLACK_INTEGRATION_AUTH_AUDIENCE=${SLACK_INTEGRATION_AUTH_AUDIENCE:-}
-      - CAIPE_URL=${CAIPE_URL:-http://caipe-supervisor:8000}
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
       - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
       - MONGODB_DATABASE=caipe
-      - CAIPE_UI_URL=${CAIPE_UI_URL:-http://caipe-ui:3000}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
     depends_on:
-      caipe-supervisor:
+      caipe-ui:
         condition: service_started
         required: false
       caipe-mongodb:

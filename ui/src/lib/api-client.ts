@@ -3,13 +3,16 @@
 import type {
   Conversation,
   Message,
+  Turn,
   User,
   UserSettings,
   CreateConversationRequest,
+  CreateConversationResponse,
   UpdateConversationRequest,
   ShareConversationRequest,
   AddMessageRequest,
   UpdateMessageRequest,
+  UpsertTurnRequest,
   CreateBookmarkRequest,
   UpdateUserRequest,
   UpdateSettingsRequest,
@@ -143,7 +146,7 @@ class APIClient {
 
   async createConversation(
     data: CreateConversationRequest
-  ): Promise<Conversation> {
+  ): Promise<CreateConversationResponse> {
     return this.request('/api/chat/conversations', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -234,6 +237,34 @@ class APIClient {
   ): Promise<Message> {
     return this.request(`/api/chat/messages/${messageId}`, {
       method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ========================================================================
+  // Turns (per-turn persistence, decoupled from messages)
+  // ========================================================================
+
+  async getTurns(
+    conversationId: string,
+    params?: { client_type?: string; page?: number; page_size?: number }
+  ): Promise<PaginatedResponse<Turn>> {
+    const searchParams = new URLSearchParams();
+    searchParams.set('client_type', params?.client_type || 'ui');
+    if (params?.page) searchParams.set('page', params.page.toString());
+    if (params?.page_size) searchParams.set('page_size', params.page_size.toString());
+
+    return this.request(
+      `/api/chat/conversations/${conversationId}/turns?${searchParams}`
+    );
+  }
+
+  async upsertTurn(
+    conversationId: string,
+    data: UpsertTurnRequest,
+  ): Promise<Turn> {
+    return this.request(`/api/chat/conversations/${conversationId}/turns`, {
+      method: 'POST',
       body: JSON.stringify(data),
     });
   }

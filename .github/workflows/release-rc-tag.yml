@@ -21,6 +21,7 @@ on:
       - 'build/**'
       - 'pyproject.toml'
       - 'uv.lock'
+      - 'ui/**'
   workflow_dispatch:
     inputs:
       force_tag:

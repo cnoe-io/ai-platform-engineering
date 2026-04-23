@@ -1,6 +1,6 @@
 "use client";
 
-import { A2ASDKClient, type ParsedA2AEvent } from "@/lib/a2a-sdk-client";
+import { SSEClient, type SSEEvent } from "@/lib/sse-streaming-client";
 import { getConfig } from "@/lib/config";
 
 export interface FeedbackContext {
@@ -100,61 +100,59 @@ function extractTicketResult(text: string): TicketResult | null {
 export interface CreateTicketOptions {
   request: TicketRequest;
   accessToken?: string;
-  onEvent?: (event: ParsedA2AEvent, logLine: string) => void;
+  onEvent?: (event: SSEEvent, logLine: string) => void;
   onResult?: (result: TicketResult) => void;
   signal?: AbortSignal;
 }
 
 /**
- * Create a ticket via the A2A supervisor agent (Jira or GitHub).
+ * Create a ticket via the SSE supervisor agent (Jira or GitHub).
  * Streams events back to the caller for progress display.
  */
 export async function createTicketViaAgent(
   options: CreateTicketOptions
 ): Promise<TicketResult | null> {
   const { request, accessToken, onEvent, onResult, signal } = options;
-  const caipeUrl = getConfig("caipeUrl");
+  const endpoint = "/api/chat/stream";
 
   const prompt = buildPrompt(request);
 
-  const client = new A2ASDKClient({
-    endpoint: caipeUrl,
+  let finalContent = "";
+
+  const client = new SSEClient({
+    endpoint,
     accessToken,
-    userEmail: request.userEmail,
+    onEvent: (event: SSEEvent) => {
+      if (signal?.aborted) {
+        client.abort();
+        return;
+      }
+
+      const label = event.type || "event";
+      const preview = (event.text || event.message || "")
+        .slice(0, 120)
+        .replace(/\n/g, "\\n") || "(no content)";
+      const logLine = `← ${label}: ${preview}`;
+
+      onEvent?.(event, logLine);
+
+      if (event.type === "done" && event.turn_id) {
+        // Stream complete — finalContent already accumulated
+      } else if (event.type === "content" && event.text) {
+        finalContent += event.text;
+      }
+    },
   });
 
-  let finalContent = "";
-  let contextId: string | undefined;
-
-  const stream = client.sendMessageStream(prompt, contextId);
-
-  for await (const event of stream) {
-    if (signal?.aborted) {
-      client.abort();
-      break;
-    }
-
-    const label = event.artifactName || event.type || "event";
-    const preview = event.displayContent
-      ? event.displayContent.slice(0, 120).replace(/\n/g, "\\n")
-      : "(no content)";
-    const logLine = `← ${label}${event.isFinal ? " [final]" : ""}: ${preview}`;
-
-    onEvent?.(event, logLine);
-
-    if (event.contextId) contextId = event.contextId;
-
-    const name = event.artifactName || "";
-    if (
-      name === "final_result" ||
-      name === "complete_result" ||
-      name === "partial_result"
-    ) {
-      if (event.displayContent) {
-        finalContent = event.displayContent;
-      }
-    }
+  if (signal) {
+    signal.addEventListener("abort", () => client.abort());
   }
+
+  await client.sendMessage({
+    message: prompt,
+    user_email: request.userEmail,
+    source: "web",
+  });
 
   if (!finalContent) return null;
 

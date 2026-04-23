@@ -1,9 +1,11 @@
-"""MongoDB service for Dynamic Agents."""
+"""MongoDB service for Dynamic Agents.
+
+DA is a pure runtime reader — all config writes (CRUD, seeding) are
+handled by the Next.js gateway. This module provides read-only access
+to agent and MCP server configurations.
+"""
 
 import logging
-import re
-from datetime import datetime, timezone
-from typing import Any
 
 from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
@@ -13,52 +15,14 @@ from pymongo.errors import PyMongoError
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import (
     DynamicAgentConfig,
-    DynamicAgentConfigCreate,
-    DynamicAgentConfigUpdate,
     MCPServerConfig,
-    MCPServerConfigCreate,
-    MCPServerConfigUpdate,
-    VisibilityType,
 )
 
 logger = logging.getLogger(__name__)
 
-# Reserved agent slugs that cannot be used as agent IDs.
-# These are LangGraph/deepagents internal names that would conflict with namespace routing.
-RESERVED_AGENT_SLUGS = frozenset(
-    {
-        # LangGraph internal node names
-        "__start__",
-        "__end__",
-        "__interrupt__",
-        "__checkpoint__",
-        "__error__",
-        "start",
-        "end",
-        # LangGraph react agent node names
-        "agent",
-        "tools",
-        "call-model",
-        # DeepAgents built-in
-        "general-purpose",
-        "task",
-    }
-)
-
-
-def _slugify(name: str) -> str:
-    """Convert agent name to URL-safe slug.
-
-    Examples:
-        'My Test Agent' → 'my-test-agent'
-        'RAG Helper!!!' → 'rag-helper'
-    """
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return re.sub(r"-+", "-", slug)
-
 
 class MongoDBService:
-    """MongoDB service for managing dynamic agents and MCP servers."""
+    """MongoDB service for reading dynamic agent and MCP server configs."""
 
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
@@ -72,6 +36,7 @@ class MongoDBService:
                 self.settings.mongodb_uri,
                 serverSelectionTimeoutMS=5000,
                 retryWrites=False,
+                tz_aware=True,
             )
             # Verify connectivity
             self._client.admin.command("ping")
@@ -123,39 +88,8 @@ class MongoDBService:
         return self._db[self.settings.mcp_servers_collection]
 
     # =========================================================================
-    # Dynamic Agents CRUD
+    # Read-only agent access
     # =========================================================================
-
-    def create_agent(self, agent: DynamicAgentConfigCreate, owner_id: str) -> DynamicAgentConfig:
-        """Create a new dynamic agent config.
-
-        Raises:
-            ValueError: If agent name is reserved or already exists.
-        """
-        now = datetime.now(timezone.utc)
-
-        # Generate semantic agent_id from name
-        agent_id = _slugify(agent.name)
-
-        # Validate: not reserved
-        if agent_id in RESERVED_AGENT_SLUGS or agent_id.startswith("__"):
-            raise ValueError(f"Agent name '{agent.name}' is reserved")
-
-        # Validate: unique
-        if self._get_agents_collection().find_one({"_id": agent_id}):
-            raise ValueError(f"Agent with ID '{agent_id}' already exists")
-
-        doc = {
-            "_id": agent_id,
-            **agent.model_dump(),
-            "owner_id": owner_id,
-            "is_system": False,
-            "created_at": now,
-            "updated_at": now,
-        }
-
-        self._get_agents_collection().insert_one(doc)
-        return DynamicAgentConfig(**doc)
 
     def get_agent(self, agent_id: str) -> DynamicAgentConfig | None:
         """Get a dynamic agent config by ID."""
@@ -164,135 +98,9 @@ class MongoDBService:
             return DynamicAgentConfig(**doc)
         return None
 
-    def list_agents(
-        self,
-        user_id: str | None = None,
-        user_teams: list[str] | None = None,
-        include_disabled: bool = False,
-        admin_view: bool = False,
-    ) -> list[DynamicAgentConfig]:
-        """List dynamic agents visible to the user.
-
-        Args:
-            user_id: Current user's email
-            user_teams: Team IDs the user belongs to
-            include_disabled: Include disabled agents
-            admin_view: If True, return all agents (admin only)
-        """
-        query: dict[str, Any] = {}
-
-        if not admin_view and user_id:
-            # Visibility filter: user sees their own, global, or team-shared
-            visibility_conditions = [
-                {"visibility": VisibilityType.GLOBAL.value},
-                {"owner_id": user_id},
-            ]
-            if user_teams:
-                visibility_conditions.append(
-                    {
-                        "visibility": VisibilityType.TEAM.value,
-                        "shared_with_teams": {"$in": user_teams},
-                    }
-                )
-            query["$or"] = visibility_conditions
-
-        if not include_disabled:
-            query["enabled"] = True
-
-        docs = self._get_agents_collection().find(query).sort("name", ASCENDING)
-        return [DynamicAgentConfig(**doc) for doc in docs]
-
-    def list_all_agents(self, include_disabled: bool = True) -> list[DynamicAgentConfig]:
-        """List all dynamic agents without visibility filtering.
-
-        This is used for administrative operations like cleanup.
-
-        Args:
-            include_disabled: Include disabled agents (default True for admin use)
-
-        Returns:
-            List of all DynamicAgentConfig objects
-        """
-        query: dict[str, Any] = {}
-        if not include_disabled:
-            query["enabled"] = True
-
-        docs = self._get_agents_collection().find(query).sort("name", ASCENDING)
-        return [DynamicAgentConfig(**doc) for doc in docs]
-
-    def update_agent(self, agent_id: str, update: DynamicAgentConfigUpdate) -> DynamicAgentConfig | None:
-        """Update a dynamic agent config."""
-        update_data = {k: v for k, v in update.model_dump().items() if v is not None}
-        if not update_data:
-            return self.get_agent(agent_id)
-
-        update_data["updated_at"] = datetime.now(timezone.utc)
-
-        result = self._get_agents_collection().find_one_and_update(
-            {"_id": agent_id},
-            {"$set": update_data},
-            return_document=True,
-        )
-        if result:
-            return DynamicAgentConfig(**result)
-        return None
-
-    def delete_agent(self, agent_id: str) -> bool:
-        """Delete a dynamic agent config. Returns True if deleted."""
-        # Don't delete system agents
-        agent = self.get_agent(agent_id)
-        if agent and agent.is_system:
-            return False
-
-        result = self._get_agents_collection().delete_one({"_id": agent_id})
-        return result.deleted_count > 0
-
-    def upsert_agent(self, agent_id: str, doc: dict[str, Any]) -> DynamicAgentConfig:
-        """Upsert a dynamic agent config by ID.
-
-        If the agent exists, it updates the document while preserving created_at.
-        If it doesn't exist, it creates a new document.
-
-        Args:
-            agent_id: The agent ID
-            doc: The document to upsert (should include all fields except created_at handling)
-
-        Returns:
-            The upserted DynamicAgentConfig
-        """
-        now = datetime.now(timezone.utc)
-        collection = self._get_agents_collection()
-
-        # Check if document exists to preserve created_at
-        existing = collection.find_one({"_id": agent_id})
-        if existing:
-            doc["created_at"] = existing.get("created_at", now)
-        else:
-            doc["created_at"] = now
-
-        doc["_id"] = agent_id
-        doc["updated_at"] = now
-
-        collection.replace_one({"_id": agent_id}, doc, upsert=True)
-        return DynamicAgentConfig(**doc)
-
     # =========================================================================
-    # MCP Servers CRUD
+    # Read-only MCP server access
     # =========================================================================
-
-    def create_server(self, server: MCPServerConfigCreate) -> MCPServerConfig:
-        """Create a new MCP server config."""
-        now = datetime.now(timezone.utc)
-
-        doc = {
-            "_id": server.id,
-            **server.model_dump(exclude={"id"}),
-            "created_at": now,
-            "updated_at": now,
-        }
-
-        self._get_servers_collection().insert_one(doc)
-        return MCPServerConfig(**doc)
 
     def get_server(self, server_id: str) -> MCPServerConfig | None:
         """Get an MCP server config by ID."""
@@ -300,66 +108,6 @@ class MongoDBService:
         if doc:
             return MCPServerConfig(**doc)
         return None
-
-    def list_servers(self, include_disabled: bool = False) -> list[MCPServerConfig]:
-        """List all MCP servers."""
-        query: dict[str, Any] = {}
-        if not include_disabled:
-            query["enabled"] = True
-
-        docs = self._get_servers_collection().find(query).sort("name", ASCENDING)
-        return [MCPServerConfig(**doc) for doc in docs]
-
-    def update_server(self, server_id: str, update: MCPServerConfigUpdate) -> MCPServerConfig | None:
-        """Update an MCP server config."""
-        update_data = {k: v for k, v in update.model_dump().items() if v is not None}
-        if not update_data:
-            return self.get_server(server_id)
-
-        update_data["updated_at"] = datetime.now(timezone.utc)
-
-        result = self._get_servers_collection().find_one_and_update(
-            {"_id": server_id},
-            {"$set": update_data},
-            return_document=True,
-        )
-        if result:
-            return MCPServerConfig(**result)
-        return None
-
-    def delete_server(self, server_id: str) -> bool:
-        """Delete an MCP server config. Returns True if deleted."""
-        result = self._get_servers_collection().delete_one({"_id": server_id})
-        return result.deleted_count > 0
-
-    def upsert_server(self, server_id: str, doc: dict[str, Any]) -> MCPServerConfig:
-        """Upsert an MCP server config by ID.
-
-        If the server exists, it updates the document while preserving created_at.
-        If it doesn't exist, it creates a new document.
-
-        Args:
-            server_id: The server ID
-            doc: The document to upsert (should include all fields except created_at handling)
-
-        Returns:
-            The upserted MCPServerConfig
-        """
-        now = datetime.now(timezone.utc)
-        collection = self._get_servers_collection()
-
-        # Check if document exists to preserve created_at
-        existing = collection.find_one({"_id": server_id})
-        if existing:
-            doc["created_at"] = existing.get("created_at", now)
-        else:
-            doc["created_at"] = now
-
-        doc["_id"] = server_id
-        doc["updated_at"] = now
-
-        collection.replace_one({"_id": server_id}, doc, upsert=True)
-        return MCPServerConfig(**doc)
 
     def get_servers_by_ids(self, server_ids: list[str]) -> list[MCPServerConfig]:
         """Get multiple MCP servers by their IDs."""

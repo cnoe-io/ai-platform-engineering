@@ -147,14 +147,12 @@ tolerations: []
 
 affinity: {}
 
-# Environment variables (non-sensitive configuration)
-env:
+# Non-sensitive application configuration.
+# Each key-value pair is injected as a flat environment variable via ConfigMap (envFrom).
+# For sensitive values (OIDC secrets, MongoDB URI, etc.) use existingSecret or externalSecrets below.
+config:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
   A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
-
-# ConfigMap for non-sensitive configuration
-# These values are mounted as environment variables to the pod
-config:
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
@@ -197,6 +195,8 @@ config:
   OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
+  # Additional JWKS URIs for token validation (JSON array, non-sensitive)
+  # OIDC_ADDITIONAL_JWKS: '["https://other-idp/.well-known/jwks.json"]'
   # Support contact email
   SUPPORT_EMAIL: "support@example.com"
   # Header link URLs (leave empty/commented to hide)
@@ -262,3 +262,53 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/caipe-ui
     #     property: OIDC_CLIENT_SECRET
+
+# Structured application config (models, MCP servers, agents).
+# Rendered as a YAML file and volume-mounted into the container at /etc/caipe-ui/app-config.yaml.
+# Loaded at startup and marked as config_driven (cannot be edited via UI).
+# Auto-mounted only when at least one key below is non-empty.
+# Environment variables in values support ${VAR_NAME} and ${VAR_NAME:-default} syntax.
+appConfig:
+  # Available LLM models for the model selector
+  models: []
+  # Example:
+  # - model_id: "claude-sonnet-4-20250514"
+  #   name: "Claude Sonnet 4"
+  #   provider: "anthropic-claude"
+  #   description: "Latest Claude Sonnet model"
+
+  # MCP server configurations
+  # Transport types: stdio, sse, http
+  mcp_servers: []
+  # Example for HTTP MCP server (Streamable HTTP):
+  # - id: "argocd"
+  #   name: "ArgoCD"
+  #   description: "ArgoCD operations via MCP"
+  #   transport: "http"
+  #   endpoint: "http://agent-argocd-mcp:8000/mcp"
+  #   enabled: true
+  #
+  # Example for stdio MCP server:
+  # - id: "github"
+  #   name: "GitHub"
+  #   transport: "stdio"
+  #   command: "uvx"
+  #   args: ["mcp-server-github"]
+  #   env:
+  #     GITHUB_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+  #   enabled: true
+
+  # Agent configurations
+  agents: []
+  # Example:
+  # - id: "code-reviewer"
+  #   name: "Code Reviewer"
+  #   description: "Reviews code for best practices"
+  #   system_prompt: |
+  #     You are an expert code reviewer...
+  #   model_id: "claude-sonnet-4-20250514"
+  #   model_provider: "anthropic-claude"
+  #   visibility: "global"
+  #   allowed_tools:
+  #     github: []
+  #   enabled: true

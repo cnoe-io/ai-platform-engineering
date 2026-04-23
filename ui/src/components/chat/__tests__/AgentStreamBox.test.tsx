@@ -55,57 +55,55 @@ jest.mock('@/components/shared/AgentLogos', () => ({
 // ============================================================================
 
 import { AgentStreamBox } from '../AgentStreamBox'
-import type { A2AEvent } from '@/types/a2a'
+import type { StreamEvent } from '@/components/dynamic-agents/sse-types'
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
 /**
- * Create a streaming event with displayContent (the field AgentStreamBox reads).
+ * Create a content event with displayContent (the field AgentStreamBox reads).
  */
-function createStreamEvent(content: string, agentName = 'argocd'): A2AEvent {
+function createStreamEvent(content: string, _agentName = 'argocd'): StreamEvent {
   return {
-    type: 'streaming',
-    timestamp: Date.now(),
-    sourceAgent: agentName,
+    id: `sse-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    type: 'content',
+    timestamp: new Date(),
+    namespace: [],
+    raw: {},
     displayContent: content,
-    artifact: {
-      name: 'streaming_result',
-      description: 'Streaming output',
-      text: content,
-    },
-  } as unknown as A2AEvent
+    content: content,
+  } as StreamEvent
 }
 
 /**
  * Create a tool_start event (should be filtered out by streamContent aggregation).
  */
-function createToolEvent(name: string): A2AEvent {
+function createToolEvent(name: string): StreamEvent {
   return {
+    id: `sse-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     type: 'tool_start',
-    timestamp: Date.now(),
-    sourceAgent: 'argocd',
-    displayContent: 'tool output',
-    artifact: { name, description: 'Tool call' },
-  } as unknown as A2AEvent
+    timestamp: new Date(),
+    namespace: [],
+    raw: {},
+    toolData: { tool_name: name, tool_call_id: `call-${Date.now()}` },
+  } as StreamEvent
 }
 
 /**
- * Create a final_result event (triggers "completed" status).
+ * Create a final content event with isFinal=true (triggers "completed" status).
  */
-function createFinalEvent(content: string): A2AEvent {
+function createFinalEvent(content: string): StreamEvent {
   return {
-    type: 'streaming',
-    timestamp: Date.now(),
-    sourceAgent: 'argocd',
+    id: `sse-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    type: 'content',
+    timestamp: new Date(),
+    namespace: [],
+    raw: {},
+    isFinal: true,
     displayContent: content,
-    artifact: {
-      name: 'final_result',
-      description: 'Final result',
-      text: content,
-    },
-  } as unknown as A2AEvent
+    content: content,
+  } as StreamEvent
 }
 
 // ============================================================================
@@ -174,18 +172,20 @@ describe('AgentStreamBox', () => {
       expect(screen.getByText('First chunk Second chunk')).toBeInTheDocument()
     })
 
-    it('should exclude execution_plan_update artifacts from streamContent', () => {
-      const planEvent: A2AEvent = {
-        type: 'artifact',
-        timestamp: Date.now(),
-        sourceAgent: 'argocd',
+    it('should exclude non-content events (warning, error, tool) from streamContent', () => {
+      const warningEvent: StreamEvent = {
+        id: `sse-${Date.now()}-warn`,
+        type: 'warning',
+        timestamp: new Date(),
+        namespace: [],
+        raw: {},
         displayContent: '⏳ [ArgoCD] List apps',
-        artifact: { name: 'execution_plan_update', description: 'Plan', text: '' },
-      } as unknown as A2AEvent
+        warningData: { message: '⏳ [ArgoCD] List apps' },
+      } as StreamEvent
 
       const events = [
         createStreamEvent('Before plan '),
-        planEvent,
+        warningEvent,
         createStreamEvent('After plan'),
       ]
 

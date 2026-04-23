@@ -47,15 +47,7 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          env:
-            {{- range $key, $value := .Values.env }}
-            - name: {{ $key }}
-              value: {{ $value | quote }}
-            {{- end }}
-            {{- if .Values.seedConfig.enabled }}
-            - name: SEED_CONFIG_PATH
-              value: "/etc/dynamic-agents/config.yaml"
-            {{- end }}
+          env: []
           envFrom:
             - configMapRef:
                 name: {{ include "dynamic-agents.fullname" . }}-config
@@ -83,24 +75,14 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.volumeMounts }}
           volumeMounts:
-            {{- if .Values.seedConfig.enabled }}
-            - name: seed-config
-              mountPath: /etc/dynamic-agents
-              readOnly: true
-            {{- end }}
-            {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
-            {{- end }}
+          {{- end }}
+      {{- with .Values.volumes }}
       volumes:
-        {{- if .Values.seedConfig.enabled }}
-        - name: seed-config
-          configMap:
-            name: {{ include "dynamic-agents.fullname" . }}-seed
-        {{- end }}
-        {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
-        {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
