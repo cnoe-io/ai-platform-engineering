@@ -16,7 +16,7 @@ import {
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
-import { authenticateRequest } from "@/lib/da-proxy";
+import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
 import { gradientThemes } from "@/lib/gradient-themes";
 
 const DYNAMIC_AGENTS_URL =
@@ -183,15 +183,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Build prompts from templates
     const { system_prompt, user_message } = buildPrompts(body);
 
-    // Forward to backend with X-User-Context auth (same as chat routes)
+    // Forward to backend with X-User-Context AND Authorization: Bearer
+    // (Spec 102 Phase 11.4 — DA now requires Bearer; X-User-Context kept
+    // for legacy claim hints but is no longer authoritative).
     const auth = await authenticateRequest(request);
     if (auth instanceof NextResponse) return auth;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (auth.userContextHeader) {
-      headers["X-User-Context"] = auth.userContextHeader;
-    }
+    const headers = buildBackendHeaders("application/json", auth);
 
     const response = await fetch(
       `${DYNAMIC_AGENTS_URL}/api/v1/assistant/suggest`,

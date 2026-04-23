@@ -97,11 +97,22 @@ not yet written.
     `scripts/audit-log-shipping/{README.md,fluent-bit.conf}`.
   - Tests: `tests/test_audit_stdout_sink.py` (9 tests, sink-independence
     verified).
-- Removal of the dual-auth `X-User-Context` legacy path once the
-  BFF migration is fully baked. Today the new `JwtAuthMiddleware`
-  is intentionally lenient (no Bearer => pass through) so the
-  legacy path keeps working; flip `DA_REQUIRE_BEARER=true` once
-  every BFF caller is sending a Bearer.
+- Removal of the dual-auth `X-User-Context` legacy path. ✅ DONE 2026-04-23
+  - `docker-compose.dev.yaml` now defaults `DA_REQUIRE_BEARER=true` for
+    the `dynamic-agents` service.
+  - Two outlier BFF callers (`ui/src/app/api/dynamic-agents/assistant/suggest`
+    and `ui/src/app/api/mcp-servers/probe`) were migrated from manual
+    header building to the shared `buildBackendHeaders()` so they always
+    forward `Authorization: Bearer <token>` alongside `X-User-Context`.
+  - `da-proxy.ts` was already on the shared helper, so all DA-bound
+    traffic now carries Bearer.
+  - **Rollback**: set `DA_REQUIRE_BEARER=false` (or unset) in `.env`
+    and recreate the `dynamic-agents` container; the middleware reverts
+    to lenient mode and the legacy `X-User-Context` path keeps working.
+  - The `X-User-Context` header itself is still forwarded for now — it
+    feeds DA's claim-hint logic but is no longer authoritative. Removing
+    it entirely is tracked as a follow-up after one release cycle of
+    soak time on the Bearer-only path.
 - Bench: PDP cache TTL tuning. (operator-driven, depends on metrics above)
 
 ---

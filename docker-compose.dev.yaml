@@ -1348,6 +1348,12 @@ services:
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
       # Agent Gateway — MCP routing through AG for dynamic agents
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
+      # Spec 102 Phase 11.4 — require Bearer JWT on every DA request.
+      # The BFF (ui/src/lib/da-proxy.ts and the two probe / suggest routes)
+      # now always sends Authorization: Bearer alongside the legacy
+      # X-User-Context header. Set DA_REQUIRE_BEARER=false to roll back if
+      # an unmigrated caller is discovered in production.
+      - DA_REQUIRE_BEARER=${DA_REQUIRE_BEARER:-true}
 
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
