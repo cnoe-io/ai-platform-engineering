@@ -185,6 +185,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [middlewareError, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
   >([]);
@@ -1100,6 +1101,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   onChange={setFeatures}
                   disabled={loading}
                   availableModels={availableModels}
+                  onError={setMiddlewareError}
                 />
               </div>
             </div>
@@ -1179,7 +1181,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
-          <Button onClick={handleSubmit} disabled={loading || !isValid}>
+          <Button onClick={handleSubmit} disabled={loading || !isValid || middlewareError}>
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
