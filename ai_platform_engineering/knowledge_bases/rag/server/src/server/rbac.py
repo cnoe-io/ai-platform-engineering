@@ -1196,6 +1196,17 @@ async def inject_kb_filter(
   Returns:
       True if the handler should return an empty result set without querying the vector DB.
   """
+  # Hybrid ACL (per-doc acl_tags) — opt-in via RBAC_DOC_ACL_TAGS_ENABLED.
+  # Apply BEFORE the early-returns below so it still runs when team-scope
+  # is off but doc-ACL is on. The helper is itself a no-op for trusted /
+  # anonymous / client-credentials principals, so this is safe.
+  try:
+    from .doc_acl import apply_doc_acl_filter
+
+    apply_doc_acl_filter(query_request, user_context)
+  except Exception as exc:  # noqa: BLE001 — never break the query path on ACL bugs
+    logger.warning("doc_acl: apply_doc_acl_filter failed (non-fatal): %s", exc)
+
   if not RBAC_TEAM_SCOPE_ENABLED:
     return False
   if user_context.email == "anonymous":

@@ -36,3 +36,6 @@ When you need to change something in the auth path, this table tells you which f
 | Admin API: per-user MongoDB activity stats (Keycloak `admin_ui#view`) | `ui/src/app/api/admin/users/stats/route.ts` |
 | RBAC e2e port band + `E2E_COMPOSE_ENV` contract (spec 102) | `Makefile` (`test-rbac-up` target) + [spec 102 quickstart › E2E port band](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md#e2e-port-band) |
 | RBAC e2e env-var substitutions inside the dev compose file | `docker-compose.dev.yaml` (search for `MONGODB_HOST_PORT`, `SUPERVISOR_HOST_PORT`, `RBAC_FALLBACK_FILE`, `E2E_RUN`) |
+| RAG server team/KB scope filter (`inject_kb_filter`) — datasource-level RBAC | `ai_platform_engineering/knowledge_bases/rag/server/src/server/rbac.py` |
+| RAG hybrid ACL — per-document `acl_tags` filter (opt-in: `RBAC_DOC_ACL_TAGS_ENABLED`) | `ai_platform_engineering/knowledge_bases/rag/server/src/server/doc_acl.py` |
+| RAG hybrid ACL backfill — assigns `acl_tags=["__public__"]` to existing Milvus rows before flipping the flag | `scripts/rag-doc-acl-migration.py` |

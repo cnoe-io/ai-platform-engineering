@@ -108,6 +108,39 @@ regressions early. Use the helper script:
 
 ---
 
+## D-bis. RAG hybrid ACL — flip the flag (Spec 102 §1.3)
+
+The new per-document `acl_tags` filter is **off by default**. Before
+flipping the flag in any environment that already has data, you
+**must** run the migration script — otherwise documents without the
+field become invisible.
+
+- [ ] Inventory: confirm Milvus URI and that no critical collection
+      is excluded by name policy:
+      `python3 scripts/rag-doc-acl-migration.py --milvus-uri
+      http://localhost:19530 --dry-run`
+- [ ] Inspect the printed JSON summary; every collection should
+      report a `would_update` count equal to the row count of
+      documents missing `metadata.acl_tags`.
+- [ ] Run for real:
+      `python3 scripts/rag-doc-acl-migration.py --milvus-uri
+      http://localhost:19530`
+- [ ] Verify a few rows — pick any collection and query for
+      `metadata.acl_tags` membership. Every row should now contain
+      `["__public__"]`.
+- [ ] Flip the feature flag on the RAG server:
+      `RBAC_DOC_ACL_TAGS_ENABLED=true` (env var, then restart the
+      `rag-server` container).
+- [ ] Smoke test: run a chat query that hits RAG. Expect the same
+      results as before (everything is `__public__` until you start
+      tagging documents).
+- [ ] Optionally tag a small subset of docs with a real tag (e.g.
+      `team:platform-eng`) via your ingestor or a one-off Milvus
+      `upsert`, then re-query as a user **not** in that team and
+      confirm those documents disappear from results.
+
+---
+
 ## D. Spec 103 — Email masking sanity (already unit-tested, double-check)
 
 - [ ] Run `slack-bot` with `LOG_LEVEL=DEBUG`. Send a JIT DM. Inspect

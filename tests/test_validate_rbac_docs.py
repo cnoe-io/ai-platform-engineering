@@ -8,7 +8,6 @@ end-to-end CI behaviour without needing GitHub Actions.
 from __future__ import annotations
 
 import importlib.util
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -148,7 +147,8 @@ def test_e2e_rbac_change_without_doc_fails(tmp_path: Path) -> None:
 
     rc, out, err = _run_validator(repo)
     assert rc == 1
-    assert "how-rbac-works.md" in err
+    # The validator now lists multiple canonical docs; assert one is mentioned.
+    assert "how-rbac-works.md" in err or "security/rbac" in err
     assert "ai_platform_engineering/utils/auth/audit.py" in err
 
 
@@ -192,3 +192,38 @@ def test_e2e_blockers_only_change_passes(tmp_path: Path) -> None:
     _git_branch_and_commit(repo, "feat", {"BLOCKERS.md": "notes\n"})
     rc, out, err = _run_validator(repo)
     assert rc == 0, err
+
+
+def test_e2e_rag_doc_acl_change_requires_doc_update(tmp_path: Path) -> None:
+    """RAG doc_acl.py is RBAC code — bare change must trip the gate."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git_init_repo(repo)
+    _git_branch_and_commit(
+        repo,
+        "feat",
+        {
+            "ai_platform_engineering/knowledge_bases/rag/server/src/server/doc_acl.py": "x\n"
+        },
+    )
+    rc, _out, err = _run_validator(repo)
+    assert rc == 1
+    assert "doc_acl.py" in err
+
+
+def test_e2e_split_doc_file_map_satisfies_gate(tmp_path: Path) -> None:
+    """Touching the split file-map.md should satisfy the doc gate."""
+    repo = tmp_path / "r"
+    repo.mkdir()
+    _git_init_repo(repo)
+    _git_branch_and_commit(
+        repo,
+        "feat",
+        {
+            "ai_platform_engineering/knowledge_bases/rag/server/src/server/doc_acl.py": "x\n",
+            "docs/docs/security/rbac/file-map.md": "updated\n",
+        },
+    )
+    rc, out, err = _run_validator(repo)
+    assert rc == 0, err
+    assert "\u2713" in out

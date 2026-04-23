@@ -48,7 +48,6 @@ import argparse
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 # Files / directories considered "RBAC code". Prefix-matched.
 # Keep this list short and high-signal; broad globs (e.g. all of ui/src)
@@ -73,9 +72,26 @@ RBAC_PATHS: tuple[str, ...] = (
     # Keycloak realm bootstrap
     "deploy/keycloak/init-idp.sh",
     "deploy/keycloak/Dockerfile.keycloak-init",
+    # RAG server RBAC (datasource scope + hybrid ACL doc-tag filter)
+    "ai_platform_engineering/knowledge_bases/rag/server/src/server/rbac.py",
+    "ai_platform_engineering/knowledge_bases/rag/server/src/server/doc_acl.py",
 )
 
-CANONICAL_DOC = "docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md"
+# Canonical doc(s) — accept any of these. The original single-file
+# `how-rbac-works.md` was split into a stub + four sibling files
+# under `docs/docs/security/rbac/` (see commit
+# `docs(security): split how-rbac-works.md`). Touching any of them
+# satisfies the gate.
+CANONICAL_DOCS: tuple[str, ...] = (
+    "docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md",
+    "docs/docs/security/rbac/index.md",
+    "docs/docs/security/rbac/architecture.md",
+    "docs/docs/security/rbac/workflows.md",
+    "docs/docs/security/rbac/usage.md",
+    "docs/docs/security/rbac/file-map.md",
+)
+# Backwards-compat alias used in user-facing log lines.
+CANONICAL_DOC = CANONICAL_DOCS[0]
 
 
 def _is_trivial(path: str) -> bool:
@@ -183,7 +199,7 @@ def main() -> int:
     rbac_changes = [
         f for f in files if _is_rbac_code(f) and not _is_trivial(f)
     ]
-    doc_updated = CANONICAL_DOC in files
+    doc_updated = any(d in files for d in CANONICAL_DOCS)
 
     if not rbac_changes:
         print(
@@ -193,19 +209,23 @@ def main() -> int:
         return 0
 
     if doc_updated:
+        touched = [d for d in CANONICAL_DOCS if d in files]
         print(
-            "validate_rbac_docs: RBAC code changed AND "
-            f"{CANONICAL_DOC} was updated. \u2713"
+            "validate_rbac_docs: RBAC code changed AND a canonical "
+            f"RBAC doc was updated ({', '.join(touched)}). \u2713"
         )
         for f in rbac_changes:
             print(f"  - {f}")
         return 0
 
     sys.stderr.write(
-        "\nvalidate_rbac_docs: RBAC code changed but the canonical doc was "
-        "not updated.\n\n"
+        "\nvalidate_rbac_docs: RBAC code changed but no canonical RBAC "
+        "doc was updated.\n\n"
     )
-    sys.stderr.write(f"Canonical doc: {CANONICAL_DOC}\n\n")
+    sys.stderr.write("Canonical docs (touch any one):\n")
+    for d in CANONICAL_DOCS:
+        sys.stderr.write(f"  - {d}\n")
+    sys.stderr.write("\n")
     sys.stderr.write("Files that triggered the check:\n")
     for f in rbac_changes:
         sys.stderr.write(f"  - {f}\n")

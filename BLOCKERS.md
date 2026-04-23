@@ -66,12 +66,45 @@ error path. Operator steps in `CHECKLIST.md` §D-pre.
 Still pending: an actual end-to-end run against the running stack —
 that's a one-shot operator action, captured in CHECKLIST.md.
 
-### 1.3 RAG hybrid ACL (Phase 7 follow-on)
+### 1.3 RAG hybrid ACL (Phase 7 follow-on) — opt-in landed 2026-04-23
 
-RAG server already enforces group-based ACL on namespace queries.
-The "hybrid ACL" promotion (collection-level filter combined with
-per-document tags) requires a schema migration and is sized
-separately.
+RAG server already enforces group-based ACL on namespace queries
+(via `inject_kb_filter` in `server/rbac.py`). Hybrid ACL adds a
+**second, per-document filter** on `metadata.acl_tags`.
+
+Landed:
+  - `ai_platform_engineering/knowledge_bases/rag/server/src/server/doc_acl.py`
+    — `apply_doc_acl_filter()` injects a `metadata.acl_tags IN <user
+    tags>` filter at query time. The user tag set is derived from
+    `__public__ + role:* + team:*`. Includes failure-closed merge
+    semantics that prevent a caller from widening their own ACL by
+    pre-populating the filter (intersection rule + `__noresults__`
+    sentinel).
+  - Hooked into `inject_kb_filter` in `server/rbac.py` so it runs on
+    every authenticated query, regardless of whether team-scope is
+    enabled. Wrapped in try/except so an ACL bug never breaks the
+    query path.
+  - Migration script: `scripts/rag-doc-acl-migration.py` walks every
+    Milvus collection and assigns `acl_tags=["__public__"]` to any
+    document missing the field. Idempotent, supports `--dry-run`,
+    `--collection`, `--exclude`, `--batch-size`. Required before
+    flipping the flag in production.
+  - Tests: `ai_platform_engineering/knowledge_bases/rag/server/tests/test_doc_acl.py`
+    (17 tests — flag gating, tag derivation, all five merge cases,
+    bypass principals, fail-closed on unexpected types).
+
+Feature flag: `RBAC_DOC_ACL_TAGS_ENABLED=false` (default). Flip to
+`true` only **after** the migration script has run, otherwise
+documents without `acl_tags` are invisible (Milvus has no clean
+"missing key" filter).
+
+Still pending (not blocking this branch):
+  - UI to assign `acl_tags` to documents at ingest time.
+  - Connector-side automation: each ingestor needs to populate
+    `document_metadata.metadata['acl_tags']` from its source's
+    native ACL (Confluence space perms, Jira project perms, Slack
+    channel members, etc). Currently callers must set this
+    themselves; the safe default is `["__public__"]`.
 
 ### 1.4 US7 e2e Playwright runs (Phase 10) — partially DONE 2026-04-23
 
