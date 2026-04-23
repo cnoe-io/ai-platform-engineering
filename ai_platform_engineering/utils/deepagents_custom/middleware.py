@@ -90,6 +90,28 @@ def _generate_tool_call_id() -> str:
     return f"call_{uuid.uuid4().hex[:24]}"
 
 
+def _rag_terminal_response(tool_messages: list) -> dict:
+    """Build the terminal state update when RAG caps are fully exhausted.
+
+    In USE_STRUCTURED_RESPONSE mode the graph must not jump_to=end because
+    the LLM still needs a turn to call the ResponseFormat/PlatformEngineerResponse
+    tool — skipping it produces an empty response (same reason the write_todos
+    redundancy path avoids jump_to=end in structured mode).
+
+    In plain-text mode jump_to=end is safe because the response assembler
+    reads the last prose AIMessage directly from state.
+    """
+    try:
+        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE  # noqa: PLC0415
+    except ImportError:
+        USE_STRUCTURED_RESPONSE = False
+
+    if USE_STRUCTURED_RESPONSE:
+        logger.info("[DeterministicTaskMiddleware] RAG hard-stop: structured response mode — omitting jump_to=end so LLM can call ResponseFormat")
+        return {"messages": tool_messages}
+    return {"messages": tool_messages, "jump_to": "end"}
+
+
 class DeterministicTaskMiddleware(AgentMiddleware):
     """Middleware for deterministic task execution using before_model + wrap_tool_call.
     
@@ -344,7 +366,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             _record_rag_cap_hit(thread_id)
                             cap_count = _rag_cap_hit_counts.get(thread_id, 0)
                             if cap_count > 1:
-                                return {"messages": tool_messages, "jump_to": "end"}
+                                return _rag_terminal_response(tool_messages)
                         return {"messages": tool_messages}
 
                 # Fallback: a non-parallel call slipped through to _arun and was capped there.
@@ -367,7 +389,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                         _record_rag_cap_hit(thread_id)
                         cap_count = _rag_cap_hit_counts.get(thread_id, 0)
                         if cap_count > 1:
-                            return {"messages": tool_messages, "jump_to": "end"}
+                            return _rag_terminal_response(tool_messages)
                         return {"messages": tool_messages}
             except Exception as rag_err:
                 logger.warning(f"[DeterministicTaskMiddleware] RAG cap check failed: {rag_err}", exc_info=True)
