@@ -24,6 +24,7 @@ from langgraph.types import Command
 from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
+from dynamic_agents.metrics import metrics as prom_metrics
 from dynamic_agents.models import (
     AgentContext,
     ClientContext,
@@ -181,6 +182,8 @@ class AgentRuntime:
         if self._initialized:
             return
 
+        t_start = time.monotonic()
+
         # 1. Build MCP connections for servers referenced in allowed_tools
         server_ids = list(self.config.allowed_tools.keys())
         if not server_ids:
@@ -195,7 +198,13 @@ class AgentRuntime:
             else:
                 # 2. Get tools from MCP servers with per-server error handling
                 # This connects to each server independently so one failure doesn't affect others
+                t_mcp = time.monotonic()
                 all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
+                logger.info(
+                    f"[init] MCP tools fetched in {time.monotonic() - t_mcp:.2f}s "
+                    f"(agent='{self.config.name}', servers={len(connections)}, "
+                    f"failed={len(failed_servers)})"
+                )
 
                 # Store failed servers for warning events
                 if failed_servers:
@@ -277,12 +286,20 @@ class AgentRuntime:
             name=safe_name,
             subagents=subagents if subagents else None,
             interrupt_on={"request_user_input": True},
-            middleware=build_middleware(self.config.features, self._session_id),
+            middleware=build_middleware(
+                self.config.features,
+                self._session_id,
+                agent_name=self.config.name,
+                model_id=self.config.model_id,
+            ),
         )
 
         self._initialized = True
+        init_duration = time.monotonic() - t_start
+        prom_metrics.runtime_init_duration_seconds.labels(agent_name=self.config.name).observe(init_duration)
+        prom_metrics.runtime_init_duration_summary.labels(agent_name=self.config.name).observe(init_duration)
         logger.info(
-            f"[agent] Agent '{self.config.name}' initialized: "
+            f"[agent] Agent '{self.config.name}' initialized in {init_duration:.2f}s: "
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
 
@@ -429,7 +446,12 @@ class AgentRuntime:
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
-                "middleware": build_middleware(subagent_config.features, self._session_id),
+                "middleware": build_middleware(
+                    subagent_config.features,
+                    self._session_id,
+                    agent_name=subagent_config.name,
+                    model_id=subagent_config.model_id,
+                ),
             }
 
             # Note: Nested subagents (subagent of subagent) are not supported in this MVP.
@@ -558,6 +580,8 @@ class AgentRuntime:
 
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
+        turn_start = time.monotonic()
+        turn_status = "success"
 
         logger.info(
             f"[stream] Starting stream for agent '{self.config.name}': "
@@ -589,6 +613,8 @@ class AgentRuntime:
                     f"[stream] Stream cancelled by user for agent '{self.config.name}': "
                     f"conv={session_id}, user={user_id}"
                 )
+                turn_status = "cancelled"
+                self._record_turn(turn_start, "stream", turn_status)
                 return
 
             for frame in encoder.on_chunk(chunk):
@@ -611,6 +637,7 @@ class AgentRuntime:
                 agent=self.config.name,
             ):
                 yield frame
+            self._record_turn(turn_start, "stream", "interrupted")
             return  # Don't continue, stream paused for user input
 
         # ── Core lifecycle: run finish ──
@@ -620,6 +647,7 @@ class AgentRuntime:
         )
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
+        self._record_turn(turn_start, "stream", turn_status)
 
     async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
         """Check if there's a pending interrupt for the given session.
@@ -719,6 +747,8 @@ class AgentRuntime:
 
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
+        turn_start = time.monotonic()
+        turn_status = "success"
 
         logger.info(
             f"[resume] Resuming stream for agent '{self.config.name}': "
@@ -793,6 +823,8 @@ class AgentRuntime:
                 logger.info(
                     f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
                 )
+                turn_status = "cancelled"
+                self._record_turn(turn_start, "resume", turn_status)
                 return
 
             for frame in encoder.on_chunk(chunk):
@@ -813,6 +845,7 @@ class AgentRuntime:
                 agent=self.config.name,
             ):
                 yield frame
+            self._record_turn(turn_start, "resume", "interrupted")
             return  # Don't continue, stream paused
 
         # ── Core lifecycle: run finish ──
@@ -822,6 +855,27 @@ class AgentRuntime:
         )
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
+        self._record_turn(turn_start, "resume", turn_status)
+
+    def _record_turn(self, start: float, turn_type: str, status: str) -> None:
+        """Record turn duration to both Histogram and Summary."""
+        duration = time.monotonic() - start
+        labels = {
+            "agent_name": self.config.name,
+            "model_id": self.config.model_id,
+            "turn_type": turn_type,
+            "status": status,
+        }
+        prom_metrics.turns_total.labels(**labels).inc()
+        prom_metrics.turn_duration_seconds.labels(**labels).observe(duration)
+        prom_metrics.turn_duration_summary.labels(**labels).observe(duration)
+        logger.info(
+            "[%s] Turn completed for agent '%s': status=%s duration=%.2fs",
+            turn_type,
+            self.config.name,
+            status,
+            duration,
+        )
 
     async def cleanup(self) -> None:
         """Cleanup MCP client connections and MongoDB checkpointer."""
