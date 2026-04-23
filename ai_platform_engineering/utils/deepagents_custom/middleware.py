@@ -306,24 +306,24 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                     )
 
                     if cap.any_excess:
-                        # Block only the excess calls. Pass-through calls are not in this
-                        # list — LangGraph will fan them out normally to _arun.
-                        blocked_search = search_calls[cap.search_allowed:]
-                        blocked_fetch = fetch_calls[cap.fetch_allowed:]
+                        # Block the entire over-budget tool type so the LLM can
+                        # strategize which queries to use its remaining slots on,
+                        # rather than having arbitrary calls pass through.
+                        blocked_search = search_calls if cap.search_excess > 0 else []
+                        blocked_fetch = fetch_calls if cap.fetch_excess > 0 else []
                         blocked_calls = blocked_search + blocked_fetch
 
                         logger.info(
                             f"[DeterministicTaskMiddleware] RAG cap in after_model: "
-                            f"search {len(search_calls)} req / {cap.search_allowed} allowed / {cap.search_excess} blocked, "
-                            f"fetch {len(fetch_calls)} req / {cap.fetch_allowed} allowed / {cap.fetch_excess} blocked "
-                            f"(search_remaining={cap.search_remaining}, fetch_remaining={cap.fetch_remaining}) "
+                            f"search {len(search_calls)} req / {cap.search_allowed} budget / {cap.search_excess} excess, "
+                            f"fetch {len(fetch_calls)} req / {cap.fetch_allowed} budget / {cap.fetch_excess} excess "
                             f"thread_id={thread_id}"
                         )
-                        # Include remaining budget in the message so the LLM knows it can
-                        # still use any un-exhausted tool type.
+                        # Report the pre-batch budget (search_allowed / fetch_allowed) as
+                        # remaining so the LLM knows exactly how many calls it can still make.
                         msg = rag_cap_message(
-                            search_remaining=cap.search_remaining,
-                            fetch_remaining=cap.fetch_remaining,
+                            search_remaining=cap.search_allowed if cap.search_excess > 0 else cap.search_remaining,
+                            fetch_remaining=cap.fetch_allowed if cap.fetch_excess > 0 else cap.fetch_remaining,
                         )
                         tool_messages = [
                             ToolMessage(

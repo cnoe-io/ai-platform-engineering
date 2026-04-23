@@ -284,9 +284,9 @@ class TestMiddlewareRagLoopExit:
         # Message should tell LLM it has search calls remaining
         assert "search" in blocked.content.lower() and "remaining" in blocked.content.lower()
 
-    def test_partial_excess_blocks_only_overflow(self):
-        """When cap=5 and 3 calls already used, a batch of 5 should allow 2 through
-        and block the excess 3, with the message reporting 0 remaining."""
+    def test_over_budget_batch_blocks_all_and_reports_remaining(self):
+        """When cap=5 and 3 calls already used, a batch of 5 should block ALL 5
+        and tell the LLM it has 2 remaining so it can choose the best queries."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             SearchCapWrapper,
             _DEFAULT_MAX_SEARCH_CALLS,
@@ -294,7 +294,7 @@ class TestMiddlewareRagLoopExit:
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
         from langchain_core.messages import ToolMessage
 
-        # 3 of 5 search slots already used
+        # 3 of 5 slots already used → 2 remaining
         SearchCapWrapper._global_counts["t10"] = _DEFAULT_MAX_SEARCH_CALLS - 2
 
         ai_msg = _make_ai_message_with_tool_calls([
@@ -316,11 +316,10 @@ class TestMiddlewareRagLoopExit:
         ):
             result = middleware.after_model(state)
 
-        # 2 slots remain → 2 allowed, 3 blocked
+        # All 5 blocked (LLM asked for too many — let it re-strategize)
         assert result is not None
-        assert len(result["messages"]) == 3
+        assert len(result["messages"]) == 5
         assert all(isinstance(m, ToolMessage) for m in result["messages"])
-        # All blocked calls are the overflow search calls (last 3)
-        assert {m.tool_call_id for m in result["messages"]} == {"tc-s3", "tc-s4", "tc-s5"}
-        # Budget fully exhausted after this batch → synthesize message
-        assert "synthesize" in result["messages"][0].content.lower()
+        # Message must tell LLM it has 2 search calls remaining
+        content = result["messages"][0].content
+        assert "2" in content and "search" in content.lower() and "remaining" in content.lower()
