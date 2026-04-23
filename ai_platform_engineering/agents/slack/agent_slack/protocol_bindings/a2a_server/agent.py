@@ -87,7 +87,8 @@ class SlackAgent(BaseLangGraphAgent):
     def get_mcp_http_config(self) -> dict | None:
         """Return HTTP MCP config for the OSS korotovsky/slack-mcp-server.
 
-        The OSS server expects `/mcp` (no trailing slash), unlike the default `/mcp/`.
+        The OSS server only accepts `/mcp` (no trailing slash). This matches
+        the project-wide default in ``mcp_config.resolve_mcp_path``.
         """
         return {
             "url": resolve_mcp_url("slack", default_port="3001", path="/mcp"),

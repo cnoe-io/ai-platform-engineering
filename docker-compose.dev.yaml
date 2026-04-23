@@ -60,6 +60,9 @@ services:
       # Default keeps dev behavior unchanged (8000); e2e sets SUPERVISOR_HOST_PORT=28000.
       - "${SUPERVISOR_HOST_PORT:-8000}:8000"
     environment:
+      # Dev-only: set DEV_HOT_RELOAD=true to enable uvicorn --reload on the
+      # bind-mounted source under /app/ai_platform_engineering. Default off.
+      - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
       - AWS_CONFIG_FILE=/home/appuser/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
       # Spec 102 — PDP-unavailable fallback. Path is a no-op unless the e2e lane
@@ -87,9 +90,12 @@ services:
       - ENABLE_ARTIFACT_STREAMING=true
       - USE_STRUCTURED_RESPONSE=${USE_STRUCTURED_RESPONSE:-true}
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
-      # OBO token exchange — supervisor exchanges user JWT for OBO JWT via Keycloak (FR-038d)
+      # OBO token exchange — supervisor exchanges user JWT for OBO JWT via Keycloak (FR-038d).
+      # Use the correctly-namespaced KEYCLOAK_SUPERVISOR_CLIENT_SECRET interpolation (NOT
+      # KEYCLOAK_ADMIN_CLIENT_SECRET — that's the UI BFF's var and sharing it would create
+      # the same kind of namespace collision that broke slack-bot in 098).
       - KEYCLOAK_SUPERVISOR_CLIENT_ID=${KEYCLOAK_SUPERVISOR_CLIENT_ID:-caipe-platform}
-      - KEYCLOAK_SUPERVISOR_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - KEYCLOAK_SUPERVISOR_CLIENT_SECRET=${KEYCLOAK_SUPERVISOR_CLIENT_SECRET:-caipe-platform-dev-secret}
 
       # Per-agent distribution control (comma-separated list, or "all" for fully distributed).
       # Leave empty for all-in-one mode (all agents in-process via MCP).
@@ -1225,6 +1231,11 @@ services:
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_ISSUER=${OIDC_ISSUER:-}
+      # OIDC_DISCOVERY_URL: Docker-internal URL used for server-side discovery +
+      # token refresh. Defaults to the in-network Keycloak URL so caipe-ui can
+      # fetch the well-known doc without going via the host. Browser still uses
+      # OIDC_ISSUER (localhost:7080) for the auth redirect.
+      - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-http://keycloak:7080/realms/caipe}
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
@@ -1306,6 +1317,9 @@ services:
       - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
     env_file: [.env]
     environment:
+      # Dev-only: DEV_HOT_RELOAD toggles the existing DEBUG-driven uvicorn reload
+      # on the bind-mounted source under /app/dynamic_agents/src. Default off.
+      - DEBUG=${DEV_HOT_RELOAD:-false}
       - AWS_CONFIG_FILE=/home/app/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - RBAC_FALLBACK_CONFIG_PATH=${RBAC_FALLBACK_CONFIG_PATH:-}
@@ -1339,7 +1353,9 @@ services:
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      # FastAPI exposes /healthz (not /health). /health returns 404 and would
+      # mark the container unhealthy on every probe. See agent_runtime.py.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -1369,6 +1385,9 @@ services:
       - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
     ports: ["9446:9446"]
     environment:
+      # Dev-only: DEV_HOT_RELOAD=true → uvicorn --reload watches the bind-mounted
+      # source under /app/server/src/server and /app/common/src/common. Default off.
+      - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
       - AWS_CONFIG_FILE=/home/app/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
@@ -2057,10 +2076,22 @@ services:
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
       - ./config/slack-bot-config.yaml:/etc/caipe/bot-config.yaml:ro
-    command: ["sh", "-c", "uv sync --no-dev && exec python -m app"]
+    # DEV_HOT_RELOAD=true → install dev deps (watchfiles) and wrap python -m app
+    # in `watchfiles --filter python` so source edits trigger an automatic restart
+    # (Bolt is not ASGI, so uvicorn --reload is not applicable).
+    command:
+      - sh
+      - -c
+      - |
+        if [ "${DEV_HOT_RELOAD:-false}" = "true" ]; then
+          uv sync && exec uv run watchfiles --filter python 'python -m app' /app
+        else
+          uv sync --no-dev && exec python -m app
+        fi
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
     environment:
+      - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
       - SLACK_INTEGRATION_APP_NAME=${SLACK_INTEGRATION_APP_NAME:-CAIPE}
       - SLACK_INTEGRATION_BOT_TOKEN=${SLACK_INTEGRATION_BOT_TOKEN:-${SLACK_BOT_TOKEN}}
       - SLACK_INTEGRATION_APP_TOKEN=${SLACK_INTEGRATION_APP_TOKEN:-${SLACK_APP_TOKEN}}
@@ -2081,12 +2112,31 @@ services:
       - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-true}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
-      - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-caipe-platform}
-      - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
+      # Slack bot's Admin REST API credentials (user lookup by slack_user_id).
+      # Distinct from the UI BFF's KEYCLOAK_ADMIN_* vars on purpose — sharing
+      # those names caused a 401 collision (see ADR / architecture.md §auth).
+      # The KEYCLOAK_SLACK_BOT_ADMIN_* prefix is also surface-specific so future
+      # surfaces (Webex, Teams, …) get their own KEYCLOAK_<surface>_BOT_ADMIN_*.
+      # Must point to a confidential client with view-users + query-users on
+      # realm-management. The realm seeder grants those to caipe-platform.
+      - KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID=${KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID:-caipe-platform}
+      - KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET=${KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
+      # Slack bot's OBO (token-exchange) credentials — separate flow, separate client.
       - KEYCLOAK_BOT_CLIENT_ID=${KEYCLOAK_BOT_CLIENT_ID:-caipe-slack-bot}
       - KEYCLOAK_BOT_CLIENT_SECRET=${KEYCLOAK_BOT_CLIENT_SECRET:-caipe-slack-bot-dev-secret}
       - SLACK_LINKING_BASE_URL=${SLACK_LINKING_BASE_URL:-http://localhost:3000}
       - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
+      # Spec 103: Just-In-Time Keycloak user creation. Default ON in dev so
+      # first-time Slack DMs work without an admin handshake. Set to "false"
+      # in production to require explicit web-UI onboarding before Slack use,
+      # in which case the bot falls back to sending an HMAC-signed linking
+      # URL. Reuses the KEYCLOAK_SLACK_BOT_ADMIN_* credentials above; no new
+      # secret to wire (see plan.md R-8 for the accepted trade-off).
+      - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
+      # Optional comma-separated allowlist of email domains eligible for JIT.
+      # Empty/unset => any domain. Recommended for prod when the federated
+      # IdP can return non-corporate emails.
+      - SLACK_JIT_ALLOWED_EMAIL_DOMAINS=${SLACK_JIT_ALLOWED_EMAIL_DOMAINS:-}
     depends_on:
       caipe-ui:
         condition: service_started
@@ -2123,10 +2173,16 @@ services:
     image: quay.io/keycloak/keycloak:26.3
     container_name: keycloak
     environment:
-      KC_HOSTNAME: localhost
-      KC_HOSTNAME_PORT: "7080"
+      # Keycloak 26 requires hostname as a full URL when backchannel-dynamic
+      # is enabled. Frontchannel/browser URLs use this base; backchannel URLs
+      # are rewritten to use the request's hostname (so caipe-ui calling
+      # http://keycloak:7080/.well-known/... gets back token_endpoint that
+      # also uses keycloak:7080 — fixing ECONNREFUSED on server-to-server
+      # token exchange).
+      # See: https://www.keycloak.org/server/hostname#_backchannel_dynamic
+      KC_HOSTNAME: "http://localhost:7080"
       KC_HOSTNAME_STRICT: "false"
-      KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
@@ -2160,7 +2216,10 @@ services:
   # Skips silently when IDP_ISSUER is unset — local-only users + test
   # personas still work via direct Keycloak login.
   keycloak-init:
-    image: alpine/curl:latest
+    image: ${KEYCLOAK_INIT_IMAGE:-caipe/keycloak-init:dev}
+    build:
+      context: .
+      dockerfile: build/Dockerfile.keycloak-init
     container_name: keycloak-init
     entrypoint: ["/bin/sh", "/scripts/init-idp.sh"]
     volumes:
@@ -2188,7 +2247,10 @@ services:
   # permissions on caipe-slack-bot so the Slack bot can mint JWTs on
   # behalf of users (RFC 8693).  Idempotent — safe to re-run.
   keycloak-init-token-exchange:
-    image: alpine/curl:latest
+    image: ${KEYCLOAK_INIT_IMAGE:-caipe/keycloak-init:dev}
+    build:
+      context: .
+      dockerfile: build/Dockerfile.keycloak-init
     container_name: keycloak-init-token-exchange
     entrypoint: ["/bin/sh", "/scripts/init-token-exchange.sh"]
     volumes:

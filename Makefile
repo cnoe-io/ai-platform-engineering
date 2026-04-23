@@ -575,6 +575,8 @@ test-rbac-lint: ## Lint the RBAC matrix + realm-config-extras (T009/T011/T012). 
 	   bash scripts/check-no-new-requireAdmin.sh || \
 	     echo "[test-rbac-lint] requireAdmin guard reported drift — set RBAC_LINT_STRICT=1 to hard-fail"; \
 	 fi
+	@echo "[test-rbac-lint] running keycloak init-script symlink guard…"
+	@bash scripts/check-keycloak-init-symlinks.sh
 
 test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo) and seed personas via init-idp.sh.
 	@echo "[test-rbac-up] starting stack with profiles: $(E2E_PROFILES)"
@@ -597,6 +599,46 @@ test-rbac-down: ## Tear down the e2e stack (volumes removed).
 	@echo "[test-rbac-down] tearing down e2e stack…"
 	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
 	   docker compose $(E2E_COMPOSE) down -v --remove-orphans
+
+# Minimal trimmed-down dev stack: 5 most-used agents + RBAC + UI + supervisor + slack-bot.
+# Useful for day-to-day Slack/UI iteration without booting the full all-agents/rag/graph_rag stack.
+# Override agent set with: make e2e-test-minimal MINIMAL_AGENTS="aws,github,jira"
+MINIMAL_AGENTS  ?= aws,github,argocd,jira,confluence
+MINIMAL_PROFILES = $(MINIMAL_AGENTS),caipe-supervisor,caipe-ui,dynamic-agents,slack-bot,caipe-mongodb,rbac
+
+.PHONY: e2e-test-minimal e2e-test-minimal-down
+
+e2e-test-minimal: ## Boot minimal trimmed dev stack (5 agents + UI + supervisor + slack-bot + Keycloak). Hot-reload enabled.
+	@echo "[e2e-test-minimal] starting trimmed stack with profiles: $(MINIMAL_PROFILES)"
+	@echo "[e2e-test-minimal] hot-reload enabled (DEV_HOT_RELOAD=true) — Python edits auto-restart."
+	@unset SLACK_INTEGRATION_AUTH_TOKEN_URL; \
+	   DEV_HOT_RELOAD=true \
+	   COMPOSE_PROFILES='$(MINIMAL_PROFILES)' \
+	   docker compose -f docker-compose.dev.yaml up -d --wait --wait-timeout $(E2E_WAIT_SECS)
+	@echo "[e2e-test-minimal] waiting for Keycloak readiness on http://localhost:7080…"
+	@for i in $$(seq 1 60); do \
+	   if curl -fsS http://localhost:7080/realms/master/.well-known/openid-configuration >/dev/null 2>&1; then \
+	     echo "[e2e-test-minimal] Keycloak is up"; break; \
+	   fi; \
+	   sleep 2; \
+	   if [ $$i -eq 60 ]; then echo "[e2e-test-minimal] FAIL: Keycloak never became ready"; exit 1; fi; \
+	 done
+	@echo "[e2e-test-minimal] stack ready:"
+	@echo "  - UI:               http://localhost:3000"
+	@echo "  - Supervisor:       http://localhost:8000"
+	@echo "  - Dynamic Agents:   http://localhost:8100"
+	@echo "  - Keycloak admin:   http://localhost:7080/admin (admin / admin)"
+	@echo "  - Agent Gateway:    http://localhost:4000"
+	@echo "  - Slack bot (HTTP): http://localhost:8030"
+	@echo "  - Agents up: $(MINIMAL_AGENTS)"
+	@echo ""
+	@echo "Tail logs:    docker compose -f docker-compose.dev.yaml logs -f slack-bot caipe-supervisor"
+	@echo "Tear down:    make e2e-test-minimal-down"
+
+e2e-test-minimal-down: ## Tear down the minimal trimmed dev stack (volumes preserved).
+	@echo "[e2e-test-minimal-down] stopping trimmed stack…"
+	@COMPOSE_PROFILES='$(MINIMAL_PROFILES)' \
+	   docker compose -f docker-compose.dev.yaml down --remove-orphans
 
 test-rbac-pytest: ## Run RBAC pytest helper-unit + matrix-driver tests. Pass --rbac-online via PYTEST_ARGS to enable live-Keycloak tests.
 	@echo "[test-rbac-pytest] running RBAC pytest suite ($(RBAC_PYTEST_DIRS))…"

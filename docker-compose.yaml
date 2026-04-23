@@ -1212,6 +1212,10 @@ services:
       - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
       - MONGODB_URI=${MONGODB_URI:-}
       - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
+      # Spec 103: JIT user creation. See docker-compose.dev.yaml for full
+      # description. Defaults to true so first-time DMs work out-of-box.
+      - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
+      - SLACK_JIT_ALLOWED_EMAIL_DOMAINS=${SLACK_JIT_ALLOWED_EMAIL_DOMAINS:-}
     depends_on:
       - caipe-ui
     profiles:
