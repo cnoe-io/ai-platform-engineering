@@ -290,7 +290,6 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             try:
                 from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (  # noqa: PLC0415
                     FetchDocumentCapWrapper,
-                    RAG_CAP_EXHAUSTED_MESSAGE,
                     SearchCapWrapper,
                     _rag_cap_hit_counts,
                     _rag_conversation_id,
@@ -299,6 +298,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                     is_rag_tool_capped,
                     rag_batch_cap_check,
                     rag_cap_message,
+                    rag_cap_message_for_thread,
                 )
                 from langgraph.config import get_config  # noqa: PLC0415
 
@@ -380,7 +380,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                         )
                         tool_messages = [
                             ToolMessage(
-                                content=RAG_CAP_EXHAUSTED_MESSAGE,
+                                content=rag_cap_message_for_thread(thread_id),
                                 tool_call_id=tc["id"],
                                 name=tc["name"],
                             )
