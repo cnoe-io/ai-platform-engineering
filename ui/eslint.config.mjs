@@ -1,22 +1,18 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
-
+/**
+ * Next.js 16+ ships flat ESLint presets — import directly (no FlatCompat).
+ * `next lint` was removed; use `npm run lint` → `eslint .`.
+ * @see https://nextjs.org/docs/app/api-reference/config/eslint
+ */
 const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  ...nextCoreWebVitals,
+  // Jest mocks use anonymous `forwardRef` / arrow components; naming every mock is noisy.
   {
+    files: ["**/*.test.{ts,tsx}", "**/__tests__/**/*.{ts,tsx}"],
     rules: {
-      "@typescript-eslint/no-unused-vars": "warn",
-      "@typescript-eslint/no-explicit-any": "warn",
+      "react/display-name": "off",
     },
   },
 ];
-
 export default eslintConfig;

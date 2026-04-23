@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, startTransition } from "react";
 import {
   X, Loader2, MessageSquare, ThumbsUp, ThumbsDown, ExternalLink,
   User, Calendar, Clock, Shield, Hash, Globe, Mail,
@@ -94,12 +94,16 @@ export function UserDetailPanel({ email, onClose }: UserDetailPanelProps) {
 
   useEffect(() => {
     if (!email) {
-      setData(null);
+      startTransition(() => {
+        setData(null);
+      });
       return;
     }
-    setLoading(true);
-    setError(null);
-    setActiveTab("overview");
+    startTransition(() => {
+      setLoading(true);
+      setError(null);
+      setActiveTab("overview");
+    });
     fetch(`/api/admin/users/${encodeURIComponent(email)}`)
       .then((res) => res.json())
       .then((json) => {

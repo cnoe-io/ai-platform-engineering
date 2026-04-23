@@ -48,11 +48,13 @@ function toDateInputValue(iso: string): string {
 
 export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilterProps) {
   const [customOpen, setCustomOpen] = useState(false);
-  const [customFrom, setCustomFrom] = useState(
-    customRange ? toDateInputValue(customRange.from) : toDateInputValue(new Date(Date.now() - 30 * 86400000).toISOString())
+  const [customFrom, setCustomFrom] = useState(() =>
+    customRange
+      ? toDateInputValue(customRange.from)
+      : toDateInputValue(new Date(Date.now() - 30 * 86400000).toISOString()),
   );
-  const [customTo, setCustomTo] = useState(
-    customRange ? toDateInputValue(customRange.to) : toDateInputValue(new Date().toISOString())
+  const [customTo, setCustomTo] = useState(() =>
+    customRange ? toDateInputValue(customRange.to) : toDateInputValue(new Date().toISOString()),
   );
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

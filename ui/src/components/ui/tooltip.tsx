@@ -99,10 +99,13 @@ export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
     return React.cloneElement(children as React.ReactElement<any>, {
       ref: (node: HTMLElement | null) => {
         elementRef.current = node;
-        if (typeof (children as any).ref === 'function') {
-          (children as any).ref(node);
-        } else if ((children as any).ref) {
-          (children as any).ref.current = node;
+        const child = children as React.ReactElement & { ref?: React.Ref<HTMLElement | null> };
+        if (typeof child.ref === "function") {
+          child.ref(node);
+        } else if (child.ref && typeof child.ref === "object") {
+          // Merge with child object ref (Radix asChild); mutates ref object by design
+          // eslint-disable-next-line react-hooks/immutability -- dual ref assignment for asChild
+          (child.ref as React.MutableRefObject<HTMLElement | null>).current = node;
         }
       },
       onMouseEnter: handleMouseEnter,

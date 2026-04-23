@@ -37,6 +37,60 @@ def get_env() -> Optional[str]:
         logger.warning("ATLASSIAN_TOKEN is not set in environment variables.")
     return token
 
+
+def validate_prerequisites() -> Tuple[bool, Dict[str, Any]]:
+    """
+    Validate required env: token, email, and a non-placeholder Jira base URL.
+    Mirrors the checks at the start of :func:`make_api_request` (without HTTP).
+    """
+    from urllib.parse import urlparse as _urlparse
+
+    token = get_env()
+    email = str(
+        os.getenv("ATLASSIAN_EMAIL")
+        or os.getenv("JIRA_EMAIL")
+        or os.getenv("JIRA_USER")
+        or ""
+    )
+    url = str(os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL") or "")
+
+    if not token:
+        return (
+            False,
+            {
+                "error": "Token is required. Please set the ATLASSIAN_TOKEN environment variable."
+            },
+        )
+    if not url:
+        return (
+            False,
+            {
+                "error": "ATLASSIAN_API_URL is required. Please set the ATLASSIAN_API_URL environment variable (e.g., https://your-domain.atlassian.net)."
+            },
+        )
+    if not email:
+        return (
+            False,
+            {
+                "error": "ATLASSIAN_EMAIL is required. Please set the ATLASSIAN_EMAIL environment variable."
+            },
+        )
+
+    _parsed = _urlparse(url)
+    _hostname = (_parsed.hostname or url).lower()
+    if _hostname in ("example.com", "jira.example.com") or _hostname.endswith(
+        ".example.com"
+    ):
+        return (
+            False,
+            {
+                "error": f"Invalid ATLASSIAN_API_URL: '{url}'. Please set ATLASSIAN_API_URL to your actual Jira instance URL (e.g., https://your-domain.atlassian.net)."
+            },
+        )
+
+    return True, {}
+
+
 async def make_api_request(
     path: str,
     method: str = "GET",

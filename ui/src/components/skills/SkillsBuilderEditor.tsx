@@ -1266,7 +1266,7 @@ export function SkillsBuilderEditor({
       return;
     }
     setSkillContent((prev) => updateAllowedToolsInFrontmatter(prev, allowedTools));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [allowedTools]);
 
   // Set skillContent and sync allowedTools from frontmatter (for code editor, template load, AI, undo/redo, import)

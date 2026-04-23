@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { config } from "@/lib/config";
 import { getHealthStatus } from "@/components/rag/api";
 
@@ -35,7 +35,7 @@ export function useRAGHealth(): UseRAGHealthResult {
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
   const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
   const [cleanupConfig, setCleanupConfig] = useState<CleanupConfig | null>(null);
-  const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
+  const nextCheckTimeRef = useRef(0);
   const hasInitialCheckCompleted = useRef<boolean>(false);
   const url = config.ragUrl;
   const ragEnabled = config.ragEnabled;
@@ -73,9 +73,14 @@ export function useRAGHealth(): UseRAGHealthResult {
 
   // Update countdown timer every second
   useEffect(() => {
+    if (nextCheckTimeRef.current === 0) {
+      nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+    }
     const countdownInterval = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((nextCheckTimeRef.current - Date.now()) / 1000));
-      setSecondsUntilNextCheck(remaining);
+      startTransition(() => {
+        setSecondsUntilNextCheck(remaining);
+      });
     }, 1000);
 
     return () => clearInterval(countdownInterval);
@@ -84,16 +89,21 @@ export function useRAGHealth(): UseRAGHealthResult {
   useEffect(() => {
     // If RAG is disabled, don't check health at all
     if (!ragEnabled) {
-      setStatus("disconnected");
+      startTransition(() => {
+        setStatus("disconnected");
+      });
       hasInitialCheckCompleted.current = true;
       return;
     }
 
-    // Check immediately on mount
-    checkHealth();
+    startTransition(() => {
+      void checkHealth();
+    });
 
     // Set up 30-second polling interval
-    const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
+    const interval = setInterval(() => {
+      void checkHealth();
+    }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [checkHealth, ragEnabled]);

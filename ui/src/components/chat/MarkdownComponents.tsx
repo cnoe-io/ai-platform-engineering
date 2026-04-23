@@ -94,7 +94,7 @@ export const assistantMarkdownComponents: Record<string, React.ComponentType<any
   tr: ({ children }: { children: React.ReactNode }) => (
     <tr className="hover:bg-muted/30 transition-colors">{children}</tr>
   ),
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   code({ className, children, node, ...props }: { className?: string; children: React.ReactNode; node?: unknown; [key: string]: unknown }) {
     const match = /language-(\w+)/.exec(className || "");
     const codeContent = String(children).replace(/\n$/, "");

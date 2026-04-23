@@ -9,7 +9,7 @@ import { NextRequest } from "next/server";
  */
 async function handler(req: NextRequest, context: any) {
   const options = await getAuthOptions();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   return (NextAuth(options) as any)(req, context);
 }
 

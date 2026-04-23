@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, startTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { WidgetCatalog } from "./widgets";
 import { Widget, WidgetAction } from "@/types/a2a";
@@ -189,44 +189,46 @@ export function A2UIRenderer({ messages, onAction }: A2UIRendererProps) {
   const [activeSurface, setActiveSurface] = useState<string | null>(null);
 
   useEffect(() => {
-    for (const msg of messages) {
-      if (msg.surfaceUpdate) {
-        const { surfaceId, components } = msg.surfaceUpdate;
-        setSurfaces((prev) => {
-          const updated = new Map(prev);
-          const existing = updated.get(surfaceId) || [];
-          // Merge or replace components
-          const merged = [...existing];
-          for (const comp of components) {
-            const idx = merged.findIndex((c) => c.id === comp.id);
-            if (idx >= 0) {
-              merged[idx] = comp;
-            } else {
-              merged.push(comp);
+    startTransition(() => {
+      for (const msg of messages) {
+        if (msg.surfaceUpdate) {
+          const { surfaceId, components } = msg.surfaceUpdate;
+          setSurfaces((prev) => {
+            const updated = new Map(prev);
+            const existing = updated.get(surfaceId) || [];
+            // Merge or replace components
+            const merged = [...existing];
+            for (const comp of components) {
+              const idx = merged.findIndex((c) => c.id === comp.id);
+              if (idx >= 0) {
+                merged[idx] = comp;
+              } else {
+                merged.push(comp);
+              }
             }
-          }
-          updated.set(surfaceId, merged);
-          return updated;
-        });
-        setActiveSurface(surfaceId);
-      }
+            updated.set(surfaceId, merged);
+            return updated;
+          });
+          setActiveSurface(surfaceId);
+        }
 
-      if (msg.dataModelUpdate) {
-        setDataModel((prev) => ({ ...prev, ...msg.dataModelUpdate!.contents }));
-      }
+        if (msg.dataModelUpdate) {
+          setDataModel((prev) => ({ ...prev, ...msg.dataModelUpdate!.contents }));
+        }
 
-      if (msg.beginRendering) {
-        setActiveSurface(msg.beginRendering.surfaceId);
-      }
+        if (msg.beginRendering) {
+          setActiveSurface(msg.beginRendering.surfaceId);
+        }
 
-      if (msg.deleteSurface) {
-        setSurfaces((prev) => {
-          const updated = new Map(prev);
-          updated.delete(msg.deleteSurface!.surfaceId);
-          return updated;
-        });
+        if (msg.deleteSurface) {
+          setSurfaces((prev) => {
+            const updated = new Map(prev);
+            updated.delete(msg.deleteSurface!.surfaceId);
+            return updated;
+          });
+        }
       }
-    }
+    });
   }, [messages]);
 
   // Convert A2UI components to widgets

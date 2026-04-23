@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { config as appConfig } from "@/lib/config";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
@@ -37,7 +37,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [tags, setTags] = useState<string[]>([]);
   const [mongoDBStatus, setMongoDBStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [storageMode, setStorageMode] = useState<'mongodb' | 'localStorage' | null>(null);
-  const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
+  const nextCheckTimeRef = useRef(0);
   const url = appConfig.caipeUrl;
 
   const checkHealth = useCallback(async () => {
@@ -144,20 +144,28 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
 
   // Update countdown timer every second
   useEffect(() => {
+    if (nextCheckTimeRef.current === 0) {
+      nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+    }
     const countdownInterval = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((nextCheckTimeRef.current - Date.now()) / 1000));
-      setSecondsUntilNextCheck(remaining);
+      startTransition(() => {
+        setSecondsUntilNextCheck(remaining);
+      });
     }, 1000);
 
     return () => clearInterval(countdownInterval);
   }, []);
 
   useEffect(() => {
-    // Check immediately on mount (includes fetching storage mode from server)
-    checkHealth();
+    startTransition(() => {
+      void checkHealth();
+    });
 
     // Set up 30-second polling interval
-    const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
+    const interval = setInterval(() => {
+      void checkHealth();
+    }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [checkHealth]);

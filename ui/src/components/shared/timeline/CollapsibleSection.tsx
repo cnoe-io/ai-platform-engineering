@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, startTransition } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -61,11 +61,13 @@ export function CollapsibleSection({
   // Auto-collapse when streaming ends
   useEffect(() => {
     if (autoCollapseOnStreamEnd && prevStreamingRef.current && !isStreaming) {
-      if (isControlled) {
-        onExpandedChange?.(false);
-      } else {
-        setInternalExpanded(false);
-      }
+      startTransition(() => {
+        if (isControlled) {
+          onExpandedChange?.(false);
+        } else {
+          setInternalExpanded(false);
+        }
+      });
     }
     prevStreamingRef.current = isStreaming;
   }, [isStreaming, autoCollapseOnStreamEnd, isControlled, onExpandedChange]);

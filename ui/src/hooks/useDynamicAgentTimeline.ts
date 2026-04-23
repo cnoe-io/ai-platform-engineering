@@ -9,7 +9,7 @@
  * <AgentTimeline data={data} ... />
  */
 
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { TimelineManager, createTimelineManager } from "@/lib/da-timeline-manager";
 import type { TimelineData, StatusType } from "@/types/dynamic-agent-timeline";
 import type {
@@ -56,30 +56,18 @@ export function useAgentTimeline(
   isStreaming: boolean,
   turnStatus?: StatusType
 ): UseAgentTimelineResult {
-  // Keep a stable manager reference across renders
-  // We'll recreate when events array identity changes (new message)
-  const managerRef = useRef<TimelineManager | null>(null);
-  const prevEventsRef = useRef<StreamEvent[]>([]);
-
-  // Process events and generate interleaved data
+  // Process events and generate interleaved data. We create a fresh manager and
+  // replay the full event list on each `events` / `isStreaming` / `turnStatus`
+  // change. That keeps this hook free of ref reads/writes during render (per
+  // React Compiler / react-hooks/refs rules) and matches the prior reset+replay
+  // behavior.
   const data = useMemo(() => {
     // If no events, return empty data with streaming flag
     if (events.length === 0) {
       return { ...EMPTY_DATA, isStreaming };
     }
 
-    // Check if we need to reset the manager (new events array)
-    // Compare by first event id to detect new turn
-    const prevFirst = prevEventsRef.current[0]?.id;
-    const currFirst = events[0]?.id;
-    
-    if (prevFirst !== currFirst) {
-      // New turn - create fresh manager
-      managerRef.current = createTimelineManager();
-    }
-
-    const manager = managerRef.current || createTimelineManager();
-    managerRef.current = manager;
+    const manager: TimelineManager = createTimelineManager();
 
     // Reset and replay all events to get consistent state
     // This is simpler than incremental updates and handles reordering
@@ -134,9 +122,6 @@ export function useAgentTimeline(
     if (!isStreaming) {
       manager.finalize(turnStatus || "done");
     }
-
-    // Update prev events ref
-    prevEventsRef.current = events;
 
     return manager.getGroupedData();
   }, [events, isStreaming, turnStatus]);

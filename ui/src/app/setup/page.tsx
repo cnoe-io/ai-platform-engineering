@@ -199,7 +199,7 @@ export default function SetupPage() {
           </div>
           <h1 className="text-2xl font-bold">Welcome to CAIPE</h1>
           <p className="text-sm text-muted-foreground">
-            Let's set up your admin account to get started.
+            Let&apos;s set up your admin account to get started.
           </p>
         </div>
 

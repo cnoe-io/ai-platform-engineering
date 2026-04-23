@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Check, X, Shield, User } from "lucide-react";
 import { useRagPermissions, Permission } from "@/hooks/useRagPermissions";
+import type { PermissionType } from "@/lib/rag-api";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -9,20 +10,12 @@ interface RagAuthIndicatorProps {
   compact?: boolean;
 }
 
-export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
-  const { userInfo, hasPermission, isLoading } = useRagPermissions();
-
-  // Don't show while loading
-  if (isLoading) {
-    return null;
-  }
-
-  // No user info available
-  if (!userInfo) {
-    return null;
-  }
-
-  const PermissionsTooltipContent = () => (
+function PermissionsTooltipContent({
+  hasPermission,
+}: {
+  hasPermission: (p: PermissionType) => boolean;
+}) {
+  return (
     <div className="space-y-1.5">
       <div className="font-semibold text-xs border-b border-border pb-1 mb-1">Permissions</div>
       <div className="flex items-center gap-2">
@@ -51,6 +44,20 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
       </div>
     </div>
   );
+}
+
+export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
+  const { userInfo, hasPermission, isLoading } = useRagPermissions();
+
+  // Don't show while loading
+  if (isLoading) {
+    return null;
+  }
+
+  // No user info available
+  if (!userInfo) {
+    return null;
+  }
 
   // Compact mode for collapsed sidebar - just show icon with tooltip
   if (compact) {
@@ -89,7 +96,7 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
                 </div>
               )}
               <div className="border-t border-border pt-2">
-                <PermissionsTooltipContent />
+                <PermissionsTooltipContent hasPermission={hasPermission} />
               </div>
             </div>
           </TooltipContent>
@@ -124,7 +131,7 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" className="w-48">
-            <PermissionsTooltipContent />
+            <PermissionsTooltipContent hasPermission={hasPermission} />
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -156,7 +163,7 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="w-48">
-          <PermissionsTooltipContent />
+          <PermissionsTooltipContent hasPermission={hasPermission} />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

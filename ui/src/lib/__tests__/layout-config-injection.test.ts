@@ -46,7 +46,7 @@ describe('layout config injection pipeline', () => {
       const script = getClientConfigScript();
 
       // Simulate what the browser does with <script>window.__APP_CONFIG__=...;</script>
-      // eslint-disable-next-line no-eval
+       
       const fn = new Function(`window.__APP_CONFIG__=${script};`);
       fn();
 

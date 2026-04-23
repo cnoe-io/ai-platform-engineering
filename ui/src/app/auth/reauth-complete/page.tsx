@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, startTransition } from "react";
 
 /**
  * ReauthCompletePage — the OIDC callback destination for new-tab silent re-auth.
@@ -33,7 +33,9 @@ export default function ReauthCompletePage() {
     window.close();
 
     // If we are still here the browser blocked the close; show fallback UI.
-    setClosed(true);
+    startTransition(() => {
+      setClosed(true);
+    });
   }, []);
 
   if (!closed) {

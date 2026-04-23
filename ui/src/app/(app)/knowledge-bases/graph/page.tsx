@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import { motion } from "framer-motion";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
@@ -9,23 +9,17 @@ import GraphView from "@/components/rag/GraphView";
 function GraphPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [exploreData, setExploreData] = useState<{ entityType: string; primaryKey: string } | null>(null);
-
-  useEffect(() => {
-    const entityType = searchParams?.get('entityType');
-    const primaryKey = searchParams?.get('primaryKey');
-    
+  const exploreData = useMemo((): { entityType: string; primaryKey: string } | null => {
+    const entityType = searchParams?.get("entityType");
+    const primaryKey = searchParams?.get("primaryKey");
     if (entityType && primaryKey) {
-      setExploreData({ entityType, primaryKey });
-    } else {
-      setExploreData(null);
+      return { entityType, primaryKey };
     }
+    return null;
   }, [searchParams]);
 
   const handleExploreComplete = () => {
-    setExploreData(null);
-    // Remove query params
-    router.replace('/knowledge-bases/graph');
+    router.replace("/knowledge-bases/graph");
   };
 
   return (
