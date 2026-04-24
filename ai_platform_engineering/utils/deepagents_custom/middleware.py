@@ -90,6 +90,28 @@ def _generate_tool_call_id() -> str:
     return f"call_{uuid.uuid4().hex[:24]}"
 
 
+def _rag_terminal_response(tool_messages: list) -> dict:
+    """Build the terminal state update when RAG caps are fully exhausted.
+
+    In USE_STRUCTURED_RESPONSE mode the graph must not jump_to=end because
+    the LLM still needs a turn to call the ResponseFormat/PlatformEngineerResponse
+    tool — skipping it produces an empty response (same reason the write_todos
+    redundancy path avoids jump_to=end in structured mode).
+
+    In plain-text mode jump_to=end is safe because the response assembler
+    reads the last prose AIMessage directly from state.
+    """
+    try:
+        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE  # noqa: PLC0415
+    except ImportError:
+        USE_STRUCTURED_RESPONSE = False
+
+    if USE_STRUCTURED_RESPONSE:
+        logger.info("[DeterministicTaskMiddleware] RAG hard-stop: structured response mode — omitting jump_to=end so LLM can call ResponseFormat")
+        return {"messages": tool_messages}
+    return {"messages": tool_messages, "jump_to": "end"}
+
+
 class DeterministicTaskMiddleware(AgentMiddleware):
     """Middleware for deterministic task execution using before_model + wrap_tool_call.
     
@@ -136,7 +158,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         # Log all state keys to diagnose whether invoke_self_service_task's Command update was applied
         state_keys = list(state.keys()) if hasattr(state, 'keys') else "N/A"
         logger.info(f"[DeterministicTaskMiddleware] before_model: task_pending={task_pending}, tasks_count={len(tasks)}, state_keys={state_keys}")
-        
+
         if not task_pending or not tasks:
             logger.info(f"[DeterministicTaskMiddleware] before_model: No pending tasks, passing through (task_pending={task_pending}, tasks={len(tasks)})")
             return None
@@ -265,6 +287,108 @@ class DeterministicTaskMiddleware(AgentMiddleware):
 
         write_todos_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] == "write_todos"]
         if not write_todos_calls or len(write_todos_calls) != len(last_ai_msg.tool_calls):
+            try:
+                from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (  # noqa: PLC0415
+                    FetchDocumentCapWrapper,
+                    SearchCapWrapper,
+                    _rag_conversation_id,
+                    _record_rag_cap_hit,
+                    is_rag_hard_stopped,
+                    is_rag_tool_capped,
+                    rag_batch_cap_check,
+                    rag_cap_message,
+                    rag_cap_message_for_thread,
+                )
+                from langgraph.config import get_config  # noqa: PLC0415
+
+                conversation_id = _rag_conversation_id.get()
+                if conversation_id:
+                    thread_id = conversation_id
+                else:
+                    cfg = get_config()
+                    thread_id = cfg.get("configurable", {}).get("thread_id", "__default__") if cfg else "__default__"
+
+                rag_tool_names = {"fetch_document", "search"}
+                rag_calls = [tc for tc in last_ai_msg.tool_calls if tc["name"] in rag_tool_names]
+
+                if rag_calls:
+                    search_calls = [tc for tc in rag_calls if tc["name"] == "search"]
+                    fetch_calls = [tc for tc in rag_calls if tc["name"] == "fetch_document"]
+
+                    # Atomic snapshot of remaining budgets for both tools.
+                    # Only block calls that exceed the cap; pass the rest through so
+                    # the LLM can use any remaining budget rather than losing those slots.
+                    cap = rag_batch_cap_check(
+                        thread_id,
+                        len(search_calls),
+                        len(fetch_calls),
+                        search_max=SearchCapWrapper.get_max_calls(),
+                        fetch_max=FetchDocumentCapWrapper.get_max_calls(),
+                    )
+
+                    if cap.any_excess:
+                        # Block the entire over-budget tool type so the LLM can
+                        # strategize which queries to use its remaining slots on,
+                        # rather than having arbitrary calls pass through.
+                        blocked_search = search_calls if cap.search_excess > 0 else []
+                        blocked_fetch = fetch_calls if cap.fetch_excess > 0 else []
+                        blocked_calls = blocked_search + blocked_fetch
+
+                        logger.info(
+                            f"[DeterministicTaskMiddleware] RAG cap in after_model: "
+                            f"search {len(search_calls)} req / {cap.search_allowed} budget / {cap.search_excess} excess, "
+                            f"fetch {len(fetch_calls)} req / {cap.fetch_allowed} budget / {cap.fetch_excess} excess "
+                            f"thread_id={thread_id}"
+                        )
+                        # Report the pre-batch budget (search_allowed / fetch_allowed) as
+                        # remaining so the LLM knows exactly how many calls it can still make.
+                        msg = rag_cap_message(
+                            search_remaining=cap.search_allowed if cap.search_excess > 0 else cap.search_remaining,
+                            fetch_remaining=cap.fetch_allowed if cap.fetch_excess > 0 else cap.fetch_remaining,
+                        )
+                        tool_messages = [
+                            ToolMessage(
+                                content=msg,
+                                tool_call_id=tc["id"],
+                                name=tc["name"],
+                            )
+                            for tc in blocked_calls
+                        ]
+                        # Budget still available: batch-size correction only — LLM re-strategizes.
+                        # Budget gone for ALL tools: terminate so the LLM gets its synthesis turn.
+                        # If ANY tool has remaining budget, do not terminate — the message already
+                        # tells the LLM how many calls it has left to use.
+                        truly_exhausted = cap.search_remaining == 0 and cap.fetch_remaining == 0
+                        if truly_exhausted:
+                            if cap.search_excess > 0 and cap.search_allowed == 0:
+                                _record_rag_cap_hit(thread_id, "search")
+                            if cap.fetch_excess > 0 and cap.fetch_allowed == 0:
+                                _record_rag_cap_hit(thread_id, "fetch_document")
+                            return _rag_terminal_response(tool_messages)
+                        return {"messages": tool_messages}
+
+                # Fallback: a non-parallel call slipped through to _arun and was capped there.
+                # Model is still calling only RAG tools — terminate.
+                if is_rag_hard_stopped(thread_id) and rag_calls and len(rag_calls) == len(last_ai_msg.tool_calls):
+                    all_individually_capped = all(is_rag_tool_capped(thread_id, tc["name"]) for tc in rag_calls)
+                    if all_individually_capped:
+                        logger.info(
+                            f"[DeterministicTaskMiddleware] RAG fallback hard-stop: "
+                            f"still calling {[tc['name'] for tc in rag_calls]} after cap, terminating"
+                        )
+                        tool_messages = [
+                            ToolMessage(
+                                content=rag_cap_message_for_thread(thread_id),
+                                tool_call_id=tc["id"],
+                                name=tc["name"],
+                            )
+                            for tc in rag_calls
+                        ]
+                        for tc in rag_calls:
+                            _record_rag_cap_hit(thread_id, tc["name"])
+                        return _rag_terminal_response(tool_messages)
+            except Exception as rag_err:
+                logger.warning(f"[DeterministicTaskMiddleware] RAG cap check failed: {rag_err}", exc_info=True)
             return None
 
         for tc in write_todos_calls:
@@ -276,7 +400,12 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         if not current_todos or not all(t.get("status") == "completed" for t in current_todos):
             return None
 
-        logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all already completed), terminating loop")
+        # In structured response mode, the LLM still needs to call the
+        # ResponseFormat tool after all tasks complete.  Jumping to "end"
+        # would skip that final tool call and produce a blank response.
+        # Instead, just inject ToolMessages so the model knows the todos
+        # are done and can proceed to generate the structured response.
+        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE  # noqa: PLC0415
 
         tool_messages = [
             ToolMessage(
@@ -287,10 +416,12 @@ class DeterministicTaskMiddleware(AgentMiddleware):
             for tc in write_todos_calls
         ]
 
-        return {
-            "messages": tool_messages,
-            "jump_to": "end",
-        }
+        if USE_STRUCTURED_RESPONSE:
+            logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all completed), continuing for structured response")
+            return {"messages": tool_messages}
+        else:
+            logger.info("[DeterministicTaskMiddleware] Redundant write_todos detected (all completed), terminating loop")
+            return {"messages": tool_messages, "jump_to": "end"}
 
     @hook_config(can_jump_to=["end"])
     async def aafter_model(self, state: TaskOrchestrationState, runtime: Any = None) -> dict[str, Any] | None:
