@@ -294,18 +294,20 @@ class TestMiddlewareRagLoopExit:
         so the LLM still gets a turn to call PlatformEngineerResponse."""
         from ai_platform_engineering.utils.deepagents_custom.middleware import _rag_terminal_response
 
-        with patch(
-            "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response.__module__",
-            create=True,
-        ):
-            pass  # just ensure import works
-
         msgs = [ToolMessage(content="RAG call limit reached.", tool_call_id="tc-1", name="search")]
 
+        # First confirm False produces jump_to=end (validates the patch mechanism works)
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
+            False,
+        ):
+            baseline = _rag_terminal_response(msgs)
+        assert baseline.get("jump_to") == "end", "Baseline (False) must produce jump_to=end"
+
+        # Now confirm True omits jump_to=end
         with patch(
             "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
             True,
-            create=True,
         ):
             result = _rag_terminal_response(msgs)
         assert "jump_to" not in result, "Must omit jump_to=end in structured mode"
@@ -331,16 +333,22 @@ class TestMiddlewareRagLoopExit:
         the thread_id from get_config — this is the mechanism that shares caps across child graphs."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             SearchCapWrapper,
+            FetchDocumentCapWrapper,
             _DEFAULT_MAX_SEARCH_CALLS,
+            _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
             set_rag_conversation_id,
             _rag_conversation_id,
         )
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
-        # Budget exhausted on "conv-123", clean on "thread-999"
+        # Both budgets exhausted on "conv-123", clean on "thread-999"
         SearchCapWrapper._global_counts["conv-123"] = _DEFAULT_MAX_SEARCH_CALLS
+        FetchDocumentCapWrapper._global_counts["conv-123"] = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS
 
-        ai_msg = _make_ai_message_with_tool_calls([_tool_call("search", "tc-s")])
+        ai_msg = _make_ai_message_with_tool_calls([
+            _tool_call("search", "tc-s"),
+            _tool_call("fetch_document", "tc-f"),
+        ])
         state = _make_state([ai_msg])
 
         token = set_rag_conversation_id("conv-123")
@@ -399,10 +407,79 @@ class TestMiddlewareRagLoopExit:
         assert result is not None
         assert len(result["messages"]) == 5
         assert all(isinstance(m, ToolMessage) for m in result["messages"])
-        # Message must tell LLM it has 2 search calls remaining
+        # Message must tell LLM it has exactly 2 search calls remaining
         content = result["messages"][0].content
-        assert "2" in content and "search" in content.lower() and "remaining" in content.lower()
+        assert "2 search call" in content.lower() and "remaining" in content.lower()
         # Budget still exists — must NOT have incremented cap_hit_count
         assert _rag_cap_hit_counts.get("t10", 0) == 0, "cap_hit_count must stay 0 when budget remains"
         # No jump_to=end when budget remains
         assert "jump_to" not in result
+
+    def test_multi_turn_loop_terminates_after_cap_exhaustion(self):
+        """Multi-turn loop: turns 1-5 succeed, turn 6 hits cap (blocked with remaining=0),
+        turn 7 model ignores the cap message and calls search again — after_model must still
+        terminate via the fallback path (_rag_hard_stopped)."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            SearchCapWrapper,
+            FetchDocumentCapWrapper,
+            _DEFAULT_MAX_SEARCH_CALLS,
+            _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
+            _rag_capped_tools,
+            _rag_cap_hit_counts,
+        )
+        from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
+
+        thread_id = "t-loop"
+
+        # Simulate turns 1-5: search budget fully consumed, fetch also fully consumed
+        SearchCapWrapper._global_counts[thread_id] = _DEFAULT_MAX_SEARCH_CALLS
+        FetchDocumentCapWrapper._global_counts[thread_id] = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS
+
+        middleware = DeterministicTaskMiddleware()
+
+        # Turn 6: batch cap fires — both tools exhausted, terminal response returned
+        ai_msg_turn6 = _make_ai_message_with_tool_calls([
+            _tool_call("search", "tc-t6-s"),
+            _tool_call("fetch_document", "tc-t6-f"),
+        ])
+        state_turn6 = _make_state([ai_msg_turn6])
+
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.get_config",
+            return_value={"configurable": {"thread_id": thread_id}},
+        ), patch(
+            "langgraph.config.get_config",
+            return_value={"configurable": {"thread_id": thread_id}},
+        ), patch(
+            "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
+            wraps=lambda msgs: {"messages": msgs},
+        ) as mock_terminal_t6:
+            result_t6 = middleware.after_model(state_turn6)
+
+        assert result_t6 is not None, "Turn 6: must terminate — both caps exhausted"
+        mock_terminal_t6.assert_called_once()
+        # Both tools should now be recorded in _rag_capped_tools
+        assert "search" in _rag_capped_tools.get(thread_id, set())
+        assert "fetch_document" in _rag_capped_tools.get(thread_id, set())
+
+        # Turn 7: model ignores the cap message and calls search again.
+        # Fallback path (is_rag_hard_stopped) must fire.
+        ai_msg_turn7 = _make_ai_message_with_tool_calls([
+            _tool_call("search", "tc-t7-s"),
+        ])
+        state_turn7 = _make_state([ai_msg_turn7])
+
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.rag_tools.get_config",
+            return_value={"configurable": {"thread_id": thread_id}},
+        ), patch(
+            "langgraph.config.get_config",
+            return_value={"configurable": {"thread_id": thread_id}},
+        ), patch(
+            "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
+            wraps=lambda msgs: {"messages": msgs},
+        ) as mock_terminal_t7:
+            result_t7 = middleware.after_model(state_turn7)
+
+        assert result_t7 is not None, "Turn 7: must terminate via fallback — search still capped"
+        mock_terminal_t7.assert_called_once(), "Fallback path must call _rag_terminal_response"

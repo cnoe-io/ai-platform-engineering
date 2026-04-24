@@ -355,13 +355,15 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             for tc in blocked_calls
                         ]
                         # Budget still available: batch-size correction only — LLM re-strategizes.
-                        # Budget gone: terminate so the LLM gets its synthesis turn.
-                        truly_exhausted = (
-                            (cap.search_excess > 0 and cap.search_allowed == 0)
-                            or (cap.fetch_excess > 0 and cap.fetch_allowed == 0)
-                        )
+                        # Budget gone for ALL tools: terminate so the LLM gets its synthesis turn.
+                        # If ANY tool has remaining budget, do not terminate — the message already
+                        # tells the LLM how many calls it has left to use.
+                        truly_exhausted = cap.search_remaining == 0 and cap.fetch_remaining == 0
                         if truly_exhausted:
-                            _record_rag_cap_hit(thread_id)
+                            if cap.search_excess > 0 and cap.search_allowed == 0:
+                                _record_rag_cap_hit(thread_id, "search")
+                            if cap.fetch_excess > 0 and cap.fetch_allowed == 0:
+                                _record_rag_cap_hit(thread_id, "fetch_document")
                             return _rag_terminal_response(tool_messages)
                         return {"messages": tool_messages}
 
@@ -382,7 +384,8 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             )
                             for tc in rag_calls
                         ]
-                        _record_rag_cap_hit(thread_id)
+                        for tc in rag_calls:
+                            _record_rag_cap_hit(thread_id, tc["name"])
                         return _rag_terminal_response(tool_messages)
             except Exception as rag_err:
                 logger.warning(f"[DeterministicTaskMiddleware] RAG cap check failed: {rag_err}", exc_info=True)

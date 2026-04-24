@@ -300,8 +300,10 @@ _rag_hard_stop_lock = threading.Lock()
 def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> int:
     """Record a cap hit for a specific tool on this thread. Returns the new hit count."""
     with _rag_hard_stop_lock:
+        _cleanup_stale_hard_stop()
         count = _rag_cap_hit_counts.get(thread_id, 0) + 1
         _rag_cap_hit_counts[thread_id] = count
+        _rag_hard_stop_timestamps[thread_id] = time.time()
         if tool_name:
             if thread_id not in _rag_capped_tools:
                 _rag_capped_tools[thread_id] = set()
@@ -394,6 +396,21 @@ def rag_batch_cap_check(
             )
 
 
+_rag_hard_stop_timestamps: dict[str, float] = {}
+
+
+def _cleanup_stale_hard_stop() -> None:
+    """Remove hard-stop entries older than the TTL. Must be called under _rag_hard_stop_lock."""
+    cutoff = time.time() - _STALE_ENTRY_TTL_SECONDS
+    stale = [k for k, v in _rag_hard_stop_timestamps.items() if v < cutoff]
+    for k in stale:
+        _rag_capped_tools.pop(k, None)
+        _rag_cap_hit_counts.pop(k, None)
+        _rag_hard_stop_timestamps.pop(k, None)
+    if stale:
+        logger.debug(f"hard-stop: cleaned up {len(stale)} stale entries")
+
+
 def clear_rag_state(thread_id: str) -> None:
     """Reset RAG cap counters for a thread at the start of a new query.
 
@@ -403,6 +420,7 @@ def clear_rag_state(thread_id: str) -> None:
     with _rag_hard_stop_lock:
         _rag_capped_tools.pop(thread_id, None)
         _rag_cap_hit_counts.pop(thread_id, None)
+        _rag_hard_stop_timestamps.pop(thread_id, None)
     with SearchCapWrapper._global_lock:
         SearchCapWrapper._global_counts.pop(thread_id, None)
         SearchCapWrapper._global_timestamps.pop(thread_id, None)
