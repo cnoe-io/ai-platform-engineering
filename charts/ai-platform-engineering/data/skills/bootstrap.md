@@ -110,15 +110,21 @@ Use when the user explicitly wants a local copy (e.g., for offline use).
 
 1. Call the API helper with `INCLUDE_CONTENT=true` and `QUERY` set to the skill name.
 2. Extract the `content` field from the matching skill.
-3. Save to the appropriate command directory for this project (e.g.
-   `.claude/commands/<skill-name>.md`, `.cursor/commands/<skill-name>.md`,
-   or `.specify/templates/commands/<skill-name>.md` if those directories exist).
-4. Confirm: "Skill `<name>` installed."
+3. Detect the install layout and save accordingly:
+   - **Skills layout** (preferred): if `.claude/skills/` exists, save to
+     `.claude/skills/<skill-name>/SKILL.md` (create the directory).
+     Similarly `.cursor/skills/<skill-name>/SKILL.md` for Cursor.
+   - **Commands layout** (fallback): `.claude/commands/<skill-name>.md`,
+     `.cursor/commands/<skill-name>.md`,
+     or `.specify/templates/commands/<skill-name>.md`.
+4. Confirm: "Skill `<name>` installed to `<path>`."
 
 ## Steps — Update mode (refresh installed skills)
 
-1. List all `.md` files in the local commands directory that are NOT `{{COMMAND_NAME}}.md` or `speckit.*.md`.
-2. For each file, extract the skill name from the filename (strip `.md`).
+1. Detect the layout:
+   - Skills layout: scan `.claude/skills/*/SKILL.md` (and `.cursor/skills/*/SKILL.md`).
+   - Commands layout: list `.md` files in the commands directory, excluding `{{COMMAND_NAME}}.md` and `speckit.*.md`.
+2. For each installed skill, extract the skill name (directory name for skills layout, filename stem for commands layout).
 3. Fetch each from the API with `INCLUDE_CONTENT=true`.
 4. Overwrite the local file with the fetched content.
 5. Report what was updated.

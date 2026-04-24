@@ -1619,9 +1619,8 @@ EOF`}
             </DialogTitle>
             <DialogDescription>
               Pick your coding agent and where to install. We&rsquo;ll
-              generate a one-line installer that fetches your selected
-              skills from the catalog URL above and writes them as slash
-              commands.
+              generate a one-line installer that fetches skills from your
+              catalog and writes them to the agent&rsquo;s skills directory.
             </DialogDescription>
           </DialogHeader>
 

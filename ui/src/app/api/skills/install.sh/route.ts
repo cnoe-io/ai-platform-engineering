@@ -304,18 +304,18 @@ Usage:
   $0 [--upgrade|--force] [--api-key=<key>]
 
 API key resolution (first match wins):
-  1. --api-key=<key>           passed on the command line
-  2. \\\$CAIPE_CATALOG_KEY        environment variable
-  3. ~/.config/caipe/config.json   { "api_key": "..." }   (recommended)
-  4. ~/.config/grid/config.json    { "api_key": "..." }   (shared dotfile)
+  1. --api-key=<key>              passed on the command line (WARNING: see below)
+  2. \\\$CAIPE_CATALOG_KEY          environment variable (WARNING: see below)
+  3. ~/.config/caipe/config.json     { "api_key": "..." }   ← recommended
+  4. ~/.config/grid/config.json      { "api_key": "..." }   (shared dotfile)
 
-The Step-3 UI walks you through creating the config.json file, so on a host
-where you've already done that you don't need to pass the key at all.
+The config.json approach keeps your key out of shell history entirely.
+Options 1 and 2 both appear in shell history (--api-key as a flag on the
+command line; CAIPE_CATALOG_KEY=<key> as an export or inline assignment).
 
 Options:
   --api-key=<key>   Supply the catalog API key as a flag. WARNING: visible in
-                    \\\`ps\\\` output to other users on the same host. Prefer
-                    putting the key in ~/.config/caipe/config.json once.
+                    \\\`ps\\\` output AND shell history. Prefer config.json.
   --upgrade         Replace a previously-installed CAIPE skill at the target
                     path with the latest version. Looks up ownership in the
                     manifest at $MANIFEST_PATH and refuses to touch files it

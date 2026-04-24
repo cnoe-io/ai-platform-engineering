@@ -39,6 +39,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [recrawlingId, setRecrawlingId] = useState<string | null>(null);
+  const [recrawlResult, setRecrawlResult] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [crawlLoading, setCrawlLoading] = useState(false);
   const [crawlPaths, setCrawlPaths] = useState<string[]>([]);
@@ -132,6 +134,20 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       setError(err.message);
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleRecrawl = async (hubId: string) => {
+    setRecrawlingId(hubId);
+    try {
+      const res = await fetch(`/api/skill-hubs/${hubId}/refresh`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Recrawl failed");
+      setRecrawlResult((prev) => ({ ...prev, [hubId]: data.skills_count ?? 0 }));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRecrawlingId(null);
     }
   };
 
@@ -374,6 +390,20 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="h-7 w-7 p-0"
+                      title="Force-recrawl this hub, bypassing the cache"
+                      onClick={() => handleRecrawl(hub.id)}
+                      disabled={recrawlingId === hub.id}
+                    >
+                      {recrawlingId === hub.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="h-7 w-7 p-0 text-red-400 hover:text-red-500"
                       onClick={() => handleDelete(hub.id)}
                       disabled={deletingId === hub.id}
@@ -398,6 +428,11 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                   {hub.last_skill_scan_exit_code != null && hub.last_skill_scan_exit_code !== 0
                     ? ` · exit ${hub.last_skill_scan_exit_code}`
                     : ""}
+                </div>
+              ) : null}
+              {recrawlResult[hub.id] != null ? (
+                <div className="px-2 pl-10 text-[11px] text-green-600 dark:text-green-400">
+                  Recrawled — {recrawlResult[hub.id]} skill{recrawlResult[hub.id] !== 1 ? "s" : ""} found
                 </div>
               ) : null}
               </div>
