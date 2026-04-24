@@ -855,8 +855,7 @@ export function TrySkillsGateway() {
             ) : null}
           </div>
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            <strong>Copy it now</strong> — stored as a hash only and cannot be shown again.
-            Lost keys cannot be recovered; generate a new one.
+            <strong>Copy it now.</strong> Cannot be shown again — lost keys cannot be recovered.
           </p>
           {/* The "Active / past keys" listing was dropped per PR #1268 review
               feedback (Jeff Napper #7): the line was confusing because it
