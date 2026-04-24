@@ -131,7 +131,7 @@ interface Conversation {
 
 #### 2.3 Update DynamicAgentChatPanel (`ui/src/components/chat/DynamicAgentChatPanel.tsx`)
 - `submitMessage` must await conversation creation before starting the stream
-- Currently fire-and-forget; needs to block on the API response (~<50ms latency for MongoDB insert)
+- Currently fire-and-forget; needs to block on the API response (~&lt;50ms latency for MongoDB insert)
 
 #### 2.4 Update conversation list UI
 - Add `client_type` filter to conversation sidebar
