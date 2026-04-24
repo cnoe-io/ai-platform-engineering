@@ -1,9 +1,18 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
 """CAIPE skills catalog query helper.
 
-Stdlib-only Python helper invoked by the bootstrap skill template
+Python helper invoked by the bootstrap skill template
 (`charts/ai-platform-engineering/data/skills/bootstrap.md`) to call the
 CAIPE skills catalog without exposing the API key in shell history.
+
+Run with `uv run` so future dependencies can be added to the `# /// script`
+block above without requiring a separate install step. Add this script to
+the Claude Code sandbox allowlist to reduce tool-call approval prompts:
+    allowed_tools: ["Bash(uv run ~/.config/caipe/caipe-skills.py*)"]
 
 Resolution order for the API key (first match wins):
   1. ``--api-key <value>`` CLI flag
@@ -20,9 +29,9 @@ Resolution order for the base URL (first match wins):
 
 Usage (positional query may be empty to list all skills):
 
-    python3 ~/.config/caipe/caipe-skills.py [QUERY...]
-    INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
-    python3 ~/.config/caipe/caipe-skills.py --source github --repo owner/r QUERY
+    uv run ~/.config/caipe/caipe-skills.py [QUERY...]
+    INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
+    uv run ~/.config/caipe/caipe-skills.py --source github --repo owner/r QUERY
 
 The script prints the catalog JSON to stdout and exits 0 on success. On
 client-side errors (no key, bad config, invalid URL) it prints a JSON

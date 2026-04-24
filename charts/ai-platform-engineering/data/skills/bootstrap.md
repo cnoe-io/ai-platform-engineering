@@ -19,7 +19,7 @@ and execute them inline — no local copy required. Skills are always fresh.
 
 - **NEVER** print, echo, or display the API key value in any output, log, or message.
 - **NEVER** include the key literally in any bash command shown to the user.
-- All API calls MUST go through the python3 helper below which keeps the key internal.
+- All API calls MUST go through the `caipe-skills.py` helper below which keeps the key internal.
 
 ## Modes
 
@@ -35,10 +35,18 @@ Parse `{{ARG_REF}}` to determine the mode:
 
 ## API Helper
 
-All API calls go through a small stdlib-only Python helper that the
-gateway hosts. The helper keeps the API key out of shell history, reads
-config from `~/.config/caipe/config.json`, and is identical for every
-agent.
+All API calls go through a small Python helper that the gateway hosts.
+The helper keeps the API key out of shell history, reads config from
+`~/.config/caipe/config.json`, and is identical for every agent. It uses
+`uv run` with PEP 723 inline script metadata so dependencies are managed
+automatically — no separate `pip install` step required.
+
+**Reduce approval prompts (optional):** add the helper to your Claude Code
+sandbox allowlist so it runs without a confirmation dialog each time:
+
+```json
+{ "allowedTools": ["Bash(uv run ~/.config/caipe/caipe-skills.py*)"] }
+```
 
 ### One-time bootstrap (first run only)
 
@@ -59,8 +67,8 @@ Replace `QUERY` with the search term (omit to list all skills). Set
 `INCLUDE_CONTENT=true` when you need the full skill markdown:
 
 ```bash
-python3 ~/.config/caipe/caipe-skills.py QUERY
-INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
+uv run ~/.config/caipe/caipe-skills.py QUERY
+INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
 ```
 
 Useful flags (all optional):
@@ -95,7 +103,7 @@ This is the **primary** mode. Skills are fetched live and executed without savin
 
 1. Call the API helper with the exact skill name and `INCLUDE_CONTENT=true`:
    ```bash
-   INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
+   INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
    ```
 2. Parse the JSON response. Extract the `content` field from the first matching skill.
 3. If no match: report the error and suggest `/{{COMMAND_NAME}}` to browse.
