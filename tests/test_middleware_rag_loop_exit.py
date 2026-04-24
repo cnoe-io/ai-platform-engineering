@@ -66,8 +66,8 @@ def _patch_config(thread_id: str = "test-thread"):
 class TestMiddlewareRagLoopExit:
 
     def test_terminates_when_all_rag_calls_capped(self):
-        """When both wrapper counters are at max, after_model blocks all calls and injects
-        synthesis ToolMessages WITHOUT jump_to='end' on the first cap hit."""
+        """When both wrapper counters are at max, after_model injects synthesis ToolMessages
+        and calls _rag_terminal_response (which omits jump_to in USE_STRUCTURED_RESPONSE mode)."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
             SearchCapWrapper,
             FetchDocumentCapWrapper,
@@ -92,11 +92,14 @@ class TestMiddlewareRagLoopExit:
         ), patch(
             "langgraph.config.get_config",
             return_value={"configurable": {"thread_id": "t1"}},
-        ):
+        ), patch(
+            "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
+            wraps=lambda msgs: {"messages": msgs},
+        ) as mock_terminal:
             result = middleware.after_model(state)
 
         assert result is not None, "Expected middleware to inject synthesis messages"
-        assert "jump_to" not in result, "Must NOT jump_to end on first cap hit — LLM needs a turn to synthesize"
+        mock_terminal.assert_called_once(), "Must call _rag_terminal_response when budget exhausted"
         assert len(result["messages"]) == 2
         assert all(isinstance(m, ToolMessage) for m in result["messages"])
         # Both caps exhausted — message should tell LLM to synthesize, not mention remaining calls
@@ -173,14 +176,13 @@ class TestMiddlewareRagLoopExit:
         assert result is None, "Mixed RAG + non-RAG calls should not trigger termination"
 
     def test_terminates_with_only_search_capped_and_only_search_called(self):
-        """When only search is capped and model calls ONLY search,
-        middleware should inject synthesis messages WITHOUT jump_to='end' on first cap hit."""
+        """When only search is capped and model calls ONLY search via the fallback path,
+        middleware calls _rag_terminal_response to terminate."""
         from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _rag_capped_tools
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
-        # Populate _rag_capped_tools directly so is_rag_hard_stopped returns True
-        # without incrementing _rag_cap_hit_counts — simulates _arun having capped
-        # the tool but this being the first after_model intercept (count still 0).
+        # Populate _rag_capped_tools directly so is_rag_hard_stopped returns True.
+        # Simulates _arun having capped the tool (fallback path, not batch path).
         _rag_capped_tools["t5"] = {"search"}
 
         ai_msg = _make_ai_message_with_tool_calls([
@@ -196,11 +198,14 @@ class TestMiddlewareRagLoopExit:
         ), patch(
             "langgraph.config.get_config",
             return_value={"configurable": {"thread_id": "t5"}},
-        ):
+        ), patch(
+            "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
+            wraps=lambda msgs: {"messages": msgs},
+        ) as mock_terminal:
             result = middleware.after_model(state)
 
         assert result is not None
-        assert "jump_to" not in result, "Must NOT jump_to end — LLM needs a turn to synthesize"
+        mock_terminal.assert_called_once(), "Must call _rag_terminal_response"
         assert len(result["messages"]) == 2
 
     def test_tool_messages_have_correct_ids(self):
@@ -283,6 +288,78 @@ class TestMiddlewareRagLoopExit:
         assert blocked.name == "fetch_document"
         # Message should tell LLM it has search calls remaining
         assert "search" in blocked.content.lower() and "remaining" in blocked.content.lower()
+
+    def test_terminal_response_omits_jump_to_in_structured_mode(self):
+        """_rag_terminal_response must NOT include jump_to=end when USE_STRUCTURED_RESPONSE=True
+        so the LLM still gets a turn to call PlatformEngineerResponse."""
+        from ai_platform_engineering.utils.deepagents_custom.middleware import _rag_terminal_response
+
+        with patch(
+            "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response.__module__",
+            create=True,
+        ):
+            pass  # just ensure import works
+
+        msgs = [ToolMessage(content="RAG call limit reached.", tool_call_id="tc-1", name="search")]
+
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
+            True,
+            create=True,
+        ):
+            result = _rag_terminal_response(msgs)
+        assert "jump_to" not in result, "Must omit jump_to=end in structured mode"
+        assert result["messages"] == msgs
+
+    def test_terminal_response_includes_jump_to_in_plain_text_mode(self):
+        """_rag_terminal_response must include jump_to=end when USE_STRUCTURED_RESPONSE=False."""
+        from ai_platform_engineering.utils.deepagents_custom.middleware import _rag_terminal_response
+
+        msgs = [ToolMessage(content="RAG call limit reached.", tool_call_id="tc-1", name="search")]
+
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
+            False,
+            create=True,
+        ):
+            result = _rag_terminal_response(msgs)
+        assert result.get("jump_to") == "end"
+        assert result["messages"] == msgs
+
+    def test_rag_conversation_id_takes_priority_over_get_config(self):
+        """When _rag_conversation_id ContextVar is set, after_model must use it rather than
+        the thread_id from get_config — this is the mechanism that shares caps across child graphs."""
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            SearchCapWrapper,
+            _DEFAULT_MAX_SEARCH_CALLS,
+            set_rag_conversation_id,
+            _rag_conversation_id,
+        )
+        from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
+
+        # Budget exhausted on "conv-123", clean on "thread-999"
+        SearchCapWrapper._global_counts["conv-123"] = _DEFAULT_MAX_SEARCH_CALLS
+
+        ai_msg = _make_ai_message_with_tool_calls([_tool_call("search", "tc-s")])
+        state = _make_state([ai_msg])
+
+        token = set_rag_conversation_id("conv-123")
+        try:
+            middleware = DeterministicTaskMiddleware()
+            with patch(
+                "langgraph.config.get_config",
+                return_value={"configurable": {"thread_id": "thread-999"}},
+            ), patch(
+                "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
+                wraps=lambda msgs: {"messages": msgs},
+            ) as mock_terminal:
+                result = middleware.after_model(state)
+        finally:
+            _rag_conversation_id.reset(token)
+
+        # Should have fired — cap was on "conv-123" which the ContextVar resolves
+        assert result is not None, "Must use ContextVar thread_id (conv-123, capped), not get_config thread_id (thread-999, clean)"
+        mock_terminal.assert_called_once()
 
     def test_over_budget_batch_blocks_all_and_reports_remaining(self):
         """When cap=5 and 3 calls already used, a batch of 5 should block ALL 5,

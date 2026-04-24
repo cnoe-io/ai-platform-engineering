@@ -297,8 +297,8 @@ _rag_capped_tools: dict[str, set[str]] = {}
 _rag_hard_stop_lock = threading.Lock()
 
 
-def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> None:
-    """Record a cap hit for a specific tool on this thread."""
+def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> int:
+    """Record a cap hit for a specific tool on this thread. Returns the new hit count."""
     with _rag_hard_stop_lock:
         count = _rag_cap_hit_counts.get(thread_id, 0) + 1
         _rag_cap_hit_counts[thread_id] = count
@@ -307,6 +307,7 @@ def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> None:
                 _rag_capped_tools[thread_id] = set()
             _rag_capped_tools[thread_id].add(tool_name)
         logger.info(f"RAG cap hit for thread_id={thread_id}, tool={tool_name} (cap_hit_count={count})")
+        return count
 
 
 def is_rag_tool_capped(thread_id: str, tool_name: str) -> bool:
