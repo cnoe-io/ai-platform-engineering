@@ -1811,14 +1811,9 @@ EOF`}
                           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                           <span>
                             <span className="font-medium">
-                              API key required
+                              No API key.
                             </span>{" "}
-                            — install.sh reads it from{" "}
-                            <code className="font-mono">
-                              ~/.config/caipe/config.json
-                            </code>
-                            . Generate one and finish Step 1 before running
-                            the snippet.
+                            Generate one in Step 1 first.
                           </span>
                         </div>
                         <Button
