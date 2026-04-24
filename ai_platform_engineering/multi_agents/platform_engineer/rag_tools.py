@@ -75,7 +75,7 @@ def rag_cap_message(search_remaining: int = 0, fetch_remaining: int = 0) -> str:
     return (
         "RAG call limit reached. "
         "Do NOT call search or fetch_document again. "
-        "You MUST now synthesize your final answer from the information already retrieved above."
+        "Synthesize your final answer using the information retrieved so far."
     )
 
 
@@ -191,7 +191,7 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
     thread_id = self._get_thread_id()
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
-      logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
+      logger.info(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "fetch_document")
       return rag_cap_message_for_thread(thread_id)
 
@@ -258,7 +258,7 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     thread_id = self._get_thread_id()
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
-      logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
+      logger.info(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "search")
       return rag_cap_message_for_thread(thread_id)
 
