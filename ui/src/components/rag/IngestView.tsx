@@ -39,7 +39,9 @@ import {
   Layers,
   Info,
   Eraser,
-  Users
+  Users,
+  Pencil,
+  Check
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
@@ -57,6 +59,7 @@ import {
   getDatasourceDocuments,
   getChunkContent,
   cleanupDataSource,
+  renameDataSource,
   WEBLOADER_INGESTOR_ID,
   CONFLUENCE_INGESTOR_ID,
   JIRA_INGESTOR_ID
@@ -284,6 +287,39 @@ export default function IngestView() {
     hasMore: boolean;
   }>>({})
 
+  // Inline-rename state for data source display names (datasource_id is immutable)
+  const [renamingDsId, setRenamingDsId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState<string>("")
+  const [renameSaving, setRenameSaving] = useState(false)
+
+  const beginRename = useCallback((ds: DataSourceInfo) => {
+    setRenamingDsId(ds.datasource_id)
+    setRenameDraft(ds.name || "")
+  }, [])
+
+  const cancelRename = useCallback(() => {
+    setRenamingDsId(null)
+    setRenameDraft("")
+    setRenameSaving(false)
+  }, [])
+
+  const commitRename = useCallback(async (datasourceId: string) => {
+    const trimmed = renameDraft.trim()
+    if (!trimmed) {
+      cancelRename()
+      return
+    }
+    setRenameSaving(true)
+    try {
+      const res = await renameDataSource(datasourceId, trimmed)
+      setDataSources(prev => prev.map(d => d.datasource_id === datasourceId ? { ...d, name: res.name } : d))
+      cancelRename()
+    } catch (err) {
+      console.error("Failed to rename data source", err)
+      setRenameSaving(false)
+    }
+  }, [renameDraft, cancelRename])
+
   // Metadata modal state
   const [metadataModal, setMetadataModal] = useState<{
     isOpen: boolean;
@@ -323,7 +359,8 @@ export default function IngestView() {
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim()
-      filtered = filtered.filter(ds => 
+      filtered = filtered.filter(ds =>
+        (ds.name?.toLowerCase().includes(query) ?? false) ||
         ds.datasource_id.toLowerCase().includes(query) ||
         ds.source_type.toLowerCase().includes(query) ||
         ds.description?.toLowerCase().includes(query) ||
@@ -1657,9 +1694,61 @@ export default function IngestView() {
                             
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-sm truncate max-w-md" title={ds.datasource_id}>
-                                  {ds.datasource_id.length > 60 ? `${ds.datasource_id.substring(0, 60)}...` : ds.datasource_id}
-                                </span>
+                                {renamingDsId === ds.datasource_id ? (
+                                  <div className="flex items-center gap-1 max-w-md flex-1" onClick={(e) => e.stopPropagation()}>
+                                    <Input
+                                      autoFocus
+                                      value={renameDraft}
+                                      onChange={(e) => setRenameDraft(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") { e.preventDefault(); void commitRename(ds.datasource_id); }
+                                        else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                                      }}
+                                      disabled={renameSaving}
+                                      maxLength={120}
+                                      className="h-7 text-sm"
+                                      placeholder="Display name"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      disabled={renameSaving || !renameDraft.trim()}
+                                      onClick={() => void commitRename(ds.datasource_id)}
+                                      title="Save name (Enter)"
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      disabled={renameSaving}
+                                      onClick={cancelRename}
+                                      title="Cancel (Esc)"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span
+                                      className="font-medium text-sm truncate max-w-md"
+                                      title={ds.name ? `${ds.name}\n${ds.datasource_id}` : ds.datasource_id}
+                                    >
+                                      {ds.name || (ds.datasource_id.length > 60 ? `${ds.datasource_id.substring(0, 60)}\u2026` : ds.datasource_id)}
+                                    </span>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 opacity-50 hover:opacity-100 shrink-0"
+                                      onClick={(e) => { e.stopPropagation(); beginRename(ds); }}
+                                      title="Rename data source"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                )}
                                 {getTeamsForKb(ds.datasource_id).map((ti) => (
                                   <Badge key={ti.teamId} variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
                                     {ti.teamName}
@@ -1675,6 +1764,17 @@ export default function IngestView() {
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                                {ds.name && (
+                                  <>
+                                    <span
+                                      className="font-mono text-[10px] truncate max-w-[18rem]"
+                                      title={ds.datasource_id}
+                                    >
+                                      {ds.datasource_id}
+                                    </span>
+                                    <span className="text-border">|</span>
+                                  </>
+                                )}
                                 <span>Updated {formatRelativeTime(ds.last_updated)}</span>
                                 {hasReloadInterval && (
                                   <>

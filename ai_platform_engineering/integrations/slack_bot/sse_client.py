@@ -11,10 +11,44 @@ request body.  Uses httpx for streaming HTTP requests.
 
 import json
 import uuid
+from contextvars import ContextVar
 from typing import Any, Dict, Iterator, Optional
 
 import httpx
 from loguru import logger
+
+
+# Spec 104 Story 3 — per-request OBO token. The Slack handler thread sets
+# this BEFORE calling into the SSE client (directly or via utils/ai.py), so
+# `_get_headers` can prefer the user-scoped token over the bot's SA token
+# without every intermediate function having to forward an extra kwarg.
+#
+# We use ContextVar (not threading.local) because the bot uses asyncio
+# under Slack Bolt and asyncio.run_in_executor. ContextVar values are
+# inherited across both await points and run_in_executor → so the right
+# token is always seen by whichever thread ends up making the HTTP call.
+#
+# Default is None which means "no OBO token bound → fall back to SA token".
+_obo_token_cv: ContextVar[Optional[str]] = ContextVar(
+  "caipe_slack_obo_token", default=None
+)
+
+
+def set_obo_token(token: Optional[str]) -> object:
+  """Bind an OBO token to the current execution context.
+
+  Call this once at the top of a Slack handler (after impersonation has
+  succeeded) and the SSE client will pick it up for every downstream call
+  in this handler's scope. Returns the contextvars `Token` so callers can
+  reset it in a `finally` block; in practice we don't bother because the
+  ContextVar is naturally scoped to the handler's task.
+  """
+  return _obo_token_cv.set(token)
+
+
+def get_obo_token() -> Optional[str]:
+  """Read the currently-bound OBO token (None when unbound)."""
+  return _obo_token_cv.get()
 
 # Deterministic namespace for Slack conversation IDs.
 # uuid5(NAMESPACE_URL, "slack.caipe.io") — fixed constant.
@@ -157,15 +191,33 @@ class SSEClient:
     self.timeout = timeout
     self.auth_client = auth_client
 
-  def _get_headers(self) -> Dict[str, str]:
-    """Build request headers with auth and client source."""
+  def _get_headers(self, bearer_token: Optional[str] = None) -> Dict[str, str]:
+    """Build request headers with auth and client source.
+
+    Args:
+        bearer_token: Optional pre-minted token to use INSTEAD of the
+            service-account `auth_client`. The caller passes the per-user
+            OBO token here (Spec 104 Story 3) so downstream services see
+            the real user's identity (`sub`) with the bot delegated in the
+            `act` claim. Falls back to the SA token only when ``None``,
+            which preserves backwards compatibility for callers that
+            haven't been updated yet (e.g. background escalation jobs that
+            legitimately have no user context).
+    """
     headers = {
       "Content-Type": "application/json",
       "Accept": "text/event-stream",
       "X-Client-Source": "slack-bot",
       "User-Agent": "caipe-slack-bot/0.4.0",
     }
-    if self.auth_client:
+    # Precedence: explicit kwarg > per-request OBO ContextVar > SA fallback.
+    # The ContextVar middle tier is what makes Spec 104 Story 3 work without
+    # threading an extra kwarg through utils/ai.py — Slack handlers set it
+    # once at entry via `set_obo_token(...)` and we read it here.
+    chosen = bearer_token or get_obo_token()
+    if chosen:
+      headers["Authorization"] = f"Bearer {chosen}"
+    elif self.auth_client:
       token = self.auth_client.get_access_token()
       headers["Authorization"] = f"Bearer {token}"
     return headers
@@ -177,6 +229,7 @@ class SSEClient:
     owner_id: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    bearer_token: Optional[str] = None,
   ) -> Dict[str, Any]:
     """Create or retrieve an existing conversation via the shared API.
 
@@ -201,7 +254,7 @@ class SSEClient:
         Exception: On HTTP errors or invalid response.
     """
     url = f"{self.base_url}/api/chat/conversations"
-    headers = self._get_headers()
+    headers = self._get_headers(bearer_token=bearer_token)
     # Conversation API expects JSON, not SSE
     headers["Accept"] = "application/json"
 
@@ -296,6 +349,7 @@ class SSEClient:
     agent_id: str,
     trace_id: Optional[str] = None,
     client_context: Optional[Dict[str, Any]] = None,
+    bearer_token: Optional[str] = None,
   ) -> Iterator[SSEEvent]:
     """Stream a chat response from a dynamic agent.
 
@@ -323,7 +377,7 @@ class SSEClient:
       payload["client_context"] = client_context
 
     url = f"{self.base_url}/api/v1/chat/stream/start"
-    yield from self._stream_sse(url, payload)
+    yield from self._stream_sse(url, payload, bearer_token=bearer_token)
 
   def resume_stream(
     self,
@@ -332,6 +386,7 @@ class SSEClient:
     form_data: str,
     trace_id: Optional[str] = None,
     client_context: Optional[Dict[str, Any]] = None,
+    bearer_token: Optional[str] = None,
   ) -> Iterator[SSEEvent]:
     """Resume a stream after HITL interrupt.
 
@@ -359,7 +414,7 @@ class SSEClient:
       payload["client_context"] = client_context
 
     url = f"{self.base_url}/api/v1/chat/stream/resume"
-    yield from self._stream_sse(url, payload)
+    yield from self._stream_sse(url, payload, bearer_token=bearer_token)
 
   def invoke(
     self,
@@ -368,6 +423,7 @@ class SSEClient:
     agent_id: str,
     trace_id: Optional[str] = None,
     client_context: Optional[Dict[str, Any]] = None,
+    bearer_token: Optional[str] = None,
   ) -> Dict[str, Any]:
     """Non-streaming chat invocation for bot users.
 
@@ -393,7 +449,7 @@ class SSEClient:
     if client_context:
       payload["client_context"] = client_context
 
-    headers = self._get_headers()
+    headers = self._get_headers(bearer_token=bearer_token)
     headers["Accept"] = "application/json"
 
     url = f"{self.base_url}/api/v1/chat/invoke"
@@ -409,12 +465,18 @@ class SSEClient:
 
     return response.json()
 
-  def _stream_sse(self, url: str, payload: Dict[str, Any]) -> Iterator[SSEEvent]:
+  def _stream_sse(
+    self,
+    url: str,
+    payload: Dict[str, Any],
+    bearer_token: Optional[str] = None,
+  ) -> Iterator[SSEEvent]:
     """Internal: POST to an SSE endpoint and yield parsed events.
 
     Args:
         url: Full endpoint URL.
         payload: JSON request body (includes protocol, conversation_id, etc.).
+        bearer_token: Optional per-user OBO token; falls back to SA token.
 
     Yields:
         SSEEvent objects.
@@ -425,7 +487,7 @@ class SSEClient:
           "POST",
           url,
           json=payload,
-          headers=self._get_headers(),
+          headers=self._get_headers(bearer_token=bearer_token),
         ) as response:
           if not response.is_success:
             error_text = response.read().decode()

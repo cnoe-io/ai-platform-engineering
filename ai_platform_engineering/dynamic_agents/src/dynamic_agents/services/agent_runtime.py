@@ -160,6 +160,20 @@ class AgentRuntime:
         ctx_token = _ctx_tok.get()
         legacy_token = (user.obo_jwt or user.access_token) if user else None
         self._auth_bearer: str | None = ctx_token or legacy_token
+        # Spec 104: never silently substitute the dynamic-agents service
+        # account token here — the runtime must run with the user's OBO
+        # token so AgentGateway can evaluate `team_member:<active_team>`
+        # CEL against the JWT. If we have nothing, log loudly and let the
+        # downstream call 401; we'd rather fail closed than show the user
+        # tools that belong to the SA.
+        if self._auth_bearer is None:
+            logger.warning(
+                "AgentRuntime for '%s' has no user JWT (ctx_token + legacy both empty); "
+                "outbound MCP calls will be unauthenticated and AgentGateway will reject them. "
+                "This usually means JwtAuthMiddleware was bypassed or the BFF stripped the "
+                "Authorization header.",
+                config.name,
+            )
         self._session_id = session_id
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)

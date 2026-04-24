@@ -76,6 +76,25 @@ def test_no_bearer_strict_returns_401(monkeypatch):
     assert body["action"] == "sign_in"
 
 
+def test_healthz_bypasses_strict_bearer_requirement(monkeypatch):
+    """Health endpoints must stay probeable without auth."""
+    app, seen = _build_app(
+        monkeypatch, require_bearer=True, validator=lambda _t: {"sub": "x"}
+    )
+
+    async def health_handler(request: Request) -> JSONResponse:
+        seen["token"] = None
+        return JSONResponse({"status": "healthy"})
+
+    app.router.routes.append(Route("/healthz", health_handler, methods=["GET"]))
+
+    with TestClient(app) as client:
+        resp = client.get("/healthz")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "healthy"
+
+
 def test_valid_bearer_binds_contextvar(monkeypatch):
     app, seen = _build_app(
         monkeypatch,

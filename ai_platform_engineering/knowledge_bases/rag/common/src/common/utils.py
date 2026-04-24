@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import time
 import uuid
+from typing import Optional
 from urllib.parse import urlparse
 from common.models.rag import StructuredEntity
 
@@ -106,6 +107,70 @@ def generate_datasource_id_from_url(url: str) -> str:
   # Replace non-alphanumeric characters with underscore
   clean_url = "".join(c if c.isalnum() else "_" for c in url)
   return f"src_{clean_url}_{source_hash}"
+
+
+def derive_friendly_name_from_url(url: str, max_length: int = 64) -> str:
+  """Derive a short, human-readable display label for a URL-based datasource.
+
+  Strips scheme, collapses long paths to host + first meaningful path segment,
+  and caps total length. NEVER used as an authorization key — see
+  ``DataSourceInfo.name`` for semantics.
+
+  Examples:
+      https://cnoe.io/ai-platform-engineering/      -> "cnoe.io / ai-platform-engineering"
+      https://github.com/owner/repo/tree/main/docs  -> "github.com / owner/repo"
+      https://example.com                           -> "example.com"
+  """
+  try:
+    parsed = urlparse(url.strip())
+  except Exception:
+    return url[:max_length]
+  host = (parsed.netloc or "").lower()
+  if not host:
+    return url[:max_length]
+  segments = [s for s in (parsed.path or "").split("/") if s]
+  if not segments:
+    label = host
+  elif len(segments) == 1:
+    label = f"{host} / {segments[0]}"
+  else:
+    label = f"{host} / {segments[0]}/{segments[1]}"
+  if len(label) > max_length:
+    label = label[: max_length - 1] + "\u2026"
+  return label
+
+
+def derive_friendly_name(
+  *,
+  url: Optional[str] = None,
+  source_type: Optional[str] = None,
+  space_key: Optional[str] = None,
+  project_key: Optional[str] = None,
+  channel_name: Optional[str] = None,
+  repo: Optional[str] = None,
+  fallback: Optional[str] = None,
+  max_length: int = 64,
+) -> str:
+  """Single entry-point for ingestors to derive a display label.
+
+  Prefers the most specific source-type signal available; falls back to the
+  URL-derived label, then to ``fallback`` (typically the datasource_id).
+  """
+  if source_type:
+    st = source_type.lower()
+    if st in ("confluence", "confluence_space") and space_key:
+      return (f"Confluence: {space_key}")[:max_length]
+    if st in ("jira", "jira_project") and project_key:
+      return (f"Jira: {project_key}")[:max_length]
+    if st == "slack" and channel_name:
+      return (f"Slack: #{channel_name.lstrip('#')}")[:max_length]
+    if st == "github" and repo:
+      return (f"GitHub: {repo}")[:max_length]
+  if url:
+    return derive_friendly_name_from_url(url, max_length=max_length)
+  if fallback:
+    return fallback[:max_length]
+  return "untitled-datasource"
 
 
 def generate_document_id_from_url(datasource_id: str, url: str) -> str:

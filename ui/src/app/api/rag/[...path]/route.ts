@@ -8,30 +8,6 @@ import {
 } from '@/lib/api-middleware';
 import type { RbacScope } from '@/lib/rbac/types';
 
-function decodeJwtPayloadForTeam(accessToken: string | undefined): Record<string, unknown> {
-  if (!accessToken) return {};
-  try {
-    const parts = accessToken.split('.');
-    if (parts.length < 2) return {};
-    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = Buffer.from(b64, 'base64').toString('utf8');
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function extractTeamIdFromAccessToken(accessToken: string | undefined): string | undefined {
-  const roles = (decodeJwtPayloadForTeam(accessToken).realm_access as { roles?: string[] } | undefined)
-    ?.roles;
-  if (!Array.isArray(roles)) return undefined;
-  for (const role of roles) {
-    const match = String(role).match(/^team_member\((.+)\)$/);
-    if (match) return match[1];
-  }
-  return undefined;
-}
-
 /**
  * RAG API Proxy with JWT Bearer Token Authentication
  *
@@ -102,10 +78,9 @@ async function getAuthorizedRagHeaders(method: string): Promise<Record<string, s
   if (session.org) {
     headers['X-Tenant-Id'] = session.org;
   }
-  const teamId = extractTeamIdFromAccessToken(session.accessToken);
-  if (teamId) {
-    headers['X-Team-Id'] = teamId;
-  }
+  // Spec 104: team scope is now carried by the `active_team` JWT claim,
+  // not the X-Team-Id header. The RAG server reads it directly from the
+  // bearer token via its JwtAuthMiddleware.
   return headers;
 }
 

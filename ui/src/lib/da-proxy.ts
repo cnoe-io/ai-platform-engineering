@@ -214,6 +214,10 @@ export async function proxySSEStream(
   const backendHeaders = buildBackendHeaders("application/json", authResult);
   backendHeaders["Accept"] = "text/event-stream";
 
+  console.log(
+    `${logPrefix} Forwarding to ${backendUrl} hasAuth=${!!backendHeaders["Authorization"]} hasUserCtx=${!!backendHeaders["X-User-Context"]}`,
+  );
+
   try {
     const backendResponse = await fetch(backendUrl, {
       method: "POST",

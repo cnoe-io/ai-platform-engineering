@@ -100,8 +100,8 @@ sequenceDiagram
       AG->>AG: now < exp ✓
 
       note over AG: CEL authorization: per-route + per-tool
-      AG->>AG: route rule:<br/>"chat_user" in jwt.realm_access.roles → ALLOW
-      AG->>AG: mcpAuthorization rule for tool "rag_query":<br/>roles ∋ chat_user && tool.name.startsWith("rag_query") → ALLOW
+      AG->>AG: route rule:<br/>true (listener jwtAuth already enforced)
+      AG->>AG: mcpAuthorization rule for tool "rag_query":<br/>jwt.realm_access.roles.contains("chat_user") && tool.name.startsWith("rag_query") → ALLOW
 
       AG->>RAG: proxied POST /mcp<br/>Authorization: Bearer OBO_JWT (untouched)
       note over RAG: MCP does its own JWKS validation<br/>(defense in depth)

@@ -17,7 +17,7 @@ from langchain_core.documents import Document
 from common.ingestor import IngestorBuilder, Client
 from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.job_manager import JobStatus
-from common.utils import get_logger, get_fresh_until
+from common.utils import get_logger, get_fresh_until, derive_friendly_name
 
 logger = get_logger(__name__)
 
@@ -351,6 +351,7 @@ async def sync_slack_channels(client: Client):
     # This prevents infinite sync loops when there are no new messages
     datasource = DataSourceInfo(
       datasource_id=datasource_id,
+      name=derive_friendly_name(source_type="slack", channel_name=channel_name),
       ingestor_id=client.ingestor_id or "",
       description=f"Slack conversations from #{channel_name}",
       source_type="slack",

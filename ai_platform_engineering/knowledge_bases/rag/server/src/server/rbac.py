@@ -333,11 +333,25 @@ def determine_role_from_keycloak_roles(roles: List[str]) -> str:
   """
   Map Keycloak realm roles in the JWT to internal RAG roles (most permissive wins).
 
-  ``admin`` → ADMIN, ``kb_admin`` → INGESTONLY, ``team_member`` / ``chat_user`` → READONLY,
-  ``denied`` or no recognized role → ANONYMOUS.
+  Mapping:
+    - ``admin`` / ``admin_user`` (Spec 104 platform admin) → ADMIN
+    - ``kb_admin`` → INGESTONLY
+    - ``team_member`` / ``chat_user`` → READONLY
+    - ``denied`` or no recognized role → ANONYMOUS
+
+  Spec 104 note: ``admin_user`` is the realm role assigned to
+  ``BOOTSTRAP_ADMIN_EMAILS`` users by ``init-idp.sh``. Treating it as RAG
+  ADMIN means a single Keycloak grant gives platform admins full RAG
+  access (read + ingest + delete) without having to also assign the
+  legacy ``admin`` realm role.
   """
   rs = set(roles)
-  if KeycloakRole.ADMIN in rs or "admin" in rs:
+  if (
+    KeycloakRole.ADMIN in rs
+    or "admin" in rs
+    or KeycloakRole.ADMIN_USER in rs
+    or "admin_user" in rs
+  ):
     return Role.ADMIN
   if KeycloakRole.KB_ADMIN in rs or "kb_admin" in rs:
     return Role.INGESTONLY
@@ -409,6 +423,21 @@ def extract_realm_roles_from_claims(claims: Dict[str, Any]) -> List[str]:
   if isinstance(realm_access, dict) and realm_access.get("roles"):
     add(realm_access["roles"])
   return out
+
+
+def extract_active_team_from_claims(claims: Dict[str, Any]) -> Optional[str]:
+  """Spec 104: read the signed `active_team` JWT claim, if present.
+
+  Returns the literal sentinel ``"__personal__"`` for DM/personal mode,
+  a team slug like ``"platform-eng"`` for mapped channels, or ``None``
+  when the token has no claim (legacy SA tokens, BFF-issued login tokens
+  before the per-team scope rollout, etc.). Callers decide whether
+  ``None`` is a hard reject or a soft fallback to legacy behavior.
+  """
+  value = claims.get("active_team")
+  if isinstance(value, str) and value.strip():
+    return value.strip()
+  return None
 
 
 def kb_scope_satisfies(perm_scope: str, required: str) -> bool:
@@ -677,6 +706,7 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
         is_authenticated=True,
         kb_permissions=[],
         realm_roles=extract_realm_roles_from_claims(access_claims),
+        active_team=extract_active_team_from_claims(access_claims),
       )
 
       logger.debug(f"Client authenticated: {email}, role: {RBAC_CLIENT_CREDENTIALS_ROLE}")
@@ -769,6 +799,7 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
       role = determine_role_from_groups(groups)
       logger.info(f"Role determined from groups: email={email}, role={role}, groups={groups}")
 
+    active_team = extract_active_team_from_claims(access_claims)
     user_context = UserContext(
       email=email,
       groups=groups,
@@ -776,9 +807,13 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
       is_authenticated=True,
       kb_permissions=kb_permissions,
       realm_roles=jwt_roles,
+      active_team=active_team,
     )
 
-    logger.info(f"User authenticated successfully: email={email}, role={role}, groups_count={len(groups)}, source={info_source}")
+    logger.info(
+      f"User authenticated successfully: email={email}, role={role}, "
+      f"groups_count={len(groups)}, active_team={active_team}, source={info_source}"
+    )
     return user_context
 
   except JWTError as e:
@@ -990,10 +1025,15 @@ def _kb_cel_context(
   scope: str,
   request: Optional[Request],
 ) -> Dict[str, Any]:
-  team_id = request.headers.get("X-Team-Id") if request else None
+  # Spec 104: prefer the signed `active_team` JWT claim (sentinel
+  # ``__personal__`` for DM/personal mode) and ignore it for the team
+  # roster the CEL engine sees. Group-channel slugs are exposed in
+  # ``user.teams`` so existing CEL like ``"<slug>" in user.teams`` keeps
+  # working without a header round-trip.
+  active_team = user_context.active_team
   teams = list(user_context.groups or [])
-  if team_id and team_id not in teams:
-    teams = [*teams, team_id]
+  if active_team and active_team != "__personal__" and active_team not in teams:
+    teams = [*teams, active_team]
   return {
     "user": {
       "roles": list(user_context.realm_roles or []),
@@ -1154,7 +1194,12 @@ async def check_kb_datasource_access(
   if not RBAC_TEAM_SCOPE_ENABLED:
     return
   tenant_id = request.headers.get("X-Tenant-Id") or "default"
-  team_id = request.headers.get("X-Team-Id")
+  # Spec 104: `active_team` JWT claim is the single source of truth.
+  # Fall back to the legacy `X-Team-Id` header only when the token has no
+  # claim (e.g. legacy SA tokens) so mid-rollout traffic doesn't 403.
+  team_id = user_context.active_team or request.headers.get("X-Team-Id")
+  if team_id == "__personal__":
+    team_id = None
   accessible = await get_accessible_kb_ids(user_context, scope, tenant_id, team_id=team_id, request=request)
   if "*" in accessible:
     _enforce_cel_kb_access(user_context, datasource_id, scope, request)
@@ -1216,7 +1261,10 @@ async def inject_kb_filter(
   if user_context.email.startswith("client:"):
     return False
 
-  team_id = request.headers.get("X-Team-Id")
+  # Spec 104: prefer signed `active_team` claim; fall back to legacy header.
+  team_id = user_context.active_team or request.headers.get("X-Team-Id")
+  if team_id == "__personal__":
+    team_id = None
   accessible = await get_accessible_kb_ids(user_context, "read", tenant_id, team_id=team_id, request=request)
   if "*" in accessible:
     return False

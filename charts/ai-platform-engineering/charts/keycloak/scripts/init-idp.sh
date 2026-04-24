@@ -166,6 +166,132 @@ seed_personas_main() {
 
 seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (see above)"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec 104: Team-scoped RBAC seed
+#
+# Creates resource-scoped realm roles (`tool_user:<name>`, `agent_user:<id>`,
+# `team_member:<id>`, `admin_user`) and assigns the demo bundle to every email
+# in BOOTSTRAP_ADMIN_EMAILS. This unblocks the test-april-2025 + jira demo
+# without waiting for the Admin UI flow (Story 4 of spec 104).
+#
+# All operations are idempotent. Re-running the job adds nothing if roles
+# and assignments already exist.
+# ─────────────────────────────────────────────────────────────────────────────
+seed_spec104_main() {
+  echo "[init-idp] [spec-104] Seeding team-scoped RBAC roles ..."
+
+  # Re-acquire admin token; PERSONA_AUTH from spec-102 may not be reusable
+  # if seed_personas_main was skipped.
+  local SP104_TOKEN
+  SP104_TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+    | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+  if [ -z "${SP104_TOKEN}" ]; then
+    echo "[init-idp] [spec-104]   WARN: could not acquire admin token; skipping spec-104 seed."
+    return 0
+  fi
+  local SP104_AUTH="Authorization: Bearer ${SP104_TOKEN}"
+
+  # Idempotent realm role creation. Keycloak returns 409 if it exists; both
+  # outcomes are success for our purposes.
+  _sp104_ensure_role() {
+    local ROLE_NAME="$1"
+    # URL-encode `:` and `*` for the lookup path.
+    local ENC
+    ENC=$(printf '%s' "${ROLE_NAME}" | sed 's/:/%3A/g; s/\*/%2A/g')
+    local EXISTS
+    EXISTS=$(curl -s -o /dev/null -w '%{http_code}' -H "${SP104_AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/roles/${ENC}")
+    if [ "${EXISTS}" = "200" ]; then
+      return 0
+    fi
+    local CODE
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "${SP104_AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/roles" \
+      -d "{\"name\":\"${ROLE_NAME}\",\"description\":\"spec-104 team-scoped RBAC\"}")
+    case "${CODE}" in
+      201|409) echo "[init-idp] [spec-104]   ✓ role ${ROLE_NAME}" ;;
+      *)      echo "[init-idp] [spec-104]   WARN: failed to create ${ROLE_NAME} (HTTP ${CODE})" ;;
+    esac
+  }
+
+  _sp104_assign_role_by_email() {
+    local EMAIL="$1"
+    local ROLE_NAME="$2"
+    local UID
+    UID=$(curl -sf -H "${SP104_AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/users?email=${EMAIL}&exact=true" 2>/dev/null \
+      | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+    if [ -z "${UID}" ]; then
+      echo "[init-idp] [spec-104]   skipping ${EMAIL} → ${ROLE_NAME} (user not in realm yet; will be created on first IdP login)"
+      return 0
+    fi
+    local ENC
+    ENC=$(printf '%s' "${ROLE_NAME}" | sed 's/:/%3A/g; s/\*/%2A/g')
+    local ROLE_JSON
+    ROLE_JSON=$(curl -sf -H "${SP104_AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/roles/${ENC}" 2>/dev/null)
+    if [ -z "${ROLE_JSON}" ]; then
+      echo "[init-idp] [spec-104]   WARN: role ${ROLE_NAME} missing; cannot assign to ${EMAIL}"
+      return 0
+    fi
+    curl -sf -X POST -H "${SP104_AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/users/${UID}/role-mappings/realm" \
+      -d "[${ROLE_JSON}]" >/dev/null 2>&1 \
+      && echo "[init-idp] [spec-104]   + ${EMAIL} → ${ROLE_NAME}" \
+      || echo "[init-idp] [spec-104]   = ${EMAIL} → ${ROLE_NAME} (already assigned)"
+  }
+
+  # Demo team / agent / wildcard / superuser roles
+  local SP104_ROLES="admin_user tool_user:* team_member:demo-team agent_user:test-april-2025 agent_admin:test-april-2025"
+
+  # Per-tool roles for every MCP server we ship with the dev compose.
+  # Keep this list aligned with deploy/agentgateway/config.yaml MCP targets and
+  # the agents/*/mcp servers. The Admin UI (spec-104 story 4) will create
+  # additional tool_user:<name> roles on demand.
+  local SP104_TOOL_PREFIXES="jira github argocd confluence pagerduty backstage komodor weather petstore rag"
+  local prefix
+  for prefix in ${SP104_TOOL_PREFIXES}; do
+    # Wildcard form per-MCP. Today we don't enumerate every single tool name
+    # because LangChain naming is `<server>_<tool>` and the per-tool list is
+    # large and version-dependent. Instead we seed the wildcard
+    # `tool_user:<server>_*` and the AG CEL rule supports both exact match
+    # and (in a future iteration) glob — for now grant via tool_user:* on
+    # admin users and tool_user:<server>_<tool> on team users.
+    SP104_ROLES="${SP104_ROLES} tool_user:${prefix}_*"
+  done
+
+  # Realm role creation (idempotent).
+  for r in ${SP104_ROLES}; do
+    _sp104_ensure_role "${r}"
+  done
+
+  # Bootstrap admins → admin_user + tool_user:* + every demo role.
+  if [ -n "${BOOTSTRAP_ADMIN_EMAILS:-}" ]; then
+    local ADMIN_ROLES_FOR_BOOTSTRAP="admin_user tool_user:* team_member:demo-team agent_user:test-april-2025 agent_admin:test-april-2025"
+    # Split BOOTSTRAP_ADMIN_EMAILS on comma. We must restore IFS before the
+    # inner space-separated loop over ADMIN_ROLES_FOR_BOOTSTRAP, otherwise the
+    # whole role string is treated as one token.
+    local OLD_IFS="${IFS}"
+    IFS=','
+    set -- ${BOOTSTRAP_ADMIN_EMAILS}
+    IFS="${OLD_IFS}"
+    for email in "$@"; do
+      email=$(echo "${email}" | tr -d '[:space:]')
+      [ -z "${email}" ] && continue
+      for role in ${ADMIN_ROLES_FOR_BOOTSTRAP}; do
+        _sp104_assign_role_by_email "${email}" "${role}"
+      done
+    done
+  else
+    echo "[init-idp] [spec-104]   BOOTSTRAP_ADMIN_EMAILS empty; only roles created, no assignments made."
+  fi
+
+  echo "[init-idp] [spec-104] team-scoped RBAC seed done."
+}
+
+seed_spec104_main || echo "[init-idp] [spec-104] seed had errors (see above)"
+
 # Spec 103: the realm-management role pinning for service-account-caipe-platform
 # ({view-users, query-users, manage-users}) is a hard requirement for the
 # slack-bot path and is independent of whether this realm has an external IdP
@@ -835,6 +961,196 @@ fi
 # is reached (i.e. when IDP_ISSUER was set), and it serves as a final audit
 # pass after the IdP setup is complete.
 _ensure_caipe_platform_user_roles
+
+# -------------------------------------------------------------------
+# Spec 104: register `agentgateway` as a known audience in the realm.
+#
+# The Slack bot's OBO exchange pins `audience=agentgateway` so the
+# minted token can be sent directly to AgentGateway. Keycloak's RFC 8693
+# implementation rejects unknown audiences with `invalid_client /
+# Audience not found`, so we provision a public, bearer-only-style
+# client with `clientId=agentgateway`. No grants enabled — it exists
+# purely as an audience target. AGW's `jwtAuth.audiences` list also
+# accepts this value (see deploy/agentgateway/config.yaml).
+# -------------------------------------------------------------------
+echo "[init-idp] Ensuring 'agentgateway' audience client exists ..."
+AGW_EXISTS=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=agentgateway" 2>/dev/null \
+  | grep -o '"id" *:' | wc -l | tr -d ' ')
+if [ "${AGW_EXISTS}" = "0" ]; then
+  curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients" \
+    -d '{
+      "clientId":"agentgateway",
+      "enabled":true,
+      "publicClient":true,
+      "bearerOnly":false,
+      "standardFlowEnabled":false,
+      "directAccessGrantsEnabled":false,
+      "serviceAccountsEnabled":false,
+      "protocol":"openid-connect",
+      "description":"Spec 104: bearer-target only. OBO tokens minted with audience=agentgateway hit AGW with this aud claim."
+    }' && echo "[init-idp]   Created 'agentgateway' audience client."
+else
+  echo "[init-idp]   'agentgateway' client already exists — skipping."
+fi
+
+# -------------------------------------------------------------------
+# Spec 104: allow caipe-slack-bot to perform token-exchange whose
+# *target audience* is `agentgateway`. Keycloak gates token-exchange
+# per target client via a scope-permission on the realm-management
+# resource server. Without this attachment the bot's OBO request is
+# rejected with `access_denied / Client not allowed to exchange`.
+#
+# We piggyback on the existing `caipe-slack-bot-token-exchange` policy
+# created above (it names caipe-slack-bot as the allowed exchanger).
+# -------------------------------------------------------------------
+AGW_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=agentgateway" 2>/dev/null \
+  | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+RM_CLIENT_ID_FOR_AGW=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null \
+  | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+if [ -n "${AGW_CLIENT_ID}" ] && [ -n "${RM_CLIENT_ID_FOR_AGW}" ]; then
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${AGW_CLIENT_ID}/management/permissions" \
+    -d '{"enabled": true}' >/dev/null \
+    && echo "[init-idp]   Enabled management permissions on agentgateway."
+
+  AGW_TE_PERM_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${AGW_CLIENT_ID}/management/permissions" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['token-exchange'])" 2>/dev/null)
+
+  POL_NAME_AGW="caipe-slack-bot-token-exchange"
+  POL_ID_AGW=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_FOR_AGW}/authz/resource-server/policy?name=${POL_NAME_AGW}" 2>/dev/null \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
+
+  if [ -n "${AGW_TE_PERM_ID}" ] && [ -n "${POL_ID_AGW}" ]; then
+    CUR_AGW=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_FOR_AGW}/authz/resource-server/permission/scope/${AGW_TE_PERM_ID}" 2>/dev/null)
+    UPDATED_AGW=$(echo "${CUR_AGW}" | python3 -c "
+import sys, json
+p = json.load(sys.stdin)
+p.setdefault('policies', [])
+if '${POL_ID_AGW}' not in p['policies']:
+    p['policies'].append('${POL_ID_AGW}')
+print(json.dumps(p))
+" 2>/dev/null)
+    if [ -n "${UPDATED_AGW}" ]; then
+      curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_FOR_AGW}/authz/resource-server/permission/scope/${AGW_TE_PERM_ID}" \
+        -d "${UPDATED_AGW}" >/dev/null \
+        && echo "[init-idp]   Attached token-exchange policy to agentgateway."
+    fi
+  fi
+else
+  echo "[init-idp]   WARNING: could not resolve agentgateway / realm-management client IDs; skipping AGW token-exchange perm."
+fi
+
+# -------------------------------------------------------------------
+# Spec 104: bind built-in client scopes (`roles`, `profile`, `email`,
+# `web-origins`) as DEFAULT scopes on the `agentgateway` client.
+#
+# Why: Keycloak's RFC 8693 token exchange (with `requested_subject`)
+# silently ignores the `scope` parameter and instead applies the
+# default scopes of the *target audience* client. The bare-bones
+# `agentgateway` client has no default scopes, so the OBO token comes
+# back with `realm_access:{}` and no `roles` claim — which means every
+# CEL rule reading `jwt.roles` evaluates to false and AGW returns 0
+# tools. Binding the standard scopes as defaults on `agentgateway`
+# fixes this without affecting other clients.
+#
+# Note: AGW 0.12's cel-fork PANICS on multivalued claims placed at a
+# flat top-level path (e.g. `roles`) — they deserialize as
+# `Dynamic(Array(...))` which the `in` / `.exists()` macros don't
+# implement. The fix is to keep the `realm-roles` mapper writing to
+# its standard nested location `realm_access.roles`. We force this
+# below in case a previous init run flattened the claim.
+# -------------------------------------------------------------------
+echo "[init-idp] Ensuring agentgateway has default client scopes (roles, profile, email, web-origins) ..."
+AGW_CID_FOR_SCOPES=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/clients?clientId=agentgateway" 2>/dev/null \
+  | python3 -c 'import sys,json
+data=json.load(sys.stdin)
+print(data[0]["id"]) if data else None' 2>/dev/null)
+if [ -n "${AGW_CID_FOR_SCOPES}" ]; then
+  for SCOPE_NAME in roles profile email web-origins; do
+    SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null \
+      | python3 -c "import sys,json
+for s in json.load(sys.stdin):
+  if s.get('name') == '${SCOPE_NAME}':
+    print(s['id']); break" 2>/dev/null)
+    if [ -n "${SCOPE_ID}" ]; then
+      curl -sf -X PUT -H "${AUTH}" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${AGW_CID_FOR_SCOPES}/default-client-scopes/${SCOPE_ID}" \
+        >/dev/null 2>&1 \
+        && echo "[init-idp]   Bound '${SCOPE_NAME}' as default scope on agentgateway." \
+        || echo "[init-idp]   '${SCOPE_NAME}' already a default on agentgateway."
+    fi
+  done
+else
+  echo "[init-idp]   WARNING: agentgateway client not found; skipping default-scope binding."
+fi
+
+# -------------------------------------------------------------------
+# Spec 104: ensure the `roles` client scope's `realm-roles` mapper
+# writes to the standard nested OIDC claim `realm_access.roles`,
+# NOT a flat top-level `roles` claim.
+#
+# Why: AGW 0.12's cel-fork panics when CEL macros (`in`, `.exists()`)
+# are applied to multivalued claims that landed at a flat top-level
+# path — they deserialize as `Dynamic(Array(...))` which the macros
+# don't implement. Keycloak's default is `realm_access.roles` (which
+# AGW handles correctly); some bootstrap scripts in this repo's
+# history flipped it to flat `roles`. We force the standard form here.
+# assisted-by claude composer-2-fast
+# -------------------------------------------------------------------
+echo "[init-idp] Ensuring 'roles' client scope writes nested 'realm_access.roles' (AGW CEL compatibility) ..."
+ROLES_SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null \
+  | python3 -c "import sys,json
+for s in json.load(sys.stdin):
+  if s.get('name') == 'roles':
+    print(s['id']); break" 2>/dev/null)
+if [ -n "${ROLES_SCOPE_ID}" ]; then
+  ROLES_MAPPER_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/client-scopes/${ROLES_SCOPE_ID}/protocol-mappers/models" 2>/dev/null \
+    | python3 -c "import sys,json
+for m in json.load(sys.stdin):
+  if m.get('protocolMapper') == 'oidc-usermodel-realm-role-mapper':
+    print(m['id']); break" 2>/dev/null)
+  if [ -n "${ROLES_MAPPER_ID}" ]; then
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/client-scopes/${ROLES_SCOPE_ID}/protocol-mappers/models/${ROLES_MAPPER_ID}" \
+      -d "{\"id\":\"${ROLES_MAPPER_ID}\",\"name\":\"realm-roles\",\"protocol\":\"openid-connect\",\"protocolMapper\":\"oidc-usermodel-realm-role-mapper\",\"consentRequired\":false,\"config\":{\"introspection.token.claim\":\"true\",\"multivalued\":\"true\",\"userinfo.token.claim\":\"true\",\"id.token.claim\":\"true\",\"access.token.claim\":\"true\",\"claim.name\":\"realm_access.roles\",\"jsonType.label\":\"String\"}}" \
+      >/dev/null 2>&1 \
+      && echo "[init-idp]   realm-roles mapper now writes 'realm_access.roles'." \
+      || echo "[init-idp]   WARNING: failed to update realm-roles mapper."
+  fi
+
+  # Spec 104: ensure the standard `client roles` mapper exists in the
+  # `roles` scope, writing the OIDC-standard nested claim
+  # `resource_access.${client_id}.roles`. Without this, Keycloak's own
+  # realm-management API refuses tokens issued to service accounts
+  # (e.g. `caipe-platform`) because it can't find the
+  # `view-users`/`query-users` roles in the token, so the slack bot
+  # fails Slack-user lookups with HTTP 403 ("Identity verification is
+  # temporarily unavailable").
+  CLIENT_ROLES_EXISTS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/client-scopes/${ROLES_SCOPE_ID}/protocol-mappers/models" 2>/dev/null \
+    | python3 -c "import sys,json
+for m in json.load(sys.stdin):
+  if m.get('protocolMapper') == 'oidc-usermodel-client-role-mapper':
+    print('yes'); break" 2>/dev/null)
+  if [ "${CLIENT_ROLES_EXISTS}" != "yes" ]; then
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/client-scopes/${ROLES_SCOPE_ID}/protocol-mappers/models" \
+      -d '{"name":"client roles","protocol":"openid-connect","protocolMapper":"oidc-usermodel-client-role-mapper","consentRequired":false,"config":{"introspection.token.claim":"true","multivalued":"true","userinfo.token.claim":"false","id.token.claim":"true","access.token.claim":"true","claim.name":"resource_access.${client_id}.roles","jsonType.label":"String"}}' \
+      >/dev/null 2>&1 \
+      && echo "[init-idp]   client-roles mapper added (writes 'resource_access.\${client_id}.roles')." \
+      || echo "[init-idp]   WARNING: failed to add client-roles mapper."
+  fi
+fi
 
 # -------------------------------------------------------------------
 # Ensure the caipe-slack-bot service account's access tokens include

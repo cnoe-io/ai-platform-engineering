@@ -58,7 +58,7 @@ services:
       - KOMODOR_AGENT_HOST=agent-komodor
       - PAGERDUTY_AGENT_HOST=agent-pagerduty
       - PETSTORE_AGENT_HOST=agent-petstore
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
       - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-3}
       - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
@@ -712,7 +712,7 @@ services:
       # Enable/Disable RAG Knowledge Bases (default: true)
       - NEXT_PUBLIC_RAG_ENABLED=${NEXT_PUBLIC_RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - NEXT_PUBLIC_RAG_URL=${RAG_URL:-http://localhost:9446}
       # MongoDB configuration - Enable/disable MongoDB persistence
       - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
@@ -748,9 +748,17 @@ services:
   ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
-  rag_server:
+  rag-server:
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-0.2.36}
-    container_name: rag_server
+    container_name: rag-server
+    # Network alias keeps the legacy `rag_server` hostname working for any
+    # client that still has it hardcoded. AGW's hickory-dns resolver rejects
+    # underscores in DNS labels (RFC 1035), so the canonical name is now
+    # `rag-server` and `rag_server` is a compatibility alias.
+    networks:
+      default:
+        aliases:
+          - rag_server
     volumes:
       - ${HOME}/.aws:/home/app/.aws:ro
     ports: ["9446:9446"]
@@ -848,7 +856,7 @@ services:
       - SYNC_INTERVAL=86400
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server, neo4j, neo4j-ontology, rag-redis]
+    depends_on: [rag-server, neo4j, neo4j-ontology, rag-redis]
     profiles:
       - graph_rag
 
@@ -860,12 +868,12 @@ services:
       - INGESTOR_TYPE=webloader
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://rag-redis:6379/0
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=http://rag-server:9446
       - MAX_CONCURRENT_JOBS=${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
       - WEBLOADER_CHECK_INTERVAL=${WEBLOADER_CHECK_INTERVAL:-86400}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
+    depends_on: [rag-server]
     profiles:
       - rag
       - graph_rag
@@ -881,11 +889,11 @@ services:
       - JIRA_PROJECTS=${JIRA_PROJECTS}
       - JIRA_PAGE_SIZE=${JIRA_PAGE_SIZE:-100}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=http://rag-server:9446
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server]
+    depends_on: [rag-server]
     profiles:
       - rag
       - graph_rag

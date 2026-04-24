@@ -561,3 +561,401 @@ export async function deleteIdpMapper(alias: string, mapperId: string): Promise<
 
 /** Alias for callers that expect the name `getKeycloakAdminToken` (098 RBAC resource sync). */
 export { getAdminToken as getKeycloakAdminToken };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Spec 104 helpers — team-scoped RBAC role materialization.
+//
+// `ensureRealmRole` is idempotent: callers that need to bind a `tool_user:<id>`
+// or `agent_user:<id>` role to users don't have to know whether the role
+// already exists. We try to fetch first and only POST when missing because
+// `createRealmRole` returns 409 on duplicates and we'd rather not log noise.
+//
+// `findUserIdByEmail` is a thin convenience around `searchRealmUsers` for the
+// common "I have an email, give me the Keycloak `sub`" case used when
+// reconciling team membership → realm-role assignments.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function ensureRealmRole(
+  name: string,
+  description?: string
+): Promise<KeycloakRole> {
+  try {
+    return await getRoleByName(name);
+  } catch {
+    await createRealmRole(name, description);
+    return await getRoleByName(name);
+  }
+}
+
+export async function findUserIdByEmail(email: string): Promise<string | null> {
+  if (!email || !email.trim()) return null;
+  const trimmed = email.trim().toLowerCase();
+  const matches = await searchRealmUsers({ search: trimmed, max: 5 });
+  for (const u of matches) {
+    const userEmail = typeof u.email === "string" ? u.email.toLowerCase() : "";
+    const userName = typeof u.username === "string" ? u.username.toLowerCase() : "";
+    if (userEmail === trimmed || userName === trimmed) {
+      const id = u.id;
+      return typeof id === "string" && id ? id : null;
+    }
+  }
+  // Fallback: if exactly one match and the prefix matches, return it. Keycloak's
+  // `search` is a substring match; we don't want to accidentally pick the wrong
+  // user, so we only accept the loose match when the result set is unambiguous.
+  if (matches.length === 1) {
+    const id = matches[0]?.id;
+    return typeof id === "string" && id ? id : null;
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Spec 104 — per-team Keycloak client scopes for active_team claim.
+//
+// One client scope per team named `team-<slug>` carries a single
+// `oidc-hardcoded-claim-mapper` injecting `active_team=<slug>` into the
+// access token. We bind the scope BOTH as an optional scope on the
+// `caipe-slack-bot` client (for code symmetry with team-personal) AND as
+// a *default* scope on the `agentgateway` audience client. Keycloak's
+// RFC 8693 token-exchange silently drops the `scope` request parameter,
+// so the only reliable way to inject the `active_team` claim is via the
+// target audience client's default scopes — see Spec 104 and the
+// `_apply_active_team` comment in the slack-bot OBO module.
+//
+// CAVEAT: with multiple teams bound as defaults on agentgateway, every
+// hardcoded mapper fires and the last one wins (mapper order is
+// undefined). The bot's mismatch check (`_do_exchange`) catches this and
+// rejects, but multi-team users will see denials. Follow-up work should
+// switch to a script-mapper that reads the requested team from a custom
+// parameter rather than per-team default scopes.
+//
+// All operations are idempotent so the BFF can re-run them on every
+// startup as part of the team-scope auto-sync.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SLACK_BOT_CLIENT_ID =
+  process.env.KEYCLOAK_BOT_CLIENT_ID?.trim() || "caipe-slack-bot";
+
+const AGENTGATEWAY_CLIENT_ID =
+  process.env.KEYCLOAK_AGENTGATEWAY_CLIENT_ID?.trim() || "agentgateway";
+
+interface KeycloakClient {
+  id: string;
+  clientId: string;
+}
+
+interface KeycloakClientScope {
+  id: string;
+  name: string;
+  protocol?: string;
+  description?: string;
+}
+
+interface KeycloakProtocolMapper {
+  id: string;
+  name: string;
+  protocolMapper: string;
+  config?: Record<string, string>;
+}
+
+async function getClientByClientId(clientId: string): Promise<KeycloakClient | null> {
+  const enc = encodeURIComponent(clientId);
+  const response = await adminFetch(`/clients?clientId=${enc}`, { method: "GET" });
+  await assertOk(response, `getClientByClientId(${clientId})`);
+  const arr = await parseJsonArray<Record<string, unknown>>(response);
+  if (arr.length === 0) return null;
+  const c = arr[0]!;
+  const id = typeof c.id === "string" ? c.id : "";
+  const cid = typeof c.clientId === "string" ? c.clientId : "";
+  if (!id || !cid) return null;
+  return { id, clientId: cid };
+}
+
+async function listClientScopes(): Promise<KeycloakClientScope[]> {
+  const response = await adminFetch("/client-scopes", { method: "GET" });
+  await assertOk(response, "listClientScopes");
+  const raw = await parseJsonArray<Record<string, unknown>>(response);
+  return raw
+    .map((s) => {
+      const id = typeof s.id === "string" ? s.id : "";
+      const name = typeof s.name === "string" ? s.name : "";
+      if (!id || !name) return null;
+      return {
+        id,
+        name,
+        protocol: typeof s.protocol === "string" ? s.protocol : undefined,
+        description: typeof s.description === "string" ? s.description : undefined,
+      } as KeycloakClientScope;
+    })
+    .filter((x): x is KeycloakClientScope => x !== null);
+}
+
+async function getClientScopeByName(name: string): Promise<KeycloakClientScope | null> {
+  const all = await listClientScopes();
+  return all.find((s) => s.name === name) ?? null;
+}
+
+async function createClientScope(
+  name: string,
+  description: string
+): Promise<KeycloakClientScope> {
+  console.log(`[KeycloakAdmin] createClientScope name=${name}`);
+  const response = await adminFetch("/client-scopes", {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      protocol: "openid-connect",
+      description,
+      // Keep the scope name out of the access-token "scope" claim so
+      // only the active_team mapper output leaks into the token. This
+      // matters because the bot may request "openid team-<slug>" and we
+      // don't want to advertise the team list back to clients.
+      attributes: { "include.in.token.scope": "false" },
+    }),
+  });
+  await assertOk(response, "createClientScope");
+  const found = await getClientScopeByName(name);
+  if (!found) {
+    throw new Error(`Client scope "${name}" was created but could not be re-fetched`);
+  }
+  return found;
+}
+
+async function listProtocolMappers(scopeId: string): Promise<KeycloakProtocolMapper[]> {
+  const enc = encodeURIComponent(scopeId);
+  const response = await adminFetch(
+    `/client-scopes/${enc}/protocol-mappers/models`,
+    { method: "GET" }
+  );
+  await assertOk(response, "listProtocolMappers");
+  const raw = await parseJsonArray<Record<string, unknown>>(response);
+  return raw
+    .map((m) => {
+      const id = typeof m.id === "string" ? m.id : "";
+      const name = typeof m.name === "string" ? m.name : "";
+      const protocolMapper = typeof m.protocolMapper === "string" ? m.protocolMapper : "";
+      if (!id || !name) return null;
+      return {
+        id,
+        name,
+        protocolMapper,
+        config:
+          m.config && typeof m.config === "object" && !Array.isArray(m.config)
+            ? (m.config as Record<string, string>)
+            : undefined,
+      } as KeycloakProtocolMapper;
+    })
+    .filter((x): x is KeycloakProtocolMapper => x !== null);
+}
+
+async function ensureHardcodedActiveTeamMapper(
+  scopeId: string,
+  mapperName: string,
+  claimValue: string
+): Promise<void> {
+  const existing = await listProtocolMappers(scopeId);
+  const match = existing.find((m) => m.name === mapperName);
+  if (match) {
+    // Treat config divergence as fatal — silently re-pointing active_team
+    // would be a security regression.
+    const currentValue = match.config?.["claim.value"];
+    const currentName = match.config?.["claim.name"];
+    if (currentName !== "active_team" || currentValue !== claimValue) {
+      throw new Error(
+        `Hardcoded mapper "${mapperName}" exists but maps to ${currentName}=${currentValue}; ` +
+          `expected active_team=${claimValue}. Refusing to silently update.`
+      );
+    }
+    return;
+  }
+  console.log(
+    `[KeycloakAdmin] createHardcodedActiveTeamMapper scope=${scopeId} value=${claimValue}`
+  );
+  const enc = encodeURIComponent(scopeId);
+  const response = await adminFetch(`/client-scopes/${enc}/protocol-mappers/models`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: mapperName,
+      protocol: "openid-connect",
+      protocolMapper: "oidc-hardcoded-claim-mapper",
+      consentRequired: false,
+      config: {
+        "claim.name": "active_team",
+        "claim.value": claimValue,
+        "jsonType.label": "String",
+        "id.token.claim": "true",
+        "access.token.claim": "true",
+        "userinfo.token.claim": "true",
+      },
+    }),
+  });
+  await assertOk(response, "createHardcodedActiveTeamMapper");
+}
+
+async function bindScopeAsOptional(
+  clientUuid: string,
+  scopeId: string
+): Promise<void> {
+  // PUT is idempotent: 204 on success, 409 if already bound (treat as ok).
+  const encClient = encodeURIComponent(clientUuid);
+  const encScope = encodeURIComponent(scopeId);
+  const response = await adminFetch(
+    `/clients/${encClient}/optional-client-scopes/${encScope}`,
+    { method: "PUT" }
+  );
+  if (!response.ok && response.status !== 204 && response.status !== 409) {
+    const detail = await readErrorBody(response);
+    throw new Error(`bindScopeAsOptional failed: ${response.status} ${detail}`);
+  }
+}
+
+/**
+ * Bind a client scope as a *default* scope on a client. Used for the
+ * agentgateway audience client because Keycloak's RFC 8693 token-exchange
+ * silently drops the `scope` request parameter — the only way to get a
+ * scope's mappers (and therefore the `active_team` claim) into the minted
+ * token is via default scopes on the *target audience* client.
+ */
+async function bindScopeAsDefault(
+  clientUuid: string,
+  scopeId: string
+): Promise<void> {
+  const encClient = encodeURIComponent(clientUuid);
+  const encScope = encodeURIComponent(scopeId);
+  const response = await adminFetch(
+    `/clients/${encClient}/default-client-scopes/${encScope}`,
+    { method: "PUT" }
+  );
+  if (!response.ok && response.status !== 204 && response.status !== 409) {
+    const detail = await readErrorBody(response);
+    throw new Error(`bindScopeAsDefault failed: ${response.status} ${detail}`);
+  }
+}
+
+async function unbindDefaultScope(
+  clientUuid: string,
+  scopeId: string
+): Promise<void> {
+  const encClient = encodeURIComponent(clientUuid);
+  const encScope = encodeURIComponent(scopeId);
+  const response = await adminFetch(
+    `/clients/${encClient}/default-client-scopes/${encScope}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok && response.status !== 204 && response.status !== 404) {
+    const detail = await readErrorBody(response);
+    throw new Error(`unbindDefaultScope failed: ${response.status} ${detail}`);
+  }
+}
+
+async function unbindOptionalScope(
+  clientUuid: string,
+  scopeId: string
+): Promise<void> {
+  const encClient = encodeURIComponent(clientUuid);
+  const encScope = encodeURIComponent(scopeId);
+  const response = await adminFetch(
+    `/clients/${encClient}/optional-client-scopes/${encScope}`,
+    { method: "DELETE" }
+  );
+  // 404 = already unbound; treat as success.
+  if (!response.ok && response.status !== 204 && response.status !== 404) {
+    const detail = await readErrorBody(response);
+    throw new Error(`unbindOptionalScope failed: ${response.status} ${detail}`);
+  }
+}
+
+async function deleteClientScope(scopeId: string): Promise<void> {
+  const enc = encodeURIComponent(scopeId);
+  const response = await adminFetch(`/client-scopes/${enc}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 204 && response.status !== 404) {
+    const detail = await readErrorBody(response);
+    throw new Error(`deleteClientScope failed: ${response.status} ${detail}`);
+  }
+}
+
+/**
+ * Validate a slug for a Keycloak client-scope name. Keycloak itself accepts a
+ * fairly permissive set of characters but we keep this strict (lowercase
+ * alphanumerics + hyphen) so the resulting `active_team` value renders cleanly
+ * in JWTs, AGW logs, and CEL policies. Callers should reject invalid slugs
+ * before trying to materialize a scope; this function is the canonical regex.
+ */
+export function isValidTeamSlug(slug: string): boolean {
+  if (!slug || slug.length > 63) return false;
+  return /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug);
+}
+
+/**
+ * Idempotently ensure a `team-<slug>` client scope exists with a hardcoded
+ * `active_team=<slug>` claim mapper, and is bound as an optional scope on the
+ * Slack-bot client. Safe to call repeatedly during startup auto-sync.
+ *
+ * Throws if the slug is invalid or if an existing mapper is misconfigured —
+ * we never silently rewrite an existing claim value to a different team.
+ */
+export async function ensureTeamClientScope(slug: string): Promise<void> {
+  if (!isValidTeamSlug(slug)) {
+    throw new Error(
+      `Invalid team slug "${slug}" — must be lowercase alphanumerics with hyphens, max 63 chars`
+    );
+  }
+  const scopeName = `team-${slug}`;
+  const description = `Spec 104: marks the user as acting in team "${slug}"`;
+
+  const botClient = await getClientByClientId(SLACK_BOT_CLIENT_ID);
+  if (!botClient) {
+    throw new Error(
+      `Keycloak bot client "${SLACK_BOT_CLIENT_ID}" not found; cannot bind team scope`
+    );
+  }
+
+  let scope = await getClientScopeByName(scopeName);
+  if (!scope) {
+    scope = await createClientScope(scopeName, description);
+  }
+
+  await ensureHardcodedActiveTeamMapper(scope.id, `active-team-${slug}`, slug);
+  await bindScopeAsOptional(botClient.id, scope.id);
+
+  // Spec 104: bind as DEFAULT on agentgateway too. Token-exchange ignores
+  // the `scope=` request parameter, so optional-on-bot alone produces a
+  // token without the `active_team` claim. Default-on-audience is the only
+  // wiring that actually injects the claim. Best-effort: if the
+  // agentgateway client doesn't exist yet (older stack pre Spec 104), log
+  // and skip rather than failing team creation entirely.
+  const agwClient = await getClientByClientId(AGENTGATEWAY_CLIENT_ID);
+  if (!agwClient) {
+    console.warn(
+      `[keycloak-admin] agentgateway client "${AGENTGATEWAY_CLIENT_ID}" not found; ` +
+        `team scope "${scopeName}" will not appear in OBO tokens until you run ` +
+        `init-idp.sh or create the client manually.`
+    );
+    return;
+  }
+  await bindScopeAsDefault(agwClient.id, scope.id);
+}
+
+/**
+ * Idempotently remove a team scope. Unbinds from the bot client first, then
+ * deletes the scope itself. Safe if the scope is already missing.
+ */
+export async function deleteTeamClientScope(slug: string): Promise<void> {
+  if (!isValidTeamSlug(slug)) {
+    // If the slug is invalid we can't have created a scope for it; nothing to do.
+    return;
+  }
+  const scopeName = `team-${slug}`;
+  const scope = await getClientScopeByName(scopeName);
+  if (!scope) return;
+
+  const botClient = await getClientByClientId(SLACK_BOT_CLIENT_ID);
+  if (botClient) {
+    await unbindOptionalScope(botClient.id, scope.id);
+  }
+  const agwClient = await getClientByClientId(AGENTGATEWAY_CLIENT_ID);
+  if (agwClient) {
+    await unbindDefaultScope(agwClient.id, scope.id);
+  }
+  await deleteClientScope(scope.id);
+}

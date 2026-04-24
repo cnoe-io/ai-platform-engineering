@@ -13,6 +13,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
+import { deleteTeamClientScope } from '@/lib/rbac/keycloak-admin';
 import type { UpdateTeamRequest } from '@/types/teams';
 
 function requireMongoDB() {
@@ -147,7 +148,24 @@ export const DELETE = withErrorHandler(async (
 
     await teams.deleteOne({ _id: teamId });
 
-    console.log(`[Admin] Team deleted: ${team.name} (${params.id}) by ${user.email}`);
+    // Best-effort delete of the per-team Keycloak client scope. We don't
+    // roll the Mongo delete back if this fails — the team is gone, and a
+    // dangling scope only matters next time someone reuses the slug
+    // (`ensureTeamClientScope` will reuse-and-validate the existing scope).
+    // We do log loudly so an operator can clean up.
+    const slug = typeof team.slug === 'string' ? team.slug : '';
+    if (slug) {
+      try {
+        await deleteTeamClientScope(slug);
+      } catch (err) {
+        console.error(
+          `[Admin] Team ${params.id} (slug=${slug}) deleted from Mongo but Keycloak scope cleanup failed:`,
+          err
+        );
+      }
+    }
+
+    console.log(`[Admin] Team deleted: ${team.name} (${params.id}, slug=${slug}) by ${user.email}`);
 
     return successResponse({
       message: 'Team deleted successfully',

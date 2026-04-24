@@ -20,9 +20,34 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 | `chat_user` | Yes — all authenticated users | Grants access to supervisor, Slack bot, RAG tools via AgentGateway CEL |
 | `admin` | No — explicit assignment | Full CAIPE admin UI: user management, team CRUD, role assignment, Keycloak Admin API proxy |
 | `kb_admin` | No | Knowledge base management: upload documents, configure RAG pipelines |
-| `team_member` | No | Scoped to team-visibility dynamic agents |
+| `team_member` | No | Legacy team marker — superseded by `team_member:<team_id>` (spec 104) |
 
 `chat_user` is in the `default-roles-caipe` composite, so every newly-created or brokered user gets it automatically. This is patched at runtime by `init-idp.sh` because Keycloak's realm import doesn't reliably populate composite role members.
+
+#### Resource-scoped roles (spec 104 — team-scoped RBAC)
+
+Spec 104 introduces a second tier of realm roles that bind *resources* (tools, agents, teams) to *callers*. They use a `<category>:<id>` naming convention with `:` as the separator. AgentGateway CEL rules and Dynamic Agents auth check for these roles in `jwt.realm_access.roles`.
+
+| Pattern | Example | Meaning |
+|---------|---------|---------|
+| `tool_user:<tool_name>` | `tool_user:jira_search_issues` | Caller may invoke this MCP tool. The tool name is the LangChain-prefixed `<server_id>_<tool>` produced by Dynamic Agents. |
+| `tool_user:*` | `tool_user:*` | Wildcard — caller may invoke any MCP tool (admin convenience). |
+| `tool_user:<server>_*` | `tool_user:jira_*` | All tools from one MCP server (seeded by `init-idp.sh`; AG CEL match is exact today, glob support tracked). |
+| `agent_user:<agent_id>` | `agent_user:test-april-2025` | Caller may chat with this dynamic agent (enforced in DA, not AG). |
+| `agent_admin:<agent_id>` | `agent_admin:test-april-2025` | Caller may modify the agent's config. Implies `agent_user:<agent_id>`. |
+| `team_member:<team_id>` | `team_member:demo-team` | Caller belongs to the team. AG CEL rules already use this prefix for team-scoped resources. |
+| `team_admin:<team_id>` | `team_admin:demo-team` | Caller manages team membership and resource assignments. |
+| `admin_user` | `admin_user` | Realm-wide superuser for the spec-104 model. Bypasses every per-resource check. Distinct from the legacy flat `admin` so we can deprecate the old model later. Granted automatically to every email in `BOOTSTRAP_ADMIN_EMAILS` by `init-idp.sh`. |
+
+Roles are created and assigned by:
+- `init-idp.sh` (dev/CI seed; runs in the `keycloak-init` job; reads `BOOTSTRAP_ADMIN_EMAILS` to seed the demo bundle).
+- The Admin UI **Team Resources panel** (`Admin → Teams → <team> → Resources` tab, spec 104 Story 4) — checking an agent or tool box calls `PUT /api/admin/teams/[id]/resources`, which:
+  1. Ensures the realm role (`agent_user:<id>`, `agent_admin:<id>`, `tool_user:<server>_*`, or `tool_user:*` for the wildcard) exists in Keycloak (idempotent — `ensureRealmRole`).
+  2. Resolves each team member's email to a Keycloak `sub` (`findUserIdByEmail`) and applies the add/remove diff via `assignRealmRolesToUser` / `removeRealmRolesFromUser`.
+  3. Persists the selection on the team document in Mongo (`team.resources = { agents, agent_admins, tools, tool_wildcard }`).
+  The Resources tab covers Use+Manage per agent and per-MCP-server tool grants plus a single "All tools" wildcard checkbox. Members without a Keycloak account yet (invited but never logged in) are returned in `members_skipped`; the rest of the operation still completes so a single absent user can't brick the panel. Mongo persistence happens **after** Keycloak reconciliation so a KC outage doesn't leave the two stores permanently out of sync.
+- The Admin UI **Team Slack Channels panel** (`Admin → Teams → <team> → Slack Channels` tab, spec 098 US9) — bind Slack channels to a team so the bot resolves the channel's effective team via `channel_team_mappings` (and optionally a default agent via `channel_agent_mappings`). `PUT /api/admin/teams/[id]/slack-channels` is an idempotent full-replace: it deactivates this team's previous mappings that aren't in the new payload (only when `team_id` still matches — never touches another team's rows), upserts the active set, mirrors the bound-agent dropdown into `channel_agent_mappings`, and denormalises a thin `slack_channels` array onto the team document for the team-card chip count. The UI offers a live `conversations.list` discovery picker (server-side `SLACK_BOT_TOKEN` only, 60s in-process cache) plus a manual ID entry fallback for when the bot isn't in the channel yet. The bound-agent dropdown is constrained to `team.resources.agents` so admins can't accidentally bind a channel to an agent the team doesn't otherwise have access to (the backend re-validates).
+- The Admin UI **Team Roles panel** (`Admin → Teams → <team> → Roles` tab) — for everything *not* covered by the Resources tab (`admin_user`, `chat_user`, `kb_admin`, `kb_reader:<kb>`, `kb_ingestor:<kb>`, custom roles, etc.). Calls `PUT /api/admin/teams/[id]/roles` with the same idempotent ensure-role + diff-reconcile-members + persist-on-team flow. The GET endpoint surfaces the full realm-role catalog (minus system roles like `default-roles-caipe`/`offline_access`/`uma_authorization`) grouped by category prefix so admins can pick or paste in role names; orphan assignments (roles assigned but no longer in the catalog) are surfaced as a warning so they can be removed.
 
 ### External IdP Brokering (Duo SSO, Okta, or any OIDC provider)
 
@@ -198,7 +223,7 @@ User JWT  →  Supervisor  →  (same JWT)  →  AgentGateway  →  MCP Server
 
 > **Badge analogy:** The armed security checkpoint at the entrance to the server room. Everyone must badge in — no exceptions, no tailgating. The checkpoint has a physical rulebook (CEL policies) specifying exactly which badge types (roles) can enter which server rack (MCP tool). If your badge says `chat_user` and the rack requires `kb_admin`, you're turned away at the door, not inside the rack.
 
-**Technically:** AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool calls. It proxies HTTP/SSE requests to registered MCP backend servers and evaluates a CEL (Common Expression Language) policy against the JWT claims before allowing each request through. It is the only place in the architecture where tool-level authorization is enforced — MCP servers do not need their own authz logic beyond JWT signature validation.
+**Technically:** AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool calls. It proxies HTTP/SSE requests to registered MCP backend servers and evaluates a CEL (Common Expression Language) policy against the JWT claims before allowing each request through. It is the only place in the architecture where tool-level authorization is enforced for the normal standalone-MCP path. MCP servers still mount a shared custom middleware package for **authentication defense-in-depth** (JWT/shared-key validation, token passthrough context, and an optional local-dev localhost bypass). For embedded/local MCP servers that do not sit behind AgentGateway, the same package can also perform an **optional Keycloak PDP scope check** (for example `mcp_jira#invoke`) so they still have a real authz gate.
 
 ### Request Flow
 
@@ -231,16 +256,17 @@ CEL is a lightweight expression language. Policies are evaluated per-route and p
 
 ```cel
 # Basic access: must have chat_user role
-jwt.claims.realm_access.roles.exists(r, r == "chat_user")
+jwt.claims.realm_access.roles.contains("chat_user")
 
 # Elevated access: admin or kb_admin
-jwt.claims.realm_access.roles.exists(r, r == "admin" || r == "kb_admin")
+jwt.claims.realm_access.roles.contains("admin") ||
+jwt.claims.realm_access.roles.contains("kb_admin")
 
 # Tenant-scoped: user can only query their own tenant's data
 jwt.claims.tenant == resource.tenant
 
 # Combine role and tenant
-jwt.claims.realm_access.roles.exists(r, r == "chat_user")
+jwt.claims.realm_access.roles.contains("chat_user")
   && jwt.claims.tenant != ""
 ```
 
@@ -249,6 +275,15 @@ jwt.claims.realm_access.roles.exists(r, r == "chat_user")
 - **Decoupled policy from business logic:** MCP servers implement domain logic, not authz. Changing a policy means editing `config.yaml`, not redeploying an MCP server.
 - **Consistent enforcement:** Every tool — RAG, GitHub, ArgoCD, Slack — goes through the same gateway with the same JWT. No tool can be accidentally left unenforced.
 - **Token passthrough:** AgentGateway forwards the JWT to the MCP backend unchanged. The backend can do its own secondary validation (e.g. tenant isolation).
+
+### Local / Embedded MCP Exception Path
+
+Most production MCP traffic should still go through AgentGateway. The repository also ships a **shared custom MCP middleware** for the exception cases:
+
+- **Local dev** — when an engineer runs a FastMCP server directly on `localhost` for `mcp dev`, `MCP_TRUSTED_LOCALHOST=true` can bypass auth for the real loopback peer only.
+- **Embedded MCPs** — when an MCP lives inside another Python service and therefore cannot be registered as a standalone AgentGateway backend, the same package validates the bearer token locally and can optionally call Keycloak's PDP for a per-MCP scope decision.
+
+That package lives under `ai_platform_engineering/agents/common/mcp-auth/` and is intentionally **authn-focused by default**. In the normal standalone path, AgentGateway remains the source of truth for RBAC.
 
 ---
 
@@ -413,8 +448,8 @@ AG evaluates CEL expressions against a context object that includes the **verifi
 
 ```cel
 # Realm roles (set in realm-config.json + init-idp.sh composites)
-"chat_user" in jwt.realm_access.roles
-"admin"     in jwt.realm_access.roles
+jwt.realm_access.roles.contains("chat_user")
+jwt.realm_access.roles.contains("admin")
 
 # Client-level roles (rare — most roles live at the realm level in CAIPE)
 "resource_access" in jwt && "caipe-ui" in jwt.resource_access
@@ -431,8 +466,25 @@ has(jwt.act) && jwt.act.sub == "caipe-slack-bot"
 jwt.org == request.headers.x_tenant_id
 
 # MCP tool introspection (only inside mcpAuthorization, not on route-level authorization)
-has(mcp.tool) && mcp.tool.name.startsWith("admin_")
+mcp.tool.name.startsWith("admin_")
 ```
+
+### AGW CEL Runtime Caveat
+
+The current AgentGateway CEL runtime in this repo does **not** behave like stock CEL for some JWT-backed dynamic fields:
+
+- `has(jwt.sub)` and `has(jwt.realm_access.roles)` can return `false` even when the field is present.
+- `"role" in jwt.realm_access.roles` returns `false` for list membership checks.
+- `jwt.realm_access.roles.exists(...)` can panic the gateway with `Dynamic(Array ...)`.
+
+The runtime-safe pattern is:
+
+```cel
+jwt.realm_access.roles.contains("admin_user")
+jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
+```
+
+That is why the checked-in `deploy/agentgateway/config.yaml` uses direct field access plus `.contains(...)` for all role checks and avoids `has(...)`, `in`, and `.exists(...)` against JWT role arrays.
 
 The existing production ruleset in `deploy/agentgateway/config.yaml` shows the common patterns: admin-only prefixes (`admin_*`, `supervisor_config`), role-gated prefixes (`rag_query`, `rag_ingest`, `rag_tool`, `team_*`, `dynamic_agent_*`, `github_*`), and a catch-all for non-admin, non-ingest tools.
 
@@ -594,3 +646,57 @@ Separate from the OBO flow above. The Slack bot also calls Keycloak's **Admin RE
 - Service-account user has these `realm-management` client roles: `view-users`, `query-users` (add `manage-users` if you need the bot to write user attributes).
 
 The realm seeder already provisions `caipe-platform` with all of those, so the default values "just work" in dev.
+
+## Spec 104 — `active_team` JWT claim (team-scope refactor)
+
+> **Status: implemented in this branch.** Replaces the legacy `X-Team-Id`
+> header. Full design + spike notes + sequence diagrams live in
+> [`docs/docs/specs/104-team-scoped-rbac/active-team-design.md`](../../specs/104-team-scoped-rbac/active-team-design.md).
+
+### What changed
+
+| Before | After |
+|---|---|
+| Slack bot set `X-Team-Id: <slug>` on outbound A2A / RAG / AGW calls | Slack bot mints the OBO token with a Keycloak client scope (`team-<slug>` or `team-personal`) so the resulting JWT carries a signed `active_team` claim |
+| Header could be dropped, swapped, or forged at any hop between bot → caipe-ui → DA → AGW | Claim is signed by Keycloak; tampering invalidates the JWT signature |
+| `dynamic-agents` outbound MCP traffic ran with the slack-bot service-account JWT (`chat_user` only) → AGW returned 0 tools | DA forwards the user's OBO token unchanged via `current_user_token`; SA fallback is gone, mismatch is logged loudly |
+| AGW CEL: any `chat_user` could invoke any non-admin tool | AGW CEL: per-tool `tool_user:<name>` AND `team_member:<jwt.active_team>` (group); `__personal__` short-circuits the team check; `admin_user` bypasses both |
+
+### Components touched
+
+1. **Keycloak**
+   - `team-personal` client scope (hardcoded `active_team=__personal__`) bound as **optional** to `caipe-slack-bot`. Provisioned by the realm-init script on every boot.
+   - `team-<slug>` client scopes (hardcoded `active_team=<slug>`) created on demand by the BFF when a team is created in Mongo, and on startup auto-sync for pre-existing teams.
+
+2. **BFF (`caipe-ui`)**
+   - `Team` schema gains an immutable `slug` field. `POST /api/admin/teams` derives one from `name`, calls `ensureTeamClientScope(slug)`, and rolls back the Mongo insert if Keycloak provisioning fails.
+   - `DELETE /api/admin/teams/[id]` best-effort unbinds and deletes `team-<slug>`.
+   - Startup hook (`instrumentation.ts` → `team-scope-sync.ts`) backfills slugs and ensures every team has its KC scope.
+   - `/api/rag/*` proxy routes no longer add `X-Team-Id`.
+
+3. **Slack bot (`integrations/slack_bot/`)**
+   - `obo_exchange.impersonate_user(active_team=...)` adds `scope=openid team-<slug>` (or `team-personal`) to the token-exchange request and **verifies** the returned JWT's `active_team` claim matches what was requested. Mismatch raises `OboExchangeError` (load-bearing security invariant).
+   - `channel_team_resolver.py` resolves Slack channel → team slug via `channel_team_mappings` + `teams.slug`, and pre-checks user membership. DMs short-circuit to `__personal__`.
+   - `app._rbac_enrich_context` hard-rejects when a group channel has no team mapping or the user isn't in the mapped team — there is no silent fallback to personal mode for group channels.
+   - `downstream_auth_headers` now returns only `Authorization: Bearer …`; the legacy `X-Team-Id` header is gone.
+
+4. **Dynamic agents**
+   - `JwtAuthMiddleware` accepts `aud=caipe-platform,agentgateway` (comma-separated env, default covers both) and logs `sub`/`aud`/`active_team` on every validated request.
+   - `AgentRuntime.__init__` logs a WARNING when no per-request user token is bound — never falls back to a service-account token.
+
+5. **AgentGateway**
+   - Listener `audiences: [caipe-platform, agentgateway]`.
+   - `mcpAuthorization` rules require either `admin_user`, OR `__personal__` + per-tool role, OR group-scope: `tool_user:<tool>` AND `team_member:<jwt.active_team>` simultaneously. The legacy broad `chat_user` allow rules were removed in this big-bang switch.
+
+6. **RAG server**
+   - `UserContext.active_team: Optional[str]` populated from the JWT claim by `extract_active_team_from_claims`.
+   - `_kb_cel_context` exposes the slug in `user.teams` so existing CEL like `"<slug>" in user.teams` keeps working.
+   - `check_kb_datasource_access` and `inject_kb_filter` prefer `user_context.active_team` over the legacy `X-Team-Id` header (header is still read as a fallback so mid-rollout tokens without the claim don't 403).
+
+### Failure modes (intentional)
+
+- **Group channel without a team mapping** → bot replies "this channel isn't assigned to a CAIPE team yet"; nothing reaches AGW.
+- **User not in the mapped team** → bot replies "you aren't a member of `<team>`".
+- **Keycloak scope provisioning fails on team create** → BFF rolls back the Mongo insert and returns HTTP 502.
+- **OBO exchange fails / returns wrong `active_team`** → bot hard-rejects the request (no SA fallback).
+- **DA receives a request without a user JWT** → middleware logs WARNING, MCP call goes out without `Authorization`, AGW 401s.

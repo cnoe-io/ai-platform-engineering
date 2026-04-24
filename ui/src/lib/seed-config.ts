@@ -413,4 +413,18 @@ export async function applySeedConfig(): Promise<void> {
     // Log but don't crash — seeding failure shouldn't prevent startup
     console.error("[seed-config] Failed to apply seed config:", err);
   }
+
+  // Spec 104: provision per-team Keycloak client scopes for any teams
+  // that pre-date the slug field. Lives inside applySeedConfig because
+  // Turbopack's instrumentation chunk tree-shakes a separate dynamic
+  // import (the seed-config chunk is reliably emitted, so we piggyback
+  // on it). Best-effort — failures are logged but don't block startup.
+  try {
+    const { syncTeamScopesOnStartup } = await import(
+      "@/lib/rbac/team-scope-sync"
+    );
+    await syncTeamScopesOnStartup();
+  } catch (err) {
+    console.error("[seed-config] team-scope sync threw:", err);
+  }
 }

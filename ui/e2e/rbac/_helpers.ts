@@ -12,11 +12,28 @@ export async function signIn(
   creds: { email: string; password: string } = env.user,
 ): Promise<void> {
   await page.goto("/");
-  // The CAIPE BFF redirects unauthenticated users straight into Keycloak's
-  // login form (or Duo, depending on idp_hint). We accept either DOM.
-  await page.waitForURL((u) => u.toString().includes(env.keycloakUrl), {
-    timeout: 30_000,
-  });
+  // Some stacks redirect unauthenticated users straight to Keycloak, while
+  // others first land on the local /login page and wait for the user to
+  // click the SSO button.
+  await page.waitForURL(
+    (u) =>
+      u.toString().includes(env.keycloakUrl) ||
+      u.toString().startsWith(env.baseUrl + "/login"),
+    { timeout: 30_000 },
+  );
+
+  if (page.url().startsWith(env.baseUrl + "/login")) {
+    await Promise.all([
+      page.waitForURL((u) => u.toString().includes(env.keycloakUrl), {
+        timeout: 30_000,
+      }),
+      page.getByRole("button", { name: /sign in with sso/i }).click(),
+    ]);
+  } else {
+    await page.waitForURL((u) => u.toString().includes(env.keycloakUrl), {
+      timeout: 30_000,
+    });
+  }
 
   await page.fill('input[name="username"], input[name="email"]', creds.email);
   await page.fill('input[name="password"]', creds.password);

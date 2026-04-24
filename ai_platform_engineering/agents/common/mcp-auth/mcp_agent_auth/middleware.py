@@ -10,6 +10,26 @@ Reads MCP_AUTH_MODE at import time:
   oauth2      — validates JWT via JWKS (JWKS_URI, AUDIENCE, ISSUER env vars)
 
 Public paths and OPTIONS requests bypass auth in all modes.
+
+Local development carve-out
+---------------------------
+
+Set ``MCP_TRUSTED_LOCALHOST=true`` to bypass auth when the request peer
+is loopback (``127.0.0.1`` / ``::1``). This is intended for ``mcp dev``
+workflows where an engineer runs an MCP server directly without a JWT
+issuer in the loop. The flag is **off by default** so production
+deployments behind agentgateway are not affected. The bypass also
+kicks in for unix sockets (no peer address available).
+
+Optional per-MCP RBAC scope check
+---------------------------------
+
+Set ``MCP_PDP_ENABLED=true`` (and ``MCP_PDP_SCOPE`` / ``MCP_PDP_RESOURCE``,
+plus the standard ``KEYCLOAK_*`` env vars) to add a Keycloak PDP check
+*after* JWT validation. This is useful for embedded MCPs that don't
+sit behind agentgateway and therefore don't get its CEL-based RBAC
+gate. The check is skipped when ``MCP_AUTH_MODE`` is ``none`` /
+``shared_key`` because both bypass per-user identity.
 """
 
 from __future__ import annotations
@@ -27,12 +47,21 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 
 from .jwks_cache import JwksCache
+from .pdp import is_pdp_enabled, check_scope_or_503
 from .token_context import current_bearer_token
 
 logger = logging.getLogger(__name__)
 
 MCP_AUTH_MODE: str = os.getenv("MCP_AUTH_MODE", "none").lower()
 _VALID_MODES = {"none", "shared_key", "oauth2"}
+
+# Local development carve-out — bypass auth when peer is loopback.
+MCP_TRUSTED_LOCALHOST: bool = os.getenv(
+    "MCP_TRUSTED_LOCALHOST", "false"
+).strip().lower() in ("1", "true", "yes")
+
+# Loopback peer addresses (IPv4, IPv6, unix-socket sentinel).
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 _DEFAULT_PUBLIC_PATHS = {"/healthz", "/health"}
 
@@ -135,6 +164,23 @@ def _verify_jwt(token: str) -> bool:
     return True
 
 
+def _is_loopback_peer(request: Request) -> bool:
+    """Return True if the request peer is a loopback address.
+
+    Used by the ``MCP_TRUSTED_LOCALHOST`` carve-out. We check
+    ``request.client.host`` directly (NOT any X-Forwarded-For header)
+    because the trust decision must be based on the real TCP peer,
+    not anything a remote attacker could spoof.
+    """
+    client = request.client
+    if client is None:
+        # ASGI server didn't expose a peer (e.g. unix socket) — treat
+        # as loopback. This matches the documented use-case of
+        # ``mcp dev`` over a local UDS.
+        return True
+    return client.host in _LOOPBACK_HOSTS
+
+
 class MCPAuthMiddleware(BaseHTTPMiddleware):
     """Starlette ASGI middleware that enforces MCP_AUTH_MODE on HTTP transports."""
 
@@ -149,6 +195,18 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if MCP_AUTH_MODE == "none":
+            return await call_next(request)
+
+        # Local-dev carve-out: trusted loopback peer bypasses auth in
+        # ANY mode. Logged at INFO so an operator who forgot to unset
+        # the flag in production can spot it.
+        if MCP_TRUSTED_LOCALHOST and _is_loopback_peer(request):
+            logger.info(
+                "MCP auth: bypassing auth for trusted loopback peer (%s) "
+                "on %s — disable MCP_TRUSTED_LOCALHOST in production",
+                request.client.host if request.client else "unix",
+                request.url.path,
+            )
             return await call_next(request)
 
         auth = request.headers.get("Authorization", "")
@@ -172,6 +230,20 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
                 logger.error("MCP auth dispatch error: %s", exc, exc_info=True)
                 return self._forbidden(f"Authentication failed: {exc}", request)
 
+            # Optional per-MCP PDP scope check. Only meaningful in
+            # oauth2 mode (we need a real user JWT). The PDP module
+            # handles its own enable/disable flag, so the call here
+            # is unconditional and cheap when disabled.
+            if is_pdp_enabled():
+                error = await check_scope_or_503(token)
+                if error is not None:
+                    status, reason = error
+                    if status == 403:
+                        return self._forbidden(reason, request)
+                    if status == 503:
+                        return self._service_unavailable(reason, request)
+                    return self._unauthorized(reason, request)
+
         current_bearer_token.set(token)
         return await call_next(request)
 
@@ -190,3 +262,15 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
                 f"error forbidden: {reason}", status_code=403, media_type="text/event-stream"
             )
         return JSONResponse({"error": "forbidden", "reason": reason}, status_code=403)
+
+    def _service_unavailable(self, reason: str, request: Request):
+        """Return a 503 Service Unavailable response (PDP fail-closed)."""
+        if "text/event-stream" in request.headers.get("accept", ""):
+            return PlainTextResponse(
+                f"error service_unavailable: {reason}",
+                status_code=503,
+                media_type="text/event-stream",
+            )
+        return JSONResponse(
+            {"error": "service_unavailable", "reason": reason}, status_code=503
+        )

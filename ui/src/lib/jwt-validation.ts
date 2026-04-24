@@ -126,7 +126,21 @@ export async function validateBearerJWT(
   }
 
   const jwks = await getJWKS();
-  const audience = process.env.OIDC_CLIENT_ID || undefined;
+  // Spec 104: tokens minted by the Slack bot's OBO exchange carry
+  // `aud=agentgateway` (so they can hit AGW directly). The same token
+  // also flows through the BFF on the way there, so the BFF must accept
+  // either the UI's own audience or the agentgateway audience. Any
+  // additional acceptable audiences can be added via OIDC_EXTRA_AUDIENCES
+  // (comma-separated). `jose.jwtVerify` treats an array as
+  // "the token's `aud` MUST contain at least one of these".
+  const primary = process.env.OIDC_CLIENT_ID?.trim();
+  const extras = (process.env.OIDC_EXTRA_AUDIENCES || "agentgateway")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const auds = [primary, ...extras].filter((s): s is string => !!s);
+  const audience: string | string[] | undefined =
+    auds.length === 0 ? undefined : auds.length === 1 ? auds[0] : auds;
 
   try {
     const { payload } = await jwtVerify(token, jwks, {

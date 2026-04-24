@@ -163,7 +163,7 @@ services:
       - ENABLE_JARVIS=${ENABLE_JARVIS:-false}
 
       # RAG Service Configuration
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - FETCH_DOCUMENT_MAX_CALLS=${FETCH_DOCUMENT_MAX_CALLS:-5}
       - SEARCH_MAX_CALLS=${SEARCH_MAX_CALLS:-3}
       - RAG_MAX_OUTPUT_CHARS=${RAG_MAX_OUTPUT_CHARS:-10000}
@@ -756,6 +756,22 @@ services:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
+      # Shared custom MCP auth middleware. Default to strict JWT validation in
+      # the local stack so AgentGateway-forwarded user tokens are verified at
+      # the backend too. Localhost bypass stays opt-in for direct `mcp dev`
+      # workflows.
+      - MCP_AUTH_MODE=${JIRA_MCP_AUTH_MODE:-oauth2}
+      - MCP_TRUSTED_LOCALHOST=${JIRA_MCP_TRUSTED_LOCALHOST:-false}
+      - JWKS_URI=${JIRA_MCP_JWKS_URI:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      - AUDIENCE=${JIRA_MCP_AUDIENCE:-caipe-platform}
+      - ISSUER=${JIRA_MCP_ISSUER:-http://localhost:7080/realms/caipe}
+      # Optional PDP check for embedded / direct-local MCP use. Off by default
+      # for the normal AgentGateway path so CEL remains the RBAC source of truth.
+      - MCP_PDP_ENABLED=${JIRA_MCP_PDP_ENABLED:-false}
+      - MCP_PDP_RESOURCE=${JIRA_MCP_PDP_RESOURCE:-mcp_jira}
+      - MCP_PDP_SCOPE=${JIRA_MCP_PDP_SCOPE:-invoke}
+      - MCP_PDP_AUDIENCE=${JIRA_MCP_PDP_AUDIENCE:-caipe-platform}
+      - MCP_PDP_TOKEN_ENDPOINT=${JIRA_MCP_PDP_TOKEN_ENDPOINT:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
       interval: 10s
@@ -1196,11 +1212,15 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
+      # DEV_HOT_RELOAD=true → build the `dev` stage which runs `next dev`
+      # against bind-mounted ./ui/src and ./ui/public for sub-second hot
+      # reload. Default `runner` keeps prod parity untouched.
+      target: ${CAIPE_UI_BUILD_TARGET:-runner}
       args:
         - IMAGE_TAG=${IMAGE_TAG:-localtag}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
         - BUILD_DATE=${BUILD_DATE:-}
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}${CAIPE_UI_IMAGE_SUFFIX:-}
     container_name: caipe-ui
     # IMPORTANT: caipe-ui host port MUST stay 3000 — Keycloak's caipe-ui client
     # only allow-lists http://localhost:3000/* as a redirect URI (see
@@ -1209,7 +1229,9 @@ services:
     env_file:
       - .env
     environment:
-      - NODE_ENV=production
+      # NODE_ENV defaults to production; `make dev-ui-hot` (or
+      # CAIPE_UI_NODE_ENV=development) flips it for `next dev` hot reload.
+      - NODE_ENV=${CAIPE_UI_NODE_ENV:-production}
       # Spec 102 — Playwright sets E2E_RUN=true to enable test-only fixtures
       # (see ui/src/lib/test-fixtures.ts). Defaults to false in dev.
       - E2E_RUN=${E2E_RUN:-false}
@@ -1219,7 +1241,7 @@ services:
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - RAG_URL=${RAG_URL:-http://localhost:9446}
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
@@ -1283,6 +1305,26 @@ services:
     volumes:
       - ${APP_CONFIG_FILE:-./config/app-config.yaml}:/app/config/app-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
+      # Hot-reload bind mounts. These are SAFE in prod because the
+      # `runner` stage uses Next standalone output and never reads
+      # /app/src, /app/next.config.ts, etc. They are USED in dev when
+      # the `dev` stage runs `next dev` (CAIPE_UI_BUILD_TARGET=dev).
+      # Note: ui/public is intentionally NOT mounted — mounting it
+      # would shadow the prod runner's prebuilt public/ (entrypoint.sh
+      # writes env-config.js into it). For public/ asset edits in hot
+      # mode, just rebuild the image; src/ changes are the 99% case.
+      - ./ui/src:/app/src
+      - ./ui/next.config.ts:/app/next.config.ts
+      - ./ui/tsconfig.json:/app/tsconfig.json
+      - ./ui/postcss.config.mjs:/app/postcss.config.mjs
+      - ./ui/eslint.config.mjs:/app/eslint.config.mjs
+      # Anonymous volumes: prevent the host from shadowing the
+      # container's installed deps and dev build cache. No-op in prod
+      # runner (those paths aren't touched there).
+      - /app/node_modules
+      - /app/.next
+    # `next dev` when in hot mode, default entrypoint otherwise.
+    command: ${CAIPE_UI_COMMAND:-/app/entrypoint.sh}
     depends_on:
       caipe-supervisor:
         condition: service_started
@@ -1374,12 +1416,20 @@ services:
   #                                      RAG Services                                                #
   ####################################################################################################
 
-  rag_server:
+  rag-server:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
     image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-localtag}
-    container_name: rag_server
+    container_name: rag-server
+    # Network alias preserves the legacy `rag_server` hostname for any client
+    # that still has it hardcoded. AGW's hickory-dns resolver rejects DNS
+    # labels with underscores (RFC 1035), so the canonical service name is
+    # now `rag-server` (hyphen) and `rag_server` is a compatibility alias.
+    networks:
+      default:
+        aliases:
+          - rag_server
     # Keycloak discovery returns jwks_uri on localhost:7080; map localhost → host so fetches work in-container.
     extra_hosts:
       - "localhost:host-gateway"
@@ -1481,7 +1531,7 @@ services:
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID}
     env_file: [.env]
     restart: unless-stopped
-    depends_on: [rag_server, neo4j, rag-redis]
+    depends_on: [rag-server, neo4j, rag-redis]
     profiles:
       - graph_rag
 
@@ -1501,7 +1551,7 @@ services:
       - INGESTOR_TYPE=webloader
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://rag-redis:6379/0
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${WEBLOADER_CHECK_INTERVAL:-86400}
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
       - MAX_CONCURRENT_JOBS=${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
@@ -1529,7 +1579,7 @@ services:
       - INGESTOR_TYPE=backstage
       - BACKSTAGE_URL=${BACKSTAGE_URL}
       - BACKSTAGE_API_TOKEN=${BACKSTAGE_API_TOKEN}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${BACKSTAGE_SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${BACKSTAGE_INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1562,7 +1612,7 @@ services:
       - AWS_PROFILE=${AWS_PROFILE:-}
       - AWS_DEFAULT_PROFILE=${AWS_DEFAULT_PROFILE:-}
       - RESOURCE_TYPES=${AWS_RESOURCE_TYPES:-iam:user,ec2:instance,ec2:volume,ec2:natgateway,ec2:vpc,ec2:subnet,ec2:security-group,eks:cluster,s3:bucket,elasticloadbalancing:loadbalancer,route53:hostedzone,rds:db,lambda:function,dynamodb:table}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1597,7 +1647,7 @@ services:
       - IN_CLUSTER=${K8S_IN_CLUSTER:-false}
       - RESOURCE_LIST=${K8S_RESOURCE_LIST:-Certificate,ClusterIssuer,CronJob,DaemonSet,Deployment,Ingress,IngressClass,Issuer,Job,Namespace,Node,Service,StatefulSet,StorageClass}
       - IGNORE_FIELD_LIST=${K8S_IGNORE_FIELD_LIST:-metadata.annotations.kubectl.kubernetes.io,metadata.labels.app.kubernetes.io,metadata.managedFields,metadata.selfLink}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1623,7 +1673,7 @@ services:
       - SLACK_BOT_NAME=${SLACK_BOT_NAME}
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-https://slack.com}
       - SLACK_CHANNELS=${SLACK_CHANNELS:-{}}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1648,7 +1698,7 @@ services:
       - WEBEX_ACCESS_TOKEN=${WEBEX_ACCESS_TOKEN}
       - WEBEX_BOT_NAME=${WEBEX_BOT_NAME}
       - WEBEX_SPACES=${WEBEX_SPACES:-{}}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-60}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1674,7 +1724,7 @@ services:
       - ARGOCD_AUTH_TOKEN=${ARGOCD_AUTH_TOKEN}
       - ARGOCD_VERIFY_SSL=${ARGOCD_VERIFY_SSL:-true}
       - ARGOCD_FILTER_PROJECTS=${ARGOCD_FILTER_PROJECTS:-}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1704,7 +1754,7 @@ services:
       - GITHUB_APP_INSTALLATION_IDS=${GITHUB_APP_INSTALLATION_IDS:-}
       - GITHUB_API_URL=${GITHUB_API_URL:-https://api.github.com/graphql}
       - GITHUB_REST_API_URL=${GITHUB_REST_API_URL:-https://api.github.com}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - FETCH_TEAM_DETAILS=${FETCH_TEAM_DETAILS:-true}
@@ -1732,7 +1782,7 @@ services:
       - ATLASSIAN_TOKEN=${ATLASSIAN_TOKEN}
       - JIRA_PROJECTS=${JIRA_PROJECTS}
       - JIRA_PAGE_SIZE=${JIRA_PAGE_SIZE:-100}
-      - RAG_SERVER_URL=http://rag_server:9446
+      - RAG_SERVER_URL=http://rag-server:9446
       - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
       - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -1740,7 +1790,7 @@ services:
       - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
     restart: no
     env_file: [.env]
-    depends_on: [rag_server]
+    depends_on: [rag-server]
     profiles:
       - jira-ingestor
 
@@ -1754,7 +1804,7 @@ services:
     image: dummy-structured-ingestor:local
     container_name: dummy-ingestor
     environment:
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - INGESTOR_TYPE=dummy_structured_ingestor
       - DUMMY_ENTITIES_FILE=/app/data/dummy_entities.json
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -2241,11 +2291,21 @@ services:
       IDP_ACCESS_GROUP: ${IDP_ACCESS_GROUP:-}
       IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
       KC_REALM: caipe
+      # Spec 104: comma-separated emails that get the admin_user role and the
+      # demo team/agent/tool bundle on first run of init-idp.sh. Sourced from
+      # the same env var the UI uses for bootstrap admin bypass.
+      BOOTSTRAP_ADMIN_EMAILS: ${BOOTSTRAP_ADMIN_EMAILS:-}
     network_mode: "service:keycloak"
     depends_on:
       keycloak:
         condition: service_healthy
-    restart: "no"
+    # `on-failure` so transient KC unavailability (start_period race) is
+    # auto-retried instead of leaving the realm half-seeded. Both init
+    # scripts are idempotent — re-running is safe. Use `make rbac-reinit`
+    # to force a re-run after the container has already exited cleanly
+    # (e.g. after `docker compose restart keycloak`, where the existing
+    # exited init container does NOT auto-rerun).
+    restart: on-failure
     profiles:
       - rbac
 
@@ -2271,7 +2331,11 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
-    restart: "no"
+      # Run AFTER init-idp.sh so we're configuring token exchange against a
+      # realm that already has the slack-bot client wired up by the IdP seed.
+      keycloak-init:
+        condition: service_completed_successfully
+    restart: on-failure
     profiles:
       - rbac
 
@@ -2288,6 +2352,20 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
+      # Wait for the IdP broker + spec-104 role bundle to be seeded before
+      # AG starts validating tokens — otherwise the very first request after
+      # `compose up` can race the seed and 403 a user who SHOULD have roles.
+      keycloak-init:
+        condition: service_completed_successfully
+      # Token-exchange grants must exist before the Slack bot's first OBO
+      # call, but AG itself doesn't need it. Listed here so that bringing
+      # up AG implicitly brings up the full KC initialization chain — saves
+      # operators from having to remember `--profile rbac` orders things
+      # correctly. Marked optional via `restart: on-failure` on the init
+      # container so a failure here doesn't block AG from coming up if the
+      # token-exchange config is intentionally absent in dev.
+      keycloak-init-token-exchange:
+        condition: service_completed_successfully
     ports:
       - "4000:4000"
       - "15000:15000" # Admin UI (config.config.adminAddr)

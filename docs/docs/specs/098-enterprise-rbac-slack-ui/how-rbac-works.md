@@ -12,5 +12,23 @@
 | Bring up the stack, log in as test users, run the demo, troubleshoot | [Usage](../../security/rbac/usage.md) |
 | Find the file that owns a piece of the auth path | [File map](../../security/rbac/file-map.md) |
 
+## Important Runtime Note
+
+AgentGateway's current CEL runtime in this repo has a real limitation with JWT-backed role arrays:
+
+- `has(jwt.sub)` / `has(jwt.realm_access.roles)` can return `false` even when the field exists
+- `"role" in jwt.realm_access.roles` does not behave like normal CEL membership here
+- `jwt.realm_access.roles.exists(...)` can panic the gateway
+
+The production-safe pattern is direct field access plus `.contains(...)`, for example:
+
+```cel
+jwt.realm_access.roles.contains("admin_user")
+jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
+```
+
+That constraint is documented in the live architecture docs and reflected in
+`deploy/agentgateway/config.yaml`.
+
 The old single-file version of this document is preserved in git history at the commit
 prior to the split (search the commit log for `docs(security): split how-rbac-works.md`).

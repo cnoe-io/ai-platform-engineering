@@ -32,7 +32,7 @@ from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 
-from sse_client import SSEClient
+from sse_client import SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.config_models import get_escalation_config
@@ -61,6 +61,11 @@ if RBAC_ENABLED:
         mark_preauth_prompted,
     )
     from utils.channel_agent_mapper import resolve_channel_agent
+    from utils.channel_team_resolver import (
+        resolve_channel_team,
+        is_dm_channel,
+        PERSONAL_ACTIVE_TEAM,
+    )
     from utils.obo_exchange import impersonate_user, OboExchangeError
 
     async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
@@ -103,12 +108,55 @@ if RBAC_ENABLED:
                 channel_id, slack_user_id,
             )
 
+        # Spec 104: every OBO token now carries a signed `active_team` claim.
+        # Resolve which team the channel belongs to (or use the personal
+        # sentinel for DMs), verify the user is allowed to act in that team,
+        # then mint the token with the matching Keycloak client scope.
+        if is_dm_channel(channel_id):
+            active_team = PERSONAL_ACTIVE_TEAM
+            context["active_team"] = active_team
+            logger.info(
+                "DM channel=%s for user=%s → active_team=%s",
+                channel_id, keycloak_user_id, active_team,
+            )
+        else:
+            team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+            if not team_resolution.team_slug:
+                # Group channel without a team mapping (or user isn't in the
+                # mapped team). Hard reject — we never want to silently fall
+                # back to "personal" for a group channel because that would
+                # bypass the channel's intended team RBAC.
+                return ("deny", team_resolution.deny_message or
+                        "This channel isn't assigned to a CAIPE team yet.")
+            active_team = team_resolution.team_slug
+            context["active_team"] = active_team
+            context["team_id"] = team_resolution.team_id
+            context["team_name"] = team_resolution.team_name
+            logger.info(
+                "Channel=%s mapped to team=%s (slug=%s) for user=%s",
+                channel_id, team_resolution.team_name, active_team, keycloak_user_id,
+            )
+
         try:
-            obo = await impersonate_user(keycloak_user_id)
+            obo = await impersonate_user(keycloak_user_id, active_team=active_team)
             context["obo_token"] = obo.access_token
-            logger.info("OBO impersonation succeeded for user %s", keycloak_user_id)
-        except OboExchangeError:
-            logger.warning("OBO impersonation failed for user %s — downstream calls will use bot identity", keycloak_user_id)
+            logger.info(
+                "OBO impersonation succeeded for user=%s active_team=%s",
+                keycloak_user_id, active_team,
+            )
+        except OboExchangeError as e:
+            # Spec 104: failing the OBO exchange is a HARD failure now —
+            # there is no SA fallback that would give the user the right
+            # tools, so we reject the request rather than silently
+            # downgrading to bot identity (which has no `tool_user:*`).
+            logger.error(
+                "OBO impersonation failed for user=%s active_team=%s: %s",
+                keycloak_user_id, active_team, e,
+            )
+            return ("deny",
+                    "Could not establish your team-scoped session. "
+                    "This usually means the team's Keycloak scope hasn't "
+                    "been provisioned — ask your admin to retry.")
 
         return "ok"
 
@@ -141,6 +189,35 @@ def _obo_token_from_context(context):
         return tok if isinstance(tok, str) and tok else None
     except AttributeError:
         return None
+
+
+def _bind_obo_for_handler(context):
+    """Bind the per-request OBO token onto the SSE client's ContextVar.
+
+    Spec 104 Story 3 — every Slack handler that calls into ``sse_client``
+    (directly or via ``utils/ai.py``) must call this once at entry. The
+    SSE client's ``_get_headers`` then prefers the user-scoped OBO token
+    over the bot's service-account token, so downstream services
+    (``caipe-ui`` BFF, ``dynamic-agents``) see the real user's
+    ``sub`` + ``act.sub`` claims and can apply per-user RBAC.
+
+    No-ops cleanly when:
+      - RBAC is disabled (no impersonation step ran)
+      - The OBO exchange failed (we DON'T fall back to SA — that would
+        defeat the whole point; instead the SSE client falls back to SA
+        on its own and we surface a clear "auth degraded" warning).
+
+    The ContextVar is naturally task-scoped so we don't need to reset it
+    in a finally block; it disappears when the Bolt handler task exits.
+    """
+    obo = _obo_token_from_context(context)
+    if obo:
+        set_obo_token(obo)
+    else:
+        # Explicitly clear any stale token from a previous handler running
+        # on the same thread/event loop slot. Belt-and-braces — Bolt
+        # spawns a fresh task per event so this should already be None.
+        set_obo_token(None)
 
 
 AUTH_ENABLED = os.environ.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
@@ -463,6 +540,7 @@ def rbac_global_middleware(body, context, next, logger):
 def handle_mention(event, say, client, context=None):
   """Handle @mentions of the bot to query CAIPE."""
   try:
+    _bind_obo_for_handler(context)
     if event.get("edited") or event.get("subtype") == "message_changed":
       logger.debug("Skipping edited @mention message")
       return
@@ -619,6 +697,7 @@ def handle_mention(event, say, client, context=None):
 # =============================================================================
 def handle_qanda_message(event, say, client, context=None):
   try:
+    _bind_obo_for_handler(context)
     # Ignore system messages (channel_purpose, channel_topic, channel_join, etc.)
     if event.get("subtype"):
       logger.debug(f"Q&A ignoring system message subtype={event['subtype']} in {event.get('channel')}")
@@ -712,6 +791,7 @@ def handle_qanda_message(event, say, client, context=None):
 def handle_dm_message(event, say, client, context=None):
   """Handle direct messages to the bot."""
   try:
+    _bind_obo_for_handler(context)
     if event.get("bot_id"):
       return
 

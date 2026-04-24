@@ -354,4 +354,111 @@ else
   fi
 fi
 
+# ------------------------------------------------------------------
+# 10. Ensure team-personal client scope (Spec 104)
+# ------------------------------------------------------------------
+# Background: per Spec 104 / active-team-design.md, the bot mints a
+# distinct token-exchanged JWT per Slack interaction whose `active_team`
+# claim drives all downstream RBAC (AGW CEL, RAG, dynamic-agents).
+#
+# For DMs to the bot there is no team — we use the literal sentinel
+# string `__personal__` to mean "the user, in their personal capacity".
+# CEL has an explicit branch for this value that skips the
+# `team_member:<team>` check but still enforces `tool_user:*`.
+#
+# Implementation: a Keycloak client scope named `team-personal` with a
+# single `oidc-hardcoded-claim-mapper` that injects
+#   active_team = "__personal__"
+# into the access token. The scope is bound as an *optional* scope on
+# the bot client, so it only fires when the bot explicitly requests
+# `scope=openid team-personal` during token-exchange.
+#
+# Per-team scopes (`team-<slug>`) are managed by the BFF when admins
+# create/delete teams — see ui/src/lib/keycloak-admin.ts.
+# ------------------------------------------------------------------
+PERSONAL_SCOPE_NAME="team-personal"
+PERSONAL_CLAIM_VALUE="__personal__"
+
+echo "${TAG} Ensuring '${PERSONAL_SCOPE_NAME}' client scope exists ..."
+
+# Refresh token (previous operations may have taken time)
+ACCESS_TOKEN=$(get_admin_token) || exit 1
+AUTH="Authorization: Bearer ${ACCESS_TOKEN}"
+
+# 10a. Look up scope by name
+SCOPES_RESP=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null || echo "[]")
+
+# Match a scope object whose "name" field equals our target. The list is
+# JSON, so we do a coarse grep + extract using the same json_field pattern
+# used elsewhere in this script.
+PERSONAL_SCOPE_ID=$(echo "${SCOPES_RESP}" \
+  | tr ',' '\n' \
+  | grep -B1 "\"name\"[[:space:]]*:[[:space:]]*\"${PERSONAL_SCOPE_NAME}\"" \
+  | grep '"id"' \
+  | head -1 \
+  | sed 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+if [ -z "${PERSONAL_SCOPE_ID}" ]; then
+  echo "${TAG}   Creating '${PERSONAL_SCOPE_NAME}' client scope ..."
+  # `include.in.token.scope=false` keeps the scope name out of the
+  # access-token `scope` claim — only the active_team mapper output
+  # leaks into the token.
+  CREATE_RESP=$(curl -sf -i -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/client-scopes" \
+    -d "{\"name\":\"${PERSONAL_SCOPE_NAME}\",\"protocol\":\"openid-connect\",\"description\":\"Spec 104: marks the user as acting in personal (DM) mode\",\"attributes\":{\"include.in.token.scope\":\"false\"}}" 2>/dev/null || echo "")
+  # The Location header carries the new scope id at the end of the URL
+  PERSONAL_SCOPE_ID=$(echo "${CREATE_RESP}" \
+    | grep -i '^location:' \
+    | sed 's/.*\/\([^/[:space:]]*\)[[:space:]]*$/\1/' \
+    | tr -d '\r')
+  if [ -z "${PERSONAL_SCOPE_ID}" ]; then
+    # Fall back to re-listing if the Location header was not parseable.
+    SCOPES_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null || echo "[]")
+    PERSONAL_SCOPE_ID=$(echo "${SCOPES_RESP}" \
+      | tr ',' '\n' \
+      | grep -B1 "\"name\"[[:space:]]*:[[:space:]]*\"${PERSONAL_SCOPE_NAME}\"" \
+      | grep '"id"' \
+      | head -1 \
+      | sed 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+  fi
+  if [ -z "${PERSONAL_SCOPE_ID}" ]; then
+    echo "${TAG}   ERROR: created scope but could not retrieve its id" >&2
+    exit 1
+  fi
+  echo "${TAG}   Created scope id=${PERSONAL_SCOPE_ID}"
+else
+  echo "${TAG}   Scope already present (id=${PERSONAL_SCOPE_ID})."
+fi
+
+# 10b. Ensure the hardcoded-claim mapper exists on the scope
+MAPPER_NAME="active-team-personal"
+MAPPERS_RESP=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/client-scopes/${PERSONAL_SCOPE_ID}/protocol-mappers/models" 2>/dev/null || echo "[]")
+
+if echo "${MAPPERS_RESP}" | grep -q "\"name\"[[:space:]]*:[[:space:]]*\"${MAPPER_NAME}\""; then
+  echo "${TAG}   Hardcoded mapper '${MAPPER_NAME}' already exists."
+else
+  echo "${TAG}   Creating hardcoded mapper '${MAPPER_NAME}' ..."
+  curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/client-scopes/${PERSONAL_SCOPE_ID}/protocol-mappers/models" \
+    -d "{\"name\":\"${MAPPER_NAME}\",\"protocol\":\"openid-connect\",\"protocolMapper\":\"oidc-hardcoded-claim-mapper\",\"consentRequired\":false,\"config\":{\"claim.name\":\"active_team\",\"claim.value\":\"${PERSONAL_CLAIM_VALUE}\",\"jsonType.label\":\"String\",\"id.token.claim\":\"true\",\"access.token.claim\":\"true\",\"userinfo.token.claim\":\"true\"}}" 2>/dev/null \
+    && echo "${TAG}   Mapper created." \
+    || echo "${TAG}   WARNING: could not create mapper."
+fi
+
+# 10c. Bind scope as OPTIONAL on the bot client (idempotent: PUT is a no-op
+# if already bound; only mutates server state when the relationship doesn't
+# exist yet).
+echo "${TAG}   Binding '${PERSONAL_SCOPE_NAME}' as optional scope on '${BOT_CLIENT_ID}' ..."
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X PUT -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}/optional-client-scopes/${PERSONAL_SCOPE_ID}" 2>/dev/null || echo "000")
+if [ "${HTTP_CODE}" = "204" ] || [ "${HTTP_CODE}" = "200" ]; then
+  echo "${TAG}   Scope bound (HTTP ${HTTP_CODE})."
+else
+  echo "${TAG}   WARNING: could not bind scope (HTTP ${HTTP_CODE})."
+fi
+
 echo "${TAG} Done — token exchange configured for '${BOT_CLIENT_ID}'."

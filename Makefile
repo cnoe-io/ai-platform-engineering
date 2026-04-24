@@ -205,6 +205,19 @@ caipe-ui-docker-compose: ## Run CAIPE UI with docker-compose (includes superviso
 	@echo "Starting CAIPE UI with docker-compose..."
 	docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
 
+caipe-ui-hot: ## Run CAIPE UI in Docker with hot reload (next dev + bind-mounted ./ui/src)
+	@echo "Starting CAIPE UI in hot-reload mode..."
+	@echo "  - Edits in ui/src trigger sub-second rebuild via next dev"
+	@echo "  - public/ asset changes still need: make caipe-ui-hot (rebuilds image)"
+	CAIPE_UI_BUILD_TARGET=dev \
+	CAIPE_UI_NODE_ENV=development \
+	CAIPE_UI_COMMAND="npm run dev" \
+	CAIPE_UI_IMAGE_SUFFIX=-dev \
+	docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
+	@echo ""
+	@echo "Hot-reload UI ready: http://localhost:3000"
+	@echo "Stream logs:        docker logs -f caipe-ui"
+
 ## ========== Documentation (Docusaurus) ==========
 
 docs: docs-install docs-start ## Install dependencies and start documentation development server
@@ -599,6 +612,21 @@ test-rbac-down: ## Tear down the e2e stack (volumes removed).
 	@echo "[test-rbac-down] tearing down e2e stack…"
 	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
 	   docker compose $(E2E_COMPOSE) down -v --remove-orphans
+
+.PHONY: rbac-reinit
+rbac-reinit: ## Force-rerun keycloak-init + keycloak-init-token-exchange against a running stack.
+	## Use after `docker compose restart keycloak` or any time you suspect the
+	## IdP broker / token-exchange grants have drifted (e.g. after editing
+	## init-idp.sh or BOOTSTRAP_ADMIN_EMAILS in .env without a full down/up).
+	## Idempotent — safe to run repeatedly.
+	@echo "[rbac-reinit] force-recreating keycloak-init…"
+	@COMPOSE_PROFILES=rbac \
+	   docker compose -f docker-compose.dev.yaml up -d --force-recreate --no-deps keycloak-init
+	@echo "[rbac-reinit] force-recreating keycloak-init-token-exchange…"
+	@COMPOSE_PROFILES=rbac \
+	   docker compose -f docker-compose.dev.yaml up -d --force-recreate --no-deps keycloak-init-token-exchange
+	@echo "[rbac-reinit] done. Tail logs with:"
+	@echo "  docker compose -f docker-compose.dev.yaml logs -f keycloak-init keycloak-init-token-exchange"
 
 # Minimal trimmed-down dev stack: 5 most-used agents + RBAC + UI + supervisor + slack-bot.
 # Useful for day-to-day Slack/UI iteration without booting the full all-agents/rag/graph_rag stack.

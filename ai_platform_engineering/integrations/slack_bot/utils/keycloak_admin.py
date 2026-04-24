@@ -312,6 +312,32 @@ async def get_user_by_email(
         return users[0] if users else None
 
 
+async def get_user_by_id(
+    user_id: str,
+    config: KeycloakAdminConfig | None = None,
+) -> Optional[dict[str, Any]]:
+    """Fetch a Keycloak user by their internal ``id`` (the JWT ``sub``).
+
+    Returns the full UserRepresentation dict (including ``email``) or
+    ``None`` on 404. Used by the channel→team resolver so it can match
+    Mongo's email-keyed team membership against the bot's KC-UUID-keyed
+    identity context.
+    """
+    cfg = config or _default_config
+    token = await _get_admin_token(cfg)
+    url = f"{cfg.server_url}/admin/realms/{cfg.realm}/users/{user_id}"
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def fetch_user_realm_role_names(
     user_id: str,
     config: KeycloakAdminConfig | None = None,

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, type LucideIcon } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,7 +23,7 @@ import {
   TopCreatorsCard,
 } from "@/components/admin/SkillMetricsCards";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
-import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
+import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
@@ -31,7 +31,6 @@ import { AgMcpPoliciesEditor } from "@/components/admin/AgMcpPoliciesEditor";
 import { RolesAccessTab } from "@/components/admin/RolesAccessTab";
 import { SlackUsersTab } from "@/components/admin/SlackUsersTab";
 import { SlackChannelMappingTab } from "@/components/admin/SlackChannelMappingTab";
-import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
 import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
@@ -188,6 +187,19 @@ interface Team {
     role: string;
     added_at: Date;
   }>;
+  // Spec 104 — surfaced on the team card via StatChip counts. Optional
+  // because legacy team docs may not have been migrated yet.
+  resources?: {
+    agents?: string[];
+    agent_admins?: string[];
+    tools?: string[];
+    tool_wildcard?: boolean;
+  };
+  keycloak_roles?: string[];
+  // Spec 098 US9 — denormalised channel count for the team-card StatChip.
+  // Source of truth is `channel_team_mappings`, but we mirror a thin array
+  // onto the team document so the card doesn't need an extra round-trip.
+  slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
 const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'action-audit', 'roles', 'slack', 'ag-policies'] as const;
@@ -322,7 +334,7 @@ function AdminPage() {
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
-  const [teamDialogMode, setTeamDialogMode] = useState<"details" | "members">("details");
+  const [teamDialogMode, setTeamDialogMode] = useState<TeamDialogMode>("details");
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const initSource = searchParams.get('source') as 'all' | 'web' | 'slack' | null;
@@ -723,7 +735,7 @@ function AdminPage() {
     }
   };
 
-  const openTeamDialog = (team: Team, mode: "details" | "members") => {
+  const openTeamDialog = (team: Team, mode: TeamDialogMode) => {
     setSelectedTeam(team as TeamType);
     setTeamDialogMode(mode);
     setTeamDetailsOpen(true);
@@ -944,42 +956,81 @@ function AdminPage() {
                           </div>
                         </CardHeader>
                         <CardContent>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Members:</span>
-                              <span>{team.members.length}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Owner:</span>
-                              <span className="text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(team.owner_id)}>{team.owner_id}</span>
-                            </div>
-                            <div className="flex gap-2 mt-4">
-                              {isAdmin && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="flex-1"
-                                  onClick={() => openTeamDialog(team, "members")}
-                                >
-                                  Manage Members
-                                </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="flex-1"
-                                onClick={() => openTeamDialog(team, "details")}
-                              >
-                                View Details
-                              </Button>
-                            </div>
-                            <div className="mt-4">
-                              <TeamKbAssignmentPanel
-                                teamId={team._id}
-                                teamName={team.name}
-                                isAdmin={isAdmin}
-                              />
-                            </div>
+                          {/* Owner row — clearly labeled, not styled like a button. */}
+                          <div className="flex items-center justify-between text-sm pb-3 border-b">
+                            <span className="text-muted-foreground">Owner</span>
+                            <button
+                              type="button"
+                              className="text-sm hover:underline truncate max-w-[60%] text-right"
+                              onClick={() => setSelectedUserEmail(team.owner_id)}
+                              title="Open user details"
+                            >
+                              {team.owner_id}
+                            </button>
+                          </div>
+
+                          {/* Quick stats — 6 chips give an at-a-glance summary
+                              and double as deep-links into the right tab in
+                              the team-management dialog. Counts that we
+                              don't have on the Team object yet (KBs) just
+                              hide the number and show an icon. */}
+                          <div className="grid grid-cols-6 gap-1.5 mt-3">
+                            <StatChip
+                              icon={<Users className="h-3.5 w-3.5" />}
+                              label="Members"
+                              count={team.members.length}
+                              onClick={() => openTeamDialog(team, "members")}
+                            />
+                            <StatChip
+                              icon={<Bot className="h-3.5 w-3.5" />}
+                              label="Agents"
+                              count={team.resources?.agents?.length}
+                              onClick={() => openTeamDialog(team, "resources")}
+                            />
+                            <StatChip
+                              icon={<Wrench className="h-3.5 w-3.5" />}
+                              label="Tools"
+                              count={
+                                team.resources?.tool_wildcard
+                                  ? "*"
+                                  : team.resources?.tools?.length
+                              }
+                              onClick={() => openTeamDialog(team, "resources")}
+                            />
+                            <StatChip
+                              icon={<Database className="h-3.5 w-3.5" />}
+                              label="KBs"
+                              onClick={() => openTeamDialog(team, "kbs")}
+                            />
+                            <StatChip
+                              icon={<MessageSquare className="h-3.5 w-3.5" />}
+                              label="Channels"
+                              count={team.slack_channels?.length}
+                              onClick={() => openTeamDialog(team, "channels")}
+                            />
+                            <StatChip
+                              icon={<Shield className="h-3.5 w-3.5" />}
+                              label="Roles"
+                              count={team.keycloak_roles?.length}
+                              onClick={() => openTeamDialog(team, "roles")}
+                            />
+                          </div>
+
+                          {/* Single primary action — replaces the previous
+                              two-button row. The chips above give shortcuts
+                              into specific tabs; this is the catch-all. */}
+                          <div className="mt-4">
+                            <Button
+                              size="sm"
+                              variant={isAdmin ? "default" : "outline"}
+                              className="w-full gap-1.5"
+                              onClick={() =>
+                                openTeamDialog(team, isAdmin ? "details" : "details")
+                              }
+                            >
+                              <Settings className="h-3.5 w-3.5" />
+                              {isAdmin ? "Manage team" : "View team"}
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
@@ -2471,5 +2522,46 @@ export default function Admin() {
     <AuthGuard>
       <AdminPage />
     </AuthGuard>
+  );
+}
+
+/**
+ * Compact stat chip used inside team cards. Renders as a button so the whole
+ * chip is clickable and keyboard-focusable; clicking jumps the user to the
+ * matching tab in the team-management dialog. When `count` is undefined the
+ * chip still renders (so the chip layout is stable across teams) but only
+ * shows the icon + label, signalling "click to configure".
+ */
+function StatChip({
+  icon,
+  label,
+  count,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  // string variant supports wildcard markers like "*" for tool_user:*
+  count?: number | string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-center justify-center gap-0.5 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors py-2 px-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={`Manage ${label.toLowerCase()}`}
+    >
+      <div className="flex items-center gap-1 text-muted-foreground">
+        {icon}
+        {(typeof count === "number" || typeof count === "string") && (
+          <span className="text-sm font-semibold text-foreground tabular-nums">
+            {count}
+          </span>
+        )}
+      </div>
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+    </button>
   );
 }

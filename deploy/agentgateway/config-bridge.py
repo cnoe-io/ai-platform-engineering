@@ -133,7 +133,7 @@ SEED_POLICIES = [
 SEED_BACKENDS = [
     {
         "id": "rag",
-        "upstream_url": "http://rag_server:9446/mcp",
+        "upstream_url": "http://rag-server:9446/mcp",
         "description": "Knowledge Base (RAG Server)",
         "enabled": True,
     },

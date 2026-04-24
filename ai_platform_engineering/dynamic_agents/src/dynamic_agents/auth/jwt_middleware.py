@@ -51,20 +51,23 @@ DA_REQUIRE_BEARER = os.environ.get("DA_REQUIRE_BEARER", "").strip().lower() in (
     "yes",
 )
 
+# Probe / observability endpoints must stay reachable without auth so Docker
+# healthchecks and Prometheus scrapes do not flap when bearer enforcement is on.
+PUBLIC_PATHS = frozenset({"/healthz", "/readyz", "/metrics"})
+
 
 def _validate_bearer_or_none(token: str) -> dict | None:
     """Validate JWT against Keycloak; return claims dict on success, None on failure.
 
-    Wraps the shared ``ai_platform_engineering.utils.auth.jwks_validate``
-    helper so DA does not import it at module top-level (the helper pulls
-    in python-jose which we want loaded lazily for fast cold-starts).
-    Returns None on any validation failure; the caller decides how to
-    surface that to the user.
+    Uses the vendored ``dynamic_agents.auth.jwks_validate`` helper so the
+    runtime image (which only ships the ``dynamic_agents`` package) can
+    validate tokens without importing the broader
+    ``ai_platform_engineering.utils.*`` namespace. Lazy import keeps cold
+    starts fast and avoids pulling crypto deps until the first Bearer
+    request hits the gate.
     """
     try:
-        from ai_platform_engineering.utils.auth.jwks_validate import (
-            validate_bearer_jwt,
-        )
+        from dynamic_agents.auth.jwks_validate import validate_bearer_jwt
 
         return validate_bearer_jwt(token)  # type: ignore[no-any-return]
     except Exception as exc:  # noqa: BLE001
@@ -79,6 +82,9 @@ class JwtAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+
         authorization = request.headers.get("authorization", "")
         token: str | None = None
 
@@ -105,10 +111,14 @@ class JwtAuthMiddleware(BaseHTTPMiddleware):
                         media_type="application/json",
                     )
                 token = raw
-                logger.debug(
-                    "Bearer token validated: sub=%s aud=%s",
+                # Spec 104: surface `active_team` + `aud` in middleware
+                # logs so production triage of "no tools" / "wrong team"
+                # incidents doesn't require decoding the JWT by hand.
+                logger.info(
+                    "Bearer token validated: sub=%s aud=%s active_team=%s",
                     claims.get("sub"),
                     claims.get("aud"),
+                    claims.get("active_team"),
                 )
         elif DA_REQUIRE_BEARER:
             body = json.dumps(
