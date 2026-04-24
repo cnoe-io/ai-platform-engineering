@@ -465,10 +465,11 @@ function ContentSegmentView({
 function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; isNested?: boolean }) {
   const { data: tool } = segment;
   const thought = extractToolThought(tool.args);
-  const argsPreview = formatToolArgsPreview(tool.args);
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
   const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
+  const hasParams = tool.args && Object.keys(tool.args).length > 0;
+  const [paramsOpen, setParamsOpen] = useState(false);
 
   return (
     <div
@@ -480,8 +481,11 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
         isFailed && "bg-red-500/10 border border-red-500/25"
       )}
     >
-      {/* Header row with tool name, thought, and status */}
-      <div className="flex items-center gap-1.5">
+      {/* Header row with tool name, thought, and status — clickable to toggle params */}
+      <div
+        className={cn("flex items-center gap-1.5 rounded-sm transition-colors", hasParams && "hover:bg-foreground/5")}
+        onClick={hasParams ? () => setParamsOpen(!paramsOpen) : undefined}
+      >
         {isRunning ? (
           <Loader2 className={cn("animate-spin text-amber-500 shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
         ) : isFailed ? (
@@ -497,6 +501,13 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
           )}>
             — {thought}
           </span>
+        )}
+        {hasParams && (
+          <ChevronDown className={cn(
+            "text-muted-foreground/50 transition-transform duration-150 shrink-0",
+            paramsOpen && "rotate-180",
+            isNested ? "h-2.5 w-2.5" : "h-3 w-3"
+          )} />
         )}
         <span
           className={cn(
@@ -519,14 +530,16 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
           {errorDisplay}
         </p>
       )}
-      {/* Arguments preview in human-friendly format */}
-      {argsPreview && (
-        <p className={cn(
-          "text-muted-foreground/50 mt-0.5 font-mono leading-snug",
-          isNested ? "text-[8px]" : "text-[10px]"
+      {/* Expandable parameters */}
+      {hasParams && (
+        <div className={cn(
+          "grid transition-all duration-150 ease-out",
+          paramsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
         )}>
-          {argsPreview}
-        </p>
+          <div className="overflow-hidden">
+            <ToolParamsView args={tool.args!} isNested={isNested} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -547,39 +560,34 @@ function formatToolError(raw: string): string {
 // Helper: Format tool arguments for display
 // ═══════════════════════════════════════════════════════════════
 
-function formatToolArgsPreview(args?: Record<string, unknown>, maxLength = 80): string | null {
-  if (!args || Object.keys(args).length === 0) return null;
-  
-  // Skip thought/description keys - they're shown separately via extractToolThought
-  const skipKeys = new Set([
-    "thought", "thoughts", "reason", "thinking", "rationale", 
-    "explanation", "description", "purpose", "intent", "goal"
-  ]);
-  
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(args)) {
-    if (skipKeys.has(key.toLowerCase())) continue;
-    
-    let displayValue: string;
-    if (typeof value === "string") {
-      displayValue = value.length > 30 ? value.slice(0, 30) + "..." : value;
-    } else if (typeof value === "number" || typeof value === "boolean") {
-      displayValue = String(value);
-    } else if (Array.isArray(value)) {
-      displayValue = `[${value.length} items]`;
-    } else if (value && typeof value === "object") {
-      displayValue = "{...}";
-    } else {
-      continue;
-    }
-    
-    parts.push(`${key}: ${displayValue}`);
-  }
-  
-  if (parts.length === 0) return null;
-  
-  const result = parts.join(" · ");
-  return result.length > maxLength ? result.slice(0, maxLength) + "..." : result;
+// ═══════════════════════════════════════════════════════════════
+// Tool Parameters (expandable view)
+// ═══════════════════════════════════════════════════════════════
+
+const THOUGHT_KEYS = new Set([
+  "thought", "thoughts", "reason", "thinking", "rationale",
+  "explanation", "description", "purpose", "intent", "goal",
+]);
+
+function ToolParamsView({ args, isNested = false }: { args: Record<string, unknown>; isNested?: boolean }) {
+  const entries = Object.entries(args).filter(([k]) => !THOUGHT_KEYS.has(k.toLowerCase()));
+  if (entries.length === 0) return null;
+
+  return (
+    <div className={cn(
+      "font-mono border-t border-border/30 pt-1.5 space-y-1",
+      isNested ? "text-[8px]" : "text-[10px]"
+    )}>
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex gap-1.5">
+          <span className="text-muted-foreground/70 shrink-0">{key}:</span>
+          <span className="text-muted-foreground/50 break-all whitespace-pre-wrap">
+            {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -645,10 +653,11 @@ function ToolGroupSegmentView({ segment, isNested = false }: { segment: ToolGrou
 /** Single tool item within a group - with individual status background */
 function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: boolean }) {
   const thought = extractToolThought(tool.args);
-  const argsPreview = formatToolArgsPreview(tool.args);
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
   const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
+  const hasParams = tool.args && Object.keys(tool.args).length > 0;
+  const [paramsOpen, setParamsOpen] = useState(false);
 
   return (
     <div
@@ -660,8 +669,11 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
         isFailed && "bg-red-500/10 border border-red-500/25"
       )}
     >
-      {/* Header row with tool name, thought, and status */}
-      <div className="flex items-center gap-2">
+      {/* Header row with tool name, thought, and status — clickable to toggle params */}
+      <div
+        className={cn("flex items-center gap-2 rounded-sm transition-colors", hasParams && "hover:bg-foreground/5")}
+        onClick={hasParams ? () => setParamsOpen(!paramsOpen) : undefined}
+      >
         {isRunning ? (
           <Loader2 className={cn("animate-spin text-amber-500 shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
         ) : isFailed ? (
@@ -677,6 +689,13 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
           )}>
             — {thought}
           </span>
+        )}
+        {hasParams && (
+          <ChevronDown className={cn(
+            "text-muted-foreground/50 transition-transform duration-150 shrink-0",
+            paramsOpen && "rotate-180",
+            isNested ? "h-2.5 w-2.5" : "h-3 w-3"
+          )} />
         )}
         <span
           className={cn(
@@ -699,14 +718,16 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
           {errorDisplay}
         </p>
       )}
-      {/* Arguments preview in human-friendly format - shown for both nested and non-nested */}
-      {argsPreview && (
-        <p className={cn(
-          "text-muted-foreground/50 mt-0.5 font-mono leading-snug",
-          isNested ? "text-[8px]" : "text-[10px]"
+      {/* Expandable parameters */}
+      {hasParams && (
+        <div className={cn(
+          "grid transition-all duration-150 ease-out",
+          paramsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
         )}>
-          {argsPreview}
-        </p>
+          <div className="overflow-hidden">
+            <ToolParamsView args={tool.args!} isNested={isNested} />
+          </div>
+        </div>
       )}
     </div>
   );

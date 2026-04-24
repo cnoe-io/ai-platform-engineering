@@ -812,10 +812,14 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
     const req = makeRequest('/api/admin/stats?source=slack');
     await GET(req);
 
-    // When source=slack, conversations should be filtered with source: 'slack'
+    // When source=slack, conversations should be filtered with { $or: [{ source: 'slack' }, { client_type: 'slack' }] }
     const convCountCalls = convCol.countDocuments.mock.calls;
     const hasSlackFilter = convCountCalls.some(
-      (call: any[]) => call[0]?.source === 'slack'
+      (call: any[]) => {
+        const filter = call[0];
+        // The route uses SLACK_CONV_MATCH which is an $or filter supporting both legacy and new schemas
+        return filter?.$or?.some((clause: any) => clause.source === 'slack' || clause.client_type === 'slack');
+      }
     );
     expect(hasSlackFilter).toBe(true);
 

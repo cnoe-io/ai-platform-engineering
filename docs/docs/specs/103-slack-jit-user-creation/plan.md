@@ -56,7 +56,7 @@ The repo's principles document (`.specify/memory/constitution.md` and
 
 | Gate | Status | Notes |
 |---|---|---|
-| Conventional Commits + DCO | ✅ planned | All commits will be `feat(slack-bot): …`, `feat(keycloak): …`, etc. with `Signed-off-by:` from the human committer; `Assisted-by: Claude:claude-opus-4-7` per `skills/dco-ai-attribution/SKILL.md`. |
+| Conventional Commits + DCO | ✅ planned | All commits will be `feat(slack-bot): …`, `feat(keycloak): …`, etc. with `Signed-off-by:` from the human committer; `Assisted-by: Claude:claude-opus-4-7` per the DCO + AI attribution policy in `AGENTS.md`. |
 | Spec-driven workflow | ✅ in progress | spec.md → plan.md → tasks.md → code, in order. |
 | Living RBAC docs | ✅ planned | `docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md` will be updated in the same PR per the CLAUDE.md rule. |
 | `codeguard-1-hardcoded-credentials` | ✅ | No new secrets introduced. JIT reuses the existing `KEYCLOAK_SLACK_BOT_ADMIN_*` env vars / K8s Secret / ESO setup. |

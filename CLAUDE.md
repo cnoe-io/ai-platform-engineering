@@ -11,10 +11,10 @@
 
 Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`).
 
-For AI-assisted commits, follow the [dco-ai-attribution](./skills/dco-ai-attribution/SKILL.md) skill:
+For AI-assisted commits:
 - Default rule: AI must **never** add `Signed-off-by` — only the human author can certify the DCO
 - Always append `Assisted-by: Claude:<model-version>` when code was materially AI-assisted
-- See `AGENTS.md` for the canonical policy reference used by AI coding agents
+- See `AGENTS.md` for the canonical DCO + AI attribution policy used by AI coding agents
 
 ### Explicit-authorization carve-out for this repository
 
@@ -30,8 +30,7 @@ he has stated so in the current chat session. Under that delegation:
 - The carve-out is revocable mid-session; once revoked the agent reverts to
   the default rule.
 
-See [skills/dco-ai-attribution/SKILL.md](./skills/dco-ai-attribution/SKILL.md) for the
-full carve-out conditions and the alternate pre-commit checklist.
+See `AGENTS.md` for the full DCO + AI attribution policy.
 
 ```
 <type>(<scope>): <short description>
@@ -124,7 +123,6 @@ If a Dockerfile does not have a `USER` directive, `runAsNonRoot: true` in the He
 
 The `skills/` directory contains reusable tools organized by category:
 
-- **dco-ai-attribution**: DCO compliance and AI attribution rules for AI-assisted commits (see [skills/dco-ai-attribution/SKILL.md](./skills/dco-ai-attribution/SKILL.md))
 - **persistence**: Test LangGraph backends (Redis, PostgreSQL, MongoDB) and fact extraction
 - **debugging**: (future) Debugging and troubleshooting tools
 - **monitoring**: (future) Observability and metrics helpers

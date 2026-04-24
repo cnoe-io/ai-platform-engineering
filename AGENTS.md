@@ -27,7 +27,6 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 
 ## DCO and AI Attribution Policy
 
-**Skill**: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)  
 **Authority**: Linux kernel [AI Coding Assistants policy](https://github.com/torvalds/linux/blob/master/Documentation/process/coding-assistants.rst)
 
 AI agents operating in this repository **must** follow these rules on every commit:
@@ -55,12 +54,9 @@ carve-out:
 Outside that explicit grant, rules 1–3 above apply unchanged. The agent must default
 to the strict rule whenever the authorization is unclear.
 
-Full pre-commit checklist (default rule and carve-out variant) and examples:
-[`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
-
 ## Git Guidelines
 
-- **Sign off commits** - Use `git commit --signoff` (DCO requirement)
+- **Sign off every commit** - Use `git commit -s` (DCO requirement).
 - **Conventional Commits** - Format: `type(scope): description`
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
   - Example: `feat(rag): add userinfo caching`

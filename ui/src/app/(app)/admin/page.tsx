@@ -69,8 +69,8 @@ interface AdminStats {
     messages: number;
   }>;
   top_users: {
-    by_conversations: Array<{ _id: string; count: number }>;
-    by_messages: Array<{ _id: string; count: number }>;
+    by_conversations: Array<{ _id: string; count: number; name?: string }>;
+    by_messages: Array<{ _id: string; count: number; name?: string }>;
   };
   top_agents: Array<{ _id: string; count: number }>;
   feedback_summary: {
@@ -2075,11 +2075,11 @@ function AdminPage() {
                               <p className="text-sm text-muted-foreground text-center py-4">No data yet</p>
                             ) : stats.top_users.by_conversations.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-6 text-sm text-muted-foreground">#{i + 1}</div>
-                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)}>{u._id}</div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
-                                <div className="text-sm font-medium">{u.count} chats</div>
+                                <div className="text-sm font-medium shrink-0">{u.count} chats</div>
                               </div>
                             ))}
                           </div>
@@ -2096,11 +2096,11 @@ function AdminPage() {
                               <p className="text-sm text-muted-foreground text-center py-4">No data yet</p>
                             ) : stats.top_users.by_messages.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-6 text-sm text-muted-foreground">#{i + 1}</div>
-                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)}>{u._id}</div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
-                                <div className="text-sm font-medium">{u.count} messages</div>
+                                <div className="text-sm font-medium shrink-0">{u.count} messages</div>
                               </div>
                             ))}
                           </div>

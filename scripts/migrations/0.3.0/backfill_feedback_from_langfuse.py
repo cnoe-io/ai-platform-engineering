@@ -159,17 +159,20 @@ def map_rating(value: str) -> str:
 
 
 def dedup_scores_by_permalink(scores: list[dict]) -> list[dict]:
-    """Group scores by slack_permalink, keep the best per group.
+    """Group scores by (slack_permalink, user_email), keep the best per group.
 
-    Priority: specific reason > thumbs_up > thumbs_down, then latest createdAt.
+    Multiple users can vote on the same bot response — each user's final vote
+    counts independently.  Within a single user's votes on the same permalink,
+    priority: specific reason > thumbs_up > thumbs_down, then latest createdAt.
     """
-    by_permalink: dict[str, list[dict]] = defaultdict(list)
+    by_key: dict[tuple[str, str], list[dict]] = defaultdict(list)
     no_permalink = []
 
     for s in scores:
         pl = (s.get("metadata") or {}).get("slack_permalink", "")
+        user = (s.get("metadata") or {}).get("user_email", "") or (s.get("metadata") or {}).get("user_id", "")
         if pl:
-            by_permalink[pl].append(s)
+            by_key[(pl, user)].append(s)
         else:
             no_permalink.append(s)
 
@@ -183,11 +186,11 @@ def dedup_scores_by_permalink(scores: list[dict]) -> list[dict]:
         return (priority, ts)
 
     deduped = []
-    for pl, group in by_permalink.items():
+    for key, group in by_key.items():
         deduped.append(max(group, key=sort_key))
 
     total_removed = len(scores) - len(deduped) - len(no_permalink)
-    print(f"Dedup by permalink: {len(scores)} scores -> {len(deduped)} unique + {len(no_permalink)} without permalink ({total_removed} duplicates removed)")
+    print(f"Dedup by (permalink, user): {len(scores)} scores -> {len(deduped)} unique + {len(no_permalink)} without permalink ({total_removed} duplicates removed)")
 
     return deduped + no_permalink
 
@@ -387,11 +390,12 @@ def main():
     skipped_existing = 0
 
     for doc in docs:
-        # Upsert on (slack_permalink, source) to prevent duplicates on re-runs
+        # Upsert on (slack_permalink, user_email, source) — each user's vote
+        # on a bot response is independent; re-runs update rather than duplicate.
         permalink = doc.get("slack_permalink")
         if permalink:
             result = feedback_coll.update_one(
-                {"slack_permalink": permalink, "source": "slack"},
+                {"slack_permalink": permalink, "user_email": doc["user_email"], "source": "slack"},
                 {
                     "$set": {
                         "trace_id": doc["trace_id"],

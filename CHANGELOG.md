@@ -1,12 +1,25 @@
-## 0.3.10 (2026-04-21)
+## 0.4.1 (2026-04-24)
 
-## 0.3.9-rc.2 (2026-04-21)
+### Fix
+
+- **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
+
+## 0.4.0-rc.24 (2026-04-23)
+
+## 0.3.11 (2026-04-22)
+
+### Fix
+
+- **slack**: add escalation policy field and fix humble followup prompt (#1277)
+- **admin**: correct feedback dedup, user linkage, and top user display (#1273)
+
+## 0.3.10 (2026-04-21)
 
 ### Fix
 
 - **admin**: resolve stats bugs, add users pagination, channel filter, and loading indicators (#1266)
 
-## 0.3.9-rc.1 (2026-04-21)
+## 0.3.9 (2026-04-21)
 
 ### Fix
 

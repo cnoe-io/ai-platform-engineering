@@ -371,6 +371,27 @@ async function aggregateLocally(
   };
 }
 
+/**
+ * Strip leading `<!-- caipe-skill: ... -->` XML comments from skill content.
+ * These annotations are used as source markers in hub repositories but are
+ * not valid SKILL.md content — they appear before the YAML frontmatter and
+ * prevent agents from recognising the `name:` and `description:` fields.
+ */
+function sanitizeSkillContent(content: string | null): string | null {
+  if (!content) return content;
+  return content.replace(/^(<!--[\s\S]*?-->\s*\n?)+/, "");
+}
+
+function sanitizeCatalogResponse(data: CatalogResponse): CatalogResponse {
+  return {
+    ...data,
+    skills: data.skills.map((s) => ({
+      ...s,
+      content: sanitizeSkillContent(s.content),
+    })),
+  };
+}
+
 export const GET = withErrorHandler(async (req: NextRequest) => {
   // Dual-auth: Bearer JWT or session cookie
   await getAuthFromBearerOrSession(req);
@@ -381,7 +402,7 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
   // Try backend proxy first (forwards all query params)
   const backendResult = await fetchFromBackend(params, authHeader);
   if (backendResult) {
-    return NextResponse.json(backendResult);
+    return NextResponse.json(sanitizeCatalogResponse(backendResult));
   }
 
   // Local aggregation fallback
