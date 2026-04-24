@@ -12,7 +12,7 @@ on:
       - 'build/**'
       - 'pyproject.toml'
       - 'uv.lock'
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: write
@@ -100,6 +100,86 @@ jobs:
 
             console.log(`mergeable=${pr.mergeable}, mergeable_state=${mergeableState}`);
 
+      - name: 🏷️ Apply PR flow label
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const baseRef = process.env.BASE_REF;
+            const headRef = process.env.HEAD_REF;
+            const releaseBranchRe = /^release\/(\d+\.\d+\.\d+(?:-hotfix)?)$/;
+
+            const baseRelease = baseRef.match(releaseBranchRe);
+            const headRelease = headRef.match(releaseBranchRe);
+
+            let label;
+            if (baseRelease) {
+              label = {
+                name: baseRelease[1],
+                color: baseRelease[1].endsWith('-hotfix') ? 'd93f0b' : '0e8a16',
+                description: `PR targets ${baseRef}`
+              };
+            } else if (baseRef === 'main' && headRelease) {
+              label = {
+                name: headRef,
+                color: headRelease[1].endsWith('-hotfix') ? 'fbca04' : '1d76db',
+                description: `Release branch merge from ${headRef} to main`
+              };
+            } else if (baseRef === 'main') {
+              label = {
+                name: 'dev',
+                color: 'c5def5',
+                description: 'Normal PR to main; uses dev prerelease versioning'
+              };
+            } else {
+              core.info(`No PR flow label configured for ${headRef} -> ${baseRef}`);
+              return;
+            }
+
+            async function ensureLabel({ name, color, description }) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+
+                core.info(`Creating missing label: ${name}`);
+                try {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name,
+                    color,
+                    description
+                  });
+                } catch (createError) {
+                  if (createError.status !== 422) {
+                    throw createError;
+                  }
+                  core.info(`Label already exists after concurrent create: ${name}`);
+                }
+              }
+            }
+
+            await ensureLabel(label);
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: [label.name]
+            });
+
+            core.info(`Applied PR flow label: ${label.name}`);
+
       - name: 💬 Comment if branch needs update
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -145,8 +225,8 @@ jobs:
                 ];
 
             let body = `${marker}\n`;
-            body += `## Branch update needed\n\n`;
-            body += `CI will not merge \`${baseRef}\` into this PR automatically. Please update the branch because ${reasons.join(' and ')}.\n\n`;
+            body += `## ❗ Branch update needed\n\n`;
+            body += `CI failed to bump chart and app versions because ${reasons.join(' and ')}. Please update the branch by following the steps below:\n\n`;
             body += `Run:\n\n`;
             body += '```bash\n';
             body += commands.join('\n');
