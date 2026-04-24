@@ -855,10 +855,8 @@ export function TrySkillsGateway() {
             ) : null}
           </div>
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            <strong>Save this key somewhere safe.</strong> Only the secret hash is stored, so
-            we cannot show it again. If you lose it, generate a new one and update any
-            scripts, env vars, or installers that use it. Previously-issued keys keep working
-            until an admin revokes them.
+            <strong>Copy it now</strong> — stored as a hash only and cannot be shown again.
+            Lost keys cannot be recovered; generate a new one.
           </p>
           {/* The "Active / past keys" listing was dropped per PR #1268 review
               feedback (Jeff Napper #7): the line was confusing because it
@@ -1249,7 +1247,9 @@ EOF`}
                         </span>
                         {path ? (
                           <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {path}
+                            {(bootstrap?.layout === "skills" || selectedLayout === "skills")
+                              ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
+                              : path}
                           </code>
                         ) : null}
                         {!supported ? (
@@ -1703,7 +1703,9 @@ EOF`}
                         </span>
                         {path ? (
                           <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {path}
+                            {(bootstrap?.layout === "skills" || selectedLayout === "skills")
+                              ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
+                              : path}
                           </code>
                         ) : null}
                         {!supported ? (
