@@ -67,8 +67,13 @@ Replace `QUERY` with the search term (omit to list all skills). Set
 `INCLUDE_CONTENT=true` when you need the full skill markdown:
 
 ```bash
+# preferred (uv manages deps automatically)
 uv run ~/.config/caipe/caipe-skills.py QUERY
 INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
+
+# fallback if uv is not installed
+python3 ~/.config/caipe/caipe-skills.py QUERY
+INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
 ```
 
 Useful flags (all optional):
