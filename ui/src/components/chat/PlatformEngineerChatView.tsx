@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { motion } from "framer-motion";
-import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ContextPanel } from "@/components/a2a/ContextPanel";
+import { SupervisorChatPanel } from "@/components/chat/ChatPanel";
+import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 
-interface PlatformEngineerChatViewProps {
+interface SupervisorChatViewProps {
   /** The Platform Engineer (supervisor) backend endpoint */
   endpoint: string;
   /** MongoDB conversation UUID */
@@ -18,28 +18,24 @@ interface PlatformEngineerChatViewProps {
   readOnlyReason?: "admin_audit" | "shared_readonly";
   /** Which admin tab the user navigated from */
   adminOrigin?: "audit-logs" | "feedback" | null;
-  /** Whether to show the context panel */
-  contextPanelVisible?: boolean;
 }
 
 /**
  * Chat view for Platform Engineer (Supervisor).
- * Combines ChatPanel with full ContextPanel (A2A debug, execution plan, tasks).
  */
-export function PlatformEngineerChatView({
+export function SupervisorChatView({
   endpoint,
   conversationId,
   conversationTitle,
   readOnly,
   readOnlyReason,
   adminOrigin,
-  contextPanelVisible = true,
-}: PlatformEngineerChatViewProps) {
-  const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
+}: SupervisorChatViewProps) {
+  const { status } = useCAIPEHealth();
+  const isDisconnected = status === "disconnected";
 
   return (
-    <div className="flex-1 min-w-0 flex h-full">
-      {/* Chat Panel */}
+    <div className="flex-1 min-w-0 flex h-full relative">
       <motion.div
         key="chat"
         initial={{ opacity: 0 }}
@@ -47,7 +43,7 @@ export function PlatformEngineerChatView({
         transition={{ duration: 0.2 }}
         className="flex-1 min-w-0 flex flex-col overflow-hidden"
       >
-        <ChatPanel
+        <SupervisorChatPanel
           endpoint={endpoint}
           conversationId={conversationId}
           conversationTitle={conversationTitle}
@@ -56,14 +52,6 @@ export function PlatformEngineerChatView({
           adminOrigin={adminOrigin}
         />
       </motion.div>
-
-      {/* Context Panel - A2A debug */}
-      {contextPanelVisible && (
-        <ContextPanel
-          collapsed={contextPanelCollapsed}
-          onCollapse={setContextPanelCollapsed}
-        />
-      )}
     </div>
   );
 }

@@ -60,17 +60,33 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const sourceFilter = searchParams.get('source'); // 'web' | 'slack' | null (all)
     const userFilter = searchParams.get('user'); // comma-separated emails | null (all)
     const userEmails = userFilter ? userFilter.split(',').map((u) => u.trim()).filter(Boolean) : [];
+    const channelFilter = searchParams.get('channel'); // comma-separated channel names (slack only)
+    const channelNames = channelFilter ? channelFilter.split(',').map((c) => c.trim()).filter(Boolean) : [];
 
-    // Build reusable filter fragments for conversations and messages
+    // Build reusable filter fragments for conversations and messages.
+    // Support both legacy (source/slack_meta) and new (client_type/metadata) schemas.
+    const SLACK_CONV_MATCH = { $or: [{ source: 'slack' }, { client_type: 'slack' }] };
+
     const hasFilters = !!sourceFilter || userEmails.length > 0;
     const convSourceFilter: Record<string, any> = {};
     const msgOwnerFilter: Record<string, any> = {};
     if (sourceFilter === 'web') {
       convSourceFilter.source = { $ne: 'slack' };
+      convSourceFilter.client_type = { $ne: 'slack' };
       msgOwnerFilter['metadata.source'] = 'web';
     } else if (sourceFilter === 'slack') {
-      convSourceFilter.source = 'slack';
+      Object.assign(convSourceFilter, SLACK_CONV_MATCH);
       msgOwnerFilter['metadata.source'] = 'slack';
+      // Channel filter: check both old slack_meta and new metadata paths
+      if (channelNames.length > 0) {
+        const names = channelNames.length === 1 ? channelNames[0] : { $in: channelNames };
+        const channelMatch = { $or: [
+          { 'slack_meta.channel_name': names },
+          { 'metadata.channel_name': names },
+        ]};
+        delete convSourceFilter.$or;
+        convSourceFilter.$and = [SLACK_CONV_MATCH, channelMatch];
+      }
     }
     if (userEmails.length === 1) {
       convSourceFilter.owner_id = userEmails[0];
@@ -238,7 +254,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // ═══════════════════════════════════════════════════════════════
 
     // Top users by conversation count (direct — conversations have owner_id)
-    const topUsersByConversations = await conversations.aggregate([
+    const rawTopByConvs = await conversations.aggregate([
       { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
       { $group: { _id: '$owner_id', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
@@ -247,7 +263,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     // Top users by message count — $lookup through conversations for old
     // messages that lack owner_id, $coalesce with direct owner_id for new ones.
-    const topUsersByMessages = await messages.aggregate([
+    const rawTopByMsgs = await messages.aggregate([
       { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
       {
         $lookup: {
@@ -269,6 +285,36 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       { $sort: { count: -1 } },
       { $limit: 10 },
     ]).toArray();
+
+    // Resolve display names for top user IDs — owner_id may be an email
+    // or a raw Slack/bot ID when email resolution failed at interaction time.
+    const topOwnerIds = [...new Set([
+      ...rawTopByConvs.map((u) => u._id),
+      ...rawTopByMsgs.map((u) => u._id),
+    ])].filter(Boolean);
+
+    const userDocs = topOwnerIds.length > 0
+      ? await users.find(
+          { $or: [{ email: { $in: topOwnerIds } }, { slack_user_id: { $in: topOwnerIds } }] },
+          { projection: { email: 1, name: 1, slack_user_id: 1 } },
+        ).toArray()
+      : [];
+
+    const nameByOwner = new Map<string, string>();
+    for (const u of userDocs) {
+      if (u.email) nameByOwner.set(u.email, u.name || u.email);
+      if (u.slack_user_id) nameByOwner.set(u.slack_user_id, u.name || u.email);
+    }
+
+    const enrichTopUsers = (raw: typeof rawTopByConvs) =>
+      raw.map((u) => ({
+        _id: u._id,
+        count: u.count,
+        name: nameByOwner.get(u._id) || u._id,
+      }));
+
+    const topUsersByConversations = enrichTopUsers(rawTopByConvs);
+    const topUsersByMessages = enrichTopUsers(rawTopByMsgs);
 
     // ═══════════════════════════════════════════════════════════════
     // ENHANCED ANALYTICS
@@ -297,7 +343,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Build feedback filter
     const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
     if (sourceFilter === 'web') fbFilter.source = 'web';
-    else if (sourceFilter === 'slack') fbFilter.source = 'slack';
+    else if (sourceFilter === 'slack') {
+      fbFilter.source = 'slack';
+      if (channelNames.length === 1) {
+        fbFilter.channel_name = channelNames[0];
+      } else if (channelNames.length > 1) {
+        fbFilter.channel_name = { $in: channelNames };
+      }
+    }
     if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
     else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
 
@@ -312,9 +365,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         { $match: fbFilter },
         { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
       ]).toArray(),
-      // Negative feedback category breakdown
+      // Negative feedback category breakdown (exclude generic thumbs_down — it's the
+      // initial click, not a categorised reason; those users are still counted in the
+      // overall negative total)
       feedbackColl.aggregate([
-        { $match: { ...fbFilter, rating: 'negative' } },
+        { $match: { ...fbFilter, rating: 'negative', value: { $nin: ['thumbs_down'] } } },
         { $group: { _id: '$value', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]).toArray(),
@@ -510,16 +565,32 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }));
 
     // ═══════════════════════════════════════════════════════════════
-    // SLACK STATS (data-driven — from conversations with source: "slack")
+    // SLACK STATS (from conversations with source:"slack" or client_type:"slack")
     // ═══════════════════════════════════════════════════════════════
     let slack: any = undefined;
 
     try {
-      const slackFilter = { source: 'slack', created_at: { $gte: rangeStart } };
-      const slackHasData = await conversations.countDocuments({ source: 'slack' }, { limit: 1 });
+      const slackFilter: Record<string, any> = { ...SLACK_CONV_MATCH, created_at: { $gte: rangeStart } };
+      if (channelNames.length > 0) {
+        const names = channelNames.length === 1 ? channelNames[0] : { $in: channelNames };
+        // Override $or with $and to combine slack match + channel match
+        delete slackFilter.$or;
+        slackFilter.$and = [
+          SLACK_CONV_MATCH,
+          { created_at: { $gte: rangeStart } },
+          { $or: [{ 'slack_meta.channel_name': names }, { 'metadata.channel_name': names }] },
+        ];
+        delete slackFilter.created_at;
+      }
+      const slackHasData = await conversations.countDocuments(SLACK_CONV_MATCH, { limit: 1 });
 
       if (slackHasData > 0) {
         const platformConfig = await getCollection('platform_config');
+
+        // Helper: coalesce old slack_meta and new metadata fields
+        const userId = { $ifNull: ['$metadata.user_id', '$slack_meta.user_id'] };
+        const escalated = { $ifNull: ['$metadata.escalated', '$slack_meta.escalated'] };
+        const channelName = { $ifNull: ['$metadata.channel_name', '$slack_meta.channel_name'] };
 
         const [configDoc, slackTotal, slackUniqueUsers, slackResolution, slackDailyAgg, slackTopChannels] =
           await Promise.all([
@@ -530,7 +601,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             // Unique Slack users
             conversations.aggregate([
               { $match: slackFilter },
-              { $group: { _id: '$slack_meta.user_id' } },
+              { $group: { _id: userId } },
               { $count: 'total' },
             ]).toArray(),
             // Resolution stats (non-escalated = resolved)
@@ -540,7 +611,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
                 $group: {
                   _id: null,
                   total_threads: { $sum: 1 },
-                  escalated_threads: { $sum: { $cond: ['$slack_meta.escalated', 1, 0] } },
+                  escalated_threads: { $sum: { $cond: [escalated, 1, 0] } },
                 },
               },
             ]).toArray(),
@@ -551,21 +622,23 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
                 $group: {
                   _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
                   interactions: { $sum: 1 },
-                  unique_users: { $addToSet: '$slack_meta.user_id' },
-                  resolved: { $sum: { $cond: [{ $not: '$slack_meta.escalated' }, 1, 0] } },
-                  escalated: { $sum: { $cond: ['$slack_meta.escalated', 1, 0] } },
+                  unique_users: { $addToSet: userId },
+                  resolved: { $sum: { $cond: [{ $not: [escalated] }, 1, 0] } },
+                  escalated: { $sum: { $cond: [escalated, 1, 0] } },
                 },
               },
               { $sort: { _id: 1 } },
             ]).toArray(),
             // Top channels
             conversations.aggregate([
-              { $match: { ...slackFilter, 'slack_meta.channel_name': { $ne: null } } },
+              { $match: slackFilter },
+              { $addFields: { _channelName: channelName } },
+              { $match: { _channelName: { $ne: null } } },
               {
                 $group: {
-                  _id: '$slack_meta.channel_name',
+                  _id: '$_channelName',
                   interactions: { $sum: 1 },
-                  resolved: { $sum: { $cond: [{ $not: '$slack_meta.escalated' }, 1, 0] } },
+                  resolved: { $sum: { $cond: [{ $not: [escalated] }, 1, 0] } },
                 },
               },
               { $sort: { interactions: -1 } },
@@ -580,56 +653,64 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           : 0;
 
         // ── Per-thread hours estimation ─────────────────────────────
-        // Join conversations (source: "slack") with feedback to determine time saved:
         //   positive feedback  → 4h
         //   negative feedback  → 0h
         //   no feedback, not escalated (self-resolved) → 4h
         //   no feedback, escalated → 10 min (0.167h)
+        //
+        // DocumentDB does not support $lookup with let/pipeline (correlated
+        // subqueries), so we fetch conversations and feedback separately and
+        // join in application code.
         const SELF_RESOLVED_HOURS = 4;
         const POSITIVE_FEEDBACK_HOURS = 4;
         const NO_FEEDBACK_MINUTES = 10;
 
-        const slackHoursAgg = await conversations.aggregate([
-          { $match: slackFilter },
-          {
-            $lookup: {
-              from: 'feedback',
-              let: { convId: '$_id' },
-              pipeline: [
-                { $match: { $expr: { $eq: ['$conversation_id', '$$convId'] }, source: 'slack' } },
-                { $sort: { created_at: -1 } },
-                { $limit: 1 },
-                { $project: { rating: 1 } },
-              ],
-              as: 'fb',
+        const [slackConvs, slackFeedback] = await Promise.all([
+          conversations.find(slackFilter, {
+            projection: { _id: 1, 'slack_meta.escalated': 1, 'metadata.escalated': 1 },
+          }).toArray(),
+          feedbackColl.find(
+            {
+              source: 'slack',
+              created_at: { $gte: rangeStart },
+              ...(channelNames.length === 1
+                ? { channel_name: channelNames[0] }
+                : channelNames.length > 1
+                  ? { channel_name: { $in: channelNames } }
+                  : {}),
             },
-          },
-          {
-            $addFields: {
-              fb_rating: { $arrayElemAt: ['$fb.rating', 0] },
-            },
-          },
-          {
-            $addFields: {
-              hours: {
-                $switch: {
-                  branches: [
-                    // Negative feedback → 0
-                    { case: { $eq: ['$fb_rating', 'negative'] }, then: 0 },
-                    // Positive feedback → 4h
-                    { case: { $eq: ['$fb_rating', 'positive'] }, then: POSITIVE_FEEDBACK_HOURS },
-                    // No feedback + not escalated (self-resolved) → 4h
-                    { case: { $and: [{ $not: '$fb_rating' }, { $not: '$slack_meta.escalated' }] }, then: SELF_RESOLVED_HOURS },
-                  ],
-                  // No feedback + escalated → 10 min
-                  default: NO_FEEDBACK_MINUTES / 60,
-                },
-              },
-            },
-          },
-          { $group: { _id: null, total: { $sum: '$hours' } } },
-        ]).toArray();
-        const estimatedHoursSaved = Math.round((slackHoursAgg[0]?.total || 0) * 10) / 10;
+            { projection: { conversation_id: 1, rating: 1, created_at: 1 } },
+          ).toArray(),
+        ]);
+
+        // Build map: conversation_id -> latest feedback rating
+        const fbByConv = new Map<string, string>();
+        for (const fb of slackFeedback) {
+          const cid = fb.conversation_id;
+          if (!cid) continue;
+          const existing = fbByConv.get(cid);
+          if (!existing) {
+            fbByConv.set(cid, fb.rating);
+          }
+        }
+
+        let estimatedHoursSaved = 0;
+        for (const conv of slackConvs) {
+          const cid = String(conv._id);
+          const rating = fbByConv.get(cid);
+          const escalated = conv.metadata?.escalated ?? conv.slack_meta?.escalated;
+
+          if (rating === 'negative') {
+            // 0 hours
+          } else if (rating === 'positive') {
+            estimatedHoursSaved += POSITIVE_FEEDBACK_HOURS;
+          } else if (!rating && !escalated) {
+            estimatedHoursSaved += SELF_RESOLVED_HOURS;
+          } else {
+            estimatedHoursSaved += NO_FEEDBACK_MINUTES / 60;
+          }
+        }
+        estimatedHoursSaved = Math.round(estimatedHoursSaved * 10) / 10;
 
         // Build daily array with gaps filled
         const slackDailyMap = new Map(
@@ -705,6 +786,19 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const webHoursAutomated = Math.round((webAgentMessagesAgg * 10) / 60 * 10) / 10; // 10 min per agent response
     const totalHoursAutomated = Math.round((webHoursAutomated + slackHoursSaved) * 10) / 10;
 
+    // Collect available channel names from both old and new schema
+    const [oldChannels, newChannels] = await Promise.all([
+      conversations.distinct(
+        'slack_meta.channel_name',
+        { source: 'slack', 'slack_meta.channel_name': { $ne: null } },
+      ),
+      conversations.distinct(
+        'metadata.channel_name',
+        { client_type: 'slack', 'metadata.channel_name': { $ne: null } },
+      ),
+    ]);
+    const availableChannels = [...new Set([...oldChannels, ...newChannels])];
+
     const platformSummary = {
       satisfaction_rate: feedbackSummary.satisfaction_rate || 0,
       estimated_hours_automated: totalHoursAutomated,
@@ -742,6 +836,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         avg_messages_per_workflow: avgMsgsCompleted,
       },
       ...(slack ? { slack } : {}),
+      available_channels: availableChannels.sort(),
     });
   });
 });

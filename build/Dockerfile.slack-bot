@@ -1,10 +1,20 @@
-FROM python:3.13-slim-trixie
+# Wolfi (Chainguard) base: 0 CVEs, continuously patched packages.
+FROM cgr.dev/chainguard/wolfi-base
 
+# Override APK repo to public Wolfi OS packages (no auth required).
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+
+RUN for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
+    apk upgrade --no-cache
+
+# Use the official uv binary — Wolfi apk uv bundles outdated Rust crates with CVEs.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Patch system packages to address CVEs
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Wolfi puts Python at /usr/bin/python3.13; keep venv symlinks consistent.
+RUN mkdir -p /usr/local/bin \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
 
 # Create non-root user
 RUN groupadd -r -g 1001 appuser && useradd -r -g appuser -u 1001 -m appuser

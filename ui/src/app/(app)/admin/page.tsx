@@ -61,8 +61,8 @@ interface AdminStats {
     messages: number;
   }>;
   top_users: {
-    by_conversations: Array<{ _id: string; count: number }>;
-    by_messages: Array<{ _id: string; count: number }>;
+    by_conversations: Array<{ _id: string; count: number; name?: string }>;
+    by_messages: Array<{ _id: string; count: number; name?: string }>;
   };
   top_agents: Array<{ _id: string; count: number }>;
   feedback_summary: {
@@ -101,6 +101,7 @@ interface AdminStats {
     daily: Array<{ date: string; interactions: number; unique_users: number; resolved: number; escalated: number }>;
     top_channels: Array<{ channel_name: string; interactions: number; resolved: number; resolution_rate: number }>;
   };
+  available_channels?: string[];
 }
 
 interface FeedbackEntry {
@@ -206,6 +207,11 @@ function AdminPage() {
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [userPage, setUserPage] = useState(1);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userTotalPages, setUserTotalPages] = useState(1);
+  const [usersLoading, setUsersLoading] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -302,6 +308,8 @@ function AdminPage() {
   const [stoppingCampaign, setStoppingCampaign] = useState<string | null>(null);
   const [confirmStopCampaign, setConfirmStopCampaign] = useState<string | null>(null);
   const [statsRefreshing, setStatsRefreshing] = useState(false);
+  const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
+  const [statsChannels, setStatsChannels] = useState<string[]>([]);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
 
   useEffect(() => {
@@ -326,21 +334,26 @@ function AdminPage() {
   };
 
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
-  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter });
-  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[]) => {
+  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter });
+  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     setStatsRefreshing(true);
     try {
       const r = range ?? dateRange;
       const s = source ?? sourceFilter;
       const u = userEmails ?? expandStatsUsers(userFilter);
+      const ch = channels ?? statsChannelFilter;
       const params = new URLSearchParams({ from: r.from, to: r.to });
       if (s !== 'all') params.set('source', s);
       if (u.length > 0) params.set('user', u.join(','));
+      if (s === 'slack' && ch.length > 0) params.set('channel', ch.join(','));
       const res = await fetch(`/api/admin/stats?${params}`);
       if (res.ok) {
         const json = await res.json();
-        if (json.success) setStats(json.data);
+        if (json.success) {
+          setStats(json.data);
+          if (json.data.available_channels) setStatsChannels(json.data.available_channels);
+        }
       }
     } catch {
       // keep existing stats on failure
@@ -349,10 +362,11 @@ function AdminPage() {
     }
   };
   useEffect(() => {
-    const current = { range: dateRange, source: sourceFilter, users: userFilter };
+    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter };
     if (statsFilterRef.current.range === current.range
       && statsFilterRef.current.source === current.source
-      && statsFilterRef.current.users === current.users) return; // skip initial
+      && statsFilterRef.current.users === current.users
+      && statsFilterRef.current.channels === current.channels) return; // skip initial
     statsFilterRef.current = current;
     fetchStatsWithFilters();
   }, [dateRange, sourceFilter, userFilter, status]);
@@ -397,6 +411,7 @@ function AdminPage() {
 
       if (statsResponse.success) {
         setStats(statsResponse.data);
+        if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
         // Use unfiltered response for global overview, or the main response if no filters were applied
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
@@ -406,6 +421,13 @@ function AdminPage() {
 
       if (usersResponse.success) {
         setUsers(usersResponse.data.users);
+        if (usersResponse.data.pagination) {
+          setUserTotal(usersResponse.data.pagination.total);
+          setUserTotalPages(usersResponse.data.pagination.total_pages);
+          setUserPage(usersResponse.data.pagination.page);
+        } else {
+          setUserTotal(usersResponse.data.total || usersResponse.data.users.length);
+        }
       } else {
         throw new Error(usersResponse.error || 'Failed to load users');
       }
@@ -441,6 +463,29 @@ function AdminPage() {
       setError(err.message || 'Failed to load admin data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUsers = async (search?: string, page = 1) => {
+    setUsersLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '50' });
+      const q = search ?? userSearch;
+      if (q) params.set('search', q);
+      const res = await fetch(`/api/admin/users?${params}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success) {
+          setUsers(json.data.users);
+          setUserTotal(json.data.pagination.total);
+          setUserTotalPages(json.data.pagination.total_pages);
+          setUserPage(json.data.pagination.page);
+        }
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load users:', err);
+    } finally {
+      setUsersLoading(false);
     }
   };
 
@@ -819,7 +864,43 @@ function AdminPage() {
 
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
-                <div className="space-y-2">
+                {/* Search */}
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1 max-w-sm">
+                    <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search by name or email..."
+                      value={userSearch}
+                      onChange={(e) => {
+                        setUserSearch(e.target.value);
+                        const q = e.target.value;
+                        clearTimeout((window as any).__userSearchTimer);
+                        (window as any).__userSearchTimer = setTimeout(() => {
+                          loadUsers(q, 1);
+                        }, 300);
+                      }}
+                      className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    {userSearch && (
+                      <button
+                        onClick={() => { setUserSearch(''); loadUsers('', 1); }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2"
+                      >
+                        <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground">{userTotal} users</span>
+                </div>
+
+                {/* Table */}
+                <div className="space-y-2 relative">
+                  {usersLoading && (
+                    <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
                   <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
                     <div>Email</div>
                     <div>Name</div>
@@ -828,7 +909,11 @@ function AdminPage() {
                     <div>Stats</div>
                     {isAdmin && <div className="text-right">Actions</div>}
                   </div>
-                  {users.map((user) => (
+                  {users.length === 0 && !usersLoading ? (
+                    <div className="text-center py-8 text-sm text-muted-foreground">
+                      {userSearch ? 'No users matching your search' : 'No users found'}
+                    </div>
+                  ) : users.map((user) => (
                     <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
                       <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.email}</div>
                       <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.name}</div>
@@ -877,6 +962,35 @@ function AdminPage() {
                     </div>
                   ))}
                 </div>
+
+                {/* Pagination */}
+                {userTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <p className="text-xs text-muted-foreground">
+                      Page {userPage} of {userTotalPages}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        disabled={userPage <= 1 || usersLoading}
+                        onClick={() => loadUsers(undefined, userPage - 1)}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        disabled={userPage >= userTotalPages || usersLoading}
+                        onClick={() => loadUsers(undefined, userPage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </TabsContent>
 
               {/* Team Management Tab */}
@@ -1754,7 +1868,8 @@ function AdminPage() {
                       onChange={(e) => {
                         const src = e.target.value as 'all' | 'web' | 'slack';
                         setSourceFilter(src);
-                        fetchStatsWithFilters(undefined, src);
+                        setStatsChannelFilter([]);
+                        fetchStatsWithFilters(undefined, src, undefined, []);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
                       }}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
@@ -1763,6 +1878,20 @@ function AdminPage() {
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
                     </select>
+                    {sourceFilter === 'slack' && statsChannels.length > 0 && (
+                      <MultiSelect
+                        options={statsChannels}
+                        selected={statsChannelFilter}
+                        onChange={(channels) => {
+                          setStatsChannelFilter(channels);
+                          fetchStatsWithFilters(undefined, undefined, undefined, channels);
+                        }}
+                        placeholder="All Channels"
+                        searchPlaceholder="Search channels..."
+                        emptyLabel="No channels found"
+                        badgeLabel="channels"
+                      />
+                    )}
                     <MultiSelect
                       options={[
                         ...teams.map((t) => `team:${t.name}`),
@@ -1818,7 +1947,12 @@ function AdminPage() {
                 </div>
 
                 {stats && (
-                  <>
+                  <div className="relative space-y-4">
+                    {statsRefreshing && (
+                      <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
                     {/* Platform Summary Cards */}
                     {stats.platform_summary && (
                       <div className="grid grid-cols-2 gap-4">
@@ -1988,11 +2122,11 @@ function AdminPage() {
                               <p className="text-sm text-muted-foreground text-center py-4">No data yet</p>
                             ) : stats.top_users.by_conversations.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-6 text-sm text-muted-foreground">#{i + 1}</div>
-                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)}>{u._id}</div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
-                                <div className="text-sm font-medium">{u.count} chats</div>
+                                <div className="text-sm font-medium shrink-0">{u.count} chats</div>
                               </div>
                             ))}
                           </div>
@@ -2009,11 +2143,11 @@ function AdminPage() {
                               <p className="text-sm text-muted-foreground text-center py-4">No data yet</p>
                             ) : stats.top_users.by_messages.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-6 text-sm text-muted-foreground">#{i + 1}</div>
-                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)}>{u._id}</div>
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
-                                <div className="text-sm font-medium">{u.count} messages</div>
+                                <div className="text-sm font-medium shrink-0">{u.count} messages</div>
                               </div>
                             ))}
                           </div>
@@ -2343,7 +2477,7 @@ function AdminPage() {
 
                     {/* Checkpoint Persistence */}
                     <CheckpointStatsSection />
-                  </>
+                  </div>
                 )}
               </TabsContent>
 

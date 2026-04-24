@@ -1,22 +1,47 @@
+## 0.4.1 (2026-04-24)
+
+### Fix
+
+- **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
+
+## 0.4.0-rc.24 (2026-04-23)
+
+## 0.3.11 (2026-04-22)
+
+### Fix
+
+- **slack**: add escalation policy field and fix humble followup prompt (#1277)
+- **admin**: correct feedback dedup, user linkage, and top user display (#1273)
+
+## 0.3.10 (2026-04-21)
+
+### Fix
+
+- **admin**: resolve stats bugs, add users pagination, channel filter, and loading indicators (#1266)
+
+## 0.3.9 (2026-04-21)
+
+### Fix
+
+- **helm**: single-node MCP ServiceAccounts and configurable name prefix (#1267)
+- **supervisor**: stream curl tool responses to client (#1255)
+- **security**: resolve CodeQL source code alerts and update GitHub Actions (#1252)
+- **docker**: upgrade base images, binaries, and patch system CVEs (#1251)
+- **deps**: bump pypdf, python-multipart, authlib, langsmith to fix CVEs
+- **deps**: bump langchain-openai, langchain-core, langchain-text-splitters to fix CVEs (#1248)
+
 ## 0.3.8 (2026-04-17)
 
 ### Feat
 
 - **helm**: Enable Vertical Pod Autoscaling across all charts (#1224)
 
-## 0.3.7-rc.3 (2026-04-17)
-
 ### Fix
 
 - **supervisor**: add curl tool for PUT/POST support and web fetching (#1242)
-
-## 0.3.7-rc.2 (2026-04-17)
-
-### Fix
-
 - **Dockerfile**: Standardise non-root user configuration (#1246)
 
-## 0.3.7-rc.1 (2026-04-17)
+## 0.3.7 (2026-04-17)
 
 ### Feat
 

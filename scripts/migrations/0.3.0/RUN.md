@@ -53,6 +53,12 @@ python scripts/migrations/0.3.0/backfill_feedback_from_langfuse.py
 python scripts/migrations/0.3.0/backfill_feedback_from_langfuse.py --dump-json /tmp/langfuse_scores.json
 python scripts/migrations/0.3.0/backfill_feedback_from_langfuse.py --from-json /tmp/langfuse_scores.json
 
+# Option C: Incremental top-up (run at cutover after a prior full dump)
+#   Only fetches scores newer than the latest timestamp already in the file,
+#   then merges them in. The --from-json load step is unchanged.
+python scripts/migrations/0.3.0/backfill_feedback_from_langfuse.py --dump-json /tmp/langfuse_scores.json --incremental
+python scripts/migrations/0.3.0/backfill_feedback_from_langfuse.py --from-json /tmp/langfuse_scores.json
+
 # Dry run (preview without writing)
 python scripts/migrations/0.3.0/backfill_feedback_from_langfuse.py --from-json /tmp/langfuse_scores.json --dry-run
 ```
@@ -94,6 +100,12 @@ python scripts/migrations/0.3.0/backfill_slack_interactions.py --channels C010J2
 
 # Save to JSON first (recommended — avoids re-crawling Slack on retry)
 python scripts/migrations/0.3.0/backfill_slack_interactions.py --dump-json /tmp/slack_interactions.json
+python scripts/migrations/0.3.0/backfill_slack_interactions.py --from-json /tmp/slack_interactions.json
+
+# Incremental top-up (run at cutover after a prior full dump)
+#   Only fetches threads newer than the latest thread_ts already in the file,
+#   then merges them in. The --from-json load step is unchanged.
+python scripts/migrations/0.3.0/backfill_slack_interactions.py --dump-json /tmp/slack_interactions.json --incremental
 python scripts/migrations/0.3.0/backfill_slack_interactions.py --from-json /tmp/slack_interactions.json
 
 # Dry run

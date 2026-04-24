@@ -34,6 +34,12 @@ global:
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
 
+  # When deploymentMode is single-node, in-cluster MCP Services/Deployments/SAs use
+  # {mcpResourcePrefix}-agent-<name>-mcp. Leave mcpResourcePrefix unset (empty) to use the
+  # Helm release name; set to "single-node" for stable, readable resource names.
+  singleNode:
+    mcpResourcePrefix: ""
+
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:
     create: false # do not create llm secret in subcharts (use global or existing llm secret)
@@ -192,6 +198,23 @@ promptConfigType: "default"  # Options: "default" or "deep_agent"
 promptConfig: ""              # Custom prompt config (overrides promptConfigType if set)
 
 ragPromptConfig: ""           # Custom RAG prompt config (overrides default if set)
+
+# ---------------------------------------------------------------------------
+# Skills bootstrap command template (rendered as the `/skills` slash command
+# in the "Skills API Gateway" UI page). Customizable per-deployment.
+#
+# Resolution order (mirrors promptConfig):
+#   1. .Values.skillsBootstrap          - inline multi-line string (highest)
+#   2. .Values.skillsBootstrapName      - selects data/skills/bootstrap.<name>.md
+#   3. data/skills/bootstrap.md         - packaged default
+#
+# The template supports the following placeholders, substituted by the UI:
+#   {{COMMAND_NAME}} - slash command name (default: "skills")
+#   {{DESCRIPTION}}  - short description shown in the slash-command picker
+#   {{BASE_URL}}     - gateway base URL (auto-detected from window.location)
+# ---------------------------------------------------------------------------
+skillsBootstrapName: ""       # Variant name (looks up data/skills/bootstrap.<name>.md)
+skillsBootstrap: ""           # Inline custom bootstrap skill (overrides everything)
 
 # Task Configuration
 # Self-service workflow definitions (Create LLM Key, GitHub Org Invite, etc.)
@@ -632,17 +655,27 @@ caipe-ui:
     - name: skill-templates
       configMap:
         name: skill-templates
+    - name: skills-bootstrap
+      configMap:
+        name: skills-bootstrap
+        optional: true
   volumeMounts:
     - name: skill-templates
       mountPath: /app/data/skills
       readOnly: true
-  env:
+    - name: skills-bootstrap
+      mountPath: /app/data/skills-bootstrap
+      readOnly: true
+  # ConfigMap for non-sensitive configuration
+  config:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
     A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
     # Skills template directory (mounted from ConfigMap)
     SKILLS_DIR: "/app/data/skills"
-  # ConfigMap for non-sensitive configuration
-  config:
+    # Bootstrap skill template (mounted from ConfigMap "skills-bootstrap").
+    # Override per-deployment via .Values.skillsBootstrap (inline string) or
+    # .Values.skillsBootstrapName (selects data/skills/bootstrap.<name>.md).
+    SKILLS_BOOTSTRAP_FILE: "/app/data/skills-bootstrap/bootstrap.md"
     # Feature flags
     ENABLE_SUBAGENT_CARDS: "true"
     SSO_ENABLED: "false"
@@ -774,46 +807,27 @@ slack-bot:
     tag: ""
     pullPolicy: "IfNotPresent"
 
-  # Display name used in Slack messages
-  appName: "CAIPE"
+  # -- Flat key-value map of environment variables.
+  # Each key-value pair is injected as a flat environment variable via ConfigMap
+  # (envFrom → configMapRef). All non-sensitive env vars go here.
+  config:
+    APP_NAME: "CAIPE"
+    SLACK_BOT_MODE: "socket"
+    CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+    SLACK_INTEGRATION_SILENCE_ENV: "false"
+    # MONGODB_URI: ""                          # Override per environment
+    # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
+    # SLACK_INTEGRATION_ENABLE_AUTH: "true"    # Enable OAuth2 Client Credentials
+    # OAUTH2_TOKEN_URL: ""                     # OIDC token endpoint
+    # OAUTH2_CLIENT_ID: ""                     # OAuth2 client ID
 
-  # Connection mode: "socket" (WebSocket via SLACK_APP_TOKEN) or "http" (webhooks via SLACK_SIGNING_SECRET)
-  botMode: "socket"
+  # -- Reference to a pre-existing Kubernetes Secret.
+  # Should contain: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,
+  # and optionally OAUTH2_CLIENT_SECRET.
+  existingSecret: "slack-bot-secrets"
 
-  # Environment variables passed to the bot container
-  env:
-    CAIPE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
-
-  # CAIPE UI URL — must be reachable from the bot pod.
-  caipeUiUrl: "http://ai-platform-engineering-caipe-ui:3000"
-
-  # Reference to a Kubernetes Secret containing Slack tokens:
-  #   SLACK_BOT_TOKEN (xoxb-...), SLACK_APP_TOKEN (xapp-...), SLACK_SIGNING_SECRET
-  #   Optionally: OAUTH2_CLIENT_SECRET
-  slack:
-    tokenSecretRef: "slack-bot-secrets"
-
-  # MongoDB for persistent session storage (conversation context, trace IDs, user cache)
-  # Uses the same MongoDB as CAIPE UI when deployed together
-  mongodb:
-    uri: ""  # Override per environment, e.g. "mongodb://admin:changeme@ai-platform-engineering-mongodb:27017"
-    database: "caipe"
-
-  # OAuth2 Client Credentials auth for A2A requests to the supervisor
-  # Works with any OIDC provider (Okta, Keycloak, Auth0, Azure AD)
-  auth:
-    enabled: false
-    tokenUrl: ""      # e.g. "https://your-idp.example.com/oauth2/v1/token"
-    clientId: ""
-    scope: ""         # Optional
-    audience: ""      # Optional
-    # clientSecret should be stored in the K8s Secret (slack.tokenSecretRef), NOT here
-
-  # Suppress environment info in bot responses
-  silenceEnv: "false"
-
-  # Per-channel configuration (serialized as YAML into a ConfigMap)
-  # Structure: channel_id -> channel config
+  # -- Per-channel configuration rendered as YAML and volume-mounted
+  # at /etc/caipe/bot-config.yaml. Only mounted when non-empty.
   botConfig: {}
     # C012345678:
     #   name: "#my-channel"
@@ -823,11 +837,12 @@ slack-bot:
     #     overthink: true
     #   ai_alerts:
     #     enabled: false
-    #   default:
-    #     project_key: MYPROJ
-    #     issue_type: Bug
+    #   other:
+    #     jira:
+    #       project_key: MYPROJ
+    #       issue_type: Bug
 
-  # External Secrets configuration for sensitive data (Slack tokens, Langfuse secret key, etc.)
+  # -- External Secrets configuration for sensitive data
   externalSecrets:
     enabled: false
     apiVersion: "v1beta1"
@@ -839,10 +854,6 @@ slack-bot:
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: bot_token
-      # - secretKey: SLACK_APP_TOKEN
-      #   remoteRef:
-      #     key: prod/slack-bot
-      #     property: app_token
 
   resources:
     requests:

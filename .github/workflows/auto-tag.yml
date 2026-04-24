@@ -1,0 +1,238 @@
+name: "[Release] Auto-tag on Push"
+description: "Automatically tag commits on main or branches with release/** prefix (release or hotfix branches) based on version changes"
+run-name: >-
+  Auto-tag ${{
+    github.ref == 'refs/heads/main' && 'dev (or new release)' ||
+    contains(github.ref, '-hotfix') && 'hotfix' ||
+    'rc'
+  }} [${{ github.ref_name }}]
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      # App code / build changes
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      # Chart changes
+      - 'charts/**'
+
+permissions:
+  contents: write
+  packages: write
+  actions: write
+
+jobs:
+  auto-tag:
+    name: Determine version, update files, tag and push
+    runs-on: ubuntu-latest
+    # Don't run on commits pushed by the release bot or final release PR bumps (avoid infinite loops).
+    if: >
+      ${{
+        !(
+          github.actor == 'caipe-release-bot[bot]' ||
+          github.event.head_commit.author.email == 'caipe-release-bot[bot]@users.noreply.github.com' ||
+          github.event.head_commit.committer.email == 'caipe-release-bot[bot]@users.noreply.github.com' ||
+          (
+            startsWith(github.ref, 'refs/heads/release/') &&
+            startsWith(github.event.head_commit.message, 'chore: bump version to ') &&
+            !contains(github.event.head_commit.message, '-rc.') &&
+            !contains(github.event.head_commit.message, '-dev.') &&
+            !contains(github.event.head_commit.message, '-chart.') &&
+            !contains(github.event.head_commit.message, '-hotfix.') &&
+            (
+              github.actor == 'github-actions[bot]' ||
+              github.event.head_commit.author.email == 'github-actions[bot]@users.noreply.github.com' ||
+              github.event.head_commit.committer.email == 'github-actions[bot]@users.noreply.github.com'
+            )
+          )
+        )
+      }}
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      # ── Release branch merge detection ──────────────────────────────
+      - name: 🔍 Detect release branch merge to main
+        id: release-merge
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          RELEASE_VERSION=""
+
+          # Detection strategies for release branch merges to main:
+          #   1. Merge commit (PR "Create a merge commit" or local --no-ff): second parent on release branch
+          #   2. Squash merge (PR "Squash and merge"): commit message contains release/x.y.z
+          #   3. Fast-forward (direct push or local merge when main is behind): HEAD itself is on release branch
+          # NOT covered: "Rebase and merge" — creates new SHAs, no merge commit, no branch name in messages.
+          #   Disable rebase-and-merge for release PRs in repo settings.
+
+          # Method 1: Merge commit — check second parent against release branches
+          PARENTS=$(git log -1 --format='%P' HEAD)
+          PARENT_COUNT=$(echo "$PARENTS" | wc -w)
+
+          if [[ "$PARENT_COUNT" -ge 2 ]]; then
+            SECOND_PARENT=$(echo "$PARENTS" | awk '{print $2}')
+            echo "🔍 Merge commit detected. Checking second parent: $SECOND_PARENT"
+            RELEASE_BRANCH=$(git branch -r --contains "$SECOND_PARENT" 2>/dev/null \
+              | grep -oP 'origin/release/\K[0-9]+\.[0-9]+\.[0-9]+$' \
+              | head -n 1 || true)
+            if [[ -n "$RELEASE_BRANCH" ]]; then
+              RELEASE_VERSION="$RELEASE_BRANCH"
+              echo "✅ Merge from release/$RELEASE_VERSION detected (via second parent)"
+            fi
+          fi
+
+          # Method 2: Squash merge — check commit message for release/x.y.z
+          if [[ -z "$RELEASE_VERSION" ]]; then
+            COMMIT_MSG=$(git log -1 --format='%s' HEAD)
+            if [[ "$COMMIT_MSG" =~ release/([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+              RELEASE_VERSION="${BASH_REMATCH[1]}"
+              echo "✅ Squash merge from release/$RELEASE_VERSION detected (via commit message)"
+            fi
+          fi
+
+          # Method 3: Fast-forward — HEAD itself is on a release branch
+          if [[ -z "$RELEASE_VERSION" ]]; then
+            FF_BRANCH=$(git branch -r --contains HEAD 2>/dev/null \
+              | grep -oP 'origin/release/\K[0-9]+\.[0-9]+\.[0-9]+$' \
+              | head -n 1 || true)
+            if [[ -n "$FF_BRANCH" ]]; then
+              RELEASE_VERSION="$FF_BRANCH"
+              echo "✅ Fast-forward from release/$RELEASE_VERSION detected (HEAD on release branch)"
+            fi
+          fi
+
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            echo "🚀 Release branch merge detected — version: $RELEASE_VERSION"
+            echo "is_release_merge=true" >> $GITHUB_OUTPUT
+            echo "version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "ℹ️ Not a release branch merge — proceeding with normal auto-tag"
+            echo "is_release_merge=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🚀 Dispatch release-manual for release merge
+        if: ${{ steps.release-merge.outputs.is_release_merge == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ steps.release-merge.outputs.version }}"
+          echo "🚀 Dispatching release-manual.yml with version=$VERSION"
+
+          gh workflow run release-manual.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            -f version="$VERSION"
+
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🔀 Release Branch Merge Detected
+
+          | Property | Value |
+          |----------|-------|
+          | **Version** | \`${VERSION}\` |
+          | **Action** | Dispatched \`release-manual.yml\` |
+          | **Branch** | \`main\` |
+          | **Commit** | \`${GITHUB_SHA}\` |
+          EOF
+
+      # ── Normal auto-tag flow (skip if release merge) ───────────────────
+      - name: 🐍 Set up Python
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.13'
+
+      - name: 📦 Install uv
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      # ── Shared Logic 1: determine version ──────────────────────────────
+      - name: 🏷️ Determine version
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        id: version
+        uses: ./.github/actions/determine-version
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      # ── Shared Logic 2: update version files ───────────────────────────
+      - name: 📝 Update version files
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        id: update
+        uses: ./.github/actions/update-version-files
+        with:
+          version: ${{ steps.version.outputs.tag }}
+          diff_target: ${{ steps.version.outputs.diff_target }}
+      # ── Commit + tag + push ────────────────────────────────────────────
+      - name: 📤 Commit, tag, and push
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        env:
+          TAG: ${{ steps.update.outputs.final_version }}
+        run: |
+          git config user.name "caipe-release-bot[bot]"
+          git config user.email "caipe-release-bot[bot]@users.noreply.github.com"
+
+          # Check if there are changes to commit
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "ℹ️ No file changes to commit"
+          else
+            # Stage version-related files
+            git add pyproject.toml uv.lock || true
+            find charts -name "Chart.yaml" -type f -exec git add {} +
+
+            git commit -m "chore: bump version to $TAG"
+          fi
+
+          # Create annotated tag and push
+          git tag -a "$TAG" -m "Auto-tag $TAG"
+          git push origin HEAD "$TAG"
+
+          echo "✅ Pushed tag: $TAG"
+
+      - name: 📊 Summary
+        if: ${{ steps.release-merge.outputs.is_release_merge != 'true' }}
+        env:
+          TAG: ${{ steps.update.outputs.final_version }}
+        run: |
+          IS_CHART_ONLY=false
+          [[ "$TAG" =~ -chart\.[0-9]+$ ]] && IS_CHART_ONLY=true
+
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🏷️ Auto-tag Created
+
+          | Property | Value |
+          |----------|-------|
+          | **Tag** | \`${TAG}\` |
+          | **Branch** | \`${GITHUB_REF#refs/heads/}\` |
+          | **Commit** | \`${GITHUB_SHA}\` |
+          | **Chart-only** | \`${IS_CHART_ONLY}\` |
+
+          ## What happens next
+
+          - Tag push event triggers CI workflows
+          - CI workflows read tag from \`github.ref_name\`
+          EOF
+
+          if [[ "$IS_CHART_ONLY" == "true" ]]; then
+            echo "- ⏭️ Image builds **skipped** (chart-only change)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- 🔄 Image builds triggered (changed images rebuilt, unchanged retagged)" >> $GITHUB_STEP_SUMMARY
+          fi

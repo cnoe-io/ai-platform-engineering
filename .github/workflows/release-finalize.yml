@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df  # v2.18.0
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
         with:
           egress-policy: audit
 
@@ -55,8 +55,10 @@ jobs:
             "[CI][MCP] Sub-Agents MCP Docker Build and Push"
             "[CI][A2A] CAIPE RAG Build and Push"
             "[CI][A2A] Supervisor Agent Docker Build and Push"
+            "[CI] Dynamic Agents Build and Push"
             "[CI] CAIPE UI Build and Push"
             "[CI] Slack Bot Build and Push"
+            "[CI][Helm] Publish Tagged Helm Charts"
           )
 
           ALL_PASSED=true
@@ -293,4 +295,3 @@ jobs:
             echo "### ⏳ CI Not Started" >> $GITHUB_STEP_SUMMARY
             echo "Waiting for CI workflows to start." >> $GITHUB_STEP_SUMMARY
           fi
-

@@ -3,10 +3,6 @@ description: "Build and push Dynamic Agents Docker image"
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'ai_platform_engineering/dynamic_agents/**'
     tags:
       - '**'
   pull_request:
@@ -15,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_version:
-        description: 'Version tag to apply (e.g., 0.2.21)'
+        description: 'Version tag to apply (e.g., 0.3.0-dev.5)'
         required: false
         type: string
 
@@ -30,6 +26,7 @@ jobs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
+      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -61,44 +58,53 @@ jobs:
           SHOULD_RETAG="false"
           TAG_VERSION="${{ env.TAG_VERSION }}"
 
-          # Check if this is an RC tag
-          if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
-            IS_RC="true"
-          else
-            IS_RC="false"
+          # Chart-only tag: skip image builds entirely
+          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
+            echo "📊 Chart-only tag: skipping image builds"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_retag=false" >> $GITHUB_OUTPUT
+            echo "image_prefix=" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-          # Determine build vs retag logic:
-          # 1. Final release (non-RC tag via workflow_dispatch or tag push): Always build
-          # 2. RC tag with changes: Build
-          # 3. RC tag without changes: Retag from previous version
-          # 4. Push to main: Build
-          # 5. PR or other: Build only if changed
+          # Determine pre-release type and number
+          if [[ "$TAG_VERSION" =~ -(dev|rc|hotfix)\.([0-9]+)$ ]]; then
+            IS_PRERELEASE="true"
+            PRERELEASE_NUM="${BASH_REMATCH[2]}"
+          else
+            IS_PRERELEASE="false"
+            PRERELEASE_NUM=0
+          fi
+
+          # GHCR prefix: -rc.N and -hotfix.N go to pre-release/
+          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
+            IMAGE_PREFIX="pre-release/"
+          else
+            IMAGE_PREFIX=""
+          fi
 
           if [ -n "$TAG_VERSION" ]; then
-            if [ "$IS_RC" == "true" ]; then
+            if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
               if [ "$DYNAMIC_AGENTS_CHANGED" == "true" ]; then
                 SHOULD_BUILD="true"
-                echo "🔨 RC tag with changes: building"
+                echo "🔨 Pre-release tag with changes: building"
               else
                 SHOULD_RETAG="true"
-                echo "🏷️ RC tag without changes: retagging"
+                echo "🏷️ Pre-release tag without changes: retagging"
               fi
             else
               SHOULD_BUILD="true"
-              echo "🚀 Final release: building"
+              echo "🚀 Build all: first pre-release or final release"
             fi
-          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          elif [ "$DYNAMIC_AGENTS_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             SHOULD_BUILD="true"
-            echo "📦 Push to main: building"
-          elif [ "$DYNAMIC_AGENTS_CHANGED" == "true" ]; then
-            SHOULD_BUILD="true"
-            echo "🔍 Files changed: building"
+            echo "📦 Files changed or manual trigger: building"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC"
+          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -110,12 +116,12 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-dynamic-agents
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-dynamic-agents
       DOCKERFILE: ai_platform_engineering/dynamic_agents/build/Dockerfile
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df  # v2.18.0
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
         with:
           egress-policy: audit
 
@@ -136,20 +142,19 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
-            type=ref,event=branch,prefix=
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
       - name: Build and Push Docker image
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: ai_platform_engineering/dynamic_agents
           file: ${{ env.DOCKERFILE }}
-          push: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
@@ -168,12 +173,12 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-dynamic-agents
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-dynamic-agents
       DOCKERFILE: ai_platform_engineering/dynamic_agents/build/Dockerfile
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df  # v2.18.0
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
         with:
           egress-policy: audit
 
@@ -199,13 +204,14 @@ jobs:
           echo "🏷️ Processing dynamic-agents..."
 
           # Determine source tag (previous version)
-          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+          if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
             BASE_VERSION="${BASH_REMATCH[1]}"
-            RC_NUM="${BASH_REMATCH[2]}"
+            SUFFIX_TYPE="${BASH_REMATCH[2]}"
+            SUFFIX_NUM="${BASH_REMATCH[3]}"
 
-            if [[ "$RC_NUM" -gt 1 ]]; then
-              PREV_RC=$((RC_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+            if [[ "$SUFFIX_NUM" -gt 1 ]]; then
+              PREV_NUM=$((SUFFIX_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}"
             else
               SOURCE_TAG="${BASE_VERSION}"
             fi
@@ -254,7 +260,7 @@ jobs:
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: ai_platform_engineering/dynamic_agents
           file: ${{ env.DOCKERFILE }}
@@ -276,7 +282,7 @@ jobs:
     if: |
       always() &&
       needs.determine-changes.outputs.tag_version != '' &&
-      !contains(needs.determine-changes.outputs.tag_version, '-rc.')
+      !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
       - name: 🔔 Notify release finalize
         env:

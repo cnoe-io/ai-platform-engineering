@@ -26,10 +26,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from dynamic_agents.config import get_settings
-from dynamic_agents.routes import agents, assistant, builtin_tools, chat, conversations, health, llm_models, mcp_servers
+from dynamic_agents.metrics import PrometheusHTTPMiddleware
+from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, health, mcp_servers, middleware
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
-from dynamic_agents.services.seed_config import apply_seed_config
 
 
 @asynccontextmanager
@@ -58,9 +58,6 @@ async def lifespan(app: FastAPI):
     else:
         # All retries exhausted - crash the service
         fatal_exit(f"Failed to connect to MongoDB after {max_retries} attempts. Service cannot start without MongoDB.")
-
-    # Apply seed configuration (agents and MCP servers from config.yaml)
-    apply_seed_config(mongo, settings.seed_config_path)
 
     yield
 
@@ -95,15 +92,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Add Prometheus metrics middleware (serves /metrics, tracks request duration)
+    app.add_middleware(PrometheusHTTPMiddleware)
+
     # Mount routes
     app.include_router(health.router)
-    app.include_router(agents.router, prefix="/api/v1")
     app.include_router(builtin_tools.router, prefix="/api/v1")
-    app.include_router(llm_models.router, prefix="/api/v1")
     app.include_router(mcp_servers.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(conversations.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
+    app.include_router(middleware.router, prefix="/api/v1")
 
     @app.get("/")
     async def root():

@@ -1,0 +1,387 @@
+name: "[CI] PR Version Bump"
+description: "Automatically bump version files on PRs"
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'charts/**'
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  packages: write
+  actions: read
+
+jobs:
+  version-bump:
+    name: Bump version files on PR
+    runs-on: ubuntu-latest
+    # Don't run on commits made by the bot (avoid infinite loop)
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
+    outputs:
+      new_commit: ${{ steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
+      should_prebuild: ${{ steps.prebuild-check.outputs.should_run }}
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: 📥 Checkout PR branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: 🔍 Check if PR branch is up to date
+        id: branch-status
+        shell: bash
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+          BASE_SHA=$(git rev-parse "origin/${BASE_REF}")
+          MERGE_BASE=$(git merge-base HEAD "origin/${BASE_REF}")
+
+          NEEDS_UPDATE=false
+          if [[ "$MERGE_BASE" != "$BASE_SHA" ]]; then
+            NEEDS_UPDATE=true
+            echo "⚠️ $HEAD_REF does not contain latest $BASE_REF ($BASE_SHA)"
+          else
+            echo "✅ $HEAD_REF contains latest $BASE_REF"
+          fi
+
+          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+          echo "base_sha=$BASE_SHA" >> $GITHUB_OUTPUT
+          echo "merge_base=$MERGE_BASE" >> $GITHUB_OUTPUT
+          echo "needs_update=$NEEDS_UPDATE" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Check PR mergeability
+        id: mergeability
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+
+            let pr;
+            for (let attempt = 0; attempt < 6; attempt++) {
+              const response = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              });
+              pr = response.data;
+
+              if (pr.mergeable !== null) {
+                break;
+              }
+
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+            }
+
+            const mergeableState = pr.mergeable_state || '';
+            const hasConflicts = mergeableState === 'dirty';
+
+            core.setOutput('mergeable', String(pr.mergeable));
+            core.setOutput('mergeable_state', mergeableState);
+            core.setOutput('has_conflicts', String(hasConflicts));
+
+            console.log(`mergeable=${pr.mergeable}, mergeable_state=${mergeableState}`);
+
+      - name: 🏷️ Apply PR flow label
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const baseRef = process.env.BASE_REF;
+            const headRef = process.env.HEAD_REF;
+            const releaseBranchRe = /^release\/(\d+\.\d+\.\d+(?:-hotfix)?)$/;
+
+            const baseRelease = baseRef.match(releaseBranchRe);
+            const headRelease = headRef.match(releaseBranchRe);
+
+            let label;
+            if (baseRelease) {
+              label = {
+                name: baseRelease[1],
+                color: baseRelease[1].endsWith('-hotfix') ? 'd93f0b' : '0e8a16',
+                description: `PR targets ${baseRef}`
+              };
+            } else if (baseRef === 'main' && headRelease) {
+              label = {
+                name: headRef,
+                color: headRelease[1].endsWith('-hotfix') ? 'fbca04' : '1d76db',
+                description: `Release branch merge from ${headRef} to main`
+              };
+            } else if (baseRef === 'main') {
+              label = {
+                name: 'dev',
+                color: 'c5def5',
+                description: 'Normal PR to main; uses dev prerelease versioning'
+              };
+            } else {
+              core.info(`No PR flow label configured for ${headRef} -> ${baseRef}`);
+              return;
+            }
+
+            async function ensureLabel({ name, color, description }) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+
+                core.info(`Creating missing label: ${name}`);
+                try {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name,
+                    color,
+                    description
+                  });
+                } catch (createError) {
+                  if (createError.status !== 422) {
+                    throw createError;
+                  }
+                  core.info(`Label already exists after concurrent create: ${name}`);
+                }
+              }
+            }
+
+            await ensureLabel(label);
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: [label.name]
+            });
+
+            core.info(`Applied PR flow label: ${label.name}`);
+
+      - name: 💬 Comment if branch needs update
+        if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          NEEDS_UPDATE: ${{ steps.branch-status.outputs.needs_update }}
+          HAS_CONFLICTS: ${{ steps.mergeability.outputs.has_conflicts }}
+        with:
+          script: |
+            const marker = '<!-- pr-version-bump:update-branch -->';
+            const prNumber = context.payload.pull_request.number;
+            const baseRef = process.env.BASE_REF;
+            const headRef = process.env.HEAD_REF;
+            const headRepo = process.env.HEAD_REPO;
+            const repo = `${context.repo.owner}/${context.repo.repo}`;
+            const isFork = headRepo !== repo;
+            const isPrebuild = headRef.startsWith('prebuild/');
+            const needsUpdate = process.env.NEEDS_UPDATE === 'true';
+            const hasConflicts = process.env.HAS_CONFLICTS === 'true';
+
+            const reasons = [];
+            if (needsUpdate) {
+              reasons.push(`this branch does not contain the latest \`${baseRef}\``);
+            }
+            if (hasConflicts) {
+              reasons.push(`GitHub reports merge conflicts with \`${baseRef}\``);
+            }
+
+            const commands = isFork
+              ? [
+                  `git fetch https://github.com/${repo}.git ${baseRef}`,
+                  `git checkout ${headRef}`,
+                  `git merge FETCH_HEAD`,
+                  `git push`
+                ]
+              : [
+                  `git fetch origin ${baseRef}`,
+                  `git checkout ${headRef}`,
+                  `git merge FETCH_HEAD`,
+                  `git push`
+                ];
+
+            let body = `${marker}\n`;
+            body += `## ❗ Branch update needed\n\n`;
+            body += `CI failed to bump chart and app versions because ${reasons.join(' and ')}. Please update the branch by following the steps below:\n\n`;
+            body += `Run:\n\n`;
+            body += '```bash\n';
+            body += commands.join('\n');
+            body += '\n```\n\n';
+
+            if (isPrebuild) {
+              body += `This is a \`prebuild/*\` branch, so Helm prebuild publishing will still run so you can test the chart changes while the branch is being updated.\n`;
+            }
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100
+            });
+
+            const existing = comments.find(comment =>
+              comment.user.type === 'Bot' && comment.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body
+              });
+            }
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.13'
+
+      - name: 📦 Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+
+      # ── Detect release/* → main PR ─────────────────────────────────────
+      - name: 🔍 Check if release merge PR
+        id: release-check
+        shell: bash
+        run: |
+          BASE="${{ github.base_ref }}"
+          HEAD="${{ github.head_ref }}"
+          if [[ "$BASE" == "main" && "$HEAD" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "is_release_merge=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "🚀 Release merge PR detected: $HEAD → main"
+
+            RAW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+            if [[ "$RAW_VERSION" == "$VERSION" ]]; then
+              echo "needs_prepare=false" >> $GITHUB_OUTPUT
+              echo "✅ Release merge PR already prepared at $VERSION"
+            else
+              echo "needs_prepare=true" >> $GITHUB_OUTPUT
+              echo "📦 Release merge PR needs final version bump: $RAW_VERSION → $VERSION"
+            fi
+          else
+            echo "is_release_merge=false" >> $GITHUB_OUTPUT
+            echo "needs_prepare=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Release merge path: prepare-release action ─────────────────────
+      - name: 📦 Prepare release (update files + changelog)
+        if: ${{ steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        uses: ./.github/actions/prepare-release
+        with:
+          version: ${{ steps.release-check.outputs.version }}
+
+      # ── Normal path: determine-version + update-version-files ──────────
+      - name: 🏷️ Determine version
+        if: ${{ steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        id: version
+        uses: ./.github/actions/determine-version
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Update version files
+        if: ${{ steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        id: update
+        uses: ./.github/actions/update-version-files
+        with:
+          version: ${{ steps.version.outputs.tag }}
+          diff_target: ${{ steps.version.outputs.diff_target }}
+
+      # ── Commit changes to PR branch ────────────────────────────────────
+      - name: 📤 Commit version bump
+        if: (steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true')) && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage version-related files (+ changelog for release merge PRs)
+          git add pyproject.toml uv.lock CHANGELOG.md || true
+          find charts -name "Chart.yaml" -type f -exec git add {} +
+
+          TAG="${{ steps.update.outputs.final_version || steps.release-check.outputs.version }}"
+          git commit -m "chore: bump version to $TAG"
+          git push
+
+          echo "✅ Committed version bump to $TAG"
+
+      - name: 🔍 Check if prebuild should run
+        id: prebuild-check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_REF="${{ github.head_ref }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          SHOULD_RUN=false
+
+          # Check for prebuild/ branch
+          if [[ "$HEAD_REF" == prebuild/* ]]; then
+            echo "✅ Matched: prebuild/ branch"
+            SHOULD_RUN=true
+          fi
+
+          # Check for helm-prerelease label
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null | tr '\n' ',' || echo "")
+          if [[ "$LABELS" == *"helm-prerelease"* ]]; then
+            echo "✅ Matched: helm-prerelease label"
+            SHOULD_RUN=true
+          fi
+
+          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+
+      - name: ❌ Require branch update before merge
+        if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
+        run: |
+          echo "::error::This PR branch must be updated with ${{ github.event.pull_request.base.ref }} before it can merge. A comment with the exact commands was posted on the PR."
+          exit 1
+
+  # Call prebuild workflow for eligible PRs
+  prebuild-helm:
+    name: Publish Prebuild Helm Charts
+    needs: version-bump
+    if: |
+      always() &&
+      needs.version-bump.outputs.should_prebuild == 'true' &&
+      needs.version-bump.outputs.new_commit != 'true' &&
+      (needs.version-bump.result == 'success' || startsWith(github.head_ref, 'prebuild/'))
+    uses: ./.github/workflows/prebuild-helm.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      new_commit: ${{ needs.version-bump.outputs.new_commit == 'true' }}
+      base_ref: ${{ github.event.pull_request.base.ref }}
+      base_sha: ${{ github.event.pull_request.base.sha }}
+    secrets: inherit

@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus } from "@/types/a2a";
-import { SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus, getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
+import { StreamEvent } from "@/components/dynamic-agents/sse-types";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
-import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
+import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
 
@@ -13,8 +13,8 @@ interface StreamingState {
   conversationId: string;
   messageId: string;
   client: A2AClient;
-  // For Dynamic Agents: client reference for backend cancellation
-  dynamicAgentClient?: DynamicAgentClient;
+  // For Dynamic Agents: adapter reference for backend cancellation
+  streamAdapter?: StreamAdapter;
 }
 
 interface ChatState {
@@ -35,7 +35,7 @@ interface ChatState {
   inputRequiredConversations: Set<string>;
 
   // Actions
-  createConversation: (agentId?: string) => string;
+  createConversation: (agentId?: string) => Promise<string>;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
@@ -48,10 +48,16 @@ interface ChatState {
   addA2AEvent: (event: A2AEvent, conversationId?: string) => void;
   clearA2AEvents: (conversationId?: string) => void;
   getConversationEvents: (conversationId: string) => A2AEvent[];
-  // SSE Agent events (for Dynamic Agents)
-  addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => void;
+  // Stream events (for Dynamic Agents)
+  addStreamEvent: (event: StreamEvent, conversationId?: string) => void;
+  clearStreamEvents: (conversationId?: string) => void;
+  getConversationStreamEvents: (conversationId: string) => StreamEvent[];
+  /** @deprecated Use addStreamEvent */
+  addSSEEvent: (event: StreamEvent, conversationId?: string) => void;
+  /** @deprecated Use clearStreamEvents */
   clearSSEEvents: (conversationId?: string) => void;
-  getConversationSSEEvents: (conversationId: string) => SSEAgentEvent[];
+  /** @deprecated Use getConversationStreamEvents */
+  getConversationSSEEvents: (conversationId: string) => StreamEvent[];
   deleteConversation: (id: string) => Promise<void>;
   clearAllConversations: () => void;
   getActiveConversation: () => Conversation | undefined;
@@ -64,6 +70,7 @@ interface ChatState {
   saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
+  loadTurnsFromServer: (conversationId: string) => Promise<void>; // No-op stub — Supervisor path will be restored in Phase 4
   evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
 
   // Unviewed conversation actions
@@ -144,8 +151,8 @@ function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
   };
 }
 
-// Serialize SSE event for MongoDB storage (strip raw data, preserve structured fields)
-function serializeSSEEvent(event: SSEAgentEvent): Record<string, unknown> {
+// Serialize stream event for MongoDB storage (strip raw data, preserve structured fields)
+function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
   return {
     id: event.id,
     timestamp: event.timestamp,
@@ -167,6 +174,73 @@ function serializeSSEEvent(event: SSEAgentEvent): Record<string, unknown> {
   };
 }
 
+/**
+ * Collapse per-token content events into one content event per tool boundary.
+ *
+ * During streaming, hundreds of tiny `content` events are emitted (one per LLM
+ * token). For persistence we merge consecutive content events (same namespace)
+ * into a single event, flushing whenever a non-content event appears or the
+ * namespace changes. This preserves the interleaved content/tool ordering that
+ * TimelineManager needs while reducing storage by ~95%.
+ *
+ * Non-content events (tool_start, tool_end, warning, error, input_required)
+ * pass through unchanged.
+ */
+function collapseStreamEvents(events: StreamEvent[]): StreamEvent[] {
+  const result: StreamEvent[] = [];
+  let contentBuffer = "";
+  let bufferNamespace: string[] = [];
+  let bufferTimestamp: Date | null = null;
+  let bufferId: string | null = null;
+
+  const flushContent = () => {
+    if (contentBuffer && bufferId) {
+      result.push({
+        id: bufferId,
+        timestamp: bufferTimestamp!,
+        type: "content",
+        raw: undefined,
+        namespace: bufferNamespace,
+        content: contentBuffer,
+      });
+      contentBuffer = "";
+      bufferNamespace = [];
+      bufferTimestamp = null;
+      bufferId = null;
+    }
+  };
+
+  for (const event of events) {
+    if (event.type === "content") {
+      const ns = event.namespace || [];
+      const nsKey = ns.join("/");
+      const bufNsKey = bufferNamespace.join("/");
+
+      // Flush if namespace changed
+      if (contentBuffer && nsKey !== bufNsKey) {
+        flushContent();
+      }
+
+      // Start or extend buffer
+      if (!bufferId) {
+        bufferId = event.id;
+        bufferTimestamp = event.timestamp;
+        bufferNamespace = ns;
+      }
+      contentBuffer += event.content || "";
+    } else {
+      // Non-content event: flush any pending content, then pass through
+      flushContent();
+      result.push(event);
+    }
+  }
+
+  // Flush remaining content
+  flushContent();
+
+  return result;
+}
+
 // Create store with conditional persistence
 const storeImplementation = (set: any, get: any) => ({
       conversations: [],
@@ -179,41 +253,40 @@ const storeImplementation = (set: any, get: any) => ({
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
 
-      createConversation: (agentId?: string) => {
-        const id = generateId();
+      createConversation: async (agentId?: string) => {
+        const storageMode = getStorageMode();
+
+        let id: string;
+
+        if (storageMode === 'mongodb') {
+          // MongoDB mode: server owns ID generation
+          const result = await apiClient.createConversation({
+            title: 'New Conversation',
+            client_type: 'webui',
+            agent_id: agentId,
+          });
+          id = result.conversation._id;
+        } else {
+          // localStorage mode: generate locally
+          id = generateId();
+        }
+
         const newConversation: Conversation = {
           id,
           title: "New Conversation",
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [],
-          a2aEvents: [], // Initialize with empty events
-          sseEvents: [], // Initialize with empty SSE events for Dynamic Agents
-          agent_id: agentId, // Dynamic agent ID; undefined = Platform Engineer
+          a2aEvents: [],
+          streamEvents: [],
+          participants: buildParticipants(agentId),
         };
 
-        const storageMode = getStorageMode();
-
-        // In MongoDB mode: create on server first
-        // In localStorage mode: create locally
-        if (storageMode === 'mongodb') {
-          // MongoDB mode: Create on server with the same ID used locally
-          apiClient.createConversation({
-            id,
-            title: newConversation.title,
-            agent_id: agentId, // Pass agent_id to MongoDB
-          }).then(() => {
-            console.log('[ChatStore] Created conversation in MongoDB:', id);
-          }).catch((error) => {
-            console.error('[ChatStore] Failed to create conversation in MongoDB:', error);
-          });
-        }
-
-        // Update local state (in localStorage mode, this persists via Zustand)
+        // Update local state
         set((state: ChatState) => ({
           conversations: [newConversation, ...state.conversations],
           activeConversationId: id,
-          a2aEvents: [], // Clear global events for new conversation
+          a2aEvents: [],
         }));
 
         return id;
@@ -414,11 +487,12 @@ const storeImplementation = (set: any, get: any) => ({
           const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
           
           // For Dynamic Agents, send backend cancel request before aborting client
-          if (streamingState.dynamicAgentClient) {
-            if (conv?.agent_id) {
-              console.log(`[ChatStore] Cancelling Dynamic Agent stream: conv=${conversationId.substring(0, 8)}, agent=${conv.agent_id}`);
+          if (streamingState.streamAdapter) {
+            const agentId = conv ? getAgentId(conv) : undefined;
+            if (agentId) {
+              console.log(`[ChatStore] Cancelling Dynamic Agent stream: conv=${conversationId.substring(0, 8)}, agent=${agentId}`);
               // Fire-and-forget backend cancel - the abort below will close the client connection
-              streamingState.dynamicAgentClient.cancelStream(conversationId, conv.agent_id)
+              streamingState.streamAdapter.cancelStream(conversationId, agentId)
                 .then((cancelled) => {
                   console.log(`[ChatStore] Backend cancel result: cancelled=${cancelled}`);
                 })
@@ -426,7 +500,7 @@ const storeImplementation = (set: any, get: any) => ({
                   console.error('[ChatStore] Backend cancel failed:', error);
                 });
             } else {
-              console.warn(`[ChatStore] Cannot cancel backend stream: agent_id not found for conv=${conversationId.substring(0, 8)}`);
+              console.warn(`[ChatStore] Cannot cancel backend stream: no agent participant found for conv=${conversationId.substring(0, 8)}`);
             }
           }
 
@@ -442,15 +516,15 @@ const storeImplementation = (set: any, get: any) => ({
           // Mark the message as cancelled with interrupted status
           const msg = conv?.messages.find((m: ChatMessage) => m.id === streamingState.messageId);
           if (msg && !msg.isFinal) {
-            // CRITICAL: Copy conversation-level sseEvents to the message for persistence.
-            // During streaming, events are collected at conversation.sseEvents. When we cancel,
+            // CRITICAL: Copy conversation-level streamEvents to the message for persistence.
+            // During streaming, events are collected at conversation.streamEvents. When we cancel,
             // we must attach them to the message so historical messages render timelines correctly.
-            const turnSSEEvents = conv?.sseEvents || [];
+            const turnStreamEvents = conv?.streamEvents || [];
             state.appendToMessage(conversationId, streamingState.messageId, "\n\n*Request cancelled*");
             state.updateMessage(conversationId, streamingState.messageId, { 
               isFinal: true,
               turnStatus: "interrupted",
-              sseEvents: turnSSEEvents.length > 0 ? turnSSEEvents : undefined,
+              streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
             });
           }
 
@@ -560,10 +634,10 @@ const storeImplementation = (set: any, get: any) => ({
       },
 
       // ═══════════════════════════════════════════════════════════════
-      // SSE Agent Events (for Dynamic Agents)
+      // Stream Events (for Dynamic Agents)
       // ═══════════════════════════════════════════════════════════════
 
-      addSSEEvent: (event: SSEAgentEvent, conversationId?: string) => {
+      addStreamEvent: (event: StreamEvent, conversationId?: string) => {
         const convId = conversationId || get().activeConversationId;
         if (!convId) return;
 
@@ -573,7 +647,7 @@ const storeImplementation = (set: any, get: any) => ({
               c.id === convId
                 ? {
                     ...c,
-                    sseEvents: [...(c.sseEvents || []), event],
+                    streamEvents: [...(c.streamEvents || []), event],
                   }
                 : c
             ),
@@ -581,14 +655,14 @@ const storeImplementation = (set: any, get: any) => ({
         });
       },
 
-      clearSSEEvents: (conversationId?: string) => {
+      clearStreamEvents: (conversationId?: string) => {
         if (conversationId) {
           set((prev: ChatState) => ({
             conversations: prev.conversations.map((conv: Conversation) =>
               conv.id === conversationId
                 ? {
                     ...conv,
-                    sseEvents: [],
+                    streamEvents: [],
                   }
                 : conv
             ),
@@ -596,10 +670,15 @@ const storeImplementation = (set: any, get: any) => ({
         }
       },
 
-      getConversationSSEEvents: (conversationId: string) => {
+      getConversationStreamEvents: (conversationId: string) => {
         const conv = get().conversations.find((c: Conversation) => c.id === conversationId);
-        return conv?.sseEvents || [];
+        return conv?.streamEvents || [];
       },
+
+      // Backwards-compatible aliases for supervisor ChatPanel
+      addSSEEvent: (event: StreamEvent, conversationId?: string) => get().addStreamEvent(event, conversationId),
+      clearSSEEvents: (conversationId?: string) => get().clearStreamEvents(conversationId),
+      getConversationSSEEvents: (conversationId: string) => get().getConversationStreamEvents(conversationId),
 
       deleteConversation: async (id: string) => {
         const storageMode = await getStorageMode();
@@ -854,8 +933,8 @@ const storeImplementation = (set: any, get: any) => ({
               // being viewed (prevents race with concurrent loadMessagesFromServer)
               messages: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.messages : [],
               a2aEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? localConv.a2aEvents : [],
-              sseEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.sseEvents || []) : [],
-              agent_id: conv.agent_id, // Dynamic agent ID; undefined = Platform Engineer
+              streamEvents: (isStreaming || hasLoadedMessages || isActive) && localConv ? (localConv.streamEvents || []) : [],
+              participants: conv.participants || [],
               owner_id: conv.owner_id,
               sharing: conv.sharing,
             };
@@ -934,16 +1013,16 @@ const storeImplementation = (set: any, get: any) => ({
         const conv = state.conversations.find((c: Conversation) => c.id === conversationId);
         if (!conv || conv.messages.length === 0) return;
 
-        // Determine if this is a Dynamic Agent conversation (has agent_id)
-        const isDynamicAgent = !!conv.agent_id;
+        // Determine if this is a Dynamic Agent conversation
+        const isDynamic = isDynamicAgentConversation(conv);
 
         // A2A events during streaming are stored at the conversation level (conv.a2aEvents)
         // via addA2AEvent(), NOT on individual msg.events (addEventToMessage is not called).
         // To persist events to MongoDB, we attach the conversation-level events to the
         // last assistant message being saved (the one that was just streamed).
-        // Similarly, SSE events for Dynamic Agents are stored at conv.sseEvents.
+        // Similarly, stream events for Dynamic Agents are stored at conv.streamEvents.
         const convA2AEvents = conv.a2aEvents || [];
-        const convSSEEvents = conv.sseEvents || [];
+        const convStreamEvents = conv.streamEvents || [];
         const lastAssistantIdx = (() => {
           for (let i = conv.messages.length - 1; i >= 0; i--) {
             if (conv.messages[i].role === 'assistant') return i;
@@ -951,14 +1030,14 @@ const storeImplementation = (set: any, get: any) => ({
           return -1;
         })();
 
-        if (isDynamicAgent) {
-          const toolStartCount = convSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_start').length;
-          const toolEndCount = convSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_end').length;
-          console.log(`[SSE-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, sseEvents=${convSSEEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), lastAssistantIdx=${lastAssistantIdx}`);
+        if (isDynamic) {
+          const toolStartCount = convStreamEvents.filter((e: StreamEvent) => e.type === 'tool_start').length;
+          const toolEndCount = convStreamEvents.filter((e: StreamEvent) => e.type === 'tool_end').length;
+          console.log(`[Stream-DEBUG] saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, streamEvents=${convStreamEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), lastAssistantIdx=${lastAssistantIdx}`);
         } else {
           const execPlanCount = convA2AEvents.filter((e: A2AEvent) => e.artifact?.name === 'execution_plan_update').length;
           const toolStartCount = convA2AEvents.filter((e: A2AEvent) => e.artifact?.name === 'tool_notification_start').length;
-          console.log(`[A2A-DEBUG] 💾 saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, convEvents=${convA2AEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}`);
+          console.log(`[A2A-DEBUG] saveMessagesToServer: conv=${conversationId.substring(0, 8)}, msgs=${conv.messages.length}, convEvents=${convA2AEvents.length} (${execPlanCount} exec_plans, ${toolStartCount} tool_starts), lastAssistantIdx=${lastAssistantIdx}`);
         }
 
         let savedCount = 0;
@@ -981,13 +1060,13 @@ const storeImplementation = (set: any, get: any) => ({
             // 2. If this is the last assistant message and conversation has events, use conv events
             // 3. Otherwise, don't send events (leave existing events in MongoDB unchanged)
             let serializedA2AEvents: Record<string, unknown>[] | undefined;
-            let serializedSSEEvents: Record<string, unknown>[] | undefined;
+            let serializedStreamEvents: Record<string, unknown>[] | undefined;
 
-            if (isDynamicAgent) {
-              // Dynamic Agent: serialize SSE events
-              if (i === lastAssistantIdx && convSSEEvents.length > 0) {
-                serializedSSEEvents = convSSEEvents.map(serializeSSEEvent);
-                console.log(`[ChatStore] Attaching ${convSSEEvents.length} conversation-level SSE events to assistant message ${msg.id}`);
+            if (isDynamic) {
+              // Dynamic Agent: serialize stream events
+              if (i === lastAssistantIdx && convStreamEvents.length > 0) {
+                serializedStreamEvents = convStreamEvents.map(serializeStreamEvent);
+                console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
               }
             } else {
               // A2A/Platform Engineer: serialize A2A events
@@ -1021,7 +1100,7 @@ const storeImplementation = (set: any, get: any) => ({
                 }),
               },
               a2a_events: serializedA2AEvents,
-              sse_events: serializedSSEEvents,
+              stream_events: serializedStreamEvents,
             });
 
             savedCount++;
@@ -1214,8 +1293,8 @@ const storeImplementation = (set: any, get: any) => ({
               timestamp: new Date(e.timestamp),
             }));
 
-            // Deserialize SSE events (for Dynamic Agents)
-            const sseEvents: SSEAgentEvent[] = (msg.sse_events || []).map((e: any) => ({
+            // Deserialize SSE/stream events (for Dynamic Agents)
+            const streamEvents: StreamEvent[] = (msg.stream_events || msg.sse_events || []).map((e: any) => ({
               ...e,
               timestamp: new Date(e.timestamp),
             }));
@@ -1248,7 +1327,7 @@ const storeImplementation = (set: any, get: any) => ({
               content: msg.content,
               timestamp: new Date(msg.created_at),
               events,
-              sseEvents: sseEvents.length > 0 ? sseEvents : undefined, // Only set if present
+              streamEvents: streamEvents.length > 0 ? streamEvents : undefined, // Only set if present
               isFinal,
               turnId: msg.metadata?.turn_id,
               taskId: msg.metadata?.task_id,
@@ -1279,27 +1358,27 @@ const storeImplementation = (set: any, get: any) => ({
             return chatMsg;
           });
 
-          // Reconstruct a2aEvents/sseEvents for the ContextPanel / Tasks / Debug.
+          // Reconstruct a2aEvents/streamEvents for the ContextPanel / Tasks / Debug.
           // Only use events from the LAST assistant message (current/latest turn),
           // matching the live-streaming behavior where clearA2AEvents()/clearSSEEvents() is called
           // at the start of each new turn. This prevents completed tools from
           // old turns from accumulating in the Tasks panel.
           //
           // CRITICAL: If the conversation is currently streaming, do NOT overwrite
-          // a2aEvents/sseEvents — they were cleared at the start of the new turn
+          // a2aEvents/streamEvents — they were cleared at the start of the new turn
           // and are being populated from the live stream. Overwriting them with
           // MongoDB data would restore the PREVIOUS turn's events.
           const isCurrentlyStreaming = get().streamingConversations.has(conversationId);
           const localConv = get().conversations.find((c: Conversation) => c.id === conversationId);
-          const isDynamicAgent = !!localConv?.agent_id;
+          const isDynamic = localConv ? isDynamicAgentConversation(localConv) : false;
           const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
           const lastTurnA2AEvents: A2AEvent[] = lastAssistantMsg?.events || [];
-          const lastTurnSSEEvents: SSEAgentEvent[] = lastAssistantMsg?.sseEvents || [];
+          const lastTurnStreamEvents: StreamEvent[] = lastAssistantMsg?.streamEvents || [];
 
-          if (isDynamicAgent) {
-            const toolStartCount = lastTurnSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_start').length;
-            const toolEndCount = lastTurnSSEEvents.filter((e: SSEAgentEvent) => e.type === 'tool_end').length;
-            console.log(`[SSE-DEBUG] 📥 loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnSSEEvents=${lastTurnSSEEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), isStreaming=${isCurrentlyStreaming}`);
+          if (isDynamic) {
+            const toolStartCount = lastTurnStreamEvents.filter((e: StreamEvent) => e.type === 'tool_start').length;
+            const toolEndCount = lastTurnStreamEvents.filter((e: StreamEvent) => e.type === 'tool_end').length;
+            console.log(`[Stream-DEBUG] loadMessagesFromServer: conv=${conversationId.substring(0, 8)}, msgs=${messages.length}, lastAssistant=${lastAssistantMsg?.id?.substring(0, 8) ?? 'NONE'}, lastTurnStreamEvents=${lastTurnStreamEvents.length} (${toolStartCount} tool_starts, ${toolEndCount} tool_ends), isStreaming=${isCurrentlyStreaming}`);
           } else {
             const loadedExecPlans = lastTurnA2AEvents.filter(e => e.artifact?.name === 'execution_plan_update').length;
             const loadedToolStarts = lastTurnA2AEvents.filter(e => e.artifact?.name === 'tool_notification_start').length;
@@ -1327,7 +1406,7 @@ const storeImplementation = (set: any, get: any) => ({
                 c.id === conversationId
                   ? {
                       ...c,
-                      // Don't overwrite a2aEvents/sseEvents during streaming
+                      // Don't overwrite a2aEvents/streamEvents during streaming
                       messages: c.messages.map((localMsg: ChatMessage) => {
                         const serverEvents = serverEventsByMsgId.get(localMsg.id);
                         if (serverEvents && localMsg.events.length === 0) {
@@ -1375,15 +1454,15 @@ const storeImplementation = (set: any, get: any) => ({
                         ...c,
                         messages: mergedMessages,
                         a2aEvents: lastTurnA2AEvents,
-                        sseEvents: lastTurnSSEEvents,
+                        streamEvents: lastTurnStreamEvents,
                       }
                     : c
                 ),
               };
             });
 
-            if (isDynamicAgent) {
-              console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnSSEEvents.length} SSE events from MongoDB for: ${conversationId}`);
+            if (isDynamic) {
+              console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnStreamEvents.length} stream events from MongoDB for: ${conversationId}`);
             } else {
               console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnA2AEvents.length} events from MongoDB for: ${conversationId}`);
             }
@@ -1400,6 +1479,16 @@ const storeImplementation = (set: any, get: any) => ({
         } finally {
           messageLoadState.set(conversationId, { inFlight: false, lastLoadedAt: Date.now() });
         }
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // loadTurnsFromServer — NO-OP STUB.
+      //
+      // Supervisor conversation loading will be restored when needed.
+      // The stub is kept so existing callers compile without changes.
+      // ═══════════════════════════════════════════════════════════════
+      loadTurnsFromServer: async (_conversationId: string) => {
+        // No-op — supervisor path uses A2A directly
       },
 
       // Evict content from old messages to free memory.
@@ -1571,7 +1660,7 @@ export const useChatStore = shouldUseLocalStorage()
           conversations: state.conversations.map((conv) => ({
             ...conv,
             a2aEvents: [], // Don't persist events (too large)
-            sseEvents: [], // Don't persist SSE events (too large)
+            streamEvents: [], // Don't persist stream events (too large)
             messages: conv.messages.map((msg) => ({
               ...msg,
               events: [], // Don't persist events
@@ -1587,7 +1676,7 @@ export const useChatStore = shouldUseLocalStorage()
               createdAt: new Date(conv.createdAt),
               updatedAt: new Date(conv.updatedAt),
               a2aEvents: [],
-              sseEvents: [],
+              streamEvents: [],
               messages: conv.messages.map((msg, idx, allMsgs) => {
                 // CRASH RECOVERY: Mark non-final assistant messages as interrupted.
                 // After a page crash/reload, streamingConversations is empty (not persisted),

@@ -25,25 +25,9 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 - **Configuration & code details** - Document in component READMEs
 - **Agent instructions** - Keep this file (`AGENTS.md`) up-to-date
 
-## DCO and AI Attribution Policy
-
-**Skill**: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)  
-**Authority**: Linux kernel [AI Coding Assistants policy](https://github.com/torvalds/linux/blob/master/Documentation/process/coding-assistants.rst)
-
-AI agents operating in this repository **must** follow these rules on every commit:
-
-1. **Never generate `Signed-off-by`** — this is a human-only DCO certification. Do not add, suggest, or insert this trailer on behalf of the AI.
-2. **Always suggest `Assisted-by`** when code was materially AI-assisted:
-   ```
-   Assisted-by: Claude:claude-sonnet-4-6
-   ```
-3. **Always remind the human** to add their own `Signed-off-by` before the commit is finalized.
-
-Full pre-commit checklist and examples: [`skills/dco-ai-attribution/SKILL.md`](./skills/dco-ai-attribution/SKILL.md)
-
 ## Git Guidelines
 
-- **Sign off commits** - Use `git commit --signoff` (DCO requirement)
+- **Sign off every commit** - Use `git commit -s` (DCO requirement).
 - **Conventional Commits** - Format: `type(scope): description`
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
   - Example: `feat(rag): add userinfo caching`
@@ -78,6 +62,8 @@ Before committing code changes, run relevant checks:
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)
+- Python 3.11+ (runtime is Python 3.13 in Docker) + Slack Bolt 1.27.0, Slack SDK 3.41.0, httpx (SSE streaming), Pydantic (config models), requests, loguru, PyYAML — no new dependencies (100-slack-agui-migration)
+- MongoDB (LangGraph checkpointer on dynamic agents side; Slack bot is stateless beyond in-memory TTL caches) (100-slack-agui-migration)
 
 ## Recent Changes
 - 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router

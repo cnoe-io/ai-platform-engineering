@@ -1,0 +1,11 @@
+{{- if .Values.botConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "slack-bot.fullname" . }}-bot-config
+  labels:
+    {{- include "slack-bot.labels" . | nindent 4 }}
+data:
+  bot-config.yaml: |
+    {{- .Values.botConfig | toYaml | nindent 4 }}
+{{- end }}
