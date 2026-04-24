@@ -19,7 +19,7 @@ and execute them inline — no local copy required. Skills are always fresh.
 
 - **NEVER** print, echo, or display the API key value in any output, log, or message.
 - **NEVER** include the key literally in any bash command shown to the user.
-- All API calls MUST go through the python3 helper below which keeps the key internal.
+- All API calls MUST go through the `caipe-skills.py` helper below which keeps the key internal.
 
 ## Modes
 
@@ -35,10 +35,18 @@ Parse `{{ARG_REF}}` to determine the mode:
 
 ## API Helper
 
-All API calls go through a small stdlib-only Python helper that the
-gateway hosts. The helper keeps the API key out of shell history, reads
-config from `~/.config/caipe/config.json`, and is identical for every
-agent.
+All API calls go through a small Python helper that the gateway hosts.
+The helper keeps the API key out of shell history, reads config from
+`~/.config/caipe/config.json`, and is identical for every agent. It uses
+`uv run` with PEP 723 inline script metadata so dependencies are managed
+automatically — no separate `pip install` step required.
+
+**Reduce approval prompts (optional):** add the helper to your Claude Code
+sandbox allowlist so it runs without a confirmation dialog each time:
+
+```json
+{ "allowedTools": ["Bash(uv run ~/.config/caipe/caipe-skills.py*)"] }
+```
 
 ### One-time bootstrap (first run only)
 
@@ -59,6 +67,11 @@ Replace `QUERY` with the search term (omit to list all skills). Set
 `INCLUDE_CONTENT=true` when you need the full skill markdown:
 
 ```bash
+# preferred (uv manages deps automatically)
+uv run ~/.config/caipe/caipe-skills.py QUERY
+INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
+
+# fallback if uv is not installed
 python3 ~/.config/caipe/caipe-skills.py QUERY
 INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
 ```
@@ -95,7 +108,7 @@ This is the **primary** mode. Skills are fetched live and executed without savin
 
 1. Call the API helper with the exact skill name and `INCLUDE_CONTENT=true`:
    ```bash
-   INCLUDE_CONTENT=true python3 ~/.config/caipe/caipe-skills.py SKILL_NAME
+   INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
    ```
 2. Parse the JSON response. Extract the `content` field from the first matching skill.
 3. If no match: report the error and suggest `/{{COMMAND_NAME}}` to browse.
@@ -110,15 +123,21 @@ Use when the user explicitly wants a local copy (e.g., for offline use).
 
 1. Call the API helper with `INCLUDE_CONTENT=true` and `QUERY` set to the skill name.
 2. Extract the `content` field from the matching skill.
-3. Save to the appropriate command directory for this project (e.g.
-   `.claude/commands/<skill-name>.md`, `.cursor/commands/<skill-name>.md`,
-   or `.specify/templates/commands/<skill-name>.md` if those directories exist).
-4. Confirm: "Skill `<name>` installed."
+3. Detect the install layout and save accordingly:
+   - **Skills layout** (preferred): if `.claude/skills/` exists, save to
+     `.claude/skills/<skill-name>/SKILL.md` (create the directory).
+     Similarly `.cursor/skills/<skill-name>/SKILL.md` for Cursor.
+   - **Commands layout** (fallback): `.claude/commands/<skill-name>.md`,
+     `.cursor/commands/<skill-name>.md`,
+     or `.specify/templates/commands/<skill-name>.md`.
+4. Confirm: "Skill `<name>` installed to `<path>`."
 
 ## Steps — Update mode (refresh installed skills)
 
-1. List all `.md` files in the local commands directory that are NOT `{{COMMAND_NAME}}.md` or `speckit.*.md`.
-2. For each file, extract the skill name from the filename (strip `.md`).
+1. Detect the layout:
+   - Skills layout: scan `.claude/skills/*/SKILL.md` (and `.cursor/skills/*/SKILL.md`).
+   - Commands layout: list `.md` files in the commands directory, excluding `{{COMMAND_NAME}}.md` and `speckit.*.md`.
+2. For each installed skill, extract the skill name (directory name for skills layout, filename stem for commands layout).
 3. Fetch each from the API with `INCLUDE_CONTENT=true`.
 4. Overwrite the local file with the fetched content.
 5. Report what was updated.

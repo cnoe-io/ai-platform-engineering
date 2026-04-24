@@ -83,6 +83,10 @@ export const DELETE = withErrorHandler(
         throw new ApiError(`Hub not found: ${id}`, 404);
       }
 
+      // Purge cached skills for this hub so they don't linger in the catalog.
+      const hubSkillsCol = await getCollection("hub_skills");
+      await hubSkillsCol.deleteMany({ hub_id: id });
+
       return NextResponse.json(
         { success: true, message: `Hub ${id} deleted` },
         { status: 200 },
