@@ -1,2 +1,2 @@
 export { DynamicAgentContext } from "./DynamicAgentContext";
-export { DynamicAgentChatView } from "./DynamicAgentChatView";
+export { ChatView } from "@/components/chat/DynamicAgentChatView";

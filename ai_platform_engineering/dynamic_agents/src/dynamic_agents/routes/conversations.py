@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from dynamic_agents.auth.access import can_access_conversation
-from dynamic_agents.auth.auth import UserContext, get_current_user, require_admin
+from dynamic_agents.auth.auth import UserContext, get_user_context
 from dynamic_agents.models import ApiResponse
 from dynamic_agents.services.agent_runtime import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -50,21 +50,6 @@ class ConversationMessagesResponse(BaseModel):
     interrupt_data: InterruptData | None = None
 
 
-class TodoItem(BaseModel):
-    """A single todo item from the agent's todo list."""
-
-    content: str
-    status: Literal["pending", "in_progress", "completed"]
-
-
-class ConversationTodosResponse(BaseModel):
-    """Response containing conversation todos from checkpointer."""
-
-    conversation_id: str
-    agent_id: str
-    todos: list[TodoItem]
-
-
 class ConversationFilesListResponse(BaseModel):
     """Response containing list of file paths from checkpointer."""
 
@@ -85,7 +70,7 @@ class FileContentResponse(BaseModel):
 async def get_conversation_messages(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ConversationMessagesResponse:
     """Get messages for a conversation from the LangGraph checkpointer.
@@ -204,7 +189,8 @@ async def get_conversation_messages(
         additional_kwargs = getattr(msg, "additional_kwargs", {})
         if "timestamp" in additional_kwargs:
             try:
-                timestamp = datetime.fromisoformat(additional_kwargs["timestamp"])
+                ts = datetime.fromisoformat(additional_kwargs["timestamp"])
+                timestamp = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
             except (ValueError, TypeError):
                 pass
 
@@ -251,7 +237,7 @@ class InterruptStateResponse(BaseModel):
 async def get_interrupt_state(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> InterruptStateResponse:
     """Get HITL interrupt state for a conversation (lightweight, no messages).
@@ -328,115 +314,11 @@ async def get_interrupt_state(
     )
 
 
-@router.get("/{conversation_id}/todos", response_model=ConversationTodosResponse)
-async def get_conversation_todos(
-    conversation_id: str,
-    agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
-    mongo: MongoDBService = Depends(get_mongo_service),
-) -> ConversationTodosResponse:
-    """Get todos for a conversation from the LangGraph checkpointer.
-
-    Returns the current todo list state for the conversation.
-    This is used by the UI to restore todos when resuming a session.
-
-    Access control is handled by `can_access_conversation()` in auth/access.py.
-    """
-    # 1. Verify agent exists
-    agent = mongo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    # 2. Check conversation ownership
-    if mongo._client is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-    db = mongo._db
-    if db is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-
-    conversations_coll = db["conversations"]
-    conversation = conversations_coll.find_one({"_id": conversation_id})
-
-    if not conversation:
-        # Conversation doesn't exist - return empty todos
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    # 3. Check access
-    if not can_access_conversation(conversation, user):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    # 4. Get or create runtime to access checkpointer
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
-
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state from checkpointer
-    if not runtime._graph:
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    if not state or not state.values:
-        return ConversationTodosResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            todos=[],
-        )
-
-    # 6. Extract todos from state
-    raw_todos = state.values.get("todos", [])
-    todos: list[TodoItem] = []
-
-    for todo in raw_todos:
-        if isinstance(todo, dict):
-            content = todo.get("content", "")
-            status = todo.get("status", "pending")
-            # Validate status
-            if status not in ("pending", "in_progress", "completed"):
-                status = "pending"
-            todos.append(TodoItem(content=content, status=status))
-
-    logger.debug(f"Retrieved {len(todos)} todos for conversation {conversation_id}")
-
-    return ConversationTodosResponse(
-        conversation_id=conversation_id,
-        agent_id=agent_id,
-        todos=todos,
-    )
-
-
 @router.get("/{conversation_id}/files/list", response_model=ConversationFilesListResponse)
 async def get_conversation_files_list(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ConversationFilesListResponse:
     """Get list of file paths for a conversation from the LangGraph checkpointer.
@@ -529,7 +411,7 @@ async def get_conversation_file_content(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
     path: str = Query(..., description="File path to retrieve"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> FileContentResponse:
     """Get content of a single file from the LangGraph checkpointer.
@@ -619,7 +501,7 @@ async def delete_conversation_file(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
     path: str = Query(..., description="File path to delete"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ApiResponse:
     """Delete a file from the agent's in-memory filesystem.
@@ -704,7 +586,7 @@ async def delete_conversation_file(
 async def ensure_conversation_metadata(
     conversation_id: str,
     agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> dict:
     """Ensure conversation metadata exists in the conversations collection.
@@ -738,11 +620,11 @@ async def ensure_conversation_metadata(
                 "_id": conversation_id,
                 "title": f"Chat with {agent.name}",
                 "owner_id": user.email,
-                "agent_id": agent_id,
                 "created_at": now,
                 "metadata": {
+                    "client_type": "api",
                     "agent_name": agent.name,
-                    "agent_version": "1.0",
+                    "total_messages": 0,
                 },
                 "sharing": {
                     "is_public": False,
@@ -754,7 +636,10 @@ async def ensure_conversation_metadata(
                 "is_archived": False,
                 "is_pinned": False,
             },
-            "$set": {"updated_at": now},
+            "$set": {
+                "updated_at": now,
+                "agent_id": agent_id,
+            },
         },
         upsert=True,
     )
@@ -780,7 +665,7 @@ async def ensure_conversation_metadata(
 @router.post("/{conversation_id}/clear", response_model=ApiResponse)
 async def clear_conversation_checkpoints(
     conversation_id: str,
-    admin: UserContext = Depends(require_admin),
+    user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ApiResponse:
     """Clear checkpoint data for a conversation (admin only).
@@ -789,7 +674,11 @@ async def clear_conversation_checkpoints(
     but keeps the conversation metadata record.
 
     The action is logged for audit purposes.
+
+    Requires admin role (checked via X-User-Context from gateway).
     """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
     if mongo._client is None:
         raise HTTPException(status_code=503, detail="Database not connected")
     db = mongo._db
@@ -811,7 +700,7 @@ async def clear_conversation_checkpoints(
 
     # Log the action for audit
     logger.info(
-        f"Admin {admin.email} cleared conversation {conversation_id}: "
+        f"Admin {user.email} cleared conversation {conversation_id}: "
         f"deleted {checkpoints_result.deleted_count} checkpoints, "
         f"{writes_result.deleted_count} writes"
     )

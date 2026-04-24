@@ -32,18 +32,43 @@ export interface UserPublicInfo {
 // Conversation Collection
 // ============================================================================
 
+/** Valid client types for conversation creation. */
+export type ClientType = 'webui' | 'slack';
+
+/** All valid client_type values — used for runtime validation. */
+export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack'] as const;
+
+/**
+ * A conversation participant — either an agent or a user.
+ *
+ * For now each conversation has one owner (user) and optionally one agent.
+ * In the future this can grow to multiple agents or collaborating users.
+ */
+export interface Participant {
+  type: 'agent' | 'user';
+  id: string; // agent config ID (for agents) or user email (for users)
+}
+
 export interface Conversation {
-  _id: string; // UUID for shareable links
+  _id: string; // UUID for shareable links (server-generated)
   title: string;
+  client_type: ClientType; // Top-level: 'webui' | 'slack' (promoted from metadata)
   owner_id: string; // User email
-  agent_id?: string; // Dynamic agent ID; undefined = Platform Engineer (default)
+  idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
+  participants: Participant[]; // Agents and users involved in this conversation
   created_at: Date;
   updated_at: Date;
-  metadata: {
-    agent_version: string;
-    model_used: string;
+  metadata: Record<string, unknown> & {
+    /** @deprecated Use top-level client_type instead. Kept for backward compat reads. */
+    client_type?: string;
+    /** UI version (from package.json) when client_type is 'webui' */
+    ui_version?: string;
     total_messages: number;
     total_tokens?: number;
+    /** @deprecated Kept for backward compat with old conversations */
+    agent_version?: string;
+    /** @deprecated Kept for backward compat with old conversations */
+    model_used?: string;
   };
   sharing: {
     is_public: boolean;
@@ -91,7 +116,7 @@ export interface Message {
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug) serialized for persistence
-  sse_events?: any[]; // SSE events for Dynamic Agents (tool_start, tool_end, content, etc.)
+  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
   feedback?: MessageFeedback;
 }
 
@@ -105,6 +130,35 @@ export interface MessageFeedback {
   rating: 'positive' | 'negative';
   comment?: string;
   submitted_at: Date;
+}
+
+// ============================================================================
+// Turns Collection
+// ============================================================================
+
+/**
+ * A turn represents one user-message / assistant-response exchange in a
+ * conversation. The payload is opaque to the server — each client type
+ * (UI, Slack, Webex) stores its own structure.
+ *
+ * For the web UI the payload contains collapsed stream_events (timeline data)
+ * plus message IDs for cross-referencing with the messages collection.
+ */
+export interface Turn {
+  _id?: ObjectId;
+  conversation_id: string;      // = LangGraph thread_id
+  turn_id: string;              // Client-generated turn identifier
+  client_type: string;          // "ui" | "slack" | "webex" | ...
+  payload: Record<string, unknown>; // Opaque, client-specific
+  created_at: Date;
+  updated_at: Date;
+}
+
+/** Request body for POST /api/chat/conversations/:id/turns */
+export interface UpsertTurnRequest {
+  turn_id: string;
+  client_type: string;
+  payload: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -207,10 +261,19 @@ export interface SharingAccess {
 
 // Conversation API
 export interface CreateConversationRequest {
-  id?: string; // Client-generated UUID — ensures client and server share the same ID
   title: string;
+  client_type: ClientType; // Required: 'webui' | 'slack'
+  agent_id?: string; // Optional: builds participants with this agent
+  owner_id?: string; // Optional: trusted callers (e.g. Slack bot) can set on behalf of user
+  idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
+  metadata?: Record<string, unknown>; // Optional: arbitrary key/values from client
   tags?: string[];
-  agent_id?: string; // Dynamic agent ID; undefined = Platform Engineer (default)
+}
+
+/** Response from POST /api/chat/conversations */
+export interface CreateConversationResponse {
+  conversation: Conversation;
+  created: boolean; // true = new, false = existing (upsert matched)
 }
 
 export interface UpdateConversationRequest {
@@ -218,6 +281,10 @@ export interface UpdateConversationRequest {
   tags?: string[];
   is_archived?: boolean;
   is_pinned?: boolean;
+}
+
+export interface PatchConversationMetadataRequest {
+  metadata: Record<string, unknown>;
 }
 
 export interface ShareConversationRequest {
@@ -253,7 +320,7 @@ export interface AddMessageRequest {
   };
   artifacts?: Artifact[];
   a2a_events?: any[]; // A2A events (tasks, tool calls, debug)
-  sse_events?: any[]; // SSE events for Dynamic Agents (tool_start, tool_end, content, etc.)
+  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
 }
 
 export interface UpdateMessageRequest {

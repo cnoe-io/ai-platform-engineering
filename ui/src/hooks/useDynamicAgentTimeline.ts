@@ -1,19 +1,19 @@
 /**
- * useDynamicAgentTimeline Hook
+ * useAgentTimeline Hook
  *
- * Transforms SSE events into an interleaved timeline for the DynamicAgentTimeline component.
- * This hook processes events through DATimelineManager and memoizes the output.
+ * Transforms SSE events into an interleaved timeline for the AgentTimeline component.
+ * This hook processes events through TimelineManager and memoizes the output.
  *
  * Usage:
- * const { data } = useDynamicAgentTimeline(turnEvents, isStreaming);
- * <DynamicAgentTimeline data={data} ... />
+ * const { data } = useAgentTimeline(turnEvents, isStreaming);
+ * <AgentTimeline data={data} ... />
  */
 
 import { useMemo, useRef } from "react";
-import { DATimelineManager, createDATimelineManager } from "@/lib/da-timeline-manager";
-import type { DATimelineData, DAStatusType } from "@/types/dynamic-agent-timeline";
+import { TimelineManager, createTimelineManager } from "@/lib/da-timeline-manager";
+import type { TimelineData, StatusType } from "@/types/dynamic-agent-timeline";
 import type {
-  SSEAgentEvent,
+  StreamEvent,
   ToolStartEventData,
   ToolEndEventData,
 } from "@/components/dynamic-agents/sse-types";
@@ -23,16 +23,16 @@ import { isToolStartData } from "@/components/dynamic-agents/sse-types";
 // Types
 // ═══════════════════════════════════════════════════════════════
 
-interface UseDynamicAgentTimelineResult {
+interface UseAgentTimelineResult {
   /** Interleaved timeline data for rendering */
-  data: DATimelineData;
+  data: TimelineData;
 }
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Empty data for initial state
 // ═══════════════════════════════════════════════════════════════
 
-const EMPTY_DATA: DATimelineData = {
+const EMPTY_DATA: TimelineData = {
   segments: [],
   finalAnswer: null,
   isStreaming: false,
@@ -49,17 +49,17 @@ const EMPTY_DATA: DATimelineData = {
  * @param events - SSE events for the current message turn
  * @param isStreaming - Whether the stream is still active
  * @param turnStatus - Status to show when finalized: "done", "interrupted", or "waiting_for_input"
- * @returns Interleaved timeline data for DynamicAgentTimeline
+ * @returns Interleaved timeline data for AgentTimeline
  */
-export function useDynamicAgentTimeline(
-  events: SSEAgentEvent[],
+export function useAgentTimeline(
+  events: StreamEvent[],
   isStreaming: boolean,
-  turnStatus?: DAStatusType
-): UseDynamicAgentTimelineResult {
+  turnStatus?: StatusType
+): UseAgentTimelineResult {
   // Keep a stable manager reference across renders
   // We'll recreate when events array identity changes (new message)
-  const managerRef = useRef<DATimelineManager | null>(null);
-  const prevEventsRef = useRef<SSEAgentEvent[]>([]);
+  const managerRef = useRef<TimelineManager | null>(null);
+  const prevEventsRef = useRef<StreamEvent[]>([]);
 
   // Process events and generate interleaved data
   const data = useMemo(() => {
@@ -75,10 +75,10 @@ export function useDynamicAgentTimeline(
     
     if (prevFirst !== currFirst) {
       // New turn - create fresh manager
-      managerRef.current = createDATimelineManager();
+      managerRef.current = createTimelineManager();
     }
 
-    const manager = managerRef.current || createDATimelineManager();
+    const manager = managerRef.current || createTimelineManager();
     managerRef.current = manager;
 
     // Reset and replay all events to get consistent state
@@ -107,7 +107,7 @@ export function useDynamicAgentTimeline(
             if (toolData.error) {
               manager.pushToolFailed(toolData.tool_call_id, namespace, toolData.error);
             } else {
-              manager.pushToolEnd(toolData.tool_call_id, namespace);
+              manager.pushToolEnd(toolData.tool_call_id, namespace, toolData.args);
             }
           }
           break;
@@ -148,4 +148,4 @@ export function useDynamicAgentTimeline(
 // Export
 // ═══════════════════════════════════════════════════════════════
 
-export default useDynamicAgentTimeline;
+export default useAgentTimeline;

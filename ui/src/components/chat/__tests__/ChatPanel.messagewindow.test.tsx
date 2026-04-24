@@ -1,5 +1,5 @@
 /**
- * Unit tests for ChatPanel — Message Windowing (Turn Collapse/Expand)
+ * Unit tests for SupervisorChatPanel — Message Windowing (Turn Collapse/Expand)
  *
  * Tests:
  * - With <= 2 turns: all messages are rendered, no collapse banner
@@ -139,6 +139,11 @@ jest.mock('../MetadataInputForm', () => ({
   MetadataInputForm: () => <div data-testid="metadata-input-form" />,
 }))
 
+// Mock MarkdownRenderer to avoid shiki ESM resolution issues in Jest
+jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
+}))
+
 jest.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: React.forwardRef(({ children, viewportRef, ...props }: any, ref: any) => {
     const setViewportRef = React.useCallback((node: HTMLDivElement | null) => {
@@ -183,7 +188,7 @@ jest.mock('@/components/ui/button', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { ChatPanel } from '../ChatPanel'
+import { SupervisorChatPanel } from '../ChatPanel'
 import type { ChatMessage } from '@/types/a2a'
 
 // ============================================================================
@@ -225,7 +230,7 @@ function createConversation(messages: ChatMessage[] = []) {
 // Tests
 // ============================================================================
 
-describe('ChatPanel — Message Windowing', () => {
+describe('SupervisorChatPanel — Message Windowing', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     msgCounter = 0
@@ -266,7 +271,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // All 4 messages should be visible
       expect(screen.getByText('Hello')).toBeInTheDocument()
@@ -290,7 +295,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // First turn should be collapsed: full content not rendered as ChatMessage,
       // but a truncated preview (80 chars + "...") appears inside CollapsedTurnsBanner
@@ -316,7 +321,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Should show a banner indicating collapsed turns (2 older turns)
       // Text format: "{N} older turns"
@@ -336,7 +341,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // First turn's FULL content should NOT be visible initially (only banner preview)
       expect(screen.queryByText(longQuestion)).not.toBeInTheDocument()
@@ -358,7 +363,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Expand
       const expandButton = screen.getByText('1 older turn')
@@ -376,7 +381,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Expand first
       const expandButton = screen.getByText('1 older turn')
@@ -401,7 +406,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      const { rerender } = render(<ChatPanel endpoint="/api/test" />)
+      const { rerender } = render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Expand
       const expandButton = screen.getByText('1 older turn')
@@ -444,7 +449,7 @@ describe('ChatPanel — Message Windowing', () => {
         loadMessagesFromServer: mockLoadMessagesFromServer,
       }))
 
-      rerender(<ChatPanel endpoint="/api/test" />)
+      rerender(<SupervisorChatPanel endpoint="/api/test" />)
 
       // After switching, oldest turn of new conversation should be collapsed
       // (because reset to olderTurnsExpanded=false)
@@ -458,7 +463,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       expect(screen.getByText('Solo question')).toBeInTheDocument()
     })
@@ -466,7 +471,7 @@ describe('ChatPanel — Message Windowing', () => {
     it('handles empty message list gracefully', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Should show welcome screen, not crash
       expect(screen.getByText('Welcome to Test App')).toBeInTheDocument()
@@ -482,7 +487,7 @@ describe('ChatPanel — Message Windowing', () => {
       }
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Should show collapsed banner for 8 turns
       expect(screen.getByText('8 older turns')).toBeInTheDocument()
@@ -508,7 +513,7 @@ describe('ChatPanel — Message Windowing', () => {
       }
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       expect(screen.getByText('48 older turns')).toBeInTheDocument()
 
@@ -529,7 +534,7 @@ describe('ChatPanel — Message Windowing', () => {
       }
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       const banner = screen.getByText('48 older turns')
       fireEvent.click(banner.closest('button') || banner)
@@ -547,7 +552,7 @@ describe('ChatPanel — Message Windowing', () => {
       }
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Should never show Welcome screen
       expect(screen.queryByText('Welcome to Test App')).not.toBeInTheDocument()
@@ -564,7 +569,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // First turn with table is collapsed
       expect(screen.getByText('1 older turn')).toBeInTheDocument()
@@ -582,7 +587,7 @@ describe('ChatPanel — Message Windowing', () => {
       ]
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       expect(screen.getByText('1 older turn')).toBeInTheDocument()
       expect(screen.getByText('Explain')).toBeInTheDocument()
@@ -595,7 +600,7 @@ describe('ChatPanel — Message Windowing', () => {
       }
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
 
-      render(<ChatPanel endpoint="/api/test" />)
+      render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Expand
       const banner = screen.getByText('8 older turns')
@@ -614,7 +619,7 @@ describe('ChatPanel — Message Windowing', () => {
     it('handles transition from empty to loaded conversation without showing Welcome screen', () => {
       // Start with empty conversation
       mockGetActiveConversation.mockReturnValue(createConversation([]))
-      const { rerender } = render(<ChatPanel endpoint="/api/test" />)
+      const { rerender } = render(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Welcome screen shows initially
       expect(screen.getByText('Welcome to Test App')).toBeInTheDocument()
@@ -625,7 +630,7 @@ describe('ChatPanel — Message Windowing', () => {
         messages.push(...createTurn(`Q${i}`, `A${i}`))
       }
       mockGetActiveConversation.mockReturnValue(createConversation(messages))
-      rerender(<ChatPanel endpoint="/api/test" />)
+      rerender(<SupervisorChatPanel endpoint="/api/test" />)
 
       // Welcome screen should be gone, messages should be visible
       expect(screen.queryByText('Welcome to Test App')).not.toBeInTheDocument()

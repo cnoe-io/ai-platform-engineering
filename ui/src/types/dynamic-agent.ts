@@ -169,6 +169,50 @@ export interface AgentUIConfig {
 }
 
 // =============================================================================
+// Features / Middleware Config
+// =============================================================================
+
+/**
+ * A single middleware entry in the agent's middleware stack.
+ * Entries are ordered — the list defines execution order.
+ */
+export interface MiddlewareEntry {
+  type: string;    // Middleware type key (e.g. 'model_retry', 'pii')
+  enabled: boolean;
+  params: Record<string, unknown>;
+}
+
+/**
+ * Agent feature flags and middleware configuration.
+ * When absent (features is undefined), all default-enabled middleware
+ * are applied with their default params on the server side.
+ */
+export interface FeaturesConfig {
+  middleware: MiddlewareEntry[];
+}
+
+/**
+ * Metadata for a middleware type in the registry.
+ * Fetched from the backend GET /api/dynamic-agents/middleware endpoint.
+ * Used by the UI to render toggles, param editors, and "Add" menu.
+ */
+export interface MiddlewareDefinition {
+  key: string;
+  label: string;
+  description: string;
+  enabled_by_default: boolean;
+  allow_multiple: boolean;
+  default_params: Record<string, unknown>;
+  /** Whether this middleware needs model_id/model_provider params. */
+  model_params?: boolean;
+  /**
+   * Type hints for params.
+   * Values: "number", "boolean", "string", or "opt1|opt2|..." for selects.
+   */
+  param_schema?: Record<string, string>;
+}
+
+// =============================================================================
 // Dynamic Agent Types
 // =============================================================================
 
@@ -195,6 +239,7 @@ export interface DynamicAgentConfig {
   shared_with_teams?: string[];
   subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
   ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
+  features?: FeaturesConfig;  // Middleware and feature flags
   enabled: boolean;
   owner_id: string;
   is_system: boolean;
@@ -216,6 +261,7 @@ export interface DynamicAgentConfigCreate {
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   ui?: AgentUIConfig;
+  features?: FeaturesConfig;
   enabled?: boolean;
 }
 
@@ -231,6 +277,7 @@ export interface DynamicAgentConfigUpdate {
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   ui?: AgentUIConfig;
+  features?: FeaturesConfig;
   enabled?: boolean;
 }
 
@@ -242,6 +289,33 @@ export interface AvailableSubagent {
   name: string;
   description?: string;
   visibility: VisibilityType;
+}
+
+// =============================================================================
+// LLM Model Types
+// =============================================================================
+
+export interface LLMModelConfig {
+  _id: string;          // model_id
+  model_id: string;
+  name: string;
+  provider: string;
+  description?: string;
+  config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  updated_at: string;
+}
+
+export interface LLMModelCreate {
+  model_id: string;     // Unique model identifier (e.g., "gpt-4o")
+  name: string;
+  provider: string;
+  description?: string;
+}
+
+export interface LLMModelUpdate {
+  name?: string;
+  provider?: string;
+  description?: string;
 }
 
 // =============================================================================
