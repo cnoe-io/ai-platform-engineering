@@ -55,8 +55,10 @@ jobs:
             "[CI][MCP] Sub-Agents MCP Docker Build and Push"
             "[CI][A2A] CAIPE RAG Build and Push"
             "[CI][A2A] Supervisor Agent Docker Build and Push"
+            "[CI] Dynamic Agents Build and Push"
             "[CI] CAIPE UI Build and Push"
             "[CI] Slack Bot Build and Push"
+            "[CI][Helm] Publish Tagged Helm Charts"
           )
 
           ALL_PASSED=true
@@ -293,4 +295,3 @@ jobs:
             echo "### ⏳ CI Not Started" >> $GITHUB_STEP_SUMMARY
             echo "Waiting for CI workflows to start." >> $GITHUB_STEP_SUMMARY
           fi
-

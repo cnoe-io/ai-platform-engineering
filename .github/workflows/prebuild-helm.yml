@@ -1,12 +1,12 @@
-name: "[Pre-Release] Helm Chart"
-description: "Publish pre-release Helm charts"
+name: "[Prebuild] Helm Chart"
+description: "Publish prebuild Helm charts"
 
 on:
-  # Called directly from helm-rc-version-bump workflow
+  # Called directly from pr-version-bump workflow
   workflow_call:
     inputs:
       pr_number:
-        description: 'PR number to publish pre-release for'
+        description: 'PR number to publish prebuild for'
         required: true
         type: number
       new_commit:
@@ -14,16 +14,27 @@ on:
         required: false
         type: boolean
         default: false
+      base_ref:
+        description: 'PR base branch ref'
+        required: false
+        type: string
+        default: ''
+      base_sha:
+        description: 'PR base commit SHA to diff against'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  issues: write
   packages: write
   pull-requests: write
   actions: read
 
 jobs:
-  publish-pre-release:
-    name: Publish Pre-release Helm Chart
+  publish-prebuild:
+    name: Publish Prebuild Helm Chart
     runs-on: ubuntu-latest
     # Skip if a new commit was made (will re-run on next trigger)
     if: ${{ !inputs.new_commit }}
@@ -55,12 +66,19 @@ jobs:
 
             core.setOutput('head_ref', pr.head.ref);
             core.setOutput('head_sha', pr.head.sha);
-            core.setOutput('base_ref', pr.base.ref);
+            const inputBaseRef = '${{ inputs.base_ref }}';
+            const inputBaseSha = '${{ inputs.base_sha }}';
+            const baseRef = inputBaseRef || pr.base.ref;
+            const baseSha = inputBaseSha || pr.base.sha;
+
+            core.setOutput('base_ref', baseRef);
+            core.setOutput('base_sha', baseSha);
             core.setOutput('head_repo_full_name', pr.head.repo.full_name);
             core.setOutput('labels', pr.labels.map(l => l.name).join(','));
 
-            console.log(`PR #${prNumber}: ${pr.head.ref} -> ${pr.base.ref}`);
+            console.log(`PR #${prNumber}: ${pr.head.ref} -> ${baseRef}`);
             console.log(`Head SHA: ${pr.head.sha}`);
+            console.log(`Base SHA: ${baseSha}`);
             console.log(`Labels: ${pr.labels.map(l => l.name).join(', ')}`);
 
       - name: 📥 Checkout repository
@@ -69,15 +87,42 @@ jobs:
           ref: ${{ steps.pr-info.outputs.head_sha }}
           fetch-depth: 0
 
+      - name: 📥 Fetch PR base branch
+        id: base
+        shell: bash
+        run: |
+          BASE_REF="${{ steps.pr-info.outputs.base_ref }}"
+          BASE_SHA="${{ steps.pr-info.outputs.base_sha }}"
+
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_COMMIT="$BASE_SHA"
+          else
+            BASE_COMMIT=$(git rev-parse "origin/${BASE_REF}")
+          fi
+
+          echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+          echo "base_commit=$BASE_COMMIT" >> $GITHUB_OUTPUT
+          echo "📌 Using $BASE_REF at $BASE_COMMIT as Helm prebuild diff base"
+
       - name: 🔍 Check if chart versions are bumped
         id: version-check
         run: |
-          git fetch origin main
+          BASE_COMMIT="${{ steps.base.outputs.base_commit }}"
+          BASE_REF="${{ steps.base.outputs.base_ref }}"
+          HEAD_REF="${{ steps.pr-info.outputs.head_ref }}"
 
           echo "🔍 Checking if chart versions have been bumped..."
 
+          if [[ "$HEAD_REF" == prebuild/* ]]; then
+            echo "✅ prebuild/* branch detected; proceeding even if chart version bump is pending"
+            echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           # Check if any changed chart has unbumped version
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep "^charts/" || true)
+          CHANGED_FILES=$(git diff --name-only "$BASE_COMMIT"..HEAD | grep "^charts/" || true)
 
           if [[ -z "$CHANGED_FILES" ]]; then
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -104,7 +149,7 @@ jobs:
           for CHART_DIR in $CHART_DIRS; do
             if [[ -f "$CHART_DIR/Chart.yaml" ]]; then
               CURRENT_VERSION=$(grep "^version:" "$CHART_DIR/Chart.yaml" | awk '{print $2}' | tr -d '"')
-              BASE_VERSION=$(git show origin/main:$CHART_DIR/Chart.yaml 2>/dev/null | grep "^version:" | awk '{print $2}' | tr -d '"' || echo "0.0.0")
+              BASE_VERSION=$(git show "$BASE_COMMIT:$CHART_DIR/Chart.yaml" 2>/dev/null | grep "^version:" | awk '{print $2}' | tr -d '"' || echo "0.0.0")
 
               if [[ "$CURRENT_VERSION" == "$BASE_VERSION" ]]; then
                 echo "  ⏳ $CHART_DIR: version not bumped yet ($CURRENT_VERSION)"
@@ -116,10 +161,10 @@ jobs:
           done
 
           if [[ "$NEEDS_BUMP" == "true" ]]; then
-            echo "⏳ Skipping pre-release - waiting for helm-rc-version-bump to complete"
+            echo "⏳ Skipping prebuild - waiting for version bump to complete against $BASE_REF"
             echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "✅ All chart versions bumped, proceeding with pre-release"
+            echo "✅ All chart versions bumped, proceeding with prebuild"
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
@@ -139,9 +184,9 @@ jobs:
         id: detect
         run: |
           # Detect which charts have changes (excluding Chart.lock only changes)
-          git fetch origin main
+          BASE_COMMIT="${{ steps.base.outputs.base_commit }}"
 
-          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+          CHANGED_FILES=$(git diff --name-only "$BASE_COMMIT"..HEAD)
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
@@ -156,7 +201,7 @@ jobs:
               RAG_STACK_CHANGED=true
               echo "✅ rag-stack chart has substantive changes"
             else
-              echo "ℹ️  rag-stack only has Chart.lock changes, skipping pre-release"
+              echo "ℹ️  rag-stack only has Chart.lock changes, skipping prebuild"
             fi
           fi
 
@@ -167,61 +212,52 @@ jobs:
               AI_PLATFORM_CHANGED=true
               echo "✅ ai-platform-engineering chart has substantive changes"
             else
-              echo "ℹ️  ai-platform-engineering only has Chart.lock changes, skipping pre-release"
+              echo "ℹ️  ai-platform-engineering only has Chart.lock changes, skipping prebuild"
             fi
           fi
 
           echo "rag-stack-changed=$RAG_STACK_CHANGED" >> $GITHUB_OUTPUT
           echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> $GITHUB_OUTPUT
 
-      - name: 🏷️ Generate Pre-release Versions
+      - name: 🏷️ Generate Prebuild Versions
         if: steps.version-check.outputs.skip != 'true'
         id: version
         run: |
+          BASE_COMMIT="${{ steps.base.outputs.base_commit }}"
+
           # Get branch name and remove 'prebuild/' prefix if present
           BRANCH_NAME="${{ steps.pr-info.outputs.head_ref }}"
           CLEAN_BRANCH=$(echo "${BRANCH_NAME#prebuild/}" | tr '/' '-' | tr '_' '-' | tr '[:upper:]' '[:lower:]')
 
           # Get commit count for this PR
-          COMMIT_COUNT=$(git rev-list --count origin/${{ steps.pr-info.outputs.base_ref }}..HEAD)
+          COMMIT_COUNT=$(git rev-list --count "$BASE_COMMIT"..HEAD)
 
           echo "clean-branch=$CLEAN_BRANCH" >> $GITHUB_OUTPUT
           echo "commit-count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
 
+          make_prebuild_version() {
+            local chart_file="$1"
+            local current_version
+
+            current_version=$(grep "^version:" "$chart_file" | awk '{print $2}' | tr -d '"')
+            if [[ -z "$current_version" ]]; then
+              echo "❌ Failed to read version from $chart_file"
+              exit 1
+            fi
+
+            echo "${current_version}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
+          }
+
           # Generate version for rag-stack if changed
           if [[ "${{ steps.detect.outputs.rag-stack-changed }}" == "true" ]]; then
-            # Check if chart exists in main
-            if git show origin/main:charts/rag-stack/Chart.yaml &>/dev/null; then
-              RAG_STACK_BASE=$(git show origin/main:charts/rag-stack/Chart.yaml | grep "^version:" | awk '{print $2}')
-              # Strip any pre-release suffix (e.g. 0.2.19-rc.helm.2 -> 0.2.19)
-              RAG_STACK_BASE="${RAG_STACK_BASE%%-*}"
-              IFS='.' read -r MAJOR MINOR PATCH <<< "$RAG_STACK_BASE"
-              NEXT_PATCH=$((PATCH + 1))
-              RAG_STACK_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
-            else
-              echo "ℹ️ rag-stack is a new chart (doesn't exist in main), using PR version"
-              RAG_STACK_VERSION=$(grep "^version:" charts/rag-stack/Chart.yaml | awk '{print $2}')
-              RAG_STACK_VERSION="${RAG_STACK_VERSION}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
-            fi
+            RAG_STACK_VERSION=$(make_prebuild_version "charts/rag-stack/Chart.yaml")
             echo "rag-stack version: $RAG_STACK_VERSION"
             echo "rag-stack-version=$RAG_STACK_VERSION" >> $GITHUB_OUTPUT
           fi
 
           # Generate version for ai-platform-engineering if changed
           if [[ "${{ steps.detect.outputs.ai-platform-changed }}" == "true" ]]; then
-            # Check if chart exists in main
-            if git show origin/main:charts/ai-platform-engineering/Chart.yaml &>/dev/null; then
-              AI_PLATFORM_BASE=$(git show origin/main:charts/ai-platform-engineering/Chart.yaml | grep "^version:" | awk '{print $2}')
-              # Strip any pre-release suffix (e.g. 0.2.19-rc.helm.2 -> 0.2.19)
-              AI_PLATFORM_BASE="${AI_PLATFORM_BASE%%-*}"
-              IFS='.' read -r MAJOR MINOR PATCH <<< "$AI_PLATFORM_BASE"
-              NEXT_PATCH=$((PATCH + 1))
-              AI_PLATFORM_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
-            else
-              echo "ℹ️ ai-platform-engineering is a new chart (doesn't exist in main), using PR version"
-              AI_PLATFORM_VERSION=$(grep "^version:" charts/ai-platform-engineering/Chart.yaml | awk '{print $2}')
-              AI_PLATFORM_VERSION="${AI_PLATFORM_VERSION}-${CLEAN_BRANCH}-${COMMIT_COUNT}"
-            fi
+            AI_PLATFORM_VERSION=$(make_prebuild_version "charts/ai-platform-engineering/Chart.yaml")
             echo "ai-platform-engineering version: $AI_PLATFORM_VERSION"
             echo "ai-platform-version=$AI_PLATFORM_VERSION" >> $GITHUB_OUTPUT
           fi
@@ -233,7 +269,7 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with prebuild version and matching appVersion
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.rag-stack-version }}/" charts/rag-stack/Chart.yaml
 
@@ -250,7 +286,7 @@ jobs:
 
           mkdir -p ./packaged-charts
 
-          # Update Chart.yaml with pre-release version and matching appVersion
+          # Update Chart.yaml with prebuild version and matching appVersion
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: ${{ steps.version.outputs.ai-platform-version }}/" charts/ai-platform-engineering/Chart.yaml
 
@@ -289,12 +325,12 @@ jobs:
 
           echo "✅ ai-platform-engineering packaged successfully with all dependencies"
 
-      - name: 🚀 Push Pre-release Charts to GHCR
+      - name: 🚀 Push Prebuild Charts to GHCR
         if: steps.version-check.outputs.skip != 'true'
         run: |
-          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts"
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/prebuild-helm-charts"
 
-          echo "📦 Pushing pre-release charts to $REGISTRY"
+          echo "📦 Pushing prebuild charts to $REGISTRY"
 
           for CHART_FILE in ./packaged-charts/*.tgz; do
             if [ -f "$CHART_FILE" ]; then
@@ -312,14 +348,14 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const registry = `ghcr.io/${{ github.repository_owner }}/pre-release-helm-charts`;
+            const registry = `ghcr.io/${{ github.repository_owner }}/prebuild-helm-charts`;
             const ragStackChanged = '${{ steps.detect.outputs.rag-stack-changed }}' === 'true';
             const aiPlatformChanged = '${{ steps.detect.outputs.ai-platform-changed }}' === 'true';
             const headRepo = '${{ steps.pr-info.outputs.head_repo_full_name }}';
             const isFork = headRepo !== '${{ github.repository }}';
             const prNumber = parseInt('${{ steps.bump-status.outputs.pr_number }}');
 
-            let body = `## 📦 Pre-release Helm Charts Published\n\n`;
+            let body = `## 📦 Prebuild Helm Charts Published\n\n`;
 
             if (isFork) {
               body += `> 🔀 **Fork PR** - Published via \`helm-prerelease\` label\n\n`;
@@ -349,10 +385,10 @@ jobs:
             const isBranchTrigger = headRef.startsWith('prebuild/');
             const isLabelTrigger = !isBranchTrigger;
 
-            body += `> **Note:** These pre-release versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
+            body += `> **Note:** These prebuild versions will be automatically cleaned up when the PR is closed or merged.\n\n`;
 
             if (isLabelTrigger) {
-              body += `> **Tip:** Remove the \`helm-prerelease\` label to immediately cleanup pre-release versions and stop publishing new ones.`;
+              body += `> **Tip:** Remove the \`helm-prerelease\` label to immediately cleanup prebuild versions and stop publishing new ones.`;
             }
 
             github.rest.issues.createComment({
