@@ -1,8 +1,12 @@
-## 0.4.0 (2026-04-23)
+## 0.4.1 (2026-04-24)
 
-## 0.3.11-rc.2 (2026-04-23)
+### Fix
 
-## 0.3.11-rc.1 (2026-04-22)
+- **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
+
+## 0.4.0-rc.24 (2026-04-23)
+
+## 0.3.11 (2026-04-22)
 
 ### Fix
 
