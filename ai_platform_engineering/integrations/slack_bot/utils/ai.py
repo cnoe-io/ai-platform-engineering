@@ -24,8 +24,6 @@ try:
 except ImportError:
   from ..sse_client import SSEClient, SSEEventType
 from . import slack_formatter
-from . import utils as _utils
-from .config import config
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 
@@ -232,7 +230,7 @@ def stream_response(
   conversation_id: str,
   triggered_by_user_id=None,
   additional_footer=None,
-  overthink_mode=False,
+  overthink_config=None,
   escalation_config=None,
   is_resume=False,
   resume_form_data=None,
@@ -261,7 +259,8 @@ def stream_response(
       conversation_id: Deterministic UUID v5 from thread_ts.
       triggered_by_user_id: Optional user ID for footer attribution.
       additional_footer: Optional footer text.
-      overthink_mode: If True, process silently and skip low-confidence responses.
+      overthink_config: Optional OverthinkConfig; when present and enabled,
+          process silently and skip low-confidence responses.
       escalation_config: Optional escalation config for delete buttons.
       is_resume: If True, use resume_stream() instead of stream_chat().
       resume_form_data: JSON string of form data for resume.
@@ -272,6 +271,9 @@ def stream_response(
       on recoverable errors, or dict with skipped=True if overthink_mode filtered.
   """
   from .hitl_handler import parse_agui_interrupt, format_hitl_form_blocks
+
+  # Derive boolean from config object
+  overthink_mode = bool(overthink_config and overthink_config.enabled)
 
   # Streaming requires a valid user_id (starts with U or W), bot_ids (B) don't work
   can_stream = user_id and user_id[0] in ("U", "W")
@@ -830,7 +832,8 @@ def stream_response(
 
     # Overthink mode: check for skip markers
     if overthink_mode and final_text:
-      skip_result = _check_overthink_skip(final_text, thread_ts)
+      skip_markers = overthink_config.skip_markers if overthink_config else None
+      skip_result = _check_overthink_skip(final_text, thread_ts, skip_markers=skip_markers)
       if skip_result:
         # Flash a brief status so the user knows the bot noticed.
         # Must block here — if we return immediately, Slack clears the
@@ -1083,22 +1086,24 @@ def invoke_response(
     return error_blocks
 
 
-def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
+def _check_overthink_skip(final_text: str, thread_ts: str, skip_markers: list[str] | None = None) -> dict | None:
   """Check if response should be skipped in overthink mode.
+
+  Args:
+      final_text: The agent's complete response text.
+      thread_ts: Slack thread timestamp for logging.
+      skip_markers: Configurable list of marker strings to check.
+          Defaults to ``["DEFER", "LOW_CONFIDENCE"]``.
 
   Returns:
       None if response should be posted normally
       {"skipped": True, "reason": "..."} if response should be skipped
   """
-  if "[DEFER]" in final_text:
-    logger.info(f"[{thread_ts}] Overthink: skipping response (DEFER - human action needed)")
-    return {"skipped": True, "reason": "defer"}
-
-  if "[LOW_CONFIDENCE]" in final_text:
-    logger.info(f"[{thread_ts}] Overthink: skipping response (LOW_CONFIDENCE - no good sources)")
-    logger.debug(f"[{thread_ts}] LOW_CONFIDENCE response: {final_text}")
-    return {"skipped": True, "reason": "low_confidence"}
-
+  markers = skip_markers or ["DEFER", "LOW_CONFIDENCE"]
+  for marker in markers:
+    if f"[{marker}]" in final_text:
+      logger.info(f"[{thread_ts}] Overthink: skipping response ({marker})")
+      return {"skipped": True, "reason": marker.lower()}
   return None
 
 
@@ -1197,100 +1202,3 @@ def _build_stream_final_blocks(
   )
 
   return final_blocks
-
-
-def handle_ai_alert_processing(
-  sse_client: SSEClient,
-  slack_client,
-  event,
-  channel_id,
-  bot_username,
-  channel_config,
-  agent_id: str,
-  custom_prompt=None,
-  escalation_config=None,
-):
-  """AI-powered alert processing.
-
-  Args:
-      sse_client: SSEClient for dynamic agents.
-      slack_client: Slack WebClient.
-      event: Slack event dict.
-      channel_id: Slack channel ID.
-      bot_username: Name of the bot that triggered the alert.
-      channel_config: JiraConfig for the channel.
-      agent_id: Dynamic agent config ID.
-      custom_prompt: Optional custom prompt template.
-      escalation_config: Optional escalation config.
-  """
-  alert_text = event.get("text", "")
-  alert_blocks = event.get("blocks", [])
-  alert_attachments = event.get("attachments", [])
-
-  alert_context = {
-    "bot": bot_username,
-    "channel_id": channel_id,
-    "text": alert_text,
-    "timestamp": event.get("ts", ""),
-    "blocks": json.dumps(alert_blocks) if alert_blocks else None,
-    "attachments": json.dumps(alert_attachments) if alert_attachments else None,
-  }
-
-  jira_config_str = json.dumps(channel_config.model_dump(), indent=2)
-  jira_project = channel_config.project_key
-  prompt_template = custom_prompt if custom_prompt else config.defaults.default_ai_alerts_prompt
-
-  prompt = prompt_template.format(
-    bot_username=bot_username,
-    channel_id=channel_id,
-    alert_text=alert_text,
-    timestamp=alert_context["timestamp"],
-    jira_project=jira_project,
-    jira_config_str=jira_config_str,
-    alert_blocks=alert_context["blocks"][:500] if alert_blocks else "",
-    alert_attachments=alert_context["attachments"][:500] if alert_attachments else "",
-  )
-
-  thread_ts = event.get("ts")
-  team_id = event.get("team")
-  user_id = event.get("user", event.get("bot_id"))
-
-  logger.info(f"[{thread_ts}] AI processing alert from {bot_username}, agent={agent_id}")
-
-  if not _utils.verify_thread_exists(slack_client, channel_id, thread_ts):
-    logger.warning(f"[{thread_ts}] Ignoring alert — parent message was deleted")
-    return None
-
-  if config.silence_env:
-    logger.info(f"[{thread_ts}] Silencing AI alert processing")
-    return "Silenced"
-
-  # Resolve conversation_id via idempotency_key (thread_ts) — creates if first call
-  conv_result = sse_client.create_conversation(
-    title=f"Alert: {bot_username}"[:50],
-    agent_id=agent_id,
-    idempotency_key=thread_ts,
-    metadata={
-      "thread_ts": thread_ts,
-      "channel_id": channel_id,
-      "alert_bot": bot_username,
-      **({"workspace_url": os.environ.get("SLACK_WORKSPACE_URL", "")} if os.environ.get("SLACK_WORKSPACE_URL") else {}),
-    },
-  )
-  conversation_id = conv_result["conversation_id"]
-
-  result = stream_response(
-    sse_client=sse_client,
-    slack_client=slack_client,
-    channel_id=channel_id,
-    thread_ts=thread_ts,
-    message_text=prompt,
-    team_id=team_id,
-    user_id=user_id,
-    agent_id=agent_id,
-    conversation_id=conversation_id,
-    escalation_config=escalation_config,
-  )
-
-  logger.info(f"[{thread_ts}] AI processed alert from {bot_username}")
-  return result

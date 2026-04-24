@@ -6,27 +6,18 @@
 # Each top-level key is a Slack channel ID. The bot only interacts with
 # channels listed here.
 
+
 C0EXAMPLE01:
   name: "#general"
-  ai_enabled: true
-  # agent_id: "my-custom-agent"          # optional — falls back to SLACK_INTEGRATION_DEFAULT_AGENT_ID
-  qanda:
-    enabled: true
-    overthink: false                      # use extended reasoning
-    # include_bots:                       # mutually exclusive with ai_alerts
-    #   enabled: false
-    #   bot_list: ["AlertBot"]
-  ai_alerts:
-    enabled: false
-    # custom_prompt: "..."                # override the default AI-alerts prompt
-  other:
-    jira:
-      project_key: "PROJ"
-      issue_type: "Bug"                   # default: Bug
-      # additional_fields:
-      #   priority: { name: "High" }
-    # escalation:
-    #   victorops: { enabled: false, url: "" }
-    #   users: ["U_ONCALL1"]
-    #   emoji: { enabled: false, name: "rotating_light" }
-    # delete_admins: ["U_ADMIN1"]
+  agents:
+    - agent_id: "my-custom-agent"
+      enable_users:
+        enabled: true
+        overthink:
+          enabled: false
+      enable_bots:
+        enabled: false
+        # bot_list: ["AlertBot"]
+      # escalation:
+      #   users: ["U_ONCALL1"]
+      #   emoji: { enabled: false, name: "rotating_light" }

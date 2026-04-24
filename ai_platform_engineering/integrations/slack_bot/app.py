@@ -93,14 +93,45 @@ for attempt in range(1, max_retries + 1):
       sys.exit(1)
 
 
-def _get_agent_id(channel_config=None) -> str:
-  """Resolve agent_id from channel config or global defaults."""
-  if channel_config and hasattr(channel_config, "agent_id") and channel_config.agent_id:
-    return channel_config.agent_id
+def _match_agent(channel_config, is_bot, bot_username=None):
+  """Find first agent configured for this sender type.
+
+  Returns the matching AgentBinding or None.
+  """
+  for agent in channel_config.agents:
+    if is_bot and agent.enable_bots:
+      if not agent.enable_bots.enabled:
+        continue
+      if agent.enable_bots.bot_list is not None and bot_username not in agent.enable_bots.bot_list:
+        continue
+      return agent
+    if not is_bot and agent.enable_users:
+      if not agent.enable_users.enabled:
+        continue
+      return agent
+  return None
+
+
+def _resolve_agent_id(channel_config=None) -> str:
+  """Resolve an agent_id from the first binding or global defaults."""
+  if channel_config:
+    for agent in channel_config.agents:
+      return agent.agent_id
   if config.defaults.default_agent_id:
     return config.defaults.default_agent_id
   logger.warning("No agent_id configured — using empty string")
   return ""
+
+
+def _resolve_escalation(channel_config):
+  """Find the first escalation config across all agent bindings in a channel."""
+  if not channel_config:
+    return None
+  for agent in channel_config.agents:
+    esc = get_escalation_config(agent)
+    if esc:
+      return esc
+  return None
 
 
 def _get_agent_id_for_dm() -> str:
@@ -191,12 +222,12 @@ def _call_ai(
   conversation_id,
   triggered_by_user_id=None,
   additional_footer=None,
-  overthink_mode=False,
+  overthink_config=None,
   escalation_config=None,
   client_context=None,
 ):
   """Route to stream_response or invoke_response based on user type."""
-  logger.info(f"[{thread_ts}] _call_ai: conv={conversation_id} agent={agent_id} user={user_id} overthink={overthink_mode}")
+  logger.info(f"[{thread_ts}] _call_ai: conv={conversation_id} agent={agent_id} user={user_id} overthink={overthink_config}")
   can_stream = user_id and user_id[0] in ("U", "W")
 
   if can_stream:
@@ -212,7 +243,7 @@ def _call_ai(
       conversation_id=conversation_id,
       triggered_by_user_id=triggered_by_user_id,
       additional_footer=additional_footer,
-      overthink_mode=overthink_mode,
+      overthink_config=overthink_config,
       escalation_config=escalation_config,
       client_context=client_context,
     )
@@ -246,14 +277,11 @@ def handle_mention(event, say, client):
 
     channel_id = event.get("channel")
 
-    if not utils.check_has_jira_info(channel_id):
+    if not utils.is_configured_channel(channel_id):
       logger.info(f"Channel {channel_id} has no config, ignoring @mention")
       return
 
     channel_config = config.channels[channel_id]
-    if not channel_config.ai_enabled:
-      logger.info(f"Channel {channel_id} does not have ai_enabled=true, ignoring @mention")
-      return
 
     thread_ts = event.get("thread_ts") or event.get("ts")
     user_id = event.get("user")
@@ -275,7 +303,8 @@ def handle_mention(event, say, client):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
-    agent_id = _get_agent_id(channel_config)
+    agent_match = _match_agent(channel_config, is_bot=False)
+    agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
 
     # Create or retrieve conversation via shared API (server owns ID generation).
     # Must happen BEFORE context building so we can use `created` to decide
@@ -324,7 +353,7 @@ def handle_mention(event, say, client):
       client_context["user_email"] = user_email
 
     team_id = event.get("team")
-    esc_config = get_escalation_config(channel_config)
+    esc_config = get_escalation_config(agent_match) if agent_match else None
 
     result = _call_ai(
       client=client,
@@ -396,41 +425,36 @@ def handle_mention(event, say, client):
       logger.exception(f"Failed to send error message: {say_error}")
 
 
-# =============================================================================
-# Q&A Mode (auto respond to messages in channel, excluding bots)
-# =============================================================================
-def handle_qanda_message(event, say, client):
+def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot_username=None):
+  """Unified handler for both user and bot messages."""
   try:
     t0 = time.monotonic()
-    # Ignore system messages (channel_purpose, channel_topic, channel_join, etc.)
-    if event.get("subtype"):
-      logger.debug(f"Q&A ignoring system message subtype={event['subtype']} in {event.get('channel')}")
-      return
-
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
-    if not utils.verify_thread_exists(client, channel_id, thread_ts):
-      logger.warning(f"[{thread_ts}] Ignoring Q&A message — parent message was deleted")
+    if event.get("subtype"):
       return
 
-    user_id = event.get("user")
+    if not utils.verify_thread_exists(client, channel_id, thread_ts):
+      logger.warning(f"[{thread_ts}] Ignoring message — parent message was deleted")
+      return
+
+    user_id = event.get("user", event.get("bot_id"))
     team_id = event.get("team")
     message_text = slack_context.extract_message_text(event)
 
     user_name, user_email = utils.get_message_author_info(event, client)
+    sender_label = "bot" if is_bot else "user"
 
-    logger.info(f"[{thread_ts}] Q&A MODE - User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Question: {message_text}{_msg_link(channel_id, thread_ts)}")
+    logger.info(f"[{thread_ts}] Routing {sender_label} message to agent={agent_match.agent_id} - User: {user_name} ({user_id}), Channel: {channel_id}{_msg_link(channel_id, thread_ts)}")
 
-    if not message_text.strip():
+    if not message_text or not message_text.strip():
       return
 
-    channel_config = config.channels[channel_id]
-    agent_id = _get_agent_id(channel_config)
+    agent_id = agent_match.agent_id
 
-    # Create or retrieve conversation via shared API (server owns ID generation)
     conv_result = sse_client.create_conversation(
-      title=message_text[:50].strip() or "Slack Q&A",
+      title=message_text[:50].strip() or "Slack Thread",
       agent_id=agent_id,
       owner_id=user_email or user_id,
       idempotency_key=thread_ts,
@@ -445,18 +469,32 @@ def handle_qanda_message(event, say, client):
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
+    overthink = None
+    if is_bot and agent_match.enable_bots:
+      overthink = agent_match.enable_bots.overthink
+    elif not is_bot and agent_match.enable_users:
+      overthink = agent_match.enable_users.overthink
+
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
-      "overthink": channel_config.qanda.overthink,
+      "overthink": bool(overthink and overthink.enabled),
+      "timestamp": thread_ts,
     }
     if user_email:
       client_context["user_email"] = user_email
+    if bot_username:
+      client_context["bot_username"] = bot_username
+    if is_bot:
+      if event.get("blocks"):
+        client_context["blocks"] = event["blocks"]
+      if event.get("attachments"):
+        client_context["attachments"] = event["attachments"]
 
-    esc_config = get_escalation_config(channel_config)
+    esc_config = get_escalation_config(agent_match)
 
     result = _call_ai(
       client=client,
@@ -467,7 +505,7 @@ def handle_qanda_message(event, say, client):
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
-      overthink_mode=channel_config.qanda.overthink,
+      overthink_config=overthink,
       escalation_config=esc_config,
       client_context=client_context,
     )
@@ -478,13 +516,13 @@ def handle_qanda_message(event, say, client):
       session_manager.set_skipped(thread_ts, True)
       return
 
-    logger.info(f"[{thread_ts}] Completed Q&A request for {user_name}")
+    logger.info(f"[{thread_ts}] Completed {sender_label} request for {user_name}")
 
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
       channel_id=channel_id,
-      interaction_type="qanda",
+      interaction_type=sender_label,
       user_id=user_id,
       user_email=user_email,
       user_name=user_name,
@@ -492,7 +530,7 @@ def handle_qanda_message(event, say, client):
     )
 
   except Exception as e:
-    logger.exception(f"Error handling Q&A message: {e}")
+    logger.exception(f"Error handling {sender_label} message: {e}")
     try:
       say(
         blocks=slack_formatter.format_error_message(str(e)),
@@ -661,75 +699,32 @@ def handle_message_events(body, say, client):
 
   channel_id = event.get("channel")
   is_bot = event.get("bot_id") is not None
-  is_thread = event.get("thread_ts") is not None
 
-  should_process_for_qanda = False
-  if not is_bot and not is_thread:
-    should_process_for_qanda = True
-  elif is_bot and not is_thread and utils.check_has_jira_info(channel_id):
-    channel_config = config.channels[channel_id]
-    include_bots_config = channel_config.qanda.include_bots
-
-    if channel_config.qanda.enabled and include_bots_config.enabled:
-      if include_bots_config.bot_list is None:
-        should_process_for_qanda = True
-      else:
-        bot_id = event.get("bot_id")
-        bot_username = utils.get_username_by_bot_id(bot_id)
-        if bot_username in include_bots_config.bot_list:
-          should_process_for_qanda = True
-
-  if should_process_for_qanda:
-    bot_info = client.auth_test()
-    bot_user_id = bot_info.get("user_id")
-
-    if f"<@{bot_user_id}>" in event.get("text", ""):
-      return
-
-    if utils.check_has_jira_info(channel_id):
-      channel_config = config.channels[channel_id]
-      if channel_config.ai_enabled and channel_config.qanda.enabled:
-        handle_qanda_message(event, say, client)
-        return
-
-    return
-
-  if not event.get("bot_id"):
-    return
-
-  thread_ts = event.get("thread_ts")
-  message_ts = event.get("ts")
-  if thread_ts and thread_ts != message_ts:
-    return
-
-  event = body["event"]
-  channel_id = utils.get_current_channel_id(event)
-  bot_id = event["bot_id"]
-  bot_username = utils.get_username_by_bot_id(bot_id)
-  if not utils.check_has_jira_info(channel_id):
+  if not utils.is_configured_channel(channel_id):
     return
 
   channel_config = config.channels[channel_id]
-  if channel_config.ai_alerts.enabled:
-    alert_ts = event.get("ts", "unknown")
-    logger.info(f"[{alert_ts}] Routing alert from {bot_username} (bot_id={bot_id}) to AI processing, Channel: {channel_id}{_msg_link(channel_id, alert_ts)}")
-    jira_config = channel_config.other.jira
-    if not jira_config:
-      raise ValueError(f"Channel {channel_id} is missing required 'other.jira' config")
 
-    agent_id = _get_agent_id(channel_config)
-    esc_config = get_escalation_config(channel_config)
-    ai.handle_ai_alert_processing(
-      sse_client,
-      client,
-      event,
-      channel_id,
-      bot_username,
-      jira_config,
-      agent_id=agent_id,
-      custom_prompt=channel_config.ai_alerts.custom_prompt,
-      escalation_config=esc_config,
-    )
+  # Skip threaded user replies (handled by @mention); bots can post in threads
+  is_thread = event.get("thread_ts") is not None
+  if is_thread and not is_bot:
+    return
+
+  # Skip @mentions — handled by handle_mention
+  bot_info = client.auth_test()
+  bot_user_id = bot_info.get("user_id")
+  if f"<@{bot_user_id}>" in event.get("text", ""):
+    return
+
+  bot_username = None
+  if is_bot:
+    bot_username = utils.get_username_by_bot_id(event.get("bot_id"))
+
+  agent_match = _match_agent(channel_config, is_bot=is_bot, bot_username=bot_username)
+  if not agent_match:
+    return
+
+  _route_to_agent(event, say, client, channel_config, agent_match, is_bot=is_bot, bot_username=bot_username)
 
 
 # =============================================================================
@@ -826,7 +821,7 @@ def handle_caipe_feedback(ack, body, client):
 
       # Add "Get help" button if escalation is configured
       channel_config = config.channels.get(channel_id)
-      esc_config = get_escalation_config(channel_config) if channel_config else None
+      esc_config = _resolve_escalation(channel_config)
       if esc_config:
         action_elements.append({"type": "button", "text": {"type": "plain_text", "text": "\U0001f64b Get help"}, "action_id": "caipe_escalation_get_help", "value": action_value})
 
@@ -858,7 +853,7 @@ def handle_feedback_more_detail(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
+    agent_id = _resolve_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -878,7 +873,7 @@ def handle_feedback_more_detail(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = get_escalation_config(channel_config) if channel_config else None
+    esc_config = _resolve_escalation(channel_config)
 
     _call_ai(
       client=client,
@@ -909,7 +904,7 @@ def handle_feedback_less_verbose(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
+    agent_id = _resolve_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -929,7 +924,7 @@ def handle_feedback_less_verbose(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = get_escalation_config(channel_config) if channel_config else None
+    esc_config = _resolve_escalation(channel_config)
 
     _call_ai(
       client=client,
@@ -960,11 +955,11 @@ def handle_caipe_retry(ack, body, client):
     if not channel_id or not thread_ts:
       return
 
-    if not utils.check_has_jira_info(channel_id):
+    if not utils.is_configured_channel(channel_id):
       return
 
     channel_config = config.channels[channel_id]
-    agent_id = _get_agent_id(channel_config)
+    agent_id = _resolve_agent_id(channel_config)
     # Resolve server-side conversation_id for this thread
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
@@ -1070,7 +1065,7 @@ def handle_escalation_get_help(ack, body, client):
     channel_config = config.channels.get(channel_id)
     if not channel_config:
       return
-    esc_config = get_escalation_config(channel_config)
+    esc_config = _resolve_escalation(channel_config)
     if not esc_config:
       return
 
@@ -1078,7 +1073,7 @@ def handle_escalation_get_help(ack, body, client):
     message = body.get("message", {})
     parent_ts = message.get("thread_ts") or thread_ts
 
-    agent_id = _get_agent_id(channel_config)
+    agent_id = _resolve_agent_id(channel_config)
     execute_escalation(
       slack_client=client,
       sse_client=sse_client,
@@ -1114,11 +1109,13 @@ def handle_delete_message(ack, body, client):
     if not channel_id or not message_ts:
       return
 
-    # Check if user is authorized to delete
     channel_config = config.channels.get(channel_id)
     delete_admins = []
-    if channel_config and channel_config.other:
-      delete_admins = channel_config.other.delete_admins or []
+    if channel_config:
+      for agent in channel_config.agents:
+        if agent.escalation and agent.escalation.delete_admins:
+          delete_admins = agent.escalation.delete_admins
+          break
 
     if delete_admins and user_id not in delete_admins:
       client.chat_postEphemeral(
@@ -1216,7 +1213,7 @@ def handle_wrong_answer_submission(ack, body, client, view):
     if not correction_text:
       return
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
+    agent_id = _resolve_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -1243,7 +1240,7 @@ def handle_wrong_answer_submission(ack, body, client, view):
 
     # Get escalation config for this channel
     channel_config = config.channels.get(channel_id)
-    esc_config = get_escalation_config(channel_config) if channel_config else None
+    esc_config = _resolve_escalation(channel_config)
 
     _call_ai(
       client=client,

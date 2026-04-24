@@ -13,13 +13,11 @@ os.environ["SLACK_INTEGRATION_BOT_TOKEN"] = "xoxb-test-token"
 os.environ["SLACK_INTEGRATION_BOT_CONFIG"] = """
 C123:
   name: "#test-channel"
-  ai_enabled: "true"
-  qanda:
-    enabled: "false"
-  ai_alerts:
-    enabled: "false"
-  other:
-    jira:
-      project_key: TEST
+  agents:
+    - agent_id: "test-agent"
+      enable_users:
+        enabled: true
+        overthink:
+          enabled: false
 """
 os.environ["SLACK_INTEGRATION_SILENCE_ENV"] = "false"

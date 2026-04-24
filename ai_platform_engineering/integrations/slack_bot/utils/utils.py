@@ -34,8 +34,7 @@ def verify_thread_exists(client, channel_id: str, thread_ts: str) -> bool:
     return True
 
 
-def check_has_jira_info(channel_id):
-  """Check if a channel has configuration."""
+def is_configured_channel(channel_id):
   return channel_id in config.channels
 
 

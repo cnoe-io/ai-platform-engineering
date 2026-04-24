@@ -21,6 +21,9 @@ from ai_platform_engineering.integrations.slack_bot.utils.ai import (
   _STATUS_ERROR,
 )
 from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, SSEEventType
+from ai_platform_engineering.integrations.slack_bot.utils.config_models import OverthinkConfig
+
+_OVERTHINK_ENABLED = OverthinkConfig(enabled=True)
 
 
 # ---------------------------------------------------------------------------
@@ -690,7 +693,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)
@@ -725,7 +728,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)
@@ -762,7 +765,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
@@ -800,7 +803,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     # Stream should never have been opened
@@ -826,7 +829,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)
@@ -855,7 +858,7 @@ class TestOverthinkSkipStatus:
     # returns a generator so the exception happens inside the for-loop).
     def _exploding_generator(*args, **kwargs):
       raise Exception("Connection refused")
-      yield  # noqa: unreachable — makes this a generator function
+      yield  # noqa: F841 — unreachable yield makes this a generator function
 
     mock_sse = Mock()
     mock_sse.stream_chat.return_value = _exploding_generator()
@@ -870,7 +873,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)

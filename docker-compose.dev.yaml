@@ -1228,7 +1228,8 @@ services:
       # App config: loaded at Next.js startup via instrumentation.ts
       - APP_CONFIG_PATH=/app/config/app-config.yaml
     volumes:
-      - ./config/app-config.yaml:/app/config/app-config.yaml:ro
+      # Override host path with CAIPE_APP_CONFIG_FILE (e.g. ./config/app-config.local.yaml)
+      - ${CAIPE_APP_CONFIG_FILE:-./config/app-config.yaml}:/app/config/app-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       caipe-supervisor:
@@ -1986,7 +1987,8 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
-      - ./config/slack-bot-config.yaml:/etc/caipe/bot-config.yaml:ro
+      # Override host path with CAIPE_SLACK_BOT_CONFIG_FILE (e.g. ./config/slack-bot-config.local.yaml)
+      - ${CAIPE_SLACK_BOT_CONFIG_FILE:-./config/slack-bot-config.yaml}:/etc/caipe/bot-config.yaml:ro
     command: ["sh", "-c", "uv sync --no-dev && exec python -m app"]
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
