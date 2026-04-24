@@ -3,10 +3,6 @@ description: "Build and push Slack Bot Docker image"
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'ai_platform_engineering/integrations/slack_bot/**'
     tags:
       - '**'
   pull_request:
@@ -15,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_version:
-        description: 'Version tag to apply (e.g., 0.2.8-rc.1)'
+        description: 'Version tag to apply (e.g., 0.3.0-dev.5)'
         required: false
         type: string
 
@@ -27,13 +23,14 @@ jobs:
   determine-changes:
     runs-on: ubuntu-latest
     if: |
-      ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
       (github.event_name == 'workflow_dispatch')
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
+      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -60,47 +57,58 @@ jobs:
         env:
           SLACK_BOT_CHANGED: ${{ steps.filter.outputs.slack_bot }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
-          IS_TAG_PUSH: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
           TAG_VERSION="${{ env.TAG_VERSION }}"
-          IS_TAG_PUSH="${{ env.IS_TAG_PUSH }}"
 
-          # Check if this is an RC tag
-          if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
-            IS_RC="true"
+          # Chart-only tag: skip image builds entirely
+          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
+            echo "📊 Chart-only tag: skipping image builds"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_retag=false" >> $GITHUB_OUTPUT
+            echo "image_prefix=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Determine pre-release type and number
+          if [[ "$TAG_VERSION" =~ -(dev|rc|hotfix)\.([0-9]+)$ ]]; then
+            IS_PRERELEASE="true"
+            PRERELEASE_NUM="${BASH_REMATCH[2]}"
           else
-            IS_RC="false"
+            IS_PRERELEASE="false"
+            PRERELEASE_NUM=0
+          fi
+
+          # GHCR prefix: -rc.N and -hotfix.N go to pre-release/
+          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
+            IMAGE_PREFIX="pre-release/"
+          else
+            IMAGE_PREFIX=""
           fi
 
           if [ -n "$TAG_VERSION" ]; then
-            if [ "$IS_RC" == "true" ]; then
-              if [ "$IS_TAG_PUSH" == "true" ]; then
+            if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
+              if [ "$SLACK_BOT_CHANGED" == "true" ]; then
                 SHOULD_BUILD="true"
-                echo "🏷️ RC tag push: building"
-              elif [ "$SLACK_BOT_CHANGED" == "true" ]; then
-                SHOULD_BUILD="true"
-                echo "🔨 RC tag with slack bot changes: building"
+                echo "🔨 Pre-release tag with slack bot changes: building"
               else
                 SHOULD_RETAG="true"
-                echo "🏷️ RC tag without slack bot changes: retagging"
+                echo "🏷️ Pre-release tag without slack bot changes: retagging"
               fi
             else
               SHOULD_BUILD="true"
-              echo "🚀 Final release: building"
+              echo "🚀 Build all: first pre-release or final release"
             fi
-          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          elif [ "$SLACK_BOT_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             SHOULD_BUILD="true"
-            echo "📦 Push to main: building"
-          elif [ "$SLACK_BOT_CHANGED" == "true" ]; then
-            SHOULD_BUILD="true"
-            echo "🔍 Slack bot files changed: building"
+            echo "📦 Slack bot files changed or manual trigger: building"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC, is_tag_push=$IS_TAG_PUSH"
+          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
 
   unit-tests:
     runs-on: ubuntu-latest
@@ -136,7 +144,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-slack-bot
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-slack-bot
       DOCKERFILE: build/Dockerfile.slack-bot
 
     steps:
@@ -162,9 +170,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
-            type=ref,event=branch,prefix=
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
@@ -175,7 +182,7 @@ jobs:
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
-          push: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
@@ -192,7 +199,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-slack-bot
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-slack-bot
       DOCKERFILE: build/Dockerfile.slack-bot
 
     steps:
@@ -221,13 +228,14 @@ jobs:
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "🏷️ Processing slack-bot..."
 
-          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+          if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
             BASE_VERSION="${BASH_REMATCH[1]}"
-            RC_NUM="${BASH_REMATCH[2]}"
+            SUFFIX_TYPE="${BASH_REMATCH[2]}"
+            SUFFIX_NUM="${BASH_REMATCH[3]}"
 
-            if [[ "$RC_NUM" -gt 1 ]]; then
-              PREV_RC=$((RC_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+            if [[ "$SUFFIX_NUM" -gt 1 ]]; then
+              PREV_NUM=$((SUFFIX_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}"
             else
               SOURCE_TAG="${BASE_VERSION}"
             fi
@@ -293,7 +301,7 @@ jobs:
     if: |
       always() &&
       needs.determine-changes.outputs.tag_version != '' &&
-      !contains(needs.determine-changes.outputs.tag_version, '-rc.')
+      !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
       - name: 🔔 Notify release finalize
         env:

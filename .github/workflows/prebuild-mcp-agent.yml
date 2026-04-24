@@ -1,15 +1,13 @@
-name: "[Pre-Release][A2A] Sub-Agents A2A Docker Build and Push"
-description: "Build and push A2A Docker images for sub-agents"
+name: "[Prebuild][MCP] Sub-Agents MCP Docker Build and Push"
+description: "Build and push MCP Docker images for sub-agents"
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
       - '.github/**'
-      - 'build/agents/Dockerfile.a2a'
-
+      - 'build/agents/Dockerfile.mcp'
 permissions:
   contents: write
   packages: write
@@ -20,7 +18,6 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      !contains(github.head_ref, 'single-node') &&
       github.event.action != 'closed'
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
@@ -34,7 +31,7 @@ jobs:
       - name: Read agents config
         id: read-config
         run: |
-          ALL_AGENTS=$(jq -c '.a2a_agents' .github/agents.json)
+          ALL_AGENTS=$(jq -c '.mcp_agents' .github/agents.json)
           echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
 
   determine-agents:
@@ -43,7 +40,6 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      !contains(github.head_ref, 'single-node') &&
       github.event.action != 'closed'
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
@@ -62,34 +58,26 @@ jobs:
         with:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
-            let filters = 'shared_utils:\n';
-            filters += '  - \'ai_platform_engineering/utils/**\'\n';
-            filters += 'shared_dockerfile:\n';
-            filters += '  - \'build/agents/Dockerfile.a2a\'\n';
+            let filters = 'shared_dockerfile:\n';
+            filters += '  - \'build/agents/Dockerfile.mcp\'\n';
             agents.forEach(agent => {
               filters += `${agent}:\n`;
-              filters += `  - 'ai_platform_engineering/agents/${agent}/**'\n`;
-              filters += `  - '!ai_platform_engineering/agents/${agent}/mcp/**'\n`;
-              filters += `  - '!ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/mcp/**'\n`;
+              filters += `  - 'ai_platform_engineering/agents/${agent}/build/Dockerfile.mcp'\n`;
             });
             core.setOutput('filters', filters);
 
-      - name: Detect changed paths
+      - name: Detect changed paths (MCP)
         id: filter
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         with:
-          predicate-quantifier: 'every'
           filters: ${{ steps.generate-filters.outputs.filters }}
 
-      - name: Set matrix based on changes
+      - name: Set matrix based on changes (MCP)
         id: set-matrix
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          BUILD_ALL: >-
-            ${{
-              steps.filter.outputs.shared_utils == 'true' ||
-              steps.filter.outputs.shared_dockerfile == 'true'
-            }}
+          BUILD_ALL: ${{ steps.filter.outputs.shared_dockerfile == 'true' }}
           FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
         with:
           script: |
@@ -111,7 +99,6 @@ jobs:
     if: |
       needs.determine-agents.outputs.should_build == 'true' &&
       startsWith(github.head_ref, 'prebuild/') &&
-      !contains(github.head_ref, 'single-node') &&
       github.event.action != 'closed'
     permissions:
       contents: read
@@ -123,10 +110,9 @@ jobs:
         agent: ${{ fromJson(needs.determine-agents.outputs.agents) }}
       fail-fast: false
 
-
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/prebuild/agent-${{ matrix.agent }}
+      IMAGE_NAME: ${{ github.repository_owner }}/prebuild/mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
@@ -174,23 +160,13 @@ jobs:
       - name: Determine Dockerfile path
         id: dockerfile
         run: |
-          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.a2a" ]; then
-            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.a2a" >> $GITHUB_OUTPUT
+          if [ -f "${{ env.AGENT_DIR }}/build/Dockerfile.mcp" ]; then
+            echo "path=${{ env.AGENT_DIR }}/build/Dockerfile.mcp" >> $GITHUB_OUTPUT
           else
-            echo "path=build/agents/Dockerfile.a2a" >> $GITHUB_OUTPUT
+            echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
           fi
 
-      - name: Determine Agent Package Name
-        id: agent_package
-        run: |
-          # Special case: template agent uses agent_petstore package
-          if [ "${{ matrix.agent }}" == "template" ]; then
-            echo "name=petstore" >> $GITHUB_OUTPUT
-          else
-            echo "name=${{ matrix.agent }}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build and Push A2A Docker image
+      - name: Build and Push MCP Docker image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
@@ -200,7 +176,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             AGENT_NAME=${{ matrix.agent }}
-            AGENT_PACKAGE=${{ steps.agent_package.outputs.name }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -237,7 +212,7 @@ jobs:
 
   load-config-cleanup:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node')
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:
@@ -250,13 +225,13 @@ jobs:
       - name: Read agents config
         id: read-config
         run: |
-          ALL_AGENTS=$(jq -c '.a2a_agents' .github/agents.json)
+          ALL_AGENTS=$(jq -c '.mcp_agents' .github/agents.json)
           echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
 
   cleanup-images:
     runs-on: ubuntu-latest
     needs: load-config-cleanup
-    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/') && !contains(github.event.pull_request.head.ref, 'single-node')
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
     permissions:
       contents: read
       packages: write
@@ -266,7 +241,7 @@ jobs:
       fail-fast: false
     env:
       OWNER: ${{ github.repository_owner }}
-      PACKAGE_NAME: prebuild/agent-${{ matrix.agent }}
+      PACKAGE_NAME: prebuild/mcp-${{ matrix.agent }}
     steps:
       - name: Delete prebuild images for branch
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

@@ -1,0 +1,279 @@
+name: "[CI][Helm] Publish Tagged Helm Charts"
+description: "Publish Helm charts from version tags"
+
+# auto-tag.yml owns release-branch versioning and creates tags such as:
+#   main                  -> 0.8.0-dev.1, 0.8.0-dev.1-chart.1
+#   release/0.8.0         -> 0.8.0-rc.1, 0.8.0-rc.1-chart.1
+#   release/0.8.0-hotfix  -> 0.8.0-hotfix.1, 0.8.0-hotfix.1-chart.1
+#   final release         -> 0.8.0
+#
+# This workflow consumes those tags and publishes the Chart.yaml versions that
+# were already committed by the shared update-version-files action.
+
+on:
+  push:
+    tags:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      tag_version:
+        description: 'Version tag to publish (for example: 0.8.0-rc.1-chart.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-release-helm:
+    name: Publish Tagged Helm Charts
+    runs-on: ubuntu-latest
+    outputs:
+      is_final_release: ${{ steps.tag.outputs.is_final_release }}
+      tag_version: ${{ steps.tag.outputs.tag_version }}
+
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG_VERSION="${{ inputs.tag_version }}"
+          else
+            TAG_VERSION="${{ github.ref_name }}"
+          fi
+
+          if [[ -z "$TAG_VERSION" ]]; then
+            echo "No tag version provided"
+            exit 1
+          fi
+
+          APP_VERSION="${TAG_VERSION%-chart.*}"
+          CHART_ONLY=false
+          REGISTRY_PATH="pre-release-helm-charts"
+          IS_FINAL_RELEASE=false
+
+          if [[ "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            REGISTRY_PATH="charts"
+            IS_FINAL_RELEASE=true
+          fi
+
+          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
+            CHART_ONLY=true
+          fi
+
+          echo "is_final_release=$IS_FINAL_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "chart_only=$CHART_ONLY" >> "$GITHUB_OUTPUT"
+          echo "registry_path=$REGISTRY_PATH" >> "$GITHUB_OUTPUT"
+
+          echo "Publishing Helm charts for tag: $TAG_VERSION"
+          echo "App version: $APP_VERSION"
+          echo "Registry path: $REGISTRY_PATH"
+
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ steps.tag.outputs.tag_version }}
+          fetch-depth: 0
+
+      - name: Detect changed charts
+        id: detect
+        run: |
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep "^charts/" || true)
+          else
+            echo "No parent commit available; publishing all top-level charts"
+            echo "rag-stack-changed=true" >> "$GITHUB_OUTPUT"
+            echo "ai-platform-changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ -z "$CHANGED_FILES" ]]; then
+            echo "No chart files changed in tagged commit"
+            echo "rag-stack-changed=false" >> "$GITHUB_OUTPUT"
+            echo "ai-platform-changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Changed chart files:"
+          echo "$CHANGED_FILES"
+
+          RAG_STACK_CHANGED=false
+          AI_PLATFORM_CHANGED=false
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/rag-stack/"; then
+            RAG_STACK_CHANGED=true
+            echo "rag-stack changed"
+          fi
+
+          if echo "$CHANGED_FILES" | grep -q "^charts/ai-platform-engineering/"; then
+            AI_PLATFORM_CHANGED=true
+            echo "ai-platform-engineering changed"
+          fi
+
+          echo "rag-stack-changed=$RAG_STACK_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "ai-platform-changed=$AI_PLATFORM_CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Helm
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        with:
+          version: v3.14.0
+
+      - name: Login to GHCR
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Package rag-stack chart
+        if: steps.detect.outputs.rag-stack-changed == 'true'
+        env:
+          TAG_VERSION: ${{ steps.tag.outputs.tag_version }}
+          APP_VERSION: ${{ steps.tag.outputs.app_version }}
+        run: |
+          CHART_FILE="charts/rag-stack/Chart.yaml"
+          CHART_VERSION=$(awk '/^version:/ {print $2; exit}' "$CHART_FILE")
+          CHART_APP_VERSION=$(awk '/^appVersion:/ {print $2; exit}' "$CHART_FILE" | tr -d '"')
+
+          if [[ "$CHART_VERSION" != "$TAG_VERSION" ]]; then
+            echo "rag-stack chart version is $CHART_VERSION, expected $TAG_VERSION"
+            exit 1
+          fi
+
+          if [[ "$CHART_APP_VERSION" != "$APP_VERSION" ]]; then
+            echo "rag-stack appVersion is $CHART_APP_VERSION, expected $APP_VERSION"
+            exit 1
+          fi
+
+          mkdir -p ./packaged-charts
+          helm dependency update charts/rag-stack/
+          helm package charts/rag-stack/ --destination ./packaged-charts/
+
+      - name: Package ai-platform-engineering chart
+        if: steps.detect.outputs.ai-platform-changed == 'true'
+        env:
+          TAG_VERSION: ${{ steps.tag.outputs.tag_version }}
+          APP_VERSION: ${{ steps.tag.outputs.app_version }}
+        run: |
+          CHART_FILE="charts/ai-platform-engineering/Chart.yaml"
+          CHART_VERSION=$(awk '/^version:/ {print $2; exit}' "$CHART_FILE")
+          CHART_APP_VERSION=$(awk '/^appVersion:/ {print $2; exit}' "$CHART_FILE" | tr -d '"')
+
+          if [[ "$CHART_VERSION" != "$TAG_VERSION" ]]; then
+            echo "ai-platform-engineering chart version is $CHART_VERSION, expected $TAG_VERSION"
+            exit 1
+          fi
+
+          if [[ "$CHART_APP_VERSION" != "$APP_VERSION" ]]; then
+            echo "ai-platform-engineering appVersion is $CHART_APP_VERSION, expected $APP_VERSION"
+            exit 1
+          fi
+
+          mkdir -p ./packaged-charts
+          helm dependency update charts/rag-stack/
+          helm dependency update charts/ai-platform-engineering/
+          helm package charts/ai-platform-engineering/ --destination ./packaged-charts/
+
+          tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/neo4j/Chart.yaml" \
+            && echo "neo4j verified" || (echo "neo4j missing" && exit 1)
+          tar -tzf charts/ai-platform-engineering/charts/rag-stack-*.tgz | grep -q "^rag-stack/charts/milvus/Chart.yaml" \
+            && echo "milvus verified" || (echo "milvus missing" && exit 1)
+
+      - name: Push Helm charts to GHCR
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/${{ steps.tag.outputs.registry_path }}"
+          mkdir -p /tmp/release-helm-pull-checks
+
+          for CHART_FILE in ./packaged-charts/*.tgz; do
+            [[ -f "$CHART_FILE" ]] || continue
+
+            CHART_NAME=$(helm show chart "$CHART_FILE" | awk '/^name:/ {print $2; exit}')
+            CHART_VERSION=$(helm show chart "$CHART_FILE" | awk '/^version:/ {print $2; exit}')
+
+            echo "Processing $CHART_NAME:$CHART_VERSION"
+
+            if helm pull "$REGISTRY/$CHART_NAME" --version "$CHART_VERSION" --destination /tmp/release-helm-pull-checks >/dev/null 2>&1; then
+              echo "$CHART_NAME:$CHART_VERSION already exists; skipping push"
+              continue
+            fi
+
+            helm push "$CHART_FILE" "$REGISTRY"
+            echo "$CHART_NAME:$CHART_VERSION published"
+          done
+
+      - name: Summary
+        if: always()
+        env:
+          TAG_VERSION: ${{ steps.tag.outputs.tag_version }}
+          APP_VERSION: ${{ steps.tag.outputs.app_version }}
+          CHART_ONLY: ${{ steps.tag.outputs.chart_only }}
+          REGISTRY_PATH: ${{ steps.tag.outputs.registry_path }}
+          RAG_STACK_CHANGED: ${{ steps.detect.outputs.rag-stack-changed }}
+          AI_PLATFORM_CHANGED: ${{ steps.detect.outputs.ai-platform-changed }}
+        run: |
+          REGISTRY="ghcr.io/${{ github.repository_owner }}/${REGISTRY_PATH}"
+
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+          # Helm Tagged Charts
+
+          | Property | Value |
+          |----------|-------|
+          | Tag | \`${TAG_VERSION}\` |
+          | appVersion | \`${APP_VERSION}\` |
+          | Chart-only | \`${CHART_ONLY}\` |
+          | Registry | \`${REGISTRY}\` |
+          | rag-stack changed | \`${RAG_STACK_CHANGED}\` |
+          | ai-platform-engineering changed | \`${AI_PLATFORM_CHANGED}\` |
+
+          ## Install
+
+          \`\`\`bash
+          helm upgrade --install ai-platform \\
+            oci://${REGISTRY}/ai-platform-engineering \\
+            --version ${TAG_VERSION}
+          \`\`\`
+          EOF
+
+  notify-release:
+    name: Notify Release Finalize
+    runs-on: ubuntu-latest
+    needs: publish-release-helm
+    if: |
+      always() &&
+      needs.publish-release-helm.outputs.tag_version != '' &&
+      needs.publish-release-helm.outputs.is_final_release == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Notify release finalize
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_VERSION: ${{ needs.publish-release-helm.outputs.tag_version }}
+        run: |
+          RESULT="${{ needs.publish-release-helm.result }}"
+          if [[ "$RESULT" == "success" ]]; then
+            CONCLUSION="success"
+          else
+            CONCLUSION="failure"
+          fi
+
+          echo "Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
+
+          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          {
+            "event_type": "ci-completed",
+            "client_payload": {
+              "tag": "$TAG_VERSION",
+              "workflow": "${{ github.workflow }}",
+              "conclusion": "$CONCLUSION"
+            }
+          }
+          EOF

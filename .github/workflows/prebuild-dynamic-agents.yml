@@ -1,4 +1,4 @@
-name: "[Pre-Release] Dynamic Agents Docker Build and Push"
+name: "[Prebuild] Dynamic Agents Docker Build and Push"
 description: "Build and push Dynamic Agents Docker image for prebuild branches"
 
 on:
