@@ -291,7 +291,6 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                 from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (  # noqa: PLC0415
                     FetchDocumentCapWrapper,
                     SearchCapWrapper,
-                    _rag_cap_hit_counts,
                     _rag_conversation_id,
                     _record_rag_cap_hit,
                     is_rag_hard_stopped,
@@ -355,18 +354,15 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             )
                             for tc in blocked_calls
                         ]
-                        # Only record a cap hit (and eventually jump_to=end) when the budget
-                        # is truly exhausted. If calls remain, this is just a batch-size
-                        # correction — the LLM re-strategizes and tries again.
+                        # Budget still available: batch-size correction only — LLM re-strategizes.
+                        # Budget gone: terminate so the LLM gets its synthesis turn.
                         truly_exhausted = (
                             (cap.search_excess > 0 and cap.search_allowed == 0)
                             or (cap.fetch_excess > 0 and cap.fetch_allowed == 0)
                         )
                         if truly_exhausted:
                             _record_rag_cap_hit(thread_id)
-                            cap_count = _rag_cap_hit_counts.get(thread_id, 0)
-                            if cap_count > 1:
-                                return _rag_terminal_response(tool_messages)
+                            return _rag_terminal_response(tool_messages)
                         return {"messages": tool_messages}
 
                 # Fallback: a non-parallel call slipped through to _arun and was capped there.
@@ -387,13 +383,10 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             for tc in rag_calls
                         ]
                         _record_rag_cap_hit(thread_id)
-                        cap_count = _rag_cap_hit_counts.get(thread_id, 0)
-                        if cap_count > 1:
-                            return _rag_terminal_response(tool_messages)
-                        return {"messages": tool_messages}
+                        return _rag_terminal_response(tool_messages)
             except Exception as rag_err:
                 logger.warning(f"[DeterministicTaskMiddleware] RAG cap check failed: {rag_err}", exc_info=True)
-        return None
+            return None
 
         for tc in write_todos_calls:
             new_todos = tc.get("args", {}).get("todos", [])
@@ -409,7 +402,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
         # would skip that final tool call and produce a blank response.
         # Instead, just inject ToolMessages so the model knows the todos
         # are done and can proceed to generate the structured response.
-        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE
+        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE  # noqa: PLC0415
 
         tool_messages = [
             ToolMessage(

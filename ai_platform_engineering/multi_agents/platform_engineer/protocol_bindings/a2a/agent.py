@@ -585,10 +585,11 @@ class AIPlatformEngineerA2ABinding:
       # explicit reset, a previous query on the same thread would exhaust the
       # caps before the new query even calls a RAG tool.
       thread_id_for_rag = (config or {}).get("configurable", {}).get("thread_id")
+      _rag_cv_token = None
       if thread_id_for_rag:
           try:
               clear_rag_state(thread_id_for_rag)
-              set_rag_conversation_id(thread_id_for_rag)
+              _rag_cv_token = set_rag_conversation_id(thread_id_for_rag)
               logging.debug(f"RAG state cleared and conversation ID set for thread_id={thread_id_for_rag}")
           except Exception as rag_clear_err:
               logging.debug(f"Could not clear RAG state: {rag_clear_err}")
@@ -2120,6 +2121,12 @@ class AIPlatformEngineerA2ABinding:
           f"require_user_input={final_response.get('require_user_input')}, "
           f"content_length={c_len}, final_model_content={fmc_len}"
       )
+      if _rag_cv_token is not None:
+          try:
+              from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _rag_conversation_id  # noqa: PLC0415
+              _rag_conversation_id.reset(_rag_cv_token)
+          except Exception:
+              pass
       yield final_response
 
   def handle_structured_response(self, ai_message):
