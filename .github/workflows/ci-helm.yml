@@ -36,10 +36,7 @@ jobs:
     steps:
       - name: Resolve tag
         id: tag
-        shell: bash
         run: |
-          set -euo pipefail
-
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAG_VERSION="${{ inputs.tag_version }}"
           else
@@ -88,10 +85,7 @@ jobs:
 
       - name: Detect changed charts
         id: detect
-        shell: bash
         run: |
-          set -euo pipefail
-
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep "^charts/" || true)
           else
@@ -135,7 +129,6 @@ jobs:
 
       - name: Login to GHCR
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
-        shell: bash
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
 
@@ -144,10 +137,7 @@ jobs:
         env:
           TAG_VERSION: ${{ steps.tag.outputs.tag_version }}
           APP_VERSION: ${{ steps.tag.outputs.app_version }}
-        shell: bash
         run: |
-          set -euo pipefail
-
           CHART_FILE="charts/rag-stack/Chart.yaml"
           CHART_VERSION=$(awk '/^version:/ {print $2; exit}' "$CHART_FILE")
           CHART_APP_VERSION=$(awk '/^appVersion:/ {print $2; exit}' "$CHART_FILE" | tr -d '"')
@@ -171,10 +161,7 @@ jobs:
         env:
           TAG_VERSION: ${{ steps.tag.outputs.tag_version }}
           APP_VERSION: ${{ steps.tag.outputs.app_version }}
-        shell: bash
         run: |
-          set -euo pipefail
-
           CHART_FILE="charts/ai-platform-engineering/Chart.yaml"
           CHART_VERSION=$(awk '/^version:/ {print $2; exit}' "$CHART_FILE")
           CHART_APP_VERSION=$(awk '/^appVersion:/ {print $2; exit}' "$CHART_FILE" | tr -d '"')
@@ -201,10 +188,7 @@ jobs:
 
       - name: Push Helm charts to GHCR
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
-        shell: bash
         run: |
-          set -euo pipefail
-
           REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/${{ steps.tag.outputs.registry_path }}"
           mkdir -p /tmp/release-helm-pull-checks
 
@@ -234,7 +218,6 @@ jobs:
           REGISTRY_PATH: ${{ steps.tag.outputs.registry_path }}
           RAG_STACK_CHANGED: ${{ steps.detect.outputs.rag-stack-changed }}
           AI_PLATFORM_CHANGED: ${{ steps.detect.outputs.ai-platform-changed }}
-        shell: bash
         run: |
           REGISTRY="ghcr.io/${{ github.repository_owner }}/${REGISTRY_PATH}"
 
@@ -274,7 +257,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_VERSION: ${{ needs.publish-release-helm.outputs.tag_version }}
-        shell: bash
         run: |
           RESULT="${{ needs.publish-release-helm.result }}"
           if [[ "$RESULT" == "success" ]]; then
@@ -295,4 +277,3 @@ jobs:
             }
           }
           EOF
-
