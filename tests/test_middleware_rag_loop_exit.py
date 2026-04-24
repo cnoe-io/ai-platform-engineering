@@ -425,7 +425,6 @@ class TestMiddlewareRagLoopExit:
             _DEFAULT_MAX_SEARCH_CALLS,
             _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
             _rag_capped_tools,
-            _rag_cap_hit_counts,
         )
         from ai_platform_engineering.utils.deepagents_custom.middleware import DeterministicTaskMiddleware
 
