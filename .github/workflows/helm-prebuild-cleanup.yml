@@ -29,10 +29,6 @@ jobs:
       )
 
     steps:
-      - name: 🔐 Login to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-
       - name: 🗑️ Delete Prebuild Chart Versions
         run: |
           # Get branch name and remove 'prebuild/' prefix if present
@@ -42,23 +38,53 @@ jobs:
           echo "🧹 Cleaning up prebuild versions for branch: $CLEAN_BRANCH"
 
           OWNER="${{ github.repository_owner }}"
+          OWNER_TYPE="${{ github.event.repository.owner.type }}"
+          if [ "$OWNER_TYPE" = "User" ]; then
+            PACKAGE_OWNER_PATH="users/${OWNER}"
+          else
+            PACKAGE_OWNER_PATH="orgs/${OWNER}"
+          fi
+
+          echo "📦 Using package owner path: ${PACKAGE_OWNER_PATH}"
 
           # Function to cleanup a chart
           cleanup_chart() {
             local CHART_NAME=$1
             local PACKAGE_NAME="prebuild-helm-charts/${CHART_NAME}"
+            local ENCODED_PACKAGE_NAME
+            local ALL_VERSIONS_FILE="${CHART_NAME}_all_versions.json"
+            local VERSIONS_FILE="${CHART_NAME}_versions.json"
+            local ERROR_FILE="${CHART_NAME}_versions.err"
+
+            ENCODED_PACKAGE_NAME=$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')
 
             echo "🔍 Checking ${CHART_NAME} for prebuild versions matching pattern: *-${CLEAN_BRANCH}-*"
 
             # Get package versions using GitHub CLI (for OCI packages)
             # Note: Forward slash in package name must be URL encoded as %2F
-            gh api \
-              "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions" \
-              --jq '.[] | select(.metadata.container.tags[]? | test(".*-'${CLEAN_BRANCH}'-.*")) | {id: .id, tags: .metadata.container.tags}' > "${CHART_NAME}_versions.json" || true
+            if ! gh api \
+              "/${PACKAGE_OWNER_PATH}/packages/container/${ENCODED_PACKAGE_NAME}/versions" \
+              > "${ALL_VERSIONS_FILE}" 2> "${ERROR_FILE}"; then
+              if grep -q "HTTP 404" "${ERROR_FILE}"; then
+                echo "ℹ️ Package ${PACKAGE_NAME} not found or not accessible, skipping ${CHART_NAME}"
+                rm -f "${ALL_VERSIONS_FILE}" "${VERSIONS_FILE}" "${ERROR_FILE}"
+                return 0
+              fi
 
-            if [ -s "${CHART_NAME}_versions.json" ]; then
+              echo "❌ Failed to list package versions for ${PACKAGE_NAME}"
+              cat "${ERROR_FILE}"
+              rm -f "${ALL_VERSIONS_FILE}" "${VERSIONS_FILE}" "${ERROR_FILE}"
+              return 1
+            fi
+
+            jq --arg needle "-${CLEAN_BRANCH}-" \
+              '.[] | select(.metadata.container.tags[]? | contains($needle)) | {id: .id, tags: .metadata.container.tags}' \
+              "${ALL_VERSIONS_FILE}" > "${VERSIONS_FILE}"
+            rm -f "${ALL_VERSIONS_FILE}" "${ERROR_FILE}"
+
+            if [ -s "${VERSIONS_FILE}" ]; then
               echo "🗑️ Found ${CHART_NAME} prebuild versions to delete:"
-              cat "${CHART_NAME}_versions.json"
+              cat "${VERSIONS_FILE}"
 
               # Delete each version
               while IFS= read -r version; do
@@ -69,13 +95,15 @@ jobs:
 
                 gh api \
                   --method DELETE \
-                  "/orgs/${OWNER}/packages/container/$(echo "${PACKAGE_NAME}" | sed 's|/|%2F|g')/versions/${VERSION_ID}" || true
-              done < <(cat "${CHART_NAME}_versions.json" | jq -c '.')
+                  "/${PACKAGE_OWNER_PATH}/packages/container/${ENCODED_PACKAGE_NAME}/versions/${VERSION_ID}" || true
+              done < <(cat "${VERSIONS_FILE}" | jq -c '.')
 
               echo "✅ ${CHART_NAME} prebuild cleanup completed"
             else
               echo "ℹ️ No ${CHART_NAME} prebuild versions found for branch: $CLEAN_BRANCH"
             fi
+
+            rm -f "${VERSIONS_FILE}"
           }
 
           # Cleanup both charts
@@ -85,4 +113,3 @@ jobs:
           echo "✅ All prebuild chart cleanup completed"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

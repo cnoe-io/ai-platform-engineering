@@ -37,7 +37,7 @@ runs:
       run: |
         echo "tag=${{ inputs.manual_tag }}" >> $GITHUB_OUTPUT
 
-    - name: ⏳ Fallback: Wait for auto-tag (Main/Release Push)
+    - name: "⏳ Fallback: Wait for auto-tag (Main/Release Push)"
       id: main-push
       if: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') }}
       shell: bash
