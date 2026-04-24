@@ -28,7 +28,7 @@ jobs:
     # Don't run on commits made by the bot (avoid infinite loop)
     if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     outputs:
-      new_commit: ${{ steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
+      new_commit: ${{ steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
       should_prebuild: ${{ steps.prebuild-check.outputs.should_run }}
     steps:
       - name: 🔒 Harden runner
@@ -276,20 +276,30 @@ jobs:
         id: release-check
         shell: bash
         run: |
-          BASE="${{ github.event.pull_request.base.ref }}"
-          HEAD="${{ github.event.pull_request.head.ref }}"
-          if [[ "$BASE" == "main" && "$HEAD" == release/* ]]; then
-            VERSION=$(echo "${HEAD#release/}" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+          BASE="${{ github.base_ref }}"
+          HEAD="${{ github.head_ref }}"
+          if [[ "$BASE" == "main" && "$HEAD" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
+            VERSION="${BASH_REMATCH[1]}"
             echo "is_release_merge=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "🚀 Release merge PR detected: release/$VERSION → main"
+            echo "🚀 Release merge PR detected: $HEAD → main"
+
+            RAW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+            if [[ "$RAW_VERSION" == "$VERSION" ]]; then
+              echo "needs_prepare=false" >> $GITHUB_OUTPUT
+              echo "✅ Release merge PR already prepared at $VERSION"
+            else
+              echo "needs_prepare=true" >> $GITHUB_OUTPUT
+              echo "📦 Release merge PR needs final version bump: $RAW_VERSION → $VERSION"
+            fi
           else
             echo "is_release_merge=false" >> $GITHUB_OUTPUT
+            echo "needs_prepare=false" >> $GITHUB_OUTPUT
           fi
 
       # ── Release merge path: prepare-release action ─────────────────────
       - name: 📦 Prepare release (update files + changelog)
-        if: ${{ steps.release-check.outputs.is_release_merge == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        if: ${{ steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
         uses: ./.github/actions/prepare-release
         with:
           version: ${{ steps.release-check.outputs.version }}
@@ -312,7 +322,7 @@ jobs:
 
       # ── Commit changes to PR branch ────────────────────────────────────
       - name: 📤 Commit version bump
-        if: (steps.update.outputs.skip_commit == 'false' || steps.release-check.outputs.is_release_merge == 'true') && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
+        if: (steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true')) && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
         id: commit
         run: |
           git config user.name "github-actions[bot]"
