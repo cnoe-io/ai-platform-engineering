@@ -696,7 +696,7 @@ export function TrySkillsGateway() {
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="text-sm font-medium text-foreground">
                   Install these {previewData.skills.length} skill
-                  {previewData.skills.length === 1 ? "" : "s"} as slash commands
+                  {previewData.skills.length === 1 ? "" : "s"}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   agent:{" "}
@@ -791,9 +791,7 @@ export function TrySkillsGateway() {
             Step 2: Generate API Key
           </CardTitle>
           <CardDescription>
-            Create a catalog API key so scripts and installers can call the same catalog as
-            the UI and supervisor. Invalid authentication returns <strong>401</strong> with a
-            generic body (no account enumeration).
+            Create an API key for scripts and installers to authenticate with the catalog.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -884,10 +882,9 @@ export function TrySkillsGateway() {
             Step 3: Install skills
           </CardTitle>
           <CardDescription>
-            Create a <code>/skills</code> slash command that lets your coding
-            agent browse and install skills from this gateway. Works with
-            Claude Code, Cursor, Codex, Gemini CLI, and more — pick your agent
-            below.
+            Install the <code>/skills</code> skill so your coding agent can
+            browse and run skills from this gateway. Works with Claude Code,
+            Cursor, Codex, Gemini CLI, and more.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm space-y-8 text-muted-foreground">
@@ -899,8 +896,7 @@ export function TrySkillsGateway() {
               Configure your API key
             </p>
             <p className="text-xs text-muted-foreground mb-3 ml-8">
-              Stores your catalog credentials so any coding agent on this
-              machine can authenticate to the gateway.
+              Saves your API key so agents on this machine can authenticate.
             </p>
             <CopyableBlock
               className="p-4"
@@ -923,17 +919,16 @@ EOF`}
               Install the bootstrap skill
             </p>
             <p className="ml-8 leading-relaxed">
-              Most users should hit{" "}
+              Use{" "}
               <span className="font-semibold text-foreground">
                 Quick install
               </span>{" "}
-              — pick agent + scope, copy one curl command, done. Need a
-              custom slash command name, description, or want to inspect the
-              rendered file first? Open{" "}
+              for most cases — pick agent + scope, copy one command, done.
+              Use{" "}
               <span className="font-semibold text-foreground">
                 Advanced
               </span>{" "}
-              below.
+              to customize the skill name or preview the file.
             </p>
 
             {/* PRIMARY ACTION — Quick install. Per Shubham Bakshi's review
@@ -948,9 +943,7 @@ EOF`}
                   Recommended: Quick install
                 </p>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Opens a single-screen dialog: pick agent + scope → get one
-                  curl command. Uses sensible defaults for the slash command
-                  name and description.
+                  Pick agent + scope → get one install command. Done.
                 </p>
               </div>
               <Button
@@ -968,8 +961,7 @@ EOF`}
             <details className="ml-8 group rounded-md border border-border bg-background/40 [&[open]>summary]:border-b [&[open]>summary]:border-border">
               <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-2">
                 <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
-                Advanced — customize the slash command (name, description,
-                preview the rendered file)
+                Advanced — customize the skill (name, description, preview)
               </summary>
               <div className="p-4 space-y-5">
             <div className="inline-flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] leading-relaxed">
@@ -986,7 +978,7 @@ EOF`}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
-                  Slash command name
+                  Skill name
                 </label>
                 <div className="flex items-center mt-1">
                   <span className="px-2 py-2 text-sm bg-muted border border-r-0 border-border rounded-l-md text-muted-foreground">
@@ -1001,7 +993,7 @@ EOF`}
                   />
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Becomes <code>{safeCommandName}.md</code> in your commands directory.
+                  Installs as <code>{safeCommandName}.md</code> in your skills directory.
                 </p>
               </div>
 
@@ -1015,7 +1007,7 @@ EOF`}
                   className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Shown in the slash-command picker.
+                  Shown in the skills picker.
                 </p>
               </div>
             </div>

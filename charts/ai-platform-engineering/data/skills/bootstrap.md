@@ -90,6 +90,23 @@ The helper prints the catalog JSON to stdout on success, or a JSON
 `{"error": "..."}` envelope on client-side errors (no key, bad config).
 On HTTP / network errors it writes a short message to stderr and exits 1.
 
+### Fallback — if caipe-skills.py is unavailable
+
+If the helper download fails or the file is missing, call the API directly.
+The required auth header is **`X-Caipe-Catalog-Key`**:
+
+```bash
+curl -fsSL "{{BASE_URL}}/api/skills?source=github&q=QUERY" \
+  -H "X-Caipe-Catalog-Key: $(python3 -c "import json,os; cfg=json.load(open(os.path.expanduser('~/.config/caipe/config.json'))); print(cfg['api_key'])")"
+```
+
+Or set `INCLUDE_CONTENT=true` as a query param for full skill body:
+
+```bash
+curl -fsSL "{{BASE_URL}}/api/skills?source=github&q=SKILL_NAME&include_content=true" \
+  -H "X-Caipe-Catalog-Key: <your-api-key>"
+```
+
 ## Steps — Browse / Search mode
 
 1. Call the API helper with `QUERY` set to the user's search (or empty for all).
