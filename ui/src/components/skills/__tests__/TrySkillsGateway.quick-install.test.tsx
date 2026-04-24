@@ -309,7 +309,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await renderAndOpenModal();
     const dialog = getDialog();
 
-    expect(within(dialog).getByText(/API key required/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/No API key/i)).toBeInTheDocument();
     expect(
       within(dialog).getByRole("button", { name: /generate api key/i }),
     ).toBeEnabled();
