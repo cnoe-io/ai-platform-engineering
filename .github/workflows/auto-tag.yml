@@ -30,6 +30,15 @@ jobs:
   auto-tag:
     name: Determine version, update files, tag and push
     runs-on: ubuntu-latest
+    # Don't run on commits pushed by the release bot (avoid infinite loop).
+    if: >
+      ${{
+        !(
+          github.actor == 'caipe-release-bot[bot]' ||
+          github.event.head_commit.author.email == 'caipe-release-bot[bot]@users.noreply.github.com' ||
+          github.event.head_commit.committer.email == 'caipe-release-bot[bot]@users.noreply.github.com'
+        )
+      }}
     steps:
       - name: 🔒 Harden runner
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
