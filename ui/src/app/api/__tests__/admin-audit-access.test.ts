@@ -368,6 +368,6 @@ describe('GET /api/chat/conversations/[id] — access_level in response', () => 
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error).toContain('Forbidden');
+    expect(body.error).toContain('You do not have access to this conversation.');
   });
 });

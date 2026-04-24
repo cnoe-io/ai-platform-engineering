@@ -181,7 +181,7 @@ describe('requireConversationAccess — public (is_public) access', () => {
 
     await expect(
       requireConversationAccess(conv._id, STRANGER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('Forbidden');
+    ).rejects.toThrow('You do not have access to this conversation.');
   });
 
   it('grants access to owner regardless of is_public value', async () => {

@@ -22,7 +22,7 @@ Covers:
 import asyncio
 import importlib
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import httpx
 import pytest

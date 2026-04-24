@@ -16,8 +16,6 @@ from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.models import (
     DynamicAgentConfig,
     MCPServerConfig,
-    UserContext,
-    VisibilityType,
 )
 
 logger = logging.getLogger(__name__)

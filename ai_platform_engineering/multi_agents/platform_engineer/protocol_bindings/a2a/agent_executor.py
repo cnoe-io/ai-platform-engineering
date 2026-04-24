@@ -33,10 +33,6 @@ from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
-from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
-
-import os
-ENABLE_USER_INFO_TOOL = os.getenv("ENABLE_USER_INFO_TOOL", "false").lower() in ("true", "1", "yes")
 
 logger = logging.getLogger(__name__)
 

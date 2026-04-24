@@ -386,7 +386,7 @@ describe('Admin Dashboard Page', () => {
       await waitFor(() => {
         expect(screen.getByText('Email')).toBeInTheDocument();
         expect(screen.getByText('Name')).toBeInTheDocument();
-        expect(screen.getByText('Role')).toBeInTheDocument();
+        expect(screen.getAllByText('Roles').length).toBeGreaterThan(0);
       });
 
       // Roles filter uses a button summary (MultiSelectFilter), not an input placeholder

@@ -26,8 +26,7 @@ Scenarios:
 import asyncio
 import importlib
 import os
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -135,7 +134,7 @@ class TestSharedKeyE2E:
         assert len(captured_client) == 1
         auth = captured_client[0].headers.get("authorization")
         assert auth == f"Bearer {SHARED_KEY}"
-        import asyncio; asyncio.run(captured_client[0].aclose())
+        asyncio.run(captured_client[0].aclose())
 
     def test_mcp_middleware_accepts_forwarded_token(self):
         """MCPAuthMiddleware in shared_key mode accepts the same token."""
@@ -336,7 +335,7 @@ class TestNoneModeE2E:
         # ContextVar is None (no middleware set it)
         client = factory()
         assert "authorization" not in {k.lower() for k in client.headers}
-        import asyncio; asyncio.run(client.aclose())
+        asyncio.run(client.aclose())
 
     def test_mcp_none_mode_accepts_request_without_token(self):
         mam = _reload_mcp_middleware("none")
@@ -392,8 +391,6 @@ class TestPerRequestIsolation:
     @pytest.mark.anyio
     async def test_factory_token_does_not_leak_after_request(self):
         """After a request completes the ContextVar is restored to its prior value."""
-        factory = MagicMock()
-
         async def simulate_scoped_request(token: str):
             tok = current_bearer_token.set(token)
             try:

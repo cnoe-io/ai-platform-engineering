@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 import sys
 from contextlib import contextmanager
 from unittest import mock

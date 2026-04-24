@@ -45,6 +45,11 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
 }));
+jest.mock('@/lib/rbac/keycloak-admin', () => ({
+  ensureTeamClientScope: jest.fn().mockResolvedValue(undefined),
+  deleteTeamClientScope: jest.fn().mockResolvedValue(undefined),
+  isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
+}));
 
 /** After resetModules(), re-require the mock so we configure the fresh jest.fn(). */
 function setDefaultCheckPermissionMock() {

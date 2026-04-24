@@ -293,6 +293,7 @@ docker-compose/*
 # Spec 102 — RBAC test artifacts (junit, playwright traces, html reports)
 test-results/
 ui/test-results/
+ui/playwright-report/
 tests/rbac/e2e/test-results/
 tests/rbac/e2e/playwright-report/
 tests/rbac/e2e/node_modules/

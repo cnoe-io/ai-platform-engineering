@@ -30,6 +30,63 @@ logging.basicConfig(
 logger = logging.getLogger("jira_mcp")
 
 
+def validate_prerequisites(
+    token: Optional[str] = None,
+    email: Optional[str] = None,
+    url: Optional[str] = None,
+) -> Tuple[bool, Dict[str, Any]]:
+    """Validate required Jira credentials and reject placeholder URLs."""
+    resolved_token = token or get_env()
+    resolved_email = str(
+        email or os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or ""
+    )
+    resolved_url = str(url or os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL") or "")
+
+    if not resolved_token:
+        logger.error("No API token available. Request cannot proceed.")
+        return (
+            False,
+            {"error": "Token is required. Please set the ATLASSIAN_TOKEN environment variable."},
+        )
+
+    if not resolved_url:
+        logger.error("No API URL available. Request cannot proceed.")
+        return (
+            False,
+            {
+                "error": (
+                    "ATLASSIAN_API_URL is required. Please set the ATLASSIAN_API_URL "
+                    "environment variable (e.g., https://your-domain.atlassian.net)."
+                )
+            },
+        )
+
+    if not resolved_email:
+        logger.error("No email available. Request cannot proceed.")
+        return (
+            False,
+            {"error": "ATLASSIAN_EMAIL is required. Please set the ATLASSIAN_EMAIL environment variable."},
+        )
+
+    from urllib.parse import urlparse as _urlparse
+
+    _parsed = _urlparse(resolved_url)
+    _hostname = (_parsed.hostname or resolved_url).lower()
+    if _hostname in ("example.com", "jira.example.com") or _hostname.endswith(".example.com"):
+        logger.error(f"Invalid API URL detected: {resolved_url}. This appears to be a placeholder value.")
+        return (
+            False,
+            {
+                "error": (
+                    f"Invalid ATLASSIAN_API_URL: '{resolved_url}'. Please set "
+                    "ATLASSIAN_API_URL to your actual Jira instance URL "
+                    "(e.g., https://your-domain.atlassian.net)."
+                )
+            },
+        )
+
+    return True, {"token": resolved_token, "email": resolved_email, "url": resolved_url}
+
 
 def get_env() -> Optional[str]:
     """Retrieve the Atlassian API token from request header or environment."""
@@ -85,42 +142,12 @@ async def make_api_request(
 
     logger.debug(f"Preparing {method} request to {path}")
 
-    # Use the utility function to retrieve the token if not provided
-    token = token or get_env()
-    email = str(os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or "")
-    url = str(os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL") or "")
-
-    if not token:
-        logger.error("No API token available. Request cannot proceed.")
-        return (
-            False,
-            {"error": "Token is required. Please set the ATLASSIAN_TOKEN environment variable."},
-        )
-
-    if not url:
-        logger.error("No API URL available. Request cannot proceed.")
-        return (
-            False,
-            {"error": "ATLASSIAN_API_URL is required. Please set the ATLASSIAN_API_URL environment variable (e.g., https://your-domain.atlassian.net)."},
-        )
-
-    if not email:
-        logger.error("No email available. Request cannot proceed.")
-        return (
-            False,
-            {"error": "ATLASSIAN_EMAIL is required. Please set the ATLASSIAN_EMAIL environment variable."},
-        )
-
-    # Validate URL doesn't contain example.com placeholder
-    from urllib.parse import urlparse as _urlparse
-    _parsed = _urlparse(url)
-    _hostname = (_parsed.hostname or url).lower()
-    if _hostname in ("example.com", "jira.example.com") or _hostname.endswith(".example.com"):
-        logger.error(f"Invalid API URL detected: {url}. This appears to be a placeholder value.")
-        return (
-            False,
-            {"error": f"Invalid ATLASSIAN_API_URL: '{url}'. Please set ATLASSIAN_API_URL to your actual Jira instance URL (e.g., https://your-domain.atlassian.net)."},
-        )
+    ok, prerequisites = validate_prerequisites(token=token)
+    if not ok:
+        return False, prerequisites
+    token = str(prerequisites["token"])
+    email = str(prerequisites["email"])
+    url = str(prerequisites["url"])
 
     import base64
 

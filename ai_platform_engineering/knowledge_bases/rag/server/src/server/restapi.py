@@ -48,7 +48,6 @@ from contextvars import ContextVar
 from server.rbac import (
   get_user_or_anonymous,
   require_role,
-  require_authenticated_user,
   has_permission,
   get_permissions,
   is_trusted_request,
