@@ -165,13 +165,13 @@ jobs:
         env:
           TAG: ${{ steps.update.outputs.final_version }}
         run: |
+          git config user.name "caipe-release-bot[bot]"
+          git config user.email "caipe-release-bot[bot]@users.noreply.github.com"
+
           # Check if there are changes to commit
           if git diff --quiet && git diff --cached --quiet; then
             echo "ℹ️ No file changes to commit"
           else
-            git config user.name "caipe-release-bot[bot]"
-            git config user.email "caipe-release-bot[bot]@users.noreply.github.com"
-
             # Stage version-related files
             git add pyproject.toml uv.lock || true
             find charts -name "Chart.yaml" -type f -exec git add {} +
