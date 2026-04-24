@@ -12,7 +12,6 @@ on:
 permissions:
   contents: write
   packages: write
-  actions: write
 
 jobs:
   # Commit version bump (pyproject.toml + Chart.yaml), changelog, and tag
@@ -138,9 +137,9 @@ jobs:
           echo ""
           echo "🏷️ Tag '$NEW_VERSION' created and pushed"
 
-  # Then: Trigger CI builds and create draft release
-  publish-and-trigger-ci:
-    name: Publish Release & Trigger CI
+  # Then: create draft release. The tag push triggers CI builds automatically.
+  publish-release:
+    name: Create Draft Release
     needs: commit-release
     runs-on: ubuntu-latest
     steps:
@@ -150,62 +149,6 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-      - name: 🔄 Trigger fresh CI builds for release
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
-          echo "🔄 Triggering fresh CI builds for release $NEW_VERSION..."
-          echo "   (build_all=true, tag_version=$NEW_VERSION)"
-          echo ""
-
-          # Workflows with their input capabilities
-          # Format: "workflow_file:supports_build_all"
-          # All workflows support tag_version now
-          CI_WORKFLOWS=(
-            "ci-a2a-sub-agent.yml:true"
-            "ci-mcp-sub-agent.yml:true"
-            "ci-a2a-rag.yml:false"
-            "ci-supervisor-agent.yml:false"
-            "ci-agent-forge-plugin.yml:false"
-            "ci-caipe-ui.yml:false"
-            "ci-slack-bot.yml:false"
-          )
-
-          SUCCESS=0
-          FAILED=0
-
-          # Trigger all workflows (fire and forget - don't wait)
-          for WF_CONFIG in "${CI_WORKFLOWS[@]}"; do
-            IFS=':' read -r WF HAS_BUILD_ALL <<< "$WF_CONFIG"
-            echo -n "  🚀 $WF... "
-
-            ARGS="-f tag_version=$NEW_VERSION"
-            if [[ "$HAS_BUILD_ALL" == "true" ]]; then
-              ARGS="$ARGS -f build_all=true"
-            fi
-
-            if ERROR=$(gh workflow run "$WF" --repo "${{ github.repository }}" --ref "$NEW_VERSION" $ARGS 2>&1); then
-              echo "✅"
-              ((SUCCESS++)) || true
-            else
-              echo "❌"
-              echo "     Error: $ERROR"
-              ((FAILED++)) || true
-            fi
-          done
-
-          echo ""
-          if [[ $FAILED -eq 0 ]]; then
-            echo "✅ All $SUCCESS CI workflows triggered successfully"
-          elif [[ $SUCCESS -gt 0 ]]; then
-            echo "⚠️ $SUCCESS workflows triggered, $FAILED failed"
-          else
-            echo "❌ All $FAILED workflows failed to trigger"
-            exit 1
-          fi
-          echo "📝 Images will be tagged with $NEW_VERSION when builds complete"
 
       - name: 🚀 Create GitHub Release (Draft)
         env:
@@ -221,7 +164,7 @@ jobs:
             --draft
 
           echo "✅ Draft release created"
-          echo "📋 Release will be published automatically when all CI builds pass"
+          echo "📋 Tag push triggers CI builds; release will be published automatically when required CI builds pass"
           echo "🔗 https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION"
 
       - name: 📊 Summary
@@ -246,17 +189,19 @@ jobs:
           echo "- \`CHANGELOG.md\` - changelog generated (commitizen)" >> $GITHUB_STEP_SUMMARY
           echo "- \`uv.lock\` - lock file regenerated" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images (CI builds triggered) ⏳" >> $GITHUB_STEP_SUMMARY
-          echo "CI workflows triggered asynchronously - images will be tagged with \`$NEW_VERSION\` when complete:" >> $GITHUB_STEP_SUMMARY
+          echo "### CI (triggered by tag push) ⏳" >> $GITHUB_STEP_SUMMARY
+          echo "CI workflows run from the pushed \`$NEW_VERSION\` tag and publish matching artifacts when complete:" >> $GITHUB_STEP_SUMMARY
           echo "- Supervisor agent" >> $GITHUB_STEP_SUMMARY
-          echo "- Agent Forge plugin" >> $GITHUB_STEP_SUMMARY
+          echo "- Dynamic agents" >> $GITHUB_STEP_SUMMARY
           echo "- A2A sub-agents" >> $GITHUB_STEP_SUMMARY
           echo "- MCP sub-agents" >> $GITHUB_STEP_SUMMARY
           echo "- RAG components" >> $GITHUB_STEP_SUMMARY
+          echo "- CAIPE UI" >> $GITHUB_STEP_SUMMARY
+          echo "- Slack bot" >> $GITHUB_STEP_SUMMARY
+          echo "- Helm charts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### GitHub Release (Draft) 📝" >> $GITHUB_STEP_SUMMARY
           echo "🔗 [Release $NEW_VERSION](https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "⚠️ **Release is in DRAFT state** — it will be published automatically when all CI builds pass." >> $GITHUB_STEP_SUMMARY
           echo "If any CI fails, the release will remain as a draft for investigation." >> $GITHUB_STEP_SUMMARY
-

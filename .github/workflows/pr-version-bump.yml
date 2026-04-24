@@ -360,7 +360,7 @@ jobs:
           exit 1
 
   # Call prebuild workflow for eligible PRs
-  helm-prebuild:
+  prebuild-helm:
     name: Publish Prebuild Helm Charts
     needs: version-bump
     if: |
@@ -368,7 +368,7 @@ jobs:
       needs.version-bump.outputs.should_prebuild == 'true' &&
       needs.version-bump.outputs.new_commit != 'true' &&
       (needs.version-bump.result == 'success' || startsWith(github.head_ref, 'prebuild/'))
-    uses: ./.github/workflows/helm-prebuild.yml
+    uses: ./.github/workflows/prebuild-helm.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}
       new_commit: ${{ needs.version-bump.outputs.new_commit == 'true' }}
