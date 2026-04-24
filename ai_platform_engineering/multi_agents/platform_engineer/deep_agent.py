@@ -52,6 +52,9 @@ from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
 from ai_platform_engineering.utils.deepagents_custom.self_service_middleware import (
     SelfServiceWorkflowMiddleware,
 )
+from ai_platform_engineering.utils.deepagents_custom.sanitize_tool_names_middleware import (
+    SanitizeToolNamesMiddleware,
+)
 from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
@@ -1608,6 +1611,7 @@ This format is required so the UI can display agent stickers next to each task.
         # ModelRetryMiddleware is always included (essential for error recovery).
         middleware_list = [
             ModelRetryMiddleware(max_retries=5, on_failure="continue", backoff_factor=2.0),
+            SanitizeToolNamesMiddleware(),
         ]
 
         _mw_flags = {

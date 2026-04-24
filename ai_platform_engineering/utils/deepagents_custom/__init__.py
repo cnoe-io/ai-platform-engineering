@@ -45,6 +45,10 @@ from ai_platform_engineering.utils.deepagents_custom.self_service_middleware imp
     SelfServiceWorkflowMiddleware,
 )
 
+from ai_platform_engineering.utils.deepagents_custom.sanitize_tool_names_middleware import (
+    SanitizeToolNamesMiddleware,
+)
+
 # Export custom tools
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
@@ -83,6 +87,7 @@ __all__ = [
     "PolicyMiddleware",
     "CLORM_AVAILABLE",
     "SelfServiceWorkflowMiddleware",
+    "SanitizeToolNamesMiddleware",
     # Legacy aliases
     "QuickActionTasksAnnouncementMiddleware",
     "SubAgentExecutionMiddleware",
