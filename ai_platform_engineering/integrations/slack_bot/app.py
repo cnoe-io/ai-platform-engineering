@@ -122,22 +122,12 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
 
 
 def _resolve_escalation(channel_config, agent_id: str | None = None):
-  """Resolve escalation config, optionally scoped to a specific agent.
-
-  When *agent_id* is provided, only that agent's escalation config is
-  considered — this avoids leaking one agent's escalation settings into
-  another.  When *agent_id* is ``None`` (feedback buttons that don't
-  know which agent responded), falls back to the first agent that has
-  escalation configured.
-  """
-  if not channel_config:
+  """Return the escalation config for a specific agent binding, or None."""
+  if not channel_config or not agent_id:
     return None
   for agent in channel_config.agents:
-    if agent_id and agent.agent_id != agent_id:
-      continue
-    esc = get_escalation_config(agent)
-    if esc:
-      return esc
+    if agent.agent_id == agent_id:
+      return get_escalation_config(agent)
   return None
 
 
