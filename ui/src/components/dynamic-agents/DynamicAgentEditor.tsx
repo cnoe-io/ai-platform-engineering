@@ -598,7 +598,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             <p className="text-sm text-muted-foreground">{currentStepConfig?.hint}</p>
           </div>
 
-          <fieldset disabled={readOnly} className={readOnly ? "opacity-70 space-y-4" : "space-y-4"}>
+          <fieldset disabled={readOnly} className={cn("max-h-[60vh] overflow-y-auto space-y-4", readOnly && "opacity-70")}>
 
           {/* Basic Info Step */}
           {activeStep === "basic" && (
