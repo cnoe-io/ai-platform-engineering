@@ -238,6 +238,11 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'development/spec-driven-development',
           label: 'Spec-Driven Development',
+        },
+        {
+          type: 'doc',
+          id: 'development/ci-cd-and-releases',
+          label: 'CI/CD & Releases',
         }
       ],
     },
