@@ -17,12 +17,12 @@ class GlobalDefaults(BaseModel):
   max_messages: int = 3
   default_agent_id: str | None = None
   dm_agent_id: str | None = None
+  victorops_agent_id: str | None = None
 
 
 class VictorOpsEscalation(BaseModel):
   enabled: bool = False
   team: str = ""
-  agent_id: str | None = None
 
 
 class EmojiEscalation(BaseModel):
@@ -141,6 +141,7 @@ class Config(BaseModel):
     defaults = GlobalDefaults(
       default_agent_id=os.environ.get("SLACK_INTEGRATION_DEFAULT_AGENT_ID"),
       dm_agent_id=os.environ.get("SLACK_INTEGRATION_DM_AGENT_ID"),
+      victorops_agent_id=os.environ.get("SLACK_INTEGRATION_VICTOROPS_AGENT_ID"),
     )
 
     return cls(channels=channels, defaults=defaults, silence_env=silence_env)

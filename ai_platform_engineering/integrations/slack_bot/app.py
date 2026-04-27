@@ -1052,6 +1052,26 @@ def handle_escalation_get_help(ack, body, client):
         text="Help has already been requested for this thread.",
       )
       return
+
+    # Get escalation config for this channel
+    channel_config = config.channels.get(channel_id)
+    if not channel_config:
+      return
+    esc_config = _resolve_escalation(channel_config)
+    if not esc_config:
+      return
+
+    # Validate victorops agent is configured before proceeding
+    vo_agent_id = config.defaults.victorops_agent_id
+    if esc_config.victorops.enabled and not vo_agent_id:
+      client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        thread_ts=thread_ts,
+        text="VictorOps escalation is enabled but no agent is configured. Set `SLACK_INTEGRATION_VICTOROPS_AGENT_ID` to enable on-call lookups.",
+      )
+      return
+
     # Mark as escalated
     session_manager.set_escalated(thread_ts)
 
@@ -1075,19 +1095,10 @@ def handle_escalation_get_help(ack, body, client):
       text="Got it! Connecting you with a human...",
     )
 
-    # Get escalation config for this channel
-    channel_config = config.channels.get(channel_id)
-    if not channel_config:
-      return
-    esc_config = _resolve_escalation(channel_config)
-    if not esc_config:
-      return
-
     # Determine the parent message ts (root of thread)
     message = body.get("message", {})
     parent_ts = message.get("thread_ts") or thread_ts
 
-    agent_id = _resolve_agent_id(channel_config)
     execute_escalation(
       slack_client=client,
       sse_client=sse_client,
@@ -1096,7 +1107,7 @@ def handle_escalation_get_help(ack, body, client):
       parent_ts=parent_ts,
       user_id=user_id,
       escalation_config=esc_config,
-      agent_id=agent_id,
+      agent_id=vo_agent_id or "",
       conversation_id=conversation_id,
     )
 
