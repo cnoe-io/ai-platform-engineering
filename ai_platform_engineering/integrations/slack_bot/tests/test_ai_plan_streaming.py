@@ -700,12 +700,11 @@ class TestOverthinkSkipStatus:
     assert result["skipped"] is True
     assert result["reason"] == "low_confidence"
 
-    # Should have called setStatus with the skip message then cleared it
+    # Should have called setStatus with the skip message (clear is a no-op)
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_SKIP_LOW_CONFIDENCE in status_calls
-    assert status_calls[-1] == ""  # last call clears the status
 
-    # Should sleep 2s to keep the status visible
+    # Should sleep 7s to keep the status visible
     mock_sleep.assert_called_once_with(7)
 
   @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
@@ -737,7 +736,6 @@ class TestOverthinkSkipStatus:
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_SKIP_DEFER in status_calls
-    assert status_calls[-1] == ""
 
     mock_sleep.assert_called_once_with(7)
 
@@ -777,9 +775,6 @@ class TestOverthinkSkipStatus:
 
     # Skip status should be present
     assert _STATUS_SKIP_LOW_CONFIDENCE in status_calls
-
-    # Last call clears the status
-    assert status_calls[-1] == ""
 
   @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
   def test_overthink_no_stream_opened(self, mock_sleep):
@@ -836,10 +831,9 @@ class TestOverthinkSkipStatus:
     assert result["skipped"] is True
     assert result["reason"] == "error"
 
-    # Should flash the error status then clear it
+    # Should flash the error status (clear is a no-op)
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_ERROR in status_calls
-    assert status_calls[-1] == ""
 
     mock_sleep.assert_called_once_with(7)
 
@@ -880,10 +874,9 @@ class TestOverthinkSkipStatus:
     assert result["skipped"] is True
     assert result["reason"] == "error"
 
-    # Should flash the error status then clear it
+    # Should flash the error status (clear is a no-op)
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_ERROR in status_calls
-    assert status_calls[-1] == ""
 
     mock_sleep.assert_called_once_with(7)
 
