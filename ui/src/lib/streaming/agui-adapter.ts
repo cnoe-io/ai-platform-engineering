@@ -256,11 +256,12 @@ export class AGUIStreamAdapter implements StreamAdapter {
         const prev = this.toolCallArgs.get(toolCallId) || "";
         this.toolCallArgs.set(toolCallId, prev + delta);
 
-        // For the "task" tool (subagent), re-emit onToolStart with parsed args
-        // so the timeline manager can update the subagent's name/avatar immediately
-        // instead of waiting for TOOL_CALL_END.
+        // Re-emit onToolStart with parsed args so the timeline manager can
+        // show tool arguments progressively as they stream in, rather than
+        // waiting for TOOL_CALL_END. For the "task" tool this also updates
+        // the subagent's name/avatar immediately.
         const toolName = this.toolCallIdToName.get(toolCallId);
-        if (toolName === "task") {
+        if (toolName) {
           try {
             const accumulated = this.toolCallArgs.get(toolCallId) || "";
             const argsObj = JSON.parse(accumulated);
@@ -268,7 +269,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
               callbacks.onToolStart?.(toolCallId, toolName, argsObj, this.currentNamespace);
             }
           } catch {
-            // Args not yet valid JSON — will be updated on TOOL_CALL_END
+            // Args not yet valid JSON — will be updated on next delta or TOOL_CALL_END
           }
         }
         return false;

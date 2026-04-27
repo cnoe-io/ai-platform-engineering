@@ -184,8 +184,13 @@ export class TimelineManager {
         startedAt: now,
       });
     } else if (namespace.length === 0) {
-      // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+      // DEDUP GUARD: If we already have this tool, update its args if they
+      // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
       if (this.rootToolMap.has(toolData.tool_call_id)) {
+        const existing = this.rootToolMap.get(toolData.tool_call_id)!;
+        if (toolData.args) {
+          existing.args = toolData.args;
+        }
         return;
       }
 
@@ -212,8 +217,13 @@ export class TimelineManager {
       const subagentId = namespace[0];
       const subagent = this.subagents.get(subagentId);
       if (subagent) {
-        // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+        // DEDUP GUARD: If we already have this tool, update its args if they
+        // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
         if (subagent.toolMap.has(toolData.tool_call_id)) {
+          const existing = subagent.toolMap.get(toolData.tool_call_id)!;
+          if (toolData.args) {
+            existing.args = toolData.args;
+          }
           return;
         }
 
