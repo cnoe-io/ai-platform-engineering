@@ -40,8 +40,8 @@ class TestChannelWithAgentsList:
     assert ch.name == "#test-channel"
     assert len(ch.agents) == 1
     assert ch.agents[0].agent_id == "test-agent"
-    assert ch.agents[0].enable_users is not None
-    assert ch.agents[0].enable_users.enabled is True
+    assert ch.agents[0].users is not None
+    assert ch.agents[0].users.enabled is True
 
   def test_config_missing_env_var_returns_empty(self, monkeypatch):
     monkeypatch.delenv("SLACK_INTEGRATION_BOT_CONFIG", raising=False)
@@ -59,7 +59,7 @@ C456:
   name: "#file-channel"
   agents:
     - agent_id: "file-agent"
-      enable_users:
+      users:
         enabled: true
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -85,10 +85,10 @@ C789:
   name: "#multi"
   agents:
     - agent_id: "user-agent"
-      enable_users:
+      users:
         enabled: true
     - agent_id: "bot-agent"
-      enable_bots:
+      bots:
         enabled: true
         bot_list: ["AlertBot"]
 """
@@ -98,7 +98,7 @@ C789:
     assert len(ch.agents) == 2
     assert ch.agents[0].agent_id == "user-agent"
     assert ch.agents[1].agent_id == "bot-agent"
-    assert ch.agents[1].enable_bots.bot_list == ["AlertBot"]
+    assert ch.agents[1].bots.bot_list == ["AlertBot"]
 
 
 class TestBotsUsersConfigWithOverthink:
@@ -196,12 +196,12 @@ C999:
   name: "#listen-test"
   agents:
     - agent_id: "agent-a"
-      enable_users: { enabled: true, listen: "all" }
-      enable_bots:  { enabled: true, listen: "mention" }
+      users: { enabled: true, listen: "all" }
+      bots:  { enabled: true, listen: "mention" }
 """)
     agent = Config.from_env().channels["C999"].agents[0]
-    assert agent.enable_users.listen == "all"
-    assert agent.enable_bots.listen == "mention"
+    assert agent.users.listen == "all"
+    assert agent.bots.listen == "mention"
 
 
 class TestOldFormatDetection:

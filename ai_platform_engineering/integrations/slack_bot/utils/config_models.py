@@ -61,8 +61,8 @@ class UsersConfig(BaseModel):
 
 class AgentBinding(BaseModel):
   agent_id: str
-  enable_bots: BotsConfig | None = None
-  enable_users: UsersConfig | None = None
+  bots: BotsConfig | None = None
+  users: UsersConfig | None = None
   escalation: EscalationConfig | None = None
 
 

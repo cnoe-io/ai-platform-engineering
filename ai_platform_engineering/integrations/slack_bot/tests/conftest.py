@@ -15,7 +15,7 @@ C123:
   name: "#test-channel"
   agents:
     - agent_id: "test-agent"
-      enable_users:
+      users:
         enabled: true
         overthink:
           enabled: false

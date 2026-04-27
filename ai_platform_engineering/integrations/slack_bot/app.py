@@ -102,18 +102,18 @@ def _match_agents(channel_config, is_bot, bot_username=None, listen=None):
   """Return all agents configured for this sender type and listen mode."""
   matched = []
   for agent in channel_config.agents:
-    if is_bot and agent.enable_bots:
-      if not agent.enable_bots.enabled:
+    if is_bot and agent.bots:
+      if not agent.bots.enabled:
         continue
-      if listen and not _listen_matches(agent.enable_bots.listen, listen):
+      if listen and not _listen_matches(agent.bots.listen, listen):
         continue
-      if agent.enable_bots.bot_list is not None and bot_username not in agent.enable_bots.bot_list:
+      if agent.bots.bot_list is not None and bot_username not in agent.bots.bot_list:
         continue
       matched.append(agent)
-    elif not is_bot and agent.enable_users:
-      if not agent.enable_users.enabled:
+    elif not is_bot and agent.users:
+      if not agent.users.enabled:
         continue
-      if listen and not _listen_matches(agent.enable_users.listen, listen):
+      if listen and not _listen_matches(agent.users.listen, listen):
         continue
       matched.append(agent)
   return matched
@@ -482,10 +482,10 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
     overthink = None
-    if is_bot and agent_match.enable_bots:
-      overthink = agent_match.enable_bots.overthink
-    elif not is_bot and agent_match.enable_users:
-      overthink = agent_match.enable_users.overthink
+    if is_bot and agent_match.bots:
+      overthink = agent_match.bots.overthink
+    elif not is_bot and agent_match.users:
+      overthink = agent_match.users.overthink
 
     client_context = {
       "source": "slack",
