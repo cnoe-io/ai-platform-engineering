@@ -90,9 +90,6 @@ def get_escalation_config(agent_match: AgentBinding) -> EscalationConfig | None:
   return esc if has_escalation else None
 
 
-_OLD_FORMAT_KEYS = {"qanda", "ai_alerts", "ai_enabled"}
-
-
 class Config(BaseModel):
   defaults: GlobalDefaults = Field(default_factory=GlobalDefaults)
   channels: dict[str, ChannelConfig]
@@ -134,17 +131,8 @@ class Config(BaseModel):
       logger.info("No bot config found — starting with no channel configuration")
       raw_config = {}
 
-    # Parse channels — with old-format detection
     channels: dict[str, ChannelConfig] = {}
     for channel_id, channel_data in raw_config.items():
-      if isinstance(channel_data, dict):
-        old_keys = _OLD_FORMAT_KEYS & channel_data.keys()
-        if old_keys:
-          raise ValueError(
-            f"Channel '{channel_id}' uses pre-0.4.0 config keys {old_keys}. "
-            "Migrate to the flat agents list format: "
-            "https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/slack-config-migration.md"
-          )
       channels[channel_id] = ChannelConfig(**channel_data)
 
     silence_env = os.environ.get("SLACK_INTEGRATION_SILENCE_ENV", "false").lower() == "true"

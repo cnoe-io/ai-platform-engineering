@@ -213,27 +213,3 @@ C999:
     assert agent.bots.listen == "mention"
 
 
-class TestOldFormatDetection:
-  def test_qanda_key_raises_value_error(self, monkeypatch):
-    monkeypatch.setenv(
-      "SLACK_INTEGRATION_BOT_CONFIG",
-      '{"C123": {"name": "#old", "qanda": {"enabled": true}}}',
-    )
-    with pytest.raises(ValueError, match="pre-0.4.0"):
-      Config.from_env()
-
-  def test_ai_alerts_key_raises_value_error(self, monkeypatch):
-    monkeypatch.setenv(
-      "SLACK_INTEGRATION_BOT_CONFIG",
-      '{"C123": {"name": "#old", "ai_alerts": {"enabled": true}}}',
-    )
-    with pytest.raises(ValueError, match="pre-0.4.0"):
-      Config.from_env()
-
-  def test_ai_enabled_key_raises_value_error(self, monkeypatch):
-    monkeypatch.setenv(
-      "SLACK_INTEGRATION_BOT_CONFIG",
-      '{"C123": {"name": "#old", "ai_enabled": true}}',
-    )
-    with pytest.raises(ValueError, match="pre-0.4.0"):
-      Config.from_env()
