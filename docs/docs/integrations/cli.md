@@ -4,6 +4,11 @@ sidebar_position: 4
 
 # CAIPE CLI
 
+:::caution Refactor in Progress
+The CLI is under active development. Track progress in [PR #1184](https://github.com/cnoe-io/ai-platform-engineering/pull/1184). Commands, flags, and installation paths may change before the final merge.
+:::
+
+
 AI-assisted coding, workflows, and platform engineering from the terminal.
 
 CAIPE CLI is a TypeScript/Bun CLI that connects to a CAIPE server via the A2A or AG-UI streaming protocol. It provides an interactive chat REPL, headless mode for CI/CD pipelines, skill management, and secure credential storage.

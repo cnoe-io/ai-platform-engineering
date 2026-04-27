@@ -4,6 +4,11 @@ sidebar_position: 3
 
 # Webex Bot
 
+:::caution Refactor in Progress
+This integration is being actively developed. Track progress in [PR #1038](https://github.com/cnoe-io/ai-platform-engineering/pull/1038). APIs and configuration may change before the final merge.
+:::
+
+
 The CAIPE Webex bot connects to the Webex platform via WebSocket (WDM pattern) and forwards user messages to the CAIPE supervisor via the A2A protocol. Responses are streamed back with execution plan and tool progress updates.
 
 ## Features
