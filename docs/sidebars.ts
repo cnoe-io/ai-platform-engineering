@@ -361,6 +361,21 @@ const sidebars: SidebarsConfig = {
           id: 'integrations/slack-bot',
           label: 'Slack Bot',
         },
+        {
+          type: 'doc',
+          id: 'integrations/backstage-plugin',
+          label: 'Agent Forge (Backstage)',
+        },
+        {
+          type: 'doc',
+          id: 'integrations/webex-bot',
+          label: 'Webex Bot',
+        },
+        {
+          type: 'doc',
+          id: 'integrations/cli',
+          label: 'CAIPE CLI',
+        },
       ],
     },
     {
@@ -509,10 +524,6 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'tools-utils/agent-chat-cli',
-        },
-        {
-          type: 'doc',
-          id: 'tools-utils/agent-forge-backstage-plugin',
         },
         {
           type: 'doc',
