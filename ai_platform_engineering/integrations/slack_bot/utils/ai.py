@@ -24,8 +24,6 @@ try:
 except ImportError:
   from ..sse_client import SSEClient, SSEEventType
 from . import slack_formatter
-from . import utils as _utils
-from .config import config
 
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 
@@ -47,28 +45,28 @@ _THOUGHT_KEYS = (
 _MAX_DETAILS_LEN = 200
 
 # Typing indicator constants (overridable via env vars)
-_STATUS_PREFIX = "💭 "
+_STATUS_PREFIX = ""
 _STATUS_MAX_LEN = 50  # Slack loading_messages hard limit is 50 chars
 _DEFAULT_LOADING_MESSAGES = [
-  "👀 takin a look...",
-  "👀 checking...",
-  "👀 on it...",
+  "thinking...",
+  "Convincing the AI to stop overthinking...",
+  "Resorting to magic...",
 ]
 _raw_loading = os.environ.get("SLACK_LOADING_MESSAGES")
 _INITIAL_LOADING_MESSAGES = ([m.strip() for m in _raw_loading.split(",") if m.strip()] if _raw_loading else _DEFAULT_LOADING_MESSAGES) or _DEFAULT_LOADING_MESSAGES  # fall back if split produces empty list
-_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "😅 not sure about this")
-_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "🙋 letting the team handle this")
-_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "😕 something went wrong")
+_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "response is low confidence, not responding")
+_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "letting a human handle this")
+_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "something went wrong")
 _OVERTHINK_STATUS_DISPLAY_SECS = int(os.environ.get("SLACK_OVERTHINK_STATUS_DISPLAY_SECS", "7"))
 
 # Overthink-mode keepalive: cycle these messages when no SSE events arrive.
 _OVERTHINK_KEEPALIVE_INTERVAL = 60  # seconds between keepalive messages
 _OVERTHINK_KEEPALIVE_MESSAGES = [
-  "👀 still working on it...",
-  "😳 taking longer than expected...",
-  "😅 really overthinking this...",
+  "still working on it...",
+  "taking longer than expected...",
+  "really overthinking this...",
 ]
-_STATUS_OVERTHINK_WRITE_TODOS = "📋 checking notes..."
+_STATUS_OVERTHINK_WRITE_TODOS = "checking notes..."
 _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
 
@@ -196,11 +194,13 @@ class StreamBuffer:
       return False
 
 
-def _build_footer_text(triggered_by_user_id=None, additional_footer=None) -> str:
+def _build_footer_text(triggered_by_user_id=None, additional_footer=None, agent_id=None) -> str:
   """Build footer text with optional user attribution and additional text."""
   parts = []
   if additional_footer:
     parts.append(f"_{additional_footer}_")
+  if agent_id:
+    parts.append(f"_Agent: {agent_id}_")
   if triggered_by_user_id:
     parts.append(f"_Requested by <@{triggered_by_user_id}>_")
   parts.append(f"_Mention @{APP_NAME} to continue_")
@@ -232,7 +232,7 @@ def stream_response(
   conversation_id: str,
   triggered_by_user_id=None,
   additional_footer=None,
-  overthink_mode=False,
+  overthink_config=None,
   escalation_config=None,
   is_resume=False,
   resume_form_data=None,
@@ -261,7 +261,8 @@ def stream_response(
       conversation_id: Deterministic UUID v5 from thread_ts.
       triggered_by_user_id: Optional user ID for footer attribution.
       additional_footer: Optional footer text.
-      overthink_mode: If True, process silently and skip low-confidence responses.
+      overthink_config: Optional OverthinkConfig; when present and enabled,
+          process silently and skip low-confidence responses.
       escalation_config: Optional escalation config for delete buttons.
       is_resume: If True, use resume_stream() instead of stream_chat().
       resume_form_data: JSON string of form data for resume.
@@ -272,6 +273,9 @@ def stream_response(
       on recoverable errors, or dict with skipped=True if overthink_mode filtered.
   """
   from .hitl_handler import parse_agui_interrupt, format_hitl_form_blocks
+
+  # Derive boolean from config object
+  overthink_mode = bool(overthink_config and overthink_config.enabled)
 
   # Streaming requires a valid user_id (starts with U or W), bot_ids (B) don't work
   can_stream = user_id and user_id[0] in ("U", "W")
@@ -434,8 +438,10 @@ def stream_response(
       return
     if status_text and len(status_text) > _STATUS_MAX_LEN:
       status_text = status_text[: _STATUS_MAX_LEN - 3] + "..."
+    if not status_text:
+      return
     if loading_messages is None:
-      loading_messages = [status_text] if status_text else [_STATUS_PREFIX.rstrip()]
+      loading_messages = [status_text]
 
     # Empty status (clear) always sends immediately
     now = time.monotonic()
@@ -527,8 +533,11 @@ def stream_response(
       client_context=client_context,
     )
   else:
+    effective_message = message_text
+    if overthink_mode and overthink_config.custom_prompt:
+      effective_message = f"{overthink_config.custom_prompt}\n\n{message_text}"
     event_stream = sse_client.stream_chat(
-      message=message_text,
+      message=effective_message,
       conversation_id=conversation_id,
       agent_id=agent_id,
       client_context=client_context,
@@ -799,6 +808,7 @@ def stream_response(
                 triggered_by_user_id=triggered_by_user_id,
                 additional_footer=additional_footer,
                 escalation_config=escalation_config,
+                agent_id=agent_id,
               )
             )
             slack_client.chat_stopStream(channel=channel_id, ts=stream_ts, blocks=error_blocks)
@@ -830,7 +840,8 @@ def stream_response(
 
     # Overthink mode: check for skip markers
     if overthink_mode and final_text:
-      skip_result = _check_overthink_skip(final_text, thread_ts)
+      skip_markers = overthink_config.skip_markers if overthink_config else None
+      skip_result = _check_overthink_skip(final_text, thread_ts, skip_markers=skip_markers)
       if skip_result:
         # Flash a brief status so the user knows the bot noticed.
         # Must block here — if we return immediately, Slack clears the
@@ -890,6 +901,7 @@ def stream_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
+        agent_id=agent_id,
       )
       logger.debug(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
       try:
@@ -913,6 +925,7 @@ def stream_response(
             triggered_by_user_id=triggered_by_user_id,
             additional_footer=additional_footer,
             escalation_config=escalation_config,
+            agent_id=agent_id,
           )
         raise
 
@@ -930,6 +943,7 @@ def stream_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
+        agent_id=agent_id,
       )
     else:
       if thread_deleted:
@@ -951,6 +965,7 @@ def stream_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
+        agent_id=agent_id,
       )
 
   except Exception as e:
@@ -976,6 +991,7 @@ def stream_response(
           triggered_by_user_id=triggered_by_user_id,
           additional_footer=additional_footer,
           escalation_config=escalation_config,
+          agent_id=agent_id,
         )
       )
     except Exception:
@@ -1056,6 +1072,7 @@ def invoke_response(
       triggered_by_user_id=triggered_by_user_id,
       additional_footer=additional_footer,
       escalation_config=escalation_config,
+      agent_id=agent_id,
     )
 
   except Exception as e:
@@ -1070,6 +1087,7 @@ def invoke_response(
           triggered_by_user_id=triggered_by_user_id,
           additional_footer=additional_footer,
           escalation_config=escalation_config,
+          agent_id=agent_id,
         )
       )
     except Exception:
@@ -1083,22 +1101,24 @@ def invoke_response(
     return error_blocks
 
 
-def _check_overthink_skip(final_text: str, thread_ts: str) -> dict | None:
+def _check_overthink_skip(final_text: str, thread_ts: str, skip_markers: list[str] | None = None) -> dict | None:
   """Check if response should be skipped in overthink mode.
+
+  Args:
+      final_text: The agent's complete response text.
+      thread_ts: Slack thread timestamp for logging.
+      skip_markers: Configurable list of marker strings to check.
+          Defaults to ``["DEFER", "LOW_CONFIDENCE"]``.
 
   Returns:
       None if response should be posted normally
       {"skipped": True, "reason": "..."} if response should be skipped
   """
-  if "[DEFER]" in final_text:
-    logger.info(f"[{thread_ts}] Overthink: skipping response (DEFER - human action needed)")
-    return {"skipped": True, "reason": "defer"}
-
-  if "[LOW_CONFIDENCE]" in final_text:
-    logger.info(f"[{thread_ts}] Overthink: skipping response (LOW_CONFIDENCE - no good sources)")
-    logger.debug(f"[{thread_ts}] LOW_CONFIDENCE response: {final_text}")
-    return {"skipped": True, "reason": "low_confidence"}
-
+  markers = skip_markers or ["DEFER", "LOW_CONFIDENCE"]
+  for marker in markers:
+    if f"[{marker}]" in final_text:
+      logger.info(f"[{thread_ts}] Overthink: skipping response ({marker})")
+      return {"skipped": True, "reason": marker.lower()}
   return None
 
 
@@ -1121,6 +1141,7 @@ def _post_final_response(
   triggered_by_user_id=None,
   additional_footer=None,
   escalation_config=None,
+  agent_id=None,
 ):
   """Post final response as a regular message (fallback for bot messages)."""
   final_text = _strip_confidence_markers(final_text)
@@ -1135,6 +1156,7 @@ def _post_final_response(
     triggered_by_user_id=triggered_by_user_id,
     additional_footer=additional_footer,
     escalation_config=escalation_config,
+    agent_id=agent_id,
   )
 
   final_blocks = slack_formatter.enforce_block_limit(content_blocks, footer_blocks)
@@ -1156,10 +1178,11 @@ def _build_stream_final_blocks(
   triggered_by_user_id=None,
   additional_footer=None,
   escalation_config=None,
+  agent_id=None,
 ):
   """Build the feedback + footer blocks used by both stream types."""
   final_blocks = []
-  action_value = f"{channel_id}|{thread_ts}|{original_ts or ''}"
+  action_value = f"{channel_id}|{thread_ts}|{original_ts or ''}|{agent_id or ''}"
 
   context_elements = [
     {
@@ -1167,11 +1190,11 @@ def _build_stream_final_blocks(
       "action_id": "caipe_feedback",
       "positive_button": {
         "text": {"type": "plain_text", "text": "\U0001f44d"},
-        "value": f"positive|{original_ts or ''}",
+        "value": f"positive|{original_ts or ''}|{agent_id or ''}",
       },
       "negative_button": {
         "text": {"type": "plain_text", "text": "\U0001f44e"},
-        "value": f"negative|{original_ts or ''}",
+        "value": f"negative|{original_ts or ''}|{agent_id or ''}",
       },
     },
   ]
@@ -1188,7 +1211,7 @@ def _build_stream_final_blocks(
     )
   final_blocks.append({"type": "context_actions", "elements": context_elements})
 
-  footer_text = _build_footer_text(triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer)
+  footer_text = _build_footer_text(triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer, agent_id=agent_id)
   final_blocks.append(
     {
       "type": "context",
@@ -1197,100 +1220,3 @@ def _build_stream_final_blocks(
   )
 
   return final_blocks
-
-
-def handle_ai_alert_processing(
-  sse_client: SSEClient,
-  slack_client,
-  event,
-  channel_id,
-  bot_username,
-  channel_config,
-  agent_id: str,
-  custom_prompt=None,
-  escalation_config=None,
-):
-  """AI-powered alert processing.
-
-  Args:
-      sse_client: SSEClient for dynamic agents.
-      slack_client: Slack WebClient.
-      event: Slack event dict.
-      channel_id: Slack channel ID.
-      bot_username: Name of the bot that triggered the alert.
-      channel_config: JiraConfig for the channel.
-      agent_id: Dynamic agent config ID.
-      custom_prompt: Optional custom prompt template.
-      escalation_config: Optional escalation config.
-  """
-  alert_text = event.get("text", "")
-  alert_blocks = event.get("blocks", [])
-  alert_attachments = event.get("attachments", [])
-
-  alert_context = {
-    "bot": bot_username,
-    "channel_id": channel_id,
-    "text": alert_text,
-    "timestamp": event.get("ts", ""),
-    "blocks": json.dumps(alert_blocks) if alert_blocks else None,
-    "attachments": json.dumps(alert_attachments) if alert_attachments else None,
-  }
-
-  jira_config_str = json.dumps(channel_config.model_dump(), indent=2)
-  jira_project = channel_config.project_key
-  prompt_template = custom_prompt if custom_prompt else config.defaults.default_ai_alerts_prompt
-
-  prompt = prompt_template.format(
-    bot_username=bot_username,
-    channel_id=channel_id,
-    alert_text=alert_text,
-    timestamp=alert_context["timestamp"],
-    jira_project=jira_project,
-    jira_config_str=jira_config_str,
-    alert_blocks=alert_context["blocks"][:500] if alert_blocks else "",
-    alert_attachments=alert_context["attachments"][:500] if alert_attachments else "",
-  )
-
-  thread_ts = event.get("ts")
-  team_id = event.get("team")
-  user_id = event.get("user", event.get("bot_id"))
-
-  logger.info(f"[{thread_ts}] AI processing alert from {bot_username}, agent={agent_id}")
-
-  if not _utils.verify_thread_exists(slack_client, channel_id, thread_ts):
-    logger.warning(f"[{thread_ts}] Ignoring alert — parent message was deleted")
-    return None
-
-  if config.silence_env:
-    logger.info(f"[{thread_ts}] Silencing AI alert processing")
-    return "Silenced"
-
-  # Resolve conversation_id via idempotency_key (thread_ts) — creates if first call
-  conv_result = sse_client.create_conversation(
-    title=f"Alert: {bot_username}"[:50],
-    agent_id=agent_id,
-    idempotency_key=thread_ts,
-    metadata={
-      "thread_ts": thread_ts,
-      "channel_id": channel_id,
-      "alert_bot": bot_username,
-      **({"workspace_url": os.environ.get("SLACK_WORKSPACE_URL", "")} if os.environ.get("SLACK_WORKSPACE_URL") else {}),
-    },
-  )
-  conversation_id = conv_result["conversation_id"]
-
-  result = stream_response(
-    sse_client=sse_client,
-    slack_client=slack_client,
-    channel_id=channel_id,
-    thread_ts=thread_ts,
-    message_text=prompt,
-    team_id=team_id,
-    user_id=user_id,
-    agent_id=agent_id,
-    conversation_id=conversation_id,
-    escalation_config=escalation_config,
-  )
-
-  logger.info(f"[{thread_ts}] AI processed alert from {bot_username}")
-  return result

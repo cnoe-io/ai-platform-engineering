@@ -346,13 +346,7 @@ export function getServerConfig(): Config {
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
     allowDevAdminWhenSsoDisabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
-    enabledIntegrationIcons: (() => {
-      const icons = env('ENABLED_INTEGRATION_ICONS');
-      if (icons) {
-        return icons.split(',').map((icon) => icon.trim().toLowerCase());
-      }
-      return null;
-    })(),
+    enabledIntegrationIcons: env('ENABLED_INTEGRATION_ICONS')?.split(',').map((icon) => icon.trim().toLowerCase()) ?? null,
     faviconUrl: env('FAVICON_URL') || '/favicon.ico',
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
