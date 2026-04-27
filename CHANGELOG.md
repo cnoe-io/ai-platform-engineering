@@ -1,4 +1,13 @@
-## 0.4.1 (2026-04-24)
+## 0.4.2 (2026-04-27)
+
+## 0.4.1-dev.1 (2026-04-27)
+
+### Fix
+
+- **skills**: fix caipe-skills.py 404, add auth fallback, simplify gateway UI (#1286)
+- **docs**: escape bare < in plan.md to fix MDX build error (#1285)
+
+## 0.4.1-rc.1 (2026-04-24)
 
 ### Fix
 
@@ -6,12 +15,31 @@
 
 ## 0.4.0-rc.24 (2026-04-23)
 
+### Feat
+
+- **ci**: auto label PRs
+
+### Fix
+
+- **ci**: auto tag inf commits
+- **ci**: prevent inf loop for release PRs
+- **ci**: bad pipefails
+- **ci**: auto tag infinite loop fix
+- **ci**: fix helm ci to trigger on tag
+- **ci-prebuild**: use correct chart version
+- **ci**: bad syntax and fix prebuild cleanup
+- **ci**: fail ci if base not latest
+- **ci**: need git name and email to commit
+- **ci**: need to prebuild helm correctly and not prebuild img on pyproject change
+- **ci**: prevent infinite ci loop :)
+
 ## 0.3.11 (2026-04-22)
 
 ### Fix
 
 - **slack**: add escalation policy field and fix humble followup prompt (#1277)
 - **admin**: correct feedback dedup, user linkage, and top user display (#1273)
+- **ci**: detect image changes, chart changes and irrelevant changes
 
 ## 0.3.10 (2026-04-21)
 
@@ -109,6 +137,7 @@
 ### Feat
 
 - **rag**: add Jira issue ingestor and UI read-only datasource support (#988)
+- **ci**: new release management & versioning strategy
 
 ### Fix
 
