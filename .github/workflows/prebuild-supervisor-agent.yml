@@ -1,14 +1,17 @@
-name: "[Pre-Release] CAIPE UI Docker Build and Push"
-description: "Build and push CAIPE UI Docker image for prebuild branches"
+name: "[Prebuild][A2A] Supervisor Agent Docker Build and Push"
+description: "Build and push Supervisor Agent Docker image"
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
     paths:
-      - 'ui/**'
-      - 'build/Dockerfile.caipe-ui'
+      - 'build/Dockerfile'
+      - 'ai_platform_engineering/multi_agents/**'
+      - 'ai_platform_engineering/agents/**'
+      - 'ai_platform_engineering/utils/**'
+      - 'ai_platform_engineering/__init__.py'
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-ui
+  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering
 
 permissions:
   contents: write
@@ -27,40 +30,44 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: 🔒 Harden runner
+      - name: 🔒 harden runner
         uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
         with:
           egress-policy: audit
-
-      - name: Free disk space
-        run: |
-          echo "Disk usage before cleanup:"
-          df -h
-          sudo apt-get remove -y '^ghc-*' || true
-          sudo apt-get remove -y '^dotnet-*' || true
-          sudo apt-get remove -y '^llvm-*' || true
-          sudo apt-get remove -y 'php*' || true
-          sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          docker system prune -af --volumes || true
-          echo "Disk usage after cleanup:"
-          df -h
-
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
+      - name: Check build eligibility
+        id: eligibility
+        shell: bash
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}"
+          BASE="origin/${{ github.event.pull_request.base.ref }}"
+
+          CORE_CHANGED=false
+          if git diff --name-only "$BASE..HEAD" -- \
+              build/Dockerfile \
+              ai_platform_engineering/multi_agents \
+              ai_platform_engineering/utils \
+              pyproject.toml \
+              uv.lock \
+              ai_platform_engineering/__init__.py | grep -q .; then
+            CORE_CHANGED=true
+          fi
+
+          if [[ "$CORE_CHANGED" == "true" || "${{ contains(github.head_ref, 'single-node') }}" == "true" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.eligibility.outputs.should_build == 'true'
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
+        if: steps.eligibility.outputs.should_build == 'true'
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ghcr.io
@@ -68,6 +75,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute prebuild tag
+        if: steps.eligibility.outputs.should_build == 'true'
         id: compute_tag
         shell: bash
         run: |
@@ -80,6 +88,7 @@ jobs:
           echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
 
       - name: Extract metadata for Docker
+        if: steps.eligibility.outputs.should_build == 'true'
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
         with:
@@ -88,29 +97,23 @@ jobs:
             type=raw,value=${{ env.PREBUILD_TAG }}
 
       - name: Set up QEMU
+        if: steps.eligibility.outputs.should_build == 'true'
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
-      - name: Build and Push CAIPE UI Docker image
+      - name: Build and Push A2A Docker image
+        if: steps.eligibility.outputs.should_build == 'true'
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
-          file: ./build/Dockerfile.caipe-ui
+          file: ./build/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            CAIPE_URL=http://caipe-supervisor:8000
-            BUILDKIT_INLINE_CACHE=1
-            IMAGE_TAG=${{ env.PREBUILD_TAG }}
-            GIT_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          provenance: false
-          sbom: false
 
       - name: 💬 Comment on PR
-        if: github.event_name == 'pull_request'
+        if: steps.eligibility.outputs.should_build == 'true' && github.event_name == 'pull_request'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
@@ -118,7 +121,7 @@ jobs:
           PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
         with:
           script: |
-            const body = `## 🐳 Prebuild CAIPE UI Docker Image Published
+            const body = `## 🐳 Prebuild Docker Image Published
 
             **Repository:** \`${process.env.IMAGE_REPO}\`
             **Tag:** \`${process.env.PREBUILD_TAG}\`
@@ -126,14 +129,6 @@ jobs:
             ### Usage
             \`\`\`bash
             docker pull ${process.env.IMAGE_REF}
-            \`\`\`
-
-            ### Test in docker-compose
-            \`\`\`bash
-            # Update docker-compose.dev.yaml
-            caipe-ui:
-              image: ${process.env.IMAGE_REF}
-              # ... rest of config
             \`\`\`
 
             > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
@@ -153,7 +148,7 @@ jobs:
       packages: write
     env:
       OWNER: ${{ github.repository_owner }}
-      PACKAGE_NAME: prebuild/caipe-ui
+      PACKAGE_NAME: prebuild/ai-platform-engineering
     steps:
       - name: Delete prebuild images for branch
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
