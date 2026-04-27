@@ -1,0 +1,13 @@
+{
+  "name": "rbac-e2e",
+  "private": true,
+  "description": "Playwright suite for spec 102 RBAC e2e tests. Lives outside ui/ so the matrix-completeness spec (T058) can read tests/rbac/rbac-matrix.yaml without crossing into the Next.js bundle.",
+  "scripts": {
+    "test": "playwright test",
+    "test:list": "playwright test --list"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "yaml": "^2.8.3"
+  }
+}

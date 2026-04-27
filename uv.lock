@@ -67,12 +67,13 @@ wheels = [
 
 [[package]]
 name = "ai-platform-engineering"
-version = "0.3.10"
+version = "0.4.1.dev1"
 source = { virtual = "." }
 dependencies = [
     { name = "a2a-sdk" },
     { name = "ag-ui-protocol" },
     { name = "agntcy-app-sdk" },
+    { name = "cachetools" },
     { name = "clorm" },
     { name = "cnoe-agent-utils" },
     { name = "config" },
@@ -120,6 +121,7 @@ requires-dist = [
     { name = "a2a-sdk", specifier = "==0.3.0" },
     { name = "ag-ui-protocol", specifier = "==0.1.15" },
     { name = "agntcy-app-sdk", specifier = "==0.4.0" },
+    { name = "cachetools", specifier = "==6.2.1" },
     { name = "clorm", specifier = "==1.6.1" },
     { name = "cnoe-agent-utils", specifier = "==0.3.15" },
     { name = "config", specifier = "==0.5.1" },
@@ -477,6 +479,15 @@ source = { registry = "https://pypi.org/simple/" }
 sdist = { url = "https://files.pythonhosted.org/packages/63/9a/fec38644694abfaaeca2798b58e276a8e61de49e2e37494ace423395febc/bracex-2.6.tar.gz", hash = "sha256:98f1347cd77e22ee8d967a30ad4e310b233f7754dbf31ff3fceb76145ba47dc7", size = 26642, upload-time = "2025-06-22T19:12:31.254Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/2a/9186535ce58db529927f6cf5990a849aa9e052eea3e2cfefe20b9e1802da/bracex-2.6-py3-none-any.whl", hash = "sha256:0b0049264e7340b3ec782b5cb99beb325f36c3782a32e36e876452fd49a09952", size = 11508, upload-time = "2025-06-22T19:12:29.781Z" },
+]
+
+[[package]]
+name = "cachetools"
+version = "6.2.1"
+source = { registry = "https://pypi.org/simple/" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/7e/b975b5814bd36faf009faebe22c1072a1fa1168db34d285ef0ba071ad78c/cachetools-6.2.1.tar.gz", hash = "sha256:3f391e4bd8f8bf0931169baf7456cc822705f4e2a31f840d218f445b9a854201", size = 31325, upload-time = "2025-10-12T14:55:30.139Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/c5/1e741d26306c42e2bf6ab740b2202872727e0f606033c9dd713f8b93f5a8/cachetools-6.2.1-py3-none-any.whl", hash = "sha256:09868944b6dde876dfd44e1d47e18484541eaf12f26f29b7af91b26cc892d701", size = 11280, upload-time = "2025-10-12T14:55:28.382Z" },
 ]
 
 [[package]]

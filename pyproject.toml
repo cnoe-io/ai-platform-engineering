@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.3.10"
+version = "0.4.1-dev.1"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -29,6 +29,8 @@ dependencies = [
     "pydantic==2.12.5",
     "pydantic-core==2.41.5",
     "pyjwt==2.12.0",
+    # Spec 102: TTL cache for keycloak_authz decision cache (T021)
+    "cachetools==6.2.1",
     # Single-node mode dependencies (uses upstream deepagents library)
     "deepagents==0.3.8",
     "nest-asyncio==1.6.0",
@@ -49,9 +51,11 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents"]
+testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents", "tests/rbac"]
 markers = [
   "integration: marks tests as integration tests requiring live services (deselect with '-m not integration')",
+  "rbac: cross-cutting RBAC tests (spec 102) — discovered via tests/rbac/conftest.py",
+  "rbac_online: requires a live Keycloak (start via `make test-rbac-up`); skipped unless --rbac-online is passed",
 ]
 
 [tool.ruff]

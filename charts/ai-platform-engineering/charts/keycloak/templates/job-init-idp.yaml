@@ -1,0 +1,72 @@
+{{- if .Values.idp.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "keycloak.fullname" . }}-init-idp
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "keycloak.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: init-idp
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-idp
+          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          command: ["/bin/sh", "/scripts/init-idp.sh"]
+          env:
+            - name: KC_URL
+              value: "http://{{ include "keycloak.fullname" . }}:{{ .Values.service.port }}"
+            - name: KEYCLOAK_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.adminSecretName" . }}
+                  key: username
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.adminSecretName" . }}
+                  key: password
+            - name: KC_REALM
+              value: {{ .Values.realm.name | quote }}
+            - name: IDP_ALIAS
+              value: {{ .Values.idp.alias | quote }}
+            - name: IDP_DISPLAY_NAME
+              value: {{ .Values.idp.displayName | quote }}
+            - name: IDP_ISSUER
+              value: {{ .Values.idp.issuer | quote }}
+            - name: IDP_CLIENT_ID
+              value: {{ .Values.idp.clientId | quote }}
+            {{- /* IDP_CLIENT_SECRET source — explicit secretRef wins; else
+                   ESO-managed Secret <fullname>-idp; else (idp.enabled but
+                   no source) the script will exit non-zero before bootstrap. */}}
+            {{- if or .Values.idp.secretRef .Values.idp.externalSecret.enabled }}
+            - name: IDP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.idpSecretName" . }}
+                  key: IDP_CLIENT_SECRET
+            {{- end }}
+            - name: IDP_ACCESS_GROUP
+              value: {{ .Values.idp.accessGroup | quote }}
+            - name: IDP_ADMIN_GROUP
+              value: {{ .Values.idp.adminGroup | quote }}
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: {{ include "keycloak.fullname" . }}-init-scripts
+            defaultMode: 0755
+{{- end }}

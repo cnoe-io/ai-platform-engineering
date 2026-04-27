@@ -553,6 +553,35 @@ wheels = [
 ]
 
 [[package]]
+name = "mcp-agent-auth"
+version = "0.1.0"
+source = { editable = "../../common/mcp-auth" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-dotenv" },
+    { name = "requests" },
+    { name = "starlette" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.0" },
+    { name = "python-dotenv", specifier = ">=0.20" },
+    { name = "requests", specifier = ">=2.28" },
+    { name = "starlette", specifier = ">=0.27" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "cryptography", specifier = ">=42.0" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "respx", specifier = ">=0.21" },
+]
+
+[[package]]
 name = "mcp-backstage"
 version = "0.1.0"
 source = { editable = "." }
@@ -561,6 +590,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "mcp" },
+    { name = "mcp-agent-auth" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -573,6 +603,7 @@ requires-dist = [
     { name = "fastmcp", specifier = "==3.2.3" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mcp", specifier = "==1.26.0" },
+    { name = "mcp-agent-auth", editable = "../../common/mcp-auth" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "python-dotenv", specifier = "==1.2.1" },
     { name = "pyyaml", specifier = "==6.0.3" },

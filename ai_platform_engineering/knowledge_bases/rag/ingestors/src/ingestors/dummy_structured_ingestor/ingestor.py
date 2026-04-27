@@ -44,6 +44,7 @@ async def sync_entities(client: Client):
   datasource_id = "dummy_entities"
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
+    name="Dummy entities",
     ingestor_id=client.ingestor_id or "",
     description="Dummy entities",
     source_type="dummy_structured_entities",

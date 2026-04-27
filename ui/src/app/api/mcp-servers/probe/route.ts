@@ -15,7 +15,7 @@ import {
   ApiError,
   requireAdmin,
 } from "@/lib/api-middleware";
-import { authenticateRequest } from "@/lib/da-proxy";
+import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
@@ -52,15 +52,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     try {
-      // Build headers with X-User-Context (same pattern as chat routes)
+      // Build headers with X-User-Context AND Authorization: Bearer
+      // (Spec 102 Phase 11.4 — DA now requires Bearer; X-User-Context kept
+      // for legacy claim hints but is no longer authoritative).
       const auth = await authenticateRequest(request);
       if (auth instanceof NextResponse) return auth;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (auth.userContextHeader) {
-        headers["X-User-Context"] = auth.userContextHeader;
-      }
+      const headers = buildBackendHeaders("application/json", auth);
 
       // Call the dynamic agents backend to probe the server
       const response = await fetch(`${DYNAMIC_AGENTS_URL}/api/v1/mcp-servers/${id}/probe`, {

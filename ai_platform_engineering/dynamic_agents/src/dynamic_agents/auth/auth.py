@@ -78,3 +78,19 @@ async def get_user_context(
             status_code=400,
             detail="Malformed X-User-Context header",
         )
+
+
+# Alias for backward compatibility with routes that import get_current_user
+get_current_user = get_user_context
+
+
+async def require_admin(
+    user: UserContext = Depends(get_user_context),
+) -> UserContext:
+    """Require admin role for the endpoint."""
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin role required",
+        )
+    return user

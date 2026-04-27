@@ -100,10 +100,24 @@ def get_message_author_info(event, client):
   return user_name, user_email
 
 
+# Module-level guard so we only log the "missing scope" warning once per
+# process instead of on every channel lookup. The operator only needs to see
+# the remediation hint a single time; after that the bot continues to work
+# (channel topic/purpose just stay empty).
+_MISSING_CHANNEL_SCOPE_LOGGED = False
+
+
 def get_channel_context(client, channel_id: str, session_mgr) -> dict:
   """Fetch channel topic and purpose, with TTL cache via session manager.
 
   Returns a dict with 'topic' and 'purpose' (empty strings if unavailable).
+
+  When the bot's Slack token is missing the ``channels:read`` /
+  ``groups:read`` / ``im:read`` / ``mpim:read`` scopes (depends on channel
+  type), `conversations.info` returns a ``missing_scope`` SlackApiError. We
+  treat that as a soft failure: log once with operator guidance, then cache
+  the empty result so we don't keep hitting the Slack API and tripping rate
+  limits for something we know will fail.
   """
   cached = session_mgr.get_channel_info(channel_id)
   if cached is not None:
@@ -116,7 +130,30 @@ def get_channel_context(client, channel_id: str, session_mgr) -> dict:
     info["topic"] = (channel.get("topic") or {}).get("value", "")
     info["purpose"] = (channel.get("purpose") or {}).get("value", "")
   except Exception as e:
-    logger.warning(f"Could not fetch channel info for {channel_id}: {e}")
+    # Slack SDK exposes the response payload on the exception; sniffing the
+    # `error` key avoids importing the SDK type just for isinstance().
+    err_code = ""
+    response = getattr(e, "response", None)
+    if response is not None:
+      try:
+        err_code = (response.data or {}).get("error", "")
+      except Exception:  # pragma: no cover — defensive
+        err_code = ""
+
+    if err_code == "missing_scope":
+      global _MISSING_CHANNEL_SCOPE_LOGGED
+      if not _MISSING_CHANNEL_SCOPE_LOGGED:
+        logger.warning(
+          "Slack bot token is missing channel-read scopes "
+          "(channels:read / groups:read / im:read / mpim:read). "
+          "Channel topic/purpose context will be empty for all channels. "
+          "Add the missing scopes to the Slack app manifest, reinstall the "
+          "app, and update SLACK_BOT_TOKEN. This warning will not repeat."
+        )
+        _MISSING_CHANNEL_SCOPE_LOGGED = True
+      # else: silent — operator has been told once.
+    else:
+      logger.warning(f"Could not fetch channel info for {channel_id}: {e}")
 
   session_mgr.set_channel_info(channel_id, info)
   return info

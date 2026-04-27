@@ -107,7 +107,7 @@ export function useAgentTimeline(
             if (toolData.error) {
               manager.pushToolFailed(toolData.tool_call_id, namespace, toolData.error);
             } else {
-              manager.pushToolEnd(toolData.tool_call_id, namespace);
+              manager.pushToolEnd(toolData.tool_call_id, namespace, toolData.args);
             }
           }
           break;

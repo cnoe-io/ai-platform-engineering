@@ -1209,6 +1209,7 @@ def handle_ai_alert_processing(
   agent_id: str,
   custom_prompt=None,
   escalation_config=None,
+  mapped_agent_id=None,
 ):
   """AI-powered alert processing.
 
@@ -1279,6 +1280,7 @@ def handle_ai_alert_processing(
   )
   conversation_id = conv_result["conversation_id"]
 
+  effective_agent_id = mapped_agent_id or agent_id
   result = stream_response(
     sse_client=sse_client,
     slack_client=slack_client,
@@ -1287,7 +1289,7 @@ def handle_ai_alert_processing(
     message_text=prompt,
     team_id=team_id,
     user_id=user_id,
-    agent_id=agent_id,
+    agent_id=effective_agent_id,
     conversation_id=conversation_id,
     escalation_config=escalation_config,
   )

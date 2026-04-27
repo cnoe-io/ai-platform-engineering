@@ -375,50 +375,50 @@ export default function OntologyNodeDetailsCard({
                             </span>
                         </div>
                         
-                        {/* Action buttons */}
-                        {rel.relationIds.length > 0 && (
+                        {/* Action buttons — hidden for users without ingest permission */}
+                        {rel.relationIds.length > 0 && canIngest && (
                             <div className="flex flex-wrap gap-1.5 pt-1">
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleEvaluate(rel.relationIds[0]); }}
-                                    disabled={actionLoading !== null || !canIngest}
+                                    disabled={actionLoading !== null}
                                     className="px-2 py-1 text-[10px] rounded bg-blue-500 hover:bg-blue-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={!canIngest ? 'Insufficient permissions' : 'Re-evaluate this relation'}
+                                    title="Re-evaluate this relation"
                                 >
                                     {actionLoading === 'evaluate' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RefreshCw className="h-2.5 w-2.5" />}
                                     Re-Evaluate
                                 </button>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleAccept(rel.relationIds[0]); }}
-                                    disabled={actionLoading !== null || !canIngest}
+                                    disabled={actionLoading !== null}
                                     className="px-2 py-1 text-[10px] rounded bg-green-500 hover:bg-green-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={!canIngest ? 'Insufficient permissions' : 'Accept this relation'}
+                                    title="Accept this relation"
                                 >
                                     {actionLoading === 'accept' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
                                     Accept
                                 </button>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleReject(rel.relationIds[0]); }}
-                                    disabled={actionLoading !== null || !canIngest}
+                                    disabled={actionLoading !== null}
                                     className="px-2 py-1 text-[10px] rounded bg-red-500 hover:bg-red-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={!canIngest ? 'Insufficient permissions' : 'Reject this relation'}
+                                    title="Reject this relation"
                                 >
                                     {actionLoading === 'reject' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <XIcon className="h-2.5 w-2.5" />}
                                     Reject
                                 </button>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleUndo(rel.relationIds[0]); }}
-                                    disabled={actionLoading !== null || !canIngest}
+                                    disabled={actionLoading !== null}
                                     className="px-2 py-1 text-[10px] rounded bg-orange-500 hover:bg-orange-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={!canIngest ? 'Insufficient permissions' : 'Undo evaluation'}
+                                    title="Undo evaluation"
                                 >
                                     {actionLoading === 'undo' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
                                     Undo
                                 </button>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleSync(rel.relationIds[0]); }}
-                                    disabled={actionLoading !== null || !canIngest}
+                                    disabled={actionLoading !== null}
                                     className="px-2 py-1 text-[10px] rounded bg-purple-500 hover:bg-purple-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title={!canIngest ? 'Insufficient permissions' : 'Sync to graph database'}
+                                    title="Sync to graph database"
                                 >
                                     {actionLoading === 'sync' ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <ArrowLeftRight className="h-2.5 w-2.5" />}
                                     Sync

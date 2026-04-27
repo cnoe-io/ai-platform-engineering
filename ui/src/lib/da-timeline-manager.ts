@@ -230,7 +230,7 @@ export class TimelineManager {
   /**
    * Push a tool end event.
    */
-  pushToolEnd(toolCallId: string, namespace: string[]): void {
+  pushToolEnd(toolCallId: string, namespace: string[], args?: Record<string, unknown>): void {
     const now = new Date();
     const currentIndex = this.eventIndex++;
 
@@ -240,6 +240,7 @@ export class TimelineManager {
       if (tool) {
         tool.status = "completed";
         tool.endedAt = now;
+        if (args) tool.args = args;
         this.lastToolEndIndex = currentIndex;
       }
 
@@ -268,6 +269,7 @@ export class TimelineManager {
         if (tool) {
           tool.status = "completed";
           tool.endedAt = now;
+          if (args) tool.args = args;
           subagent.lastToolEndIndex = currentIndex;
         }
       }

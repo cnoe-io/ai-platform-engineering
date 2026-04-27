@@ -18,6 +18,15 @@ export interface JWTIdentity {
   email: string;
   name: string;
   groups: string[];
+  /** Stable subject identifier from the JWT (`sub` claim). */
+  sub?: string;
+  /**
+   * Tenant/organization identifier. Sourced from `org`, `tenant_id`, or
+   * `organization` claims (in priority order). Surfaces from the bearer
+   * path into the BFF session so audit/RBAC can attribute decisions to
+   * the same tenant the cookie-session callers do.
+   */
+  org?: string;
 }
 
 let _cachedJWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -28,12 +37,28 @@ const _additionalJWKSCache = new Map<string, ReturnType<typeof createRemoteJWKSe
 
 /**
  * Fetch the JWKS URI from OIDC discovery and cache the keyset.
+ *
+ * `OIDC_DISCOVERY_URL` is treated as the *issuer base* (matching the
+ * convention used by `ui/src/lib/auth-config.ts` `wellKnown` and the
+ * docker-compose dev defaults — see line 1238 of docker-compose.dev.yaml,
+ * where the value is `http://keycloak:7080/realms/caipe` *without* the
+ * `/.well-known/openid-configuration` suffix). For backwards compatibility
+ * we also accept a value that already ends in `/.well-known/openid-configuration`
+ * (the rag_server convention used on line 1426 of the same file) and pass
+ * it through unchanged. This avoids a class of bugs where the env was set
+ * to the issuer base and the validator silently fetched the realm-info
+ * endpoint instead of the discovery doc — which returns valid JSON but no
+ * `jwks_uri`, so the failure mode was a misleading
+ * "OIDC discovery response missing jwks_uri" 500 instead of a 404.
  */
 async function getJWKS(): Promise<ReturnType<typeof createRemoteJWKSet>> {
   const issuer = process.env.OIDC_ISSUER!;
-  const discoveryUrl =
+  const rawDiscovery =
     process.env.OIDC_DISCOVERY_URL ||
     `${issuer}/.well-known/openid-configuration`;
+  const discoveryUrl = rawDiscovery.endsWith("/.well-known/openid-configuration")
+    ? rawDiscovery
+    : `${rawDiscovery.replace(/\/$/, "")}/.well-known/openid-configuration`;
 
   // Re-use cached keyset if discovery URL hasn't changed
   if (_cachedJWKS && _cachedJWKSUri === discoveryUrl) {
@@ -101,7 +126,21 @@ export async function validateBearerJWT(
   }
 
   const jwks = await getJWKS();
-  const audience = process.env.OIDC_CLIENT_ID || undefined;
+  // Spec 104: tokens minted by the Slack bot's OBO exchange carry
+  // `aud=agentgateway` (so they can hit AGW directly). The same token
+  // also flows through the BFF on the way there, so the BFF must accept
+  // either the UI's own audience or the agentgateway audience. Any
+  // additional acceptable audiences can be added via OIDC_EXTRA_AUDIENCES
+  // (comma-separated). `jose.jwtVerify` treats an array as
+  // "the token's `aud` MUST contain at least one of these".
+  const primary = process.env.OIDC_CLIENT_ID?.trim();
+  const extras = (process.env.OIDC_EXTRA_AUDIENCES || "agentgateway")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const auds = [primary, ...extras].filter((s): s is string => !!s);
+  const audience: string | string[] | undefined =
+    auds.length === 0 ? undefined : auds.length === 1 ? auds[0] : auds;
 
   try {
     const { payload } = await jwtVerify(token, jwks, {
@@ -165,7 +204,13 @@ function extractIdentity(payload: JWTPayload): JWTIdentity {
     }
   }
 
-  return { email, name, groups };
+  const sub = typeof payload.sub === 'string' ? payload.sub : undefined;
+  const org =
+    (typeof payload.org === 'string' ? payload.org : undefined) ||
+    (typeof payload.tenant_id === 'string' ? payload.tenant_id : undefined) ||
+    (typeof payload.organization === 'string' ? payload.organization : undefined);
+
+  return { email, name, groups, sub, org };
 }
 
 /**

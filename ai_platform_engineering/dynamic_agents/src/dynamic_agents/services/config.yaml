@@ -1,0 +1,85 @@
+# Dynamic Agents Seed Configuration
+# Generated from caipe-preview Kubernetes cluster
+
+# =============================================================================
+# Available LLM Models
+# =============================================================================
+
+models:
+  - description: Fast, efficient Claude 4.5 Haiku via AWS Bedrock
+    model_id: global.anthropic.claude-haiku-4-5-20251001-v1:0
+    name: Claude 4.5 Haiku (Bedrock)
+    provider: aws-bedrock
+
+  - description: Balanced performance Claude Sonnet 4 via AWS Bedrock
+    model_id: global.anthropic.claude-sonnet-4-20250514-v1:0
+    name: Claude Sonnet 4 (Bedrock)
+    provider: aws-bedrock
+
+  - description: Latest Claude Sonnet 4.5 via AWS Bedrock
+    model_id: global.anthropic.claude-sonnet-4-5-20250929-v1:0
+    name: Claude Sonnet 4.5 (Bedrock)
+    provider: aws-bedrock
+
+  - description: Claude 3.5 Sonnet v2 via AWS Bedrock
+    model_id: global.anthropic.claude-3-5-sonnet-20241022-v2:0
+    name: Claude 3.5 Sonnet v2 (Bedrock)
+    provider: aws-bedrock
+
+  - description: GPT-4o via Azure OpenAI
+    model_id: gpt-4o
+    name: GPT-4o (Azure)
+    provider: azure-openai
+
+  - description: Fast, cost-effective GPT-4o Mini via Azure OpenAI
+    model_id: gpt-4o-mini
+    name: GPT-4o Mini (Azure)
+    provider: azure-openai
+
+# =============================================================================
+# Seed MCP Servers
+# =============================================================================
+# Note: Production cluster endpoints below are disabled for local dev.
+# Enable only for Kubernetes deployments where these services exist.
+
+mcp_servers:
+  - description: GitHub repositories and pull requests
+    enabled: true
+    endpoint: ${GITHUB_MCP_URL:-http://localhost:8082}
+    id: github
+    name: GitHub
+    transport: http
+
+  - description: ArgoCD application and deployment management
+    enabled: true
+    endpoint: ${ARGOCD_MCP_URL:-http://localhost:18002/mcp}
+    id: argocd
+    name: ArgoCD
+    transport: http
+
+  - description: Jira issue tracking and project management
+    enabled: true
+    endpoint: ${JIRA_MCP_URL:-http://localhost:18004/mcp}
+    id: jira
+    name: Jira
+    transport: http
+
+  - description: PagerDuty incident management
+    enabled: true
+    endpoint: ${PAGERDUTY_MCP_URL:-http://localhost:18006/mcp}
+    id: pagerduty
+    name: PagerDuty
+    transport: http
+
+  - description: Knowledge Base tools
+    enabled: true
+    endpoint: ${RAG_SERVER_MCP_URL:-http://localhost:9446/mcp}
+    id: knowledge-base
+    name: Knowledge Base
+    transport: http
+
+# =============================================================================
+# Seed Agents
+# =============================================================================
+
+agents: []

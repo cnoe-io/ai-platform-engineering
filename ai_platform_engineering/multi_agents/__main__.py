@@ -8,6 +8,9 @@ logging.basicConfig(level=logging.INFO)
 AGENT_HOST = "0.0.0.0"
 AGENT_PORT = 8000  # Default port for the agent server
 
+# Dev-only: set DEV_HOT_RELOAD=true (with bind-mounted source) to auto-reload uvicorn on edits.
+DEV_HOT_RELOAD = os.getenv("DEV_HOT_RELOAD", "false").lower() in ("1", "true", "yes")
+
 @click.group()
 @click.option('--host', default=AGENT_HOST, help='Host to bind the server.')
 @click.option('--port', default=None, type=int, help='Port to bind the server.')
@@ -41,7 +44,10 @@ def platform_engineer(ctx):
     uvicorn.run(
       "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app",
       host=host,
-      port=port or AGENT_PORT)
+      port=port or AGENT_PORT,
+      reload=DEV_HOT_RELOAD,
+      reload_dirs=["/app/ai_platform_engineering"] if DEV_HOT_RELOAD else None,
+    )
   else:
     logging.error(f"Unsupported agent protocol: {agent_protocol}. Please set AGENT_PROTOCOL to 'fastapi' or 'a2a'.")
     click.echo(f"Unsupported agent protocol: {agent_protocol}. Please set AGENT_PROTOCOL to 'fastapi' or 'a2a'.")
@@ -62,7 +68,10 @@ def platform_engineer_single(ctx):
   uvicorn.run(
     "ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app",
     host=host,
-    port=port or AGENT_PORT)
+    port=port or AGENT_PORT,
+    reload=DEV_HOT_RELOAD,
+    reload_dirs=["/app/ai_platform_engineering"] if DEV_HOT_RELOAD else None,
+  )
 
 @main.command()
 @click.pass_context

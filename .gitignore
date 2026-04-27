@@ -207,6 +207,10 @@ charts/*/tmp/*
 *.jpg
 *.jpeg
 
+# Keycloak realm config — local copy may contain org-specific IdP secrets.
+# Use deploy/keycloak/realm-config.example.json as the starting point.
+deploy/keycloak/realm-config.json
+
 # Exclude actual secret files but keep the directory structure
 deploy/data/*
 !deploy/data/.gitkeep
@@ -281,4 +285,24 @@ integration/benchmark_results.md
 tests/reports/
 
 # We no longer have a separate docker-compose directory.
+# Spec 102: the previous e2e overlay was inlined into docker-compose.dev.yaml
+# via ${VAR:-default} substitution (see Makefile E2E_COMPOSE_ENV) so the
+# e2e lane reuses the dev compose file and a curated COMPOSE_PROFILES set.
 docker-compose/*
+
+# Spec 102 — RBAC test artifacts (junit, playwright traces, html reports)
+test-results/
+ui/test-results/
+ui/playwright-report/
+tests/rbac/e2e/test-results/
+tests/rbac/e2e/playwright-report/
+tests/rbac/e2e/node_modules/
+
+# Local-only seed config overrides (e.g. config/app-config.local.yaml,
+# config/slack-bot-config.local.yaml). The committed *.yaml files in
+# config/ stay as example templates; *.local.yaml is where each developer
+# stores their populated dev seed (LLM models, MCP endpoints, etc).
+app-config.local.yaml
+config/*.local.yaml
+config/*.local.yml
+

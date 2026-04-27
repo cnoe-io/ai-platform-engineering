@@ -285,6 +285,8 @@ export interface ChatMessage {
   timelineSegments?: SupervisorTimelineSegment[];
   /** Turn status for Dynamic Agents: done, interrupted, or waiting_for_input */
   turnStatus?: TurnStatus;
+  /** Connection/server error — rendered as inline banner, not as bot content */
+  error?: string;
 }
 
 // Input field configuration for use case forms

@@ -190,9 +190,9 @@ config:
   OIDC_REQUIRED_GROUP: "app-users"
   # OIDC admin group (non-sensitive)
   OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
-  # OIDC admin view group for read-only admin dashboard access (non-sensitive)
-  # Leave empty to allow all authenticated users to view admin dashboard
-  OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
+  # Bootstrap admin emails — comma-separated list for initial admin setup.
+  # Remove after configuring proper role mappings via the Admin > Roles tab.
+  # BOOTSTRAP_ADMIN_EMAILS: ""
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Additional JWKS URIs for token validation (JSON array, non-sensitive)
@@ -213,6 +213,9 @@ config:
   # GITHUB_TICKET_ENABLED: "true"
   # GITHUB_TICKET_REPO: "org/repo"
   # GITHUB_TICKET_LABEL: "caipe-reported"
+  # Server-side user identity via JWT — same flag as backend.
+  # When true, the UI stops prefixing messages with "by user: email".
+  ENABLE_USER_INFO_TOOL: "false"
 
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).

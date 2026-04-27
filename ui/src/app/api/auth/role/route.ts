@@ -1,7 +1,7 @@
-// GET /api/auth/role - Get user role with MongoDB fallback
+// GET /api/auth/role - Get user role with MongoDB + bootstrap fallback
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-config';
+import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
 
@@ -14,7 +14,15 @@ export async function GET(request: NextRequest) {
 
   let role = session.role || 'user';
 
-  // Fallback: Check MongoDB user profile if not admin via OIDC
+  if (role !== 'admin') {
+    // Check bootstrap admin emails (solves chicken-and-egg problem)
+    if (isBootstrapAdmin(session.user.email)) {
+      role = 'admin';
+      console.log(`[Auth Role API] User ${session.user.email} is admin via BOOTSTRAP_ADMIN_EMAILS`);
+    }
+  }
+
+  // Fallback: Check MongoDB user profile if not admin via OIDC or bootstrap
   if (role !== 'admin') {
     try {
       const users = await getCollection<User>('users');
@@ -33,6 +41,5 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     role,
     email: session.user.email,
-    // Note: groups are extracted client-side from idToken to avoid oversized cookies
   }, { status: 200 });
 }

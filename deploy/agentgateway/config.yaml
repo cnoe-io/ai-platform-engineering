@@ -1,0 +1,152 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Agent Gateway configuration for CAIPE platform (098 Enterprise RBAC)
+# PDP-2: validates JWTs issued by Keycloak and enforces CEL authorization
+# rules for MCP, A2A, and agent traffic.
+#
+# Docs: https://agentgateway.dev/docs/standalone/latest/configuration/security/
+
+binds:
+- port: 4000
+  listeners:
+  # Listener policies: LocalGatewayPolicy (jwtAuth only). HTTP CEL rules belong on the route (FilterOrPolicy).
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: http://localhost:7080/realms/caipe
+        # Spec 104: Slack-bot OBO tokens are minted with `aud=agentgateway`,
+        # UI-issued tokens stay on `aud=caipe-platform`. Either is accepted
+        # at the listener — fine-grained team scoping happens below via
+        # `jwt.active_team` on the route.
+        audiences: [caipe-platform, agentgateway]
+        # Docker DNS resolves "keycloak" via compose service name.
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+    routes:
+    - policies:
+        authorization:
+          rules:
+          # AGW 0.12 evaluates `has(jwt.sub)` as `false` here even when the
+          # JWT was validated and `sub` is in the claims (debug logs confirm).
+          # Authentication already happened at the listener (`jwtAuth` strict),
+          # so any request reaching the route is authenticated. Allow all
+          # authenticated traffic; per-tool/per-agent enforcement happens in
+          # `mcpAuthorization` and at the MCP/RAG/agent data-plane.
+          - allow: 'true'
+      backends:
+      - policies:
+          mcpAuthorization:
+            rules:
+            # ── Spec 104: Team-scoped RBAC (resource roles) ─────────
+            #
+            # Big-bang switch from the X-Team-Id header to the signed
+            # `jwt.active_team` claim. Every tool call must satisfy
+            # BOTH: (1) the user holds the per-tool `tool_user:<name>`
+            # role (or wildcard / admin); AND (2) the active_team scope
+            # of the request matches the team that granted the role —
+            # which we encode by also requiring `team_member:<active_team>`
+            # to be in realm roles. The Slack bot enforces (2) again
+            # before this point (see `channel_team_resolver.py`); this
+            # is the second of the two RBAC checkpoints called out in
+            # the design doc.
+            #
+            # The `__personal__` literal is the DM/personal-mode
+            # sentinel — there is no team to match against, so we only
+            # require the per-tool role.
+
+            # NOTE: Roles are read from the standard nested OIDC claim
+            # `jwt.realm_access.roles` (Keycloak's `realm-roles` mapper
+            # default). AGW 0.12's cel-fork PANICS on `Dynamic(Array)`
+            # claims when accessed via the `in` macro or `.exists()`,
+            # and `has(jwt.realm_access.roles)` incorrectly returns
+            # false for these nested JWT fields in the live playground.
+            # The runtime-safe form is direct field access plus
+            # `.contains("role")` on the list value.
+            #
+            # NOTE: `has(mcp.tool)` is intentionally omitted because in
+            # AGW 0.12 this evaluator runs once per tool during
+            # `tools/list` filtering and `mcp.tool` is not always
+            # populated at that point — including it caused every tool
+            # to be silently filtered out (see spec 104 verification
+            # logs).
+
+            # `admin_user` (super-admin realm role) bypasses everything
+            # — no team scope or per-tool role required. This is the
+            # platform admin role granted to bootstrap & break-glass
+            # users.
+            - 'jwt.realm_access.roles.contains("admin_user")'
+
+            # Personal-mode DMs: per-tool role only, no team check.
+            - |
+              jwt.active_team == "__personal__" &&
+              (jwt.realm_access.roles.contains("tool_user:" + mcp.tool.name) ||
+               jwt.realm_access.roles.contains("tool_user:*"))
+
+            # Group channels: per-tool role AND the team-membership role
+            # for the channel's mapped team must both be present.
+            - |
+              jwt.active_team != "__personal__" &&
+              (jwt.realm_access.roles.contains("tool_user:" + mcp.tool.name) ||
+               jwt.realm_access.roles.contains("tool_user:*")) &&
+              jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
+
+            # ── Admin-only operations (FR-013, FR-014) ──────────────
+            # Supervisor / platform-admin tools — gated on the legacy
+            # `admin` realm role and unaffected by team scope.
+            - |
+              jwt.realm_access.roles.contains("admin") &&
+              (mcp.tool.name.startsWith("admin_") ||
+               mcp.tool.name.startsWith("supervisor_config"))
+
+            # ── RAG ingest: kb_admin / admin only, no team scope ────
+            # Ingest is a platform-level write, so it does NOT need an
+            # active_team — kb_admin and admin both bypass the scope.
+            - |
+              (jwt.realm_access.roles.contains("kb_admin") ||
+               jwt.realm_access.roles.contains("admin")) &&
+              mcp.tool.name.startsWith("rag_ingest")
+
+            # NOTE: All other tool invocations (rag_query, github_*,
+            # jira_*, dynamic_agent_*, team_*, etc.) flow through the
+            # personal-mode / group-channel rules at the top of this
+            # block. The previous catch-all `chat_user / team_member`
+            # rules were removed in the spec 104 big-bang because they
+            # would let any chat_user invoke any non-admin tool with no
+            # team scope at all — defeating the refactor.
+
+        mcp:
+          targets:
+          # NOTE: AGW initializes ALL targets in a backend at once when a session
+          # is created. If any target's `initialize` returns an error (e.g.
+          # `github-mcp-server` requires a GitHub OAuth header AGW doesn't
+          # forward), the whole session fails for every target — including jira.
+          # The github upstream is temporarily disabled until we either
+          # (a) split each MCP into its own backend block, or
+          # (b) configure AGW to inject Authorization Bearer with the github
+          #     personal access token on the github upstream only.
+          # - name: github
+          #   mcp:
+          #     host: http://github-mcp-server:8082/sse
+          # rag-server hostname is the canonical compose service (renamed
+          # from `rag_server` because AGW's hickory-dns resolver rejects
+          # underscores in DNS labels per RFC 1035). The old `rag_server`
+          # name is kept as a network alias for backwards compatibility.
+          - name: rag
+            mcp:
+              host: http://rag-server:9446/mcp
+          # Jira MCP — fronted by AgentGateway so CEL/JWT remains the source of
+          # truth for RBAC (FR-016). The upstream `mcp-jira` service must run
+          # with `MCP_AUTH_MODE=none` (no per-MCP middleware) on the AG path so
+          # the gateway is the sole PEP. The custom mcp-agent-auth middleware is
+          # only used when an MCP is reached directly (local/embedded path).
+          - name: jira
+            mcp:
+              host: http://mcp-jira:8000/mcp
+
+config:
+  # Default is localhost-only; use 0.0.0.0 so Docker can publish :15000 to the host.
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: debug
+    format: json

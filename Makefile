@@ -205,6 +205,19 @@ caipe-ui-docker-compose: ## Run CAIPE UI with docker-compose (includes superviso
 	@echo "Starting CAIPE UI with docker-compose..."
 	docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
 
+caipe-ui-hot: ## Run CAIPE UI in Docker with hot reload (next dev + bind-mounted ./ui/src)
+	@echo "Starting CAIPE UI in hot-reload mode..."
+	@echo "  - Edits in ui/src trigger sub-second rebuild via next dev"
+	@echo "  - public/ asset changes still need: make caipe-ui-hot (rebuilds image)"
+	CAIPE_UI_BUILD_TARGET=dev \
+	CAIPE_UI_NODE_ENV=development \
+	CAIPE_UI_COMMAND="npm run dev" \
+	CAIPE_UI_IMAGE_SUFFIX=-dev \
+	docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
+	@echo ""
+	@echo "Hot-reload UI ready: http://localhost:3000"
+	@echo "Stream logs:        docker logs -f caipe-ui"
+
 ## ========== Documentation (Docusaurus) ==========
 
 docs: docs-install docs-start ## Install dependencies and start documentation development server
@@ -523,6 +536,188 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 	@command -v grype >/dev/null 2>&1 || { echo "grype not found. Install: brew install grype"; exit 1; }
 	@[ -n "$(IMG)" ] || { echo "Usage: make scan-image IMG=<image:tag>"; exit 1; }
 	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"
+
+## ========== Comprehensive RBAC tests (spec 102) ==========
+# See docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md
+
+# Profile selection. Override with E2E_PROFILES=...
+# All profiles live in docker-compose.dev.yaml — no separate e2e compose file.
+E2E_PROFILES   ?= rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot
+E2E_COMPOSE    := -f docker-compose.dev.yaml
+E2E_KC_URL     ?= http://localhost:7080
+E2E_KC_REALM   ?= cnoe
+E2E_KC_RESOURCE_SERVER_ID ?= caipe-resource-server
+E2E_WAIT_SECS  ?= 120
+RBAC_PYTEST_DIRS ?= tests/rbac/unit/py tests/rbac/fixtures
+RBAC_E2E_DIRS    ?= tests/rbac/e2e
+
+# E2E port band — host-side ports for the e2e lane. Container ports unchanged.
+# caipe-ui MUST stay on 3000 because Keycloak's caipe-ui client only allow-lists
+# http://localhost:3000/* as a redirect URI (see deploy/keycloak/realm-config.json).
+# Mongo + supervisor move to the 28xxx band to avoid collisions with a host-side
+# Mongo on 27017 and an in-stack agent-splunk that publishes 8010.
+E2E_MONGODB_HOST_PORT    ?= 28017
+E2E_SUPERVISOR_HOST_PORT ?= 28000
+
+# E2E env injected into docker-compose.dev.yaml via ${VAR:-default} substitution.
+# These are no-ops for `make test-up` (dev) — they only activate the e2e behavior
+# when the test-rbac-* targets export them.
+E2E_COMPOSE_ENV := \
+  E2E_RUN=true \
+  MONGODB_HOST_PORT=$(E2E_MONGODB_HOST_PORT) \
+  SUPERVISOR_HOST_PORT=$(E2E_SUPERVISOR_HOST_PORT) \
+  RBAC_FALLBACK_FILE=$(CURDIR)/deploy/keycloak/realm-config-extras.json \
+  RBAC_FALLBACK_CONFIG_PATH=/etc/keycloak/realm-config-extras.json
+
+.PHONY: test-rbac test-rbac-lint test-rbac-up test-rbac-down test-rbac-jest test-rbac-pytest test-rbac-e2e
+
+test-rbac-lint: ## Lint the RBAC matrix + realm-config-extras (T009/T011/T012). No services required.
+	@echo "[test-rbac-lint] running matrix linter (T009)…"
+	@if [ "$(RBAC_LINT_STRICT)" = "1" ]; then \
+	   PYTHONPATH=. uv run python scripts/validate-rbac-matrix.py; \
+	 else \
+	   PYTHONPATH=. uv run python scripts/validate-rbac-matrix.py || \
+	     echo "[test-rbac-lint] matrix lint failed (expected during phase rollout — set RBAC_LINT_STRICT=1 to hard-fail)"; \
+	 fi
+	@echo "[test-rbac-lint] running realm-config + extras validator (T011/T012)…"
+	@PYTHONPATH=. uv run python scripts/validate-realm-config.py
+	@echo "[test-rbac-lint] running requireAdmin deprecation guard (T051)…"
+	@if [ "$(RBAC_LINT_STRICT)" = "1" ]; then \
+	   STRICT=1 bash scripts/check-no-new-requireAdmin.sh; \
+	 else \
+	   bash scripts/check-no-new-requireAdmin.sh || \
+	     echo "[test-rbac-lint] requireAdmin guard reported drift — set RBAC_LINT_STRICT=1 to hard-fail"; \
+	 fi
+	@echo "[test-rbac-lint] running keycloak init-script symlink guard…"
+	@bash scripts/check-keycloak-init-symlinks.sh
+
+test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo) and seed personas via init-idp.sh.
+	@echo "[test-rbac-up] starting stack with profiles: $(E2E_PROFILES)"
+	@echo "[test-rbac-up] e2e ports: ui=3000 (IdP-pinned) supervisor=$(E2E_SUPERVISOR_HOST_PORT) mongo=$(E2E_MONGODB_HOST_PORT) keycloak=7080"
+	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
+	   docker compose $(E2E_COMPOSE) up -d --wait --wait-timeout $(E2E_WAIT_SECS)
+	@echo "[test-rbac-up] waiting for Keycloak readiness on $(E2E_KC_URL)…"
+	@for i in $$(seq 1 60); do \
+	   if curl -fsS $(E2E_KC_URL)/realms/master/.well-known/openid-configuration >/dev/null 2>&1; then \
+	     echo "[test-rbac-up] Keycloak is up"; break; \
+	   fi; \
+	   sleep 2; \
+	   if [ $$i -eq 60 ]; then echo "[test-rbac-up] FAIL: Keycloak never became ready"; exit 1; fi; \
+	 done
+	@echo "[test-rbac-up] running init-idp.sh to seed realm + personas…"
+	@KEYCLOAK_URL=$(E2E_KC_URL) KEYCLOAK_REALM=$(E2E_KC_REALM) bash deploy/keycloak/init-idp.sh
+	@echo "[test-rbac-up] stack is ready. KEYCLOAK_URL=$(E2E_KC_URL) KEYCLOAK_REALM=$(E2E_KC_REALM)"
+
+test-rbac-down: ## Tear down the e2e stack (volumes removed).
+	@echo "[test-rbac-down] tearing down e2e stack…"
+	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
+	   docker compose $(E2E_COMPOSE) down -v --remove-orphans
+
+.PHONY: rbac-reinit
+rbac-reinit: ## Force-rerun keycloak-init + keycloak-init-token-exchange against a running stack.
+	## Use after `docker compose restart keycloak` or any time you suspect the
+	## IdP broker / token-exchange grants have drifted (e.g. after editing
+	## init-idp.sh or BOOTSTRAP_ADMIN_EMAILS in .env without a full down/up).
+	## Idempotent — safe to run repeatedly.
+	@echo "[rbac-reinit] force-recreating keycloak-init…"
+	@COMPOSE_PROFILES=rbac \
+	   docker compose -f docker-compose.dev.yaml up -d --force-recreate --no-deps keycloak-init
+	@echo "[rbac-reinit] force-recreating keycloak-init-token-exchange…"
+	@COMPOSE_PROFILES=rbac \
+	   docker compose -f docker-compose.dev.yaml up -d --force-recreate --no-deps keycloak-init-token-exchange
+	@echo "[rbac-reinit] done. Tail logs with:"
+	@echo "  docker compose -f docker-compose.dev.yaml logs -f keycloak-init keycloak-init-token-exchange"
+
+# Minimal trimmed-down dev stack: 5 most-used agents + RBAC + UI + supervisor + slack-bot.
+# Useful for day-to-day Slack/UI iteration without booting the full all-agents/rag/graph_rag stack.
+# Override agent set with: make e2e-test-minimal MINIMAL_AGENTS="aws,github,jira"
+MINIMAL_AGENTS  ?= aws,github,argocd,jira,confluence
+MINIMAL_PROFILES = $(MINIMAL_AGENTS),caipe-supervisor,caipe-ui,dynamic-agents,slack-bot,caipe-mongodb,rbac
+
+.PHONY: e2e-test-minimal e2e-test-minimal-down
+
+e2e-test-minimal: ## Boot minimal trimmed dev stack (5 agents + UI + supervisor + slack-bot + Keycloak). Hot-reload enabled.
+	@echo "[e2e-test-minimal] starting trimmed stack with profiles: $(MINIMAL_PROFILES)"
+	@echo "[e2e-test-minimal] hot-reload enabled (DEV_HOT_RELOAD=true) — Python edits auto-restart."
+	@unset SLACK_INTEGRATION_AUTH_TOKEN_URL; \
+	   DEV_HOT_RELOAD=true \
+	   COMPOSE_PROFILES='$(MINIMAL_PROFILES)' \
+	   docker compose -f docker-compose.dev.yaml up -d --wait --wait-timeout $(E2E_WAIT_SECS)
+	@echo "[e2e-test-minimal] waiting for Keycloak readiness on http://localhost:7080…"
+	@for i in $$(seq 1 60); do \
+	   if curl -fsS http://localhost:7080/realms/master/.well-known/openid-configuration >/dev/null 2>&1; then \
+	     echo "[e2e-test-minimal] Keycloak is up"; break; \
+	   fi; \
+	   sleep 2; \
+	   if [ $$i -eq 60 ]; then echo "[e2e-test-minimal] FAIL: Keycloak never became ready"; exit 1; fi; \
+	 done
+	@echo "[e2e-test-minimal] stack ready:"
+	@echo "  - UI:               http://localhost:3000"
+	@echo "  - Supervisor:       http://localhost:8000"
+	@echo "  - Dynamic Agents:   http://localhost:8100"
+	@echo "  - Keycloak admin:   http://localhost:7080/admin (admin / admin)"
+	@echo "  - Agent Gateway:    http://localhost:4000"
+	@echo "  - Slack bot (HTTP): http://localhost:8030"
+	@echo "  - Agents up: $(MINIMAL_AGENTS)"
+	@echo ""
+	@echo "Tail logs:    docker compose -f docker-compose.dev.yaml logs -f slack-bot caipe-supervisor"
+	@echo "Tear down:    make e2e-test-minimal-down"
+
+e2e-test-minimal-down: ## Tear down the minimal trimmed dev stack (volumes preserved).
+	@echo "[e2e-test-minimal-down] stopping trimmed stack…"
+	@COMPOSE_PROFILES='$(MINIMAL_PROFILES)' \
+	   docker compose -f docker-compose.dev.yaml down --remove-orphans
+
+test-rbac-pytest: ## Run RBAC pytest helper-unit + matrix-driver tests. Pass --rbac-online via PYTEST_ARGS to enable live-Keycloak tests.
+	@echo "[test-rbac-pytest] running RBAC pytest suite ($(RBAC_PYTEST_DIRS))…"
+	@mkdir -p test-results
+	@PYTHONPATH=. \
+	   KEYCLOAK_URL=$(E2E_KC_URL) \
+	   KEYCLOAK_REALM=$(E2E_KC_REALM) \
+	   KEYCLOAK_RESOURCE_SERVER_ID=$(E2E_KC_RESOURCE_SERVER_ID) \
+	   uv run pytest $(RBAC_PYTEST_DIRS) -v \
+	     --junitxml=test-results/rbac-pytest.xml \
+	     $(PYTEST_ARGS)
+
+test-rbac-jest: ## Run RBAC Jest matrix-driver tests (TS helper parity + UI BFF). Emits ui/test-results/junit.xml for T058 to consume.
+	@if [ -d ui ] && [ -f ui/package.json ]; then \
+	   echo "[test-rbac-jest] running ui/ jest suite filtered to rbac…"; \
+	   mkdir -p ui/test-results; \
+	   cd ui && JEST_JUNIT_OUTPUT_DIR=test-results JEST_JUNIT_OUTPUT_NAME=junit.xml \
+	     npx jest \
+	       'src/__tests__/rbac-matrix-driver.test.ts' \
+	       'src/lib/rbac/__tests__/' \
+	       'src/app/api/__tests__/rag-rbac.test.ts' \
+	       --reporters=default --reporters=jest-junit \
+	       --passWithNoTests; \
+	 else \
+	   echo "[test-rbac-jest] ui/ not found; skipping jest stage"; \
+	 fi
+
+test-rbac-e2e: ## Run RBAC Playwright e2e suite (tests/rbac/e2e/). Requires `make test-rbac-up` first.
+	@if [ -d tests/rbac/e2e ] && [ -f tests/rbac/e2e/package.json ]; then \
+	   echo "[test-rbac-e2e] running playwright RBAC e2e tests from tests/rbac/e2e/…"; \
+	   if [ ! -d tests/rbac/e2e/node_modules ]; then \
+	     echo "[test-rbac-e2e] installing tests/rbac/e2e/node_modules (one-time)…"; \
+	     cd tests/rbac/e2e && npm install --no-audit --no-fund; cd $(CURDIR); \
+	   fi; \
+	   cd tests/rbac/e2e && npx playwright test --grep @rbac; \
+	 else \
+	   echo "[test-rbac-e2e] tests/rbac/e2e/ not found; skipping"; \
+	 fi
+
+test-rbac: ## Full comprehensive RBAC suite: lint + (optional online stack) + pytest + jest + e2e.
+	@$(MAKE) test-rbac-lint
+	@$(MAKE) test-rbac-pytest
+	@$(MAKE) test-rbac-jest
+	@if [ "$(RBAC_E2E)" = "1" ]; then \
+	   echo "[test-rbac] RBAC_E2E=1 — bringing up stack and running playwright"; \
+	   $(MAKE) test-rbac-up && $(MAKE) test-rbac-e2e || RC=$$?; \
+	   $(MAKE) test-rbac-down; \
+	   exit $${RC:-0}; \
+	 else \
+	   echo "[test-rbac] skipping e2e stage (set RBAC_E2E=1 to enable)"; \
+	 fi
 
 ## ========== Help ==========
 

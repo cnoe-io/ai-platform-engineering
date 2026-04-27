@@ -60,21 +60,43 @@ def resolve_mcp_port(agent_name: str, default: str = _DEFAULT_PORT) -> str:
     )
 
 
+def resolve_mcp_path(agent_name: str, default: str = "/mcp") -> str:
+    """Return the effective MCP path for *agent_name*.
+
+    Lookup: ``<AGENT>_MCP_PATH`` -> *default*.
+
+    Default is ``/mcp`` (no trailing slash). FastMCP servers redirect
+    ``/mcp/`` → ``/mcp`` with HTTP 307, which the streamable_http MCP
+    client races against the SSE message channel and fails to list tools
+    (observed against ``mcp-jira``, ``mcp-argocd``, ``mcp-confluence``).
+    Pinning the canonical path avoids the redirect entirely. The
+    ``mcp-slack`` (OSS Node server) only accepts ``/mcp``, so this is also
+    the correct path there.
+
+    When routing through agentgateway the Helm chart sets a per-agent
+    path prefix (e.g. ``/mcp/jira``) so the HTTPRoute can dispatch to
+    the correct backend; that override still takes precedence.
+    """
+    return os.getenv(f"{agent_name.upper()}_MCP_PATH", default)
+
+
 def resolve_mcp_url(
     agent_name: str,
     *,
     default_host: str = _DEFAULT_HOST,
     default_port: str = _DEFAULT_PORT,
-    path: str = "/mcp/",
+    path: str = "/mcp",
 ) -> str:
     """Build the full MCP HTTP URL for *agent_name*.
 
     Combines :func:`resolve_mcp_host` and :func:`resolve_mcp_port` with
-    the given *path* (defaults to ``/mcp/``).
+    the given *path* (defaults to ``/mcp``).  If ``<AGENT>_MCP_PATH`` is
+    set it takes precedence over the *path* argument.
     """
     host = resolve_mcp_host(agent_name, default=default_host)
     port = resolve_mcp_port(agent_name, default=default_port)
-    url = f"http://{host}:{port}{path}"
+    effective_path = resolve_mcp_path(agent_name, default=path)
+    url = f"http://{host}:{port}{effective_path}"
     logger.info("Resolved MCP URL for %s: %s", agent_name, url)
     return url
 
@@ -90,7 +112,7 @@ def build_http_mcp_config(
     headers: Optional[Dict[str, str]] = None,
     default_host: str = _DEFAULT_HOST,
     default_port: str = _DEFAULT_PORT,
-    path: str = "/mcp/",
+    path: str = "/mcp",
 ) -> Dict[str, Any]:
     """Build a standard HTTP MCP config dict for *agent_name*.
 

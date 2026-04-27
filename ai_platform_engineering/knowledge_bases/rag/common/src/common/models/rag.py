@@ -117,7 +117,23 @@ class IngestorInfo(BaseModel):
 
 
 class DataSourceInfo(BaseModel):
-  datasource_id: str = Field(..., description="Unique identifier for the data source")
+  datasource_id: str = Field(
+    ...,
+    description=(
+      "Unique, immutable identifier for the data source. Used as the stable key "
+      "in Milvus filters, RBAC CEL rules, document metadata, and ingestor jobs. "
+      "Auto-derived from the source URL/space and is opaque on purpose."
+    ),
+  )
+  name: Optional[str] = Field(
+    default=None,
+    description=(
+      "Human-friendly display label shown in admin UIs. Auto-derived from the "
+      "source on creation (e.g. URL host+path, Confluence space name, Jira "
+      "project key) and editable by admins via PATCH. Falls back to a derived "
+      "label when missing. NEVER used as an authorization key."
+    ),
+  )
   ingestor_id: str = Field(..., description="Ingestor ID this data source belongs to")
   description: str = Field(default="", description="Description of the data source")
   source_type: str = Field(..., description="Type of the data source")

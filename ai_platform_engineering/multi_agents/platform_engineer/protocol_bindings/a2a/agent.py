@@ -487,6 +487,8 @@ class AIPlatformEngineerA2ABinding:
       trace_id: Optional[str] = None,
       command: Optional[Command] = None,
       user_email: Optional[str] = None,
+      user_name: Optional[str] = None,
+      user_groups: Optional[list[str]] = None,
   ) -> AsyncIterable[dict[str, Any]]:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}")
 
@@ -512,9 +514,13 @@ class AIPlatformEngineerA2ABinding:
       else:
 
           state_dict = {'messages': [('user', query or '')]}
-          # Store user_email in graph state for middleware to use in task prompts
+          # Store user context in graph state for middleware and tools
           if user_email:
               state_dict['user_email'] = user_email
+          if user_name is not None:
+              state_dict['user_name'] = user_name
+          if user_groups is not None:
+              state_dict['user_groups'] = user_groups
           # Inject skills files into state for SkillsMiddleware / StateBackend
           skills_files = getattr(self._mas_instance, '_skills_files', None)
           if skills_files:
@@ -527,6 +533,21 @@ class AIPlatformEngineerA2ABinding:
       # deterministic task workflows (e.g. S3 creation has 8 steps, each with
       # model + tools cycles). Match the multi-node agent's limit of 100.
       config['recursion_limit'] = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "500"))
+
+      # Attach audit callback so tool invocations are logged to audit_events
+      try:
+          from ai_platform_engineering.utils.audit_callback import AuditCallbackHandler
+          _audit_cb = AuditCallbackHandler(
+              agent_name="supervisor",
+              user_email=user_email,
+              context_id=context_id,
+              trace_id=trace_id or config.get("metadata", {}).get("trace_id"),
+          )
+          _cbs = list(config.get("callbacks") or [])
+          _cbs.append(_audit_cb)
+          config["callbacks"] = _cbs
+      except Exception as _audit_err:
+          logging.debug(f"Audit callback not attached: {_audit_err}")
 
       # Ensure metadata exists in config for tools to access
       if 'metadata' not in config:
@@ -554,6 +575,14 @@ class AIPlatformEngineerA2ABinding:
               logging.debug(f"Added trace_id from context to config metadata: {current_trace_id}")
           else:
               logging.debug("No trace_id available from parameter or context")
+
+      # Inject OBO token into configurable so auth-aware proxy tools can read it (FR-038e)
+      obo_token = getattr(self, '_obo_token', None)
+      if obo_token:
+          if 'configurable' not in config:
+              config['configurable'] = {}
+          config['configurable']['obo_token'] = obo_token
+          logging.info("Injected obo_token into config.configurable for AG routing")
 
       logging.debug(f"Created tracing config: {config}")
 

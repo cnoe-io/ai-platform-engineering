@@ -23,10 +23,16 @@ from typing import List, Dict, Any, Optional
 from fastapi import Depends, HTTPException, Request
 from jwt.exceptions import PyJWTError as JWTError
 import redis.asyncio as redis
-from common.models.rbac import Role, UserContext
+from common.models.rbac import Role, UserContext, KbPermission, KeycloakRole
+from common.models.server import QueryRequest
 from common.constants import REDIS_USERINFO_CACHE_PREFIX
 from common import utils
 from server.auth import get_auth_manager, AuthManager
+
+try:
+  from cel_evaluator import evaluate as cel_evaluate
+except ImportError:
+  cel_evaluate = None  # type: ignore[misc, assignment]
 
 logger = utils.get_logger(__name__)
 
@@ -323,6 +329,122 @@ def determine_role_from_groups(user_groups: List[str]) -> str:
   return RBAC_DEFAULT_AUTHENTICATED_ROLE
 
 
+def determine_role_from_keycloak_roles(roles: List[str]) -> str:
+  """
+  Map Keycloak realm roles in the JWT to internal RAG roles (most permissive wins).
+
+  Mapping:
+    - ``admin`` / ``admin_user`` (Spec 104 platform admin) → ADMIN
+    - ``kb_admin`` → INGESTONLY
+    - ``team_member`` / ``chat_user`` → READONLY
+    - ``denied`` or no recognized role → ANONYMOUS
+
+  Spec 104 note: ``admin_user`` is the realm role assigned to
+  ``BOOTSTRAP_ADMIN_EMAILS`` users by ``init-idp.sh``. Treating it as RAG
+  ADMIN means a single Keycloak grant gives platform admins full RAG
+  access (read + ingest + delete) without having to also assign the
+  legacy ``admin`` realm role.
+  """
+  rs = set(roles)
+  if (
+    KeycloakRole.ADMIN in rs
+    or "admin" in rs
+    or KeycloakRole.ADMIN_USER in rs
+    or "admin_user" in rs
+  ):
+    return Role.ADMIN
+  if KeycloakRole.KB_ADMIN in rs or "kb_admin" in rs:
+    return Role.INGESTONLY
+  if KeycloakRole.TEAM_MEMBER in rs or "team_member" in rs:
+    return Role.READONLY
+  if KeycloakRole.CHAT_USER in rs or "chat_user" in rs:
+    return Role.READONLY
+  if KeycloakRole.DENIED in rs or "denied" in rs:
+    return Role.ANONYMOUS
+  return Role.ANONYMOUS
+
+
+_KB_REALM_ROLE_SCOPE = {
+  "kb_reader": "read",
+  "kb_ingestor": "ingest",
+  "kb_admin": "admin",
+}
+
+_KB_SCOPE_RANK = {"read": 1, "ingest": 2, "admin": 3}
+
+
+def extract_kb_permissions_from_roles(roles: List[str]) -> List[KbPermission]:
+  """
+  Parse per-KB realm roles: ``kb_reader:<id>``, ``kb_ingestor:<id>``, ``kb_admin:<id>``.
+  Wildcard ``*`` is a valid ``kb_id``. Highest scope wins per ``kb_id``.
+  """
+  best: Dict[str, int] = {}
+  for role in roles:
+    m = re.match(r"^(kb_reader|kb_ingestor|kb_admin):(.+)$", str(role).strip())
+    if not m:
+      continue
+    prefix, kb_id = m.group(1), m.group(2).strip()
+    if not kb_id:
+      continue
+    scope = _KB_REALM_ROLE_SCOPE.get(prefix)
+    if not scope:
+      continue
+    rank = _KB_SCOPE_RANK[scope]
+    prev = best.get(kb_id, 0)
+    if rank > prev:
+      best[kb_id] = rank
+  rank_to_scope = {1: "read", 2: "ingest", 3: "admin"}
+  return [KbPermission(kb_id=kid, scope=rank_to_scope[rk]) for kid, rk in best.items()]
+
+
+def extract_realm_roles_from_claims(claims: Dict[str, Any]) -> List[str]:
+  """Collect realm role names from ``roles`` and/or ``realm_access.roles`` claims."""
+  out: List[str] = []
+  seen: set[str] = set()
+
+  def add(value: Any) -> None:
+    if isinstance(value, list):
+      for item in value:
+        s = str(item).strip()
+        if s and s not in seen:
+          seen.add(s)
+          out.append(s)
+    elif isinstance(value, str) and value.strip():
+      for part in re.split(r"[,\s]+", value):
+        p = part.strip()
+        if p and p not in seen:
+          seen.add(p)
+          out.append(p)
+
+  r = claims.get("roles")
+  if r is not None:
+    add(r)
+  realm_access = claims.get("realm_access")
+  if isinstance(realm_access, dict) and realm_access.get("roles"):
+    add(realm_access["roles"])
+  return out
+
+
+def extract_active_team_from_claims(claims: Dict[str, Any]) -> Optional[str]:
+  """Spec 104: read the signed `active_team` JWT claim, if present.
+
+  Returns the literal sentinel ``"__personal__"`` for DM/personal mode,
+  a team slug like ``"platform-eng"`` for mapped channels, or ``None``
+  when the token has no claim (legacy SA tokens, BFF-issued login tokens
+  before the per-team scope rollout, etc.). Callers decide whether
+  ``None`` is a hard reject or a soft fallback to legacy behavior.
+  """
+  value = claims.get("active_team")
+  if isinstance(value, str) and value.strip():
+    return value.strip()
+  return None
+
+
+def kb_scope_satisfies(perm_scope: str, required: str) -> bool:
+  """Return True if a KB permission scope meets the required access level."""
+  return _KB_SCOPE_RANK.get(perm_scope, 0) >= _KB_SCOPE_RANK.get(required, 0)
+
+
 # ============================================================================
 # Claim Extraction (matches UI logic)
 # ============================================================================
@@ -582,6 +704,9 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
         groups=[],  # Client credentials don't have groups
         role=RBAC_CLIENT_CREDENTIALS_ROLE,
         is_authenticated=True,
+        kb_permissions=[],
+        realm_roles=extract_realm_roles_from_claims(access_claims),
+        active_team=extract_active_team_from_claims(access_claims),
       )
 
       logger.debug(f"Client authenticated: {email}, role: {RBAC_CLIENT_CREDENTIALS_ROLE}")
@@ -651,13 +776,44 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
     if email and email != "unknown" and not EMAIL_REGEX.match(email):
       logger.warning(f"Invalid email format in claims: {email[:50]}")
 
-    # Determine role from groups
-    role = determine_role_from_groups(groups)
-    logger.info(f"Role determined: email={email}, role={role}, groups={groups}")
+    jwt_roles = extract_realm_roles_from_claims(access_claims)
+    kb_permissions = extract_kb_permissions_from_roles(jwt_roles)
+    noise = {"offline_access", "uma_authorization"}
+    platform_roles = [
+      r
+      for r in jwt_roles
+      if r not in noise and not re.match(r"^(kb_reader|kb_ingestor|kb_admin):", r)
+    ]
+    if platform_roles:
+      kr = determine_role_from_keycloak_roles(platform_roles)
+      if kr != Role.ANONYMOUS:
+        role = kr
+        logger.info(f"Role determined from JWT realm roles: email={email}, role={role}, roles={platform_roles}")
+      elif KeycloakRole.DENIED in platform_roles or "denied" in platform_roles:
+        role = Role.ANONYMOUS
+        logger.info(f"Role denied via JWT realm roles: email={email}, roles={platform_roles}")
+      else:
+        role = determine_role_from_groups(groups)
+        logger.info(f"Role fallback to groups (no mapped realm role): email={email}, role={role}, groups={groups}")
+    else:
+      role = determine_role_from_groups(groups)
+      logger.info(f"Role determined from groups: email={email}, role={role}, groups={groups}")
 
-    user_context = UserContext(email=email, groups=groups, role=role, is_authenticated=True)
+    active_team = extract_active_team_from_claims(access_claims)
+    user_context = UserContext(
+      email=email,
+      groups=groups,
+      role=role,
+      is_authenticated=True,
+      kb_permissions=kb_permissions,
+      realm_roles=jwt_roles,
+      active_team=active_team,
+    )
 
-    logger.info(f"User authenticated successfully: email={email}, role={role}, groups_count={len(groups)}, source={info_source}")
+    logger.info(
+      f"User authenticated successfully: email={email}, role={role}, "
+      f"groups_count={len(groups)}, active_team={active_team}, source={info_source}"
+    )
     return user_context
 
   except JWTError as e:
@@ -715,7 +871,14 @@ async def require_authenticated_user(request: Request, auth_manager: AuthManager
       logger.info("Trusted network request (anonymous)")
       email = "trusted-network"
 
-    return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)
+    return UserContext(
+      email=email,
+      groups=[],
+      role=TRUSTED_NETWORK_DEFAULT_ROLE,
+      is_authenticated=False,
+      kb_permissions=[],
+      realm_roles=[],
+    )
 
   # No token and not trusted network
   raise HTTPException(status_code=401, detail="Missing Authorization header. Please provide a valid Bearer token.")
@@ -768,7 +931,14 @@ async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = De
       logger.info("Trusted network request (anonymous)")
       email = "trusted-network"
 
-    return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)
+    return UserContext(
+      email=email,
+      groups=[],
+      role=TRUSTED_NETWORK_DEFAULT_ROLE,
+      is_authenticated=False,
+      kb_permissions=[],
+      realm_roles=[],
+    )
 
   # No valid authentication — return anonymous user
   logger.debug("No valid authentication, returning anonymous user")
@@ -777,6 +947,8 @@ async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = De
     groups=[],
     role=Role.ANONYMOUS,  # No permissions for unauthenticated users
     is_authenticated=False,
+    kb_permissions=[],
+    realm_roles=[],
   )
 
 
@@ -818,3 +990,374 @@ def require_role(required_role: str):
   # Set a descriptive name for better debugging
   role_checker.__name__ = f"require_{required_role}"
   return role_checker
+
+
+# ============================================================================
+# 098 Enterprise RBAC — Datasource binding validation (FR-009, T050)
+# ============================================================================
+
+# MongoDB URI for team/KB ownership lookups (optional — feature-flagged)
+RBAC_MONGODB_URI = os.getenv("RBAC_MONGODB_URI", "")
+RBAC_MONGODB_DATABASE = os.getenv("RBAC_MONGODB_DATABASE", "")
+RBAC_TEAM_SCOPE_ENABLED = os.getenv("RBAC_TEAM_SCOPE_ENABLED", "false").lower() in ("true", "1", "yes")
+
+CEL_KB_ACCESS_EXPRESSION = os.getenv("CEL_KB_ACCESS_EXPRESSION", "").strip()
+CEL_KB_ACCESS_EXPRESSIONS_RAW = os.getenv("CEL_KB_ACCESS_EXPRESSIONS", "").strip()
+
+
+def _kb_cel_expression_for(datasource_id: str) -> str:
+  """Resolve CEL expression for a datasource: per-id map entry or global default."""
+  if CEL_KB_ACCESS_EXPRESSIONS_RAW:
+    try:
+      mapping = json.loads(CEL_KB_ACCESS_EXPRESSIONS_RAW)
+      if isinstance(mapping, dict):
+        per = mapping.get(datasource_id) or mapping.get(str(datasource_id))
+        if isinstance(per, str) and per.strip():
+          return per.strip()
+    except json.JSONDecodeError as e:
+      logger.error("Invalid JSON in CEL_KB_ACCESS_EXPRESSIONS: %s", e)
+  return CEL_KB_ACCESS_EXPRESSION
+
+
+def _kb_cel_context(
+  user_context: UserContext,
+  datasource_id: str,
+  scope: str,
+  request: Optional[Request],
+) -> Dict[str, Any]:
+  # Spec 104: prefer the signed `active_team` JWT claim (sentinel
+  # ``__personal__`` for DM/personal mode) and ignore it for the team
+  # roster the CEL engine sees. Group-channel slugs are exposed in
+  # ``user.teams`` so existing CEL like ``"<slug>" in user.teams`` keeps
+  # working without a header round-trip.
+  active_team = user_context.active_team
+  teams = list(user_context.groups or [])
+  if active_team and active_team != "__personal__" and active_team not in teams:
+    teams = [*teams, active_team]
+  return {
+    "user": {
+      "roles": list(user_context.realm_roles or []),
+      "teams": teams,
+      "email": user_context.email,
+    },
+    "resource": {
+      "id": datasource_id,
+      "type": "knowledge_base",
+      "visibility": "",
+      "owner_id": "",
+      "shared_with_teams": [],
+    },
+    "action": scope,
+  }
+
+
+def _filter_kb_ids_by_cel(
+  user_context: UserContext,
+  scope: str,
+  kb_ids: List[str],
+  request: Optional[Request],
+) -> List[str]:
+  if "*" in kb_ids:
+    return ["*"]
+  if not kb_ids:
+    return []
+  if not (CEL_KB_ACCESS_EXPRESSION or CEL_KB_ACCESS_EXPRESSIONS_RAW):
+    return kb_ids
+  if not cel_evaluate:
+    logger.warning("CEL KB expressions configured but cel_evaluator is not installed — denying all KB ids (fail-closed)")
+    return []
+  filtered: List[str] = []
+  for kid in kb_ids:
+    expr = _kb_cel_expression_for(kid)
+    if not expr:
+      filtered.append(kid)
+      continue
+    ctx = _kb_cel_context(user_context, kid, scope, request)
+    if cel_evaluate(expr, ctx):
+      filtered.append(kid)
+  return filtered
+
+
+def _enforce_cel_kb_access(
+  user_context: UserContext,
+  datasource_id: str,
+  scope: str,
+  request: Request,
+) -> None:
+  if not cel_evaluate:
+    logger.warning("CEL KB access configured but cel_evaluator is not installed")
+    raise HTTPException(status_code=503, detail="CEL policy engine unavailable (fail-closed)")
+  expr = _kb_cel_expression_for(datasource_id)
+  if not expr:
+    return
+  ctx = _kb_cel_context(user_context, datasource_id, scope, request)
+  if not cel_evaluate(expr, ctx):
+    logger.warning("CEL denied KB access: user=%s datasource=%s scope=%s", user_context.email, datasource_id, scope)
+    raise HTTPException(status_code=403, detail="CEL policy denied access to this knowledge base")
+
+
+async def _get_team_kb_ownership_from_mongo(
+  team_id: str,
+  tenant_id: str,
+) -> Optional[Dict[str, Any]]:
+  """Query MongoDB ``team_kb_ownership`` for a single team. Returns None on error (fail-closed)."""
+  if not RBAC_MONGODB_URI or not RBAC_MONGODB_DATABASE:
+    logger.warning("RBAC MongoDB not configured — cannot load team KB ownership")
+    return None
+  try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    client: AsyncIOMotorClient = AsyncIOMotorClient(
+      RBAC_MONGODB_URI, serverSelectionTimeoutMS=5000
+    )
+    db = client[RBAC_MONGODB_DATABASE]
+    return await db["team_kb_ownership"].find_one(
+      {"team_id": team_id, "tenant_id": tenant_id}
+    )
+  except Exception as e:
+    logger.error("MongoDB error resolving team KB access for team=%s: %s", team_id, e)
+    return None
+
+
+async def get_global_read_kb_ids(tenant_id: str = "default") -> List[str]:
+  """
+  Return datasource IDs from the ``global`` pseudo-team (FR-038).
+
+  These KBs are readable by all authenticated users.
+  """
+  ownership = await _get_team_kb_ownership_from_mongo("global", tenant_id)
+  if not ownership:
+    return []
+  return [str(kb) for kb in ownership.get("kb_ids", [])]
+
+
+async def get_accessible_kb_ids(
+  user_context: UserContext,
+  scope: str,
+  tenant_id: str,
+  team_id: Optional[str] = None,
+  request: Optional[Request] = None,
+) -> List[str]:
+  """
+  Resolve datasource / KB identifiers the caller may use for the given scope.
+
+  ``Role.ADMIN`` or realm role ``kb_admin`` yields full access (``["*"]``).
+  Merges per-KB realm roles with ``TeamKbOwnership.kb_ids`` when ``team_id`` is set.
+  Global-read KBs (pseudo-team ``global``) are always included for ``read`` scope.
+  """
+  if user_context.email.startswith("client:"):
+    return ["*"]
+  if user_context.email == "trusted-network" or user_context.email.startswith("trusted:"):
+    return ["*"]
+
+  if user_context.role == Role.ADMIN:
+    return ["*"]
+  roles = user_context.realm_roles
+  if KeycloakRole.KB_ADMIN in roles or "kb_admin" in roles:
+    return ["*"]
+
+  ids: set[str] = set()
+  for perm in user_context.kb_permissions:
+    if kb_scope_satisfies(perm.scope, scope):
+      ids.add(perm.kb_id)
+
+  if RBAC_TEAM_SCOPE_ENABLED:
+    if team_id:
+      ownership = await _get_team_kb_ownership_from_mongo(team_id, tenant_id)
+      if ownership is None and RBAC_MONGODB_URI:
+        return []
+      if ownership:
+        kb_perms = ownership.get("kb_permissions", {})
+        for kb in ownership.get("kb_ids", []):
+          kb_str = str(kb)
+          perm_level = kb_perms.get(kb_str, "read")
+          if kb_scope_satisfies(perm_level, scope):
+            ids.add(kb_str)
+
+    if scope == "read":
+      global_kbs = await get_global_read_kb_ids(tenant_id)
+      for kb in global_kbs:
+        ids.add(kb)
+
+  if "*" in ids:
+    return ["*"]
+  return _filter_kb_ids_by_cel(user_context, scope, list(ids), request)
+
+
+async def check_kb_datasource_access(
+  request: Request,
+  user_context: UserContext,
+  datasource_id: str,
+  scope: str,
+) -> None:
+  """Raise ``HTTPException(403)`` if the user cannot access this datasource for ``scope``."""
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return
+  tenant_id = request.headers.get("X-Tenant-Id") or "default"
+  # Spec 104: `active_team` JWT claim is the single source of truth.
+  # Fall back to the legacy `X-Team-Id` header only when the token has no
+  # claim (e.g. legacy SA tokens) so mid-rollout traffic doesn't 403.
+  team_id = user_context.active_team or request.headers.get("X-Team-Id")
+  if team_id == "__personal__":
+    team_id = None
+  accessible = await get_accessible_kb_ids(user_context, scope, tenant_id, team_id=team_id, request=request)
+  if "*" in accessible:
+    _enforce_cel_kb_access(user_context, datasource_id, scope, request)
+    return
+  if not accessible:
+    raise HTTPException(
+      status_code=403,
+      detail="No accessible knowledge bases for this operation",
+    )
+  if datasource_id in accessible:
+    _enforce_cel_kb_access(user_context, datasource_id, scope, request)
+    return
+  raise HTTPException(status_code=403, detail="Access denied for this datasource")
+
+
+def require_kb_access(kb_id: str, scope: str):
+  """FastAPI dependency factory for a fixed KB/datasource id (e.g. path parameters)."""
+
+  async def _dep(
+    request: Request,
+    user: UserContext = Depends(require_authenticated_user),
+  ) -> UserContext:
+    await check_kb_datasource_access(request, user, kb_id, scope)
+    return user
+
+  _dep.__name__ = f"require_kb_access_{kb_id}_{scope}"
+  return _dep
+
+
+async def inject_kb_filter(
+  query_request: QueryRequest,
+  user_context: UserContext,
+  tenant_id: str,
+  request: Request,
+) -> bool:
+  """
+  Restrict vector search to accessible datasources by mutating ``query_request.filters``.
+
+  Returns:
+      True if the handler should return an empty result set without querying the vector DB.
+  """
+  # Hybrid ACL (per-doc acl_tags) — opt-in via RBAC_DOC_ACL_TAGS_ENABLED.
+  # Apply BEFORE the early-returns below so it still runs when team-scope
+  # is off but doc-ACL is on. The helper is itself a no-op for trusted /
+  # anonymous / client-credentials principals, so this is safe.
+  try:
+    from .doc_acl import apply_doc_acl_filter
+
+    apply_doc_acl_filter(query_request, user_context)
+  except Exception as exc:  # noqa: BLE001 — never break the query path on ACL bugs
+    logger.warning("doc_acl: apply_doc_acl_filter failed (non-fatal): %s", exc)
+
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return False
+  if user_context.email == "anonymous":
+    return False
+  if user_context.email == "trusted-network" or user_context.email.startswith("trusted:"):
+    return False
+  if user_context.email.startswith("client:"):
+    return False
+
+  # Spec 104: prefer signed `active_team` claim; fall back to legacy header.
+  team_id = user_context.active_team or request.headers.get("X-Team-Id")
+  if team_id == "__personal__":
+    team_id = None
+  accessible = await get_accessible_kb_ids(user_context, "read", tenant_id, team_id=team_id, request=request)
+  if "*" in accessible:
+    return False
+  if not accessible:
+    return True
+
+  filters: Dict[str, Any] = dict(query_request.filters) if query_request.filters else {}
+  existing = filters.get("datasource_id")
+
+  if existing is None:
+    filters["datasource_id"] = accessible if len(accessible) > 1 else accessible[0]
+    query_request.filters = filters
+    return False
+
+  if isinstance(existing, str):
+    if existing not in accessible:
+      return True
+    return False
+
+  if isinstance(existing, list):
+    inter = [x for x in existing if x in accessible]
+    if not inter:
+      return True
+    filters["datasource_id"] = inter
+    query_request.filters = filters
+    return False
+
+  return False
+
+
+async def validate_datasource_binding(
+    team_id: str,
+    datasource_ids: List[str],
+    tenant_id: str = "default",
+) -> None:
+  """
+  Validate that requested datasource_ids are within the team's allowed set.
+
+  Loads the team's TeamKbOwnership record from MongoDB and checks that every
+  requested datasource_id is in ``allowed_datasource_ids``.
+
+  Args:
+      team_id: Team identifier for the ownership lookup.
+      datasource_ids: Datasource IDs the caller wants to bind to a RAG tool.
+      tenant_id: Tenant identifier for multi-tenant isolation.
+
+  Raises:
+      HTTPException(403): If any datasource_id is outside the team's allowed set.
+      HTTPException(503): If MongoDB is unreachable and team-scope is enabled.
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    logger.debug("Team-scoped datasource binding validation disabled")
+    return
+
+  if not datasource_ids:
+    return
+
+  if not RBAC_MONGODB_URI or not RBAC_MONGODB_DATABASE:
+    logger.warning("RBAC_MONGODB_URI/DATABASE not configured — skipping datasource binding check")
+    return
+
+  try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+    client: AsyncIOMotorClient = AsyncIOMotorClient(
+      RBAC_MONGODB_URI, serverSelectionTimeoutMS=5000
+    )
+    db = client[RBAC_MONGODB_DATABASE]
+    ownership = await db["team_kb_ownership"].find_one(
+      {"team_id": team_id, "tenant_id": tenant_id}
+    )
+  except Exception as e:
+    logger.error("MongoDB unavailable for datasource binding check: %s", e)
+    raise HTTPException(
+      status_code=503,
+      detail="Team ownership data unavailable — cannot validate datasource binding (fail-closed)",
+    )
+
+  if ownership is None:
+    logger.warning("No TeamKbOwnership record for team=%s tenant=%s — denying binding", team_id, tenant_id)
+    raise HTTPException(
+      status_code=403,
+      detail=f"No ownership record found for team '{team_id}' — datasource binding denied",
+    )
+
+  allowed = set(ownership.get("allowed_datasource_ids", []))
+  violations = [ds for ds in datasource_ids if ds not in allowed]
+
+  if violations:
+    logger.warning(
+      "Datasource binding rejected for team=%s: %s not in allowed set %s",
+      team_id, violations, list(allowed),
+    )
+    raise HTTPException(
+      status_code=403,
+      detail=f"Datasource binding rejected — {', '.join(violations)} not in team's allowed set",
+    )

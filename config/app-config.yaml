@@ -1,7 +1,20 @@
-# CAIPE UI — application seed configuration
-# -------------------------------------------
-# This file is volume-mounted into the container and loaded at Next.js
-# startup via instrumentation.ts → seed-config.ts.
+# CAIPE UI — application seed configuration (committed example template)
+# ------------------------------------------------------------------------
+# This file is the EXAMPLE/template for app-config. The docker-compose
+# stack mounts the file pointed to by `APP_CONFIG_FILE` (set in .env);
+# by default it falls back to this committed template, which seeds nothing.
+#
+# For local dev, copy this file to `config/app-config.local.yaml` and
+# uncomment / customize the sections you need:
+#
+#   cp config/app-config.yaml config/app-config.local.yaml
+#   # then in .env:  APP_CONFIG_FILE=./config/app-config.local.yaml
+#
+# `config/*.local.yaml` is gitignored.
+#
+# In Kubernetes deployments, Helm resolves the appConfig.* values block
+# (see applications/caipe/dev/a/values.yaml → appConfig) into the mounted
+# ConfigMap, so this file is NOT used in cluster deployments.
 #
 # Entities defined here are "config-driven": they are upserted into
 # MongoDB on every restart, marked config_driven=true, and cannot be
@@ -13,30 +26,70 @@
 # ConfigMap, so the mounted YAML contains literal values.
 
 # ── Models ────────────────────────────────────────────────────────
+# Available LLM models for dynamic agents. The provider string is
+# matched in dynamic_agents/.../agent_runtime.py to select the
+# LangChain chat model class + credential set.
+#
+# Reference: applications/caipe/dev/a/values.yaml (appConfig.models)
+# in platform-apps-deployment is the source-of-truth for what dev/preview
+# clusters serve. Keep your local app-config.local.yaml in sync if you
+# want to mirror the cluster experience.
 models: []
+  # AWS Bedrock — inference profile IDs (global. prefix). Must match
+  # the AWS_BEDROCK_MODEL_ID format used by the llm-secret in dev/preview.
+  # - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  #   name: "Claude 4.5 Haiku (Bedrock)"
+  #   provider: "aws-bedrock"
+  #   description: "Fast, efficient Claude 4.5 Haiku via AWS Bedrock"
+  # - model_id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+  #   name: "Claude Sonnet 4.5 (Bedrock)"
+  #   provider: "aws-bedrock"
+  #   description: "Latest Claude Sonnet 4.5 via AWS Bedrock"
+  #
+  # Azure OpenAI deployments
   # - model_id: "gpt-4o"
-  #   name: "GPT-4o"
-  #   provider: "openai"
-  #   description: "OpenAI GPT-4o"
+  #   name: "GPT-4o (Azure)"
+  #   provider: "azure-openai"
+  #   description: "GPT-4o via Azure OpenAI"
+  # - model_id: "gpt-4o-mini"
+  #   name: "GPT-4o Mini (Azure)"
+  #   provider: "azure-openai"
+  #   description: "Fast, cost-effective GPT-4o Mini via Azure OpenAI"
 
 # ── MCP Servers ───────────────────────────────────────────────────
 # Supported transports: "http" (streamable HTTP), "sse", "stdio"
+# In docker-compose dev, set the corresponding env var (e.g.
+# ARGOCD_MCP_URL) if you have those services running locally.
 mcp_servers: []
-  # - id: "github-mcp"
+  # - id: "github"
   #   name: "GitHub"
-  #   description: "GitHub MCP server for repository operations"
+  #   description: "GitHub repositories and pull requests"
   #   transport: "http"
-  #   endpoint: "http://github-mcp-server:8080/mcp"
+  #   endpoint: "${GITHUB_MCP_URL:-http://localhost:8082}"
+  #   enabled: true
+  # - id: "argocd"
+  #   name: "ArgoCD"
+  #   description: "ArgoCD application and deployment management"
+  #   transport: "http"
+  #   endpoint: "${ARGOCD_MCP_URL:-http://localhost:18002/mcp}"
+  #   enabled: true
+  # - id: "knowledge-base"
+  #   name: "Knowledge Base"
+  #   description: "RAG knowledge base tools"
+  #   transport: "http"
+  #   endpoint: "${RAG_SERVER_MCP_URL:-http://localhost:9446/mcp}"
   #   enabled: true
 
 # ── Agents ────────────────────────────────────────────────────────
+# Pre-seeded dynamic agents. UI-created agents are stored separately
+# (config_driven=false) and remain editable.
 agents: []
   # - id: "default-agent"
   #   name: "Default Agent"
   #   description: "General-purpose assistant"
   #   system_prompt: "You are a helpful assistant."
   #   model_id: "gpt-4o"
-  #   model_provider: "openai"
+  #   model_provider: "azure-openai"
   #   visibility: "global"
   #   allowed_tools: {}
   #   subagents: []

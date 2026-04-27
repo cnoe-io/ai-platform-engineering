@@ -150,6 +150,30 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._client_context = client_context
+        # Spec 102 Phase 8 / T107: prefer the per-request bearer from
+        # current_user_token (set by JwtAuthMiddleware) so the same token
+        # the BFF authenticated us with is forwarded to MCP servers.
+        # Fall back to UserContext-attached fields for backward compat
+        # with the X-User-Context legacy path.
+        from dynamic_agents.auth.token_context import current_user_token as _ctx_tok
+
+        ctx_token = _ctx_tok.get()
+        legacy_token = (user.obo_jwt or user.access_token) if user else None
+        self._auth_bearer: str | None = ctx_token or legacy_token
+        # Spec 104: never silently substitute the dynamic-agents service
+        # account token here — the runtime must run with the user's OBO
+        # token so AgentGateway can evaluate `team_member:<active_team>`
+        # CEL against the JWT. If we have nothing, log loudly and let the
+        # downstream call 401; we'd rather fail closed than show the user
+        # tools that belong to the SA.
+        if self._auth_bearer is None:
+            logger.warning(
+                "AgentRuntime for '%s' has no user JWT (ctx_token + legacy both empty); "
+                "outbound MCP calls will be unauthenticated and AgentGateway will reject them. "
+                "This usually means JwtAuthMiddleware was bypassed or the BFF stripped the "
+                "Authorization header.",
+                config.name,
+            )
         self._session_id = session_id
         self._graph = None
         self._mongo_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)
@@ -187,7 +211,12 @@ class AgentRuntime:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
         else:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+            )
 
             if not connections:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
@@ -453,9 +482,15 @@ class AgentRuntime:
         tools: list = []
 
         # 1. Build MCP tools from subagent's allowed_tools config
+        #    Inherit parent's AG routing and auth (FR-038f)
         server_ids = list(subagent_config.allowed_tools.keys())
         if server_ids:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+            )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent
                 all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
@@ -501,8 +536,11 @@ class AgentRuntime:
 
         config["context"] = AgentContext(
             user_id=user_id,
+            user_name=self._user.name if self._user else None,
+            user_groups=list(self._user.groups) if self._user else [],
             agent_config_id=self.config.id,
             session_id=session_id,
+            obo_jwt=self._auth_bearer,
         )
 
         if "metadata" not in config:

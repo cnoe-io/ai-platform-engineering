@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { createStreamAdapter, type StreamCallbacks } from "@/lib/streaming";
+import { useToast } from "@/components/ui/toast";
+import { createStreamAdapter, StreamError, type StreamCallbacks } from "@/lib/streaming";
+import { authErrorToastTitle, type AuthError } from "@/lib/auth-error";
+import { APIClientError } from "@/lib/api-client";
+import { signIn } from "next-auth/react";
 import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
@@ -43,8 +47,42 @@ interface ChatPanelProps {
 
 export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, isLoadingMessages }: ChatPanelProps) {
   const { data: session } = useSession();
+  const { toast } = useToast();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
+
+  /**
+   * Surface a structured auth-failure (from the BFF or stream adapters) to
+   * the user as a toast with a short title + the server-supplied message,
+   * and trigger NextAuth re-sign-in when the server's `action` hint is
+   * `sign_in`. Returns true so callers can short-circuit the inline error
+   * rendering.
+   *
+   * Why a toast over inline error text: auth failures are recoverable
+   * (sign in / contact admin), not part of the conversation. Burying them
+   * inside an `**Error:** ...` blob in the assistant turn taught users to
+   * blame the agent and made the recovery path invisible. See
+   * docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md.
+   */
+  const showAuthErrorToast = useCallback(
+    (err: AuthError) => {
+      const title = authErrorToastTitle(err);
+      // Toast component renders message as text; combine title + body with
+      // a newline so both are visible without exposing custom JSX.
+      toast(`${title}\n${err.message}`, "error", 8000);
+
+      // For session-expired / not-signed-in, redirect to NextAuth sign-in
+      // after a short delay so the user has time to read the toast. We use
+      // signIn() (not router.push) because NextAuth handles the OIDC flow
+      // and round-trips the user back to the current page on success.
+      if (err.action === "sign_in") {
+        setTimeout(() => {
+          void signIn(undefined, { callbackUrl: window.location.href });
+        }, 1500);
+      }
+    },
+    [toast],
+  );
 
   // Derive the user's first name for message labels (falls back to "You")
   const userDisplayName = useMemo(() => {
@@ -745,10 +783,35 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const submitMessage = useCallback(async (messageToSend: string) => {
     if (!messageToSend.trim() || isThisConversationStreaming) return;
 
-    // Create conversation if needed
+    // Create conversation if needed. This hits POST /api/chat/conversations
+    // which is gated by the BFF auth middleware, so we have to handle the
+    // structured auth-error here too (not just on the stream call) — without
+    // this, an expired session looks like a generic "Failed to create
+    // conversation" with no recovery hint.
     let convId = activeConversationId;
     if (!convId) {
-      convId = await createConversation(agentId);
+      try {
+        convId = await createConversation(agentId);
+      } catch (err) {
+        if (err instanceof APIClientError && (err.reason || err.status === 401 || err.status === 403)) {
+          showAuthErrorToast({
+            status: err.status,
+            message: err.message,
+            code: err.code,
+            reason: err.reason,
+            action: err.action,
+          });
+          return;
+        }
+        // Non-auth failure — fall through to existing toast surface so the
+        // user still sees something instead of a silent no-op.
+        toast(
+          `Failed to start conversation: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+          8000,
+        );
+        return;
+      }
     }
 
     // Build client context for system prompt rendering and user_info tool
@@ -807,7 +870,23 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
-      if (!(error as Error).message?.startsWith("Session expired:")) {
+
+      // Auth failures (401/403/503-pdp_unavailable) come through as
+      // StreamError with structured fields populated by the BFF. Surface
+      // them as a toast (with sign-in CTA when applicable) instead of
+      // burying them inside the assistant turn — see showAuthErrorToast
+      // for the rationale.
+      const isAuthError = error instanceof StreamError && error.isAuthError();
+      if (isAuthError) {
+        const se = error as StreamError;
+        showAuthErrorToast({
+          status: se.status,
+          message: se.message,
+          code: se.code,
+          reason: se.reason,
+          action: se.action,
+        });
+      } else if (!(error as Error).message?.startsWith("Session expired:")) {
         appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
       }
       // Set interrupted status on error
@@ -819,7 +898,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         console.error('[DynamicAgent] Failed to save error messages:', err);
       });
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {

@@ -6,7 +6,6 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
 } from '@/lib/api-middleware';
 
 // Limits to prevent overloading MongoDB
@@ -73,8 +72,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
-
     const { searchParams } = new URL(request.url);
     const includePeek = searchParams.get('peek') !== 'false'; // default: include
     const { days } = resolveRange(searchParams);
