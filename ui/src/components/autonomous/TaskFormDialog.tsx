@@ -17,6 +17,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { useAgentTools } from "@/hooks/use-agent-tools";
 
 import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
 import { fromFormState, toFormState } from "./formState";
@@ -34,6 +36,16 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit }: TaskFormD
   const [form, setForm] = useState<TaskFormState>(() => toFormState(task));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Pull the live list of subagents discovered by the supervisor so the
+  // operator can pick one from a dropdown instead of free-typing the
+  // identifier (which is a foot-gun -- typos silently fall back to the
+  // LLM router). The "user_input" pseudo-agent is filtered out because
+  // autonomous tasks don't have a human in the loop.
+  const {
+    agents: agentOptions,
+    loading: agentsLoading,
+    error: agentsError,
+  } = useAgentTools();
 
   // Reset whenever the dialog opens or the underlying task changes.
   // Without this, editing task A then opening "create" would inherit
@@ -129,16 +141,52 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit }: TaskFormD
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="task-agent">Agent (optional)</Label>
-              <Input
+              <select
                 id="task-agent"
                 value={form.agent}
                 onChange={(e) => update("agent", e.target.value)}
-                placeholder="leave blank to let the LLM router decide"
-              />
+                disabled={agentsLoading}
+                className={cn(
+                  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm",
+                  "transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  "disabled:cursor-not-allowed disabled:opacity-50",
+                )}
+              >
+                <option value="">
+                  {agentsLoading
+                    ? "Loading agents…"
+                    : "(LLM router will choose)"}
+                </option>
+                {/* Filter out "user_input" — autonomous tasks run without a
+                    human in the loop so that pseudo-agent is meaningless
+                    here. If the live discovery fails, still surface the
+                    persisted value so editing an existing task doesn't
+                    silently drop its routing hint. */}
+                {agentOptions
+                  .filter((opt) => opt.value !== "user_input")
+                  .map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                {form.agent &&
+                  !agentOptions.some((opt) => opt.value === form.agent) && (
+                    <option value={form.agent}>{form.agent} (custom)</option>
+                  )}
+              </select>
               <p className="text-[11px] text-muted-foreground">
-                Optional routing hint (e.g. <code>github</code>). Leave blank
-                and the supervisor&apos;s LLM picks an agent from the prompt
-                at run time.
+                {agentsError ? (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    Could not load live agents from the supervisor. You can
+                    still leave this blank to let the LLM router decide.
+                  </span>
+                ) : (
+                  <>
+                    Optional routing hint. Leave as{" "}
+                    <em>(LLM router will choose)</em> and the supervisor picks
+                    an agent from the prompt at run time.
+                  </>
+                )}
               </p>
             </div>
             <div className="space-y-1">
