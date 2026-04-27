@@ -32,7 +32,7 @@ jobs:
       should_prebuild: ${{ steps.prebuild-check.outputs.should_run }}
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
         with:
           egress-policy: audit
 
@@ -70,7 +70,7 @@ jobs:
 
       - name: 🔍 Check PR mergeability
         id: mergeability
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
@@ -101,7 +101,7 @@ jobs:
             console.log(`mergeable=${pr.mergeable}, mergeable_state=${mergeableState}`);
 
       - name: 🏷️ Apply PR flow label
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -182,7 +182,7 @@ jobs:
 
       - name: 💬 Comment if branch needs update
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -269,7 +269,7 @@ jobs:
           python-version: '3.13'
 
       - name: 📦 Install uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
       # ── Detect release/* → main PR ─────────────────────────────────────
       - name: 🔍 Check if release merge PR
