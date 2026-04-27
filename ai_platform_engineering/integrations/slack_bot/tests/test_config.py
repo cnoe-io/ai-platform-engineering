@@ -171,7 +171,6 @@ class TestOverthinkConfigDefaults:
     oc = OverthinkConfig()
     assert oc.enabled is False
     assert oc.skip_markers == ["DEFER", "LOW_CONFIDENCE"]
-    assert oc.pass_marker == "CONFIDENCE: HIGH"
     assert oc.custom_prompt is None
     assert oc.followup_prompt is None
 
@@ -179,10 +178,8 @@ class TestOverthinkConfigDefaults:
     oc = OverthinkConfig(
       enabled=True,
       skip_markers=["DEFER", "NOPE"],
-      pass_marker="GO_AHEAD",
     )
     assert oc.skip_markers == ["DEFER", "NOPE"]
-    assert oc.pass_marker == "GO_AHEAD"
 
 
 class TestListenMode:

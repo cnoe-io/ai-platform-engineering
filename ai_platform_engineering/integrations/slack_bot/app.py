@@ -93,19 +93,19 @@ for attempt in range(1, max_retries + 1):
       sys.exit(1)
 
 
-def _listen_matches(agent_listen, requested):
+def _agent_listens_to(agent_listen, requested):
   """Check if an agent's listen mode satisfies the requested mode."""
   return agent_listen == "all" or agent_listen == requested
 
 
-def _match_agents(channel_config, is_bot, bot_username=None, listen=None):
+def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, listen=None):
   """Return all agents configured for this sender type and listen mode."""
   matched = []
   for agent in channel_config.agents:
     if is_bot and agent.bots:
       if not agent.bots.enabled:
         continue
-      if listen and not _listen_matches(agent.bots.listen, listen):
+      if listen and not _agent_listens_to(agent.bots.listen, listen):
         continue
       if agent.bots.bot_list is not None and bot_username not in agent.bots.bot_list:
         continue
@@ -113,28 +113,41 @@ def _match_agents(channel_config, is_bot, bot_username=None, listen=None):
     elif not is_bot and agent.users:
       if not agent.users.enabled:
         continue
-      if listen and not _listen_matches(agent.users.listen, listen):
+      if listen and not _agent_listens_to(agent.users.listen, listen):
+        continue
+      if agent.users.user_list is not None and user_id not in agent.users.user_list:
         continue
       matched.append(agent)
   return matched
 
 
 def _resolve_agent_id(channel_config=None) -> str:
-  """Resolve an agent_id from the first binding or global defaults."""
-  if channel_config:
-    for agent in channel_config.agents:
-      return agent.agent_id
+  """Resolve a fallback agent_id for feedback/retry actions that lack agent context.
+
+  Precedence: first agent binding in the channel, then global default.
+  """
+  if channel_config and channel_config.agents:
+    return channel_config.agents[0].agent_id
   if config.defaults.default_agent_id:
     return config.defaults.default_agent_id
   logger.warning("No agent_id configured — using empty string")
   return ""
 
 
-def _resolve_escalation(channel_config):
-  """Find the first escalation config across all agent bindings in a channel."""
+def _resolve_escalation(channel_config, agent_id: str | None = None):
+  """Resolve escalation config, optionally scoped to a specific agent.
+
+  When *agent_id* is provided, only that agent's escalation config is
+  considered — this avoids leaking one agent's escalation settings into
+  another.  When *agent_id* is ``None`` (feedback buttons that don't
+  know which agent responded), falls back to the first agent that has
+  escalation configured.
+  """
   if not channel_config:
     return None
   for agent in channel_config.agents:
+    if agent_id and agent.agent_id != agent_id:
+      continue
     esc = get_escalation_config(agent)
     if esc:
       return esc
@@ -310,7 +323,7 @@ def handle_mention(event, say, client):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
-    matches = _match_agents(channel_config, is_bot=False, listen="mention")
+    matches = _match_agents(channel_config, is_bot=False, user_id=user_id, listen="mention")
     agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
 
@@ -733,7 +746,8 @@ def handle_message_events(body, say, client):
   if is_bot:
     bot_username = utils.get_username_by_bot_id(bot_id)
 
-  matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, listen="message")
+  sender_user_id = event.get("user") if not is_bot else None
+  matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, user_id=sender_user_id, listen="message")
   if not matches:
     return
 
