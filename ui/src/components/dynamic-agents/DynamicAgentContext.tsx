@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Loader2,
@@ -10,6 +10,7 @@ import {
   Trash2,
   RefreshCw,
   Download,
+  Server,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,44 @@ export function DynamicAgentContext({
   // Restart runtime handler
   const [isRestarting, setIsRestarting] = useState(false);
   const [runtimeRestarted, setRuntimeRestarted] = useState(false);
+
+  // Fetch subagent configs to display their MCP servers
+  const [subagentTools, setSubagentTools] = useState<Record<string, Record<string, string[]>>>({});
+  useEffect(() => {
+    if (!subagents?.length || !session?.accessToken) {
+      setSubagentTools({});
+      return;
+    }
+
+    let cancelled = false;
+    const fetchSubagentConfigs = async () => {
+      const results: Record<string, Record<string, string[]>> = {};
+      await Promise.all(
+        subagents.map(async (sub) => {
+          try {
+            const res = await fetch(`/api/dynamic-agents/agents/${sub.agent_id}`, {
+              headers: session.accessToken
+                ? { Authorization: `Bearer ${session.accessToken}` }
+                : {},
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const config = json.data;
+              if (config?.allowed_tools) {
+                results[sub.agent_id] = config.allowed_tools;
+              }
+            }
+          } catch {
+            // Silently skip — subagent may have been deleted
+          }
+        })
+      );
+      if (!cancelled) setSubagentTools(results);
+    };
+
+    fetchSubagentConfigs();
+    return () => { cancelled = true; };
+  }, [subagents, session?.accessToken]);
 
   // Download chat handler
   const handleDownloadChat = useCallback(() => {
@@ -241,6 +280,7 @@ export function DynamicAgentContext({
               agentGradient={agentGradient}
               allowedTools={allowedTools}
               subagents={subagents}
+              subagentTools={subagentTools}
               agentId={agentId}
               sessionId={conversationId}
               onRestartRuntime={handleRestartRuntime}
@@ -294,6 +334,8 @@ interface AgentInfoContentProps {
   agentGradient?: string | null;
   allowedTools?: Record<string, string[]>;
   subagents?: SubAgentRef[];
+  /** Map of subagent agent_id -> their allowed_tools config */
+  subagentTools?: Record<string, Record<string, string[]>>;
   /** Agent ID for restart runtime */
   agentId?: string;
   /** Session ID for restart runtime */
@@ -320,6 +362,7 @@ function AgentInfoContent({
   agentGradient,
   allowedTools,
   subagents,
+  subagentTools,
   agentId,
   sessionId,
   onRestartRuntime,
@@ -434,7 +477,8 @@ function AgentInfoContent({
       {/* MCP Server list */}
       {serverCount > 0 && (
         <div className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Server className="h-3.5 w-3.5" />
             MCP Servers
           </h4>
           <div className="space-y-1">
@@ -457,24 +501,47 @@ function AgentInfoContent({
             Configured Subagents
           </h4>
           <div className="space-y-1.5">
-            {subagents.map((subagent) => (
-              <div
-                key={subagent.agent_id}
-                className="rounded-lg border border-border/50 bg-muted/30 p-2"
-              >
-                <div className="flex items-center gap-2">
-                  <Bot className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-                  <span className="text-xs font-medium truncate" title={subagent.name}>
-                    {subagent.name}
-                  </span>
+            {subagents.map((subagent) => {
+              const subTools = subagentTools?.[subagent.agent_id];
+              const subServerIds = subTools ? Object.keys(subTools) : [];
+              return (
+                <div
+                  key={subagent.agent_id}
+                  className="rounded-lg border border-border/50 bg-muted/30 p-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                    <span className="text-xs font-medium truncate" title={subagent.name}>
+                      {subagent.name}
+                    </span>
+                  </div>
+                  {subagent.description && (
+                    <p className="text-[10px] text-muted-foreground mt-1 pl-5.5 line-clamp-2">
+                      {subagent.description}
+                    </p>
+                  )}
+                  {subServerIds.length > 0 && (
+                    <div className="mt-1.5 pl-5.5 space-y-1">
+                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <Server className="h-3 w-3" />
+                        <span>{subServerIds.length} MCP Server{subServerIds.length !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="space-y-0.5">
+                        {subServerIds.map((serverId) => (
+                          <div
+                            key={serverId}
+                            className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-muted/50 border border-border/30 truncate"
+                            title={serverId}
+                          >
+                            {serverId}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {subagent.description && (
-                  <p className="text-[10px] text-muted-foreground mt-1 pl-5.5 line-clamp-2">
-                    {subagent.description}
-                  </p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
