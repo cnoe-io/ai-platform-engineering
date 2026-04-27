@@ -61,6 +61,7 @@ C456:
     - agent_id: "file-agent"
       users:
         enabled: true
+        listen: "mention"
 """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
       f.write(yaml_content)
@@ -87,9 +88,11 @@ C789:
     - agent_id: "user-agent"
       users:
         enabled: true
+        listen: "mention"
     - agent_id: "bot-agent"
       bots:
         enabled: true
+        listen: "message"
         bot_list: ["AlertBot"]
 """
     monkeypatch.setenv("SLACK_INTEGRATION_BOT_CONFIG", yaml)
@@ -102,8 +105,8 @@ C789:
 
 
 class TestBotsUsersConfigWithOverthink:
-  def test_bots_config_defaults(self):
-    bc = BotsConfig()
+  def test_bots_config_with_listen(self):
+    bc = BotsConfig(listen="message")
     assert bc.enabled is True
     assert bc.overthink.enabled is False
     assert bc.bot_list is None
@@ -111,13 +114,14 @@ class TestBotsUsersConfigWithOverthink:
   def test_users_config_with_overthink(self):
     uc = UsersConfig(
       enabled=True,
+      listen="mention",
       overthink=OverthinkConfig(enabled=True, skip_markers=["DEFER", "CUSTOM_SKIP"]),
     )
     assert uc.overthink.enabled is True
     assert uc.overthink.skip_markers == ["DEFER", "CUSTOM_SKIP"]
 
   def test_bots_config_with_bot_list(self):
-    bc = BotsConfig(enabled=True, bot_list=["AlertBot", "MonitorBot"])
+    bc = BotsConfig(enabled=True, listen="message", bot_list=["AlertBot", "MonitorBot"])
     assert bc.bot_list == ["AlertBot", "MonitorBot"]
 
 
@@ -183,9 +187,17 @@ class TestOverthinkConfigDefaults:
 
 
 class TestListenMode:
-  def test_defaults_users_mention_bots_message(self):
-    assert UsersConfig().listen == "mention"
-    assert BotsConfig().listen == "message"
+  def test_enabled_without_listen_raises(self):
+    with pytest.raises(ValueError, match="listen"):
+      UsersConfig(enabled=True)
+    with pytest.raises(ValueError, match="listen"):
+      BotsConfig(enabled=True)
+
+  def test_disabled_without_listen_ok(self):
+    uc = UsersConfig(enabled=False)
+    assert uc.listen is None
+    bc = BotsConfig(enabled=False)
+    assert bc.listen is None
 
   def test_listen_roundtrips_through_yaml(self, monkeypatch):
     monkeypatch.setenv("SLACK_INTEGRATION_BOT_CONFIG", """

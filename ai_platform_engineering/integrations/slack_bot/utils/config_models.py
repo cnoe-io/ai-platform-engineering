@@ -9,7 +9,7 @@ import os
 from loguru import logger
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class GlobalDefaults(BaseModel):
@@ -46,16 +46,28 @@ class OverthinkConfig(BaseModel):
 
 class BotsConfig(BaseModel):
   enabled: bool = True
-  listen: Literal["message", "mention", "all"] = "message"
+  listen: Literal["message", "mention", "all"] | None = None
   overthink: OverthinkConfig = Field(default_factory=OverthinkConfig)
   bot_list: list[str] | None = None
+
+  @model_validator(mode="after")
+  def _require_listen_when_enabled(self):
+    if self.enabled and self.listen is None:
+      raise ValueError("'listen' is required when enabled is true")
+    return self
 
 
 class UsersConfig(BaseModel):
   enabled: bool = True
-  listen: Literal["message", "mention", "all"] = "mention"
+  listen: Literal["message", "mention", "all"] | None = None
   overthink: OverthinkConfig = Field(default_factory=OverthinkConfig)
   user_list: list[str] | None = None
+
+  @model_validator(mode="after")
+  def _require_listen_when_enabled(self):
+    if self.enabled and self.listen is None:
+      raise ValueError("'listen' is required when enabled is true")
+    return self
 
 
 class AgentBinding(BaseModel):

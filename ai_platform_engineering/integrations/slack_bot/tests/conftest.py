@@ -17,6 +17,7 @@ C123:
     - agent_id: "test-agent"
       users:
         enabled: true
+        listen: "mention"
         overthink:
           enabled: false
 """

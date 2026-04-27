@@ -208,11 +208,11 @@ Multiple agents can match the same message — each fires independently.
 |---|---|---|---|
 | `agent_id` | string | **required** | Agent to route messages to |
 | `users.enabled` | bool | `true` | Respond to human messages |
-| `users.listen` | string | `mention` | When to fire for users |
+| `users.listen` | string | **required** when enabled | When to fire for users: `"mention"`, `"message"`, or `"all"` |
 | `users.overthink.enabled` | bool | `false` | Filter low-confidence responses (see below) |
 | `users.user_list` | list | `null` | Allowlist of Slack user IDs (`null` = all users) |
 | `bots.enabled` | bool | `true` | Respond to bot messages |
-| `bots.listen` | string | `message` | When to fire for bots |
+| `bots.listen` | string | **required** when enabled | When to fire for bots: `"mention"`, `"message"`, or `"all"` |
 | `bots.bot_list` | list | `null` | Allowlist of bot display names (`null` = all bots) |
 | `escalation.victorops` | object | `{}` | VictorOps on-call lookup (requires `SLACK_INTEGRATION_VICTOROPS_AGENT_ID`) |
 | `escalation.users` | list | `[]` | Slack user IDs to @-mention on escalation |
