@@ -12,7 +12,10 @@ sidebar_position: 1
 
 As [Platform Engineering](https://platformengineering.org/blog/what-is-platform-engineering), [SRE](https://en.wikipedia.org/wiki/Site_reliability_engineering) and [DevOps](https://en.wikipedia.org/wiki/DevOps) environments grow in complexity, traditional approaches often lead to delays, increased operational overhead, and developer frustration. By adopting Multi-Agentic Systems and Agentic AI, Platform Engineering teams can move from manual, task-driven processes to more adaptive and automated operations, better supporting development and business goals.
 
+
 ![Intro](images/intro.svg)
+
+<iframe src="https://app.vidcast.io/share/embed/e0033e26-46bf-4298-8c20-0a2fd1746073" width="100%" height="100%" title="CAIPE Demo" loading="lazy" allow="fullscreen *;autoplay *;clipboard-write *;" style="position: absolute; top:0; left: 0; border: solid; border-radius: 12px;"></iframe>
 
 Community AI Platform Engineering (CAIPE) (pronounced as `cape`) is an open-source, *M*ulti-*A*gentic AI *S*ystem (MAS) championed by the CNOE (Cloud Native Operational Excellence) forum. CAIPE provides a secure, scalable, persona-driven reference implementation with built-in knowledge base retrieval that streamlines platform operations, accelerates workflows, and fosters innovation for modern engineering teams. It integrates seamlessly with Internal Developer Portals like Backstage and developer environments such as VS Code, enabling frictionless adoption and extensibility.
 
