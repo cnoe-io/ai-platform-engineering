@@ -1,19 +1,36 @@
+## 0.4.2-dev.1 (2026-04-27)
+
+### Fix
+
+- **setup**: guard empty-array expansions for bash 3.2 compat (#1304)
+- **docs**: correct ci/cd for hotfix
+- **ci**: -hotfix blocked by PEP 440 so use +hotfix in pyproject.toml
+- **docs**: fix iframe style prop, add Releases to sidebar, remove Use Cases (#1292)
+
+### Refactor
+
+- **slack-bot**: replace qanda/ai_alerts config with flat agents list (v0.4.0) (#1288)
+
 ## 0.4.2 (2026-04-27)
 
 ## 0.4.1-dev.1 (2026-04-27)
+
+### Feat
+
+- **doc**: new cicd diagram and details
 
 ### Fix
 
 - **skills**: fix caipe-skills.py 404, add auth fallback, simplify gateway UI (#1286)
 - **docs**: escape bare < in plan.md to fix MDX build error (#1285)
 
-## 0.4.1-rc.1 (2026-04-24)
+## 0.4.1 (2026-04-24)
 
 ### Fix
 
 - **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
 
-## 0.4.0-rc.24 (2026-04-23)
+## 0.4.0 (2026-04-23)
 
 ### Feat
 
