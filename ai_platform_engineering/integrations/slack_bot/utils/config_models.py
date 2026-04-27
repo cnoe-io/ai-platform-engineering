@@ -7,6 +7,8 @@ Pydantic models for CAIPE Slack Bot configuration.
 import os
 
 from loguru import logger
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -45,12 +47,14 @@ class OverthinkConfig(BaseModel):
 
 class BotsConfig(BaseModel):
   enabled: bool = True
+  listen: Literal["message", "mention", "all"] = "message"
   overthink: OverthinkConfig = Field(default_factory=OverthinkConfig)
   bot_list: list[str] | None = None
 
 
 class UsersConfig(BaseModel):
   enabled: bool = True
+  listen: Literal["message", "mention", "all"] = "mention"
   overthink: OverthinkConfig = Field(default_factory=OverthinkConfig)
   user_list: list[str] | None = None
 

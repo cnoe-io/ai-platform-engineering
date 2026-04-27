@@ -185,6 +185,25 @@ class TestOverthinkConfigDefaults:
     assert oc.pass_marker == "GO_AHEAD"
 
 
+class TestListenMode:
+  def test_defaults_users_mention_bots_message(self):
+    assert UsersConfig().listen == "mention"
+    assert BotsConfig().listen == "message"
+
+  def test_listen_roundtrips_through_yaml(self, monkeypatch):
+    monkeypatch.setenv("SLACK_INTEGRATION_BOT_CONFIG", """
+C999:
+  name: "#listen-test"
+  agents:
+    - agent_id: "agent-a"
+      enable_users: { enabled: true, listen: "all" }
+      enable_bots:  { enabled: true, listen: "mention" }
+""")
+    agent = Config.from_env().channels["C999"].agents[0]
+    assert agent.enable_users.listen == "all"
+    assert agent.enable_bots.listen == "mention"
+
+
 class TestOldFormatDetection:
   def test_qanda_key_raises_value_error(self, monkeypatch):
     monkeypatch.setenv(

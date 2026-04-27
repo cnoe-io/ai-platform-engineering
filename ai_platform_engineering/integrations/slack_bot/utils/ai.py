@@ -45,28 +45,28 @@ _THOUGHT_KEYS = (
 _MAX_DETAILS_LEN = 200
 
 # Typing indicator constants (overridable via env vars)
-_STATUS_PREFIX = "💭 "
+_STATUS_PREFIX = ""
 _STATUS_MAX_LEN = 50  # Slack loading_messages hard limit is 50 chars
 _DEFAULT_LOADING_MESSAGES = [
-  "👀 takin a look...",
-  "👀 checking...",
-  "👀 on it...",
+  "thinking...",
+  "Convincing the AI to stop overthinking...",
+  "Resorting to magic...",
 ]
 _raw_loading = os.environ.get("SLACK_LOADING_MESSAGES")
 _INITIAL_LOADING_MESSAGES = ([m.strip() for m in _raw_loading.split(",") if m.strip()] if _raw_loading else _DEFAULT_LOADING_MESSAGES) or _DEFAULT_LOADING_MESSAGES  # fall back if split produces empty list
-_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "😅 not sure about this")
-_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "🙋 letting the team handle this")
-_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "😕 something went wrong")
+_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "response is low confidence, not responding")
+_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "letting a human handle this")
+_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "something went wrong")
 _OVERTHINK_STATUS_DISPLAY_SECS = int(os.environ.get("SLACK_OVERTHINK_STATUS_DISPLAY_SECS", "7"))
 
 # Overthink-mode keepalive: cycle these messages when no SSE events arrive.
 _OVERTHINK_KEEPALIVE_INTERVAL = 60  # seconds between keepalive messages
 _OVERTHINK_KEEPALIVE_MESSAGES = [
-  "👀 still working on it...",
-  "😳 taking longer than expected...",
-  "😅 really overthinking this...",
+  "still working on it...",
+  "taking longer than expected...",
+  "really overthinking this...",
 ]
-_STATUS_OVERTHINK_WRITE_TODOS = "📋 checking notes..."
+_STATUS_OVERTHINK_WRITE_TODOS = "checking notes..."
 _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
 
@@ -194,11 +194,13 @@ class StreamBuffer:
       return False
 
 
-def _build_footer_text(triggered_by_user_id=None, additional_footer=None) -> str:
+def _build_footer_text(triggered_by_user_id=None, additional_footer=None, agent_id=None) -> str:
   """Build footer text with optional user attribution and additional text."""
   parts = []
   if additional_footer:
     parts.append(f"_{additional_footer}_")
+  if agent_id:
+    parts.append(f"_Agent: {agent_id}_")
   if triggered_by_user_id:
     parts.append(f"_Requested by <@{triggered_by_user_id}>_")
   parts.append(f"_Mention @{APP_NAME} to continue_")
@@ -436,8 +438,10 @@ def stream_response(
       return
     if status_text and len(status_text) > _STATUS_MAX_LEN:
       status_text = status_text[: _STATUS_MAX_LEN - 3] + "..."
+    if not status_text:
+      return
     if loading_messages is None:
-      loading_messages = [status_text] if status_text else [_STATUS_PREFIX.rstrip()]
+      loading_messages = [status_text]
 
     # Empty status (clear) always sends immediately
     now = time.monotonic()
@@ -801,6 +805,7 @@ def stream_response(
                 triggered_by_user_id=triggered_by_user_id,
                 additional_footer=additional_footer,
                 escalation_config=escalation_config,
+                agent_id=agent_id,
               )
             )
             slack_client.chat_stopStream(channel=channel_id, ts=stream_ts, blocks=error_blocks)
@@ -893,6 +898,7 @@ def stream_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
+        agent_id=agent_id,
       )
       logger.debug(f"[{thread_ts}] SLACK stopStream: chunks={len(stop_chunks)}, blocks={len(stop_blocks)}")
       try:
@@ -916,6 +922,7 @@ def stream_response(
             triggered_by_user_id=triggered_by_user_id,
             additional_footer=additional_footer,
             escalation_config=escalation_config,
+            agent_id=agent_id,
           )
         raise
 
@@ -933,6 +940,7 @@ def stream_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
+        agent_id=agent_id,
       )
     else:
       if thread_deleted:
@@ -954,6 +962,7 @@ def stream_response(
         triggered_by_user_id=triggered_by_user_id,
         additional_footer=additional_footer,
         escalation_config=escalation_config,
+        agent_id=agent_id,
       )
 
   except Exception as e:
@@ -979,6 +988,7 @@ def stream_response(
           triggered_by_user_id=triggered_by_user_id,
           additional_footer=additional_footer,
           escalation_config=escalation_config,
+          agent_id=agent_id,
         )
       )
     except Exception:
@@ -1059,6 +1069,7 @@ def invoke_response(
       triggered_by_user_id=triggered_by_user_id,
       additional_footer=additional_footer,
       escalation_config=escalation_config,
+      agent_id=agent_id,
     )
 
   except Exception as e:
@@ -1073,6 +1084,7 @@ def invoke_response(
           triggered_by_user_id=triggered_by_user_id,
           additional_footer=additional_footer,
           escalation_config=escalation_config,
+          agent_id=agent_id,
         )
       )
     except Exception:
@@ -1126,6 +1138,7 @@ def _post_final_response(
   triggered_by_user_id=None,
   additional_footer=None,
   escalation_config=None,
+  agent_id=None,
 ):
   """Post final response as a regular message (fallback for bot messages)."""
   final_text = _strip_confidence_markers(final_text)
@@ -1140,6 +1153,7 @@ def _post_final_response(
     triggered_by_user_id=triggered_by_user_id,
     additional_footer=additional_footer,
     escalation_config=escalation_config,
+    agent_id=agent_id,
   )
 
   final_blocks = slack_formatter.enforce_block_limit(content_blocks, footer_blocks)
@@ -1161,6 +1175,7 @@ def _build_stream_final_blocks(
   triggered_by_user_id=None,
   additional_footer=None,
   escalation_config=None,
+  agent_id=None,
 ):
   """Build the feedback + footer blocks used by both stream types."""
   final_blocks = []
@@ -1193,7 +1208,7 @@ def _build_stream_final_blocks(
     )
   final_blocks.append({"type": "context_actions", "elements": context_elements})
 
-  footer_text = _build_footer_text(triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer)
+  footer_text = _build_footer_text(triggered_by_user_id=triggered_by_user_id, additional_footer=additional_footer, agent_id=agent_id)
   final_blocks.append(
     {
       "type": "context",

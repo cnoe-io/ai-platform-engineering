@@ -44,12 +44,14 @@ def get_current_channel_id(event):
 
 
 @lru_cache(maxsize=32)
-def get_username_by_bot_id(bot_id):
+def get_bot_info_by_id(bot_id):
   """
-  Get bot username from bot ID using Slack API.
+  Get bot name and user_id from bot ID using Slack API.
   Results are cached to avoid repeated API calls.
+
+  Returns:
+      Tuple of (bot_name, bot_user_id). Either may be empty string on failure.
   """
-  # Fetch from Slack API
   url = "https://slack.com/api/bots.info"
   headers = {
     "Authorization": "Bearer " + os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")),
@@ -61,14 +63,20 @@ def get_username_by_bot_id(bot_id):
     response = requests.request("POST", url, headers=headers, data=payload)
   except requests.exceptions.RequestException as e:
     logger.warning(e)
-    return ""
+    return ("", "")
 
   response_dict = json.loads(response.text)
   if response_dict["ok"]:
-    return response_dict["bot"]["name"]
+    bot = response_dict["bot"]
+    return (bot.get("name", ""), bot.get("user_id", ""))
   else:
     logger.info(response_dict)
-    return ""
+    return ("", "")
+
+
+def get_username_by_bot_id(bot_id):
+  """Get bot username from bot ID. Convenience wrapper around get_bot_info_by_id."""
+  return get_bot_info_by_id(bot_id)[0]
 
 
 def get_message_author_info(event, client):

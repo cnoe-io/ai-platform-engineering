@@ -13,10 +13,12 @@ C0EXAMPLE01:
     - agent_id: "my-custom-agent"
       enable_users:
         enabled: true
+        listen: "mention"        # "mention" (default) | "message" | "all"
         overthink:
           enabled: false
       enable_bots:
         enabled: false
+        listen: "message"        # "message" (default) | "mention" | "all"
         # bot_list: ["AlertBot"]
       # escalation:
       #   users: ["U_ONCALL1"]

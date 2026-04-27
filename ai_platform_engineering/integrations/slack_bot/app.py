@@ -93,23 +93,30 @@ for attempt in range(1, max_retries + 1):
       sys.exit(1)
 
 
-def _match_agent(channel_config, is_bot, bot_username=None):
-  """Find first agent configured for this sender type.
+def _listen_matches(agent_listen, requested):
+  """Check if an agent's listen mode satisfies the requested mode."""
+  return agent_listen == "all" or agent_listen == requested
 
-  Returns the matching AgentBinding or None.
-  """
+
+def _match_agents(channel_config, is_bot, bot_username=None, listen=None):
+  """Return all agents configured for this sender type and listen mode."""
+  matched = []
   for agent in channel_config.agents:
     if is_bot and agent.enable_bots:
       if not agent.enable_bots.enabled:
         continue
+      if listen and not _listen_matches(agent.enable_bots.listen, listen):
+        continue
       if agent.enable_bots.bot_list is not None and bot_username not in agent.enable_bots.bot_list:
         continue
-      return agent
-    if not is_bot and agent.enable_users:
+      matched.append(agent)
+    elif not is_bot and agent.enable_users:
       if not agent.enable_users.enabled:
         continue
-      return agent
-  return None
+      if listen and not _listen_matches(agent.enable_users.listen, listen):
+        continue
+      matched.append(agent)
+  return matched
 
 
 def _resolve_agent_id(channel_config=None) -> str:
@@ -303,7 +310,8 @@ def handle_mention(event, say, client):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
-    agent_match = _match_agent(channel_config, is_bot=False)
+    matches = _match_agents(channel_config, is_bot=False, listen="mention")
+    agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
 
     # Create or retrieve conversation via shared API (server owns ID generation).
@@ -432,14 +440,18 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
-    if event.get("subtype"):
+    if event.get("subtype") and event.get("subtype") != "bot_message":
       return
 
     if not utils.verify_thread_exists(client, channel_id, thread_ts):
       logger.warning(f"[{thread_ts}] Ignoring message — parent message was deleted")
       return
 
-    user_id = event.get("user", event.get("bot_id"))
+    if is_bot:
+      _, bot_user_id = utils.get_bot_info_by_id(event.get("bot_id"))
+      user_id = bot_user_id or event.get("bot_id")
+    else:
+      user_id = event.get("user")
     team_id = event.get("team")
     message_text = slack_context.extract_message_text(event)
 
@@ -698,7 +710,8 @@ def handle_message_events(body, say, client):
     return
 
   channel_id = event.get("channel")
-  is_bot = event.get("bot_id") is not None
+  bot_id = event.get("bot_id")
+  is_bot = bot_id is not None
 
   if not utils.is_configured_channel(channel_id):
     return
@@ -718,13 +731,14 @@ def handle_message_events(body, say, client):
 
   bot_username = None
   if is_bot:
-    bot_username = utils.get_username_by_bot_id(event.get("bot_id"))
+    bot_username = utils.get_username_by_bot_id(bot_id)
 
-  agent_match = _match_agent(channel_config, is_bot=is_bot, bot_username=bot_username)
-  if not agent_match:
+  matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, listen="message")
+  if not matches:
     return
 
-  _route_to_agent(event, say, client, channel_config, agent_match, is_bot=is_bot, bot_username=bot_username)
+  for agent_match in matches:
+    _route_to_agent(event, say, client, channel_config, agent_match, is_bot=is_bot, bot_username=bot_username)
 
 
 # =============================================================================
