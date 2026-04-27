@@ -24,4 +24,6 @@ data:
 {{- end }}
 {{ $contents | nindent 4 }}
 {{- end }}
+  caipe-skills.py: |
+{{ .Files.Get "data/skills/caipe-skills.py" | nindent 4 }}
 {{- end }}
