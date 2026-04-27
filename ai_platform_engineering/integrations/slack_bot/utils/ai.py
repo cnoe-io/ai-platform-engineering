@@ -533,8 +533,11 @@ def stream_response(
       client_context=client_context,
     )
   else:
+    effective_message = message_text
+    if overthink_mode and overthink_config.custom_prompt:
+      effective_message = f"{overthink_config.custom_prompt}\n\n{message_text}"
     event_stream = sse_client.stream_chat(
-      message=message_text,
+      message=effective_message,
       conversation_id=conversation_id,
       agent_id=agent_id,
       client_context=client_context,
@@ -1179,7 +1182,7 @@ def _build_stream_final_blocks(
 ):
   """Build the feedback + footer blocks used by both stream types."""
   final_blocks = []
-  action_value = f"{channel_id}|{thread_ts}|{original_ts or ''}"
+  action_value = f"{channel_id}|{thread_ts}|{original_ts or ''}|{agent_id or ''}"
 
   context_elements = [
     {
@@ -1187,11 +1190,11 @@ def _build_stream_final_blocks(
       "action_id": "caipe_feedback",
       "positive_button": {
         "text": {"type": "plain_text", "text": "\U0001f44d"},
-        "value": f"positive|{original_ts or ''}",
+        "value": f"positive|{original_ts or ''}|{agent_id or ''}",
       },
       "negative_button": {
         "text": {"type": "plain_text", "text": "\U0001f44e"},
-        "value": f"negative|{original_ts or ''}",
+        "value": f"negative|{original_ts or ''}|{agent_id or ''}",
       },
     },
   ]

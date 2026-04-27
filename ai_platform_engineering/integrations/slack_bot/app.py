@@ -121,19 +121,6 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
   return matched
 
 
-def _resolve_agent_id(channel_config=None) -> str:
-  """Resolve a fallback agent_id for feedback/retry actions that lack agent context.
-
-  Precedence: first agent binding in the channel, then global default.
-  """
-  if channel_config and channel_config.agents:
-    return channel_config.agents[0].agent_id
-  if config.defaults.default_agent_id:
-    return config.defaults.default_agent_id
-  logger.warning("No agent_id configured — using empty string")
-  return ""
-
-
 def _resolve_escalation(channel_config, agent_id: str | None = None):
   """Resolve escalation config, optionally scoped to a specific agent.
 
@@ -359,6 +346,9 @@ def handle_mention(event, say, client):
     if is_humble_followup:
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
+      overthink = agent_match.users.overthink if agent_match and agent_match.users else None
+      if overthink and overthink.followup_prompt:
+        context_message = f"{overthink.followup_prompt}\n\n{context_message}"
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
@@ -412,7 +402,7 @@ def handle_mention(event, say, client):
                 "text": {"type": "plain_text", "text": "Retry"},
                 "style": "primary",
                 "action_id": "caipe_retry",
-                "value": f"{channel_id}|{thread_ts}",
+                "value": f"{channel_id}|{thread_ts}||{agent_id}",
               },
             ],
           },
@@ -672,7 +662,7 @@ def handle_dm_message(event, say, client):
                 "text": {"type": "plain_text", "text": "Retry"},
                 "style": "primary",
                 "action_id": "caipe_retry",
-                "value": f"{event.get('channel')}|{thread_ts}",
+                "value": f"{event.get('channel')}|{thread_ts}||{agent_id}",
               },
             ],
           },
@@ -814,11 +804,13 @@ def handle_caipe_feedback(ack, body, client):
 
     action = actions[0]
     value = action.get("value", "")
-    feedback_type = value.split("|")[0] if "|" in value else value
+    parts = value.split("|")
+    feedback_type = parts[0] if parts else value
+    agent_id = parts[2] if len(parts) > 2 else ""
     is_positive = feedback_type == "positive"
 
     feedback_value = "thumbs_up" if is_positive else "thumbs_down"
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -839,7 +831,7 @@ def handle_caipe_feedback(ack, body, client):
         text="Thanks for the feedback! Glad it was helpful.",
       )
     else:
-      action_value = f"{channel_id}|{thread_ts}|{message_ts}"
+      action_value = f"{channel_id}|{thread_ts}|{message_ts}|{agent_id}"
       action_elements = [
         {"type": "button", "text": {"type": "plain_text", "text": "More detail"}, "action_id": "caipe_feedback_more_detail", "value": action_value},
         {"type": "button", "text": {"type": "plain_text", "text": "Briefer"}, "action_id": "caipe_feedback_less_verbose", "value": action_value},
@@ -849,7 +841,7 @@ def handle_caipe_feedback(ack, body, client):
 
       # Add "Get help" button if escalation is configured
       channel_config = config.channels.get(channel_id)
-      esc_config = _resolve_escalation(channel_config)
+      esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
       if esc_config:
         action_elements.append({"type": "button", "text": {"type": "plain_text", "text": "\U0001f64b Get help"}, "action_id": "caipe_escalation_get_help", "value": action_value})
 
@@ -878,10 +870,10 @@ def handle_feedback_more_detail(ack, body, client):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
-    agent_id = _resolve_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -901,7 +893,7 @@ def handle_feedback_more_detail(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
 
     _call_ai(
       client=client,
@@ -929,10 +921,10 @@ def handle_feedback_less_verbose(ack, body, client):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
-    agent_id = _resolve_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -952,7 +944,7 @@ def handle_feedback_less_verbose(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
 
     _call_ai(
       client=client,
@@ -980,6 +972,7 @@ def handle_caipe_retry(ack, body, client):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
@@ -987,8 +980,8 @@ def handle_caipe_retry(ack, body, client):
       return
 
     channel_config = config.channels[channel_id]
-    agent_id = _resolve_agent_id(channel_config)
-    # Resolve server-side conversation_id for this thread
+    if not agent_id:
+      agent_id = channel_config.agents[0].agent_id if channel_config.agents else ""
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -1054,6 +1047,7 @@ def handle_escalation_get_help(ack, body, client):
     parts = action.get("value", "").split("|")
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
@@ -1071,7 +1065,7 @@ def handle_escalation_get_help(ack, body, client):
     channel_config = config.channels.get(channel_id)
     if not channel_config:
       return
-    esc_config = _resolve_escalation(channel_config)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
     if not esc_config:
       return
 
@@ -1242,7 +1236,8 @@ def handle_wrong_answer_submission(ack, body, client, view):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
-    feedback_type = parts[3] if len(parts) > 3 else "wrong_answer"
+    agent_id = parts[3] if len(parts) > 3 else ""
+    feedback_type = parts[4] if len(parts) > 4 else "wrong_answer"
 
     if not channel_id or not thread_ts:
       return
@@ -1252,7 +1247,6 @@ def handle_wrong_answer_submission(ack, body, client, view):
     if not correction_text:
       return
 
-    agent_id = _resolve_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -1277,9 +1271,8 @@ def handle_wrong_answer_submission(ack, body, client, view):
 
     correction_prompt = f'The user indicated your previous response was incorrect and provided the following IMPORTANT context: "{correction_text}"\n\nPlease carefully review this feedback and provide a corrected response.'
 
-    # Get escalation config for this channel
     channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
 
     _call_ai(
       client=client,
