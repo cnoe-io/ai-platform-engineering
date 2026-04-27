@@ -18,6 +18,7 @@ ToolInvocationError caused the model to retry with different arguments, which
 defeated the cap.
 """
 
+import contextvars
 import logging
 import os
 import threading
@@ -26,14 +27,56 @@ from typing import Any, ClassVar
 
 from langchain_core.tools import BaseTool
 from langgraph.config import get_config
-from langgraph.prebuilt.tool_node import ToolInvocationError
 from pydantic import PrivateAttr
 
 logger = logging.getLogger(__name__)
 
+# Conversation-scoped ID set at stream start by the A2A binding. Using a ContextVar
+# means child graphs (spawned via the task tool in the same async context) inherit the
+# same value automatically, so their RAG cap counters share the same bucket as the parent.
+_rag_conversation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_rag_conversation_id", default=None
+)
+
+
+def set_rag_conversation_id(conversation_id: str) -> contextvars.Token:
+    """Set the conversation ID for RAG cap tracking. Call once at stream start.
+
+    Returns the ContextVar token so the caller can reset to the prior value
+    when the stream ends (important in environments that reuse async contexts).
+    """
+    return _rag_conversation_id.set(conversation_id)
+
+
 _DEFAULT_MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("RAG_MAX_FETCH_DOCUMENT_CALLS", "5"))
 _DEFAULT_MAX_SEARCH_CALLS = int(os.getenv("RAG_MAX_SEARCH_CALLS", "5"))
 _STALE_ENTRY_TTL_SECONDS = 300
+
+def rag_cap_message(search_remaining: int = 0, fetch_remaining: int = 0) -> str:
+    """Build the cap-hit message for a blocked RAG call.
+
+    When calls remain in other tool budgets, the message tells the model exactly
+    how many it can still use so it doesn't leave budget on the table.
+    When all budgets are exhausted, it tells the model to synthesize immediately.
+    """
+    parts = []
+    if search_remaining > 0:
+        parts.append(f"{search_remaining} search call{'s' if search_remaining != 1 else ''} remaining")
+    if fetch_remaining > 0:
+        parts.append(f"{fetch_remaining} fetch_document call{'s' if fetch_remaining != 1 else ''} remaining")
+
+    if parts:
+        return (
+            "This RAG call was blocked because more queries were requested than are left under the limit. "
+            f"You still have: {', '.join(parts)}. "
+            "Use those remaining calls to gather any additional information needed, "
+            "then synthesize your final answer."
+        )
+    return (
+        "RAG call limit reached. "
+        "Do NOT call search or fetch_document again. "
+        "Synthesize your final answer using the information retrieved so far."
+    )
 
 
 # Per-call output truncation limits (chars). Prevents a single tool call from
@@ -45,23 +88,6 @@ _DEFAULT_MAX_OUTPUT_CHARS = int(os.getenv("RAG_MAX_OUTPUT_CHARS", "10000"))
 _DEFAULT_MAX_SEARCH_RESULTS = int(os.getenv("RAG_MAX_SEARCH_RESULTS", "3"))
 
 
-class _RagToolCapExhausted(ToolInvocationError):
-  """Raised when a per-query RAG tool cap is reached.
-
-  Subclasses ToolInvocationError so LangGraph's ToolNode error handler
-  converts it to an is_error=True ToolMessage — the semantic signal that
-  tells the model the tool call FAILED (hard stop).
-  """
-
-  def __init__(self, message: str, tool_name: str) -> None:
-    self.message = message
-    self.tool_name = tool_name
-    self.tool_kwargs: dict = {}
-    self.source = None
-    self.filtered_errors = None
-    Exception.__init__(self, message)
-
-
 class _CapCounterMixin:
   """Shared per-thread_id call counting and output truncation logic."""
 
@@ -70,6 +96,11 @@ class _CapCounterMixin:
   _global_lock: ClassVar[threading.Lock] = threading.Lock()
 
   def _get_thread_id(self) -> str:
+    # Prefer the conversation-scoped ID set at stream start — this is the same value
+    # in both parent and child graphs since ContextVar propagates through async tasks.
+    conversation_id = _rag_conversation_id.get()
+    if conversation_id:
+      return conversation_id
     config = get_config()
     return config.get("configurable", {}).get("thread_id", "__default__") if config else "__default__"
 
@@ -109,8 +140,9 @@ class _CapCounterMixin:
 class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
   """Wraps fetch_document with a per-query call cap.
 
-  Raises _RagToolCapExhausted (ToolInvocationError) when the cap is hit,
-  producing an is_error=True ToolMessage that the model treats as a hard stop.
+  Returns a normal-looking success string when the cap is hit so the model
+  does not retry with different document IDs. The middleware's after_model
+  hook intercepts any follow-up RAG calls once both caps are exhausted.
   """
 
   name: str = "fetch_document"
@@ -121,6 +153,7 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
   _global_counts: ClassVar[dict] = {}
   _global_timestamps: ClassVar[dict] = {}
   _global_lock: ClassVar[threading.Lock] = threading.Lock()
+  _active_max_calls: ClassVar[int] = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS
 
   _original_tool: Any = PrivateAttr()
 
@@ -131,6 +164,7 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
   @classmethod
   def from_tool(cls, original: Any, max_calls: int = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS) -> "FetchDocumentCapWrapper":
     """Create a FetchDocumentCapWrapper from an existing MCP StructuredTool."""
+    cls._active_max_calls = max_calls
     wrapper = cls(
       name=original.name,
       description=original.description,
@@ -144,20 +178,22 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
     )
     return wrapper
 
+  @classmethod
+  def get_max_calls(cls) -> int:
+    return cls._active_max_calls
+
+  @classmethod
+  def get_call_count_for_thread(cls, thread_id: str) -> int:
+    with cls._global_lock:
+      return cls._global_counts.get(thread_id, 0)
+
   async def _arun(self, document_id: str, thought: str = "", **kwargs: Any) -> str:
     thread_id = self._get_thread_id()
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
-      logger.warning(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
+      logger.info(f"fetch_document cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "fetch_document")
-      # Return a normal-looking result so the model doesn't retry with different
-      # document_ids. Raising ToolInvocationError creates is_error=True ToolMessages
-      # which the model treats as "this doc failed, try the next" — causing a loop.
-      return (
-        f"[Document already retrieved] You have fetched {self.max_calls} documents which is the maximum allowed. "
-        "All relevant content has been collected. Do NOT call fetch_document or search again. "
-        "You MUST now synthesize your final answer using ONLY the documents already retrieved above."
-      )
+      return rag_cap_message_for_thread(thread_id)
 
     count = self._global_counts.get(thread_id, 0)
     logger.debug(f"fetch_document call {count}/{self.max_calls} for thread_id={thread_id}")
@@ -171,8 +207,9 @@ class FetchDocumentCapWrapper(_CapCounterMixin, BaseTool):
 class SearchCapWrapper(_CapCounterMixin, BaseTool):
   """Wraps the RAG search tool with a per-query call cap.
 
-  Raises _RagToolCapExhausted (ToolInvocationError) when the cap is hit,
-  producing an is_error=True ToolMessage that the model treats as a hard stop.
+  Returns a normal-looking success string when the cap is hit so the model
+  does not retry with different queries. The middleware's after_model hook
+  intercepts any follow-up RAG calls once both caps are exhausted.
   """
 
   name: str = "search"
@@ -183,6 +220,7 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
   _global_counts: ClassVar[dict] = {}
   _global_timestamps: ClassVar[dict] = {}
   _global_lock: ClassVar[threading.Lock] = threading.Lock()
+  _active_max_calls: ClassVar[int] = _DEFAULT_MAX_SEARCH_CALLS
 
   _original_tool: Any = PrivateAttr()
 
@@ -193,6 +231,7 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
   @classmethod
   def from_tool(cls, original: Any, max_calls: int = _DEFAULT_MAX_SEARCH_CALLS) -> "SearchCapWrapper":
     """Create a SearchCapWrapper from an existing MCP StructuredTool."""
+    cls._active_max_calls = max_calls
     wrapper = cls(
       name=original.name,
       description=original.description,
@@ -206,17 +245,22 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     )
     return wrapper
 
+  @classmethod
+  def get_max_calls(cls) -> int:
+    return cls._active_max_calls
+
+  @classmethod
+  def get_call_count_for_thread(cls, thread_id: str) -> int:
+    with cls._global_lock:
+      return cls._global_counts.get(thread_id, 0)
+
   async def _arun(self, **kwargs: Any) -> str:
     thread_id = self._get_thread_id()
     capped = self._check_and_increment(thread_id, self.max_calls)
     if capped is not None:
-      logger.warning(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
+      logger.info(f"search cap ({self.max_calls}) reached for thread_id={thread_id}")
       _record_rag_cap_hit(thread_id, "search")
-      return (
-        f"[Search complete] You have performed {self.max_calls} searches which is the maximum allowed. "
-        "All relevant results have been collected. Do NOT call search or fetch_document again. "
-        "You MUST now synthesize your final answer using ONLY the information already retrieved above."
-      )
+      return rag_cap_message_for_thread(thread_id)
 
     # Cap per-call results to prevent context window flooding.
     if "limit" in kwargs and isinstance(kwargs["limit"], int):
@@ -235,6 +279,16 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
     raise NotImplementedError("SearchCapWrapper only supports async execution via _arun")
 
 
+def rag_cap_message_for_thread(thread_id: str) -> str:
+    """Build the cap-hit message with accurate remaining counts for both tools."""
+    search_used = SearchCapWrapper.get_call_count_for_thread(thread_id)
+    fetch_used = FetchDocumentCapWrapper.get_call_count_for_thread(thread_id)
+    return rag_cap_message(
+        search_remaining=max(0, SearchCapWrapper.get_max_calls() - search_used),
+        fetch_remaining=max(0, FetchDocumentCapWrapper.get_max_calls() - fetch_used),
+    )
+
+
 # Hard-stop tracking: after the first post-cap call, mark the thread so
 # DeterministicTaskMiddleware.after_model can terminate the graph cleanly
 # instead of running 500 recursion steps.
@@ -243,16 +297,19 @@ _rag_capped_tools: dict[str, set[str]] = {}
 _rag_hard_stop_lock = threading.Lock()
 
 
-def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> None:
-    """Record a cap hit for a specific tool on this thread."""
+def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> int:
+    """Record a cap hit for a specific tool on this thread. Returns the new hit count."""
     with _rag_hard_stop_lock:
+        _cleanup_stale_hard_stop()
         count = _rag_cap_hit_counts.get(thread_id, 0) + 1
         _rag_cap_hit_counts[thread_id] = count
+        _rag_hard_stop_timestamps[thread_id] = time.time()
         if tool_name:
             if thread_id not in _rag_capped_tools:
                 _rag_capped_tools[thread_id] = set()
             _rag_capped_tools[thread_id].add(tool_name)
         logger.info(f"RAG cap hit for thread_id={thread_id}, tool={tool_name} (cap_hit_count={count})")
+        return count
 
 
 def is_rag_tool_capped(thread_id: str, tool_name: str) -> bool:
@@ -267,6 +324,93 @@ def is_rag_hard_stopped(thread_id: str) -> bool:
         return bool(_rag_capped_tools.get(thread_id))
 
 
+class RagBatchCapResult:
+    """Result of a per-tool cap check for a batch of RAG calls.
+
+    Attributes:
+        search_allowed:   how many search calls may proceed (0..search_count)
+        fetch_allowed:    how many fetch_document calls may proceed (0..fetch_count)
+        search_excess:    how many search calls are over the cap
+        fetch_excess:     how many fetch_document calls are over the cap
+        search_remaining: budget left after allowing search_allowed calls
+        fetch_remaining:  budget left after allowing fetch_allowed calls
+    """
+
+    __slots__ = (
+        "search_allowed", "fetch_allowed",
+        "search_excess", "fetch_excess",
+        "search_remaining", "fetch_remaining",
+    )
+
+    def __init__(
+        self,
+        search_allowed: int, fetch_allowed: int,
+        search_excess: int, fetch_excess: int,
+        search_remaining: int, fetch_remaining: int,
+    ) -> None:
+        self.search_allowed = search_allowed
+        self.fetch_allowed = fetch_allowed
+        self.search_excess = search_excess
+        self.fetch_excess = fetch_excess
+        self.search_remaining = search_remaining
+        self.fetch_remaining = fetch_remaining
+
+    @property
+    def any_excess(self) -> bool:
+        return self.search_excess > 0 or self.fetch_excess > 0
+
+
+def rag_batch_cap_check(
+    thread_id: str,
+    search_count: int,
+    fetch_count: int,
+    search_max: int = _DEFAULT_MAX_SEARCH_CALLS,
+    fetch_max: int = _DEFAULT_MAX_FETCH_DOCUMENT_CALLS,
+) -> RagBatchCapResult:
+    """Return a per-tool breakdown of which RAG calls in the batch are within cap.
+
+    Called from after_model before LangGraph fans out tool calls in parallel.
+    Holds both wrapper locks simultaneously for a consistent snapshot — no
+    concurrent _arun can increment between the two reads.
+
+    Does NOT increment counters. _arun owns all incrementing (no double-count).
+    """
+    with SearchCapWrapper._global_lock:
+        with FetchDocumentCapWrapper._global_lock:
+            current_search = SearchCapWrapper._global_counts.get(thread_id, 0)
+            current_fetch = FetchDocumentCapWrapper._global_counts.get(thread_id, 0)
+
+            search_budget = max(0, search_max - current_search)
+            fetch_budget = max(0, fetch_max - current_fetch)
+
+            search_allowed = min(search_count, search_budget)
+            fetch_allowed = min(fetch_count, fetch_budget)
+
+            return RagBatchCapResult(
+                search_allowed=search_allowed,
+                fetch_allowed=fetch_allowed,
+                search_excess=search_count - search_allowed,
+                fetch_excess=fetch_count - fetch_allowed,
+                search_remaining=max(0, search_budget - search_allowed),
+                fetch_remaining=max(0, fetch_budget - fetch_allowed),
+            )
+
+
+_rag_hard_stop_timestamps: dict[str, float] = {}
+
+
+def _cleanup_stale_hard_stop() -> None:
+    """Remove hard-stop entries older than the TTL. Must be called under _rag_hard_stop_lock."""
+    cutoff = time.time() - _STALE_ENTRY_TTL_SECONDS
+    stale = [k for k, v in _rag_hard_stop_timestamps.items() if v < cutoff]
+    for k in stale:
+        _rag_capped_tools.pop(k, None)
+        _rag_cap_hit_counts.pop(k, None)
+        _rag_hard_stop_timestamps.pop(k, None)
+    if stale:
+        logger.debug(f"hard-stop: cleaned up {len(stale)} stale entries")
+
+
 def clear_rag_state(thread_id: str) -> None:
     """Reset RAG cap counters for a thread at the start of a new query.
 
@@ -276,10 +420,11 @@ def clear_rag_state(thread_id: str) -> None:
     with _rag_hard_stop_lock:
         _rag_capped_tools.pop(thread_id, None)
         _rag_cap_hit_counts.pop(thread_id, None)
-    with FetchDocumentCapWrapper._global_lock:
-        FetchDocumentCapWrapper._global_counts.pop(thread_id, None)
-        FetchDocumentCapWrapper._global_timestamps.pop(thread_id, None)
+        _rag_hard_stop_timestamps.pop(thread_id, None)
     with SearchCapWrapper._global_lock:
         SearchCapWrapper._global_counts.pop(thread_id, None)
         SearchCapWrapper._global_timestamps.pop(thread_id, None)
+    with FetchDocumentCapWrapper._global_lock:
+        FetchDocumentCapWrapper._global_counts.pop(thread_id, None)
+        FetchDocumentCapWrapper._global_timestamps.pop(thread_id, None)
     logger.debug(f"RAG state cleared for new query on thread_id={thread_id}")

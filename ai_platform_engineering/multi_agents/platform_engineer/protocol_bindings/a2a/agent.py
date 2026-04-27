@@ -25,6 +25,11 @@ from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
     system_prompt
 )
 from ai_platform_engineering.multi_agents.platform_engineer.response_format import PlatformEngineerResponse
+from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+    clear_rag_state,
+    set_rag_conversation_id,
+    _rag_conversation_id,
+)
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from ai_platform_engineering.utils.a2a_common.langmem_utils import (
@@ -584,13 +589,22 @@ class AIPlatformEngineerA2ABinding:
       # explicit reset, a previous query on the same thread would exhaust the
       # caps before the new query even calls a RAG tool.
       thread_id_for_rag = (config or {}).get("configurable", {}).get("thread_id")
+      _rag_cv_token = None
       if thread_id_for_rag:
           try:
-              from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import clear_rag_state  # noqa: PLC0415
               clear_rag_state(thread_id_for_rag)
-              logging.debug(f"RAG state cleared for thread_id={thread_id_for_rag}")
+              _rag_cv_token = set_rag_conversation_id(thread_id_for_rag)
+              logger.debug(f"RAG state cleared and conversation ID set for thread_id={thread_id_for_rag}")
           except Exception as rag_clear_err:
-              logging.debug(f"Could not clear RAG state: {rag_clear_err}")
+              logger.debug(f"Could not clear RAG state: {rag_clear_err}")
+
+      def _reset_rag_cv() -> None:
+          """Reset the RAG ContextVar token set at stream start, if any."""
+          if _rag_cv_token is not None:
+              try:
+                  _rag_conversation_id.reset(_rag_cv_token)
+              except Exception as _cv_err:
+                  logger.debug(f"Could not reset RAG conversation ID: {_cv_err}")
 
       # ========================================================================
       # PRE-FLIGHT CONTEXT CHECK: Proactively compress if approaching limit
@@ -1696,6 +1710,7 @@ class AIPlatformEngineerA2ABinding:
               if interrupt_value:
                   form_event = self._build_hitl_form_event(interrupt_value, label="primary")
                   if form_event:
+                      _reset_rag_cv()
                       yield form_event
                       return
               logging.warning("[Interrupt] Could not extract form data, falling through to error handling")
@@ -1800,6 +1815,7 @@ class AIPlatformEngineerA2ABinding:
                       if isinstance(item, dict) and "__interrupt__" in item:
                           form_event = self._handle_interrupt_event(item, label="retry")
                           if form_event:
+                              _reset_rag_cv()
                               yield form_event
                               return
                           continue
@@ -1874,6 +1890,7 @@ class AIPlatformEngineerA2ABinding:
                       if interrupt_value:
                           form_event = self._build_hitl_form_event(interrupt_value, label="retry-exception")
                           if form_event:
+                              _reset_rag_cv()
                               yield form_event
                               return
                   logging.error(f"Retry after state repair also failed: {retry_err}")
@@ -2119,6 +2136,7 @@ class AIPlatformEngineerA2ABinding:
           f"require_user_input={final_response.get('require_user_input')}, "
           f"content_length={c_len}, final_model_content={fmc_len}"
       )
+      _reset_rag_cv()
       yield final_response
 
   def handle_structured_response(self, ai_message):
