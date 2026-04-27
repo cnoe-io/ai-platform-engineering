@@ -115,9 +115,8 @@ async def chat_start_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Get MCP servers for this agent
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # Get MCP servers for this agent and its subagents
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(
         f"[chat] Starting chat request: "
@@ -219,9 +218,8 @@ async def chat_resume_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Get MCP servers for this agent
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # Get MCP servers for this agent and its subagents
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(
         f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, "
@@ -268,9 +266,8 @@ async def chat_invoke(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Get MCP servers for this agent
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # Get MCP servers for this agent and its subagents
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(f"Invoke request: agent={agent.name}, user={user.email}, trace_id={request.trace_id or 'auto'}")
 

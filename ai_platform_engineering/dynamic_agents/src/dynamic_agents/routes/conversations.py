@@ -115,9 +115,8 @@ async def get_conversation_messages(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get MCP servers for the agent (needed to create runtime)
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # 4. Get MCP servers for the agent and its subagents (needed to create runtime)
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     # 5. Get or create runtime to access checkpointer
     cache = get_runtime_cache()
@@ -276,9 +275,8 @@ async def get_interrupt_state(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get MCP servers for the agent (needed to create runtime)
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # 4. Get MCP servers for the agent and its subagents (needed to create runtime)
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     # 5. Get or create runtime to access checkpointer
     cache = get_runtime_cache()
@@ -353,8 +351,7 @@ async def get_conversation_files_list(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # 4. Get or create runtime to access checkpointer
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     cache = get_runtime_cache()
     cache.set_mongo_service(mongo)
@@ -442,8 +439,7 @@ async def get_conversation_file_content(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # 4. Get or create runtime to access checkpointer
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     cache = get_runtime_cache()
     cache.set_mongo_service(mongo)
@@ -534,8 +530,7 @@ async def delete_conversation_file(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # 4. Get or create runtime to access checkpointer
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     cache = get_runtime_cache()
     cache.set_mongo_service(mongo)
