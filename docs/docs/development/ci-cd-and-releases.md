@@ -161,6 +161,32 @@ If one or more required CI workflows fail, the GitHub Release remains in draft s
 
 Use a `release/x.y.z-hotfix` branch when patching an already released version.
 
+:::info
+If your hotfix branch is off release 0.4.1 or below, you need to bring in the latest CI workflows in order to get the hotfix flow.
+
+Option 1: cherry pick the required commits from `main` to your hotfix branch:
+
+```bash
+git cherry-pick -m 1 99984b65fcc5f3cd50f15342bb750fcd4fb525f6
+git cherry-pick -m 1 a78bd633b42aa658fd83799d204ef67a6d15320b
+```
+
+If the first cherry pick conflicts on `.github/workflows/release-rc-tag.yml`, remove the file and continue:
+
+```bash
+git rm .github/workflows/release-rc-tag.yml
+git cherry-pick --continue
+```
+
+Option 2: copy the latest `.github` directory from `main` as a whole and commit it:
+
+```bash
+git fetch origin
+git restore --source origin/main --staged --worktree .github
+git commit -m "chore(ci): sync GitHub workflows from main"
+```
+:::
+
 The flow mirrors release candidates:
 
 1. Create `release/x.y.z-hotfix`.
