@@ -187,7 +187,7 @@ beforeEach(() => {
     }
 
     // Anything else: log + return empty 200 so we don't crash.
-    // eslint-disable-next-line no-console
+     
     console.warn("[test] unmocked fetch:", url);
     return jsonResponse({ ok: true, body: {} });
   }) as unknown as typeof fetch;

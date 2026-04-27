@@ -950,8 +950,13 @@ const storeImplementation = (set: any, get: any) => ({
           const serverIds = new Set(serverConversations.map(c => c.id));
           const localOnlyPreserved = currentState.conversations.filter(
             conv => !serverIds.has(conv.id) && (
+              // Always keep actively streaming conversations (just created, server hasn't caught up)
               currentState.streamingConversations.has(conv.id) ||
-              conv.id === currentState.activeConversationId
+              // Always preserve the active conversation — it may be in the middle
+              // of loading messages (race condition) and dropping it would cause
+              // an infinite spinner. Phantom empty-conversation issues are handled
+              // at creation time, not here.
+              (conv.id === currentState.activeConversationId)
             )
           );
 

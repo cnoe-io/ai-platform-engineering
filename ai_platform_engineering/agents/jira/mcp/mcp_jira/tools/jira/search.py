@@ -176,3 +176,10 @@ async def get_approximate_count(
 
     return response
 
+
+def search_jira_issues(jql: str, **kwargs: Any) -> Any:
+    """Synchronous wrapper around :func:`search` for tests and one-off scripts."""
+    import asyncio
+
+    return asyncio.run(search(jql=jql, **kwargs))
+

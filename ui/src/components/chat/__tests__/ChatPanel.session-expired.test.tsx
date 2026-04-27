@@ -25,6 +25,7 @@ Element.prototype.scrollIntoView = jest.fn()
 // ============================================================================
 
 const mockAppendToMessage = jest.fn()
+const mockUpdateMessage = jest.fn()
 const mockAddMessage = jest.fn(() => 'assistant-msg-1')
 const mockGetActiveConversation = jest.fn()
 const mockIsConversationStreaming = jest.fn(() => false)
@@ -48,7 +49,7 @@ jest.mock('@/store/chat-store', () => {
     getActiveConversation: mockGetActiveConversation,
     createConversation: jest.fn(() => 'conv-1'),
     addMessage: mockAddMessage,
-    updateMessage: jest.fn(),
+    updateMessage: mockUpdateMessage,
     appendToMessage: mockAppendToMessage,
     addEventToMessage: jest.fn(),
     addA2AEvent: jest.fn(),
@@ -147,12 +148,11 @@ jest.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: any) => <>{children}</>,
   TooltipContent: ({ children }: any) => <div>{children}</div>,
   TooltipProvider: ({ children }: any) => <>{children}</>,
-  TooltipTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
-    if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
-    }
-    return <div ref={ref} {...props}>{children}</div>
-  }),
+  TooltipTrigger: React.forwardRef(({ children, ...props }: any, ref: any) => (
+    <div ref={ref} data-testid="tooltip-trigger" {...props}>
+      {children}
+    </div>
+  )),
 }))
 
 jest.mock('@/components/ui/button', () => ({
@@ -227,16 +227,17 @@ describe('ChatPanel — session-expired error suppression', () => {
     })
   })
 
-  it('DOES append non-session-expired errors to chat history', async () => {
+  it('DOES surface non-session-expired errors in the chat message', async () => {
     setupA2AClientToThrow('Network error: connection refused')
 
     await renderAndSendMessage()
 
     await waitFor(() => {
-      expect(mockAppendToMessage).toHaveBeenCalledWith(
+      // Errors are surfaced via updateMessage (replaces placeholder with error content)
+      expect(mockUpdateMessage).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        expect.stringContaining('Network error: connection refused')
+        expect.objectContaining({ isError: true })
       )
     })
   })
@@ -247,10 +248,10 @@ describe('ChatPanel — session-expired error suppression', () => {
     await renderAndSendMessage()
 
     await waitFor(() => {
-      expect(mockAppendToMessage).toHaveBeenCalledWith(
+      expect(mockUpdateMessage).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        expect.stringContaining('Invalid session configuration detected')
+        expect.objectContaining({ isError: true })
       )
     })
   })

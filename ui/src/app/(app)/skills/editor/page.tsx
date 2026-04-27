@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, startTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SkillsBuilderEditor } from "@/components/skills";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
@@ -19,19 +19,25 @@ export default function SkillEditorPage() {
 
   useEffect(() => {
     if (configs.length === 0 && !isLoading) {
-      loadSkills();
+      startTransition(() => {
+        void loadSkills();
+      });
     }
   }, [configs.length, isLoading, loadSkills]);
 
   useEffect(() => {
     if (!configId) {
-      setReady(true);
+      startTransition(() => {
+        setReady(true);
+      });
       return;
     }
     if (configs.length > 0) {
       const found = getSkillById(configId);
-      if (found) setExistingConfig(found);
-      setReady(true);
+      startTransition(() => {
+        if (found) setExistingConfig(found);
+        setReady(true);
+      });
     }
   }, [configId, configs, getSkillById]);
 

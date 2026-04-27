@@ -526,14 +526,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                 isLast: isLastConversation,
                               });
 
-                              // If this is the last conversation, create a new one FIRST
-                              // so the user always has somewhere to land
-                              let navigateToId: string | null = null;
-                              if (isLastConversation) {
-                                navigateToId = await createConversation();
-                                console.log('[Sidebar] Created replacement conversation:', navigateToId);
-                              }
-
                               // Archive the conversation (updates store + server)
                               await deleteConversation(conv.id);
 
@@ -544,16 +536,16 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                 toast(`"${archivedTitle}" deleted`, "success", 3000);
                               }
 
-                              // Navigate
-                              if (navigateToId) {
-                                // Last conversation case — go to the fresh conversation
-                                router.replace(`/chat/${navigateToId}`);
+                              // Navigate — go to next active conversation or empty chat
+                              if (isLastConversation) {
+                                // No conversations left — show empty chat, create lazily on first send
+                                router.replace('/chat');
                               } else {
-                                // Multiple conversations — store already picked the next active
-                                const storeState = useChatStore.getState();
-                                const newActiveId = storeState.activeConversationId;
+                                const newActiveId = useChatStore.getState().activeConversationId;
                                 if (newActiveId) {
                                   router.replace(`/chat/${newActiveId}`);
+                                } else {
+                                  router.replace('/chat');
                                 }
                               }
                             }}

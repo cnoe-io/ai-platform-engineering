@@ -219,7 +219,7 @@ const DEFAULT_CONFIG: Config = {
   githubTicketLabel: 'caipe-reported',
   ticketEnabled: false,
   ticketProvider: null,
-  oidcRequiredGroup: 'backstage-access',
+  oidcRequiredGroup: '',
 };
 
 // ---------------------------------------------------------------------------
@@ -281,13 +281,30 @@ export function getServerConfig(): Config {
   const isDev = process.env.NODE_ENV === 'development';
 
   // caipeUrl is the browser-facing supervisor URL (embedded in __APP_CONFIG__).
-  // It must be externally routable — use NEXT_PUBLIC_A2A_BASE_URL (e.g. http://localhost:8000
-  // for local dev, or https://caipe.example.com for production). A2A_BASE_URL is the
-  // internal Docker service URL for server-side proxies and must NOT be used here.
-  const caipeUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL || 'http://localhost:8000';
+  // It must be externally routable.
+  //
+  // IMPORTANT — Next.js output:"standalone" inlines every `NEXT_PUBLIC_*`
+  // reference at BUILD time (even in server code), so setting
+  // NEXT_PUBLIC_A2A_BASE_URL at runtime in Kubernetes has no effect on this
+  // line — the compiled bundle already has `undefined` baked in. Prefer a
+  // non-NEXT_PUBLIC runtime var (A2A_PUBLIC_URL) so deployments can set it
+  // from a Secret/ConfigMap without rebuilding the image.
+  //
+  // Order of precedence:
+  //   1. A2A_PUBLIC_URL        — runtime, k8s-friendly (recommended)
+  //   2. NEXT_PUBLIC_A2A_BASE_URL — only works when set at `next build` time
+  //   3. 'http://localhost:8000' — local dev fallback
+  const caipeUrl = env('A2A_PUBLIC_URL')
+    || process.env.NEXT_PUBLIC_A2A_BASE_URL
+    || 'http://localhost:8000';
 
-  const ragUrl = env('RAG_URL')
-    || process.env.RAG_SERVER_URL
+  // ragUrl is the DISPLAY URL only — actual RAG calls always go through
+  // /api/rag/* proxy, which reads RAG_SERVER_URL at runtime server-side.
+  // Prefer RAG_PUBLIC_URL if you want to show a different URL to end users
+  // (e.g. a public proxy host) vs the internal cluster service.
+  const ragUrl = env('RAG_PUBLIC_URL')
+    || env('RAG_URL')
+    || env('RAG_SERVER_URL')
     || (isProduction ? 'http://rag-server:9446' : 'http://localhost:9446');
 
   const ssoEnabled = env('SSO_ENABLED') === 'true';
@@ -301,13 +318,13 @@ export function getServerConfig(): Config {
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
-  const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') !== 'false';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
 
   const agentProtocolEnv = env('AGENT_PROTOCOL');
-  const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
+  const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'agui' ? 'agui' : 'custom';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
@@ -376,8 +393,28 @@ export function getServerConfig(): Config {
     githubTicketLabel,
     ticketEnabled,
     ticketProvider,
-    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
+    // Display-only fallback for /unauthorized when the session doesn't carry
+    // session.requiredGroup (rare — happens for tokens issued before the
+    // session-plumbing change in auth-config.ts). '??' keeps an explicit empty
+    // env var as "no restriction"; otherwise surface the env value if set.
+    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP ?? '',
   };
+}
+
+/**
+ * Merge a DB-resolved SSO state into the base server config.
+ *
+ * Called by RootLayout (server component) which owns the MongoDB check.
+ * Keeping the DB import out of config.ts prevents it from leaking into
+ * the client bundle (config.ts is also used by client components).
+ *
+ * @param dbSsoEnabled - result of the MongoDB OIDC check, or undefined to skip
+ */
+export function withSsoOverride(base: Config, dbSsoEnabled: boolean): Config {
+  if (base.ssoEnabled || dbSsoEnabled) {
+    return { ...base, ssoEnabled: true };
+  }
+  return base;
 }
 
 /**

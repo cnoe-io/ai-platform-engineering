@@ -44,11 +44,28 @@ class Settings(BaseSettings):
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
 
+    # OIDC / Auth (same env vars as UI and RAG server)
+    auth_enabled: bool = True  # Set to false to disable auth for local dev
+    oidc_issuer: str | None = None  # OIDC provider issuer URL
+    oidc_client_id: str | None = None  # Used as audience for token validation
+    oidc_discovery_url: str | None = None  # Optional: explicit discovery URL
+    oidc_group_claim: str | None = None  # Claim name(s) for groups (comma-separated)
+    oidc_required_group: str | None = None  # Group name required for any access
+    oidc_required_admin_group: str | None = None  # Group name for admin access
+
     # CORS
     cors_origins: list[str] = ["*"]
 
     # Runtime
     agent_runtime_ttl_seconds: int = 3600  # 1 hour cache TTL for agent runtimes
+
+    # LLM provider config injection: URL of the CAIPE UI (Next.js gateway).
+    # Used by _inject_llm_provider_env_vars to fetch DB-stored API keys at startup.
+    caipe_ui_url: str = "http://localhost:3000"
+
+    # Dedicated service token for authenticating with the CAIPE UI env-export endpoint.
+    # Preferred over reusing NEXTAUTH_SECRET. Generate with: openssl rand -base64 32
+    dynamic_agents_service_token: str | None = None
 
 
 @lru_cache

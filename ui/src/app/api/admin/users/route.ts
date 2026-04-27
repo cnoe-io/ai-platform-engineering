@@ -1,4 +1,4 @@
-// GET /api/admin/users - Get paginated users with statistics
+// GET /api/admin/users - List all users with per-user activity statistics
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
@@ -10,7 +10,7 @@ import {
 } from '@/lib/api-middleware';
 import type { User } from '@/types/mongodb';
 
-// GET /api/admin/users - List users with activity stats (paginated + searchable)
+// GET /api/admin/users - List all users with their activity stats
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
     return NextResponse.json(
@@ -26,77 +26,69 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user, session) => {
     requireAdminView(session);
 
-    const { searchParams } = new URL(request.url);
-    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
-    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
-    const search = searchParams.get('search')?.trim() || '';
-    const skip = (page - 1) * limit;
-
     const users = await getCollection<User>('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');
 
-    const filter: Record<string, any> = {};
-    if (search) {
-      const regex = { $regex: search, $options: 'i' };
-      filter.$or = [{ email: regex }, { name: regex }];
+    // Build set of emails that have a local credentials account
+    let localEmails = new Set<string>();
+    try {
+      const localUsers = await getCollection<{ email: string }>('local_users');
+      const localDocs = await localUsers.find({}, { projection: { email: 1 } }).toArray();
+      localEmails = new Set(localDocs.map((d) => d.email));
+    } catch {
+      // local_users may not exist — treat all as SSO
     }
 
-    const [allUsers, totalCount] = await Promise.all([
-      users.find(filter).sort({ created_at: -1 }).skip(skip).limit(limit).toArray(),
-      users.countDocuments(filter),
-    ]);
+    // Get all users
+    const allUsers = await users.find({}).sort({ created_at: -1 }).toArray();
 
-    if (allUsers.length === 0) {
-      return successResponse({
-        users: [],
-        total: totalCount,
-        pagination: { page, limit, total: totalCount, total_pages: Math.ceil(totalCount / limit) },
-      });
-    }
+    // Pre-aggregate message counts per user (messages carry owner_id directly).
+    const msgCountsByOwner = await messages.aggregate([
+      { $match: { owner_id: { $ne: null } } },
+      { $group: { _id: '$owner_id', count: { $sum: 1 } } },
+    ]).toArray();
 
-    const emails = allUsers.map((u) => u.email);
+    const msgCountMap = new Map(msgCountsByOwner.map((m) => [m._id, m.count]));
 
-    const [convCounts, msgCounts, lastActivities] = await Promise.all([
-      conversations.aggregate([
-        { $match: { owner_id: { $in: emails } } },
-        { $group: { _id: '$owner_id', count: { $sum: 1 } } },
-      ]).toArray(),
-      messages.aggregate([
-        { $match: { owner_id: { $in: emails } } },
-        { $group: { _id: '$owner_id', count: { $sum: 1 } } },
-      ]).toArray(),
-      conversations.aggregate([
-        { $match: { owner_id: { $in: emails } } },
-        { $group: { _id: '$owner_id', last_activity: { $max: '$updated_at' } } },
-      ]).toArray(),
-    ]);
+    // Get stats for each user
+    const usersWithStats = await Promise.all(
+      allUsers.map(async (u) => {
+        const userConversations = await conversations.countDocuments({ owner_id: u.email });
 
-    const convMap = new Map(convCounts.map((c) => [c._id, c.count]));
-    const msgMap = new Map(msgCounts.map((m) => [m._id, m.count]));
-    const activityMap = new Map(lastActivities.map((a) => [a._id, a.last_activity]));
+        // Get last activity
+        const lastConversation = await conversations
+          .findOne({ owner_id: u.email }, { sort: { updated_at: -1 } });
 
-    const usersWithStats = allUsers.map((u) => ({
-      email: u.email,
-      name: u.name,
-      role: u.metadata?.role || 'user',
-      created_at: u.created_at,
-      last_login: u.last_login,
-      last_activity: activityMap.get(u.email) || u.last_login,
-      stats: {
-        conversations: convMap.get(u.email) || 0,
-        messages: msgMap.get(u.email) || 0,
-      },
-    }));
+        // auth_provider: 'local' if they have a credentials account, otherwise
+        // the SSO provider stored in metadata (e.g. 'oidc', 'duo', 'github')
+        const auth_provider: string = localEmails.has(u.email)
+          ? 'local'
+          : (u.metadata?.sso_provider || 'sso');
+
+        return {
+          email: u.email,
+          name: u.name,
+          role: u.metadata?.role || 'user',
+          auth_provider,
+          created_at: u.created_at,
+          last_login: u.last_login,
+          last_activity: lastConversation?.updated_at || u.last_login,
+          stats: {
+            conversations: userConversations,
+            messages: msgCountMap.get(u.email) || 0,
+          },
+        };
+      })
+    );
 
     return successResponse({
       users: usersWithStats,
-      total: totalCount,
+      total: usersWithStats.length,
       pagination: {
-        page,
-        limit,
-        total: totalCount,
-        total_pages: Math.ceil(totalCount / limit),
+        page: 1,
+        total_pages: usersWithStats.length > 0 ? 1 : 0,
+        total: usersWithStats.length,
       },
     });
   });

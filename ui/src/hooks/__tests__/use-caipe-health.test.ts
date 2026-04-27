@@ -39,7 +39,7 @@ describe('useCAIPEHealth', () => {
   it('successful fetch of agent card → status connected', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
-      json: async () => ({ name: 'CAIPE', skills: [] }),
+      json: async () => ({ status: 'healthy', agentCard: { name: 'CAIPE', skills: [] } }),
     });
 
     const { result } = renderHook(() => useCAIPEHealth());
@@ -53,10 +53,13 @@ describe('useCAIPEHealth', () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({
-        skills: [
-          { name: 'Agent1', description: 'Desc1', tags: ['tag1'] },
-          { id: 'agent2', description: 'Desc2', tags: ['tag2'] },
-        ],
+        status: 'healthy',
+        agentCard: {
+          skills: [
+            { name: 'Agent1', description: 'Desc1', tags: ['tag1'] },
+            { id: 'agent2', description: 'Desc2', tags: ['tag2'] },
+          ],
+        },
       }),
     });
 
@@ -78,9 +81,12 @@ describe('useCAIPEHealth', () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({
-        agents: [
-          { name: 'LegacyAgent', description: 'Legacy desc' },
-        ],
+        status: 'healthy',
+        agentCard: {
+          agents: [
+            { name: 'LegacyAgent', description: 'Legacy desc' },
+          ],
+        },
       }),
     });
 
@@ -95,10 +101,13 @@ describe('useCAIPEHealth', () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({
-        capabilities: [
-          { name: 'Cap1', description: 'Cap desc' },
-          { type: 'Cap2' },
-        ],
+        status: 'healthy',
+        agentCard: {
+          capabilities: [
+            { name: 'Cap1', description: 'Cap desc' },
+            { type: 'Cap2' },
+          ],
+        },
       }),
     });
 
@@ -115,8 +124,11 @@ describe('useCAIPEHealth', () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({
-        name: 'Supervisor',
-        description: 'Main supervisor agent',
+        status: 'healthy',
+        agentCard: {
+          name: 'Supervisor',
+          description: 'Main supervisor agent',
+        },
       }),
     });
 
@@ -135,10 +147,13 @@ describe('useCAIPEHealth', () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({
-        skills: [
-          { name: 'A1', tags: ['tag1', 'tag2'] },
-          { name: 'A2', tags: ['tag1', 'tag3'] },
-        ],
+        status: 'healthy',
+        agentCard: {
+          skills: [
+            { name: 'A1', tags: ['tag1', 'tag2'] },
+            { name: 'A2', tags: ['tag1', 'tag3'] },
+          ],
+        },
       }),
     });
 
@@ -204,7 +219,7 @@ describe('useCAIPEHealth', () => {
   it('checkNow triggers immediate health check', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
-      json: async () => ({}),
+      json: async () => ({ status: 'healthy' }),
     });
 
     const { result } = renderHook(() => useCAIPEHealth());

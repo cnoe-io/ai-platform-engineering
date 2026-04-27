@@ -83,14 +83,15 @@ describe("Chat Redirect Page", () => {
     jest.clearAllMocks();
   });
 
-  it("renders CAIPESpinner with branded loading message", () => {
-    render(<Chat />);
-
-    expect(screen.getByText("Loading conversations...")).toBeInTheDocument();
-    // Verify it's the CAIPESpinner (renders an img with the logo)
-    const logo = screen.getByRole("img", { name: "Test App" });
-    expect(logo).toBeInTheDocument();
-    expect(logo).toHaveAttribute("src", "/logo.svg");
+  it("renders nothing — redirect logic runs in useEffect, no loading UI", () => {
+    // The /chat page intentionally renders null. It delegates empty-state UX
+    // to ChatContainer (mounted in layout). The redirect to the latest
+    // conversation fires via useEffect after the session/store resolves.
+    const { container } = render(<Chat />);
+    // AuthGuard wraps the page; while session is loading it shows the loading screen,
+    // but once resolved (mocked as unauthenticated here) it redirects to login.
+    // The page itself contributes no visible DOM elements.
+    expect(container.querySelector(".lucide-loader2")).not.toBeInTheDocument();
   });
 
   it("does not render the old Loader2 spinner", () => {

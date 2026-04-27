@@ -136,23 +136,21 @@ jest.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: any) => <>{children}</>,
   TooltipContent: ({ children }: any) => <div>{children}</div>,
   TooltipProvider: ({ children }: any) => <>{children}</>,
-  TooltipTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
-    if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
-    }
-    return <div ref={ref} {...props}>{children}</div>
-  }),
+  TooltipTrigger: React.forwardRef(({ children, ...props }: any, ref: any) => (
+    <div ref={ref} data-testid="tooltip-trigger" {...props}>
+      {children}
+    </div>
+  )),
 }))
 
 jest.mock('@/components/ui/popover', () => ({
   Popover: ({ children }: any) => <>{children}</>,
   PopoverContent: ({ children }: any) => <div>{children}</div>,
-  PopoverTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
-    if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
-    }
-    return <div ref={ref} {...props}>{children}</div>
-  }),
+  PopoverTrigger: React.forwardRef(({ children, ...props }: any, ref: any) => (
+    <div ref={ref} data-testid="popover-trigger" {...props}>
+      {children}
+    </div>
+  )),
 }))
 
 jest.mock('@/components/user-menu', () => ({

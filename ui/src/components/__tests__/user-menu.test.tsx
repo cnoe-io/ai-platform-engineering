@@ -94,6 +94,8 @@ jest.mock("lucide-react", () => ({
   Search: () => <span data-testid="icon-search" />,
   X: () => <span data-testid="icon-x" />,
   SlidersHorizontal: () => <span data-testid="icon-sliders" />,
+  CheckCircle: () => <span data-testid="icon-check-circle" />,
+  Key: () => <span data-testid="icon-key" />,
 }));
 
 jest.mock("@/store/feature-flag-store", () => ({
@@ -135,6 +137,16 @@ jest.mock("@/components/ui/tabs", () => ({
   TabsContent: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
 
+jest.mock("@/components/system/OidcConfigPanel", () => ({
+  OidcConfigPanel: () => <div data-testid="oidc-config-panel" />,
+}));
+jest.mock("@/components/system/KeyManagementPanel", () => ({
+  KeyManagementPanel: () => <div data-testid="key-management-panel" />,
+}));
+jest.mock("@/components/system/OptionsPanel", () => ({
+  OptionsPanel: () => <div data-testid="options-panel" />,
+}));
+
 jest.mock("@/lib/utils", () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
 }));
@@ -162,16 +174,26 @@ describe("UserMenu", () => {
       data: {
         user: { name: "John Doe", email: "john@example.com" },
         role: "user",
+        authMethod: "oidc",
       },
       status: "authenticated",
       update: jest.fn(),
     });
   });
 
-  it("returns null when ssoEnabled=false", () => {
+  it("returns null when ssoEnabled=false and user is not authenticated", () => {
+    // When SSO is disabled and no session exists, hide the menu (no sign-in button)
     mockConfig = { ...mockConfig, ssoEnabled: false };
+    mockUseSession.mockReturnValue({ data: null, status: "unauthenticated" });
     const { container } = render(<UserMenu />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it("renders user menu when ssoEnabled=false but user is authenticated (local admin)", () => {
+    // Local admin sessions are valid even when SSO is disabled
+    mockConfig = { ...mockConfig, ssoEnabled: false };
+    const { container } = render(<UserMenu />);
+    expect(container.firstChild).not.toBeNull();
   });
 
   it("shows loading state", () => {
@@ -244,10 +266,27 @@ describe("UserMenu", () => {
     expect(screen.getByText("User")).toBeInTheDocument();
   });
 
-  it("shows 'Authenticated via SSO'", () => {
+  it("shows 'Authenticated via SSO' for OIDC sessions", () => {
     render(<UserMenu />);
     fireEvent.click(screen.getByText("John"));
     expect(screen.getByText("Authenticated via SSO")).toBeInTheDocument();
+  });
+
+  it("hides 'Authenticated via SSO' for local credentials sessions", () => {
+    // Local admin: authenticated via username/password + TOTP, not SSO.
+    // The shield/banner would be misleading — make sure it is omitted.
+    mockUseSession.mockReturnValue({
+      data: {
+        user: { name: "Local Admin", email: "admin@example.com" },
+        role: "admin",
+        authMethod: "credentials",
+      },
+      status: "authenticated",
+      update: jest.fn(),
+    });
+    render(<UserMenu />);
+    fireEvent.click(screen.getByText("Local"));
+    expect(screen.queryByText("Authenticated via SSO")).not.toBeInTheDocument();
   });
 
   it("shows System button", () => {

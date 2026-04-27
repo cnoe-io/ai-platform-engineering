@@ -20,6 +20,7 @@ export interface MCPServerConfig {
   description?: string;
   transport: TransportType;
   endpoint?: string;  // For sse/http transports
+  headers?: Record<string, string>;  // HTTP headers for sse/http transports (e.g. X-API-Key, Authorization)
   command?: string;   // For stdio transport
   args?: string[];    // For stdio transport
   env?: Record<string, string>;  // For stdio transport
@@ -35,6 +36,7 @@ export interface MCPServerConfigCreate {
   description?: string;
   transport: TransportType;
   endpoint?: string;
+  headers?: Record<string, string>;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -46,6 +48,7 @@ export interface MCPServerConfigUpdate {
   description?: string;
   transport?: TransportType;
   endpoint?: string;
+  headers?: Record<string, string>;
   command?: string;
   args?: string[];
   env?: Record<string, string>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, startTransition } from "react";
 import { getConfig } from "@/lib/config";
 
 /**
@@ -116,7 +116,11 @@ export function useAgentTools(): AgentToolsData {
   }, []);
 
   useEffect(() => {
-    if (!_cache?.ok) load();
+    if (!_cache?.ok) {
+      startTransition(() => {
+        void load();
+      });
+    }
   }, [load]);
 
   const refresh = useCallback(() => {

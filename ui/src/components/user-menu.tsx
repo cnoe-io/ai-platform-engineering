@@ -3,7 +3,10 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb, FileText, Tag, Wrench, Sparkles, ChevronUp, Search, X, SlidersHorizontal } from "lucide-react";
+import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, CheckCircle, KeyRound, Lightbulb, FileText, Tag, Wrench, Sparkles, ChevronUp, Search, X, SlidersHorizontal, Key } from "lucide-react";
+import { OidcConfigPanel } from "@/components/system/OidcConfigPanel";
+import { KeyManagementPanel } from "@/components/system/KeyManagementPanel";
+import { OptionsPanel } from "@/components/system/OptionsPanel";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { PreferencesModal } from "@/components/preferences-modal";
 import { Button } from "@/components/ui/button";
@@ -278,7 +281,8 @@ export function UserMenu() {
   const [open, setOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [systemOpen, setSystemOpen] = useState(false);
-  const [systemTab, setSystemTab] = useState("oidc");
+  const [systemTab, setSystemTab] = useState("debug");
+  const [sessionOpen, setSessionOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -337,8 +341,9 @@ export function UserMenu() {
     return () => window.removeEventListener("open-changelog", handleOpenChangelog);
   }, [fetchChangelog]);
 
-  // Don't render if SSO is not enabled
-  if (!config.ssoEnabled) {
+  // When SSO is disabled, only render the menu if the user is authenticated
+  // via credentials (local admin login). Return null when truly unauthenticated.
+  if (!config.ssoEnabled && status !== "authenticated") {
     return null;
   }
 
@@ -522,20 +527,24 @@ export function UserMenu() {
               </div>
             </div>
 
-            {/* Session Info */}
-            <div className="p-2 border-b border-border bg-muted/30">
-              <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
-                <Shield className="h-3 w-3 flex-shrink-0" />
-                <span>Authenticated via SSO</span>
-                <span className="text-muted-foreground/50 mx-1">|</span>
-                <span className={cn(
-                  "font-medium",
-                  isAdmin ? "text-primary" : "text-muted-foreground"
-                )}>
-                  Role: {isAdmin ? "Admin" : "User"}
-                </span>
+            {/* Session Info — only show the SSO banner for OIDC sessions.
+                Local-credentials admins authenticate via password + TOTP; the
+                shield + "Authenticated via SSO" label would be misleading there. */}
+            {session?.authMethod === "oidc" && (
+              <div className="p-2 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                  <Shield className="h-3 w-3 flex-shrink-0" />
+                  <span>Authenticated via SSO</span>
+                  <span className="text-muted-foreground/50 mx-1">|</span>
+                  <span className={cn(
+                    "font-medium",
+                    isAdmin ? "text-primary" : "text-muted-foreground"
+                  )}>
+                    Role: {isAdmin ? "Admin" : "User"}
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* System Section — single menu item for all system info */}
             <div className="border-b border-border">
@@ -549,6 +558,23 @@ export function UserMenu() {
                 <div className="flex items-center gap-2">
                   <Settings className="h-3.5 w-3.5" />
                   <span>System</span>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* Session — individual user's OIDC token and session info */}
+            <div className="border-b border-border">
+              <button
+                onClick={() => {
+                  setSessionOpen(true);
+                  setOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Key className="h-3.5 w-3.5" />
+                  <span>Session</span>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -608,8 +634,108 @@ export function UserMenu() {
       {/* Preferences Modal */}
       <PreferencesModal open={prefsOpen} onOpenChange={setPrefsOpen} />
 
-      {/* System Dialog — tabbed: OIDC Token, Debug, Built With */}
-      <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("oidc"); }}>
+      {/* Session Dialog — shows appropriate info for local credentials vs OIDC */}
+      <Dialog open={sessionOpen} onOpenChange={setSessionOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] p-0">
+          <DialogHeader className="p-6 pb-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg gradient-primary-br">
+                <Key className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <DialogTitle>Session</DialogTitle>
+                <DialogDescription>
+                  {session?.accessToken
+                    ? "Your SSO session and token information"
+                    : "Your local administrator session"}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
+
+            {/* ── Local credentials session ── */}
+            {!session?.accessToken && (
+              <div className="space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Shield className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Local Admin Session</span>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-4 space-y-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 text-green-600 dark:text-green-500">
+                      <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                      <span>Authenticated via local admin account</span>
+                    </div>
+                    <p className="pl-5">
+                      Your session is managed server-side. It remains active until you sign out
+                      or the server is restarted.
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Account Details</span>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-4 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Role</span>
+                      <span className="font-medium px-2 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-400">
+                        {session?.role ?? "user"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Auth method</span>
+                      <span className="font-medium">Local credentials + TOTP</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── OIDC / SSO session ── */}
+            {session?.accessToken && (
+              <>
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-semibold">Token Information</span>
+                  </div>
+                  <div className="space-y-2 text-xs text-muted-foreground">
+                    {session.expiresAt ? (
+                      <p>Access token expires: {new Date(session.expiresAt * 1000).toLocaleString()}</p>
+                    ) : (
+                      <p>Access token expiry not available.</p>
+                    )}
+                    {session.hasRefreshToken ? (
+                      <p className="text-green-600 dark:text-green-500">✓ Refresh token available — auto-renewal enabled</p>
+                    ) : (
+                      <p className="text-yellow-600 dark:text-yellow-500">⚠ No refresh token — session will expire when access token does</p>
+                    )}
+                    <p>Role: <span className="font-medium text-foreground">{session?.role ?? "user"}</span></p>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold">Access Token</span>
+                    <button onClick={() => { navigator.clipboard.writeText(session.accessToken!); }}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                      <Copy className="h-3 w-3" /> Copy
+                    </button>
+                  </div>
+                  <pre className="text-xs font-mono bg-muted rounded-lg p-3 overflow-x-auto break-all whitespace-pre-wrap">
+                    {session.accessToken.substring(0, 120)}…
+                  </pre>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* System Dialog — tabbed: OIDC Configuration (admin), Key Management (admin), Debug, Built With */}
+      <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("debug"); }}>
         <DialogContent className="max-w-4xl max-h-[85vh] p-0">
           <DialogHeader className="p-6 pb-4 border-b border-border">
             <div className="flex items-center gap-3">
@@ -628,13 +754,33 @@ export function UserMenu() {
           <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); }}>
             <div className="px-6 pt-2 border-b border-border">
               <TabsList className="bg-transparent h-auto p-0 gap-4">
-                <TabsTrigger
-                  value="oidc"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <Code className="h-3.5 w-3.5 mr-1.5" />
-                  OIDC Token
-                </TabsTrigger>
+                {isAdmin && (
+                  <TabsTrigger
+                    value="oidc-config"
+                    className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                  >
+                    <Shield className="h-3.5 w-3.5 mr-1.5" />
+                    OIDC Configuration
+                  </TabsTrigger>
+                )}
+                {isAdmin && (
+                  <TabsTrigger
+                    value="key-management"
+                    className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                  >
+                    <Key className="h-3.5 w-3.5 mr-1.5" />
+                    Key Management
+                  </TabsTrigger>
+                )}
+                {isAdmin && (
+                  <TabsTrigger
+                    value="options"
+                    className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                    Options
+                  </TabsTrigger>
+                )}
                 <TabsTrigger
                   value="debug"
                   className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
@@ -659,7 +805,34 @@ export function UserMenu() {
               </TabsList>
             </div>
 
-            {/* OIDC Token Tab */}
+            {/* OIDC Configuration Tab (admin only) */}
+            {isAdmin && (
+              <TabsContent value="oidc-config" className="mt-0">
+                <div className="p-6 overflow-y-auto max-h-[50vh]">
+                  <OidcConfigPanel />
+                </div>
+              </TabsContent>
+            )}
+
+            {/* Key Management Tab (admin only) */}
+            {isAdmin && (
+              <TabsContent value="key-management" className="mt-0">
+                <div className="p-6 overflow-y-auto max-h-[50vh]">
+                  <KeyManagementPanel />
+                </div>
+              </TabsContent>
+            )}
+
+            {/* Options Tab (admin only) — feature flag toggles */}
+            {isAdmin && (
+              <TabsContent value="options" className="mt-0">
+                <div className="p-6 overflow-y-auto max-h-[50vh]">
+                  <OptionsPanel />
+                </div>
+              </TabsContent>
+            )}
+
+            {/* Legacy OIDC Token Tab — kept for backward compat, now hidden (content moved to Session dialog) */}
             <TabsContent value="oidc" className="mt-0">
               <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
                 {/* Token Expiry Information */}

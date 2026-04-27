@@ -23,8 +23,10 @@ import userEvent from "@testing-library/user-event";
 // ---------------------------------------------------------------------------
 
 const mockSignOut = jest.fn();
+const mockUseSession = jest.fn(() => ({ data: null }));
 jest.mock("next-auth/react", () => ({
   signOut: (...args: unknown[]) => mockSignOut(...args),
+  useSession: () => mockUseSession(),
 }));
 
 // framer-motion — render children without animation overhead
@@ -62,7 +64,7 @@ jest.mock("@/components/ui/button", () => ({
 // ---------------------------------------------------------------------------
 
 const mockConfig = {
-  oidcRequiredGroup: "backstage-access",
+  oidcRequiredGroup: "caipe-users",
   supportEmail: "support@example.com",
   appName: "CAIPE",
   tagline: "AI Platform Engineering",
@@ -90,7 +92,7 @@ import UnauthorizedPage from "../page";
 describe("UnauthorizedPage", () => {
   beforeEach(() => {
     // Reset to safe defaults before each test
-    mockConfig.oidcRequiredGroup = "backstage-access";
+    mockConfig.oidcRequiredGroup = "caipe-users";
     mockConfig.supportEmail = "support@example.com";
     mockConfig.appName = "CAIPE";
     mockConfig.tagline = "AI Platform Engineering";
@@ -102,7 +104,7 @@ describe("UnauthorizedPage", () => {
   describe("required group display", () => {
     it("renders the default group name in the code block", () => {
       render(<UnauthorizedPage />);
-      expect(screen.getByRole("code")).toHaveTextContent("backstage-access");
+      expect(screen.getByRole("code")).toHaveTextContent("caipe-users");
     });
 
     it("renders a custom group name from config.oidcRequiredGroup in the code block", () => {
@@ -144,7 +146,7 @@ describe("UnauthorizedPage", () => {
     render(<UnauthorizedPage />);
     expect(screen.getByRole("code")).toHaveTextContent("sentinel-value-12345");
     expect(screen.getByRole("code")).not.toHaveTextContent("undefined");
-    expect(screen.getByRole("code")).not.toHaveTextContent("backstage-access");
+    expect(screen.getByRole("code")).not.toHaveTextContent("caipe-users");
   });
 
   // ── Static content ────────────────────────────────────────────────────────

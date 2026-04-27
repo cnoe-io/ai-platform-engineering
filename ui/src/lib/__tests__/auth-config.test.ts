@@ -64,65 +64,57 @@ function makeRefreshFetchMock(opts: {
 
 describe('auth-config', () => {
   describe('hasRequiredGroup', () => {
-    it('should return true when user has exact required group (default: backstage-access)', () => {
-      const groups = ['backstage-access', 'other-group']
-      expect(hasRequiredGroup(groups)).toBe(true)
+    // hasRequiredGroup(groups, requiredGroup?) — requiredGroup defaults to the
+    // module-level REQUIRED_GROUP constant (env-driven). Tests pass it explicitly
+    // so they are independent of the runtime environment.
+
+    it('returns true for any groups when no required group is configured', () => {
+      expect(hasRequiredGroup(['other-group'], '')).toBe(true)
     })
 
+    it('returns true for empty groups when no required group is configured', () => {
+      expect(hasRequiredGroup([], '')).toBe(true)
+    })
 
-    it('should return false when user does not have required group', () => {
-      const groups = ['other-group', 'another-group']
-      expect(hasRequiredGroup(groups)).toBe(false)
+    it('returns true for exact match', () => {
+      expect(hasRequiredGroup(['caipe-users', 'other-group'], 'caipe-users')).toBe(true)
     })
 
     it('should be case-insensitive', () => {
-      const groups = ['BACKSTAGE-ACCESS', 'other-group']
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(hasRequiredGroup(['CAIPE-USERS', 'other-group'], 'caipe-users')).toBe(true)
     })
 
     it('should handle LDAP DN format for groups', () => {
-      const groups = [
-        'CN=backstage-access,OU=Groups,DC=example,DC=com',
-        'other-group',
-      ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(hasRequiredGroup(['CN=caipe-users,OU=Groups,DC=example,DC=com', 'other-group'], 'caipe-users')).toBe(true)
     })
 
     it('should handle mixed case in LDAP DN', () => {
-      const groups = [
-        'cn=BACKSTAGE-ACCESS,ou=Groups,dc=example,dc=com',
-        'other-group',
-      ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(hasRequiredGroup(['cn=CAIPE-USERS,ou=Groups,dc=example,dc=com', 'other-group'], 'caipe-users')).toBe(true)
     })
 
     it('should handle partial DN matches', () => {
-      const groups = [
-        'cn=Backstage-Access,ou=Groups',
-        'other-group',
-      ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(hasRequiredGroup(['cn=Caipe-Users,ou=Groups', 'other-group'], 'caipe-users')).toBe(true)
+    })
+
+    it('should return false when user does not have required group', () => {
+      expect(hasRequiredGroup(['other-group', 'another-group'], 'caipe-users')).toBe(false)
     })
 
     it('should not match substring in non-DN groups', () => {
-      const groups = ['my-backstage-access-team', 'other-group']
-      // Should not match because we're looking for "cn=backstage-access" in DN format
-      // and exact match for simple group names
-      expect(hasRequiredGroup(groups)).toBe(false)
+      expect(hasRequiredGroup(['my-caipe-users-team', 'other-group'], 'caipe-users')).toBe(false)
     })
 
-    it('should handle empty groups array', () => {
-      const groups: string[] = []
-      expect(hasRequiredGroup(groups)).toBe(false)
+    it('should handle empty groups array when required group is configured', () => {
+      expect(hasRequiredGroup([], 'caipe-users')).toBe(false)
     })
 
     it('should handle multiple matching groups', () => {
       const groups = [
-        'backstage-access',
-        'CN=backstage-access,OU=Groups,DC=example,DC=com',
+        'caipe-users',
+        'CN=caipe-users,OU=Groups,DC=example,DC=com',
         'other-group',
       ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(hasRequiredGroup(groups, 'caipe-users')).toBe(true)
     })
   })
 
@@ -258,7 +250,7 @@ describe('auth-config', () => {
         profile: {
           sub: 'sub-123',
           email: 'user@example.com',
-          groups: ['backstage-access'],
+          groups: ['caipe-users'],
         },
       })
 
@@ -271,7 +263,9 @@ describe('auth-config', () => {
       expect(result.groupsCheckedAt).toBeGreaterThanOrEqual(now)
     })
 
-    it('should set isAuthorized=false when user lacks required group', async () => {
+    it('should set isAuthorized=false when user lacks a configured required group', async () => {
+      // Set a required group via env so resolveOidcGroupConfig returns it.
+      process.env.OIDC_REQUIRED_GROUP = 'caipe-users';
       const now = Math.floor(Date.now() / 1000)
 
       const result = await (authOptions.callbacks!.jwt! as Function)({
@@ -288,7 +282,30 @@ describe('auth-config', () => {
         },
       })
 
+      delete process.env.OIDC_REQUIRED_GROUP;
       expect(result.isAuthorized).toBe(false)
+    })
+
+    it('should set isAuthorized=true when no required group is configured (open access)', async () => {
+      // Default: OIDC_REQUIRED_GROUP unset → any authenticated user is authorized
+      delete process.env.OIDC_REQUIRED_GROUP;
+      const now = Math.floor(Date.now() / 1000)
+
+      const result = await (authOptions.callbacks!.jwt! as Function)({
+        token: {},
+        account: {
+          access_token: 'at',
+          id_token: 'idt',
+          expires_at: now + 3600,
+        },
+        profile: {
+          sub: 'sub-123',
+          email: 'anyone@example.com',
+          groups: ['unrelated-group'],
+        },
+      })
+
+      expect(result.isAuthorized).toBe(true)
     })
 
     it('should NOT refresh token when expiry is more than 5 minutes away', async () => {
@@ -473,7 +490,7 @@ describe('auth-config', () => {
       const now = Math.floor(Date.now() / 1000)
 
       mockDecodeJwt.mockReturnValue({
-        groups: ['backstage-access'],
+        groups: ['caipe-users'],
       })
 
       const result = await (authOptions.callbacks!.jwt! as Function)({
@@ -503,7 +520,7 @@ describe('auth-config', () => {
     it('should NOT re-evaluate groups when less than 4 hours have passed', async () => {
       const now = Math.floor(Date.now() / 1000)
 
-      mockDecodeJwt.mockReturnValue({ groups: ['backstage-access'] })
+      mockDecodeJwt.mockReturnValue({ groups: ['caipe-users'] })
 
       await (authOptions.callbacks!.jwt! as Function)({
         token: {
@@ -529,7 +546,7 @@ describe('auth-config', () => {
 
       const now = Math.floor(Date.now() / 1000)
 
-      mockDecodeJwt.mockReturnValue({ groups: ['backstage-access'] })
+      mockDecodeJwt.mockReturnValue({ groups: ['caipe-users'] })
 
       // Access token already expired: this is a real refresh failure (not a race),
       // so the token gets error:'RefreshTokenExpired' and group re-eval is skipped.
@@ -709,7 +726,7 @@ describe('auth-config', () => {
       jest.isolateModules(() => {
         process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
         const { canAccessDynamicAgents: fn } = require('../auth-config')
-        expect(fn(['eng', 'backstage-access'])).toBe(false)
+        expect(fn(['eng', 'caipe-users'])).toBe(false)
       })
     })
 

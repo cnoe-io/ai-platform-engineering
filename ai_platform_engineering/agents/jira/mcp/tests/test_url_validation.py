@@ -4,7 +4,7 @@
 
 """Tests for Jira MCP URL hostname validation (example.com placeholder detection)."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestJiraClientURLValidation:
@@ -54,17 +54,24 @@ class TestJiraSearchURLValidation:
         }
 
     def test_example_com_returns_error_string(self):
-        from unittest.mock import patch
         with patch.dict("os.environ", self._env_with_url("https://example.com")):
             from mcp_jira.tools.jira.search import search_jira_issues
+
             result = search_jira_issues(jql="project = TEST")
-            assert "Error" in result or "Invalid" in result
+            assert "Error" in str(result) or "Invalid" in str(result)
 
     def test_real_url_passes_validation_stage(self):
-        from unittest.mock import patch
         with patch.dict("os.environ", self._env_with_url("https://mycompany.atlassian.net")):
-            with patch("mcp_jira.api.client.validate_prerequisites", return_value=(True, {})):
-                with patch("mcp_jira.api.client.make_api_request", return_value=(True, {"issues": [], "total": 0})):
-                    from mcp_jira.tools.jira.search import search_jira_issues
-                    result = search_jira_issues(jql="project = TEST")
-                    assert "Error" not in result
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"issues": [], "total": 0}
+            mock_http = MagicMock()
+            mock_http.post = AsyncMock(return_value=mock_response)
+            mock_ctx = MagicMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_http)
+            mock_ctx.__aexit__ = AsyncMock(return_value=None)
+            with patch("mcp_jira.tools.jira.search.httpx.AsyncClient", return_value=mock_ctx):
+                from mcp_jira.tools.jira.search import search_jira_issues
+
+                result = search_jira_issues(jql="project = TEST")
+                assert "Error" not in str(result)

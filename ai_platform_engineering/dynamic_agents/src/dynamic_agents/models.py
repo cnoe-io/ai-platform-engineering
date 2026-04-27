@@ -60,6 +60,7 @@ class MCPServerConfigBase(BaseModel):
     description: str | None = Field(None, description="Optional description")
     transport: TransportType = Field(..., description="Transport type")
     endpoint: str | None = Field(None, description="Server URL for sse/http transports")
+    headers: dict[str, str] | None = Field(None, description="HTTP headers for sse/http transports (e.g. X-API-Key, Authorization)")
     command: str | None = Field(None, description="Command for stdio transport")
     args: list[str] | None = Field(None, description="Args for stdio transport")
     env: dict[str, str] | None = Field(None, description="Env vars for stdio transport")
@@ -79,6 +80,7 @@ class MCPServerConfigUpdate(BaseModel):
     description: str | None = None
     transport: TransportType | None = None
     endpoint: str | None = None
+    headers: dict[str, str] | None = None
     command: str | None = None
     args: list[str] | None = None
     env: dict[str, str] | None = None
@@ -90,6 +92,8 @@ class MCPServerConfig(MCPServerConfigBase):
 
     id: str = Field(..., alias="_id", description="Unique slug ID")
     config_driven: bool = Field(False, description="Whether this server was loaded from config.yaml")
+    env_encrypted: bool = Field(False, description="Whether env values are envelope-encrypted in storage")
+    headers_encrypted: bool = Field(False, description="Whether header values are envelope-encrypted in storage")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

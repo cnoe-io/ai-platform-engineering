@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { config as appConfig } from "@/lib/config";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
@@ -37,7 +37,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [tags, setTags] = useState<string[]>([]);
   const [mongoDBStatus, setMongoDBStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [storageMode, setStorageMode] = useState<'mongodb' | 'localStorage' | null>(null);
-  const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
+  const nextCheckTimeRef = useRef(0);
   const url = appConfig.caipeUrl;
 
   const checkHealth = useCallback(async () => {
@@ -48,116 +48,124 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
     setStorageMode(mode);
     setMongoDBStatus(mode === "mongodb" ? "connected" : "disconnected");
 
+    // Go through the server-side proxy at /api/health/supervisor instead of
+    // fetching the supervisor directly from the browser. In cluster
+    // deployments the supervisor lives on an internal Service URL that the
+    // browser cannot resolve; a direct fetch would always report OFFLINE even
+    // when the supervisor is healthy. The proxy reaches the supervisor over
+    // the internal A2A_BASE_URL from inside the UI pod.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
     try {
-      // Use the A2A agent card endpoint which supports GET
-      // Base URL is like http://localhost:8000, agent card is at /.well-known/agent-card.json
-      const baseUrl = url.replace(/\/$/, ''); // Remove trailing slash
-      const agentCardUrl = `${baseUrl}/.well-known/agent-card.json`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      const response = await fetch(agentCardUrl, {
-        method: "GET",
+      const response = await fetch('/api/health/supervisor', {
+        method: 'GET',
         signal: controller.signal,
-        headers: {
-          "Accept": "application/json",
-        },
+        headers: { Accept: 'application/json' },
       });
-
       clearTimeout(timeoutId);
 
-      // Any HTTP response (even 4xx/5xx) means server is reachable
-      setStatus("connected");
+      if (!response.ok) {
+        setStatus('disconnected');
+        setLastChecked(new Date());
+        nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+        return;
+      }
+
+      const body: {
+        status: 'healthy' | 'unhealthy';
+        agentCard?: {
+          name?: string;
+          description?: string;
+          skills?: Array<{ name?: string; id?: string; description?: string; tags?: string[] }>;
+          agents?: AgentInfo[];
+          capabilities?: Array<{ name?: string; type?: string; description?: string }>;
+        };
+      } = await response.json();
+
+      if (body.status === 'healthy') {
+        setStatus('connected');
+      } else {
+        setStatus('disconnected');
+      }
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
 
-      // Try to parse agent card to get available agents and tags
-      if (response.ok) {
-        try {
-          const agentCard = await response.json();
-          const availableAgents: AgentInfo[] = [];
-          const allTags: string[] = [];
-          
-          // Extract tags from skills array
-          if (agentCard.skills && Array.isArray(agentCard.skills)) {
-            agentCard.skills.forEach((skill: any) => {
-              if (skill.tags && Array.isArray(skill.tags)) {
-                allTags.push(...skill.tags);
-              }
-              // Also add skill as an agent
-              availableAgents.push({
-                name: skill.name || skill.id || 'Unknown',
-                description: skill.description,
-                tags: skill.tags
-              });
-            });
-          }
-          
-          // Legacy: Extract agents from other structures
-          if (agentCard.agents && Array.isArray(agentCard.agents)) {
-            availableAgents.push(...agentCard.agents.map((agent: any) => ({
-              name: agent.name || agent.id || 'Unknown',
-              description: agent.description,
-              tags: agent.tags
-            })));
-          } else if (agentCard.capabilities && Array.isArray(agentCard.capabilities)) {
-            availableAgents.push(...agentCard.capabilities.map((cap: any) => ({
-              name: cap.name || cap.type || 'Unknown',
-              description: cap.description
-            })));
-          } else if (agentCard.name && availableAgents.length === 0) {
-            // Single agent (supervisor) - only if no skills found
+      const agentCard = body.agentCard;
+      if (agentCard) {
+        const availableAgents: AgentInfo[] = [];
+        const allTags: string[] = [];
+
+        // Extract tags from skills array
+        if (Array.isArray(agentCard.skills)) {
+          agentCard.skills.forEach((skill) => {
+            if (Array.isArray(skill.tags)) {
+              allTags.push(...skill.tags);
+            }
             availableAgents.push({
-              name: agentCard.name,
-              description: agentCard.description
+              name: skill.name || skill.id || 'Unknown',
+              description: skill.description,
+              tags: skill.tags,
             });
-          }
-          
-          // Remove duplicates from tags and sort
-          const uniqueTags = Array.from(new Set(allTags)).sort();
-          
-          setAgents(availableAgents);
-          setTags(uniqueTags);
-        } catch (parseError) {
-          // Failed to parse agent card, but server is still reachable
-          setAgents([]);
-          setTags([]);
+          });
         }
+
+        // Legacy: agents / capabilities arrays
+        if (Array.isArray(agentCard.agents)) {
+          availableAgents.push(
+            ...agentCard.agents.map((a: AgentInfo) => ({
+              name: a.name || 'Unknown',
+              description: a.description,
+              tags: a.tags,
+            })),
+          );
+        } else if (Array.isArray(agentCard.capabilities)) {
+          availableAgents.push(
+            ...agentCard.capabilities.map((cap) => ({
+              name: cap.name || cap.type || 'Unknown',
+              description: cap.description,
+            })),
+          );
+        } else if (agentCard.name && availableAgents.length === 0) {
+          availableAgents.push({ name: agentCard.name, description: agentCard.description });
+        }
+
+        const uniqueTags = Array.from(new Set(allTags)).sort();
+        setAgents(availableAgents);
+        setTags(uniqueTags);
       }
-    } catch (error) {
-      // Network error or timeout
-      if (error instanceof Error && error.name === "AbortError") {
-        // Timeout
-        setStatus("disconnected");
-      } else if (error instanceof TypeError) {
-        // Network error (server not reachable) or CORS
-        setStatus("disconnected");
-      } else {
-        // Other errors - assume disconnected
-        setStatus("disconnected");
-      }
+    } catch {
+      // Timeout or network error contacting our own origin — treat as disconnected.
+      clearTimeout(timeoutId);
+      setStatus('disconnected');
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
     }
-  }, [url]);
+  }, []);
 
   // Update countdown timer every second
   useEffect(() => {
+    if (nextCheckTimeRef.current === 0) {
+      nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
+    }
     const countdownInterval = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((nextCheckTimeRef.current - Date.now()) / 1000));
-      setSecondsUntilNextCheck(remaining);
+      startTransition(() => {
+        setSecondsUntilNextCheck(remaining);
+      });
     }, 1000);
 
     return () => clearInterval(countdownInterval);
   }, []);
 
   useEffect(() => {
-    // Check immediately on mount (includes fetching storage mode from server)
-    checkHealth();
+    startTransition(() => {
+      void checkHealth();
+    });
 
     // Set up 30-second polling interval
-    const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
+    const interval = setInterval(() => {
+      void checkHealth();
+    }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [checkHealth]);

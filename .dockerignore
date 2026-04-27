@@ -130,3 +130,13 @@ docs/_build/
 .env
 .env.local
 .env.*.local
+
+# UI build artifacts — excluded so the root build context stays small.
+# Dockerfile.caipe-ui runs `npm ci` and `next build` inside the image, so none
+# of these host-side artifacts are needed. Without these excludes the COPY
+# pulls ~3 GB of node_modules + .next into the build context and OOMs podman.
+ui/node_modules/
+ui/.next/
+ui/coverage/
+ui/out/
+ui/*.tsbuildinfo

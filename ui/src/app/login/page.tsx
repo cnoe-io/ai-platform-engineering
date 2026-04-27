@@ -3,9 +3,11 @@
 import React, { Suspense, useEffect, useState } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
-import { LogIn, Loader2, AlertCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { LogIn, Loader2, AlertCircle, Shield, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { LoadingScreen } from "@/components/loading-screen";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
 import { config, getLogoFilterClass } from "@/lib/config";
@@ -73,6 +75,36 @@ function LoginContent() {
   const sessionReset = searchParams.get("session_reset");
   const callbackUrl = searchParams.get("callbackUrl") || "/";
 
+  // Admin local credentials state
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminTotp, setAdminTotp] = useState("");
+  const [totpRequired, setTotpRequired] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminInfo, setAdminInfo] = useState<string | null>(null);
+  const [setupState, setSetupState] = useState<'local_only' | 'oidc_configured' | null>(null);
+
+  // Check setup state to decide UI mode — runs once on mount
+  useEffect(() => {
+    fetch('/api/setup/status')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.state === 'no_admin') {
+          router.replace('/setup');
+        } else if (data.state === 'local_only') {
+          setSetupState('local_only');
+        } else if (data.state === 'oidc_configured') {
+          setSetupState('oidc_configured');
+        }
+      })
+      .catch(() => {
+        // If check fails, assume local-only so credentials form is always accessible
+        setSetupState('local_only');
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Redirect if already logged in — but NOT if:
   // - session_expired/session_reset param is present (user intentionally came here)
   // - a redirect loop was detected
@@ -100,6 +132,40 @@ function LoginContent() {
       await signIn("oidc", { callbackUrl });
     } catch (err) {
       console.error("Sign in error:", err);
+      setIsLoading(false);
+    }
+  };
+
+  const handleAdminSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminError(null);
+    setAdminInfo(null);
+    setIsLoading(true);
+    clearRedirectLoopCounter();
+    try {
+      const result = await signIn("credentials", {
+        email: adminEmail,
+        password: adminPassword,
+        totp: adminTotp,
+        redirect: false,
+      });
+      if (result?.error === "TotpRequired") {
+        setTotpRequired(true);
+        setAdminInfo("Enter your authenticator code to continue.");
+      } else if (result?.error === "TotpInvalid") {
+        setAdminError("Invalid authenticator code. Please try again.");
+      } else if (result?.error === "RateLimited") {
+        setAdminError("Too many login attempts. Please try again in a few minutes.");
+      } else if (result?.error === "AccountLocked") {
+        setAdminError("Account is temporarily locked. Please try again in 15 minutes.");
+      } else if (result?.error || !result?.ok) {
+        setAdminError("Invalid email or password.");
+      } else {
+        router.push(callbackUrl);
+      }
+    } catch {
+      setAdminError("An unexpected error occurred.");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -243,19 +309,104 @@ function LoginContent() {
                 </motion.div>
               )}
 
-              {/* SSO Login Button */}
-              <Button
-                onClick={handleSignIn}
-                disabled={isLoading}
-                className="w-full h-12 text-base gap-2 gradient-primary text-white hover:opacity-90 transition-opacity"
-              >
-                {isLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <LogIn className="h-5 w-5" />
-                )}
-                {isLoading ? "Redirecting..." : "Sign in with SSO"}
-              </Button>
+              {/* Local-only mode: show credentials form as primary */}
+              {setupState === 'local_only' && (
+                <form onSubmit={handleAdminSignIn} className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-email" className="text-xs">Email</Label>
+                    <Input id="admin-email" type="email" value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      placeholder="admin@example.com" required autoComplete="email" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="admin-password" className="text-xs">Password</Label>
+                    <Input id="admin-password" type="password" value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      required autoComplete="current-password" />
+                  </div>
+                  <AnimatePresence>
+                    {totpRequired && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }} className="space-y-1">
+                        <Label htmlFor="admin-totp" className="text-xs">Authenticator Code</Label>
+                        <Input id="admin-totp" type="text" inputMode="numeric" maxLength={10}
+                          value={adminTotp} onChange={(e) => setAdminTotp(e.target.value)}
+                          placeholder="6-digit code or backup code"
+                          className="text-center font-mono tracking-widest"
+                          autoComplete="one-time-code" autoFocus />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  {adminInfo && (
+                    <p className="text-xs text-muted-foreground">{adminInfo}</p>
+                  )}
+                  {adminError && (
+                    <p className="text-xs text-destructive">{adminError}</p>
+                  )}
+                  <Button type="submit" disabled={isLoading}
+                    className="w-full h-10 gap-2 gradient-primary text-white hover:opacity-90">
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                    {isLoading ? "Signing in…" : "Sign In"}
+                  </Button>
+                </form>
+              )}
+
+              {/* OIDC-configured mode: SSO as primary, admin login as secondary */}
+              {setupState === 'oidc_configured' && (
+                <>
+                  <Button onClick={handleSignIn} disabled={isLoading}
+                    className="w-full h-12 text-base gap-2 gradient-primary text-white hover:opacity-90 transition-opacity">
+                    {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogIn className="h-5 w-5" />}
+                    {isLoading ? "Redirecting..." : "Sign in with SSO"}
+                  </Button>
+
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <button type="button" onClick={() => setShowAdminLogin(!showAdminLogin)}
+                      className="w-full flex items-center justify-between text-xs text-muted-foreground hover:text-foreground transition-colors py-1">
+                      <span className="flex items-center gap-1.5">
+                        <Shield className="h-3 w-3" />
+                        Admin login (recovery)
+                      </span>
+                      <ChevronDown className={`h-3 w-3 transition-transform ${showAdminLogin ? "rotate-180" : ""}`} />
+                    </button>
+                    <AnimatePresence>
+                      {showAdminLogin && (
+                        <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }} onSubmit={handleAdminSignIn}
+                          className="mt-3 space-y-2 overflow-hidden">
+                          <Input type="email" value={adminEmail}
+                            onChange={(e) => setAdminEmail(e.target.value)}
+                            placeholder="admin@example.com" required autoComplete="email"
+                            className="h-9 text-sm" />
+                          <Input type="password" value={adminPassword}
+                            onChange={(e) => setAdminPassword(e.target.value)}
+                            required autoComplete="current-password"
+                            placeholder="Password" className="h-9 text-sm" />
+                          {totpRequired && (
+                            <Input type="text" inputMode="numeric" maxLength={6}
+                              value={adminTotp} onChange={(e) => setAdminTotp(e.target.value.replace(/\D/g, ""))}
+                              placeholder="000000" className="h-9 text-sm text-center font-mono tracking-widest"
+                              autoComplete="one-time-code" />
+                          )}
+                          {adminInfo && <p className="text-xs text-muted-foreground">{adminInfo}</p>}
+                          {adminError && <p className="text-xs text-destructive">{adminError}</p>}
+                          <Button type="submit" variant="outline" size="sm" disabled={isLoading} className="w-full">
+                            {isLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                            Sign in as Admin
+                          </Button>
+                        </motion.form>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </>
+              )}
+
+              {/* Loading state — show spinner while setup status is fetching */}
+              {setupState === null && (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              )}
             </div>
           </div>
 

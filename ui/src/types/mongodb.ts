@@ -1,6 +1,7 @@
 // MongoDB collection type definitions
 
 import { ObjectId } from 'mongodb';
+import type { EnvelopeEncrypted } from '@/lib/crypto';
 
 // ============================================================================
 // User Collection
@@ -413,3 +414,95 @@ export interface AuditLogFilters {
   include_deleted?: boolean;
   status?: 'active' | 'archived' | 'deleted';
 }
+
+// ============================================================================
+// Local Users Collection (bootstrap admin before OIDC is configured)
+// ============================================================================
+
+export interface LocalUser {
+  _id?: ObjectId;
+  email: string;
+  name: string;
+  /** Argon2id encoded hash — never expose in API responses */
+  password_hash: string;
+  /** Envelope-encrypted TOTP secret — null until TOTP is activated */
+  totp_secret: EnvelopeEncrypted | null;
+  totp_enabled: boolean;
+  /** Argon2id hashes of single-use backup codes */
+  backup_codes: string[];
+  backup_codes_remaining: number;
+  role: 'admin';
+  locked: boolean;
+  locked_until: Date | null;
+  failed_attempts: number;
+  created_at: Date;
+  updated_at: Date;
+  last_login: Date | null;
+  /**
+   * SHA-256 hash of the one-time setup token issued by POST /api/setup.
+   * Required to call /api/setup/totp and /api/setup/totp/verify.
+   * Cleared once TOTP is activated.
+   */
+  setup_token_hash?: string | null;
+  setup_token_expires?: Date | null;
+}
+
+// ============================================================================
+// OIDC Configuration (stored in platform_config collection)
+// ============================================================================
+
+export interface OidcConfig {
+  _id: 'oidc_config';
+  issuer: string;
+  clientId: string;
+  /** Envelope-encrypted OIDC client secret */
+  clientSecret: EnvelopeEncrypted;
+  groupClaim: string;
+  requiredGroup: string;
+  adminGroup: string;
+  adminViewGroup: string;
+  enabled: boolean;
+  key_version: string;
+  updated_at: Date;
+  updated_by: string;
+}
+
+// ============================================================================
+// Security Audit Log (append-only)
+// ============================================================================
+
+export type AuditAction =
+  | 'admin.setup_completed'
+  | 'admin.login_success'
+  | 'admin.login_failed'
+  | 'admin.login_locked'
+  | 'admin.totp_verified'
+  | 'admin.totp_failed'
+  | 'admin.totp_activated'
+  | 'admin.backup_code_used'
+  | 'oidc.config_read'
+  | 'oidc.config_written'
+  | 'oidc.config_tested'
+  | 'oidc.config_test_failed'
+  | 'mcp.server_created'
+  | 'mcp.server_updated'
+  | 'mcp.server_deleted'
+  | 'keys.rotation_initiated'
+  | 'keys.rotation_completed'
+  | 'keys.rotation_failed';
+
+export interface SecurityAuditLogEntry {
+  _id?: ObjectId;
+  timestamp: Date;
+  actor_email: string;
+  actor_ip: string;
+  action: AuditAction;
+  resource_type: 'local_auth' | 'oidc_config' | 'mcp_server' | 'key_rotation';
+  resource_id: string;
+  outcome: 'success' | 'failure';
+  /** Contextual metadata — MUST NOT contain secrets, passwords, or tokens */
+  metadata: Record<string, unknown>;
+}
+
+// Alias for convenience
+export type AuditLogEntry = SecurityAuditLogEntry;

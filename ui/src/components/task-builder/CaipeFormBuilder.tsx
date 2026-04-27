@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, startTransition } from "react";
 import { Plus, Trash2, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,9 @@ export function CaipeFormBuilder({ prompt, onChange }: CaipeFormBuilderProps) {
   useEffect(() => {
     const parsed = parseCaipeFields(prompt);
     if (parsed.length > 0) {
-      setFields(parsed);
+      startTransition(() => {
+        setFields(parsed);
+      });
     }
   }, [prompt]);
 

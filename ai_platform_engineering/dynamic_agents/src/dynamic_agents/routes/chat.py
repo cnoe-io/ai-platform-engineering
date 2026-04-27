@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+# Shown to clients on stream/resume errors. Full exception details are logged only.
+_USER_SSE_STREAM_ERROR = "An internal error occurred while streaming from the agent."
+_USER_SSE_RESUME_ERROR = "An internal error occurred while resuming the stream."
+
 
 class RestartRuntimeRequest(BaseModel):
     """Request body for restarting agent runtime."""
@@ -75,9 +79,9 @@ async def _generate_sse_events(
         async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder):
             yield frame
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        for frame in encoder.on_run_error(str(e)):
+        for frame in encoder.on_run_error(_USER_SSE_STREAM_ERROR):
             yield frame
 
 
@@ -187,9 +191,9 @@ async def _generate_resume_sse_events(
         async for frame in runtime.resume(session_id, user.email, form_data, trace_id, encoder):
             yield frame
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
-        for frame in encoder.on_run_error(str(e)):
+        for frame in encoder.on_run_error(_USER_SSE_RESUME_ERROR):
             yield frame
 
 

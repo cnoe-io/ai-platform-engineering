@@ -116,18 +116,27 @@ describe('Login Page', () => {
     } as any)
 
     mockSignIn.mockResolvedValue(undefined as any)
+
+    // Default: OIDC is configured (renders SSO button). Override per test if needed.
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ state: 'oidc_configured', hasAdmin: true }),
+    }) as jest.Mock
   })
 
   // ─────────────────────────────────────────────────────────────────────
   // Basic rendering
   // ─────────────────────────────────────────────────────────────────────
 
-  it('should render login button when unauthenticated', () => {
+  it('should render login button when unauthenticated', async () => {
     mockUseSession.mockReturnValue({ data: null, status: 'unauthenticated' } as any)
 
     render(<LoginPage />)
 
-    expect(screen.getByText(/sign in with sso/i)).toBeInTheDocument()
+    // SSO button appears after setup status is fetched asynchronously
+    await waitFor(() => {
+      expect(screen.getByText(/sign in with sso/i)).toBeInTheDocument()
+    })
   })
 
   it('should not show environment badge when envBadge is empty', () => {
@@ -347,7 +356,8 @@ describe('Login Page', () => {
 
     render(<LoginPage />)
 
-    fireEvent.click(screen.getByText(/sign in with sso/i))
+    const ssoBtn = await screen.findByText(/sign in with sso/i)
+    fireEvent.click(ssoBtn)
 
     // Should clear loop counters
     expect(mockSessionStorage.removeItem).toHaveBeenCalledWith('login-redirect-count')
@@ -393,7 +403,8 @@ describe('Login Page', () => {
 
       render(<LoginPage />)
 
-      fireEvent.click(screen.getByText(/sign in with sso/i))
+      const ssoBtn = await screen.findByText(/sign in with sso/i)
+      fireEvent.click(ssoBtn)
 
       await waitFor(() => {
         expect(mockSignIn).toHaveBeenCalledWith('oidc', { callbackUrl: '/chat/some-uuid' })
@@ -483,7 +494,8 @@ describe('Login Page', () => {
 
       render(<LoginPage />)
 
-      fireEvent.click(screen.getByText(/sign in with sso/i))
+      const ssoBtn = await screen.findByText(/sign in with sso/i)
+      fireEvent.click(ssoBtn)
 
       await waitFor(() => {
         expect(mockSignIn).toHaveBeenCalledWith('oidc', {
@@ -508,7 +520,8 @@ describe('Login Page', () => {
       expect(screen.getByText(/your authentication session has expired/i)).toBeInTheDocument()
 
       // Sign in button should be present
-      fireEvent.click(screen.getByText(/sign in with sso/i))
+      const ssoBtn = await screen.findByText(/sign in with sso/i)
+      fireEvent.click(ssoBtn)
 
       // callbackUrl should be the original deep link, not "/"
       await waitFor(() => {

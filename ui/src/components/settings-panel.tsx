@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Type, Palette, Monitor, Check, Cloud, CloudOff, ChevronDown } from "lucide-react";
@@ -123,7 +123,9 @@ export function SettingsPanel() {
 
   // Load settings on mount: try MongoDB first, fall back to localStorage
   useEffect(() => {
-    setMounted(true);
+    startTransition(() => {
+      setMounted(true);
+    });
 
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
     const savedFontFamily = localStorage.getItem("caipe-font-family") as FontFamily | null;
@@ -133,13 +135,13 @@ export function SettingsPanel() {
     const effectiveFontFamily = savedFontFamily || configFontFamily;
     const effectiveGradientTheme = savedGradientTheme || configGradientTheme;
 
-    setFontSize(effectiveFontSize);
+    startTransition(() => {
+      setFontSize(effectiveFontSize);
+      setFontFamily(effectiveFontFamily);
+      setGradientTheme(effectiveGradientTheme);
+    });
     document.body.setAttribute("data-font-size", effectiveFontSize);
-
-    setFontFamily(effectiveFontFamily);
     document.body.setAttribute("data-font-family", effectiveFontFamily);
-
-    setGradientTheme(effectiveGradientTheme);
     applyGradientTheme(effectiveGradientTheme);
 
     // Then try to load from server (may override localStorage with cross-device prefs)

@@ -105,11 +105,14 @@ function resetMocks() {
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
-/** Set up users collection to return paginated data. */
+/** Set up users collection to return data. Supports both find().sort().toArray()
+ *  (used by the GET all-users path) and find().sort().skip().limit().toArray()
+ *  (used by paginated legacy paths). */
 function setupUsersCol(usersData: any[]) {
   const usersCol = createMockCollection();
   usersCol.find.mockReturnValue({
     sort: jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue(usersData),   // find().sort().toArray()
       skip: jest.fn().mockReturnValue({
         limit: jest.fn().mockReturnValue({
           toArray: jest.fn().mockResolvedValue(usersData),
@@ -122,21 +125,28 @@ function setupUsersCol(usersData: any[]) {
   return usersCol;
 }
 
-/** Set up conversations collection with batch aggregation results. */
+/** Set up conversations collection.
+ *  The GET /admin/users route queries conversations per user via countDocuments
+ *  and findOne (not batch aggregation). convCounts drives countDocuments so
+ *  per-user conversation counts match the expected test values. */
 function setupConvCol(convCounts: { email: string; count: number }[], lastActivities: { email: string; date: Date }[] = []) {
   const convCol = createMockCollection();
-  convCol.aggregate.mockImplementation(() => {
-    const toArrayFn = jest.fn();
-    // First call = convCounts, second = lastActivities
-    if (convCol.aggregate.mock.calls.length % 3 === 1) {
-      toArrayFn.mockResolvedValue(convCounts.map(c => ({ _id: c.email, count: c.count })));
-    } else if (convCol.aggregate.mock.calls.length % 3 === 0) {
-      toArrayFn.mockResolvedValue(lastActivities.map(a => ({ _id: a.email, last_activity: a.date })));
-    } else {
-      toArrayFn.mockResolvedValue([]);
-    }
-    return { toArray: toArrayFn };
+
+  // Per-user countDocuments — returns the configured count for the given owner_id.
+  convCol.countDocuments.mockImplementation(async (query: any) => {
+    const email = query?.owner_id;
+    const found = convCounts.find(c => c.email === email);
+    return found?.count ?? 0;
   });
+
+  // Per-user findOne for last activity — returns null (last_login fallback) unless
+  // a lastActivity entry is provided for that email.
+  convCol.findOne.mockImplementation(async (query: any) => {
+    const email = query?.owner_id;
+    const activity = lastActivities.find(a => a.email === email);
+    return activity ? { updated_at: activity.date } : null;
+  });
+
   mockCollections['conversations'] = convCol;
   return convCol;
 }

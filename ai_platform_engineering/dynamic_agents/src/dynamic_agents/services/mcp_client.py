@@ -22,15 +22,21 @@ def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
         Connection config dict compatible with langchain_mcp_adapters
     """
     if server.transport == TransportType.SSE:
-        return {
+        config: dict[str, Any] = {
             "url": server.endpoint,
             "transport": "sse",
         }
+        if server.headers:
+            config["headers"] = server.headers
+        return config
     elif server.transport == TransportType.HTTP:
-        return {
+        config = {
             "url": server.endpoint,
             "transport": "streamable_http",
         }
+        if server.headers:
+            config["headers"] = server.headers
+        return config
     else:  # stdio
         config: dict[str, Any] = {
             "command": server.command,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef, startTransition } from 'react';
 import { useTheme } from "next-themes";
 import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from 'graphology';
@@ -77,86 +77,8 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
     // Initial entity to restore on clear
     const initialEntity = useRef<{ entityType: string; primaryKey: string } | null>(null);
 
-    // Main exploration function
-    const exploreEntity = useCallback(async (entityType: string, primaryKey: string, merge: boolean = false) => {
-        if (!entityType || !primaryKey) {
-            console.error('Missing entityType or primaryKey:', { entityType, primaryKey });
-            return;
-        }
-
-        console.log('Starting exploration:', { entityType, primaryKey, merge });
-
-        setIsLoading(true);
-
-        try {
-            // Clear existing graph data if not merging
-            if (!merge) {
-                graphData.current = {
-                    entitiesById: new Map(),
-                    relationsById: new Map()
-                };
-                graph.clear();
-            }
-
-            // Call the neighborhood exploration API
-            const response = await exploreEntityNeighborhood(entityType, primaryKey, 1);
-            const { entity, entities, relations } = response;
-
-            if (!entity) {
-                console.warn('No entity found');
-                setIsLoading(false);
-                return;
-            }
-
-            const centerEntityPk = entity.all_properties?._entity_pk || primaryKey;
-            const centerEntityType = entity.entity_type || entityType;
-            const centerNodeId = generateNodeId(centerEntityType, centerEntityPk);
-
-            // Store all entities
-            if (entities && Array.isArray(entities)) {
-                for (const ent of entities) {
-                    const pk = ent.all_properties?._entity_pk || ent.primary_key;
-                    const entType = ent.entity_type || 'Entity';
-                    const entNodeId = generateNodeId(entType, pk);
-
-                    if (pk) {
-                        const entityData: EntityData = {
-                            primary_key: pk,
-                            entity_type: entType,
-                            all_properties: ent.all_properties || ent,
-                            ...ent
-                        };
-                        graphData.current.entitiesById.set(entNodeId, entityData);
-                    }
-                }
-            }
-
-            // Build the graph
-            await buildGraph(centerNodeId, relations || []);
-            setExploredEntity(entity);
-            setDataReady(true);
-            setLayoutKey(k => k + 1); // Force remount
-
-            // Store the initial entity if this is the first exploration
-            if (!initialEntity.current) {
-                initialEntity.current = { entityType, primaryKey };
-            }
-
-            // Update stats
-            setGraphStats({
-                node_count: graphData.current.entitiesById.size,
-                relation_count: (relations || []).length
-            });
-
-        } catch (err) {
-            console.error('Failed to explore entity:', err);
-        }
-
-        setIsLoading(false);
-    }, [graph]);
-
-    // Build graph from stored data
-    const buildGraph = async (centerNodeId: string, relations: RelationData[]) => {
+    // Build graph from stored data (declared before exploreEntity — used inside it)
+    const buildGraph = useCallback(async (centerNodeId: string, relations: RelationData[]) => {
         const nodeDegrees = new Map<string, number>();
 
         // Add all entities as nodes
@@ -289,7 +211,85 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
         });
 
         console.log(`Graph built: ${graph.order} nodes, ${graph.size} edges`);
-    };
+    }, [graph]);
+
+    // Main exploration function
+    const exploreEntity = useCallback(async (entityType: string, primaryKey: string, merge: boolean = false) => {
+        if (!entityType || !primaryKey) {
+            console.error('Missing entityType or primaryKey:', { entityType, primaryKey });
+            return;
+        }
+
+        console.log('Starting exploration:', { entityType, primaryKey, merge });
+
+        setIsLoading(true);
+
+        try {
+            // Clear existing graph data if not merging
+            if (!merge) {
+                graphData.current = {
+                    entitiesById: new Map(),
+                    relationsById: new Map()
+                };
+                graph.clear();
+            }
+
+            // Call the neighborhood exploration API
+            const response = await exploreEntityNeighborhood(entityType, primaryKey, 1);
+            const { entity, entities, relations } = response;
+
+            if (!entity) {
+                console.warn('No entity found');
+                setIsLoading(false);
+                return;
+            }
+
+            const centerEntityPk = entity.all_properties?._entity_pk || primaryKey;
+            const centerEntityType = entity.entity_type || entityType;
+            const centerNodeId = generateNodeId(centerEntityType, centerEntityPk);
+
+            // Store all entities
+            if (entities && Array.isArray(entities)) {
+                for (const ent of entities) {
+                    const pk = ent.all_properties?._entity_pk || ent.primary_key;
+                    const entType = ent.entity_type || 'Entity';
+                    const entNodeId = generateNodeId(entType, pk);
+
+                    if (pk) {
+                        const entityData: EntityData = {
+                            primary_key: pk,
+                            entity_type: entType,
+                            all_properties: ent.all_properties || ent,
+                            ...ent
+                        };
+                        graphData.current.entitiesById.set(entNodeId, entityData);
+                    }
+                }
+            }
+
+            // Build the graph
+            await buildGraph(centerNodeId, relations || []);
+            setExploredEntity(entity);
+            setDataReady(true);
+            setLayoutKey(k => k + 1); // Force remount
+
+            // Store the initial entity if this is the first exploration
+            if (!initialEntity.current) {
+                initialEntity.current = { entityType, primaryKey };
+            }
+
+            // Update stats
+            setGraphStats({
+                node_count: graphData.current.entitiesById.size,
+                relation_count: (relations || []).length
+            });
+
+        } catch (err) {
+            console.error('Failed to explore entity:', err);
+        }
+
+        setIsLoading(false);
+    }, [buildGraph, graph]);
 
     // Node click handler
     const handleNodeClick = useCallback((nodeId: string, nodeData: any) => {
@@ -321,7 +321,13 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
     // Handle entity exploration from SearchView
     useEffect(() => {
         if (exploreEntityData) {
-            exploreEntity(exploreEntityData.entityType, exploreEntityData.primaryKey, false);
+            startTransition(() => {
+                void exploreEntity(
+                    exploreEntityData.entityType,
+                    exploreEntityData.primaryKey,
+                    false,
+                );
+            });
             onExploreComplete?.();
         }
     }, [exploreEntityData, onExploreComplete, exploreEntity]);
@@ -335,7 +341,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
                         <div className="text-6xl text-blue-500 mb-4">📊</div>
                         <h3 className="text-2xl font-bold text-foreground">Data Exploration</h3>
                         <p className="text-muted-foreground">
-                            Search for entities in the Search tab, then click "Explore" to visualize their relationships.
+                            Search for entities in the Search tab, then click &quot;Explore&quot; to visualize their relationships.
                         </p>
                     </div>
                 </div>

@@ -1,25 +1,32 @@
 # CAIPE UI Dockerfile
-# Multi-stage build for Next.js application with nginx reverse proxy
-# Pattern based on RAG webui Dockerfile
+# Multi-stage build for Next.js application
+
+# NOTE on architecture:
+#   We target TARGETPLATFORM (e.g. linux/amd64) for all stages so that native
+#   modules (argon2, etc.) are installed for the runtime architecture. On a Mac
+#   (arm64) building for linux/amd64, this uses QEMU emulation — slower but
+#   correct. We use a glibc base (debian slim) because argon2 v0.x ships prebuilt
+#   binaries for linux-x64 glibc but not linux-x64 musl (alpine).
+
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
 
 # ---------- Stage 1: Install dependencies ----------
-# Pin to BUILDPLATFORM so npm ci runs natively (avoids QEMU "Illegal instruction"
-# crashes when cross-compiling arm64 on amd64 CI runners).
-ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM node:20-alpine AS deps
-RUN apk add --no-cache libc6-compat
+FROM --platform=$TARGETPLATFORM public.ecr.aws/docker/library/node:20-slim AS deps
 WORKDIR /app
 
-# Install dependencies with cache and network resilience
+# Build tools needed in case a native module lacks a prebuilt for this platform
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY ui/package.json ui/package-lock.json* ui/yarn.lock* ui/pnpm-lock.yaml* ./
 
-# Configure npm for better network resilience
 RUN npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-timeout 300000
 
-# Install dependencies with retry wrapper for transient registry errors (E403/ETIMEDOUT)
 RUN set -e; \
     install_deps() { \
       if [ -f package-lock.json ]; then npm ci; \
@@ -39,12 +46,9 @@ RUN set -e; \
     done
 
 # ---------- Stage 2: Build application ----------
-# Also pinned to BUILDPLATFORM — next build uses @next/swc at compile time only;
-# the standalone output is platform-independent JavaScript.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS build
+FROM --platform=$TARGETPLATFORM public.ecr.aws/docker/library/node:20-slim AS build
 WORKDIR /app
 
-# Build args for version info
 ARG IMAGE_TAG=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE
@@ -52,10 +56,8 @@ ARG BUILD_DATE
 COPY --from=deps /app/node_modules ./node_modules
 COPY ui .
 
-# Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Create version info file
 RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
     if [ -z "$BUILD_DATE_VALUE" ]; then \
         BUILD_DATE_VALUE=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
@@ -67,35 +69,29 @@ RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
     > public/version.json && \
     cat public/version.json
 
-# Build Next.js standalone application without baking in NEXT_PUBLIC_* vars
-# These will be injected at runtime by entrypoint.sh (Layer 1) and
-# PublicEnvScript server component (Layer 2)
 RUN npm run build
 
 # ---------- Stage 3: Production runtime ----------
-FROM node:20-alpine AS runner
+FROM --platform=$TARGETPLATFORM public.ecr.aws/docker/library/node:20-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Patch system packages to address CVEs
-RUN apk update && apk upgrade --no-cache
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid nodejs --shell /bin/bash nextjs
 
-# Copy built standalone application
 # public/ must be chown'd so entrypoint.sh can write env-config.js at runtime
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy version info
 COPY --from=build --chown=nextjs:nodejs /app/public/version.json ./public/version.json
 
-# Copy entrypoint script
 COPY --chown=nextjs:nodejs build/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
@@ -106,8 +102,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Runtime environment variables are injected via two layers:
-# 1. entrypoint.sh generates /app/public/env-config.js at container start
-# 2. Server component reads process.env at request time via API
-# Both NEXT_PUBLIC_* and plain env vars are supported.
 CMD ["/app/entrypoint.sh"]

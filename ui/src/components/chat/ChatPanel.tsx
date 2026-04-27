@@ -862,10 +862,22 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
       setConversationStreaming(convId!, null);
 
     } catch (error) {
-      console.error("[A2A SDK] Stream error:", error);
-      // Session expiry is handled by TokenExpiryGuard — don't persist the error in chat history
-      if (!(error as Error).message?.startsWith("Session expired:")) {
-        appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
+      const raw = (error as Error).message || "";
+      const isConnectionError = raw.includes("Failed to fetch") || raw.includes("NetworkError") || raw.includes("ECONNREFUSED");
+      if (isConnectionError) {
+        console.warn("[A2A SDK] Supervisor not reachable:", raw);
+      } else {
+        console.error("[A2A SDK] Stream error:", error);
+      }
+      if (!raw.startsWith("Session expired:")) {
+        const userMessage = isConnectionError
+          ? "The AI supervisor is not reachable. Make sure an LLM provider is configured and the supervisor service is running."
+          : raw || "Failed to connect to supervisor";
+        updateMessage(convId!, assistantMsgId, {
+          content: userMessage,
+          isFinal: true,
+          isError: true,
+        } as any);
       }
       setConversationStreaming(convId, null);
     }
@@ -2235,6 +2247,24 @@ const ChatMessage = React.memo(function ChatMessage({
   // When the timeline has a final_answer segment, it renders the answer itself —
   // skip the separate markdown card for assistant messages to avoid duplication.
   const timelineHasFinalAnswer = !isUser && message.timelineSegments?.some((s: SupervisorTimelineSegment) => s.type === "final_answer");
+
+  // Service/connection errors render as a themed callout, not a chat bubble
+  if ((message as any).isError) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex gap-2 px-3 items-start"
+      >
+        <div className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-destructive/8 px-4 py-3 text-sm text-destructive dark:text-red-400 max-w-xl">
+          <svg className="h-4 w-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <span>{message.content}</span>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

@@ -17,8 +17,8 @@ export function useUserInit() {
 
   useEffect(() => {
     const initializeUser = async () => {
-      // Skip if SSO or MongoDB not enabled
-      if (!getConfig('ssoEnabled') || getConfig('storageMode') !== 'mongodb') {
+      // Skip if MongoDB not enabled — no collection to write to
+      if (getConfig('storageMode') !== 'mongodb') {
         setInitialized(true);
         return;
       }

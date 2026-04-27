@@ -790,15 +790,17 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
     const req = makeRequest('/api/admin/stats?source=slack');
     await GET(req);
 
-    // When source=slack, conversations should be filtered with { $or: [{ source: 'slack' }, { client_type: 'slack' }] }
+    // When source=slack, conversations should be filtered with a slack-specific filter.
+    // The route supports both legacy { source: 'slack' } and new { $or: [{ source: 'slack' }, { client_type: 'slack' }] }
     const convCountCalls = convCol.countDocuments.mock.calls;
-    const hasSlackFilter = convCountCalls.some(
-      (call: any[]) => {
-        const filter = call[0];
-        // The route uses SLACK_CONV_MATCH which is an $or filter supporting both legacy and new schemas
-        return filter?.$or?.some((clause: any) => clause.source === 'slack' || clause.client_type === 'slack');
-      }
-    );
+    const hasSlackFilter = convCountCalls.some((call: any[]) => {
+      const f = call[0];
+      return (
+        f?.source === 'slack' ||
+        f?.client_type === 'slack' ||
+        (Array.isArray(f?.$or) && f.$or.some((c: any) => c.source === 'slack' || c.client_type === 'slack'))
+      );
+    });
     expect(hasSlackFilter).toBe(true);
 
     // Web messages should be skipped (resolved to 0) — check that messages

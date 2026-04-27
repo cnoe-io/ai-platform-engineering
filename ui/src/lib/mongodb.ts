@@ -177,6 +177,12 @@ async function createIndexes(db: Db) {
   // doesn't prevent other indexes from being created.
 
   await Promise.all([
+    // Local admin users (bootstrap accounts)
+    safeCreateIndex(db, 'local_users', { email: 1 }, { unique: true }),
+
+    // Security audit log (TTL index — auto-expire after configured retention period)
+    safeCreateIndex(db, 'audit_log', { timestamp: -1 }),
+
     // Users collection
     safeCreateIndex(db, 'users', { email: 1 }, { unique: true }),
     safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),

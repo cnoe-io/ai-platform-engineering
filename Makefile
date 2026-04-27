@@ -16,7 +16,7 @@ APP_NAME ?= ai-platform-engineering
 	run-a2a run-a2a-client run-a2a-client-local \
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	generate-agent-commands \
-	lint lint-fix test test-compose-generator test-compose-generator-coverage \
+	lint lint-fix test \
 	test-slack-stream test-slack-conformance \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
@@ -257,16 +257,6 @@ lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 	@uv run python -m ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320 --fix
 
 ## ========== Test ==========
-
-test-compose-generator: setup-venv ## Run unit tests for docker-compose generator
-	@echo "Running docker-compose generator tests..."
-	@. .venv/bin/activate && uv add pytest pyyaml --dev
-	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --tb=short
-
-test-compose-generator-coverage: setup-venv ## Run docker-compose generator tests with coverage
-	@echo "Running docker-compose generator tests with coverage..."
-	@. .venv/bin/activate && uv add pytest pytest-cov pyyaml --dev
-	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --cov=generate_docker_compose --cov-report=term-missing --cov-report=html
 
 test-supervisor: setup-venv ## Run tests for supervisor/main workspace only
 	@echo "Running main workspace tests..."

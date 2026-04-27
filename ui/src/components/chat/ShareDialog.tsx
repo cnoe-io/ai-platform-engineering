@@ -626,7 +626,7 @@ export function ShareDialog({
                           Share with {searchInput}
                         </button>
                         <p className="text-xs text-muted-foreground mt-2">
-                          They'll get access when they log in
+                          They&apos;ll get access when they log in
                         </p>
                       </>
                     )}

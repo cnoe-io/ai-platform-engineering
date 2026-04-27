@@ -613,6 +613,11 @@ function ResultOrInputForm({
   isFullscreen: boolean;
   onExitFullscreen: () => void;
 }) {
+  const detectedFields = useMemo(
+    () => parseInputFieldsFromText(content),
+    [content],
+  );
+
   // Prioritize structured fields from backend (request_user_input tool)
   if (structuredFields && structuredFields.length > 0) {
     return (
@@ -631,10 +636,8 @@ function ResultOrInputForm({
       </motion.div>
     );
   }
-  
+
   // Fallback: Try to detect input fields from the content using regex
-  const detectedFields = useMemo(() => parseInputFieldsFromText(content), [content]);
-  
   if (detectedFields && detectedFields.length > 0) {
     return (
       <motion.div
@@ -1580,7 +1583,7 @@ export function AgentBuilderRunner({
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Play className="h-10 w-10 text-muted-foreground/30 mb-3" />
                   <p className="text-sm text-muted-foreground">
-                    Click "Start Workflow" to begin
+                    Click &quot;Start Workflow&quot; to begin
                   </p>
                 </div>
               )}

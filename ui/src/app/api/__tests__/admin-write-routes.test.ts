@@ -259,6 +259,8 @@ describe('PATCH /api/admin/users/[email]/role', () => {
     const decodedEmail = 'user+test@example.com';
     usersCol.findOne.mockResolvedValue({ email: decodedEmail });
     usersCol.updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    // countDocuments must return ≥1 so the last-admin safety net doesn't block
+    usersCol.countDocuments.mockResolvedValue(1);
     mockCollections['users'] = usersCol;
 
     const req = makeRequest(`/api/admin/users/${encodedEmail}/role`, {

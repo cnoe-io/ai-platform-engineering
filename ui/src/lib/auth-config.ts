@@ -1,5 +1,9 @@
 import type { NextAuthOptions } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
 import { decodeJwt } from "jose";
+import { isMongoDBConfigured, getCollection } from '@/lib/mongodb';
+import { decryptSecret } from '@/lib/crypto';
+import type { OidcConfig } from '@/types/mongodb';
 
 /**
  * Auth configuration for OIDC SSO
@@ -11,19 +15,17 @@ import { decodeJwt } from "jose";
  * - OIDC_CLIENT_ID: OIDC client ID
  * - OIDC_CLIENT_SECRET: OIDC client secret
  * - SSO_ENABLED: "true" to enable SSO, otherwise disabled.
- *   (Also accepts NEXT_PUBLIC_SSO_ENABLED for backward compatibility.)
  *   If SSO does not appear enabled: check window.__APP_CONFIG__ in the browser.
  * - OIDC_GROUP_CLAIM: The OIDC claim name(s) for groups. Supports:
  *     - Single value: "memberOf"
  *     - Comma-separated: "groups,members,roles" (all checked, results combined)
  *     - Empty/unset: auto-detect from common claim names
- * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
+ * - OIDC_REQUIRED_GROUP: Group name required for access (default: "" — no restriction)
  * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  */
 
-// Check if refresh token support should be enabled
-// Defaults to true for backward compatibility, but can be disabled if OIDC provider doesn't support it
+// Refresh token support — disabled by setting OIDC_ENABLE_REFRESH_TOKEN=false
 export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "false";
 
 // Group claim name(s) - configurable via env var
@@ -32,9 +34,14 @@ export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "f
 export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
 // Required group for authorization.
-// Use ?? (nullish coalescing) so that setting OIDC_REQUIRED_GROUP="" disables
-// the group check. || would treat "" as falsy and fall back to "backstage-access".
-export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "backstage-access";
+// Resolution order (effective value computed in resolveOidcGroupConfig):
+//   1. OIDC_REQUIRED_GROUP env var, if set (even "" — empty string disables the check).
+//   2. platform_config.oidc_config.requiredGroup from MongoDB, if set via the UI.
+//   3. "" — no group restriction; any authenticated OIDC user may access.
+//
+// Default is open access: any authenticated user may log in unless an operator
+// explicitly restricts via OIDC_REQUIRED_GROUP (IaC) or Admin → OIDC Config (UI).
+export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "";
 
 // Required admin group for admin access
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
@@ -51,6 +58,68 @@ export const REQUIRED_ADMIN_VIEW_GROUP = process.env.OIDC_REQUIRED_ADMIN_VIEW_GR
 // Default group claim names to check (in order of priority)
 // Note: Duo SSO uses "members" for full group list, "groups" for limited set
 const DEFAULT_GROUP_CLAIMS = ["members", "memberOf", "groups", "group", "roles", "cognito:groups"];
+
+/**
+ * Effective OIDC group config — merges env vars (authoritative) with DB config (fallback).
+ *
+ * When an admin configures OIDC via the UI (no env vars), the group requirements
+ * they set must actually be enforced at sign-in. This function reads DB config
+ * for any field not already covered by env vars.
+ *
+ * Called once per initial sign-in (profile processing in JWT callback).
+ */
+export async function resolveOidcGroupConfig(): Promise<{
+  requiredGroup: string;
+  adminGroup: string;
+  adminViewGroup: string;
+  dynamicAgentsGroup: string;
+  groupClaim: string;
+}> {
+  // Start with env-var values (highest priority). Read process.env directly
+  // so changes made after module load (e.g. in tests) are picked up at call time.
+  const result = {
+    requiredGroup: process.env.OIDC_REQUIRED_GROUP ?? "",
+    adminGroup: process.env.OIDC_REQUIRED_ADMIN_GROUP || "",
+    adminViewGroup: process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP || "",
+    dynamicAgentsGroup: process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP || "",
+    groupClaim: process.env.OIDC_GROUP_CLAIM || "",
+  };
+
+  // Skip DB entirely only when ALL fields have explicit env overrides, so no
+  // DB-configured value is silently dropped by a partial env configuration.
+  const envFullyConfigured =
+    process.env.OIDC_REQUIRED_GROUP !== undefined &&
+    process.env.OIDC_REQUIRED_ADMIN_GROUP !== undefined &&
+    process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP !== undefined &&
+    process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP !== undefined &&
+    process.env.OIDC_GROUP_CLAIM !== undefined;
+
+  if (envFullyConfigured || !isMongoDBConfigured) return result;
+
+  try {
+    const col = await getCollection<OidcConfig>('platform_config');
+    const doc = await col.findOne({ _id: 'oidc_config' as any });
+    if (!doc) return result;
+
+    // Fill in from DB only for fields not set via env var
+    if (process.env.OIDC_REQUIRED_GROUP === undefined && doc.requiredGroup) {
+      result.requiredGroup = doc.requiredGroup;
+    }
+    if (process.env.OIDC_REQUIRED_ADMIN_GROUP === undefined && doc.adminGroup) {
+      result.adminGroup = doc.adminGroup;
+    }
+    if (process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP === undefined && doc.adminViewGroup) {
+      result.adminViewGroup = doc.adminViewGroup;
+    }
+    if (process.env.OIDC_GROUP_CLAIM === undefined && doc.groupClaim) {
+      result.groupClaim = doc.groupClaim;
+    }
+  } catch {
+    // MongoDB unavailable — fall through with env values
+  }
+
+  return result;
+}
 
 /**
  * Helper to add groups from a claim value to a set
@@ -73,15 +142,17 @@ function addGroupsFromValue(value: unknown, groups: Set<string>): void {
  * of them (using a set for deduplication).
  *
  * @param profile - OIDC profile/claims object
+ * @param effectiveClaim - Override the module-level GROUP_CLAIM constant (e.g. from DB config)
  * @returns Array of unique group names
  */
-function extractGroups(profile: Record<string, unknown>): string[] {
+function extractGroups(profile: Record<string, unknown>, effectiveClaim?: string): string[] {
   const allGroups = new Set<string>();
+  const claimToUse = effectiveClaim ?? GROUP_CLAIM;
 
   // If specific claim(s) configured, use only those
   // Supports comma-separated list (e.g., "groups,members,roles")
-  if (GROUP_CLAIM) {
-    const configuredClaims = GROUP_CLAIM.split(",").map(c => c.trim()).filter(Boolean);
+  if (claimToUse) {
+    const configuredClaims = claimToUse.split(",").map(c => c.trim()).filter(Boolean);
     for (const claimName of configuredClaims) {
       const value = profile[claimName];
       if (value !== undefined) {
@@ -89,7 +160,7 @@ function extractGroups(profile: Record<string, unknown>): string[] {
       }
     }
     if (allGroups.size === 0) {
-      console.warn(`OIDC group claim(s) "${GROUP_CLAIM}" not found in profile`);
+      console.warn(`OIDC group claim(s) "${claimToUse}" not found in profile`);
     }
     return Array.from(allGroups);
   }
@@ -106,54 +177,68 @@ function extractGroups(profile: Record<string, unknown>): string[] {
   return Array.from(allGroups);
 }
 
-// Helper to check if user has required group
-export function hasRequiredGroup(groups: string[]): boolean {
-  if (!REQUIRED_GROUP) return true; // No group required
+/**
+ * Parse a potentially comma-separated group string into an array of trimmed group names.
+ * e.g. "group1, group2 , group3" → ["group1", "group2", "group3"]
+ * Returns [] for empty/null values.
+ */
+function parseGroups(groupStr: string): string[] {
+  if (!groupStr) return [];
+  return groupStr.split(',').map(g => g.trim()).filter(Boolean);
+}
 
-  return groups.some((group) => {
-    // Handle both simple group names and full DN paths
-    // e.g., "backstage-access" or "CN=backstage-access,OU=Groups,DC=example,DC=com"
-    const groupLower = group.toLowerCase();
-    const requiredLower = REQUIRED_GROUP.toLowerCase();
-    return groupLower === requiredLower || groupLower.includes(`cn=${requiredLower}`);
+/**
+ * Check if a user (identified by their group list) is a member of ANY of the
+ * specified required groups. Supports both simple names and full LDAP DN paths.
+ * e.g. "caipe-users" matches "CN=caipe-users,OU=Groups,DC=example,DC=com"
+ */
+function userInAnyGroup(userGroups: string[], requiredGroupStr: string): boolean {
+  const required = parseGroups(requiredGroupStr);
+  if (required.length === 0) return false;
+
+  return userGroups.some(userGroup => {
+    const userGroupLower = userGroup.toLowerCase();
+    return required.some(req => {
+      const reqLower = req.toLowerCase();
+      return userGroupLower === reqLower || userGroupLower.includes(`cn=${reqLower}`);
+    });
   });
 }
 
-// Helper to check if user is in admin group
+// Helper to check if user has required group.
+// Supports comma-separated lists in OIDC_REQUIRED_GROUP: user must be in ANY listed group.
+// The optional requiredGroup argument overrides the module-level constant — useful for
+// callers that have already resolved the config (e.g. resolveOidcGroupConfig) or for
+// unit tests that want to verify restriction logic without env-var side-effects.
+export function hasRequiredGroup(groups: string[], requiredGroup = REQUIRED_GROUP): boolean {
+  if (!requiredGroup) return true; // No group required
+  return userInAnyGroup(groups, requiredGroup);
+}
+
+// Helper to check if user is in admin group.
+// Supports comma-separated lists in OIDC_REQUIRED_ADMIN_GROUP.
 export function isAdminUser(groups: string[]): boolean {
   if (!REQUIRED_ADMIN_GROUP) return false; // No admin group configured
-
-  return groups.some((group) => {
-    // Handle both simple group names and full DN paths
-    const groupLower = group.toLowerCase();
-    const adminGroupLower = REQUIRED_ADMIN_GROUP.toLowerCase();
-    return groupLower === adminGroupLower || groupLower.includes(`cn=${adminGroupLower}`);
-  });
+  return userInAnyGroup(groups, REQUIRED_ADMIN_GROUP);
 }
 
 // Helper to check if user can access dynamic agents.
-// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access
-// (admin group membership does NOT automatically grant access in this case).
-// If unset, falls back to admin-only access.
+// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access.
+// Supports comma-separated lists. Falls back to admin-only if not configured.
 export function canAccessDynamicAgents(groups: string[]): boolean {
   if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
-    const requiredLower = REQUIRED_DYNAMIC_AGENTS_GROUP.toLowerCase();
-    return groups.some(g => g.toLowerCase() === requiredLower || g.toLowerCase().includes(`cn=${requiredLower}`));
+    return userInAnyGroup(groups, REQUIRED_DYNAMIC_AGENTS_GROUP);
   }
   // No explicit group configured → admins only
   return isAdminUser(groups);
 }
 
-// Helper to check if user can view admin dashboard (read-only)
-// If OIDC_REQUIRED_ADMIN_VIEW_GROUP is not set, all authenticated users can view
+// Helper to check if user can view admin dashboard (read-only).
+// If OIDC_REQUIRED_ADMIN_VIEW_GROUP is not set, all authenticated users can view.
+// Supports comma-separated lists.
 export function canViewAdminDashboard(groups: string[]): boolean {
-  if (!REQUIRED_ADMIN_VIEW_GROUP) return true; // No view group configured = all authenticated users
-
-  return groups.some((group) => {
-    const groupLower = group.toLowerCase();
-    const viewGroupLower = REQUIRED_ADMIN_VIEW_GROUP.toLowerCase();
-    return groupLower === viewGroupLower || groupLower.includes(`cn=${viewGroupLower}`);
-  });
+  if (!REQUIRED_ADMIN_VIEW_GROUP) return true; // No view group configured = all authenticated
+  return userInAnyGroup(groups, REQUIRED_ADMIN_VIEW_GROUP);
 }
 
 /** Reset in-flight refresh map (for testing only). */
@@ -408,6 +493,210 @@ async function refreshAccessToken(token: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// CredentialsProvider for local admin (bootstrap before OIDC is configured)
+// ---------------------------------------------------------------------------
+
+const localCredentialsProvider = CredentialsProvider({
+  id: "credentials",
+  name: "Admin Login",
+  credentials: {
+    email: { label: "Email", type: "email" },
+    password: { label: "Password", type: "password" },
+    totp: { label: "Authenticator Code", type: "text" },
+  },
+  async authorize(credentials) {
+    if (!credentials?.email || !credentials?.password) return null;
+
+    const email = credentials.email.toLowerCase();
+
+    // Per-email rate limiting before any DB or crypto work
+    const { RateLimits } = await import('@/lib/rate-limit');
+    const rateCheck = RateLimits.credentials(email);
+    if (!rateCheck.allowed) {
+      throw new Error("RateLimited");
+    }
+
+    // Lazy import to avoid circular dep and keep server-only code out of the module graph
+    const { getLocalUser, verifyPassword, verifyTOTP, verifyAndConsumeBackupCode,
+            isAccountLocked, recordFailedLogin, recordSuccessfulLogin } = await import('@/lib/local-auth');
+
+    const user = await getLocalUser(email);
+    if (!user) return null;
+
+    // Check lockout before attempting verification (prevents timing oracle)
+    if (await isAccountLocked(email)) {
+      throw new Error("AccountLocked");
+    }
+
+    const passwordValid = await verifyPassword(user.password_hash, credentials.password);
+    if (!passwordValid) {
+      await recordFailedLogin(email);
+      return null;
+    }
+
+    // TOTP check (mandatory if enabled).
+    // Accepts both 6-digit TOTP codes and 10-char alphanumeric backup codes.
+    if (user.totp_enabled) {
+      if (!credentials.totp) {
+        throw new Error("TotpRequired");
+      }
+      const code = credentials.totp.trim();
+      const isTotpFormat = /^\d{6}$/.test(code);
+
+      if (isTotpFormat) {
+        // Standard TOTP
+        const totpValid = user.totp_secret ? verifyTOTP(user.totp_secret, code) : false;
+        if (!totpValid) {
+          await recordFailedLogin(email);
+          throw new Error("TotpInvalid");
+        }
+      } else {
+        // Backup code (10-char alphanumeric)
+        const backupValid = await verifyAndConsumeBackupCode(email, code);
+        if (!backupValid) {
+          await recordFailedLogin(email);
+          throw new Error("TotpInvalid");
+        }
+      }
+    }
+
+    await recordSuccessfulLogin(email);
+
+    return {
+      id: user.email,
+      email: user.email,
+      name: user.name,
+      role: 'admin',
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// DB-backed OIDC config cache (30s TTL)
+// ---------------------------------------------------------------------------
+
+interface CachedOidcProvider {
+  provider: NextAuthOptions['providers'][number] | null;
+  cachedAt: number;
+}
+
+let _oidcProviderCache: CachedOidcProvider | null = null;
+const OIDC_CACHE_TTL = 30 * 1000; // 30 seconds
+
+async function getDbOidcProvider(): Promise<NextAuthOptions['providers'][number] | null> {
+  const now = Date.now();
+  if (_oidcProviderCache && now - _oidcProviderCache.cachedAt < OIDC_CACHE_TTL) {
+    return _oidcProviderCache.provider;
+  }
+
+  try {
+    const { getCollection, isMongoDBConfigured } = await import('@/lib/mongodb');
+    const { decryptSecret } = await import('@/lib/crypto');
+    if (!isMongoDBConfigured) {
+      _oidcProviderCache = { provider: null, cachedAt: now };
+      return null;
+    }
+
+    const collection = await getCollection<any>('platform_config');
+    const doc = await collection.findOne({ _id: 'oidc_config' });
+
+    if (!doc?.enabled) {
+      _oidcProviderCache = { provider: null, cachedAt: now };
+      return null;
+    }
+
+    const clientSecret = decryptSecret(doc.clientSecret);
+    const enableRefresh = ENABLE_REFRESH_TOKEN;
+
+    const provider: NextAuthOptions['providers'][number] = {
+      id: "oidc",
+      name: "SSO",
+      type: "oauth",
+      wellKnown: `${doc.issuer}/.well-known/openid-configuration`,
+      authorization: {
+        params: {
+          scope: enableRefresh
+            ? "openid email profile groups offline_access"
+            : "openid email profile groups",
+        },
+      },
+      idToken: true,
+      checks: ["pkce", "state"],
+      clientId: doc.clientId,
+      clientSecret,
+      profile(profile: Record<string, unknown>) {
+        return {
+          id: profile.sub as string,
+          name: (profile.fullname || profile.name || profile.preferred_username ||
+                 `${profile.firstname || ""} ${profile.lastname || ""}`.trim() ||
+                 profile.username || profile.email) as string,
+          email: (profile.email || profile.username) as string,
+          image: profile.picture as string | null,
+        };
+      },
+    } as any;
+
+    _oidcProviderCache = { provider, cachedAt: now };
+    return provider;
+  } catch (err) {
+    console.error('[Auth] Failed to load OIDC config from DB:', err);
+    _oidcProviderCache = { provider: null, cachedAt: now };
+    return null;
+  }
+}
+
+/** Invalidate the OIDC provider cache (call after saving new OIDC config).
+ *  Also flushes the Bearer-JWT validator's cached issuer/JWKS so API routes
+ *  that authenticate via Bearer tokens (chat stream, dynamic-agents proxy)
+ *  pick up the new OIDC issuer immediately instead of 401-ing until the
+ *  separate cache's TTL (30s) expires. */
+export function invalidateOidcCache(): void {
+  _oidcProviderCache = null;
+  // Lazy require to avoid a circular import at module load; jwt-validation
+  // already imports the mongodb/types it needs from here.
+  import('./jwt-validation').then((mod) => {
+    try {
+      mod.invalidateBearerJwtOidcCache();
+    } catch {
+      /* non-fatal */
+    }
+  });
+}
+
+/**
+ * Returns NextAuth options with providers loaded dynamically.
+ * - Env-var OIDC config (existing deployments) takes precedence.
+ * - Falls back to DB-stored config (set via admin UI).
+ * - Always includes the local CredentialsProvider as a recovery path.
+ */
+export async function getAuthOptions(): Promise<NextAuthOptions> {
+  const providers: NextAuthOptions['providers'] = [];
+
+  // Env vars take precedence over DB-configured OIDC
+  const envOidcConfigured =
+    !!(process.env.OIDC_ISSUER && process.env.OIDC_CLIENT_ID && process.env.OIDC_CLIENT_SECRET);
+
+  if (envOidcConfigured) {
+    // Use the static env-var OIDC provider (already in authOptions)
+    providers.push((authOptions as any).providers[0]);
+  } else {
+    // Try DB-configured OIDC
+    const dbProvider = await getDbOidcProvider();
+    if (dbProvider) {
+      providers.push(dbProvider);
+    }
+  }
+
+  // Always include local credentials provider (admin recovery path)
+  providers.push(localCredentialsProvider);
+
+  return {
+    ...authOptions,
+    providers,
+  };
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     {
@@ -444,15 +733,28 @@ export const authOptions: NextAuthOptions = {
         };
       },
     },
+    // Local credentials provider always present — admin recovery path
+    localCredentialsProvider,
   ],
   callbacks: {
-    async jwt({ token, account, profile, trigger }) {
+    async jwt(params): Promise<any> {
+      const { token, account, profile, trigger, user } = params;
+      // Local credentials sign-in: embed role directly in token
+      if (account?.provider === 'credentials' && user) {
+        token.credentialsRole = (user as any).role ?? 'user';
+        token.authMethod = 'credentials';
+        token.isAuthorized = true;
+        return token;
+      }
+
       // Initial sign in - persist the OAuth tokens
       if (account) {
         token.accessToken = account.access_token;
         token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
+        // Any non-credentials provider reaching this branch went through OIDC
+        token.authMethod = 'oidc';
 
         // Calculate refresh token expiry if refresh_expires_in is provided
         // Some OIDC providers (like Keycloak) include this field
@@ -485,21 +787,37 @@ export const authOptions: NextAuthOptions = {
         // Cast profile to Record for group extraction
         const profileData = profile as unknown as Record<string, unknown>;
 
-        // Extract groups for authorization check only (not stored in token)
-        const groups = extractGroups(profileData);
+        // Resolve effective group config first — we need groupClaim to extract correctly.
+        // This ensures group requirements AND the claim name set via the OIDC UI are
+        // enforced at sign-in, not just stored in MongoDB.
+        const groupConfig = await resolveOidcGroupConfig();
+
+        // Extract groups using the resolved claim name (env var OR DB-configured).
+        const groups = extractGroups(profileData, groupConfig.groupClaim || undefined);
 
         // Only store the authorization result and role (NOT the groups array!)
         // Storing 40+ groups causes 8KB session cookies and browser crashes
-        token.isAuthorized = hasRequiredGroup(groups);
-        token.role = isAdminUser(groups) ? 'admin' : 'user';
-        token.canViewAdmin = token.role === 'admin' || canViewAdminDashboard(groups);
-        token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
+        token.isAuthorized = userInAnyGroup(groups, groupConfig.requiredGroup) ||
+          (!groupConfig.requiredGroup); // empty = no restriction
+        // Record the effective required group so /unauthorized can display the
+        // exact value that was enforced (env var / DB / empty) instead of
+        // reaching for a hardcoded default on the client.
+        token.requiredGroup = groupConfig.requiredGroup || '';
+        token.role = userInAnyGroup(groups, groupConfig.adminGroup) && groupConfig.adminGroup
+          ? 'admin' : 'user';
+        token.canViewAdmin = token.role === 'admin' ||
+          (!groupConfig.adminViewGroup) ||
+          userInAnyGroup(groups, groupConfig.adminViewGroup);
+        token.canAccessDynamicAgents = groupConfig.dynamicAgentsGroup
+          ? userInAnyGroup(groups, groupConfig.dynamicAgentsGroup)
+          : token.role === 'admin';
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
-        console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
-        console.log('[Auth JWT] Required admin view group:', REQUIRED_ADMIN_VIEW_GROUP);
+        console.log('[Auth JWT] Required group (resolved):', groupConfig.requiredGroup);
+        console.log('[Auth JWT] Required admin group (resolved):', groupConfig.adminGroup);
+        console.log('[Auth JWT] Required admin view group (resolved):', groupConfig.adminViewGroup);
         console.log('[Auth JWT] User role:', token.role);
         console.log('[Auth JWT] Can view admin:', token.canViewAdmin);
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
@@ -572,14 +890,20 @@ export const authOptions: NextAuthOptions = {
             if (shouldRecheckGroups) {
               try {
                 const claims = decodeJwt(refreshedToken.idToken as string);
-                const groups = extractGroups(claims as Record<string, unknown>);
-                const adminUser = isAdminUser(groups);
+                // Resolve config first so we use the correct claim name for extraction.
+                const groupConfig = await resolveOidcGroupConfig();
+                const groups = extractGroups(claims as Record<string, unknown>, groupConfig.groupClaim || undefined);
                 console.log(`[Auth] Re-evaluating groups from refreshed id_token (last checked ${Math.round((now - lastGroupCheck) / 3600)}h ago), count: ${groups.length}`);
                 return {
                   ...refreshedToken,
-                  isAuthorized: hasRequiredGroup(groups),
-                  role: adminUser ? 'admin' : 'user',
-                  canViewAdmin: adminUser || canViewAdminDashboard(groups),
+                  isAuthorized: userInAnyGroup(groups, groupConfig.requiredGroup) || !groupConfig.requiredGroup,
+                  role: userInAnyGroup(groups, groupConfig.adminGroup) && groupConfig.adminGroup ? 'admin' : 'user',
+                  canViewAdmin: (userInAnyGroup(groups, groupConfig.adminGroup) && groupConfig.adminGroup) ||
+                    !groupConfig.adminViewGroup ||
+                    userInAnyGroup(groups, groupConfig.adminViewGroup),
+                  canAccessDynamicAgents: groupConfig.dynamicAgentsGroup
+                    ? userInAnyGroup(groups, groupConfig.dynamicAgentsGroup)
+                    : userInAnyGroup(groups, groupConfig.adminGroup) && !!groupConfig.adminGroup,
                   groupsCheckedAt: now,
                 };
               } catch (err) {
@@ -604,6 +928,21 @@ export const authOptions: NextAuthOptions = {
       // Don't store full tokens in session - they're huge (2KB+ each)
       // Only store what the client actually needs
 
+      // Local credentials login: role is embedded in the token directly
+      if (token.credentialsRole) {
+        session.role = token.credentialsRole as 'admin' | 'user';
+        session.authMethod = 'credentials';
+        session.isAuthorized = true;
+        session.canViewAdmin = true;
+        session.canAccessDynamicAgents = true;
+        return session;
+      }
+
+      // OIDC path: thread the auth method through so the UI can distinguish it
+      // from local credentials for UX affordances (e.g. hiding the "Authenticated
+      // via SSO" banner for local admins).
+      session.authMethod = (token.authMethod as 'oidc' | 'credentials' | undefined) ?? 'oidc';
+
       // Only pass tokens if they're valid (not expired)
       if (!token.error) {
         // Store access token and ID token for client-side use
@@ -615,6 +954,9 @@ export const authOptions: NextAuthOptions = {
       session.error = token.error as string | undefined;
       session.isAuthorized = token.isAuthorized as boolean;
       session.expiresAt = token.expiresAt as number | undefined;
+      // The actual required group that was enforced when this token was issued.
+      // /unauthorized uses this to display the real value instead of a default.
+      session.requiredGroup = (token.requiredGroup as string | undefined) ?? '';
 
       // Pass refresh token metadata (NOT the token itself - security)
       session.hasRefreshToken = !!token.refreshToken;
@@ -734,6 +1076,15 @@ declare module "next-auth" {
     expiresAt?: number; // Access token expiry (Unix timestamp)
     refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
     role?: 'admin' | 'user';
+    /** How the current session was established. 'credentials' = local admin
+     *  (username/password + TOTP). 'oidc' = SSO via an OIDC provider. Used by
+     *  UI surfaces that should read differently based on auth path. */
+    authMethod?: 'credentials' | 'oidc';
+    /** The required group that was enforced when this session was established.
+     *  Empty string = no restriction. /unauthorized displays this rather than
+     *  trusting a compile-time default, so admins see the actually-enforced
+     *  group even when DB config has changed. */
+    requiredGroup?: string;
     canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
     canAccessDynamicAgents?: boolean; // Whether user can access custom agents
   }
@@ -751,6 +1102,12 @@ declare module "next-auth/jwt" {
     // profile removed - not needed
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
+    /** Set for local credentials login — bypasses OIDC group checks */
+    credentialsRole?: 'admin' | 'user';
+    /** Mirror of Session.authMethod — carries through on token refreshes. */
+    authMethod?: 'credentials' | 'oidc';
+    /** Mirror of Session.requiredGroup — carries through on token refreshes. */
+    requiredGroup?: string;
     canViewAdmin?: boolean;
     canAccessDynamicAgents?: boolean;
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation

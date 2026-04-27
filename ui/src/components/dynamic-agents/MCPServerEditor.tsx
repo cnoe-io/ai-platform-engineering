@@ -42,6 +42,10 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [envVars, setEnvVars] = React.useState<{ key: string; value: string }[]>(
     server?.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : []
   );
+  // HTTP headers for SSE/HTTP transports — stored encrypted just like env vars
+  const [headerVars, setHeaderVars] = React.useState<{ key: string; value: string }[]>(
+    server?.headers ? Object.entries(server.headers).map(([key, value]) => ({ key, value })) : []
+  );
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -74,17 +78,39 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     setEnvVars(envVars.filter((_, i) => i !== index));
   };
 
+  const handleAddHeaderVar = () => {
+    setHeaderVars([...headerVars, { key: "", value: "" }]);
+  };
+
+  const handleUpdateHeaderVar = (index: number, field: "key" | "value", value: string) => {
+    const updated = [...headerVars];
+    updated[index][field] = value;
+    setHeaderVars(updated);
+  };
+
+  const handleRemoveHeaderVar = (index: number) => {
+    setHeaderVars(headerVars.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      // Build env object from array
+      // Build env object from array (stdio only)
       const env: Record<string, string> = {};
       envVars.forEach((ev) => {
         if (ev.key.trim()) {
           env[ev.key.trim()] = ev.value;
+        }
+      });
+
+      // Build headers object from array (sse/http only)
+      const headers: Record<string, string> = {};
+      headerVars.forEach((hv) => {
+        if (hv.key.trim()) {
+          headers[hv.key.trim()] = hv.value;
         }
       });
 
@@ -95,6 +121,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
+          headers: transport !== "stdio" && Object.keys(headers).length > 0 ? headers : undefined,
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -118,6 +145,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
+          headers: transport !== "stdio" && Object.keys(headers).length > 0 ? headers : undefined,
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -348,19 +376,75 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 </div>
               </>
             ) : (
-              <div className="space-y-2">
-                <Label htmlFor="endpoint">
-                  Endpoint URL <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="endpoint"
-                  placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  disabled={loading}
-                  className="font-mono"
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="endpoint">
+                    Endpoint URL <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="endpoint"
+                    placeholder={`e.g., https://my-mcp.example.com/${transport === "sse" ? "sse" : "mcp"}`}
+                    value={endpoint}
+                    onChange={(e) => setEndpoint(e.target.value)}
+                    disabled={loading}
+                    className="font-mono"
+                  />
+                </div>
+
+                {/* HTTP Headers — for API keys, Authorization, custom headers */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label>HTTP Headers</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        e.g. <span className="font-mono">X-API-Key</span>, <span className="font-mono">Authorization</span> — values are encrypted at rest
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleAddHeaderVar}
+                      disabled={loading}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add
+                    </Button>
+                  </div>
+                  {headerVars.length > 0 && (
+                    <div className="space-y-2">
+                      {headerVars.map((hv, i) => (
+                        <div key={i} className="flex gap-2">
+                          <Input
+                            placeholder="Header-Name"
+                            value={hv.key}
+                            onChange={(e) => handleUpdateHeaderVar(i, "key", e.target.value)}
+                            disabled={loading}
+                            className="font-mono flex-1"
+                          />
+                          <Input
+                            placeholder="value"
+                            type="password"
+                            value={hv.value}
+                            onChange={(e) => handleUpdateHeaderVar(i, "value", e.target.value)}
+                            disabled={loading}
+                            className="font-mono flex-[2]"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveHeaderVar(i)}
+                            disabled={loading}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 
 export type AgentRuntimeStatus = "checking" | "connected" | "disconnected";
 
@@ -50,8 +50,12 @@ export function useAgentRuntimeHealth(): UseAgentRuntimeHealthResult {
   }, []);
 
   useEffect(() => {
-    checkHealth();
-    const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
+    startTransition(() => {
+      void checkHealth();
+    });
+    const interval = setInterval(() => {
+      void checkHealth();
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [checkHealth]);
 

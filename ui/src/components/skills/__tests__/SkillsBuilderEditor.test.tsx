@@ -287,7 +287,7 @@ function makeExistingConfig(overrides: Partial<AgentSkill> = {}): AgentSkill {
 // Tests
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const { fetchSkillTemplates: mockFetchSkillTemplates } = require("@/skills") as {
   fetchSkillTemplates: jest.Mock;
 };

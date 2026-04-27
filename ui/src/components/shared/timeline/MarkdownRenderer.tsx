@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { Marked } from "marked";
 import markedShiki from "marked-shiki";
 import remend from "remend";
@@ -224,9 +224,12 @@ export function MarkdownRenderer({
   const pendingHtmlRef = useRef<string | null>(null);
   const rafRef = useRef<number>(0);
 
-  // Track streaming state for morphdom callbacks (avoids re-creating patchDom)
-  const streamingRef = useRef(isStreaming);
-  streamingRef.current = isStreaming;
+  // Track streaming state for morphdom callbacks (avoids re-creating patchDom);
+  // sync in layout effect (not during render) for react-hooks/refs.
+  const streamingRef = useRef(!!isStreaming);
+  useLayoutEffect(() => {
+    streamingRef.current = !!isStreaming;
+  }, [isStreaming]);
 
   /** Block-level tags that get the fade-in animation during streaming. */
   const BLOCK_TAGS = new Set(["P", "UL", "OL", "LI", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "PRE", "TABLE", "HR", "DIV"]);

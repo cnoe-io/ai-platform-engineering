@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck, AlertCircle } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -94,6 +94,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     createConversation,
     addMessage,
     updateMessage,
+    // appendToMessage, // Unused in filtered code? Let's check. Used in error handling.
+    appendToMessage,
     addStreamEvent,
     clearStreamEvents,
     setConversationStreaming,
@@ -617,22 +619,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     onToolEnd(toolCallId, toolName, error, namespace, args) {
       const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
-      // Parse accumulated args string (from AG-UI TOOL_CALL_ARGS deltas) into object
-      let parsedArgs: Record<string, unknown> | undefined;
-      if (args) {
-        try {
-          const parsed = typeof args === "string" ? JSON.parse(args) : args;
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            parsedArgs = parsed as Record<string, unknown>;
-          }
-        } catch {
-          // Args string wasn't valid JSON — ignore
-        }
-      }
       const streamEvent = createStreamEvent("tool_end", {
         tool_call_id: toolCallId,
         error,
-        args: parsedArgs,
         namespace: namespace ?? [],
       });
       addStreamEvent(streamEvent, convId);
@@ -818,24 +807,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
-      const errorMsg = (error as Error).message || "Failed to connect to agent endpoint";
       if (!(error as Error).message?.startsWith("Session expired:")) {
-        updateMessage(convId, assistantMsgId, {
-          error: errorMsg,
-          turnStatus: "interrupted" as TurnStatus,
-        });
-      } else {
-        updateMessage(convId, assistantMsgId, {
-          turnStatus: "interrupted" as TurnStatus,
-        });
+        const raw = (error as Error).message || "";
+        const userMessage = raw.includes("Failed to fetch") || raw.includes("NetworkError") || raw.includes("ECONNREFUSED")
+          ? "The agent backend is not reachable. Make sure an LLM provider is configured and the Custom Agents service is running."
+          : raw || "Failed to connect to agent endpoint";
+        updateMessage(convId!, assistantMsgId, {
+          content: userMessage,
+          isFinal: true,
+          isError: true,
+        } as any);
       }
       // Set interrupted status on error
+      updateMessage(convId!, assistantMsgId, {
+        turnStatus: "interrupted" as TurnStatus,
+      });
       setConversationStreaming(convId, null);
       saveMessagesToServer(convId).catch((err) => {
         console.error('[DynamicAgent] Failed to save error messages:', err);
       });
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1100,17 +1092,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] HITL resume error:", error);
-      updateMessage(activeConversationId, assistantMsgId, {
-        error: (error as Error).message || "Failed to resume",
-        turnStatus: "interrupted" as TurnStatus,
-      });
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      updateMessage(activeConversationId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
       setConversationStreaming(activeConversationId, null);
       saveMessagesToServer(activeConversationId).catch((err) => {
         console.error('[DynamicAgent] Failed to save HITL resume error messages:', err);
       });
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      setConversationStreaming, saveMessagesToServer,
+      appendToMessage, setConversationStreaming, saveMessagesToServer,
       clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle slash command detection in input
@@ -2009,25 +2000,6 @@ const ChatMessage = React.memo(function ChatMessage({
                   </>
                 )}
               </motion.div>
-            )}
-
-            {/* Connection / server error banner */}
-            {message.error && (
-              <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border bg-red-500/10 border-red-500/25 text-red-400 mb-3">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <p className="text-xs leading-snug flex-1 min-w-0">{message.error}</p>
-                {onRetry && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onRetry}
-                    className="shrink-0 gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/20 hover:text-red-300 h-7 text-xs"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    Retry
-                  </Button>
-                )}
-              </div>
             )}
 
             {/* Main content: timeline (streaming or completed with events) or fallback */}
