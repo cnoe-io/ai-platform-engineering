@@ -173,6 +173,12 @@ externalSecrets:
 # -- Non-sensitive environment variables injected into the supervisor container
 env:
   EXTERNAL_URL: "http://localhost:8000"
+  # -- Enable ToolCallLimitMiddleware on the supervisor (caps total tool invocations per run)
+  ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE: "true"
+  # -- Maximum number of tool calls allowed per run before the limit is enforced
+  TOOL_CALL_LIMIT: "500"
+  # -- Behavior when the tool call limit is reached: continue | end | error
+  TOOL_CALL_LIMIT_EXIT_BEHAVIOR: "continue"
 
 multiAgentConfig:
   # -- Agent-to-agent protocol (`a2a` or `slim`)
