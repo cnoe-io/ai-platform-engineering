@@ -34,7 +34,7 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [categoryFilter, setCategoryFilter] = React.useState<string | null>(null);
-  const [tagFilter, setTagFilter] = React.useState<string | null>(null);
+  const [tagFilters, setTagFilters] = React.useState<Set<string>>(new Set());
 
   // Fetch available skills on mount
   React.useEffect(() => {
@@ -87,7 +87,10 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
       if (value.includes(s.id)) return false;
 
       if (categoryFilter && s.category !== categoryFilter) return false;
-      if (tagFilter && !(s.metadata?.tags ?? []).includes(tagFilter)) return false;
+      if (tagFilters.size > 0) {
+        const skillTags = s.metadata?.tags ?? [];
+        if (!Array.from(tagFilters).some((t) => skillTags.includes(t))) return false;
+      }
 
       if (!search.trim()) return true;
       const q = search.toLowerCase();
@@ -98,7 +101,7 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
         (s.category && s.category.toLowerCase().includes(q))
       );
     });
-  }, [availableSkills, search, categoryFilter, tagFilter, value]);
+  }, [availableSkills, search, categoryFilter, tagFilters, value]);
 
   // Selected skills resolved to full objects
   const selectedSkills = React.useMemo(() => {
@@ -134,10 +137,10 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
   function clearFilters() {
     setSearch("");
     setCategoryFilter(null);
-    setTagFilter(null);
+    setTagFilters(new Set());
   }
 
-  const hasActiveFilters = search || categoryFilter || tagFilter;
+  const hasActiveFilters = search || categoryFilter || tagFilters.size > 0;
 
   if (loading) {
     return (
@@ -230,74 +233,96 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
 
       {/* ── Add skills section ── */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label>Add Skills</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Search..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-7 text-xs w-40"
+        <Label>Add Skills</Label>
+
+        {/* Search + filters — all on one row */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Input
+            placeholder="Search..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 text-xs w-36"
+            disabled={disabled}
+          />
+          {categories.length > 1 && (
+            <select
+              value={categoryFilter || ""}
+              onChange={(e) => setCategoryFilter(e.target.value || null)}
+              className="h-7 text-xs rounded-md border border-input bg-background px-2"
               disabled={disabled}
-            />
-          </div>
+            >
+              <option value="">All categories</option>
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          )}
+          {tags.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  setTagFilters((prev) => new Set([...prev, e.target.value]));
+                }
+              }}
+              className="h-7 text-xs rounded-md border border-input bg-background px-2"
+              disabled={disabled}
+            >
+              <option value="">Add tag filter...</option>
+              {tags
+                .filter((t) => !tagFilters.has(t))
+                .map((tag) => (
+                  <option key={tag} value={tag}>{tag}</option>
+                ))}
+            </select>
+          )}
+          {hasActiveFilters && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={clearFilters}
+              className="h-7 text-xs px-2"
+            >
+              Clear
+            </Button>
+          )}
+          {filtered.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={selectAllFiltered}
+              disabled={disabled || atLimit}
+              className="h-7 text-xs px-2 ml-auto"
+            >
+              <CheckSquare className="h-3 w-3 mr-1" />
+              Select {hasActiveFilters ? "filtered" : "all"} ({filtered.length})
+            </Button>
+          )}
         </div>
 
-        {/* Category + tag filters */}
-        {(categories.length > 1 || tags.length > 0) && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {categories.length > 1 && (
-              <select
-                value={categoryFilter || ""}
-                onChange={(e) => setCategoryFilter(e.target.value || null)}
-                className="h-7 text-xs rounded-md border border-input bg-background px-2"
-                disabled={disabled}
+        {/* Active tag filter chips */}
+        {tagFilters.size > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {Array.from(tagFilters).map((tag) => (
+              <Badge
+                key={tag}
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0 gap-1 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                onClick={() =>
+                  setTagFilters((prev) => {
+                    const next = new Set(prev);
+                    next.delete(tag);
+                    return next;
+                  })
+                }
               >
-                <option value="">All categories</option>
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            )}
-            {tags.length > 0 && (
-              <select
-                value={tagFilter || ""}
-                onChange={(e) => setTagFilter(e.target.value || null)}
-                className="h-7 text-xs rounded-md border border-input bg-background px-2"
-                disabled={disabled}
-              >
-                <option value="">All tags</option>
-                {tags.map((tag) => (
-                  <option key={tag} value={tag}>
-                    {tag}
-                  </option>
-                ))}
-              </select>
-            )}
-            {hasActiveFilters && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={clearFilters}
-                className="h-7 text-xs px-2"
-              >
-                Clear filters
-              </Button>
-            )}
-            {filtered.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={selectAllFiltered}
-                disabled={disabled || atLimit}
-                className="h-7 text-xs px-2 ml-auto"
-              >
-                <CheckSquare className="h-3 w-3 mr-1" />
-                Select {hasActiveFilters ? "filtered" : "all"} ({filtered.length})
-              </Button>
-            )}
+                <Tag className="h-2.5 w-2.5" />
+                {tag}
+                <X className="h-2.5 w-2.5" />
+              </Badge>
+            ))}
           </div>
         )}
 
@@ -323,7 +348,12 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
                 )}
               >
                 <Plus className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm truncate flex-1 min-w-0">{skill.name}</span>
+                <span className="text-sm font-medium truncate flex-shrink-0 max-w-[40%]">{skill.name}</span>
+                {skill.description && (
+                  <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
+                    — {skill.description}
+                  </span>
+                )}
                 {skill.category && (
                   <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">
                     {skill.category}
