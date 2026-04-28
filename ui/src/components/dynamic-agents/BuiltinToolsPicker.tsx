@@ -123,42 +123,35 @@ function ToolConfig({
   return (
     <div
       className={cn(
-        "border rounded-lg transition-colors",
-        isEnabled ? "border-primary bg-primary/5" : "border-border"
+        "rounded-md transition-colors",
+        isEnabled ? "bg-primary/5" : "bg-transparent",
       )}
     >
-      {/* Tool Header Row */}
-      <div className="flex items-center justify-between p-3">
-        <div className="flex items-center gap-2">
-          {/* Toggle Switch */}
-          <button
-            type="button"
-            onClick={() => handleEnabledChange(!isEnabled)}
-            disabled={disabled}
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        {/* Toggle Switch */}
+        <button
+          type="button"
+          onClick={() => handleEnabledChange(!isEnabled)}
+          disabled={disabled}
+          className={cn(
+            "relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+            isEnabled ? "bg-green-500" : "bg-muted-foreground/30",
+            disabled && "opacity-50 cursor-not-allowed"
+          )}
+          role="switch"
+          aria-checked={isEnabled}
+          aria-label={`Enable ${definition.name}`}
+        >
+          <span
             className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-              isEnabled ? "bg-green-500" : "bg-muted-foreground/30",
-              disabled && "opacity-50 cursor-not-allowed"
+              "pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+              isEnabled ? "translate-x-3" : "translate-x-0"
             )}
-            role="switch"
-            aria-checked={isEnabled}
-            aria-label={`Enable ${definition.name}`}
-          >
-            <span
-              className={cn(
-                "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
-                isEnabled ? "translate-x-4" : "translate-x-0"
-              )}
-            />
-          </button>
+          />
+        </button>
 
-          <div>
-            <span className="font-mono text-sm font-medium">{definition.id}</span>
-            <span className="text-xs text-muted-foreground ml-2">
-              {definition.description}
-            </span>
-          </div>
-        </div>
+        <span className="font-mono text-xs font-medium">{definition.id}</span>
+        <span className="text-xs text-muted-foreground truncate flex-1">{definition.description}</span>
 
         {isEnabled && hasConfigFields && (
           <Button
@@ -166,22 +159,20 @@ function ToolConfig({
             variant="ghost"
             size="sm"
             onClick={() => setExpanded(!expanded)}
-            className="h-7 px-2"
+            className="h-6 px-1.5"
           >
             {expanded ? (
-              <ChevronDown className="h-3 w-3 mr-1" />
+              <ChevronDown className="h-3 w-3" />
             ) : (
-              <ChevronRight className="h-3 w-3 mr-1" />
+              <Settings className="h-3 w-3" />
             )}
-            <Settings className="h-3 w-3 mr-1" />
-            <span className="text-xs">Configure</span>
           </Button>
         )}
       </div>
 
       {/* Expanded Configuration */}
       {isEnabled && hasConfigFields && expanded && (
-        <div className="border-t p-3 bg-muted/30 space-y-3">
+        <div className="border-t px-2 py-2 bg-muted/30 space-y-2 mx-2 mb-1.5 rounded-b-md">
           {definition.config_fields.map((field) => (
             <ConfigField
               key={field.name}
@@ -434,13 +425,13 @@ export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPi
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <Label className="flex items-center gap-2 text-sm">
         <Globe className="h-4 w-4 text-purple-400" />
         Built-in Tools
       </Label>
 
-      <div className="space-y-2">
+      <div className="border rounded-lg divide-y">
         {definitions.map((definition) => (
           <ToolConfig
             key={definition.id}
