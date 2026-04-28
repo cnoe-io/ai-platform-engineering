@@ -70,7 +70,7 @@ interface ChatState {
   saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
-  loadTurnsFromServer: (conversationId: string) => Promise<void>; // No-op stub — Supervisor path will be restored in Phase 4
+  loadTurnsFromServer: (conversationId: string) => Promise<void>; // Supervisor history loader
   evictOldMessageContent: (conversationId: string, messageIdsToEvict: string[]) => void; // Evict content from old messages to free memory
 
   // Unviewed conversation actions
@@ -1482,13 +1482,16 @@ const storeImplementation = (set: any, get: any) => ({
       },
 
       // ═══════════════════════════════════════════════════════════════
-      // loadTurnsFromServer — NO-OP STUB.
+      // loadTurnsFromServer
       //
-      // Supervisor conversation loading will be restored when needed.
-      // The stub is kept so existing callers compile without changes.
+      // Platform Engineer/Supervisor conversations are still persisted in the
+      // legacy messages collection in current deployments. Keep the public
+      // action name used by ChatContainer, but hydrate from messages so default
+      // CAIPE chat history survives refreshes just like Dynamic Agent history.
       // ═══════════════════════════════════════════════════════════════
-      loadTurnsFromServer: async (_conversationId: string) => {
-        // No-op — supervisor path uses A2A directly
+      loadTurnsFromServer: async (conversationId: string) => {
+        console.log(`[ChatStore] Loading supervisor history for: ${conversationId}`);
+        await get().loadMessagesFromServer(conversationId, { force: true });
       },
 
       // Evict content from old messages to free memory.

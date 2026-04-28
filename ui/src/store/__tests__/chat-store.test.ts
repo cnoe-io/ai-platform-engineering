@@ -701,6 +701,57 @@ describe('chat-store', () => {
   });
 
   // --------------------------------------------------------------------------
+  // loadTurnsFromServer
+  // --------------------------------------------------------------------------
+
+  describe('loadTurnsFromServer', () => {
+    it('hydrates supervisor conversations from the messages collection', async () => {
+      const conv = makeConversation({ id: 'supervisor-history' });
+      useChatStore.setState({ conversations: [conv] });
+
+      mockApiClient.getMessages.mockResolvedValue({
+        items: [
+          {
+            _id: 'mongo-user',
+            message_id: 'msg-user',
+            conversation_id: 'supervisor-history',
+            role: 'user',
+            content: 'What changed in prod?',
+            created_at: '2025-01-01T00:00:00Z',
+            metadata: { turn_id: 'turn-supervisor' },
+          },
+          {
+            _id: 'mongo-assistant',
+            message_id: 'msg-assistant',
+            conversation_id: 'supervisor-history',
+            role: 'assistant',
+            content: 'Here is the summary.',
+            created_at: '2025-01-01T00:00:01Z',
+            metadata: { turn_id: 'turn-supervisor', is_final: true },
+          },
+        ],
+        total: 2,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadTurnsFromServer('supervisor-history');
+
+      expect(mockApiClient.getMessages).toHaveBeenCalledWith(
+        'supervisor-history',
+        { page_size: 100 },
+      );
+
+      const updatedConv = useChatStore.getState().conversations.find(
+        c => c.id === 'supervisor-history',
+      );
+      expect(updatedConv!.messages).toHaveLength(2);
+      expect(updatedConv!.messages[1].content).toBe('Here is the summary.');
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // loadConversationsFromServer — deletion sync
   // --------------------------------------------------------------------------
 

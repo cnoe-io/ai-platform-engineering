@@ -951,7 +951,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         handleHelpCommand();
         break;
       case "clear":
-        handleClearCommand();
+        await handleClearCommand();
         break;
     }
   }, [handleSkillsCommand, handleHelpCommand, handleClearCommand]);
