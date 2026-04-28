@@ -1,7 +1,0 @@
-{
-  "integration": "opencode",
-  "version": "0.6.1",
-  "scripts": {
-    "update-context": ".specify/integrations/opencode/scripts/update-context.sh"
-  }
-}
