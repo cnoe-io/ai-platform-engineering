@@ -35,6 +35,8 @@ interface DynamicAgentContextProps {
   allowedTools?: Record<string, string[]>;
   /** Configured subagents for delegation */
   subagents?: SubAgentRef[];
+  /** Configured skill IDs */
+  agentSkills?: string[];
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
   /** Whether the agent is disabled */
@@ -57,6 +59,7 @@ export function DynamicAgentContext({
   agentGradient,
   allowedTools,
   subagents,
+  agentSkills,
   agentNotFound,
   agentDisabled,
   collapsed = false,
@@ -280,6 +283,7 @@ export function DynamicAgentContext({
               agentGradient={agentGradient}
               allowedTools={allowedTools}
               subagents={subagents}
+              agentSkills={agentSkills}
               subagentTools={subagentTools}
               agentId={agentId}
               sessionId={conversationId}
@@ -334,6 +338,7 @@ interface AgentInfoContentProps {
   agentGradient?: string | null;
   allowedTools?: Record<string, string[]>;
   subagents?: SubAgentRef[];
+  agentSkills?: string[];
   /** Map of subagent agent_id -> their allowed_tools config */
   subagentTools?: Record<string, Record<string, string[]>>;
   /** Agent ID for restart runtime */
@@ -362,6 +367,7 @@ function AgentInfoContent({
   agentGradient,
   allowedTools,
   subagents,
+  agentSkills,
   subagentTools,
   agentId,
   sessionId,
@@ -460,6 +466,12 @@ function AgentInfoContent({
                   : "All"
                 : "None"}
             </p>
+          </div>
+
+          {/* Skills */}
+          <div className="space-y-0.5">
+            <span className="text-xs text-muted-foreground">Skills</span>
+            <p className="font-medium">{agentSkills?.length || 0}</p>
           </div>
 
           {/* Conversation ID */}

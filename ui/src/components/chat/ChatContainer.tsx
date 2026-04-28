@@ -413,6 +413,7 @@ export function ChatContainer() {
       agentGradient={agentInfo?.ui?.gradient_theme}
       allowedTools={agentInfo?.allowed_tools}
       subagents={agentInfo?.subagents}
+      agentSkills={agentInfo?.skills ?? []}
       agentNotFound={agentNotFound}
       agentDisabled={agentInfo?.enabled === false}
       readOnly={isReadOnly}
