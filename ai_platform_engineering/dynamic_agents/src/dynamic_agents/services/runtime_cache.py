@@ -8,11 +8,9 @@ invalidation.
 from __future__ import annotations
 
 import logging
-import time
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from dynamic_agents.config import Settings, get_settings
+from dynamic_agents.config import get_settings
 from dynamic_agents.models import (
     ClientContext,
     DynamicAgentConfig,

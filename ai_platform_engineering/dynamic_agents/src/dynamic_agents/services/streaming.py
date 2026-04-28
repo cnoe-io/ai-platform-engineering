@@ -45,7 +45,8 @@ class StreamingMixin:
     _current_trace_id: str | None
 
     # forward declarations so the mixin can call them
-    async def initialize(self) -> None: ...  # noqa: E704
+    async def initialize(self) -> None:
+        raise NotImplementedError
 
     # ─────────────────────────── stream config ───────────────────────────
 
