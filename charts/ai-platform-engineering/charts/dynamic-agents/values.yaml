@@ -102,8 +102,8 @@ affinity: {}
 config:
   # MongoDB database name (uses same DB as CAIPE UI)
   MONGODB_DATABASE: "caipe"
-  # Agent runtime TTL in seconds
-  AGENT_RUNTIME_TTL_SECONDS: "3600"
+  # Agent runtime TTL in seconds (purged after this much inactivity)
+  AGENT_RUNTIME_TTL_SECONDS: "600"
   # CORS origins (JSON array format for Pydantic)
   CORS_ORIGINS: '["*"]'
   # Tracing disabled by default

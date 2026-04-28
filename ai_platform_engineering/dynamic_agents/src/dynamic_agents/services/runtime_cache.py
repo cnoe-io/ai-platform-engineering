@@ -7,6 +7,7 @@ invalidation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -25,13 +26,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AgentRuntimeCache:
-    """Cache for AgentRuntime instances with TTL-based cleanup."""
+class RuntimeInitError(Exception):
+    """Raised when an AgentRuntime fails to initialize."""
 
-    def __init__(self, ttl_seconds: int = 3600, mongo_service: "MongoDBService | None" = None):
+    def __init__(self, agent_id: str, cause: Exception):
+        self.agent_id = agent_id
+        self.cause = cause
+        super().__init__(f"Failed to initialize runtime for agent '{agent_id}': {cause}")
+
+
+class AgentRuntimeCache:
+    """Cache for AgentRuntime instances with TTL-based cleanup.
+
+    Runs a background sweep every ``sweep_interval`` seconds to purge
+    runtimes that have been idle longer than ``ttl_seconds``.
+    """
+
+    def __init__(
+        self,
+        ttl_seconds: int = 600,
+        mongo_service: "MongoDBService | None" = None,
+    ):
         self._cache: dict[str, "AgentRuntime"] = {}
         self._ttl = ttl_seconds
+        self._sweep_interval = ttl_seconds
         self._mongo_service = mongo_service
+        self._sweep_task: asyncio.Task | None = None
 
     def set_mongo_service(self, mongo_service: "MongoDBService") -> None:
         """Set the MongoDB service for subagent resolution.
@@ -40,6 +60,33 @@ class AgentRuntimeCache:
         may not be available at cache creation time.
         """
         self._mongo_service = mongo_service
+
+    def start(self) -> None:
+        """Start the background sweep task."""
+        if self._sweep_task is None or self._sweep_task.done():
+            self._sweep_task = asyncio.create_task(self._sweep_loop())
+            logger.info("Runtime cache sweep started (interval=%ds, ttl=%ds)", self._sweep_interval, self._ttl)
+
+    async def stop(self) -> None:
+        """Stop the background sweep and clear all runtimes."""
+        if self._sweep_task and not self._sweep_task.done():
+            self._sweep_task.cancel()
+            try:
+                await self._sweep_task
+            except asyncio.CancelledError:
+                pass
+            self._sweep_task = None
+        await self.clear()
+        logger.info("Runtime cache sweep stopped")
+
+    async def _sweep_loop(self) -> None:
+        """Periodically purge idle runtimes."""
+        while True:
+            await asyncio.sleep(self._sweep_interval)
+            try:
+                await self._cleanup_expired()
+            except Exception:
+                logger.exception("Error during runtime cache sweep")
 
     def _make_key(self, agent_id: str, session_id: str) -> str:
         """Create cache key from agent and session IDs."""
@@ -80,11 +127,17 @@ class AgentRuntimeCache:
                 )
                 await runtime.cleanup()
                 del self._cache[key]
-            elif runtime.age_seconds >= self._ttl:
-                # TTL expired, cleanup and recreate
+            elif runtime.idle_seconds >= self._ttl:
+                # Inactive too long, cleanup and recreate
+                logger.info(
+                    "Runtime cache expired due to inactivity (%.0fs idle) for agent %s",
+                    runtime.idle_seconds,
+                    agent_config.id,
+                )
                 await runtime.cleanup()
                 del self._cache[key]
             else:
+                runtime.touch()
                 return runtime
 
         # Create new runtime with MongoDB service for subagent resolution
@@ -96,7 +149,12 @@ class AgentRuntimeCache:
             client_context=client_context,
             session_id=session_id,
         )
-        await runtime.initialize()
+        try:
+            await runtime.initialize()
+        except Exception as e:
+            logger.exception("Runtime initialization failed for agent '%s'", agent_config.id)
+            raise RuntimeInitError(agent_config.id, e) from e
+
         self._cache[key] = runtime
 
         # Cleanup old entries
@@ -106,7 +164,7 @@ class AgentRuntimeCache:
 
     async def _cleanup_expired(self) -> None:
         """Remove expired runtimes from cache."""
-        expired_keys = [key for key, runtime in self._cache.items() if runtime.age_seconds >= self._ttl]
+        expired_keys = [key for key, runtime in self._cache.items() if runtime.idle_seconds >= self._ttl]
         for key in expired_keys:
             runtime = self._cache.pop(key, None)
             if runtime:
@@ -159,6 +217,25 @@ class AgentRuntimeCache:
             return cancelled
         logger.warning(f"[cancel_stream] No runtime found for agent={agent_id}, session={session_id}")
         return False
+
+    def stats(self) -> dict:
+        """Return cache statistics for the health endpoint."""
+        runtimes = []
+        for key, runtime in self._cache.items():
+            agent_id, session_id = key.split(":", 1)
+            runtimes.append(
+                {
+                    "agent_id": agent_id,
+                    "session_id": session_id,
+                    "age_seconds": round(runtime.age_seconds),
+                    "idle_seconds": round(runtime.idle_seconds),
+                }
+            )
+        return {
+            "count": len(self._cache),
+            "ttl_seconds": self._ttl,
+            "runtimes": runtimes,
+        }
 
 
 # Singleton cache instance

@@ -549,6 +549,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     rawStreamContent: string;
     hitlFormRequested: boolean;
     hasError: boolean;
+    errorMessage?: string;
   }
 
   // Get the protocol-agnostic adapter config
@@ -705,6 +706,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     onError(message) {
       console.error("[DynamicAgent] Stream error event:", message);
       loopState.hasError = true;
+      loopState.errorMessage = message;
     },
   }; }, [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTimelineTasks]);
 
@@ -744,6 +746,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: state.rawStreamContent,
       isFinal,
       turnStatus,
+      ...(state.errorMessage ? { error: state.errorMessage } : {}),
       streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
     });
     setConversationStreaming(conversationId, null);
@@ -2049,6 +2052,10 @@ const ChatMessage = React.memo(function ChatMessage({
               // Legacy fallback: completed message with no persisted events
               <div className="rounded-xl bg-card/50 border border-border/50 px-4 py-3">
                 <MarkdownRenderer content={displayContent} />
+              </div>
+            ) : message.turnStatus === "interrupted" ? (
+              <div className="text-xs text-muted-foreground italic px-1">
+                This response failed to complete. No content was generated.
               </div>
             ) : null}
 

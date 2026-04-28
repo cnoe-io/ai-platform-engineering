@@ -22,13 +22,14 @@ def fatal_exit(message: str) -> None:
 
 # ruff: noqa: E402
 # Imports must be after logging setup to ensure our format is used
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from dynamic_agents.config import get_settings
 from dynamic_agents.metrics import PrometheusHTTPMiddleware
 from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, health, mcp_servers, middleware
-from dynamic_agents.services.runtime_cache import get_runtime_cache
+from dynamic_agents.services.runtime_cache import RuntimeInitError, get_runtime_cache
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
 
 
@@ -59,14 +60,18 @@ async def lifespan(app: FastAPI):
         # All retries exhausted - crash the service
         fatal_exit(f"Failed to connect to MongoDB after {max_retries} attempts. Service cannot start without MongoDB.")
 
+    # Start runtime cache background sweep
+    cache = get_runtime_cache()
+    cache.set_mongo_service(mongo)
+    cache.start()
+
     yield
 
     # Cleanup on shutdown
     logger.info("Shutting down Dynamic Agents service...")
 
-    # Clear agent runtime cache
-    cache = get_runtime_cache()
-    await cache.clear()
+    # Stop sweep and clear agent runtime cache
+    await cache.stop()
 
     # Disconnect MongoDB
     mongo.disconnect()
@@ -103,6 +108,18 @@ def create_app() -> FastAPI:
     app.include_router(conversations.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(middleware.router, prefix="/api/v1")
+
+    @app.exception_handler(RuntimeInitError)
+    async def runtime_init_error_handler(request: Request, exc: RuntimeInitError):
+        """Return a 503 with a descriptive message when runtime initialization fails."""
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": str(exc),
+                "agent_id": exc.agent_id,
+                "error_type": type(exc.cause).__name__,
+            },
+        )
 
     @app.get("/")
     async def root():

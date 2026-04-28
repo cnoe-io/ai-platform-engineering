@@ -169,6 +169,7 @@ class AgentRuntime(StreamingMixin):
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
         self._created_at = time.time()
+        self._last_interaction = time.time()
         self.tracing = TracingManager()
         self._current_trace_id: str | None = None
         self._missing_tools: list[str] = []
@@ -573,6 +574,15 @@ class AgentRuntime(StreamingMixin):
             logger.info(f"[cancel] Cancellation requested for agent '{self.config.name}'")
             return True
         return False
+
+    @property
+    def idle_seconds(self) -> float:
+        """Get seconds since the last interaction with this runtime."""
+        return time.time() - self._last_interaction
+
+    def touch(self) -> None:
+        """Reset the inactivity timer."""
+        self._last_interaction = time.time()
 
     @property
     def age_seconds(self) -> float:
