@@ -550,22 +550,68 @@ class AgentRuntime:
 
         database = os.getenv("MONGODB_DATABASE", self.settings.mongodb_database)
         client = _MongoClient(self.settings.mongodb_uri, tz_aware=True)
+        logger.info(
+            "Loading skills from agent_skills: requested_ids=%s db=%s",
+            skill_ids,
+            database,
+        )
         try:
             db = client[database]
             collection = db["agent_skills"]
-            docs = list(collection.find({"_id": {"$in": skill_ids}}))
+            # UI stores the `id` field (string slug), not the MongoDB `_id` (ObjectId).
+            # Query both to handle either format.
+            docs = list(
+                collection.find(
+                    {
+                        "$or": [
+                            {"id": {"$in": skill_ids}},
+                            {"_id": {"$in": skill_ids}},
+                        ]
+                    }
+                )
+            )
+            logger.info(
+                "MongoDB query returned %d docs for %d requested skill IDs",
+                len(docs),
+                len(skill_ids),
+            )
         except Exception as e:
-            logger.warning(f"Failed to load skills from agent_skills: {e}")
+            logger.warning("Failed to load skills from agent_skills: %s", e, exc_info=True)
             return []
         finally:
             client.close()
 
+        # Index fetched docs by `id` and `_id` for fast lookup
+        found_ids: set[str] = set()
         skills: list[dict[str, Any]] = []
         for doc in docs:
             name = doc.get("name", "")
             description = doc.get("description", "")
+            doc_id = str(doc.get("id", "")) or str(doc.get("_id", ""))
+            found_ids.add(str(doc.get("id", "")))
+            found_ids.add(str(doc.get("_id", "")))
+
             if not name:
+                logger.warning("Skipping skill doc %s: missing name", doc_id)
                 continue
+
+            content = doc.get("skill_content") or doc.get("skill_template") or self._extract_llm_prompt(doc) or ""
+            content_source = (
+                "skill_content"
+                if doc.get("skill_content")
+                else "skill_template"
+                if doc.get("skill_template")
+                else "tasks[0].llm_prompt"
+                if self._extract_llm_prompt(doc)
+                else "empty"
+            )
+            logger.debug(
+                "Skill %r (%s): content_source=%s content_len=%d",
+                name,
+                doc_id,
+                content_source,
+                len(content),
+            )
 
             owner_user = doc.get("owner_user_id") or str(doc.get("owner_id", ""))
             raw_ancillary = doc.get("ancillary_files")
@@ -573,15 +619,12 @@ class AgentRuntime:
 
             skills.append(
                 {
-                    "id": str(doc.get("_id", name)),
+                    "id": doc_id,
                     "name": str(name),
                     "description": str(description)[:1024],
                     "source": "agent_skills",
                     "source_id": doc.get("owner_id"),
-                    "content": doc.get("skill_content")
-                    or doc.get("skill_template")
-                    or self._extract_llm_prompt(doc)
-                    or "",
+                    "content": content,
                     "metadata": doc.get("metadata", {}),
                     "visibility": doc.get("visibility"),
                     "team_ids": doc.get("team_ids"),
@@ -590,7 +633,15 @@ class AgentRuntime:
                 }
             )
 
-        logger.info(f"Loaded {len(skills)}/{len(skill_ids)} skills from agent_skills")
+        missing = [sid for sid in skill_ids if sid not in found_ids]
+        if missing:
+            logger.warning("Skills not found in agent_skills: %s", missing)
+        logger.info(
+            "Loaded %d/%d skills from agent_skills (missing=%d)",
+            len(skills),
+            len(skill_ids),
+            len(missing),
+        )
         return skills
 
     def _build_stream_config(self, session_id: str, user_id: str, trace_id: str | None) -> dict[str, Any]:
