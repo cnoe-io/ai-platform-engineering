@@ -386,6 +386,10 @@ class DynamicAgentConfigBase(BaseModel):
         default_factory=list,
         description="Other dynamic agents that can be delegated to as subagents",
     )
+    skills: list[str] = Field(
+        default_factory=list,
+        description="Skill document IDs from agent_skills collection",
+    )
     builtin_tools: BuiltinToolsConfig | None = Field(
         None,
         description="Configuration for built-in tools (fetch_url, etc.)",
@@ -434,6 +438,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     visibility: VisibilityType | None = None
     shared_with_teams: list[str] | None = None
     subagents: list[SubAgentRef] | None = None
+    skills: list[str] | None = None
     builtin_tools: BuiltinToolsConfig | None = None
     ui: AgentUIConfig | None = None
     features: FeaturesConfig | None = None

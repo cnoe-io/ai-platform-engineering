@@ -272,7 +272,40 @@ class AgentRuntime:
                 f"Agent '{self.config.name}': resolved {len(subagents)} subagents: {[s['name'] for s in subagents]}"
             )
 
-        # 9. Create the agent graph
+        # 8b. Load skills from agent_skills collection if configured
+        self._skills_files: dict[str, Any] = {}
+        skills_middleware_list: list = []
+        if self.config.skills:
+            try:
+                skills_data = self._load_skills(self.config.skills)
+                if skills_data:
+                    from ai_platform_engineering.skills_middleware import build_skills_files
+
+                    self._skills_files, skills_sources = build_skills_files(skills_data)
+                    if skills_sources:
+                        from deepagents.backends.state import StateBackend
+                        from deepagents.middleware.skills import SkillsMiddleware
+
+                        skills_middleware_list.append(SkillsMiddleware(backend=StateBackend, sources=skills_sources))
+                        logger.info(
+                            f"Agent '{self.config.name}': loaded {len(skills_data)} skills "
+                            f"({len(self._skills_files)} files, {len(skills_sources)} sources)"
+                        )
+            except Exception as e:
+                logger.warning(f"Agent '{self.config.name}': failed to load skills: {e}")
+
+        # 9. Build middleware stack
+        middleware_stack = build_middleware(
+            self.config.features,
+            self._session_id,
+            agent_name=self.config.name,
+            model_id=self.config.model.id,
+        )
+        # Prepend skills middleware so it runs before other middleware
+        if skills_middleware_list:
+            middleware_stack = skills_middleware_list + middleware_stack
+
+        # 10. Create the agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
@@ -286,12 +319,7 @@ class AgentRuntime:
             name=safe_name,
             subagents=subagents if subagents else None,
             interrupt_on={"request_user_input": True},
-            middleware=build_middleware(
-                self.config.features,
-                self._session_id,
-                agent_name=self.config.name,
-                model_id=self.config.model.id,
-            ),
+            middleware=middleware_stack,
         )
 
         self._initialized = True
@@ -499,6 +527,61 @@ class AgentRuntime:
 
         return tools
 
+    def _load_skills(self, skill_ids: list[str]) -> list[dict[str, Any]]:
+        """Load skill documents from MongoDB agent_skills collection.
+
+        Args:
+            skill_ids: List of skill document IDs to load.
+
+        Returns:
+            List of skill dicts compatible with ``build_skills_files()``.
+        """
+        import os
+
+        from pymongo import MongoClient as _MongoClient
+
+        database = os.getenv("MONGODB_DATABASE", self.settings.mongodb_database)
+        client = _MongoClient(self.settings.mongodb_uri, tz_aware=True)
+        try:
+            db = client[database]
+            collection = db["agent_skills"]
+            docs = list(collection.find({"_id": {"$in": skill_ids}}))
+        except Exception as e:
+            logger.warning(f"Failed to load skills from agent_skills: {e}")
+            return []
+        finally:
+            client.close()
+
+        skills: list[dict[str, Any]] = []
+        for doc in docs:
+            name = doc.get("name", "")
+            description = doc.get("description", "")
+            if not name:
+                continue
+
+            owner_user = doc.get("owner_user_id") or str(doc.get("owner_id", ""))
+            raw_ancillary = doc.get("ancillary_files")
+            ancillary: dict[str, str] = raw_ancillary if isinstance(raw_ancillary, dict) else {}
+
+            skills.append(
+                {
+                    "id": str(doc.get("_id", name)),
+                    "name": str(name),
+                    "description": str(description)[:1024],
+                    "source": "agent_skills",
+                    "source_id": doc.get("owner_id"),
+                    "content": doc.get("skill_content") or doc.get("skill_template") or "",
+                    "metadata": doc.get("metadata", {}),
+                    "visibility": doc.get("visibility"),
+                    "team_ids": doc.get("team_ids"),
+                    "owner_user_id": owner_user,
+                    "ancillary_files": ancillary,
+                }
+            )
+
+        logger.info(f"Loaded {len(skills)}/{len(skill_ids)} skills from agent_skills")
+        return skills
+
     def _build_stream_config(self, session_id: str, user_id: str, trace_id: str | None) -> dict[str, Any]:
         """Build config dict for stream/resume operations.
 
@@ -601,8 +684,12 @@ class AgentRuntime:
                 yield frame
 
         # ── Core lifecycle: chunks ──
+        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
+        # Inject skills files for SkillsMiddleware / StateBackend
+        if getattr(self, "_skills_files", None):
+            state_input["files"] = dict(self._skills_files)
         async for chunk in self._graph.astream(
-            {"messages": [{"role": "user", "content": message}]},
+            state_input,
             config=config,
             stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,

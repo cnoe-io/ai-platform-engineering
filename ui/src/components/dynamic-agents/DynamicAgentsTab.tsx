@@ -105,6 +105,7 @@ export function DynamicAgentsTab() {
       allowed_tools: Object.keys(agent.allowed_tools || {}).length ? agent.allowed_tools : undefined,
       builtin_tools: agent.builtin_tools,
       subagents: agent.subagents?.length ? agent.subagents : undefined,
+      skills: agent.skills?.length ? agent.skills : undefined,
       ui: agent.ui?.gradient_theme ? agent.ui : undefined,
       enabled: agent.enabled,
     };

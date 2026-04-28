@@ -30,6 +30,7 @@ import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
+import { SkillsSelector } from "./SkillsSelector";
 import { gradientThemes, getGradientStyle } from "@/lib/gradient-themes";
 
 interface DynamicAgentEditorProps {
@@ -92,6 +93,11 @@ const STEPS = [
     id: "tools" as const, 
     label: "Tools", 
     hint: "Select which tools your agent can use" 
+  },
+  { 
+    id: "skills" as const, 
+    label: "Skills", 
+    hint: "Attach skills that guide your agent's behavior (optional)" 
   },
   { 
     id: "subagents" as const, 
@@ -173,6 +179,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   );
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
     source?.subagents || []
+  );
+  const [skills, setSkills] = React.useState<string[]>(
+    source?.skills || []
   );
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
     source?.features
@@ -531,6 +540,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
+          skills: skills.length > 0 ? skills : undefined,
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
@@ -558,6 +568,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
+          skills: skills.length > 0 ? skills : undefined,
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
@@ -1143,6 +1154,24 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   onError={setMiddlewareError}
                 />
               </div>
+            </div>
+          )}
+
+          {/* Step: Skills */}
+          {activeStep === "skills" && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior 
+                  for specific tasks. The agent reads skill content on demand via progressive disclosure.
+                </p>
+              </div>
+
+              <SkillsSelector
+                value={skills}
+                onChange={setSkills}
+                disabled={loading}
+              />
             </div>
           )}
 

@@ -250,6 +250,7 @@ export interface DynamicAgentConfig {
   visibility: VisibilityType;
   shared_with_teams?: string[];
   subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
+  skills: string[];  // Skill document IDs from agent_skills collection
   ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
   features?: FeaturesConfig;  // Middleware and feature flags
   enabled: boolean;
@@ -271,6 +272,7 @@ export interface DynamicAgentConfigCreate {
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
+  skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
   enabled?: boolean;
@@ -286,6 +288,7 @@ export interface DynamicAgentConfigUpdate {
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
+  skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
   enabled?: boolean;

@@ -174,6 +174,7 @@ async function seedAgents(
       shared_with_teams:
         (agentData.shared_with_teams as string[]) ?? undefined,
       subagents: (agentData.subagents as SubAgentRef[]) ?? [],
+      skills: (agentData.skills as string[]) ?? [],
       builtin_tools:
         (agentData.builtin_tools as DynamicAgentConfig["builtin_tools"]) ??
         undefined,
