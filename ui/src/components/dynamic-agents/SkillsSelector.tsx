@@ -342,28 +342,30 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
                 onClick={() => addSkill(skill.id)}
                 disabled={disabled || atLimit}
                 className={cn(
-                  "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-left transition-colors",
+                  "flex items-start gap-2 w-full px-2 py-1.5 rounded-md text-left transition-colors",
                   "hover:bg-muted cursor-pointer",
                   (disabled || atLimit) && "opacity-50 cursor-not-allowed"
                 )}
               >
-                <Plus className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm font-medium truncate flex-shrink-0 max-w-[40%]">{skill.name}</span>
-                {skill.description && (
-                  <span className="text-xs text-muted-foreground truncate flex-1 min-w-0">
-                    — {skill.description}
-                  </span>
-                )}
-                {skill.category && (
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">
-                    {skill.category}
-                  </Badge>
-                )}
-                {skill.visibility && skill.visibility !== "private" && (
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
-                    {skill.visibility}
-                  </Badge>
-                )}
+                <Plus className="h-3 w-3 text-muted-foreground flex-shrink-0 mt-1" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate">{skill.name}</span>
+                    {skill.category && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                        {skill.category}
+                      </Badge>
+                    )}
+                    {skill.visibility && skill.visibility !== "private" && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                        {skill.visibility}
+                      </Badge>
+                    )}
+                  </div>
+                  {skill.description && (
+                    <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
+                  )}
+                </div>
               </button>
             ))
           )}
