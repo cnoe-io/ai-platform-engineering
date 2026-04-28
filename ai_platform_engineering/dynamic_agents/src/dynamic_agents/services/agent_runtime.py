@@ -58,7 +58,7 @@ from dynamic_agents.services.streaming import StreamingMixin
 from dynamic_agents.services.runtime_cache import AgentRuntimeCache, get_runtime_cache  # noqa: F401
 
 if TYPE_CHECKING:
-    from dynamic_agents.services.encoders import StreamEncoder
+    from dynamic_agents.services.stream_encoders import StreamEncoder
     from dynamic_agents.services.mongo import MongoDBService
 
 logger = logging.getLogger(__name__)

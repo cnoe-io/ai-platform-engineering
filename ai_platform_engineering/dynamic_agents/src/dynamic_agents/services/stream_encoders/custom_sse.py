@@ -20,8 +20,8 @@ import json
 import logging
 from typing import Any
 
-from dynamic_agents.services.encoders import StreamEncoder
-from dynamic_agents.services.langgraph_stream_helpers import LangGraphStreamHelper
+from dynamic_agents.services.stream_encoders import StreamEncoder
+from dynamic_agents.services.stream_encoders.langgraph_helpers import LangGraphStreamHelper
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from dynamic_agents.metrics import metrics as prom_metrics
 from dynamic_agents.models import AgentContext
 
 if TYPE_CHECKING:
-    from dynamic_agents.services.encoders import StreamEncoder
+    from dynamic_agents.services.stream_encoders import StreamEncoder
 
 logger = logging.getLogger(__name__)
 
