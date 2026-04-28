@@ -74,7 +74,7 @@ class AgentRuntimeCache:
             try:
                 await self._sweep_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Sweep task cancelled (CancelledError is expected during shutdown, ignoring)")
             self._sweep_task = None
         await self.clear()
         logger.info("Runtime cache sweep stopped")
