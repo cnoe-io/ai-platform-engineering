@@ -453,7 +453,7 @@ export function SkillsGallery({
     setParamValues(defaults);
   };
 
-  const handleTrySkill = () => {
+  const handleTrySkill = async () => {
     if (!activeFormConfig) return;
     const vars = extractTemplateVars(activeFormConfig);
     // Check required fields
@@ -471,7 +471,7 @@ export function SkillsGallery({
       }
     }
 
-    const conversationId = createConversation();
+    const conversationId = await createConversation();
     setPendingMessage(message);
     setActiveFormConfig(null);
     router.push(`/chat/${conversationId}`);
