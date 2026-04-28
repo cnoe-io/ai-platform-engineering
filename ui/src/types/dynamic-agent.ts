@@ -289,6 +289,7 @@ export interface AvailableSubagent {
   name: string;
   description?: string;
   visibility: VisibilityType;
+  gradient_theme?: string;
 }
 
 // =============================================================================
