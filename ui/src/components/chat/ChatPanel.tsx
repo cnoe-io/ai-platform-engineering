@@ -973,9 +973,9 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
   }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
 
   // Handle /clear command
-  const handleClearCommand = useCallback(() => {
+  const handleClearCommand = useCallback(async () => {
     // Create a fresh conversation (effectively clearing the current one)
-    createConversation();
+    await createConversation();
   }, [createConversation]);
 
   // Unified slash command executor
@@ -988,7 +988,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
         handleHelpCommand();
         break;
       case "clear":
-        handleClearCommand();
+        await handleClearCommand();
         break;
     }
   }, [handleSkillsCommand, handleHelpCommand, handleClearCommand]);
