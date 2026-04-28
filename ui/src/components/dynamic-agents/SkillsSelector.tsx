@@ -5,7 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, AlertCircle, Sparkles, Search, CheckSquare, TriangleAlert } from "lucide-react";
+import {
+  Loader2,
+  AlertCircle,
+  Sparkles,
+  Search,
+  CheckSquare,
+  TriangleAlert,
+  X,
+  Plus,
+  Tag,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentSkill } from "@/types/agent-skill";
 
@@ -23,6 +33,8 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
+  const [categoryFilter, setCategoryFilter] = React.useState<string | null>(null);
+  const [tagFilter, setTagFilter] = React.useState<string | null>(null);
 
   // Fetch available skills on mount
   React.useEffect(() => {
@@ -49,47 +61,83 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
     }
   }
 
-  // Filter by search (title AND id)
+  // Extract unique categories and tags for filter dropdowns
+  const categories = React.useMemo(() => {
+    const cats = new Set<string>();
+    for (const s of availableSkills) {
+      if (s.category) cats.add(s.category);
+    }
+    return Array.from(cats).sort();
+  }, [availableSkills]);
+
+  const tags = React.useMemo(() => {
+    const t = new Set<string>();
+    for (const s of availableSkills) {
+      for (const tag of s.metadata?.tags ?? []) {
+        t.add(tag);
+      }
+    }
+    return Array.from(t).sort();
+  }, [availableSkills]);
+
+  // Filter by search, category, and tags
   const filtered = React.useMemo(() => {
-    if (!search.trim()) return availableSkills;
-    const q = search.toLowerCase();
-    return availableSkills.filter(
-      (s) =>
+    return availableSkills.filter((s) => {
+      // Exclude already-selected skills from the "available" list
+      if (value.includes(s.id)) return false;
+
+      if (categoryFilter && s.category !== categoryFilter) return false;
+      if (tagFilter && !(s.metadata?.tags ?? []).includes(tagFilter)) return false;
+
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
         s.name.toLowerCase().includes(q) ||
         s.id.toLowerCase().includes(q) ||
-        (s.description && s.description.toLowerCase().includes(q))
-    );
-  }, [availableSkills, search]);
+        (s.description && s.description.toLowerCase().includes(q)) ||
+        (s.category && s.category.toLowerCase().includes(q))
+      );
+    });
+  }, [availableSkills, search, categoryFilter, tagFilter, value]);
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every((s) => value.includes(s.id));
+  // Selected skills resolved to full objects
+  const selectedSkills = React.useMemo(() => {
+    const byId = new Map(availableSkills.map((s) => [s.id, s]));
+    return value.map((id) => byId.get(id)).filter(Boolean) as AgentSkill[];
+  }, [availableSkills, value]);
+
   const atLimit = value.length >= maxSkills;
 
-  function toggleSkill(skillId: string) {
-    if (value.includes(skillId)) {
-      onChange(value.filter((id) => id !== skillId));
-    } else if (!atLimit) {
+  function addSkill(skillId: string) {
+    if (!value.includes(skillId) && !atLimit) {
       onChange([...value, skillId]);
     }
   }
 
-  function selectAllFiltered() {
-    const filteredIds = filtered.map((s) => s.id);
-    const existing = new Set(value);
-    for (const id of filteredIds) {
-      if (existing.size >= maxSkills) break;
-      existing.add(id);
-    }
-    onChange(Array.from(existing));
+  function removeSkill(skillId: string) {
+    onChange(value.filter((id) => id !== skillId));
   }
 
-  function deselectAllFiltered() {
-    const filteredIds = new Set(filtered.map((s) => s.id));
-    onChange(value.filter((id) => !filteredIds.has(id)));
+  function selectAllFiltered() {
+    const existing = new Set(value);
+    for (const s of filtered) {
+      if (existing.size >= maxSkills) break;
+      existing.add(s.id);
+    }
+    onChange(Array.from(existing));
   }
 
   function addAll() {
     onChange(availableSkills.map((s) => s.id).slice(0, maxSkills));
   }
+
+  function clearFilters() {
+    setSearch("");
+    setCategoryFilter(null);
+    setTagFilter(null);
+  }
+
+  const hasActiveFilters = search || categoryFilter || tagFilter;
 
   if (loading) {
     return (
@@ -120,55 +168,24 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
   }
 
   return (
-    <div className="space-y-3">
-      {/* Header row: search + actions */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Search by name or ID..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 h-9 text-sm"
-            disabled={disabled}
-          />
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={allFilteredSelected ? deselectAllFiltered : selectAllFiltered}
-          disabled={disabled || filtered.length === 0 || atLimit}
-          className="h-9 text-xs whitespace-nowrap"
-        >
-          <CheckSquare className="h-3.5 w-3.5 mr-1" />
-          {allFilteredSelected ? "Deselect" : "Select"} {search ? "filtered" : "all"}
-        </Button>
-        {search && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={addAll}
-            disabled={disabled || value.length === availableSkills.length || atLimit}
-            className="h-9 text-xs whitespace-nowrap"
-          >
-            Add all ({availableSkills.length})
-          </Button>
-        )}
-      </div>
+    <div className="space-y-4">
+      {/* ── Selected skills ── */}
+      {selectedSkills.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>Selected Skills</Label>
+            <Badge variant="default" className="text-xs">
+              {value.length} selected
+            </Badge>
+          </div>
 
-      {/* Selected count + tiered warnings */}
-      {value.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-xs text-muted-foreground">
-            {value.length} skill{value.length !== 1 ? "s" : ""} selected
-          </p>
+          {/* Tiered warnings */}
           {value.length > maxSkills && (
             <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2">
               <AlertCircle className="h-3.5 w-3.5 mt-0.5 text-destructive shrink-0" />
               <p className="text-xs text-destructive">
-                Maximum {maxSkills} skills allowed. Remove {value.length - maxSkills} skill{value.length - maxSkills !== 1 ? "s" : ""} to save.
+                Maximum {maxSkills} skills allowed. Remove {value.length - maxSkills} skill
+                {value.length - maxSkills !== 1 ? "s" : ""} to save.
               </p>
             </div>
           )}
@@ -180,64 +197,155 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
               </p>
             </div>
           )}
+
+          <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto border rounded-lg p-2">
+            {selectedSkills.map((skill) => (
+              <Badge
+                key={skill.id}
+                variant="secondary"
+                className="text-xs px-2 py-0.5 gap-1 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
+                onClick={() => !disabled && removeSkill(skill.id)}
+              >
+                {skill.name}
+                <X className="h-3 w-3" />
+              </Badge>
+            ))}
+            {/* Show IDs that don't resolve (orphaned references) */}
+            {value
+              .filter((id) => !availableSkills.some((s) => s.id === id))
+              .map((id) => (
+                <Badge
+                  key={id}
+                  variant="outline"
+                  className="text-xs px-2 py-0.5 gap-1 cursor-pointer text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  onClick={() => !disabled && removeSkill(id)}
+                >
+                  {id}
+                  <X className="h-3 w-3" />
+                </Badge>
+              ))}
+          </div>
         </div>
       )}
 
-      {/* Skills list */}
-      <div className="space-y-1 max-h-72 overflow-y-auto">
-        {filtered.map((skill) => {
-          const isSelected = value.includes(skill.id);
-          return (
-            <label
-              key={skill.id}
-              className={cn(
-                "flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-colors",
-                isSelected
-                  ? "bg-primary/5 border-primary/30"
-                  : "bg-background border-border hover:bg-muted/50",
-                disabled && "opacity-50 cursor-not-allowed"
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => toggleSkill(skill.id)}
-                disabled={disabled}
-                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium truncate">{skill.name}</span>
-                  {skill.category && (
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                      {skill.category}
-                    </Badge>
-                  )}
-                  {skill.visibility && skill.visibility !== "private" && (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                      {skill.visibility}
-                    </Badge>
-                  )}
-                </div>
-                {skill.description && (
-                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                    {skill.description}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground/60 font-mono mt-0.5">
-                  {skill.id}
-                </p>
-              </div>
-            </label>
-          );
-        })}
+      {/* ── Add skills section ── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>Add Skills</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-7 text-xs w-40"
+              disabled={disabled}
+            />
+          </div>
+        </div>
 
-        {filtered.length === 0 && search && (
-          <p className="text-sm text-muted-foreground text-center py-4">
-            No skills match &quot;{search}&quot;
-          </p>
+        {/* Category + tag filters */}
+        {(categories.length > 1 || tags.length > 0) && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {categories.length > 1 && (
+              <select
+                value={categoryFilter || ""}
+                onChange={(e) => setCategoryFilter(e.target.value || null)}
+                className="h-7 text-xs rounded-md border border-input bg-background px-2"
+                disabled={disabled}
+              >
+                <option value="">All categories</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            )}
+            {tags.length > 0 && (
+              <select
+                value={tagFilter || ""}
+                onChange={(e) => setTagFilter(e.target.value || null)}
+                className="h-7 text-xs rounded-md border border-input bg-background px-2"
+                disabled={disabled}
+              >
+                <option value="">All tags</option>
+                {tags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+            )}
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+                className="h-7 text-xs px-2"
+              >
+                Clear filters
+              </Button>
+            )}
+            {filtered.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={selectAllFiltered}
+                disabled={disabled || atLimit}
+                className="h-7 text-xs px-2 ml-auto"
+              >
+                <CheckSquare className="h-3 w-3 mr-1" />
+                Select {hasActiveFilters ? "filtered" : "all"} ({filtered.length})
+              </Button>
+            )}
+          </div>
         )}
+
+        {/* Available skills list — compact single-line rows */}
+        <div className="max-h-96 overflow-y-auto border rounded-lg p-1">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              {hasActiveFilters
+                ? "No skills match current filters"
+                : "All skills have been selected"}
+            </p>
+          ) : (
+            filtered.map((skill) => (
+              <button
+                key={skill.id}
+                type="button"
+                onClick={() => addSkill(skill.id)}
+                disabled={disabled || atLimit}
+                className={cn(
+                  "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-left transition-colors",
+                  "hover:bg-muted cursor-pointer",
+                  (disabled || atLimit) && "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <Plus className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                <span className="text-sm truncate flex-1 min-w-0">{skill.name}</span>
+                {skill.category && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                    {skill.category}
+                  </Badge>
+                )}
+                {skill.visibility && skill.visibility !== "private" && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                    {skill.visibility}
+                  </Badge>
+                )}
+              </button>
+            ))
+          )}
+        </div>
       </div>
+
+      {/* Help text */}
+      {value.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Skills inject domain-specific instructions into the agent&apos;s context via progressive disclosure.
+        </p>
+      )}
     </div>
   );
 }
