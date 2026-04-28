@@ -9,7 +9,6 @@ import {
   Loader2,
   AlertCircle,
   Sparkles,
-  Search,
   CheckSquare,
   TriangleAlert,
   X,
@@ -130,10 +129,6 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
     onChange(Array.from(existing));
   }
 
-  function addAll() {
-    onChange(availableSkills.map((s) => s.id).slice(0, maxSkills));
-  }
-
   function clearFilters() {
     setSearch("");
     setCategoryFilter(null);
@@ -251,7 +246,7 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
             placeholder="Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-7 text-xs w-36"
+            className="h-7 text-xs w-64"
             disabled={disabled}
           />
           {categories.length > 1 && (
