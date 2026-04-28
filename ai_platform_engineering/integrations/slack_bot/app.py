@@ -301,15 +301,19 @@ def handle_mention(event, say, client):
     bot_user_id = bot_info.get("user_id")
 
     matches = _match_agents(channel_config, is_bot=False, user_id=user_id, listen="mention")
-    agent_match = matches[0] if matches else None
-    agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
+    if not matches:
+      # Fall back to global default agent with no special config
+      matches = [None]
+
+    # Conversation and context are per-thread — create once, shared across all matched agents.
+    primary_agent_id = matches[0].agent_id if matches[0] else (config.defaults.default_agent_id or "")
 
     # Create or retrieve conversation via shared API (server owns ID generation).
     # Must happen BEFORE context building so we can use `created` to decide
     # full vs delta thread context.
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
-      agent_id=agent_id,
+      agent_id=primary_agent_id,
       owner_id=user_email or user_id,
       idempotency_key=thread_ts,
       metadata={
@@ -336,69 +340,82 @@ def handle_mention(event, say, client):
     if is_humble_followup:
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
-      overthink = agent_match.users.overthink if agent_match and agent_match.users else None
-      if overthink and overthink.followup_prompt:
-        context_message = f"{overthink.followup_prompt}\n\n{context_message}"
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
-
-    client_context = {
-      "source": "slack",
-      "channel_type": "channel",
-      "channel_name": channel_config.name,
-      "channel_topic": channel_info.get("topic", ""),
-      "channel_purpose": channel_info.get("purpose", ""),
-      "humble_followup": is_humble_followup,
-    }
-    if user_email:
-      client_context["user_email"] = user_email
-
     team_id = event.get("team")
-    esc_config = get_escalation_config(agent_match) if agent_match else None
 
-    result = _call_ai(
-      client=client,
-      channel_id=channel_id,
-      thread_ts=thread_ts,
-      message_text=context_message,
-      user_id=user_id,
-      team_id=team_id,
-      agent_id=agent_id,
-      conversation_id=conversation_id,
-      escalation_config=esc_config,
-      client_context=client_context,
-    )
+    for agent_match in matches:
+      agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
+      overthink = agent_match.users.overthink if agent_match and agent_match.users else None
 
-    if isinstance(result, dict) and result.get("retry_needed"):
-      original_error = result.get("error", "Unknown error")
-      logger.warning(f"[{thread_ts}] Request failed, showing retry button: {original_error[:100]}")
+      agent_context_message = context_message
+      if is_humble_followup and overthink and overthink.followup_prompt:
+        agent_context_message = f"{overthink.followup_prompt}\n\n{context_message}"
 
-      client.chat_postMessage(
-        channel=channel_id,
+      client_context = {
+        "source": "slack",
+        "channel_type": "channel",
+        "channel_name": channel_config.name,
+        "channel_topic": channel_info.get("topic", ""),
+        "channel_purpose": channel_info.get("purpose", ""),
+        "humble_followup": is_humble_followup,
+        "overthink": bool(overthink and overthink.enabled),
+      }
+      if user_email:
+        client_context["user_email"] = user_email
+
+      esc_config = get_escalation_config(agent_match) if agent_match else None
+
+      result = _call_ai(
+        client=client,
+        channel_id=channel_id,
         thread_ts=thread_ts,
-        blocks=[
-          {
-            "type": "section",
-            "text": {
-              "type": "mrkdwn",
-              "text": "Something went wrong - some tools or subagents may have timed out. Would you like to try again?",
-            },
-          },
-          {
-            "type": "actions",
-            "elements": [
-              {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Retry"},
-                "style": "primary",
-                "action_id": "caipe_retry",
-                "value": f"{channel_id}|{thread_ts}||{agent_id}",
-              },
-            ],
-          },
-        ],
-        text="Something went wrong. Click Retry to try again.",
+        message_text=agent_context_message,
+        user_id=user_id,
+        team_id=team_id,
+        agent_id=agent_id,
+        conversation_id=conversation_id,
+        overthink_config=overthink,
+        escalation_config=esc_config,
+        client_context=client_context,
       )
+
+      if isinstance(result, dict) and result.get("skipped"):
+        reason = result.get("reason", "unknown")
+        logger.info(f"[{thread_ts}] Overthink: skipped mention response ({reason}) for {user_name}")
+        session_manager.set_skipped(thread_ts, True)
+        continue
+
+      if isinstance(result, dict) and result.get("retry_needed"):
+        original_error = result.get("error", "Unknown error")
+        logger.warning(f"[{thread_ts}] Request failed, showing retry button: {original_error[:100]}")
+
+        client.chat_postMessage(
+          channel=channel_id,
+          thread_ts=thread_ts,
+          blocks=[
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "Something went wrong - some tools or subagents may have timed out. Would you like to try again?",
+              },
+            },
+            {
+              "type": "actions",
+              "elements": [
+                {
+                  "type": "button",
+                  "text": {"type": "plain_text", "text": "Retry"},
+                  "style": "primary",
+                  "action_id": "caipe_retry",
+                  "value": f"{channel_id}|{thread_ts}||{agent_id}",
+                },
+              ],
+            },
+          ],
+          text="Something went wrong. Click Retry to try again.",
+        )
 
     logger.info(f"[{thread_ts}] Completed CAIPE request for {user_name}")
 
