@@ -44,15 +44,42 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/agent-skills");
+      // Use the unified skills catalog (/api/skills) which merges
+      // default (filesystem), agent_skills (MongoDB), and hub skills.
+      const response = await fetch("/api/skills");
       const data = await response.json();
-      // API returns array directly (not wrapped in {success, data})
-      const skills: AgentSkill[] = Array.isArray(data) ? data : data.data ?? [];
-      if (skills.length > 0) {
-        setAvailableSkills(skills);
-      } else if (!Array.isArray(data) && data.error) {
+      if (data.error) {
         setError(data.error);
+        return;
       }
+      const catalogSkills: Array<{
+        id: string;
+        name: string;
+        description: string;
+        source: string;
+        source_id: string | null;
+        content: string | null;
+        metadata: Record<string, unknown>;
+      }> = data.skills ?? [];
+      // Map CatalogSkill → AgentSkill shape used by this component
+      const skills: AgentSkill[] = catalogSkills.map((cs) => ({
+        id: cs.id,
+        name: cs.name,
+        description: cs.description,
+        category: (cs.metadata?.category as string) || cs.source,
+        tasks: [],
+        owner_id: "",
+        is_system: cs.source !== "agent_skills" || !!(cs.metadata?.is_system),
+        created_at: new Date(),
+        updated_at: new Date(),
+        visibility: (cs.metadata?.visibility as AgentSkill["visibility"]) || "global",
+        metadata: {
+          tags: Array.isArray(cs.metadata?.tags) ? cs.metadata.tags as string[] : [],
+          ...(cs.source === "hub" ? { hub_type: cs.metadata?.hub_type as string } : {}),
+        },
+        skill_content: cs.content ?? undefined,
+      }));
+      setAvailableSkills(skills);
     } catch (err) {
       setError("Failed to load skills");
     } finally {

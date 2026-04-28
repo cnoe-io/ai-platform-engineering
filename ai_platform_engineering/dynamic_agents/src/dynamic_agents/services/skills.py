@@ -1,9 +1,8 @@
 """Skill loading and file-building utilities for Dynamic Agents.
 
-Loads skill documents from the ``agent_skills`` MongoDB collection,
-normalises content from the three known content fields (``skill_content``,
-``skill_template``, ``tasks[0].llm_prompt``) into a single ``content``
-key, and builds the ``files`` dict + source paths that
+Loads skill documents from both ``agent_skills`` and ``hub_skills``
+MongoDB collections, normalises them into a unified format with a single
+``content`` key, and builds the ``files`` dict + source paths that
 ``SkillsMiddleware`` / ``StateBackend`` consume.
 """
 
@@ -31,59 +30,48 @@ def extract_llm_prompt(doc: dict[str, Any]) -> str:
 
 # ─────────────────────────── skill loading ───────────────────────────────
 
+# Hub skill IDs use the format "hub-{hub_id}-{skill_id}" as built by the
+# UI's hub-crawl.ts ``docToCatalogSkill`` helper.
+_HUB_ID_PREFIX = "hub-"
 
-def load_skills(
+
+def _parse_hub_skill_id(composite_id: str) -> tuple[str, str] | None:
+    """Parse a hub composite ID into ``(hub_id, skill_id)`` or ``None``."""
+    if not composite_id.startswith(_HUB_ID_PREFIX):
+        return None
+    rest = composite_id[len(_HUB_ID_PREFIX) :]
+    # hub_id is a 24-char hex ObjectId; skill_id is the remainder after the next '-'
+    dash = rest.find("-", 1)
+    if dash < 0:
+        return None
+    return rest[:dash], rest[dash + 1 :]
+
+
+def _load_agent_skills(
     skill_ids: list[str],
-    *,
-    mongodb_uri: str,
-    mongodb_database: str,
-) -> list[dict[str, Any]]:
-    """Load skill documents from MongoDB ``agent_skills`` collection.
+    db: Any,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Query ``agent_skills`` collection. Returns ``(skills, found_ids)``."""
+    if not skill_ids:
+        return [], set()
 
-    Args:
-        skill_ids: List of skill ``id`` values (string slugs) to load.
-        mongodb_uri: MongoDB connection URI.
-        mongodb_database: Database name (overridden by ``MONGODB_DATABASE`` env var).
-
-    Returns:
-        List of skill dicts compatible with ``build_skills_files()``.
-    """
-    from pymongo import MongoClient as _MongoClient
-
-    database = os.getenv("MONGODB_DATABASE", mongodb_database)
-    client = _MongoClient(mongodb_uri, tz_aware=True)
-    logger.info(
-        "Loading skills from agent_skills: requested_ids=%s db=%s",
-        skill_ids,
-        database,
+    collection = db["agent_skills"]
+    docs = list(
+        collection.find(
+            {
+                "$or": [
+                    {"id": {"$in": skill_ids}},
+                    {"_id": {"$in": skill_ids}},
+                ]
+            }
+        )
     )
-    try:
-        db = client[database]
-        collection = db["agent_skills"]
-        # UI stores the ``id`` field (string slug), not the MongoDB ``_id``
-        # (ObjectId).  Query both to handle either format.
-        docs = list(
-            collection.find(
-                {
-                    "$or": [
-                        {"id": {"$in": skill_ids}},
-                        {"_id": {"$in": skill_ids}},
-                    ]
-                }
-            )
-        )
-        logger.info(
-            "MongoDB query returned %d docs for %d requested skill IDs",
-            len(docs),
-            len(skill_ids),
-        )
-    except Exception as e:
-        logger.warning("Failed to load skills from agent_skills: %s", e, exc_info=True)
-        return []
-    finally:
-        client.close()
+    logger.info(
+        "agent_skills query returned %d docs for %d requested IDs",
+        len(docs),
+        len(skill_ids),
+    )
 
-    # Build result list and track which requested IDs were found.
     found_ids: set[str] = set()
     skills: list[dict[str, Any]] = []
     for doc in docs:
@@ -135,13 +123,147 @@ def load_skills(
             }
         )
 
-    missing = [sid for sid in skill_ids if sid not in found_ids]
-    if missing:
-        logger.warning("Skills not found in agent_skills: %s", missing)
+    return skills, found_ids
+
+
+def _load_hub_skills(
+    hub_ids_map: dict[str, tuple[str, str]],
+    db: Any,
+) -> list[dict[str, Any]]:
+    """Query ``hub_skills`` collection for hub skill IDs.
+
+    Args:
+        hub_ids_map: Mapping of composite ID → ``(hub_id, skill_id)`` pairs.
+        db: pymongo Database instance.
+
+    Returns:
+        List of normalised skill dicts compatible with ``build_skills_files()``.
+    """
+    if not hub_ids_map:
+        return []
+
+    # Build $or conditions for each (hub_id, skill_id) pair
+    or_conditions = [{"hub_id": hub_id, "skill_id": skill_id} for hub_id, skill_id in hub_ids_map.values()]
+    collection = db["hub_skills"]
+    docs = list(collection.find({"$or": or_conditions}))
     logger.info(
-        "Loaded %d/%d skills from agent_skills (missing=%d)",
+        "hub_skills query returned %d docs for %d requested hub skill IDs",
+        len(docs),
+        len(hub_ids_map),
+    )
+
+    # Index docs by (hub_id, skill_id) for lookup
+    doc_index: dict[tuple[str, str], dict[str, Any]] = {}
+    for doc in docs:
+        key = (str(doc.get("hub_id", "")), str(doc.get("skill_id", "")))
+        doc_index[key] = doc
+
+    skills: list[dict[str, Any]] = []
+    for composite_id, (hub_id, skill_id) in hub_ids_map.items():
+        doc = doc_index.get((hub_id, skill_id))
+        if doc is None:
+            logger.warning("Hub skill not found: hub_id=%s skill_id=%s", hub_id, skill_id)
+            continue
+
+        name = doc.get("name", "")
+        if not name:
+            logger.warning("Skipping hub skill doc (hub_id=%s, skill_id=%s): missing name", hub_id, skill_id)
+            continue
+
+        # Hub skills store the full SKILL.md (with frontmatter) in ``content``
+        content = doc.get("content", "")
+        logger.debug(
+            "Hub skill %r (hub=%s, skill=%s): content_len=%d",
+            name,
+            hub_id,
+            skill_id,
+            len(content),
+        )
+
+        skills.append(
+            {
+                "id": composite_id,
+                "name": str(name),
+                "description": str(doc.get("description", ""))[:1024],
+                "source": "hub",
+                "source_id": hub_id,
+                "content": content,
+                "metadata": doc.get("metadata", {}),
+                "visibility": "global",
+                "team_ids": None,
+                "owner_user_id": "",
+                "ancillary_files": {},
+            }
+        )
+
+    return skills
+
+
+def load_skills(
+    skill_ids: list[str],
+    *,
+    mongodb_uri: str,
+    mongodb_database: str,
+) -> list[dict[str, Any]]:
+    """Load skill documents from MongoDB ``agent_skills`` and ``hub_skills``.
+
+    Skill IDs starting with ``hub-`` are looked up in ``hub_skills`` (by
+    extracting ``hub_id`` and ``skill_id`` from the composite ID). All
+    other IDs are looked up in ``agent_skills``.
+
+    Args:
+        skill_ids: List of skill ``id`` values to load.
+        mongodb_uri: MongoDB connection URI.
+        mongodb_database: Database name (overridden by ``MONGODB_DATABASE`` env var).
+
+    Returns:
+        List of normalised skill dicts compatible with ``build_skills_files()``.
+    """
+    from pymongo import MongoClient as _MongoClient
+
+    database = os.getenv("MONGODB_DATABASE", mongodb_database)
+    client = _MongoClient(mongodb_uri, tz_aware=True)
+    logger.info(
+        "Loading skills: requested_ids=%s db=%s",
+        skill_ids,
+        database,
+    )
+
+    # Partition IDs into agent_skills vs hub_skills
+    agent_ids: list[str] = []
+    hub_ids_map: dict[str, tuple[str, str]] = {}  # composite_id → (hub_id, skill_id)
+    for sid in skill_ids:
+        parsed = _parse_hub_skill_id(sid)
+        if parsed:
+            hub_ids_map[sid] = parsed
+        else:
+            agent_ids.append(sid)
+
+    try:
+        db = client[database]
+        agent_skills, found_ids = _load_agent_skills(agent_ids, db)
+        hub_skills = _load_hub_skills(hub_ids_map, db)
+    except Exception as e:
+        logger.warning("Failed to load skills: %s", e, exc_info=True)
+        return []
+    finally:
+        client.close()
+
+    skills = agent_skills + hub_skills
+
+    # Log missing IDs
+    missing_agent = [sid for sid in agent_ids if sid not in found_ids]
+    loaded_hub_ids = {s["id"] for s in hub_skills}
+    missing_hub = [sid for sid in hub_ids_map if sid not in loaded_hub_ids]
+    missing = missing_agent + missing_hub
+    if missing:
+        logger.warning("Skills not found: %s", missing)
+    logger.info(
+        "Loaded %d/%d skills (agent=%d, hub=%d, missing=%d)",
         len(skills),
         len(skill_ids),
+        len(agent_skills),
+        len(hub_skills),
         len(missing),
     )
     return skills
