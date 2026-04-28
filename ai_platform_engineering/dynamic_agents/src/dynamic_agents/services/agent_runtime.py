@@ -54,8 +54,6 @@ from dynamic_agents.services.middleware import build_middleware
 from dynamic_agents.services.skills import build_skills_files, load_skills
 from dynamic_agents.services.streaming import StreamingMixin
 
-# Re-export for backward compatibility — external code imports from here.
-from dynamic_agents.services.runtime_cache import AgentRuntimeCache, get_runtime_cache  # noqa: F401
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService

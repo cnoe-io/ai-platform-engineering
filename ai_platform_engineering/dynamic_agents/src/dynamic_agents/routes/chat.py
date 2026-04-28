@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
-from dynamic_agents.services.agent_runtime import get_runtime_cache
+from dynamic_agents.services.runtime_cache import get_runtime_cache
 from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 

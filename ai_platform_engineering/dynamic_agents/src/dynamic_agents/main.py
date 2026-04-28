@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dynamic_agents.config import get_settings
 from dynamic_agents.metrics import PrometheusHTTPMiddleware
 from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, health, mcp_servers, middleware
-from dynamic_agents.services.agent_runtime import get_runtime_cache
+from dynamic_agents.services.runtime_cache import get_runtime_cache
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
 
 

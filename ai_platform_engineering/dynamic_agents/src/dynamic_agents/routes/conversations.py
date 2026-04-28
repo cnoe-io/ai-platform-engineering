@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from dynamic_agents.auth.access import can_access_conversation
 from dynamic_agents.auth.auth import UserContext, get_user_context
 from dynamic_agents.models import ApiResponse
-from dynamic_agents.services.agent_runtime import get_runtime_cache
+from dynamic_agents.services.runtime_cache import get_runtime_cache
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 
 logger = logging.getLogger(__name__)
