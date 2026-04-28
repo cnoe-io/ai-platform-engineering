@@ -356,7 +356,8 @@ def build_skills_files(
     for skill in skills:
         source = skill.get("source", "default")
         source_id = skill.get("source_id")
-        name = _sanitize_name(skill.get("name", "unknown"))
+        # Use skill id for directory name (unique), fall back to name
+        dir_name = _sanitize_name(skill.get("id") or skill.get("name", "unknown"))
 
         if source == "default":
             source_dir = "/skills/default"
@@ -371,12 +372,12 @@ def build_skills_files(
         source_path = f"{source_dir}/"
         source_paths.add(source_path)
 
-        file_path = f"{source_dir}/{name}/SKILL.md"
+        file_path = f"{source_dir}/{dir_name}/SKILL.md"
         skill_md = _build_skill_md(skill)
         files[file_path] = _create_file_data(skill_md)
 
         for rel_path, file_content in skill.get("ancillary_files", {}).items():
-            anc_path = f"{source_dir}/{name}/{rel_path}"
+            anc_path = f"{source_dir}/{dir_name}/{rel_path}"
             files[anc_path] = _create_file_data(file_content)
 
     sources = sorted(source_paths)

@@ -214,7 +214,7 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
               </p>
             </div>
           )}
-          {value.length > 100 && value.length <= maxSkills && (
+          {value.length > 20 && value.length <= maxSkills && (
             <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2">
               <TriangleAlert className="h-3.5 w-3.5 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
               <p className="text-xs text-amber-600 dark:text-amber-400">
