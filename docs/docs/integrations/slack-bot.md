@@ -39,10 +39,11 @@ flowchart LR
 
 ## Features
 
-- **@Mention responses** — Mention the bot in any channel to get AI assistance
-- **Q&A mode** — Auto-respond to channel messages without requiring a mention (per-channel opt-in)
+- **Multi-agent per channel** — Bind multiple agents to a single channel, each with independent trigger rules
+- **Listen modes** — Control when agents fire: `mention` (default for users), `message` (default for bots), or `all`
+- **Bot message routing** — Route messages from other bots (e.g. alerting tools) to specific agents via `bot_list`
 - **Overthink mode** — AI silently evaluates whether to respond, filtering out low-confidence answers
-- **AI alert processing** — Route bot alerts to Jira ticket creation with AI analysis
+- **Escalation workflows** — VictorOps on-call pings, user @-mentions, and emoji reactions on "Get help"
 - **Conversation continuity** — Thread-based context persistence across bot restarts (with MongoDB)
 - **Human-in-the-Loop (HITL)** — Interactive Slack forms when the agent needs user input
 - **Feedback scoring** — Thumbs up/down reactions tracked via Langfuse
@@ -133,7 +134,10 @@ Under **Install App**, click **Install to Workspace** and authorize. Save the **
 | `SLACK_INTEGRATION_BOT_MODE` | `socket` | Connection mode: `socket` or `http` |
 | `SLACK_INTEGRATION_SIGNING_SECRET` | — | Required only for HTTP mode |
 | `SLACK_INTEGRATION_SILENCE_ENV` | `false` | Suppress environment info in bot responses |
-| `SLACK_INTEGRATION_BOT_CONFIG` | — | YAML channel configuration (see [Channel Config](#channel-configuration)) |
+| `SLACK_INTEGRATION_BOT_CONFIG` | — | YAML channel config (file path or inline YAML; see [Channel Config](#channel-configuration)) |
+| `SLACK_INTEGRATION_DEFAULT_AGENT_ID` | — | Fallback agent for channels with no agent bindings |
+| `SLACK_INTEGRATION_DM_AGENT_ID` | — | Agent used for DM conversations (falls back to default) |
+| `SLACK_INTEGRATION_VICTOROPS_AGENT_ID` | — | Agent used for VictorOps on-call lookups during escalation |
 | `MONGODB_URI` | — | MongoDB connection string for session persistence |
 | `MONGODB_DATABASE` | `caipe` | MongoDB database name |
 | `CAIPE_CONNECT_RETRIES` | `10` | Max connection attempts to supervisor on startup |
@@ -161,62 +165,70 @@ Under **Install App**, click **Install to Workspace** and authorize. Save the **
 
 ### Channel Configuration
 
-Per-channel behavior is controlled via the `SLACK_INTEGRATION_BOT_CONFIG` environment variable, which accepts a YAML string.
+Per-channel behavior is controlled via `SLACK_INTEGRATION_BOT_CONFIG`, which accepts a file path or inline YAML string. Each channel maps to a list of agent bindings that control who triggers which agent.
 
 ```yaml
-# Channel ID → configuration mapping
 C012345678:
   name: "#platform-eng"
-  ai_enabled: true
-  qanda:
-    enabled: true          # Auto-respond without @mention
-    overthink: true        # Filter low-confidence responses
-    include_bots:
-      enabled: false       # Process messages from other bots
-      bot_list: []         # Specific bot IDs to process
-    custom_prompt: ""      # Override the default Q&A prompt
-  ai_alerts:
-    enabled: false         # Route bot alerts to Jira
-    custom_prompt: ""      # Override the default alert prompt
-  default:
-    project_key: "PROJ"    # Jira project for ticket creation
-    issue_type: "Bug"      # Jira issue type
-    additional_fields:
-      labels:
-        - "ai-detected"
+  agents:
+    - agent_id: "my-agent"
+      users:
+        enabled: true
+        listen: "mention"       # "mention" (default) | "message" | "all"
+        overthink:
+          enabled: false
+      bots:
+        enabled: true
+        listen: "message"       # "message" (default) | "mention" | "all"
+        bot_list: ["AlertBot"]  # null = all bots
+      escalation:
+        victorops:
+          enabled: true
+          team: "platform"
+        users: ["U_ONCALL1"]
+        emoji: { enabled: true, name: "eyes" }
+        delete_admins: ["U_ADMIN1"]
 ```
 
-#### Channel Options
+#### Listen Modes
+
+Each agent binding has independent `listen` settings for users and bots:
+
+| Mode | Fires on | Default for |
+|---|---|---|
+| `mention` | `@bot` mentions only | `users` |
+| `message` | Channel messages (non-mention) | `bots` |
+| `all` | Both mentions and messages | — |
+
+Multiple agents can match the same message — each fires independently.
+
+#### Agent Binding Fields
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | string | — | Human-readable channel name (for logging) |
-| `ai_enabled` | bool | `false` | Whether the bot responds in this channel at all |
-| `qanda.enabled` | bool | `false` | Auto-respond to messages without @mention |
-| `qanda.overthink` | bool | `false` | Use low-confidence filtering (see [Overthink Mode](#overthink-mode)) |
-| `qanda.include_bots.enabled` | bool | `false` | Process messages from other bots |
-| `qanda.include_bots.bot_list` | list | `[]` | Specific bot IDs to process (empty = all bots) |
-| `qanda.custom_prompt` | string | — | Override the default Q&A system prompt |
-| `ai_alerts.enabled` | bool | `false` | Route bot alert messages to AI for Jira triage |
-| `ai_alerts.custom_prompt` | string | — | Override the default alert processing prompt |
-| `default.project_key` | string | — | Jira project key for ticket creation |
-| `default.issue_type` | string | `Bug` | Jira issue type for created tickets |
-| `default.additional_fields` | object | `{}` | Extra Jira fields (labels, components, etc.) |
-
-:::warning
-`ai_alerts.enabled` and `qanda.include_bots.enabled` cannot both be `true` on the same channel. AI alerts already process bot messages, so enabling both would cause conflicts.
-:::
+| `agent_id` | string | **required** | Agent to route messages to |
+| `users.enabled` | bool | `true` | Respond to human messages |
+| `users.listen` | string | **required** when enabled | When to fire for users: `"mention"`, `"message"`, or `"all"` |
+| `users.overthink.enabled` | bool | `false` | Filter low-confidence responses (see below) |
+| `users.user_list` | list | `null` | Allowlist of Slack user IDs (`null` = all users) |
+| `bots.enabled` | bool | `true` | Respond to bot messages |
+| `bots.listen` | string | **required** when enabled | When to fire for bots: `"mention"`, `"message"`, or `"all"` |
+| `bots.bot_list` | list | `null` | Allowlist of bot display names (`null` = all bots) |
+| `escalation.victorops` | object | `{}` | VictorOps on-call lookup (requires `SLACK_INTEGRATION_VICTOROPS_AGENT_ID`) |
+| `escalation.users` | list | `[]` | Slack user IDs to @-mention on escalation |
+| `escalation.emoji` | object | `{}` | Emoji reaction to add on escalation |
+| `escalation.delete_admins` | list | `[]` | Users allowed to delete bot messages |
 
 ### Overthink Mode
 
-When `qanda.overthink: true` is set, the bot silently evaluates each message before responding:
+When `overthink.enabled: true`, the bot silently evaluates each message before responding:
 
-1. The AI processes the message with a special prompt that asks it to assess confidence
-2. If the response contains `[DEFER]` or `[LOW_CONFIDENCE]` — the bot **silently skips** the message
-3. If the response contains `[CONFIDENCE: HIGH]` — the bot posts the response
-4. If the user later @mentions the bot in the same thread, it detects the earlier skip and provides a response acknowledging the context
+1. The AI processes the message with a confidence-assessment prompt
+2. If the response contains `DEFER` or `LOW_CONFIDENCE`, the bot **silently skips**
+3. Otherwise the bot posts the response normally
+4. If the user later @mentions the bot in the same thread, it detects the earlier skip and responds with context
 
-This is useful for busy channels where you want the bot to only speak up when it has something genuinely helpful to say.
+Useful for busy channels where the bot should only speak when it has something genuinely helpful to say.
 
 ### Connection Modes
 
@@ -248,15 +260,15 @@ Add the following to your `.env`:
 SLACK_INTEGRATION_BOT_TOKEN=xoxb-your-bot-token
 SLACK_INTEGRATION_APP_TOKEN=xapp-your-app-token
 SLACK_INTEGRATION_BOT_MODE=socket
+SLACK_INTEGRATION_DEFAULT_AGENT_ID=my-agent
 
-# Channel configuration
+# Channel configuration (file path or inline YAML)
 SLACK_INTEGRATION_BOT_CONFIG='
 C012345678:
   name: "#your-channel"
-  ai_enabled: true
-  qanda:
-    enabled: true
-    overthink: true
+  agents:
+    - agent_id: "my-agent"
+      users: { enabled: true, listen: "mention" }
 '
 ```
 
@@ -278,71 +290,33 @@ tags:
 replicaCount: 1
 
 image:
-  repository: ghcr.io/cnoe-io/slack-bot
+  repository: ghcr.io/cnoe-io/caipe-slack-bot
   tag: ""           # Defaults to Chart.appVersion
   pullPolicy: Always
 
-# Display name in Slack messages
-appName: "CAIPE"
+# Flat env var map → ConfigMap → envFrom
+config:
+  APP_NAME: "CAIPE"
+  SLACK_BOT_MODE: "socket"
+  CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+  SLACK_INTEGRATION_SILENCE_ENV: "false"
+  # SLACK_INTEGRATION_DEFAULT_AGENT_ID: "my-agent"
+  # SLACK_INTEGRATION_DM_AGENT_ID: "dm-agent"
+  # SLACK_INTEGRATION_VICTOROPS_AGENT_ID: "victorops-agent"
+  # MONGODB_URI: "mongodb://admin:changeme@mongodb:27017"
+  # MONGODB_DATABASE: "caipe"
 
-# Connection mode: "socket" or "http"
-botMode: "socket"
+# Pre-existing K8s Secret containing Slack tokens
+existingSecret: "slack-bot-secrets"
 
-# Environment variables passed to the bot
-env:
-  CAIPE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
-  # LANGFUSE_SCORING_ENABLED: "true"
-  # LANGFUSE_PUBLIC_KEY: ""
-  # LANGFUSE_HOST: ""
-
-# Reference to a Kubernetes Secret containing Slack tokens
-slack:
-  tokenSecretRef: "slack-bot-secrets"
-
-# MongoDB for session persistence
-mongodb:
-  uri: ""           # e.g. "mongodb://admin:changeme@ai-platform-engineering-mongodb:27017"
-  database: "caipe"
-
-# OAuth2 client credentials for A2A requests to the supervisor
-auth:
-  enabled: false
-  tokenUrl: ""      # e.g. "https://your-idp.example.com/oauth2/v1/token"
-  clientId: ""
-  scope: ""         # Optional
-  audience: ""      # Optional
-  # clientSecret should be stored in the K8s Secret (slack.tokenSecretRef), NOT here
-
-# Suppress environment info in responses
-silenceEnv: "false"
-
-# Per-channel config (serialized as YAML into a ConfigMap)
+# Per-channel agent bindings (serialized as YAML into a ConfigMap)
 botConfig: {}
   # C012345678:
   #   name: "#my-channel"
-  #   ai_enabled: true
-  #   qanda:
-  #     enabled: true
-
-externalSecrets:
-  enabled: false
-  apiVersion: "v1beta1"
-  secretStoreRef:
-    name: "vault"
-    kind: "ClusterSecretStore"
-  data: []
-    # - secretKey: SLACK_BOT_TOKEN
-    #   remoteRef:
-    #     key: prod/slack-bot
-    #     property: bot_token
-
-resources:
-  requests:
-    cpu: 100m
-    memory: 256Mi
-  limits:
-    cpu: 500m
-    memory: 512Mi
+  #   agents:
+  #     - agent_id: "my-agent"
+  #       users: { enabled: true, listen: "mention" }
+  #       bots: { enabled: false }
 ```
 
 ---

@@ -206,7 +206,7 @@ function selectAgent(raw: string | null): {
  * defaulting silently. Unknown values also collapse to `null` (the renderer
  * then sets `scope_fallback`).
  */
-export function selectScope(raw: string | null): AgentScope | null {
+function selectScope(raw: string | null): AgentScope | null {
   const v = (raw ?? "").trim().toLowerCase();
   if (v === "user" || v === "project") return v;
   return null;
@@ -218,7 +218,7 @@ export function selectScope(raw: string | null): AgentScope | null {
  * `null` (the renderer then sets `layout_fallback: false` since there was
  * no real request to honor).
  */
-export function selectLayout(raw: string | null): AgentLayout | null {
+function selectLayout(raw: string | null): AgentLayout | null {
   const v = (raw ?? "").trim().toLowerCase();
   if (v === "skills" || v === "commands") return v;
   return null;

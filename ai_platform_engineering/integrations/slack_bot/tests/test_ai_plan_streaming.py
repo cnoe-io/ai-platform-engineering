@@ -21,6 +21,9 @@ from ai_platform_engineering.integrations.slack_bot.utils.ai import (
   _STATUS_ERROR,
 )
 from ai_platform_engineering.integrations.slack_bot.sse_client import SSEEvent, SSEEventType
+from ai_platform_engineering.integrations.slack_bot.utils.config_models import OverthinkConfig
+
+_OVERTHINK_ENABLED = OverthinkConfig(enabled=True)
 
 
 # ---------------------------------------------------------------------------
@@ -690,19 +693,18 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)
     assert result["skipped"] is True
     assert result["reason"] == "low_confidence"
 
-    # Should have called setStatus with the skip message then cleared it
+    # Should have called setStatus with the skip message (clear is a no-op)
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_SKIP_LOW_CONFIDENCE in status_calls
-    assert status_calls[-1] == ""  # last call clears the status
 
-    # Should sleep 2s to keep the status visible
+    # Should sleep 7s to keep the status visible
     mock_sleep.assert_called_once_with(7)
 
   @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
@@ -725,7 +727,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)
@@ -734,7 +736,6 @@ class TestOverthinkSkipStatus:
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_SKIP_DEFER in status_calls
-    assert status_calls[-1] == ""
 
     mock_sleep.assert_called_once_with(7)
 
@@ -762,7 +763,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
@@ -774,9 +775,6 @@ class TestOverthinkSkipStatus:
 
     # Skip status should be present
     assert _STATUS_SKIP_LOW_CONFIDENCE in status_calls
-
-    # Last call clears the status
-    assert status_calls[-1] == ""
 
   @patch("ai_platform_engineering.integrations.slack_bot.utils.ai.time.sleep")
   def test_overthink_no_stream_opened(self, mock_sleep):
@@ -800,7 +798,7 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     # Stream should never have been opened
@@ -826,17 +824,16 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)
     assert result["skipped"] is True
     assert result["reason"] == "error"
 
-    # Should flash the error status then clear it
+    # Should flash the error status (clear is a no-op)
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_ERROR in status_calls
-    assert status_calls[-1] == ""
 
     mock_sleep.assert_called_once_with(7)
 
@@ -855,7 +852,7 @@ class TestOverthinkSkipStatus:
     # returns a generator so the exception happens inside the for-loop).
     def _exploding_generator(*args, **kwargs):
       raise Exception("Connection refused")
-      yield  # noqa: unreachable — makes this a generator function
+      yield  # noqa: F841 — unreachable yield makes this a generator function
 
     mock_sse = Mock()
     mock_sse.stream_chat.return_value = _exploding_generator()
@@ -870,17 +867,16 @@ class TestOverthinkSkipStatus:
       user_id="U123",
       agent_id="test-agent",
       conversation_id="conv-1",
-      overthink_mode=True,
+      overthink_config=_OVERTHINK_ENABLED,
     )
 
     assert isinstance(result, dict)
     assert result["skipped"] is True
     assert result["reason"] == "error"
 
-    # Should flash the error status then clear it
+    # Should flash the error status (clear is a no-op)
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]
     assert _STATUS_ERROR in status_calls
-    assert status_calls[-1] == ""
 
     mock_sleep.assert_called_once_with(7)
 
