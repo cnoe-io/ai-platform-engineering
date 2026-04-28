@@ -38,10 +38,11 @@ interface ChatPanelProps {
   agentId: string; // Mandatory for Dynamic Agents
   agentGradient?: string | null; // Gradient theme for agent avatar
   agentName?: string; // Agent name for display
+  agentSkills?: string[]; // Configured skill IDs for this agent
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -115,7 +116,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   } = useChatStore();
 
   // Slash command registry
-  const slashCommands = useSlashCommands();
+  const slashCommands = useSlashCommands(agentSkills);
 
   // Get access token from session (if SSO is enabled and user is authenticated)
   const ssoEnabled = getConfig('ssoEnabled');
@@ -549,6 +550,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     rawStreamContent: string;
     hitlFormRequested: boolean;
     hasError: boolean;
+    errorMessage?: string;
   }
 
   // Get the protocol-agnostic adapter config
@@ -705,6 +707,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     onError(message) {
       console.error("[DynamicAgent] Stream error event:", message);
       loopState.hasError = true;
+      loopState.errorMessage = message;
     },
   }; }, [agentId, addStreamEvent, updateMessage, setPendingUserInput, setFilesFetchKey, setTimelineTasks]);
 
@@ -744,6 +747,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: state.rawStreamContent,
       isFinal,
       turnStatus,
+      ...(state.errorMessage ? { error: state.errorMessage } : {}),
       streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
     });
     setConversationStreaming(conversationId, null);
@@ -856,7 +860,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     submitMessage(content);
   }, [isThisConversationStreaming, submitMessage]);
 
-  // Handle /skills chat command: fetch catalog and render in-chat (FR-002)
+  // Handle /skills chat command: show skills configured on this agent
   const handleSkillsCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
@@ -866,47 +870,49 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/skills" }, turnId);
 
-    // Set a descriptive title instead of "/skills"
-    updateConversationTitle(convId, "Skills Catalog");
+    updateConversationTitle(convId, "Agent Skills");
 
     const msgId = addMessage(convId, { role: "assistant", content: "Loading skills..." }, turnId);
 
+    if (!agentSkills || agentSkills.length === 0) {
+      updateMessage(convId, msgId, {
+        content: "This agent has no skills configured. You can add skills in the agent editor.",
+        isFinal: true,
+      });
+      return;
+    }
+
     try {
-      const res = await fetch("/api/skills?page=1&page_size=50", { credentials: "include" });
+      const res = await fetch("/api/agent-skills", { credentials: "include" });
       if (!res.ok) {
         updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
         return;
       }
       const data = await res.json();
-      const skills = data.skills || [];
-      const total = typeof data.meta?.total === "number" ? data.meta.total : skills.length;
-      const noMatches = data.meta?.message === "no_matches";
-      if (skills.length === 0) {
-        updateMessage(
-          convId,
-          msgId,
-          {
-            content: noMatches
-              ? "No skills match your current search or filters. Open the skills page to adjust filters or add hubs."
-              : "No skills available at the moment. Ask an admin to register hubs or agent config skills.",
-            isFinal: true,
-          },
-        );
+      const allSkills = Array.isArray(data) ? data : data?.skills || data?.data || [];
+      const skillIdSet = new Set(agentSkills);
+      const filtered = allSkills.filter((s: { id: string }) => skillIdSet.has(s.id));
+
+      if (filtered.length === 0) {
+        updateMessage(convId, msgId, {
+          content: `This agent has ${agentSkills.length} skill(s) configured but none could be resolved. They may have been deleted.`,
+          isFinal: true,
+        });
         return;
       }
-      const more = total > skills.length ? ` (showing ${skills.length} of ${total})` : "";
+
       const lines = [
-        `**Available Skills**${more}\n`,
-        ...skills.map((s: { name: string; description: string; source: string }) =>
-          `- **${s.name}**: ${s.description} *(${s.source})*`
+        `**Agent Skills** (${filtered.length})\n`,
+        ...filtered.map((s: { title?: string; name?: string; description?: string; category?: string }) =>
+          `- **${s.title || s.name || "Untitled"}**: ${s.description || "No description"}${s.category ? ` *(${s.category})*` : ""}`
         ),
-        "\n*Same catalog as the skills page (first page). Type /skills any time to refresh.*",
+        "\n*These are the skills configured on this agent. Edit in the agent settings.*",
       ];
       updateMessage(convId, msgId, { content: lines.join("\n"), isFinal: true });
     } catch {
       updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
     }
-  }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
+  }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle, agentId, agentSkills]);
 
   // Handle /help command: show available commands in chat
   const handleHelpCommand = useCallback(async () => {
@@ -2049,6 +2055,10 @@ const ChatMessage = React.memo(function ChatMessage({
               // Legacy fallback: completed message with no persisted events
               <div className="rounded-xl bg-card/50 border border-border/50 px-4 py-3">
                 <MarkdownRenderer content={displayContent} />
+              </div>
+            ) : message.turnStatus === "interrupted" ? (
+              <div className="text-xs text-muted-foreground italic px-1">
+                This response failed to complete. No content was generated.
               </div>
             ) : null}
 

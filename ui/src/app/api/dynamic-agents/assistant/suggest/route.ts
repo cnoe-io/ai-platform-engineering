@@ -38,8 +38,11 @@ interface SuggestFieldRequest {
       description?: string;
     }>;
   };
-  model_id: string;
-  model_provider: string;
+  model: { id: string; provider: string };
+  /** @deprecated Use model.id / model.provider instead */
+  model_id?: string;
+  /** @deprecated Use model.provider instead */
+  model_provider?: string;
   instruction?: string;
   prompt_style?: "concise" | "comprehensive";
 }
@@ -165,10 +168,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (req, user, session) => {
     const body: SuggestFieldRequest = await request.json();
 
+    // Normalize legacy model_id/model_provider → model
+    if (body.model_id && !body.model) {
+      body.model = { id: body.model_id, provider: body.model_provider || "unknown" };
+    }
+
     // Validate required fields
-    if (!body.field || !body.context?.name || !body.model_id || !body.model_provider) {
+    if (!body.field || !body.context?.name || !body.model?.id || !body.model?.provider) {
       throw new ApiError(
-        "Missing required fields: field, context.name, model_id, model_provider",
+        "Missing required fields: field, context.name, model.id, model.provider",
         400
       );
     }
@@ -201,8 +209,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         body: JSON.stringify({
           system_prompt,
           user_message,
-          model_id: body.model_id,
-          model_provider: body.model_provider,
+          model: body.model,
         }),
       }
     );

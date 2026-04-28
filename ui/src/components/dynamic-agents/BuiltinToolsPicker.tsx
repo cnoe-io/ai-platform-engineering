@@ -128,7 +128,7 @@ function ToolConfig({
       )}
     >
       {/* Tool Header Row */}
-      <div className="flex items-center justify-between p-3">
+      <div className="flex items-center justify-between px-3 py-1">
         <div className="flex items-center gap-2">
           {/* Toggle Switch */}
           <button
@@ -181,7 +181,7 @@ function ToolConfig({
 
       {/* Expanded Configuration */}
       {isEnabled && hasConfigFields && expanded && (
-        <div className="border-t p-3 bg-muted/30 space-y-3">
+        <div className="border-t px-3 py-1 bg-muted/30 space-y-2">
           {definition.config_fields.map((field) => (
             <ConfigField
               key={field.name}
@@ -440,7 +440,7 @@ export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPi
         Built-in Tools
       </Label>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {definitions.map((definition) => (
           <ToolConfig
             key={definition.id}
