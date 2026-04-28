@@ -527,6 +527,14 @@ class AgentRuntime:
 
         return tools
 
+    @staticmethod
+    def _extract_llm_prompt(doc: dict[str, Any]) -> str:
+        """Extract llm_prompt from tasks[0] for template-based skills."""
+        tasks = doc.get("tasks")
+        if isinstance(tasks, list) and tasks:
+            return tasks[0].get("llm_prompt", "") if isinstance(tasks[0], dict) else ""
+        return ""
+
     def _load_skills(self, skill_ids: list[str]) -> list[dict[str, Any]]:
         """Load skill documents from MongoDB agent_skills collection.
 
@@ -570,7 +578,10 @@ class AgentRuntime:
                     "description": str(description)[:1024],
                     "source": "agent_skills",
                     "source_id": doc.get("owner_id"),
-                    "content": doc.get("skill_content") or doc.get("skill_template") or "",
+                    "content": doc.get("skill_content")
+                    or doc.get("skill_template")
+                    or self._extract_llm_prompt(doc)
+                    or "",
                     "metadata": doc.get("metadata", {}),
                     "visibility": doc.get("visibility"),
                     "team_ids": doc.get("team_ids"),

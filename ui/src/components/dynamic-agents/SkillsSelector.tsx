@@ -35,14 +35,12 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
     try {
       const response = await fetch("/api/agent-skills");
       const data = await response.json();
-      if (data.success && Array.isArray(data.data)) {
-        // Only show skills that have skill_content (actual SKILL.md content)
-        const skillsWithContent = data.data.filter(
-          (s: AgentSkill) => s.skill_content && s.skill_content.trim() !== ""
-        );
-        setAvailableSkills(skillsWithContent);
-      } else {
-        setError(data.error || "Failed to load skills");
+      // API returns array directly (not wrapped in {success, data})
+      const skills: AgentSkill[] = Array.isArray(data) ? data : data.data ?? [];
+      if (skills.length > 0) {
+        setAvailableSkills(skills);
+      } else if (!Array.isArray(data) && data.error) {
+        setError(data.error);
       }
     } catch (err) {
       setError("Failed to load skills");
