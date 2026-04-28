@@ -177,8 +177,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
     source?.features
   );
-  const [modelId, setModelId] = React.useState(source?.model_id || "");
-  const [modelProvider, setModelProvider] = React.useState(source?.model_provider || "");
+  const [modelId, setModelId] = React.useState(source?.model?.id || "");
+  const [modelProvider, setModelProvider] = React.useState(source?.model?.provider || "");
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default"
   );
@@ -297,19 +297,19 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
           
-          if (source?.model_id) {
+          if (source?.model?.id) {
             // Editing or cloning existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
               (m: { model_id: string; provider: string }) => 
-                m.model_id === source.model_id && m.provider === source.model_provider
+                m.model_id === source.model.id && m.provider === source.model.provider
             );
             if (existingModel) {
               // Model exists - ensure provider is in sync with config
               setModelProvider(existingModel.provider);
             } else {
               // Model no longer available - reset to first available
-              console.warn(`Agent model "${source.model_id}" no longer available, resetting to default`);
+              console.warn(`Agent model "${source.model.id}" no longer available, resetting to default`);
               if (data.data.length > 0) {
                 setModelId(data.data[0].model_id);
                 setModelProvider(data.data[0].provider);
@@ -395,8 +395,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 }))
               : undefined,
           },
-          model_id: modelId,
-          model_provider: modelProvider,
+          model: { id: modelId, provider: modelProvider },
           ...(instruction ? { instruction } : {}),
           ...(field === "system_prompt" ? { prompt_style: promptStyle } : {}),
         }),
@@ -532,8 +531,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
-          model_id: modelId,
-          model_provider: modelProvider,
+          model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
         };
@@ -560,8 +558,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
-          model_id: modelId,
-          model_provider: modelProvider,
+          model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
         };

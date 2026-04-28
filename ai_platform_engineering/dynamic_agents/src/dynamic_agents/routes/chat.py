@@ -121,7 +121,7 @@ async def chat_start_stream(
     logger.info(
         f"[chat] Starting chat request: "
         f"agent='{agent.name}', user={user.email}, "
-        f"provider={agent.model_provider}, model={agent.model_id}, "
+        f"provider={agent.model.provider}, model={agent.model.id}, "
         f"mcp_servers={len(mcp_servers)}, "
         f"protocol={request.protocol}, "
         f"trace_id={request.trace_id or 'auto'}"

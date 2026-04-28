@@ -106,6 +106,26 @@ class MCPServerProbeResult(BaseModel):
 
 
 # =============================================================================
+# Model Config
+# =============================================================================
+
+
+class ModelConfig(BaseModel):
+    """LLM model configuration.
+
+    Groups ``id`` and ``provider`` into a single nested object, mirroring
+    the pattern used by Claude's agent API.
+
+    A ``model_validator(mode="before")`` on the parent config transparently
+    migrates legacy ``model_id`` / ``model_provider`` top-level fields into
+    this nested shape so existing MongoDB documents keep working.
+    """
+
+    id: str = Field(..., description="LLM model identifier (e.g., 'claude-sonnet-4-20250514')")
+    provider: str = Field(..., description="LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)")
+
+
+# =============================================================================
 # SubAgent Reference
 # =============================================================================
 
@@ -359,10 +379,7 @@ class DynamicAgentConfigBase(BaseModel):
         default_factory=dict,
         description="Map of server_id -> tool names (empty list = all tools)",
     )
-    model_id: str = Field(..., description="LLM model identifier (e.g., 'claude-sonnet-4-20250514')")
-    model_provider: str = Field(
-        ..., description="LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)"
-    )
+    model: ModelConfig = Field(..., description="LLM model configuration (id + provider)")
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")
     shared_with_teams: list[str] | None = Field(None, description="Team IDs when visibility=team")
     subagents: list[SubAgentRef] = Field(
@@ -383,6 +400,22 @@ class DynamicAgentConfigBase(BaseModel):
     )
     enabled: bool = Field(True, description="Whether the agent is active")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_model_fields(cls, data: Any) -> Any:
+        """Backward-compat: migrate legacy ``model_id``/``model_provider`` to ``model``.
+
+        Existing MongoDB documents store these as top-level fields.  This
+        validator transparently nests them so the rest of the codebase only
+        needs ``config.model.id`` / ``config.model.provider``.
+        """
+        if isinstance(data, dict) and "model_id" in data and "model" not in data:
+            data["model"] = {
+                "id": data.pop("model_id"),
+                "provider": data.pop("model_provider", "unknown"),
+            }
+        return data
+
 
 class DynamicAgentConfigCreate(DynamicAgentConfigBase):
     """Model for creating a dynamic agent config."""
@@ -397,8 +430,7 @@ class DynamicAgentConfigUpdate(BaseModel):
     description: str | None = None
     system_prompt: str | None = None
     allowed_tools: dict[str, list[str]] | None = None
-    model_id: str | None = None
-    model_provider: str | None = None
+    model: ModelConfig | None = None
     visibility: VisibilityType | None = None
     shared_with_teams: list[str] | None = None
     subagents: list[SubAgentRef] | None = None

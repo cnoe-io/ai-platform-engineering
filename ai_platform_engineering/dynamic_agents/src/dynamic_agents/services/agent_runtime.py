@@ -251,16 +251,16 @@ class AgentRuntime:
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
 
         # 7. Create the LLM
-        # model_id and model_provider are required fields - no fallback to env vars
+        # model.id and model.provider are required fields - no fallback to env vars
         logger.info(
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
-            f"provider={self.config.model_provider}, model={self.config.model_id}"
+            f"provider={self.config.model.provider}, model={self.config.model.id}"
         )
         # Configure botocore with extended timeouts for Bedrock to prevent
         # ReadTimeoutError during long-running agent operations (especially subagents)
         boto_config = BotocoreConfig(read_timeout=300, connect_timeout=60)
-        llm = LLMFactory(provider=self.config.model_provider).get_llm(
-            model=self.config.model_id,
+        llm = LLMFactory(provider=self.config.model.provider).get_llm(
+            model=self.config.model.id,
             config=boto_config,
         )
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
@@ -290,7 +290,7 @@ class AgentRuntime:
                 self.config.features,
                 self._session_id,
                 agent_name=self.config.name,
-                model_id=self.config.model_id,
+                model_id=self.config.model.id,
             ),
         )
 
@@ -370,8 +370,8 @@ class AgentRuntime:
                 create_self_identity_tool(
                     name=config.name,
                     description=config.description,
-                    model_id=config.model_id,
-                    model_provider=config.model_provider,
+                    model_id=config.model.id,
+                    model_provider=config.model.provider,
                     gradient_theme=gradient_theme,
                 )
             )
@@ -450,7 +450,7 @@ class AgentRuntime:
                     subagent_config.features,
                     self._session_id,
                     agent_name=subagent_config.name,
-                    model_id=subagent_config.model_id,
+                    model_id=subagent_config.model.id,
                 ),
             }
 
@@ -862,7 +862,7 @@ class AgentRuntime:
         duration = time.monotonic() - start
         labels = {
             "agent_name": self.config.name,
-            "model_id": self.config.model_id,
+            "model_id": self.config.model.id,
             "turn_type": turn_type,
             "status": status,
         }

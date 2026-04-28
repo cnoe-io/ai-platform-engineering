@@ -213,6 +213,19 @@ export interface MiddlewareDefinition {
 }
 
 // =============================================================================
+// Model Config
+// =============================================================================
+
+/**
+ * LLM model configuration.
+ * Groups model identifier and provider into a single nested object.
+ */
+export interface ModelConfig {
+  id: string;       // LLM model identifier (e.g., 'claude-sonnet-4-20250514')
+  provider: string; // LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)
+}
+
+// =============================================================================
 // Dynamic Agent Types
 // =============================================================================
 
@@ -233,8 +246,7 @@ export interface DynamicAgentConfig {
   system_prompt: string;
   allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
-  model_id: string;  // Required: LLM model identifier
-  model_provider: string;  // Required: LLM provider (anthropic-claude, openai, etc.)
+  model: ModelConfig;  // Required: LLM model configuration
   visibility: VisibilityType;
   shared_with_teams?: string[];
   subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
@@ -255,8 +267,7 @@ export interface DynamicAgentConfigCreate {
   system_prompt: string;
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
-  model_id: string;  // Required: LLM model identifier
-  model_provider: string;  // Required: LLM provider
+  model: ModelConfig;  // Required: LLM model configuration
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
@@ -271,8 +282,7 @@ export interface DynamicAgentConfigUpdate {
   system_prompt?: string;
   allowed_tools?: Record<string, string[]>;
   builtin_tools?: BuiltinToolsConfig;
-  model_id?: string;
-  model_provider?: string;
+  model?: ModelConfig;
   visibility?: VisibilityType;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];

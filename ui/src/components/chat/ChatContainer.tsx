@@ -408,7 +408,7 @@ export function ChatContainer() {
       selectedAgentId={selectedAgentId}
       agentName={agentInfo?.name}
       agentDescription={agentInfo?.description}
-      agentModel={agentInfo?.model_id}
+      agentModel={agentInfo?.model?.id}
       agentVisibility={agentInfo?.visibility}
       agentGradient={agentInfo?.ui?.gradient_theme}
       allowedTools={agentInfo?.allowed_tools}
