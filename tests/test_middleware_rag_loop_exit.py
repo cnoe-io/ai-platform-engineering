@@ -37,11 +37,13 @@ def _reset_rag_state():
     from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
         _rag_capped_tools,
         _rag_cap_hit_counts,
+        _rag_synthesis_turn_given,
         FetchDocumentCapWrapper,
         SearchCapWrapper,
     )
     _rag_capped_tools.clear()
     _rag_cap_hit_counts.clear()
+    _rag_synthesis_turn_given.clear()
     FetchDocumentCapWrapper._global_counts.clear()
     FetchDocumentCapWrapper._global_timestamps.clear()
     SearchCapWrapper._global_counts.clear()
@@ -49,6 +51,7 @@ def _reset_rag_state():
     yield
     _rag_capped_tools.clear()
     _rag_cap_hit_counts.clear()
+    _rag_synthesis_turn_given.clear()
     FetchDocumentCapWrapper._global_counts.clear()
     FetchDocumentCapWrapper._global_timestamps.clear()
     SearchCapWrapper._global_counts.clear()
@@ -94,7 +97,7 @@ class TestMiddlewareRagLoopExit:
             return_value={"configurable": {"thread_id": "t1"}},
         ), patch(
             "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
-            wraps=lambda msgs: {"messages": msgs},
+            wraps=lambda msgs, tid="": {"messages": msgs},
         ) as mock_terminal:
             result = middleware.after_model(state)
 
@@ -200,7 +203,7 @@ class TestMiddlewareRagLoopExit:
             return_value={"configurable": {"thread_id": "t5"}},
         ), patch(
             "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
-            wraps=lambda msgs: {"messages": msgs},
+            wraps=lambda msgs, tid="": {"messages": msgs},
         ) as mock_terminal:
             result = middleware.after_model(state)
 
@@ -359,7 +362,7 @@ class TestMiddlewareRagLoopExit:
                 return_value={"configurable": {"thread_id": "thread-999"}},
             ), patch(
                 "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
-                wraps=lambda msgs: {"messages": msgs},
+                wraps=lambda msgs, tid="": {"messages": msgs},
             ) as mock_terminal:
                 result = middleware.after_model(state)
         finally:
@@ -451,7 +454,7 @@ class TestMiddlewareRagLoopExit:
             return_value={"configurable": {"thread_id": thread_id}},
         ), patch(
             "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
-            wraps=lambda msgs: {"messages": msgs},
+            wraps=lambda msgs, tid="": {"messages": msgs},
         ) as mock_terminal_t6:
             result_t6 = middleware.after_model(state_turn6)
 
@@ -476,9 +479,34 @@ class TestMiddlewareRagLoopExit:
             return_value={"configurable": {"thread_id": thread_id}},
         ), patch(
             "ai_platform_engineering.utils.deepagents_custom.middleware._rag_terminal_response",
-            wraps=lambda msgs: {"messages": msgs},
+            wraps=lambda msgs, tid="": {"messages": msgs},
         ) as mock_terminal_t7:
             result_t7 = middleware.after_model(state_turn7)
 
         assert result_t7 is not None, "Turn 7: must terminate via fallback — search still capped"
         mock_terminal_t7.assert_called_once(), "Fallback path must call _rag_terminal_response"
+
+    def test_structured_response_second_turn_forces_jump_to_end(self):
+        """In USE_STRUCTURED_RESPONSE mode, _rag_terminal_response grants one free synthesis
+        turn (no jump_to=end). If the model ignores it and hits the cap again, the second
+        call must force jump_to=end to prevent an infinite loop."""
+        from ai_platform_engineering.utils.deepagents_custom.middleware import _rag_terminal_response
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
+            _rag_synthesis_turn_given,
+        )
+
+        msgs = [ToolMessage(content="RAG cap reached.", tool_call_id="tc-1", name="search")]
+        thread_id = "t-sr-loop"
+
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
+            True,
+        ):
+            # First call: synthesis turn granted, no jump_to
+            result1 = _rag_terminal_response(msgs, thread_id)
+            assert "jump_to" not in result1, "First call must not include jump_to=end"
+            assert thread_id in _rag_synthesis_turn_given, "Must record synthesis turn given"
+
+            # Second call: model ignored synthesis nudge — force exit
+            result2 = _rag_terminal_response(msgs, thread_id)
+            assert result2.get("jump_to") == "end", "Second call must force jump_to=end"

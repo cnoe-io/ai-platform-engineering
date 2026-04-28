@@ -296,6 +296,11 @@ _rag_cap_hit_counts: dict[str, int] = {}
 _rag_capped_tools: dict[str, set[str]] = {}
 _rag_hard_stop_lock = threading.Lock()
 
+# Tracks threads that have already received one "synthesis turn" after cap
+# exhaustion in USE_STRUCTURED_RESPONSE mode.  On the second cap interception
+# the middleware must force jump_to="end" rather than looping forever.
+_rag_synthesis_turn_given: set[str] = set()
+
 
 def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> int:
     """Record a cap hit for a specific tool on this thread. Returns the new hit count."""
@@ -322,6 +327,18 @@ def is_rag_hard_stopped(thread_id: str) -> bool:
     """Return True if ANY RAG tool has been capped for this thread."""
     with _rag_hard_stop_lock:
         return bool(_rag_capped_tools.get(thread_id))
+
+
+def record_synthesis_turn_given(thread_id: str) -> None:
+    """Mark that the model has already received one synthesis turn after cap exhaustion."""
+    with _rag_hard_stop_lock:
+        _rag_synthesis_turn_given.add(thread_id)
+
+
+def was_synthesis_turn_given(thread_id: str) -> bool:
+    """Return True if the model already received a synthesis turn for this thread."""
+    with _rag_hard_stop_lock:
+        return thread_id in _rag_synthesis_turn_given
 
 
 class RagBatchCapResult:
@@ -407,6 +424,7 @@ def _cleanup_stale_hard_stop() -> None:
         _rag_capped_tools.pop(k, None)
         _rag_cap_hit_counts.pop(k, None)
         _rag_hard_stop_timestamps.pop(k, None)
+        _rag_synthesis_turn_given.discard(k)
     if stale:
         logger.debug(f"hard-stop: cleaned up {len(stale)} stale entries")
 
@@ -421,6 +439,7 @@ def clear_rag_state(thread_id: str) -> None:
         _rag_capped_tools.pop(thread_id, None)
         _rag_cap_hit_counts.pop(thread_id, None)
         _rag_hard_stop_timestamps.pop(thread_id, None)
+        _rag_synthesis_turn_given.discard(thread_id)
     with SearchCapWrapper._global_lock:
         SearchCapWrapper._global_counts.pop(thread_id, None)
         SearchCapWrapper._global_timestamps.pop(thread_id, None)

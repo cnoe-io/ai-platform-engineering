@@ -90,16 +90,15 @@ def _generate_tool_call_id() -> str:
     return f"call_{uuid.uuid4().hex[:24]}"
 
 
-def _rag_terminal_response(tool_messages: list) -> dict:
+def _rag_terminal_response(tool_messages: list, thread_id: str = "") -> dict:
     """Build the terminal state update when RAG caps are fully exhausted.
 
-    In USE_STRUCTURED_RESPONSE mode the graph must not jump_to=end because
-    the LLM still needs a turn to call the ResponseFormat/PlatformEngineerResponse
-    tool — skipping it produces an empty response (same reason the write_todos
-    redundancy path avoids jump_to=end in structured mode).
+    In USE_STRUCTURED_RESPONSE mode the LLM needs one free turn to call the
+    ResponseFormat/PlatformEngineerResponse tool before the graph can exit.
+    We grant exactly one synthesis turn; if the model ignores the nudge and
+    calls a RAG tool again we force jump_to=end to prevent an infinite loop.
 
-    In plain-text mode jump_to=end is safe because the response assembler
-    reads the last prose AIMessage directly from state.
+    In plain-text mode jump_to=end is always safe.
     """
     try:
         from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE  # noqa: PLC0415
@@ -107,9 +106,26 @@ def _rag_terminal_response(tool_messages: list) -> dict:
         USE_STRUCTURED_RESPONSE = False
 
     if USE_STRUCTURED_RESPONSE:
+        try:
+            from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (  # noqa: PLC0415
+                record_synthesis_turn_given,
+                was_synthesis_turn_given,
+            )
+            if thread_id and was_synthesis_turn_given(thread_id):
+                # Already gave the model one synthesis turn and it called RAG again.
+                # Force termination to prevent an infinite loop.
+                logger.info(
+                    "[DeterministicTaskMiddleware] RAG hard-stop: structured response mode"
+                    " — synthesis turn already given, forcing jump_to=end"
+                )
+                return {"messages": tool_messages, "jump_to": "end"}
+            if thread_id:
+                record_synthesis_turn_given(thread_id)
+        except ImportError:
+            pass
         logger.info(
             "[DeterministicTaskMiddleware] RAG hard-stop: structured response mode"
-            " — omitting jump_to=end so LLM can call ResponseFormat"
+            " — granting one synthesis turn so LLM can call ResponseFormat"
         )
         return {"messages": tool_messages}
     return {"messages": tool_messages, "jump_to": "end"}
@@ -373,7 +389,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                                 _record_rag_cap_hit(thread_id, "search")
                             if cap.fetch_excess > 0 and cap.fetch_allowed == 0:
                                 _record_rag_cap_hit(thread_id, "fetch_document")
-                            return _rag_terminal_response(tool_messages)
+                            return _rag_terminal_response(tool_messages, thread_id)
                         return {"messages": tool_messages}
 
                 # Fallback: a non-parallel call slipped through to _arun and was capped there.
@@ -395,7 +411,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                         ]
                         for tc in rag_calls:
                             _record_rag_cap_hit(thread_id, tc["name"])
-                        return _rag_terminal_response(tool_messages)
+                        return _rag_terminal_response(tool_messages, thread_id)
             except Exception as rag_err:
                 logger.warning(f"[DeterministicTaskMiddleware] RAG cap check failed: {rag_err}", exc_info=True)
             return None
