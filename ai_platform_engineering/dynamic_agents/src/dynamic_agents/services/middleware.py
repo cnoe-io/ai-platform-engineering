@@ -9,7 +9,8 @@ objects, validates singleton constraints, merges params over defaults,
 and instantiates the middleware stack.
 
 Special-case middleware (``pii``, ``llm_tool_selector``, ``model_fallback``,
-``context_editing``) require model instantiation or non-trivial
+``context_editing``, ``summarization``, ``human_in_the_loop``, ``shell_tool``,
+``filesystem_search``) require model instantiation or non-trivial
 construction and are handled with explicit builder functions.
 """
 
@@ -25,10 +26,14 @@ from langchain.agents.middleware.context_editing import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
 )
+from langchain.agents.middleware.file_search import FilesystemFileSearchMiddleware
+from langchain.agents.middleware.human_in_the_loop import HumanInTheLoopMiddleware
 from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddleware
 from langchain.agents.middleware.model_fallback import ModelFallbackMiddleware
 from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain.agents.middleware.pii import PIIMiddleware
+from langchain.agents.middleware.shell_tool import ShellToolMiddleware
+from langchain.agents.middleware.summarization import SummarizationMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
@@ -166,6 +171,57 @@ MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
         description="Falls back to an alternative model when primary fails",
         model_params=True,
     ),
+    "summarization": MiddlewareSpec(
+        cls=SummarizationMiddleware,
+        default_params={"trigger_tokens": 4000, "trigger_messages": 50, "keep_messages": 20},
+        enabled_by_default=False,
+        allow_multiple=False,
+        label="Conversation Summarization",
+        description="Summarizes conversation history when token or message limits are approached",
+        model_params=True,
+        param_schema={
+            "trigger_tokens": "number",
+            "trigger_messages": "number",
+            "keep_messages": "number",
+        },
+    ),
+    "human_in_the_loop": MiddlewareSpec(
+        cls=HumanInTheLoopMiddleware,
+        default_params={"tool_names": "", "description_prefix": "Tool execution requires approval"},
+        enabled_by_default=False,
+        allow_multiple=False,
+        label="Human-in-the-Loop",
+        description="Pauses agent execution for human approval before sensitive tool calls",
+        param_schema={
+            "tool_names": "string",
+            "description_prefix": "string",
+        },
+    ),
+    "shell_tool": MiddlewareSpec(
+        cls=ShellToolMiddleware,
+        default_params={"workspace_root": "", "tool_name": "shell"},
+        enabled_by_default=False,
+        allow_multiple=False,
+        label="Shell Tool",
+        description="Provides the agent with a persistent shell for executing bash commands",
+        param_schema={
+            "workspace_root": "string",
+            "tool_name": "string",
+        },
+    ),
+    "filesystem_search": MiddlewareSpec(
+        cls=FilesystemFileSearchMiddleware,
+        default_params={"root_path": "", "use_ripgrep": True, "max_file_size_mb": 10},
+        enabled_by_default=False,
+        allow_multiple=False,
+        label="Filesystem File Search",
+        description="Provides glob and grep search tools over a configured filesystem path",
+        param_schema={
+            "root_path": "string",
+            "use_ripgrep": "boolean",
+            "max_file_size_mb": "number",
+        },
+    ),
 }
 
 
@@ -255,12 +311,86 @@ def _build_model_fallback(params: dict[str, Any]) -> ModelFallbackMiddleware | N
     return ModelFallbackMiddleware(fallback_model)
 
 
+def _build_summarization(params: dict[str, Any]) -> SummarizationMiddleware | None:
+    """Build SummarizationMiddleware from flat params.
+
+    Requires ``model_id`` and ``model_provider`` to instantiate the summarizer LLM.
+    Returns None when no model is configured (middleware is skipped).
+    """
+    model_id = params.get("model_id")
+    model_provider = params.get("model_provider")
+    if not model_id or not model_provider:
+        logger.warning("summarization enabled but no model_id/model_provider configured, skipping")
+        return None
+
+    model = _instantiate_model(model_id, model_provider)
+    trigger_tokens = int(params.get("trigger_tokens", 4000))
+    trigger_messages = int(params.get("trigger_messages", 50))
+    keep_messages = int(params.get("keep_messages", 20))
+    return SummarizationMiddleware(
+        model=model,
+        trigger=[("tokens", trigger_tokens), ("messages", trigger_messages)],
+        keep=("messages", keep_messages),
+    )
+
+
+def _build_human_in_the_loop(params: dict[str, Any]) -> HumanInTheLoopMiddleware | None:
+    """Build HumanInTheLoopMiddleware from flat params.
+
+    Splits the comma-separated ``tool_names`` string into the ``interrupt_on`` dict.
+    Returns None when ``tool_names`` is empty (nothing to interrupt on).
+    """
+    raw = params.get("tool_names", "")
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    if not names:
+        logger.warning("human_in_the_loop enabled but no tool_names configured, skipping")
+        return None
+    interrupt_on = {name: True for name in names}
+    description_prefix = params.get("description_prefix", "Tool execution requires approval")
+    return HumanInTheLoopMiddleware(
+        interrupt_on=interrupt_on,
+        description_prefix=description_prefix,
+    )
+
+
+def _build_shell_tool(params: dict[str, Any]) -> ShellToolMiddleware:
+    """Build ShellToolMiddleware from flat params.
+
+    When ``workspace_root`` is empty, passes None so a temp directory is created per-session.
+    """
+    workspace_root = params.get("workspace_root") or None
+    tool_name = params.get("tool_name", "shell")
+    return ShellToolMiddleware(workspace_root=workspace_root, tool_name=tool_name)
+
+
+def _build_filesystem_search(params: dict[str, Any]) -> FilesystemFileSearchMiddleware | None:
+    """Build FilesystemFileSearchMiddleware from flat params.
+
+    Returns None when ``root_path`` is empty (middleware cannot function without a root).
+    """
+    root_path = params.get("root_path", "")
+    if not root_path:
+        logger.warning("filesystem_search enabled but no root_path configured, skipping")
+        return None
+    use_ripgrep = bool(params.get("use_ripgrep", True))
+    max_file_size_mb = int(params.get("max_file_size_mb", 10))
+    return FilesystemFileSearchMiddleware(
+        root_path=root_path,
+        use_ripgrep=use_ripgrep,
+        max_file_size_mb=max_file_size_mb,
+    )
+
+
 # Keys that need special construction instead of simple cls(**params)
 _SPECIAL_BUILDERS: dict[str, Callable[..., Any]] = {
     "context_editing": _build_context_editing,
     "pii": _build_pii,
     "llm_tool_selector": _build_llm_tool_selector,
     "model_fallback": _build_model_fallback,
+    "summarization": _build_summarization,
+    "human_in_the_loop": _build_human_in_the_loop,
+    "shell_tool": _build_shell_tool,
+    "filesystem_search": _build_filesystem_search,
 }
 
 
