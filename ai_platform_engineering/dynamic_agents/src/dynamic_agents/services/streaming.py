@@ -37,6 +37,8 @@ class StreamingMixin:
     _initialized: bool
     _skills_files: dict[str, Any]
     _failed_servers: list[str]
+    _failed_skills: list[str]
+    _failed_skills_error: str
     _user: Any
     _client_context: Any
     tracing: Any
@@ -124,6 +126,13 @@ class StreamingMixin:
         for server_name in self._failed_servers:
             for frame in encoder.on_warning(
                 f"MCP server '{server_name}' is unavailable. Tools from this server will not work.",
+            ):
+                yield frame
+
+        if self._failed_skills:
+            for frame in encoder.on_warning(
+                f"{len(self._failed_skills)} skill(s) failed to load and will not be available. "
+                f"{self._failed_skills_error}",
             ):
                 yield frame
 

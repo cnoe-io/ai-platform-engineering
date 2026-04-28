@@ -177,6 +177,8 @@ class AgentRuntime(StreamingMixin):
         self._missing_tools: list[str] = []
         self._failed_servers: list[str] = []  # Just server names
         self._failed_servers_error: str = ""  # Error message for display
+        self._failed_skills: list[str] = []  # Skill IDs that failed to load
+        self._failed_skills_error: str = ""  # Error message for display
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
         self._mcp_servers_updated_at: datetime = max(
@@ -290,6 +292,14 @@ class AgentRuntime(StreamingMixin):
                     mongodb_uri=self.settings.mongodb_uri,
                     mongodb_database=self.settings.mongodb_database,
                 )
+
+                # Track skills that were requested but not found
+                loaded_ids = {s["id"] for s in skills_data}
+                missing = [sid for sid in self.config.skills if sid not in loaded_ids]
+                if missing:
+                    self._failed_skills = missing
+                    self._failed_skills_error = f"Skills not found: {', '.join(missing)}"
+
                 if skills_data:
                     from ai_platform_engineering.skills_middleware import build_skills_files
 
@@ -304,7 +314,9 @@ class AgentRuntime(StreamingMixin):
                             f"({len(self._skills_files)} files, {len(skills_sources)} sources)"
                         )
             except Exception as e:
-                logger.warning(f"Agent '{self.config.name}': failed to load skills: {e}")
+                logger.warning(f"Agent '{self.config.name}': failed to load skills: {e}", exc_info=True)
+                self._failed_skills = list(self.config.skills)
+                self._failed_skills_error = f"Skills loading failed: {e}"
 
         # 9. Build middleware stack
         middleware_stack = build_middleware(
