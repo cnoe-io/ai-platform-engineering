@@ -188,7 +188,10 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   className="font-mono"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Unique identifier for this server (lowercase, no spaces)
+                  Unique identifier for this server (lowercase, no spaces).
+                  {id && !id.startsWith("mcp-") && (
+                    <> Stored as: <code className="text-xs font-mono text-primary">mcp-{id}</code></>
+                  )}
                 </p>
               </div>
             )}

@@ -41,18 +41,18 @@ interface DynamicAgentEditorProps {
 }
 
 /**
- * Generate a URL-safe slug from an agent name.
- * e.g., "Knowledge Agent" -> "knowledge_agent"
+ * Generate a URL-safe slug from an agent name with agent- prefix.
+ * e.g., "Knowledge Agent" -> "agent-knowledge-agent"
  */
 function generateSlug(name: string): string {
-  return name
+  const slug = name
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
-    .replace(/\s+/g, "_")          // Replace spaces with underscores
-    .replace(/-+/g, "_")           // Replace hyphens with underscores
-    .replace(/_+/g, "_")           // Collapse multiple underscores
-    .replace(/^_|_$/g, "");        // Trim leading/trailing underscores
+    .replace(/\s+/g, "-")          // Replace spaces with hyphens
+    .replace(/-+/g, "-")           // Collapse multiple hyphens
+    .replace(/^-|-$/g, "");        // Trim leading/trailing hyphens
+  return slug ? `agent-${slug}` : "";
 }
 
 const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [

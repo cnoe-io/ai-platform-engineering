@@ -271,8 +271,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
-    // Generate slug from name
-    const agentId = slugify(body.name);
+    // Generate slug from name with agent- prefix
+    const agentId = `agent-${slugify(body.name)}`;
     if (!agentId) {
       throw new ApiError("Agent name must contain at least one alphanumeric character", 400);
     }

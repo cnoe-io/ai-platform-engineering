@@ -127,11 +127,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
 
+    // Silently prepend mcp- prefix to user-provided ID
+    const serverId = body.id.startsWith("mcp-") ? body.id as string : `mcp-${body.id as string}`;
+
     // Uniqueness check
-    const existing = await collection.findOne({ _id: body.id });
+    const existing = await collection.findOne({ _id: serverId });
     if (existing) {
       throw new ApiError(
-        `MCP server with ID '${body.id}' already exists`,
+        `MCP server with ID '${serverId}' already exists`,
         409,
       );
     }
@@ -146,7 +149,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
     const doc = {
-      _id: body.id as string,
+      _id: serverId,
       name: body.name as string,
       description: (body.description as string) ?? "",
       transport: body.transport as TransportType,
