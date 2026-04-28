@@ -1,16 +1,20 @@
 """Agent Runtime service for Dynamic Agents.
 
 Creates and manages DeepAgent instances with MCP tools.
+
+This module contains the core ``AgentRuntime`` class.  Streaming,
+skill-loading, and caching logic live in sibling modules:
+
+- ``streaming.py``  — ``StreamingMixin`` (stream / resume / interrupt)
+- ``skills.py``     — ``load_skills()`` / ``extract_llm_prompt()``
+- ``pool.py``       — ``AgentRuntimeCache`` / ``get_runtime_cache()``
 """
 
-import json
 import logging
 import re
 import time
-from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
@@ -20,7 +24,6 @@ from jinja2 import ChainableUndefined, TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
-from langgraph.types import Command
 from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
@@ -41,7 +44,6 @@ from dynamic_agents.services.builtin_tools import (
     create_user_info_tool,
     create_wait_tool,
 )
-from dynamic_agents.services.encoders import StreamEncoder
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
@@ -49,17 +51,23 @@ from dynamic_agents.services.mcp_client import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
+from dynamic_agents.services.skills import load_skills
+from dynamic_agents.services.streaming import StreamingMixin
+
+# Re-export for backward compatibility — external code imports from here.
+from dynamic_agents.services.runtime_cache import AgentRuntimeCache, get_runtime_cache  # noqa: F401
 
 if TYPE_CHECKING:
+    from dynamic_agents.services.encoders import StreamEncoder
     from dynamic_agents.services.mongo import MongoDBService
 
 logger = logging.getLogger(__name__)
 
 
 def _sanitize_agent_name(name: str) -> str:
-    """Sanitize an agent name for use as a LangChain/OpenAI message `name` field.
+    """Sanitize an agent name for use as a LangChain/OpenAI message ``name`` field.
 
-    OpenAI requires message `name` fields to match the pattern ``^[^\\s<|\\\\/>]+$``
+    OpenAI requires message ``name`` fields to match the pattern ``^[^\\s<|\\\\/>]+$``
     (no whitespace, ``<``, ``|``, ``\\``, ``/``, or ``>``).  deepagents propagates
     the agent ``name`` into message ``name`` fields via its middleware, so we must
     ensure it conforms.
@@ -132,7 +140,7 @@ def _render_system_prompt(
         raise SystemPromptRenderError(f"System prompt template rendering failed: {exc}") from exc
 
 
-class AgentRuntime:
+class AgentRuntime(StreamingMixin):
     """Runtime for a single dynamic agent instance."""
 
     def __init__(
@@ -277,7 +285,11 @@ class AgentRuntime:
         skills_middleware_list: list = []
         if self.config.skills:
             try:
-                skills_data = self._load_skills(self.config.skills)
+                skills_data = load_skills(
+                    self.config.skills,
+                    mongodb_uri=self.settings.mongodb_uri,
+                    mongodb_database=self.settings.mongodb_database,
+                )
                 if skills_data:
                     from ai_platform_engineering.skills_middleware import build_skills_files
 
@@ -527,505 +539,6 @@ class AgentRuntime:
 
         return tools
 
-    @staticmethod
-    def _extract_llm_prompt(doc: dict[str, Any]) -> str:
-        """Extract llm_prompt from tasks[0] for template-based skills."""
-        tasks = doc.get("tasks")
-        if isinstance(tasks, list) and tasks:
-            return tasks[0].get("llm_prompt", "") if isinstance(tasks[0], dict) else ""
-        return ""
-
-    def _load_skills(self, skill_ids: list[str]) -> list[dict[str, Any]]:
-        """Load skill documents from MongoDB agent_skills collection.
-
-        Args:
-            skill_ids: List of skill document IDs to load.
-
-        Returns:
-            List of skill dicts compatible with ``build_skills_files()``.
-        """
-        import os
-
-        from pymongo import MongoClient as _MongoClient
-
-        database = os.getenv("MONGODB_DATABASE", self.settings.mongodb_database)
-        client = _MongoClient(self.settings.mongodb_uri, tz_aware=True)
-        logger.info(
-            "Loading skills from agent_skills: requested_ids=%s db=%s",
-            skill_ids,
-            database,
-        )
-        try:
-            db = client[database]
-            collection = db["agent_skills"]
-            # UI stores the `id` field (string slug), not the MongoDB `_id` (ObjectId).
-            # Query both to handle either format.
-            docs = list(
-                collection.find(
-                    {
-                        "$or": [
-                            {"id": {"$in": skill_ids}},
-                            {"_id": {"$in": skill_ids}},
-                        ]
-                    }
-                )
-            )
-            logger.info(
-                "MongoDB query returned %d docs for %d requested skill IDs",
-                len(docs),
-                len(skill_ids),
-            )
-        except Exception as e:
-            logger.warning("Failed to load skills from agent_skills: %s", e, exc_info=True)
-            return []
-        finally:
-            client.close()
-
-        # Index fetched docs by `id` and `_id` for fast lookup
-        found_ids: set[str] = set()
-        skills: list[dict[str, Any]] = []
-        for doc in docs:
-            name = doc.get("name", "")
-            description = doc.get("description", "")
-            doc_id = str(doc.get("id", "")) or str(doc.get("_id", ""))
-            found_ids.add(str(doc.get("id", "")))
-            found_ids.add(str(doc.get("_id", "")))
-
-            if not name:
-                logger.warning("Skipping skill doc %s: missing name", doc_id)
-                continue
-
-            content = doc.get("skill_content") or doc.get("skill_template") or self._extract_llm_prompt(doc) or ""
-            content_source = (
-                "skill_content"
-                if doc.get("skill_content")
-                else "skill_template"
-                if doc.get("skill_template")
-                else "tasks[0].llm_prompt"
-                if self._extract_llm_prompt(doc)
-                else "empty"
-            )
-            logger.debug(
-                "Skill %r (%s): content_source=%s content_len=%d",
-                name,
-                doc_id,
-                content_source,
-                len(content),
-            )
-
-            owner_user = doc.get("owner_user_id") or str(doc.get("owner_id", ""))
-            raw_ancillary = doc.get("ancillary_files")
-            ancillary: dict[str, str] = raw_ancillary if isinstance(raw_ancillary, dict) else {}
-
-            skills.append(
-                {
-                    "id": doc_id,
-                    "name": str(name),
-                    "description": str(description)[:1024],
-                    "source": "agent_skills",
-                    "source_id": doc.get("owner_id"),
-                    "content": content,
-                    "metadata": doc.get("metadata", {}),
-                    "visibility": doc.get("visibility"),
-                    "team_ids": doc.get("team_ids"),
-                    "owner_user_id": owner_user,
-                    "ancillary_files": ancillary,
-                }
-            )
-
-        missing = [sid for sid in skill_ids if sid not in found_ids]
-        if missing:
-            logger.warning("Skills not found in agent_skills: %s", missing)
-        logger.info(
-            "Loaded %d/%d skills from agent_skills (missing=%d)",
-            len(skills),
-            len(skill_ids),
-            len(missing),
-        )
-        return skills
-
-    def _build_stream_config(self, session_id: str, user_id: str, trace_id: str | None) -> dict[str, Any]:
-        """Build config dict for stream/resume operations.
-
-        Creates the LangGraph config with:
-        - thread_id for conversation persistence (checkpointer)
-        - AgentContext for tools that need user/session info
-        - metadata for Langfuse tracing
-
-        Args:
-            session_id: Conversation/session ID
-            user_id: User's email/identifier
-            trace_id: Optional trace ID for distributed tracing
-
-        Returns:
-            Config dict for astream()
-        """
-        config = self.tracing.create_config(session_id)
-
-        if "configurable" not in config:
-            config["configurable"] = {}
-        config["configurable"]["thread_id"] = session_id
-
-        config["context"] = AgentContext(
-            user_id=user_id,
-            agent_config_id=self.config.id,
-            session_id=session_id,
-        )
-
-        if "metadata" not in config:
-            config["metadata"] = {}
-        config["metadata"]["user_id"] = user_id
-        config["metadata"]["agent_config_id"] = self.config.id
-        config["metadata"]["agent_name"] = self.config.name
-
-        if trace_id:
-            config["metadata"]["trace_id"] = trace_id
-        else:
-            # Fallback to TracingManager context
-            current_trace_id = self.tracing.get_trace_id()
-            if current_trace_id:
-                config["metadata"]["trace_id"] = current_trace_id
-
-        self._current_trace_id = config.get("metadata", {}).get("trace_id")
-
-        return config
-
-    async def stream(
-        self,
-        message: str,
-        session_id: str,
-        user_id: str,
-        trace_id: str | None = None,
-        encoder: StreamEncoder | None = None,
-    ) -> AsyncGenerator[str, None]:
-        """Stream agent response for a user message.
-
-        Yields SSE frame strings produced by the encoder. The encoder handles
-        all protocol-specific formatting — this method only orchestrates the
-        LangGraph stream lifecycle.
-
-        Args:
-            message: User's input message
-            session_id: Conversation/session ID for checkpointing
-            user_id: User's email/identifier
-            trace_id: Optional trace ID for Langfuse tracing
-            encoder: StreamEncoder instance for protocol-specific formatting.
-                     Must be provided by the caller.
-
-        Yields:
-            SSE frame strings
-        """
-        if not self._initialized:
-            await self.initialize()
-
-        assert encoder is not None, "encoder must be provided"
-
-        # Reset cancellation flag at start of each stream
-        self._cancelled = False
-
-        config = self._build_stream_config(session_id, user_id, trace_id)
-        run_id = f"run-{uuid4().hex[:12]}"
-        turn_start = time.monotonic()
-        turn_status = "success"
-
-        logger.info(
-            f"[stream] Starting stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
-            f"user_context={self._user}, client_context={self._client_context}"
-        )
-
-        # ── Core lifecycle: run start ──
-        for frame in encoder.on_run_start(run_id, session_id):
-            yield frame
-
-        # ── Core lifecycle: warnings ──
-        for server_name in self._failed_servers:
-            for frame in encoder.on_warning(
-                f"MCP server '{server_name}' is unavailable. Tools from this server will not work.",
-            ):
-                yield frame
-
-        # ── Core lifecycle: chunks ──
-        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
-        # Inject skills files for SkillsMiddleware / StateBackend
-        if getattr(self, "_skills_files", None):
-            state_input["files"] = dict(self._skills_files)
-        async for chunk in self._graph.astream(
-            state_input,
-            config=config,
-            stream_mode=["messages", "updates", "tasks"],
-            subgraphs=True,
-        ):
-            # Check for cancellation between chunks
-            if self._cancelled:
-                logger.info(
-                    f"[stream] Stream cancelled by user for agent '{self.config.name}': "
-                    f"conv={session_id}, user={user_id}"
-                )
-                turn_status = "cancelled"
-                self._record_turn(turn_start, "stream", turn_status)
-                return
-
-            for frame in encoder.on_chunk(chunk):
-                yield frame
-
-        # ── Core lifecycle: stream end (flush) ──
-        for frame in encoder.on_stream_end():
-            yield frame
-
-        # ── HITL interrupt check ──
-        logger.debug("[stream] Stream loop completed, checking for pending interrupt...")
-        interrupt_data = await self.has_pending_interrupt(session_id)
-        logger.debug(f"[stream] has_pending_interrupt result: {interrupt_data}")
-        if interrupt_data:
-            logger.debug(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
-            for frame in encoder.on_input_required(
-                interrupt_id=interrupt_data["interrupt_id"],
-                prompt=interrupt_data["prompt"],
-                fields=interrupt_data["fields"],
-                agent=self.config.name,
-            ):
-                yield frame
-            self._record_turn(turn_start, "stream", "interrupted")
-            return  # Don't continue, stream paused for user input
-
-        # ── Core lifecycle: run finish ──
-        logger.info(
-            f"[stream] Completed stream for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
-        )
-        for frame in encoder.on_run_finish(run_id, session_id):
-            yield frame
-        self._record_turn(turn_start, "stream", turn_status)
-
-    async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
-        """Check if there's a pending interrupt for the given session.
-
-        Uses the HumanInTheLoopMiddleware pattern from deepagents. When interrupt_on
-        is configured for a tool, the middleware intercepts the tool call and creates
-        an interrupt with action_requests containing the tool call info.
-
-        Args:
-            session_id: Conversation/session ID
-
-        Returns:
-            Interrupt data dict if there's a pending request_user_input interrupt, None otherwise.
-            The dict contains: interrupt_id, prompt, fields, tool_call_id
-        """
-        if not self._graph:
-            logger.warning("[has_pending_interrupt] No graph available")
-            return None
-
-        config = {"configurable": {"thread_id": session_id}}
-
-        try:
-            state = await self._graph.aget_state(config)
-            logger.debug(
-                f"[has_pending_interrupt] Got state: has_interrupts={hasattr(state, 'interrupts')}, "
-                f"interrupts_count={len(state.interrupts) if hasattr(state, 'interrupts') and state.interrupts else 0}"
-            )
-
-            # HumanInTheLoopMiddleware stores interrupts in state.interrupts (not state.tasks)
-            if not state or not hasattr(state, "interrupts") or not state.interrupts:
-                logger.debug("[has_pending_interrupt] No interrupts in state")
-                return None
-
-            # Check each interrupt for request_user_input tool call
-            for i, interrupt in enumerate(state.interrupts):
-                interrupt_value = getattr(interrupt, "value", None)
-                logger.debug(f"[has_pending_interrupt] Interrupt {i}: value_type={type(interrupt_value)}")
-
-                if not isinstance(interrupt_value, dict):
-                    continue
-
-                # HumanInTheLoopMiddleware format: {"action_requests": [...], "review_configs": [...]}
-                action_requests = interrupt_value.get("action_requests", [])
-                for action in action_requests:
-                    if action.get("name") == "request_user_input":
-                        # Extract form metadata from tool arguments
-                        args = action.get("args", {})
-                        tool_call_id = action.get("id", str(id(interrupt)))
-                        logger.info(
-                            f"[has_pending_interrupt] Found request_user_input interrupt: tool_call_id={tool_call_id}"
-                        )
-                        return {
-                            "interrupt_id": tool_call_id,
-                            "prompt": args.get("prompt", ""),
-                            "fields": args.get("fields", []),
-                            "tool_call_id": tool_call_id,
-                        }
-
-            logger.debug("[has_pending_interrupt] No request_user_input interrupt found")
-            return None
-        except Exception as e:
-            logger.warning(f"Error checking for pending interrupt: {e}")
-            return None
-
-    async def resume(
-        self,
-        session_id: str,
-        user_id: str,
-        form_data: str,
-        trace_id: str | None = None,
-        encoder: StreamEncoder | None = None,
-    ) -> AsyncGenerator[str, None]:
-        """Resume agent execution after user provides form input.
-
-        Uses the HumanInTheLoopMiddleware pattern from deepagents. The form_data
-        is converted to a decision format that the middleware expects.
-
-        Args:
-            session_id: Conversation/session ID
-            user_id: User's email/identifier
-            form_data: JSON string of form values (e.g. {"field_name": "value"}),
-                      or rejection message if user dismissed the form
-            trace_id: Optional trace ID for Langfuse tracing
-            encoder: StreamEncoder instance for protocol-specific formatting.
-                     Must be provided by the caller.
-
-        Yields:
-            SSE frame strings
-        """
-        if not self._initialized:
-            await self.initialize()
-
-        assert encoder is not None, "encoder must be provided"
-
-        # Reset cancellation flag at start of resume
-        self._cancelled = False
-
-        config = self._build_stream_config(session_id, user_id, trace_id)
-        run_id = f"run-{uuid4().hex[:12]}"
-        turn_start = time.monotonic()
-        turn_status = "success"
-
-        logger.info(
-            f"[resume] Resuming stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
-            f"user_context={self._user}, client_context={self._client_context}"
-        )
-
-        # ── Core lifecycle: run start ──
-        for frame in encoder.on_run_start(run_id, session_id):
-            yield frame
-
-        # Check if this is a rejection (dismiss) or submission
-        # Rejection message format: "User dismissed the input form without providing values."
-        is_rejection = form_data.startswith("User dismissed")
-
-        if is_rejection:
-            # User rejected/dismissed the form
-            resume_payload = {"decisions": [{"type": "reject", "message": form_data}]}
-        else:
-            # User submitted the form - parse values and build edited args
-            try:
-                user_values = json.loads(form_data)
-            except json.JSONDecodeError:
-                logger.warning(f"[resume] Invalid form_data JSON: {form_data[:100]}")
-                user_values = {}
-
-            # Get the pending interrupt to find original tool args
-            interrupt_data = await self.has_pending_interrupt(session_id)
-            if interrupt_data:
-                # Build edited args with user values merged into fields
-                original_fields = interrupt_data.get("fields", [])
-                edited_fields = []
-                for field in original_fields:
-                    field_copy = dict(field)
-                    field_name = field.get("field_name", "")
-                    if field_name in user_values:
-                        field_copy["value"] = user_values[field_name]
-                    edited_fields.append(field_copy)
-
-                edited_args = {
-                    "prompt": interrupt_data.get("prompt", ""),
-                    "fields": edited_fields,
-                }
-
-                resume_payload = {
-                    "decisions": [
-                        {
-                            "type": "edit",
-                            "edited_action": {
-                                "name": "request_user_input",
-                                "args": edited_args,
-                            },
-                        }
-                    ]
-                }
-            else:
-                # No interrupt found, just approve (shouldn't happen normally)
-                logger.warning("[resume] No pending interrupt found, using simple approve")
-                resume_payload = {"decisions": [{"type": "approve"}]}
-
-        logger.debug(f"[resume] Resume payload: {resume_payload}")
-
-        # ── Core lifecycle: chunks ──
-        async for chunk in self._graph.astream(
-            Command(resume=resume_payload),
-            config=config,
-            stream_mode=["messages", "updates", "tasks"],
-            subgraphs=True,
-        ):
-            # Check for cancellation between chunks
-            if self._cancelled:
-                logger.info(
-                    f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
-                )
-                turn_status = "cancelled"
-                self._record_turn(turn_start, "resume", turn_status)
-                return
-
-            for frame in encoder.on_chunk(chunk):
-                yield frame
-
-        # ── Core lifecycle: stream end (flush) ──
-        for frame in encoder.on_stream_end():
-            yield frame
-
-        # ── HITL interrupt check ──
-        interrupt_data = await self.has_pending_interrupt(session_id)
-        if interrupt_data:
-            logger.debug(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
-            for frame in encoder.on_input_required(
-                interrupt_id=interrupt_data["interrupt_id"],
-                prompt=interrupt_data["prompt"],
-                fields=interrupt_data["fields"],
-                agent=self.config.name,
-            ):
-                yield frame
-            self._record_turn(turn_start, "resume", "interrupted")
-            return  # Don't continue, stream paused
-
-        # ── Core lifecycle: run finish ──
-        logger.info(
-            f"[resume] Completed resume for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
-        )
-        for frame in encoder.on_run_finish(run_id, session_id):
-            yield frame
-        self._record_turn(turn_start, "resume", turn_status)
-
-    def _record_turn(self, start: float, turn_type: str, status: str) -> None:
-        """Record turn duration to both Histogram and Summary."""
-        duration = time.monotonic() - start
-        labels = {
-            "agent_name": self.config.name,
-            "model_id": self.config.model.id,
-            "turn_type": turn_type,
-            "status": status,
-        }
-        prom_metrics.turns_total.labels(**labels).inc()
-        prom_metrics.turn_duration_seconds.labels(**labels).observe(duration)
-        prom_metrics.turn_duration_summary.labels(**labels).observe(duration)
-        logger.info(
-            "[%s] Turn completed for agent '%s': status=%s duration=%.2fs",
-            turn_type,
-            self.config.name,
-            status,
-            duration,
-        )
-
     async def cleanup(self) -> None:
         """Cleanup MCP client connections and MongoDB checkpointer."""
         if self._mcp_client:
@@ -1075,150 +588,3 @@ class AgentRuntime:
         if current_mcp_max != self._mcp_servers_updated_at:
             return True
         return False
-
-
-class AgentRuntimeCache:
-    """Cache for AgentRuntime instances with TTL-based cleanup."""
-
-    def __init__(self, ttl_seconds: int = 3600, mongo_service: "MongoDBService | None" = None):
-        self._cache: dict[str, AgentRuntime] = {}
-        self._ttl = ttl_seconds
-        self._mongo_service = mongo_service
-
-    def set_mongo_service(self, mongo_service: "MongoDBService") -> None:
-        """Set the MongoDB service for subagent resolution.
-
-        This is called after the cache is created, since the MongoDB service
-        may not be available at cache creation time.
-        """
-        self._mongo_service = mongo_service
-
-    def _make_key(self, agent_id: str, session_id: str) -> str:
-        """Create cache key from agent and session IDs."""
-        return f"{agent_id}:{session_id}"
-
-    async def get_or_create(
-        self,
-        agent_config: DynamicAgentConfig,
-        mcp_servers: list[MCPServerConfig],
-        session_id: str,
-        user: UserContext | None = None,
-        client_context: ClientContext | None = None,
-    ) -> AgentRuntime:
-        """Get an existing runtime or create a new one.
-
-        Args:
-            agent_config: Dynamic agent configuration
-            mcp_servers: Available MCP server configurations
-            session_id: Conversation/session ID
-            user: User context for builtin tools
-            client_context: Opaque client context for system prompt rendering
-
-        Returns:
-            Initialized AgentRuntime instance
-        """
-        key = self._make_key(agent_config.id, session_id)
-
-        # Check if we have a cached runtime
-        if key in self._cache:
-            runtime = self._cache[key]
-            # Invalidate if config has changed or TTL expired
-            if runtime.is_stale(agent_config, mcp_servers):
-                logger.info(
-                    "Runtime cache invalidated due to config change for agent %s",
-                    agent_config.id,
-                )
-                await runtime.cleanup()
-                del self._cache[key]
-            elif runtime.age_seconds >= self._ttl:
-                # TTL expired, cleanup and recreate
-                await runtime.cleanup()
-                del self._cache[key]
-            else:
-                return runtime
-
-        # Create new runtime with MongoDB service for subagent resolution
-        runtime = AgentRuntime(
-            agent_config,
-            mcp_servers,
-            mongo_service=self._mongo_service,
-            user=user,
-            client_context=client_context,
-            session_id=session_id,
-        )
-        await runtime.initialize()
-        self._cache[key] = runtime
-
-        # Cleanup old entries
-        await self._cleanup_expired()
-
-        return runtime
-
-    async def _cleanup_expired(self) -> None:
-        """Remove expired runtimes from cache."""
-        expired_keys = [key for key, runtime in self._cache.items() if runtime.age_seconds >= self._ttl]
-        for key in expired_keys:
-            runtime = self._cache.pop(key, None)
-            if runtime:
-                await runtime.cleanup()
-
-    async def clear(self) -> None:
-        """Clear all cached runtimes."""
-        for runtime in self._cache.values():
-            await runtime.cleanup()
-        self._cache.clear()
-
-    async def invalidate(self, agent_id: str, session_id: str) -> bool:
-        """Invalidate a specific runtime from the cache.
-
-        Args:
-            agent_id: Agent configuration ID
-            session_id: Conversation/session ID
-
-        Returns:
-            True if a runtime was invalidated, False if not found
-        """
-        key = self._make_key(agent_id, session_id)
-        runtime = self._cache.pop(key, None)
-        if runtime:
-            await runtime.cleanup()
-            logger.info(f"Runtime cache invalidated for agent={agent_id}, conv={session_id}")
-            return True
-        return False
-
-    def cancel_stream(self, agent_id: str, session_id: str) -> bool:
-        """Cancel an active stream for a specific agent/session.
-
-        This sets the cancellation flag on the runtime, which will cause
-        the stream to exit gracefully at the next chunk boundary.
-
-        Args:
-            agent_id: Agent configuration ID
-            session_id: Conversation/session ID
-
-        Returns:
-            True if cancellation was requested, False if no runtime or already cancelled
-        """
-        key = self._make_key(agent_id, session_id)
-        runtime = self._cache.get(key)
-        if runtime:
-            cancelled = runtime.cancel()
-            logger.info(
-                f"[cancel_stream] Cancel requested for agent={agent_id}, session={session_id}: cancelled={cancelled}"
-            )
-            return cancelled
-        logger.warning(f"[cancel_stream] No runtime found for agent={agent_id}, session={session_id}")
-        return False
-
-
-# Singleton cache instance
-_runtime_cache: AgentRuntimeCache | None = None
-
-
-def get_runtime_cache() -> AgentRuntimeCache:
-    """Get the singleton runtime cache."""
-    global _runtime_cache
-    if _runtime_cache is None:
-        settings = get_settings()
-        _runtime_cache = AgentRuntimeCache(ttl_seconds=settings.agent_runtime_ttl_seconds)
-    return _runtime_cache
