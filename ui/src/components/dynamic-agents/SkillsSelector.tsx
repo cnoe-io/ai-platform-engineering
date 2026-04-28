@@ -228,6 +228,16 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
                 </Badge>
               ))}
           </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => !disabled && onChange([])}
+              disabled={disabled}
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors underline underline-offset-2"
+            >
+              Clear all
+            </button>
+          </div>
         </div>
       )}
 
