@@ -51,7 +51,7 @@ from dynamic_agents.services.mcp_client import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
-from dynamic_agents.services.skills import load_skills
+from dynamic_agents.services.skills import build_skills_files, load_skills
 from dynamic_agents.services.streaming import StreamingMixin
 
 # Re-export for backward compatibility — external code imports from here.
@@ -301,8 +301,6 @@ class AgentRuntime(StreamingMixin):
                     self._failed_skills_error = f"Skills not found: {', '.join(missing)}"
 
                 if skills_data:
-                    from ai_platform_engineering.skills_middleware import build_skills_files
-
                     self._skills_files, skills_sources = build_skills_files(skills_data)
                     if skills_sources:
                         from deepagents.backends.state import StateBackend
