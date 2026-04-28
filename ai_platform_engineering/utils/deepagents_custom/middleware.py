@@ -90,6 +90,38 @@ def _generate_tool_call_id() -> str:
     return f"call_{uuid.uuid4().hex[:24]}"
 
 
+def _rag_terminal_response(tool_messages: list, thread_id: str = "") -> dict:
+    """Build the terminal state update when RAG caps are fully exhausted."""
+    try:
+        from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import USE_STRUCTURED_RESPONSE  # noqa: PLC0415
+    except ImportError:
+        USE_STRUCTURED_RESPONSE = False
+
+    if USE_STRUCTURED_RESPONSE:
+        try:
+            from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (  # noqa: PLC0415
+                record_synthesis_turn_given,
+                was_synthesis_turn_given,
+            )
+            if thread_id and was_synthesis_turn_given(thread_id):
+                logger.info(
+                    "[DeterministicTaskMiddleware] RAG hard-stop: structured response mode "
+                    "synthesis turn already given, forcing jump_to=end"
+                )
+                return {"messages": tool_messages, "jump_to": "end"}
+            if thread_id:
+                record_synthesis_turn_given(thread_id)
+        except ImportError:
+            pass
+        logger.info(
+            "[DeterministicTaskMiddleware] RAG hard-stop: structured response mode "
+            "granting one synthesis turn so LLM can call ResponseFormat"
+        )
+        return {"messages": tool_messages}
+
+    return {"messages": tool_messages, "jump_to": "end"}
+
+
 class DeterministicTaskMiddleware(AgentMiddleware):
     """Middleware for deterministic task execution using before_model + wrap_tool_call.
     
@@ -311,8 +343,7 @@ class DeterministicTaskMiddleware(AgentMiddleware):
                             )
                             for tc in rag_calls
                         ]
-                        # Return tool responses WITHOUT jump_to so the LLM gets a turn to synthesize
-                        return {"messages": tool_messages}
+                        return _rag_terminal_response(tool_messages, thread_id)
             except Exception as rag_err:
                 # Log full traceback in case RAG checking is broken in a new way
                 logger.warning(f"[DeterministicTaskMiddleware] RAG hard-stop check failed: {rag_err}", exc_info=True)

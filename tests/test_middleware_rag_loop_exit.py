@@ -37,12 +37,15 @@ def _reset_rag_state():
     from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import (
         _rag_capped_tools,
         _rag_cap_hit_counts,
+        _rag_synthesis_turn_given,
     )
     _rag_capped_tools.clear()
     _rag_cap_hit_counts.clear()
+    _rag_synthesis_turn_given.clear()
     yield
     _rag_capped_tools.clear()
     _rag_cap_hit_counts.clear()
+    _rag_synthesis_turn_given.clear()
 
 
 def _patch_config(thread_id: str = "test-thread"):
@@ -77,6 +80,9 @@ class TestMiddlewareRagLoopExit:
         ), patch(
             "langgraph.config.get_config",
             return_value={"configurable": {"thread_id": "t1"}},
+        ), patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
+            False,
         ):
             result = middleware.after_model(state)
 
@@ -176,6 +182,9 @@ class TestMiddlewareRagLoopExit:
         ), patch(
             "langgraph.config.get_config",
             return_value={"configurable": {"thread_id": "t5"}},
+        ), patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
+            False,
         ):
             result = middleware.after_model(state)
 
@@ -225,3 +234,23 @@ class TestMiddlewareRagLoopExit:
         state = _make_state([AIMessage(content="Just a text response")])
         middleware = DeterministicTaskMiddleware()
         assert middleware.after_model(state) is None
+
+    def test_structured_response_second_rag_cap_forces_jump_to_end(self):
+        """Structured response mode gets one synthesis turn, then force exits if RAG is called again."""
+        from ai_platform_engineering.utils.deepagents_custom.middleware import _rag_terminal_response
+        from ai_platform_engineering.multi_agents.platform_engineer.rag_tools import _rag_synthesis_turn_given
+
+        thread_id = "t-structured"
+        messages = [ToolMessage(content="RAG budget exhausted.", tool_call_id="tc-1", name="search")]
+
+        with patch(
+            "ai_platform_engineering.multi_agents.platform_engineer.deep_agent.USE_STRUCTURED_RESPONSE",
+            True,
+        ):
+            first = _rag_terminal_response(messages, thread_id)
+            second = _rag_terminal_response(messages, thread_id)
+
+        assert "jump_to" not in first
+        assert thread_id in _rag_synthesis_turn_given
+        assert second["jump_to"] == "end"
+        assert second["messages"] == messages

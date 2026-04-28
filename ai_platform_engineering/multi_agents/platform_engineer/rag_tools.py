@@ -241,6 +241,7 @@ class SearchCapWrapper(_CapCounterMixin, BaseTool):
 _rag_cap_hit_counts: dict[str, int] = {}
 _rag_capped_tools: dict[str, set[str]] = {}
 _rag_hard_stop_lock = threading.Lock()
+_rag_synthesis_turn_given: set[str] = set()
 
 
 def _record_rag_cap_hit(thread_id: str, tool_name: str = "") -> None:
@@ -267,6 +268,18 @@ def is_rag_hard_stopped(thread_id: str) -> bool:
         return bool(_rag_capped_tools.get(thread_id))
 
 
+def record_synthesis_turn_given(thread_id: str) -> None:
+    """Mark that the model has already received one synthesis turn after cap exhaustion."""
+    with _rag_hard_stop_lock:
+        _rag_synthesis_turn_given.add(thread_id)
+
+
+def was_synthesis_turn_given(thread_id: str) -> bool:
+    """Return True if the model already received a synthesis turn for this thread."""
+    with _rag_hard_stop_lock:
+        return thread_id in _rag_synthesis_turn_given
+
+
 def clear_rag_state(thread_id: str) -> None:
     """Reset RAG cap counters for a thread at the start of a new query.
 
@@ -276,6 +289,7 @@ def clear_rag_state(thread_id: str) -> None:
     with _rag_hard_stop_lock:
         _rag_capped_tools.pop(thread_id, None)
         _rag_cap_hit_counts.pop(thread_id, None)
+        _rag_synthesis_turn_given.discard(thread_id)
     with FetchDocumentCapWrapper._global_lock:
         FetchDocumentCapWrapper._global_counts.pop(thread_id, None)
         FetchDocumentCapWrapper._global_timestamps.pop(thread_id, None)
