@@ -134,12 +134,15 @@ class APIClient {
     page_size?: number;
     archived?: boolean;
     pinned?: boolean;
+    client_type?: string;
   }): Promise<PaginatedResponse<Conversation>> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set('page', params.page.toString());
     if (params?.page_size) searchParams.set('page_size', params.page_size.toString());
     if (params?.archived !== undefined) searchParams.set('archived', params.archived.toString());
     if (params?.pinned !== undefined) searchParams.set('pinned', params.pinned.toString());
+    // Default to webui conversations only — excludes Slack/other client conversations
+    searchParams.set('client_type', params?.client_type || 'webui');
 
     return this.request(`/api/chat/conversations?${searchParams}`);
   }
