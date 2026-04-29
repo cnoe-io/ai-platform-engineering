@@ -1,11 +1,15 @@
 services:
   caipe-supervisor:
+    build:
+      context: ../..
+      dockerfile: build/Dockerfile
     image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-0.3.11-hotfix.2}
     container_name: caipe-supervisor-call-limits
     ports:
       - "8000:8000"
     volumes:
       - ../../charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
+      - ../../ai_platform_engineering:/app/ai_platform_engineering
       - ${HOME}/.aws:/home/appuser/.aws:ro
     env_file:
       - ../../.env
