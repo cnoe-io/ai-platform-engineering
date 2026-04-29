@@ -74,7 +74,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Count total matching documents (separate query for CosmosDB/DocumentDB compatibility)
     const total = await conversations.countDocuments(matchStage);
 
-    // Pipeline without $lookup/$facet for CosmosDB/DocumentDB compat
+    // IMPORTANT: All queries must be compatible with CosmosDB and DocumentDB.
+    // Do NOT use $facet or sub-pipeline $lookup (let/pipeline) — they are unsupported.
     const pipeline: any[] = [
       { $match: matchStage },
       {
