@@ -605,7 +605,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           </Button>
           <div>
             <CardTitle>
-              {readOnly ? "View Agent" : isEditing ? "Edit Agent" : isCloning ? "Clone Agent" : "Create Agent"}
+              {readOnly
+                ? `View Agent — ${agent?.name}`
+                : isEditing
+                ? `Edit Agent — ${agent?.name}`
+                : isCloning
+                ? "Clone Agent"
+                : "Create Agent"}
             </CardTitle>
             <CardDescription>
               {readOnly
