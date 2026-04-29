@@ -188,7 +188,7 @@ env:
   # -- Enable SummarizationMiddleware on the supervisor (compresses history at token/message thresholds)
   ENABLE_SUMMARIZATION_MIDDLEWARE: "false"
   # -- Token count that triggers summarization (0 = disabled)
-  SUMMARIZATION_TRIGGER_TOKENS: "40000"
+  SUMMARIZATION_TRIGGER_TOKENS: "100000"
   # -- Message count that triggers summarization (0 = disabled)
   SUMMARIZATION_TRIGGER_MESSAGES: "50"
   # -- Number of recent messages to keep after summarization
