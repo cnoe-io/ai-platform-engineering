@@ -77,6 +77,11 @@ webIngestor:
   # Additional envFrom references (secrets, configmaps)
   envFrom: []
 
+  # Extra volume mounts for the web-ingestor container (e.g. for Playwright browser cache)
+  extraVolumeMounts: []
+  # - name: playwright-browsers
+  #   mountPath: /opt/playwright
+
   # Resource limits for the web ingestor sidecar
   resources:
     requests:
@@ -105,6 +110,20 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Init containers to run before the main containers (e.g. install Playwright browsers)
+initContainers: []
+# - name: playwright-install
+#   image: "ghcr.io/cnoe-io/caipe-rag-ingestors:0.4.4"
+#   command: ["sh", "-c", "playwright install chromium"]
+#   volumeMounts:
+#     - name: playwright-browsers
+#       mountPath: /opt/playwright
+
+# Extra volumes for the pod (referenced by initContainers or webIngestor.extraVolumeMounts)
+extraVolumes: []
+# - name: playwright-browsers
+#   emptyDir: {}
 
 podAnnotations: {}
 podLabels: {}
