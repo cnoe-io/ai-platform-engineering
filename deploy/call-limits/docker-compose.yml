@@ -1,0 +1,34 @@
+services:
+  caipe-supervisor:
+    image: ghcr.io/cnoe-io/ai-platform-engineering:${IMAGE_TAG:-0.3.11-hotfix.2}
+    container_name: caipe-supervisor-call-limits
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../charts/ai-platform-engineering/data/prompt_config.deep_agent.yaml:/app/prompt_config.yaml
+      - ${HOME}/.aws:/home/appuser/.aws:ro
+    env_file:
+      - ../../.env
+    environment:
+      - AWS_CONFIG_FILE=/home/appuser/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
+      - PROMPT_CONFIG_PATH=/app/prompt_config.yaml
+      - A2A_TRANSPORT=p2p
+      - SKIP_AGENT_CONNECTIVITY_CHECK=true
+
+      # ── Call-limit middleware ─────────────────────────────────────────────
+      - ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE=${ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE:-true}
+      - TOOL_CALL_LIMIT=${TOOL_CALL_LIMIT:-50}
+      - TOOL_CALL_LIMIT_EXIT_BEHAVIOR=${TOOL_CALL_LIMIT_EXIT_BEHAVIOR:-continue}
+      - ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE=${ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE:-true}
+      - MODEL_CALL_LIMIT=${MODEL_CALL_LIMIT:-20}
+      - MODEL_CALL_LIMIT_EXIT_BEHAVIOR=${MODEL_CALL_LIMIT_EXIT_BEHAVIOR:-end}
+      # ─────────────────────────────────────────────────────────────────────
+
+    command: platform-engineer
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
