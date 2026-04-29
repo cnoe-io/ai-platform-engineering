@@ -883,13 +883,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
 
     try {
-      const res = await fetch("/api/agent-skills", { credentials: "include" });
+      const res = await fetch("/api/skills", { credentials: "include" });
       if (!res.ok) {
         updateMessage(convId, msgId, { content: "Skills are temporarily unavailable. Please try again later.", isFinal: true });
         return;
       }
       const data = await res.json();
-      const allSkills = Array.isArray(data) ? data : data?.skills || data?.data || [];
+      const allSkills = data?.skills || [];
       const skillIdSet = new Set(agentSkills);
       const filtered = allSkills.filter((s: { id: string }) => skillIdSet.has(s.id));
 
