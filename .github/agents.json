@@ -31,14 +31,19 @@
       "INSTALL_GLAB_CLI": "true"
     }
   },
-  "_mcp_build_args_comment": "Per-agent opt-in build args for build/agents/Dockerfile.mcp. Valid keys: INSTALL_NETUTILS. Add an entry only when the MCP agent genuinely invokes network diagnostic tools at runtime.",
+  "_mcp_build_args_comment": "Per-agent opt-in build args for build/agents/Dockerfile.mcp. Valid keys: INSTALL_NETUTILS, INSTALL_AWS_CLI, INSTALL_KUBECTL. Add an entry only when the MCP agent genuinely invokes the tool at runtime.",
   "mcp_build_args": {
+    "aws": {
+      "INSTALL_AWS_CLI": "true",
+      "INSTALL_KUBECTL": "true"
+    },
     "netutils": {
       "INSTALL_NETUTILS": "true"
     }
   },
   "mcp_agents": [
     "argocd",
+    "aws",
     "backstage",
     "confluence",
     "github",
