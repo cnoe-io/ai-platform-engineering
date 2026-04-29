@@ -28,6 +28,8 @@ interface ChatViewProps {
   allowedTools?: Record<string, string[]>;
   /** Configured subagents */
   subagents?: SubAgentRef[];
+  /** Configured skill IDs */
+  agentSkills?: string[];
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
   /** Whether the agent is disabled */
@@ -58,6 +60,7 @@ export function ChatView({
   agentGradient,
   allowedTools,
   subagents,
+  agentSkills,
   agentNotFound,
   agentDisabled,
   readOnly,
@@ -80,6 +83,7 @@ export function ChatView({
           agentId={selectedAgentId}
           agentGradient={agentGradient}
           agentName={agentName}
+          agentSkills={agentSkills}
           isLoadingMessages={isLoadingMessages}
         />
       </div>
@@ -95,6 +99,7 @@ export function ChatView({
         agentGradient={agentGradient}
         allowedTools={allowedTools}
         subagents={subagents}
+        agentSkills={agentSkills}
         agentNotFound={agentNotFound}
         agentDisabled={agentDisabled}
         collapsed={contextPanelCollapsed}

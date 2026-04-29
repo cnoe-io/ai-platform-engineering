@@ -1077,7 +1077,7 @@ function FileSection({
   return (
     <CollapsibleSection
       title={`${files.length} file${files.length !== 1 ? "s" : ""}`}
-      defaultExpanded={!turnEnded}
+      defaultExpanded={!turnEnded && files.length <= 10}
       autoCollapseOnStreamEnd
       isStreaming={isStreaming}
       contentClassName="px-3 pb-3"

@@ -10,7 +10,7 @@ Covers:
 import json
 from unittest.mock import MagicMock, patch
 
-from dynamic_agents.services.encoders.agui_sse import AGUIStreamEncoder
+from dynamic_agents.services.stream_encoders.agui_sse import AGUIStreamEncoder
 
 
 def _parse_frames(frames: list[str]) -> list[dict]:
@@ -100,15 +100,15 @@ class TestHandleMessagesNamespace:
         chunk = self._make_msg_chunk("hello")
         with (
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.extract_content",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.extract_content",
                 return_value="hello",
             ),
         ):
@@ -122,15 +122,15 @@ class TestHandleMessagesNamespace:
         chunk = self._make_msg_chunk("hello")
         with (
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.extract_content",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.extract_content",
                 return_value="hello",
             ),
         ):
@@ -147,15 +147,15 @@ class TestHandleMessagesNamespace:
         chunk = self._make_msg_chunk("x")
         with (
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.extract_content",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.extract_content",
                 return_value="x",
             ),
         ):
@@ -177,15 +177,15 @@ class TestHandleMessagesNamespace:
         chunk = self._make_msg_chunk("x")
         with (
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.is_tool_message",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.has_tool_calls",
                 return_value=False,
             ),
             patch(
-                "dynamic_agents.services.encoders.agui_sse.LangGraphStreamHelper.extract_content",
+                "dynamic_agents.services.stream_encoders.agui_sse.LangGraphStreamHelper.extract_content",
                 return_value="x",
             ),
         ):

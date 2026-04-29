@@ -163,12 +163,18 @@ async function seedAgents(
       system_prompt: (agentData.system_prompt as string) ?? "",
       allowed_tools:
         (agentData.allowed_tools as Record<string, string[]>) ?? {},
-      model_id: (agentData.model_id as string) ?? "",
-      model_provider: (agentData.model_provider as string) ?? "",
+      // Support both legacy (model_id/model_provider) and new (model.id/model.provider) formats
+      model: agentData.model
+        ? (agentData.model as { id: string; provider: string })
+        : {
+            id: (agentData.model_id as string) ?? "",
+            provider: (agentData.model_provider as string) ?? "",
+          },
       visibility: ((agentData.visibility as string) ?? "global") as VisibilityType,
       shared_with_teams:
         (agentData.shared_with_teams as string[]) ?? undefined,
       subagents: (agentData.subagents as SubAgentRef[]) ?? [],
+      skills: (agentData.skills as string[]) ?? [],
       builtin_tools:
         (agentData.builtin_tools as DynamicAgentConfig["builtin_tools"]) ??
         undefined,

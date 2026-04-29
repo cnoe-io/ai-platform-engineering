@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
 
     # Runtime
-    agent_runtime_ttl_seconds: int = 3600  # 1 hour cache TTL for agent runtimes
+    agent_runtime_ttl_seconds: int = 600  # 10 min inactivity TTL for agent runtimes
 
 
 @lru_cache

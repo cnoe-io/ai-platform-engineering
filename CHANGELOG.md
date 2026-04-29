@@ -1,3 +1,19 @@
+## 0.4.3-dev.2 (2026-04-28)
+
+### Feat
+
+- **dynamic-agents**: skills integration, subagent fixes, and agent editor UX (#1299)
+
+## 0.4.3-dev.1 (2026-04-28)
+
+### Fix
+
+- **ci**: oh no ui/ is NOT under ai_platform_engineering/?!?!
+- **ui**: missing asyncs???
+- **migration**: handle stringified artifact dicts and passthrough event types in 0.4.0 a2a migration (#1306)
+
+## 0.4.3 (2026-04-27)
+
 ## 0.4.2-dev.1 (2026-04-27)
 
 ### Fix

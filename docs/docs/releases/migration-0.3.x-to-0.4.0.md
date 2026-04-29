@@ -292,7 +292,7 @@ botConfig:
           bot_list: ["AlertBot"]
 ```
 
-See the [Slack Bot docs](/docs/integrations/slack-bot#channel-configuration) for full field reference.
+See the [Slack Bot docs](../integrations/slack-bot.md#channel-configuration) for full field reference.
 
 ---
 
