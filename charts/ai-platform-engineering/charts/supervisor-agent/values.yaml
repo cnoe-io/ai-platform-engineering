@@ -176,13 +176,13 @@ env:
   # -- Enable ToolCallLimitMiddleware on the supervisor (caps total tool invocations per run)
   ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE: "true"
   # -- Maximum number of tool calls allowed per run before the limit is enforced
-  TOOL_CALL_LIMIT: "500"
+  TOOL_CALL_LIMIT: "50"
   # -- Behavior when the tool call limit is reached: continue | end | error
   TOOL_CALL_LIMIT_EXIT_BEHAVIOR: "continue"
   # -- Enable ModelCallLimitMiddleware on the supervisor (caps total LLM inference calls per run)
   ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE: "true"
   # -- Maximum number of LLM calls allowed per run (ModelCallLimitMiddleware)
-  MODEL_CALL_LIMIT: "200"
+  MODEL_CALL_LIMIT: "20"
   # -- Behavior when the model call limit is reached: end | error | continue
   MODEL_CALL_LIMIT_EXIT_BEHAVIOR: "end"
 
