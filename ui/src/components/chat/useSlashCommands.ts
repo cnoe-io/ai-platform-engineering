@@ -61,14 +61,14 @@ export function useSlashCommands(agentSkillIds?: string[]): SlashCommand[] {
     let cancelled = false;
 
     if (agentSkillIds) {
-      // Dynamic agent — fetch from agent-skills and filter to configured IDs
+      // Dynamic agent — fetch from unified catalog and filter to configured IDs
       const skillIdSet = new Set(agentSkillIds);
 
-      fetch("/api/agent-skills", { credentials: "include" })
+      fetch("/api/skills", { credentials: "include" })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (cancelled) return;
-          const allSkills = Array.isArray(data) ? data : data?.skills || data?.data || [];
+          const allSkills = data?.skills || [];
           const filtered = allSkills.filter(
             (s: { id: string }) => skillIdSet.has(s.id),
           );
