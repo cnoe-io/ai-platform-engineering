@@ -1,3 +1,25 @@
+## 0.4.4-dev.3 (2026-04-29)
+
+### Fix
+
+- **rag-server**: install chromium_headless_shell and add init container chart support (#1320)
+
+## 0.4.4-dev.2 (2026-04-29)
+
+### Fix
+
+- **slack-bot**: get first matched agent, wire overthink (#1315)
+- **ui**: dynamic agent chat not loading skill slash commands (#1314)
+
+## 0.4.4-dev.1 (2026-04-29)
+
+### Fix
+
+- **ui**: remove $facet aggregation for CosmosDB/DocumentDB compatibility (#1321)
+- **docs**: fix broken link in 0.3.x-to-0.4.0 migration guide (#1316)
+
+## 0.4.4 (2026-04-28)
+
 ## 0.4.3-dev.2 (2026-04-28)
 
 ### Feat
