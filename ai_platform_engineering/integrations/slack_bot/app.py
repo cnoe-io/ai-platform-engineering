@@ -335,7 +335,7 @@ def handle_mention(event, say, client):
       owner_id = session_manager.get_thread_owner(thread_ts) or conv_metadata.get("thread_owner_agent_id")
       if owner_id:
         session_manager.set_thread_owner(thread_ts, owner_id)  # warm cache on restart
-        logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match")
+        logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match{_msg_link(channel_id, thread_ts)}")
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
 
@@ -390,7 +390,7 @@ def handle_mention(event, say, client):
 
     if isinstance(result, dict) and result.get("skipped"):
       reason = result.get("reason", "unknown")
-      logger.info(f"[{thread_ts}] Overthink: skipped mention response ({reason}) for {user_name}")
+      logger.info(f"[{thread_ts}] Overthink: skipped mention response ({reason}) for {user_name}{_msg_link(channel_id, thread_ts)}")
       session_manager.set_skipped(thread_ts, True)
       return
 
@@ -511,9 +511,9 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       if owner_id:
         session_manager.set_thread_owner(thread_root_ts, owner_id)  # warm cache on restart
         if owner_id != agent_match.agent_id:
-          logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, skipping agent={agent_match.agent_id}")
+          logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, skipping agent={agent_match.agent_id}{_msg_link(channel_id, thread_root_ts)}")
           return
-        logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, confirmed match")
+        logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, confirmed match{_msg_link(channel_id, thread_root_ts)}")
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
