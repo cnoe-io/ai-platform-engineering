@@ -301,19 +301,13 @@ def handle_mention(event, say, client):
     bot_user_id = bot_info.get("user_id")
 
     matches = _match_agents(channel_config, is_bot=False, user_id=user_id, listen="mention")
-    if not matches:
-      # Fall back to global default agent with no special config
-      matches = [None]
+    first_agent_id = matches[0].agent_id if matches else (config.defaults.default_agent_id or "")
 
-    # Conversation and context are per-thread — create once, shared across all matched agents.
-    primary_agent_id = matches[0].agent_id if matches[0] else (config.defaults.default_agent_id or "")
-
-    # Create or retrieve conversation via shared API (server owns ID generation).
-    # Must happen BEFORE context building so we can use `created` to decide
-    # full vs delta thread context.
+    # create_conversation is idempotent on thread_ts but we need conv_created/metadata
+    # to decide full vs delta context, so call it once before the loop.
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
-      agent_id=primary_agent_id,
+      agent_id=first_agent_id,
       owner_id=user_email or user_id,
       idempotency_key=thread_ts,
       metadata={
@@ -344,8 +338,8 @@ def handle_mention(event, say, client):
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
     team_id = event.get("team")
 
-    for agent_match in matches:
-      agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
+    for agent_match in matches if matches else [None]:
+      agent_id = agent_match.agent_id if agent_match else first_agent_id
       overthink = agent_match.users.overthink if agent_match and agent_match.users else None
 
       agent_context_message = context_message
