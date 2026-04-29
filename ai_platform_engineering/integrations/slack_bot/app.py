@@ -176,12 +176,14 @@ def _track_interaction(
   user_name: str | None = None,
   response_time_ms: int | None = None,
   last_processed_ts: str | None = None,
+  thread_owner_agent_id: str | None = None,
 ) -> None:
   """PATCH conversation metadata with interaction tracking fields.
 
   Called after each successful AI response to record who interacted,
   how long it took, and what kind of interaction it was.  Also updates
-  ``last_processed_ts`` for delta context on follow-ups.
+  ``last_processed_ts`` for delta context on follow-ups, and persists
+  ``thread_owner_agent_id`` so thread ownership survives bot restarts.
   """
   metadata: dict[str, object] = {
     "interaction_type": interaction_type,
@@ -201,6 +203,9 @@ def _track_interaction(
 
   if last_processed_ts:
     metadata["last_processed_ts"] = last_processed_ts
+
+  if thread_owner_agent_id:
+    metadata["thread_owner_agent_id"] = thread_owner_agent_id
 
   try:
     sse_client.update_conversation_metadata(conversation_id, metadata)
@@ -300,13 +305,12 @@ def handle_mention(event, say, client):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
+    # Run normal match first to seed agent_id for conversation creation.
+    # Ownership may override this below once we have conv_metadata.
     matches = _match_agents(channel_config, is_bot=False, user_id=user_id, listen="mention")
     agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
 
-    # Create or retrieve conversation via shared API (server owns ID generation).
-    # Must happen BEFORE context building so we can use `created` to decide
-    # full vs delta thread context.
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
       agent_id=agent_id,
@@ -323,6 +327,20 @@ def handle_mention(event, say, client):
     conv_created = conv_result["created"]
     conv_metadata = conv_result.get("metadata", {})
 
+    # Thread ownership: resolve from in-memory cache (hot path) or server
+    # metadata (survives restarts). Only applies to thread replies — root
+    # messages establish ownership after they respond.
+    is_thread_reply = bool(event.get("thread_ts"))
+    if is_thread_reply:
+      owner_id = session_manager.get_thread_owner(thread_ts) or conv_metadata.get("thread_owner_agent_id")
+      if owner_id:
+        session_manager.set_thread_owner(thread_ts, owner_id)  # warm cache on restart
+        logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match{_msg_link(channel_id, thread_ts)}")
+        agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
+        agent_id = owner_id
+
+    overthink = agent_match.users.overthink if agent_match and agent_match.users else None
+
     # Build thread context: full on first interaction, delta on follow-ups
     context_message = message_text
     if event.get("thread_ts"):
@@ -336,11 +354,11 @@ def handle_mention(event, say, client):
     if is_humble_followup:
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
-      overthink = agent_match.users.overthink if agent_match and agent_match.users else None
       if overthink and overthink.followup_prompt:
         context_message = f"{overthink.followup_prompt}\n\n{context_message}"
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
+    team_id = event.get("team")
 
     client_context = {
       "source": "slack",
@@ -349,11 +367,11 @@ def handle_mention(event, say, client):
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
       "humble_followup": is_humble_followup,
+      "overthink": bool(overthink and overthink.enabled),
     }
     if user_email:
       client_context["user_email"] = user_email
 
-    team_id = event.get("team")
     esc_config = get_escalation_config(agent_match) if agent_match else None
 
     result = _call_ai(
@@ -365,9 +383,16 @@ def handle_mention(event, say, client):
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
+      overthink_config=overthink,
       escalation_config=esc_config,
       client_context=client_context,
     )
+
+    if isinstance(result, dict) and result.get("skipped"):
+      reason = result.get("reason", "unknown")
+      logger.info(f"[{thread_ts}] Overthink: skipped mention response ({reason}) for {user_name}{_msg_link(channel_id, thread_ts)}")
+      session_manager.set_skipped(thread_ts, True)
+      return
 
     if isinstance(result, dict) and result.get("retry_needed"):
       original_error = result.get("error", "Unknown error")
@@ -400,6 +425,7 @@ def handle_mention(event, say, client):
         text="Something went wrong. Click Retry to try again.",
       )
 
+    session_manager.set_thread_owner(thread_ts, agent_id)
     logger.info(f"[{thread_ts}] Completed CAIPE request for {user_name}")
 
     _track_interaction(
@@ -412,6 +438,7 @@ def handle_mention(event, say, client):
       user_name=user_name,
       response_time_ms=int((time.monotonic() - t0) * 1000),
       last_processed_ts=event.get("ts"),
+      thread_owner_agent_id=agent_id,
     )
 
   except Exception as e:
@@ -471,6 +498,22 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       },
     )
     conversation_id = conv_result["conversation_id"]
+    conv_metadata = conv_result.get("metadata", {})
+
+    # Thread ownership: bot messages start new threads so are never replies;
+    # for user messages, honour whoever responded first in this thread.
+    # Check in-memory cache first (hot path), fall back to server metadata
+    # (survives restarts). thread_root_ts is the ownership key shared with
+    # handle_mention.
+    thread_root_ts = event.get("thread_ts")
+    if not is_bot and thread_root_ts:
+      owner_id = session_manager.get_thread_owner(thread_root_ts) or conv_metadata.get("thread_owner_agent_id")
+      if owner_id:
+        session_manager.set_thread_owner(thread_root_ts, owner_id)  # warm cache on restart
+        if owner_id != agent_match.agent_id:
+          logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, skipping agent={agent_match.agent_id}{_msg_link(channel_id, thread_root_ts)}")
+          return
+        logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, confirmed match{_msg_link(channel_id, thread_root_ts)}")
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
 
@@ -521,6 +564,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       session_manager.set_skipped(thread_ts, True)
       return
 
+    session_manager.set_thread_owner(thread_root_ts or thread_ts, agent_id)
     logger.info(f"[{thread_ts}] Completed {sender_label} request for {user_name}")
 
     _track_interaction(
@@ -532,6 +576,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       user_email=user_email,
       user_name=user_name,
       response_time_ms=int((time.monotonic() - t0) * 1000),
+      thread_owner_agent_id=agent_id,
     )
 
   except Exception as e:
@@ -731,8 +776,9 @@ def handle_message_events(body, say, client):
   if not matches:
     return
 
-  for agent_match in matches:
-    _route_to_agent(event, say, client, channel_config, agent_match, is_bot=is_bot, bot_username=bot_username)
+  # First-match wins: config order is the priority order. Only one agent responds
+  # per event so that thread memory stays coherent on follow-ups.
+  _route_to_agent(event, say, client, channel_config, matches[0], is_bot=is_bot, bot_username=bot_username)
 
 
 # =============================================================================
