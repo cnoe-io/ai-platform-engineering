@@ -179,6 +179,12 @@ env:
   TOOL_CALL_LIMIT: "500"
   # -- Behavior when the tool call limit is reached: continue | end | error
   TOOL_CALL_LIMIT_EXIT_BEHAVIOR: "continue"
+  # -- Enable ModelCallLimitMiddleware on the supervisor (caps total LLM inference calls per run)
+  ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE: "true"
+  # -- Maximum number of LLM calls allowed per run (ModelCallLimitMiddleware)
+  MODEL_CALL_LIMIT: "200"
+  # -- Behavior when the model call limit is reached: end | error | continue
+  MODEL_CALL_LIMIT_EXIT_BEHAVIOR: "end"
 
 multiAgentConfig:
   # -- Agent-to-agent protocol (`a2a` or `slim`)
