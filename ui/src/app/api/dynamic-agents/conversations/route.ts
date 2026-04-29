@@ -63,76 +63,69 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>("conversations");
 
-    // Pipeline restructured to avoid MongoDB 100MB $lookup limit (Location4568).
-    // 1. Pagination ($skip/$limit) runs BEFORE $lookup so we only join for the current page
-    // 2. $lookup uses a sub-pipeline with $count to avoid materializing full checkpoint documents
+    // Count total matching documents (separate query for CosmosDB/DocumentDB compatibility)
+    const total = await conversations.countDocuments(matchStage);
+
+    // IMPORTANT: All queries must be compatible with CosmosDB and DocumentDB.
+    // Do NOT use $facet or sub-pipeline $lookup (let/pipeline) — they are unsupported.
     const pipeline: object[] = [
       { $match: matchStage },
       { $sort: { updated_at: -1 as const } },
+      { $skip: skip },
+      { $limit: pageSize },
       {
-        $facet: {
-          items: [
-            { $skip: skip },
-            { $limit: pageSize },
-            // Lookup checkpoint count using sub-pipeline (avoids 100MB limit)
-            {
-              $lookup: {
-                from: "checkpoints_conversation",
-                let: { threadId: "$_id" },
-                pipeline: [
-                  { $match: { $expr: { $eq: ["$thread_id", "$$threadId"] } } },
-                  { $count: "count" },
-                ],
-                as: "_checkpoints",
-              },
-            },
-            {
-              $addFields: {
-                checkpoint_count: {
-                  $ifNull: [{ $arrayElemAt: ["$_checkpoints.count", 0] }, 0],
-                },
-                // Project a derived agent_id for backward compat with the admin UI
-                agent_id: {
-                  $let: {
-                    vars: {
-                      agentParticipant: {
-                        $arrayElemAt: [
-                          { $filter: { input: "$participants", as: "p", cond: { $eq: ["$$p.type", "agent"] } } },
-                          0,
-                        ],
-                      },
-                    },
-                    in: "$$agentParticipant.id",
-                  },
+        $addFields: {
+          // Derive agent_id for backward compat with the admin UI
+          agent_id: {
+            $let: {
+              vars: {
+                agentParticipant: {
+                  $arrayElemAt: [
+                    { $filter: { input: "$participants", as: "p", cond: { $eq: ["$$p.type", "agent"] } } },
+                    0,
+                  ],
                 },
               },
+              in: "$$agentParticipant.id",
             },
-            {
-              $project: {
-                _id: 0,
-                id: "$_id",
-                title: 1,
-                owner_id: 1,
-                agent_id: 1,
-                created_at: 1,
-                updated_at: 1,
-                checkpoint_count: 1,
-                client_type: 1,
-                idempotency_key: 1,
-                metadata: 1,
-                is_archived: 1,
-                deleted_at: 1,
-              },
-            },
-          ],
-          totalCount: [{ $count: "count" }],
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          id: "$_id",
+          title: 1,
+          owner_id: 1,
+          agent_id: 1,
+          created_at: 1,
+          updated_at: 1,
+          client_type: 1,
+          idempotency_key: 1,
+          metadata: 1,
+          is_archived: 1,
+          deleted_at: 1,
         },
       },
     ];
 
-    const [result] = await conversations.aggregate(pipeline).toArray();
-    const items = result?.items || [];
-    const total = result?.totalCount?.[0]?.count || 0;
+    const items: any[] = await conversations.aggregate(pipeline).toArray();
+
+    // Batch-fetch checkpoint counts for this page (avoids sub-pipeline $lookup)
+    if (items.length > 0) {
+      const threadIds = items.map((item) => item.id);
+      const checkpoints = await getCollection("checkpoints_conversation");
+      const counts: any[] = await checkpoints
+        .aggregate([
+          { $match: { thread_id: { $in: threadIds } } },
+          { $group: { _id: "$thread_id", count: { $sum: 1 } } },
+        ])
+        .toArray();
+      const countMap = new Map(counts.map((c) => [c._id, c.count]));
+      for (const item of items) {
+        item.checkpoint_count = countMap.get(item.id) || 0;
+      }
+    }
 
     return paginatedResponse(items, total, page, pageSize);
   });
