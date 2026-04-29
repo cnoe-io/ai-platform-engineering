@@ -185,6 +185,14 @@ env:
   MODEL_CALL_LIMIT: "200"
   # -- Behavior when the model call limit is reached: end | error | continue
   MODEL_CALL_LIMIT_EXIT_BEHAVIOR: "end"
+  # -- Enable SummarizationMiddleware on the supervisor (compresses history at token/message thresholds)
+  ENABLE_SUMMARIZATION_MIDDLEWARE: "false"
+  # -- Token count that triggers summarization (0 = disabled)
+  SUMMARIZATION_TRIGGER_TOKENS: "4000"
+  # -- Message count that triggers summarization (0 = disabled)
+  SUMMARIZATION_TRIGGER_MESSAGES: "50"
+  # -- Number of recent messages to keep after summarization
+  SUMMARIZATION_KEEP_MESSAGES: "20"
 
 multiAgentConfig:
   # -- Agent-to-agent protocol (`a2a` or `slim`)

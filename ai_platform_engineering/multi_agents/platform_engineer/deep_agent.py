@@ -54,6 +54,7 @@ from ai_platform_engineering.utils.deepagents_custom.self_service_middleware imp
 )
 from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddleware
+from langchain.agents.middleware.summarization import SummarizationMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
@@ -127,6 +128,10 @@ TOOL_CALL_LIMIT_EXIT_BEHAVIOR = os.getenv("TOOL_CALL_LIMIT_EXIT_BEHAVIOR", "cont
 ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE", "true").lower() == "true"
 MODEL_CALL_LIMIT = int(os.getenv("MODEL_CALL_LIMIT", "200"))
 MODEL_CALL_LIMIT_EXIT_BEHAVIOR = os.getenv("MODEL_CALL_LIMIT_EXIT_BEHAVIOR", "end")
+ENABLE_SUMMARIZATION_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_SUMMARIZATION_MIDDLEWARE", "false").lower() == "true"
+SUMMARIZATION_TRIGGER_TOKENS = int(os.getenv("SUMMARIZATION_TRIGGER_TOKENS", "4000"))
+SUMMARIZATION_TRIGGER_MESSAGES = int(os.getenv("SUMMARIZATION_TRIGGER_MESSAGES", "50"))
+SUMMARIZATION_KEEP_MESSAGES = int(os.getenv("SUMMARIZATION_KEEP_MESSAGES", "20"))
 
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
@@ -1626,6 +1631,7 @@ This format is required so the UI can display agent stickers next to each task.
             "SelfServiceWorkflowMiddleware": ENABLE_SELF_SERVICE_MIDDLEWARE,
             "ToolCallLimitMiddleware": ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE,
             "ModelCallLimitMiddleware": ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE,
+            "SummarizationMiddleware": ENABLE_SUMMARIZATION_MIDDLEWARE,
         }
         if ENABLE_POLICY_MIDDLEWARE:
             middleware_list.append(PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"))
@@ -1649,6 +1655,17 @@ This format is required so the UI can display agent stickers next to each task.
                 ModelCallLimitMiddleware(
                     run_limit=MODEL_CALL_LIMIT,
                     exit_behavior=MODEL_CALL_LIMIT_EXIT_BEHAVIOR,
+                )
+            )
+        if ENABLE_SUMMARIZATION_MIDDLEWARE:
+            middleware_list.append(
+                SummarizationMiddleware(
+                    model=LLMFactory().get_llm(),
+                    trigger=[
+                        ("tokens", SUMMARIZATION_TRIGGER_TOKENS),
+                        ("messages", SUMMARIZATION_TRIGGER_MESSAGES),
+                    ],
+                    keep=("messages", SUMMARIZATION_KEEP_MESSAGES),
                 )
             )
 
