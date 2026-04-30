@@ -24,11 +24,17 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
 class InterruptData(BaseModel):
-    """Data for a pending HITL interrupt."""
+    """Data for a pending HITL interrupt (discriminated by type)."""
 
+    type: str = "form_input"  # "form_input" or "tool_approval"
     interrupt_id: str
-    prompt: str
-    fields: list[dict]
+    # form_input fields
+    prompt: str = ""
+    fields: list[dict] = []
+    # tool_approval fields
+    tool_name: str | None = None
+    tool_args: dict | None = None
+    allowed_decisions: list[str] | None = None
 
 
 class ConversationFilesListResponse(BaseModel):

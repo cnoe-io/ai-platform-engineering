@@ -808,13 +808,8 @@ class AgentRuntime:
         interrupt_data = await self.has_pending_interrupt(session_id)
         logger.debug(f"[stream] has_pending_interrupt result: {interrupt_data}")
         if interrupt_data:
-            logger.debug(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting input_required event")
-            for frame in encoder.on_input_required(
-                interrupt_id=interrupt_data["interrupt_id"],
-                prompt=interrupt_data["prompt"],
-                fields=interrupt_data["fields"],
-                agent=self.config.name,
-            ):
+            logger.debug(f"[stream] Agent '{self.config.name}' has pending interrupt, emitting interrupt event")
+            for frame in self._emit_interrupt(encoder, interrupt_data):
                 yield frame
             self._record_turn(turn_start, "stream", "interrupted")
             return
@@ -828,8 +823,25 @@ class AgentRuntime:
             yield frame
         self._record_turn(turn_start, "stream", turn_status)
 
+    def _emit_interrupt(self, encoder: "StreamEncoder", interrupt_data: dict[str, Any]) -> list[str]:
+        """Emit the appropriate SSE interrupt event based on interrupt type."""
+        return encoder.on_input_required(
+            interrupt_id=interrupt_data["interrupt_id"],
+            interrupt_type=interrupt_data.get("type", "form_input"),
+            prompt=interrupt_data.get("prompt", ""),
+            fields=interrupt_data.get("fields", []),
+            tool_name=interrupt_data.get("tool_name"),
+            tool_args=interrupt_data.get("tool_args"),
+            allowed_decisions=interrupt_data.get("allowed_decisions"),
+            agent=self.config.name,
+        )
+
     async def has_pending_interrupt(self, session_id: str) -> dict[str, Any] | None:
         """Check if there's a pending interrupt for the given session.
+
+        Returns a discriminated dict with ``type`` field:
+        - ``form_input``: agent called ``request_user_input`` (render form)
+        - ``tool_approval``: a gated tool was intercepted (render approval card)
 
         Uses the HumanInTheLoopMiddleware pattern from deepagents.
         """
@@ -859,34 +871,154 @@ class AgentRuntime:
 
                 action_requests = interrupt_value.get("action_requests", [])
                 for action in action_requests:
-                    if action.get("name") == "request_user_input":
-                        args = action.get("args", {})
-                        tool_call_id = action.get("id", str(id(interrupt)))
+                    tool_name = action.get("name", "")
+                    tool_call_id = action.get("id", str(id(interrupt)))
+                    args = action.get("args", {})
+
+                    if tool_name == "request_user_input":
                         logger.info(
                             f"[has_pending_interrupt] Found request_user_input interrupt: tool_call_id={tool_call_id}"
                         )
                         return {
+                            "type": "form_input",
                             "interrupt_id": tool_call_id,
                             "prompt": args.get("prompt", ""),
                             "fields": args.get("fields", []),
                             "tool_call_id": tool_call_id,
                         }
 
-            logger.debug("[has_pending_interrupt] No request_user_input interrupt found")
+                    # Any other tool in interrupt_on → tool approval
+                    logger.info(
+                        f"[has_pending_interrupt] Found tool approval interrupt: "
+                        f"tool={tool_name}, tool_call_id={tool_call_id}"
+                    )
+                    allowed_decisions = self._get_allowed_decisions_for_tool(tool_name)
+                    return {
+                        "type": "tool_approval",
+                        "interrupt_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "tool_args": args,
+                        "tool_call_id": tool_call_id,
+                        "allowed_decisions": allowed_decisions,
+                    }
+
+            logger.debug("[has_pending_interrupt] No actionable interrupt found")
             return None
         except Exception as e:
             logger.warning(f"Error checking for pending interrupt: {e}")
             return None
 
+    def _get_allowed_decisions_for_tool(self, tool_name: str) -> list[str]:
+        """Look up allowed_decisions from the agent's interrupt_on config for a tool."""
+        from ..models import InterruptConfig
+
+        interrupt_on = self.config.interrupt_on or {}
+        # Search all namespaces for a matching tool or wildcard
+        for _namespace, tools in interrupt_on.items():
+            cfg = tools.get(tool_name) or tools.get("*")
+            if cfg is None:
+                continue
+            if isinstance(cfg, bool):
+                return ["approve", "edit", "reject"]
+            if isinstance(cfg, dict):
+                # Raw dict from config (not yet parsed as InterruptConfig)
+                return cfg.get("allowed_decisions", ["approve", "edit", "reject"])
+            if isinstance(cfg, InterruptConfig):
+                return cfg.allowed_decisions
+        # Default if not found in config
+        return ["approve", "edit", "reject"]
+
+    async def _build_resume_payload(self, session_id: str, resume_data: str) -> dict[str, Any]:
+        """Build the langgraph Command(resume=...) payload from frontend resume_data.
+
+        Handles both form_input and tool_approval interrupt types.
+        """
+        try:
+            data = json.loads(resume_data)
+        except json.JSONDecodeError:
+            logger.warning(f"[resume] Invalid resume_data JSON: {resume_data[:100]}")
+            return {"decisions": [{"type": "approve"}]}
+
+        interrupt_type = data.get("type", "form_input")
+
+        if interrupt_type == "tool_approval":
+            decision = data.get("decision", "approve")
+            if decision == "approve":
+                return {"decisions": [{"type": "approve"}]}
+            elif decision == "reject":
+                return {"decisions": [{"type": "reject"}]}
+            elif decision == "edit":
+                edited_args = data.get("edited_args", {})
+                interrupt_data = await self.has_pending_interrupt(session_id)
+                tool_name = interrupt_data["tool_name"] if interrupt_data else "unknown"
+                return {
+                    "decisions": [
+                        {
+                            "type": "edit",
+                            "edited_action": {
+                                "name": tool_name,
+                                "args": edited_args,
+                            },
+                        }
+                    ]
+                }
+            else:
+                logger.warning(f"[resume] Unknown tool_approval decision: {decision}")
+                return {"decisions": [{"type": "approve"}]}
+
+        # form_input (default / backwards-compatible)
+        if data.get("dismissed"):
+            return {
+                "decisions": [{"type": "reject", "message": "User dismissed the input form without providing values."}]
+            }
+
+        user_values = data.get("values", {})
+        interrupt_data = await self.has_pending_interrupt(session_id)
+        if interrupt_data and interrupt_data.get("type") == "form_input":
+            original_fields = interrupt_data.get("fields", [])
+            edited_fields = []
+            for field in original_fields:
+                field_copy = dict(field)
+                field_name = field.get("field_name", "")
+                if field_name in user_values:
+                    field_copy["value"] = user_values[field_name]
+                edited_fields.append(field_copy)
+
+            return {
+                "decisions": [
+                    {
+                        "type": "edit",
+                        "edited_action": {
+                            "name": "request_user_input",
+                            "args": {
+                                "prompt": interrupt_data.get("prompt", ""),
+                                "fields": edited_fields,
+                            },
+                        },
+                    }
+                ]
+            }
+
+        logger.warning("[resume] No pending interrupt found, using simple approve")
+        return {"decisions": [{"type": "approve"}]}
+
     async def resume(
         self,
         session_id: str,
         user_id: str,
-        form_data: str,
+        resume_data: str,
         trace_id: str | None = None,
         encoder: "StreamEncoder | None" = None,
     ) -> AsyncGenerator[str, None]:
-        """Resume agent execution after user provides form input."""
+        """Resume agent execution after a HITL interrupt.
+
+        ``resume_data`` is a JSON string with a ``type`` discriminator:
+        - ``{"type": "form_input", "values": {...}}`` — user filled in form fields
+        - ``{"type": "form_input", "dismissed": true}`` — user dismissed form
+        - ``{"type": "tool_approval", "decision": "approve"}``
+        - ``{"type": "tool_approval", "decision": "reject"}``
+        - ``{"type": "tool_approval", "decision": "edit", "edited_args": {...}}``
+        """
         if not self._initialized:
             await self.initialize()
 
@@ -909,48 +1041,8 @@ class AgentRuntime:
         for frame in encoder.on_run_start(run_id, session_id):
             yield frame
 
-        # Build resume payload
-        is_rejection = form_data.startswith("User dismissed")
-
-        if is_rejection:
-            resume_payload = {"decisions": [{"type": "reject", "message": form_data}]}
-        else:
-            try:
-                user_values = json.loads(form_data)
-            except json.JSONDecodeError:
-                logger.warning(f"[resume] Invalid form_data JSON: {form_data[:100]}")
-                user_values = {}
-
-            interrupt_data = await self.has_pending_interrupt(session_id)
-            if interrupt_data:
-                original_fields = interrupt_data.get("fields", [])
-                edited_fields = []
-                for field in original_fields:
-                    field_copy = dict(field)
-                    field_name = field.get("field_name", "")
-                    if field_name in user_values:
-                        field_copy["value"] = user_values[field_name]
-                    edited_fields.append(field_copy)
-
-                edited_args = {
-                    "prompt": interrupt_data.get("prompt", ""),
-                    "fields": edited_fields,
-                }
-
-                resume_payload = {
-                    "decisions": [
-                        {
-                            "type": "edit",
-                            "edited_action": {
-                                "name": "request_user_input",
-                                "args": edited_args,
-                            },
-                        }
-                    ]
-                }
-            else:
-                logger.warning("[resume] No pending interrupt found, using simple approve")
-                resume_payload = {"decisions": [{"type": "approve"}]}
+        # Build resume payload from discriminated resume_data
+        resume_payload = await self._build_resume_payload(session_id, resume_data)
 
         logger.debug(f"[resume] Resume payload: {resume_payload}")
 
@@ -980,12 +1072,7 @@ class AgentRuntime:
         interrupt_data = await self.has_pending_interrupt(session_id)
         if interrupt_data:
             logger.debug(f"[resume] Agent '{self.config.name}' has pending interrupt after resume")
-            for frame in encoder.on_input_required(
-                interrupt_id=interrupt_data["interrupt_id"],
-                prompt=interrupt_data["prompt"],
-                fields=interrupt_data["fields"],
-                agent=self.config.name,
-            ):
+            for frame in self._emit_interrupt(encoder, interrupt_data):
                 yield frame
             self._record_turn(turn_start, "resume", "interrupted")
             return

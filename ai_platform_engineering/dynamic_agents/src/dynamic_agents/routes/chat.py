@@ -31,7 +31,7 @@ class ResumeStreamRequest(BaseModel):
 
     agent_id: str
     conversation_id: str
-    form_data: str  # JSON string of form values, or rejection message
+    resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
 
@@ -159,7 +159,7 @@ async def _generate_resume_sse_events(
     mcp_servers: list,
     session_id: str,
     user: UserContext,
-    form_data: str,
+    resume_data: str,
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
@@ -187,7 +187,7 @@ async def _generate_resume_sse_events(
         )
 
         # Resume streaming with form data
-        async for frame in runtime.resume(session_id, user.email, form_data, trace_id, encoder):
+        async for frame in runtime.resume(session_id, user.email, resume_data, trace_id, encoder):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -206,11 +206,13 @@ async def chat_resume_stream(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
-    """Resume an interrupted stream after user provides form input.
+    """Resume an interrupted stream after user provides input or approval.
 
-    Called after the agent emitted an input_required event. The form_data
-    should be a JSON string of the form values, or a rejection message
-    if the user dismissed the form.
+    Called after the agent emitted an input_required event. The resume_data
+    should be a JSON string with a type discriminator:
+    - {"type": "form_input", "values": {...}} for form submissions
+    - {"type": "form_input", "dismissed": true} for form dismissals
+    - {"type": "tool_approval", "decision": "approve"|"reject"|"edit", ...}
 
     Body field ``protocol`` selects the wire format:
         - "custom" (default): legacy SSE event types
@@ -242,7 +244,7 @@ async def chat_resume_stream(
             mcp_servers=mcp_servers,
             session_id=request.conversation_id,
             user=user,
-            form_data=request.form_data,
+            resume_data=request.resume_data,
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,

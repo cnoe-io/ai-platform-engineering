@@ -101,21 +101,27 @@ class CustomStreamEncoder(StreamEncoder):
     def on_input_required(
         self,
         interrupt_id: str,
+        interrupt_type: str,
         prompt: str,
         fields: list[dict[str, Any]],
         agent: str,
+        tool_name: str | None = None,
+        tool_args: dict[str, Any] | None = None,
+        allowed_decisions: list[str] | None = None,
     ) -> list[str]:
-        return [
-            _sse_frame(
-                "input_required",
-                {
-                    "interrupt_id": interrupt_id,
-                    "prompt": prompt,
-                    "fields": fields,
-                    "agent": agent,
-                },
-            )
-        ]
+        payload: dict[str, Any] = {
+            "type": interrupt_type,
+            "interrupt_id": interrupt_id,
+            "agent": agent,
+        }
+        if interrupt_type == "tool_approval":
+            payload["tool_name"] = tool_name
+            payload["tool_args"] = tool_args or {}
+            payload["allowed_decisions"] = allowed_decisions or ["approve", "edit", "reject"]
+        else:
+            payload["prompt"] = prompt
+            payload["fields"] = fields
+        return [_sse_frame("input_required", payload)]
 
     # ── Content retrieval ─────────────────────────────────
 

@@ -178,18 +178,36 @@ class AGUIStreamEncoder(StreamEncoder):
     def on_input_required(
         self,
         interrupt_id: str,
+        interrupt_type: str,
         prompt: str,
         fields: list[dict[str, Any]],
         agent: str,
+        tool_name: str | None = None,
+        tool_args: dict[str, Any] | None = None,
+        allowed_decisions: list[str] | None = None,
     ) -> list[str]:
         """Emit RUN_FINISHED with outcome ``"interrupt"`` per the AG-UI spec.
 
-        The interrupt payload carries form metadata so the UI can render a
-        HITL form.  Because this *is* the RUN_FINISHED frame, the caller
-        must **not** call ``on_run_finish`` afterwards.
-
-        See https://docs.ag-ui.com/drafts/interrupts
+        The interrupt payload carries metadata so the UI can render the
+        appropriate HITL component.  Because this *is* the RUN_FINISHED frame,
+        the caller must **not** call ``on_run_finish`` afterwards.
         """
+        if interrupt_type == "tool_approval":
+            payload: dict[str, Any] = {
+                "tool_name": tool_name,
+                "tool_args": tool_args or {},
+                "allowed_decisions": allowed_decisions or ["approve", "edit", "reject"],
+                "agent": agent,
+            }
+            reason = "tool_approval"
+        else:
+            payload = {
+                "prompt": prompt,
+                "fields": fields,
+                "agent": agent,
+            }
+            reason = "human_input"
+
         return [
             _sse_frame(
                 "RUN_FINISHED",
@@ -200,12 +218,8 @@ class AGUIStreamEncoder(StreamEncoder):
                     "outcome": "interrupt",
                     "interrupt": {
                         "id": interrupt_id,
-                        "reason": "human_input",
-                        "payload": {
-                            "prompt": prompt,
-                            "fields": fields,
-                            "agent": agent,
-                        },
+                        "reason": reason,
+                        "payload": payload,
                     },
                     "timestamp": _ts(),
                 },
