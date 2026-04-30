@@ -322,7 +322,7 @@ export function InterruptConfigPicker({
               className={cn(
                 "border rounded-md p-3 space-y-2",
                 stale && "border-amber-400/50 bg-amber-50/50 dark:bg-amber-950/20",
-                locked && "bg-muted/30",
+                locked && "bg-muted/60",
               )}
             >
               {/* Main row */}
@@ -332,7 +332,7 @@ export function InterruptConfigPicker({
                   value={row.namespace}
                   onChange={(e) => handleNamespaceChange(row.id, e.target.value)}
                   disabled={disabled || locked}
-                  className="h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[100px]"
+                  className={cn("h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[100px]", locked && "text-muted-foreground")}
                 >
                   {namespaces.map((ns) => (
                     <option key={ns} value={ns}>
@@ -351,7 +351,7 @@ export function InterruptConfigPicker({
                     value={row.tool}
                     onChange={(e) => handleToolChange(row.id, e.target.value)}
                     disabled={disabled || locked}
-                    className="h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[140px] flex-1"
+                    className={cn("h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[140px] flex-1", locked && "text-muted-foreground")}
                   >
                     <option value="*" disabled={allToolsTaken && row.tool !== "*"}>All tools</option>
                     {row.namespace !== "builtin" && probingServers.has(row.namespace) && (
