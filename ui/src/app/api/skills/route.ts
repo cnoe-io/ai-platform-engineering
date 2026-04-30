@@ -58,6 +58,16 @@ interface CatalogSkill {
     truncated_at_count_cap: boolean;
     truncated_at_size_cap: boolean;
   };
+  /**
+   * Cached scan state, hydrated from the appropriate collection per source:
+   *   - `agent_skills` doc directly (already projected here)
+   *   - `builtin_skill_scans` keyed by template id (joined below)
+   *   - hub crawler returns these on its own
+   * Absent when the skill has never been scanned.
+   */
+  scan_status?: "passed" | "flagged" | "unscanned";
+  scan_summary?: string;
+  scan_updated_at?: string;
 }
 
 interface CatalogResponse {
@@ -265,6 +275,46 @@ async function aggregateLocally(
       "./skill-templates-loader"
     );
     const templates = loadSkillTemplatesInternal();
+
+    // Best-effort lookup of cached scan results so the gallery shield
+    // shows fresh badges immediately after a sweep / per-template scan.
+    // If Mongo is down we just leave scan_status undefined → "Unscanned".
+    let builtinScans = new Map<
+      string,
+      {
+        scan_status: "passed" | "flagged" | "unscanned";
+        scan_summary?: string;
+        scan_updated_at?: Date;
+      }
+    >();
+    try {
+      const { getCollection: getColForScans, isMongoDBConfigured: scansMongoOk } =
+        await import("@/lib/mongodb");
+      if (scansMongoOk) {
+        const scansCol = await getColForScans<{
+          id: string;
+          scan_status: "passed" | "flagged" | "unscanned";
+          scan_summary?: string;
+          scan_updated_at?: Date;
+        }>("builtin_skill_scans");
+        const scanDocs = await scansCol
+          .find({})
+          .project<{
+            id: string;
+            scan_status: "passed" | "flagged" | "unscanned";
+            scan_summary?: string;
+            scan_updated_at?: Date;
+          }>({ _id: 0 })
+          .toArray();
+        builtinScans = new Map(scanDocs.map((d) => [d.id, d]));
+      }
+    } catch (err) {
+      console.warn(
+        "[Skills] Failed to load builtin_skill_scans cache (badges will show as Unscanned):",
+        err,
+      );
+    }
+
     for (const t of templates) {
       const meta: Record<string, unknown> = {
         category: t.category,
@@ -274,6 +324,7 @@ async function aggregateLocally(
       if (t.input_variables && t.input_variables.length > 0) {
         meta.input_variables = t.input_variables;
       }
+      const scan = builtinScans.get(t.id);
       skills.push({
         id: t.id,
         name: t.name,
@@ -282,6 +333,18 @@ async function aggregateLocally(
         source_id: null,
         content: includeContent ? t.content : null,
         metadata: meta,
+        ...(scan?.scan_status ? { scan_status: scan.scan_status } : {}),
+        ...(scan?.scan_summary !== undefined
+          ? { scan_summary: scan.scan_summary }
+          : {}),
+        ...(scan?.scan_updated_at
+          ? {
+              scan_updated_at:
+                scan.scan_updated_at instanceof Date
+                  ? scan.scan_updated_at.toISOString()
+                  : String(scan.scan_updated_at),
+            }
+          : {}),
       });
     }
     sourcesLoaded.push("default");
@@ -321,6 +384,9 @@ async function aggregateLocally(
               category: 1,
               metadata: 1,
               ancillary_files: 1,
+              scan_status: 1,
+              scan_summary: 1,
+              scan_updated_at: 1,
             },
           },
         )
@@ -347,6 +413,20 @@ async function aggregateLocally(
             includeContent && doc.ancillary_files
               ? (doc.ancillary_files as Record<string, string>)
               : undefined,
+          ...(doc.scan_status
+            ? { scan_status: doc.scan_status as "passed" | "flagged" | "unscanned" }
+            : {}),
+          ...(doc.scan_summary !== undefined
+            ? { scan_summary: String(doc.scan_summary) }
+            : {}),
+          ...(doc.scan_updated_at
+            ? {
+                scan_updated_at:
+                  doc.scan_updated_at instanceof Date
+                    ? doc.scan_updated_at.toISOString()
+                    : String(doc.scan_updated_at),
+              }
+            : {}),
         });
       }
       sourcesLoaded.push("agent_skills");
