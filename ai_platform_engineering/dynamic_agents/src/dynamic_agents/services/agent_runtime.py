@@ -171,6 +171,19 @@ class AgentRuntime(StreamingMixin):
         self._created_at = time.time()
         self._last_interaction = time.time()
         self.tracing = TracingManager()
+        # Scrub skill payloads (SKILL.md bodies, ancillary file
+        # contents, skills_metadata channel) from spans before they
+        # leave the process. Must run after TracingManager() (which
+        # sets up the TracerProvider) and is idempotent so multiple
+        # AgentRuntime instances all share the same processor.
+        try:
+            from ai_platform_engineering.utils.tracing import install_skill_content_scrubber
+            install_skill_content_scrubber()
+        except Exception as exc:  # noqa: BLE001 — tracing is best-effort
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Skill-trace scrubber install failed: %s", exc,
+            )
         self._current_trace_id: str | None = None
         self._missing_tools: list[str] = []
         self._failed_servers: list[str] = []  # Just server names

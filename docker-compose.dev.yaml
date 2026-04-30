@@ -212,6 +212,14 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
     depends_on:
       caipe-mongodb:
         condition: service_healthy
@@ -329,6 +337,14 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -376,6 +392,14 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
     profiles:
       - petstore
       - all-agents
@@ -421,6 +445,14 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
       - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication (PAT fallback)
       # GitHub App authentication (recommended - auto-refreshing tokens)
       - GITHUB_APP_ID=${GITHUB_APP_ID:-}
@@ -460,6 +492,14 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
       - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-AI Agent}
       - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-ai-agent@cnoe.io}
       - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-AI Agent}
@@ -1963,6 +2003,14 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
