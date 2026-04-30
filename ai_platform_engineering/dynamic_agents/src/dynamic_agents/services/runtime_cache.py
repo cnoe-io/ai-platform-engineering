@@ -24,11 +24,11 @@ from dynamic_agents.models import (
     MCPServerConfig,
     UserContext,
 )
+from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.llm_clients import close_all as close_llm_clients
 from dynamic_agents.services.llm_clients import get_shared_llm_client
 
 if TYPE_CHECKING:
-    from dynamic_agents.services.agent_runtime import AgentRuntime
     from dynamic_agents.services.mongo import MongoDBService
 
 logger = logging.getLogger(__name__)

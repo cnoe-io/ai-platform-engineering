@@ -14,6 +14,8 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from pymongo import MongoClient
+
 logger = logging.getLogger(__name__)
 
 
@@ -219,10 +221,8 @@ def load_skills(
     Returns:
         List of normalised skill dicts compatible with ``build_skills_files()``.
     """
-    from pymongo import MongoClient as _MongoClient
-
     database = os.getenv("MONGODB_DATABASE", mongodb_database)
-    client = _MongoClient(mongodb_uri, tz_aware=True)
+    client = MongoClient(mongodb_uri, tz_aware=True)
     logger.info(
         "Loading skills: requested_ids=%s db=%s",
         skill_ids,
