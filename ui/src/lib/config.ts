@@ -96,6 +96,23 @@ export interface Config {
    */
   feedbackEnabled: boolean;
   /**
+   * Whether built-in (`is_system: true`) skill rows can be edited /
+   * deleted by users via the gallery & API.
+   *
+   * **Default: `false`** (locked). Built-ins are seeded by the
+   * platform and treated as read-only — admins can clone them via
+   * the gallery's "Clone" action to produce an editable copy.
+   * Set ``ALLOW_BUILTIN_SKILL_MUTATION=true`` to restore the legacy
+   * behaviour where any authenticated user could mutate a built-in
+   * row.
+   *
+   * Server-side enforcement lives in
+   * ``lib/builtin-skill-policy.ts`` + ``userCanModifyAgentSkill``;
+   * this client-visible flag exists so the UI can disable the
+   * Edit / Delete buttons without a roundtrip.
+   */
+  allowBuiltinSkillMutation: boolean;
+  /**
    * Whether the NPS (Net Promoter Score) feature is enabled.
    * When false (default), the NPS survey popup, admin NPS tab, and NPS API
    * endpoints are all disabled. Set NPS_ENABLED=true to enable.
@@ -201,6 +218,7 @@ const DEFAULT_CONFIG: Config = {
   sourceUrl: null,
   workflowRunnerEnabled: false,
   feedbackEnabled: true,
+  allowBuiltinSkillMutation: false,
   npsEnabled: false,
   auditLogsEnabled: false,
   defaultFontSize: DEFAULT_FONT_SIZE,
@@ -299,6 +317,10 @@ export function getServerConfig(): Config {
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
+  // Default `false` (locked). Must mirror the server-side check in
+  // `lib/builtin-skill-policy.ts` so the UI never offers an action
+  // the API will reject.
+  const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
@@ -352,6 +374,7 @@ export function getServerConfig(): Config {
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
     feedbackEnabled,
+    allowBuiltinSkillMutation,
     npsEnabled,
     auditLogsEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),

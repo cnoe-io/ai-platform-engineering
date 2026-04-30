@@ -18,7 +18,12 @@ export type ScanTrigger =
   // by source so the Scan history filter can isolate "all the bulk runs
   // I kicked off this morning" vs the single-skill events.
   | "bulk_user_skill"
-  | "bulk_hub_skill";
+  | "bulk_hub_skill"
+  // Emitted when an admin clones a skill (built-in escape hatch or a
+  // user duplicating an existing skill). Tracked separately so the
+  // Scan history can answer "how many clones happened in the last
+  // week?" without conflating with auto-save events.
+  | "clone";
 
 export type SkillSourceKind = "agent_skills" | "hub" | "default";
 
