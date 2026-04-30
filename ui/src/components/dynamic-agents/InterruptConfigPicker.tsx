@@ -198,7 +198,7 @@ export function InterruptConfigPicker({
     const newRow: InterruptRow = {
       id: nextRowId(),
       namespace: "builtin",
-      tool: "request_user_input",
+      tool: "*",
       mode: "default",
       allowed_decisions: [...ALL_DECISIONS],
     };
