@@ -1544,9 +1544,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           onFileDelete={handleTimelineFileDelete}
                           isDownloadingFile={isDownloadingFile}
                           downloadingFilePath={downloadingFilePath}
-                          isDeletingFile={isDeletingFile}
+                           isDeletingFile={isDeletingFile}
                           deletingFilePath={deletingFilePath}
                           getSubagentInfo={getSubagentInfo}
+                          pendingHitl={!!(pendingUserInput || pendingToolApproval)}
                         />
                       );
                     })}
@@ -1918,6 +1919,7 @@ interface ChatMessageProps {
   isDeletingFile?: boolean;
   deletingFilePath?: string;
   getSubagentInfo?: (agentId: string) => SubagentLookupInfo | undefined;
+  pendingHitl?: boolean;
 }
 
 const ChatMessage = React.memo(function ChatMessage({
@@ -1948,6 +1950,7 @@ const ChatMessage = React.memo(function ChatMessage({
   isDeletingFile,
   deletingFilePath,
   getSubagentInfo,
+  pendingHitl = false,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isHovered, setIsHovered] = useState(false);
@@ -2185,6 +2188,7 @@ const ChatMessage = React.memo(function ChatMessage({
                 isDeletingFile={isDeletingFile}
                 deletingFilePath={deletingFilePath}
                 getSubagentInfo={getSubagentInfo}
+                pendingHitl={pendingHitl}
               />
             ) : displayContent ? (
               // Legacy fallback: completed message with no persisted events

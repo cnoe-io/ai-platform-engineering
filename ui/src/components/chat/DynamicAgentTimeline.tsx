@@ -123,6 +123,9 @@ interface AgentTimelineProps {
   downloadingFilePath?: string;
   isDeletingFile?: boolean;
   deletingFilePath?: string;
+
+  /** When true, keep timeline expanded (e.g. waiting for HITL input) */
+  pendingHitl?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -142,6 +145,7 @@ export function AgentTimeline({
   downloadingFilePath,
   isDeletingFile,
   deletingFilePath,
+  pendingHitl = false,
 }: AgentTimelineProps) {
   const { segments, finalAnswer, isStreaming, hasTools } = data;
 
@@ -159,20 +163,32 @@ export function AgentTimeline({
   // For ref to timeline container (kept for potential future use)
   const timelineRef = useRef<HTMLDivElement>(null);
 
+  const prevPendingHitlRef = useRef(pendingHitl);
+
   useEffect(() => {
+    // Don't collapse while waiting for HITL input
+    if (pendingHitl) {
+      setMachineryExpanded(true);
+      prevPendingHitlRef.current = pendingHitl;
+      return;
+    }
+    // Collapse when HITL input is resolved (pendingHitl went true → false)
+    if (prevPendingHitlRef.current && !pendingHitl) {
+      setMachineryExpanded(false);
+    }
     // Collapse when streaming ends
     if (prevStreamingRef.current && !isStreaming) {
       setMachineryExpanded(false);
       wasStreamingRef.current = true;
     }
     // Also collapse when final answer first appears AND streaming has stopped
-    // (Don't collapse while still streaming - keep answer visible as "thinking")
     if (!prevFinalAnswerRef.current && finalAnswer && !isStreaming) {
       setMachineryExpanded(false);
     }
     prevStreamingRef.current = isStreaming;
     prevFinalAnswerRef.current = finalAnswer;
-  }, [isStreaming, finalAnswer]);
+    prevPendingHitlRef.current = pendingHitl;
+  }, [isStreaming, finalAnswer, pendingHitl]);
 
   // Group consecutive tools for compact rendering
   const groupedSegments = groupConsecutiveTools(segments);

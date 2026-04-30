@@ -345,7 +345,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   React.useEffect(() => {
-    const isEnabled = !!(builtinTools?.request_user_input && typeof builtinTools.request_user_input === "object" && "enabled" in builtinTools.request_user_input && builtinTools.request_user_input.enabled);
+    const cfg = (builtinTools as Record<string, { enabled?: boolean } | undefined>)?.["request_user_input"];
+    const isEnabled = !!(cfg && cfg.enabled);
     const hasRule = !!interruptOn?.builtin?.request_user_input;
 
     if (isEnabled && !hasRule) {
