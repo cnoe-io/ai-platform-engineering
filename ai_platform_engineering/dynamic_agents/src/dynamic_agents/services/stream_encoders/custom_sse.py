@@ -188,6 +188,26 @@ class CustomStreamEncoder(StreamEncoder):
             if not isinstance(messages, list):
                 continue
 
+            # ── Pre-scan: identify rejected tool_call_ids ──────────────────
+            # LangGraph quirk: when a tool call is rejected via HITL
+            # (HumanInTheLoopMiddleware), the resume stream re-emits the
+            # original AIMessage (with tool_calls) AND a ToolMessage containing
+            # the rejection text — all in the same "updates" chunk.
+            # We suppress ALL tool events (start, end) for rejected tools
+            # because:
+            #   1. The tool was already shown in the pre-interrupt stream
+            #   2. The tool never actually executed — showing it as "completed"
+            #      would be misleading
+            # The LLM still receives the rejection ToolMessage in its context,
+            # so it knows the tool was blocked and can respond accordingly.
+            rejected_tool_call_ids: set[str] = set()
+            for msg in messages:
+                tc_id = getattr(msg, "tool_call_id", None)
+                if tc_id:
+                    content = getattr(msg, "content", "")
+                    if isinstance(content, str) and "rejected" in content.lower():
+                        rejected_tool_call_ids.add(tc_id)
+
             for msg in messages:
                 # Handle AIMessage with tool_calls
                 tool_calls = getattr(msg, "tool_calls", None)
@@ -197,6 +217,11 @@ class CustomStreamEncoder(StreamEncoder):
                         tool_name = tc_info["name"]
                         tool_call_id = tc_info["id"]
                         args = tc_info["args"]
+
+                        # Skip rejected tools (see pre-scan comment above)
+                        if tool_call_id in rejected_tool_call_ids:
+                            logger.debug(f"[sse:tool_start] SUPPRESSED (rejected) {tool_name} id={tool_call_id[:8]}...")
+                            continue
 
                         logger.debug(f"[sse:tool_start] {tool_name} id={tool_call_id[:8]}... ns={namespace}")
                         results.append(
@@ -214,6 +239,11 @@ class CustomStreamEncoder(StreamEncoder):
                 # Handle ToolMessage (tool results)
                 tool_call_id = getattr(msg, "tool_call_id", None)
                 if tool_call_id:
+                    # Skip rejected tools — already suppressed above
+                    if tool_call_id in rejected_tool_call_ids:
+                        logger.debug(f"[sse:tool_end] SUPPRESSED (rejected) id={tool_call_id[:8]}...")
+                        continue
+
                     # Detect tool errors: wrap_tools_with_error_handling() returns
                     # "ERROR: ..." strings instead of raising exceptions.
                     content = getattr(msg, "content", "")
