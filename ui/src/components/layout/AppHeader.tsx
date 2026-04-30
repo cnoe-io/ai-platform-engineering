@@ -70,11 +70,17 @@ function GuardedLink({
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
   const pathname = usePathname();
 
-  const isOnTaskBuilderEditor =
-    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+  // Guard navigation away from any editor that participates in the
+  // useUnsavedChangesStore. Today that's the Task Builder and the Dynamic
+  // Agent editor; the predicate is path-prefixed so the store's flag is only
+  // honored when the user is actually on a page that sets it.
+  const shouldGuardNavigation =
+    hasUnsavedChanges &&
+    (pathname?.startsWith("/task-builder") ||
+      pathname?.startsWith("/dynamic-agents"));
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (isOnTaskBuilderEditor && href !== pathname) {
+    if (shouldGuardNavigation && href !== pathname) {
       e.preventDefault();
       requestNavigation(href);
     }
@@ -100,8 +106,12 @@ export function AppHeader() {
     setUnsaved,
   } = useUnsavedChangesStore();
 
-  const isOnTaskBuilderEditor =
-    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+  // Mirror the same predicate used inside GuardedLink so the dialog only
+  // renders for paths whose editors actually write the unsaved-changes flag.
+  const shouldGuardNavigation =
+    hasUnsavedChanges &&
+    (pathname?.startsWith("/task-builder") ||
+      pathname?.startsWith("/dynamic-agents"));
 
   const handleDiscard = React.useCallback(() => {
     const href = confirmNavigation();
@@ -735,11 +745,13 @@ export function AppHeader() {
       </div>
     </header>
 
-    {isOnTaskBuilderEditor && pendingNavigationHref && (
+    {shouldGuardNavigation && pendingNavigationHref && (
       <UnsavedChangesDialog
         open={!!pendingNavigationHref}
         onDiscard={handleDiscard}
         onCancel={handleCancel}
+        title="Unsaved changes"
+        description="You have unsaved changes. They will be lost if you leave now."
       />
     )}
     </>
