@@ -2,8 +2,10 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+import { Waypoints } from "lucide-react";
 import { TrySkillsGateway } from "@/components/skills";
 import { AuthGuard } from "@/components/auth-guard";
+import { cn } from "@/lib/utils";
 
 export default function SkillsGatewayPage() {
   const router = useRouter();
@@ -21,8 +23,13 @@ export default function SkillsGatewayPage() {
           </button>
           <button
             type="button"
-            className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground"
+            className={cn(
+              "inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md font-semibold",
+              "text-white shadow-md shadow-cyan-500/30 border border-white/25",
+              "bg-gradient-to-r from-sky-600 via-cyan-600 to-teal-600",
+            )}
           >
+            <Waypoints className="h-4 w-4 shrink-0" strokeWidth={2.25} />
             Skills API Gateway
           </button>
         </div>

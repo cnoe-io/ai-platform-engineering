@@ -14,62 +14,26 @@ import type {
   SkillVisibility,
   ScanStatus,
 } from "@/types/agent-skill";
+import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
+import { recordScanEvent } from "@/lib/skill-scan-history";
+import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 
 /**
- * Agent Config API Routes
+ * Persisted agent skill configs (CRUD)
  *
- * Storage: MongoDB only (agent config skills require persistent storage)
- * 
- * Features:
- * - User ownership tracking (owner_id)
- * - System configs (is_system: true) are editable/deletable by admins only
- * - CRUD operations for user-created configs
- * - Falls back to built-in templates if MongoDB not configured
+ * Storage: MongoDB collection `agent_skills`
+ *
+ * - User ownership (`owner_id`); built-in rows (`is_system`) editable/deletable by any authenticated user (restore via import/seed)
+ * - Catalog browse remains GET `/api/skills` (merged view), not this route
+ *
+ * HTTP: GET/POST/PUT/DELETE `/api/skills/configs`
  */
 
-// Storage configuration - MongoDB only for agent config skills
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
-async function scanSkillContent(
-  name: string,
-  content: string,
-  configId?: string,
-): Promise<{ scan_status: ScanStatus; scan_summary?: string }> {
-  if (!SUPERVISOR_URL || !content?.trim()) {
-    return { scan_status: "unscanned" };
-  }
-  try {
-    const resp = await fetch(`${SUPERVISOR_URL}/skills/scan-content`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, content, config_id: configId }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!resp.ok) {
-      console.warn(`[ScanSkill] Backend returned ${resp.status}`);
-      return { scan_status: "unscanned" };
-    }
-    const data = await resp.json();
-    return {
-      scan_status: (data.scan_status as ScanStatus) || "unscanned",
-      scan_summary: data.summary,
-    };
-  } catch (err) {
-    console.warn("[ScanSkill] Scanner unavailable:", err);
-    return { scan_status: "unscanned" };
-  }
-}
-
 const ANCILLARY_SIZE_LIMIT = 5 * 1024 * 1024; // 5 MB soft limit (FR-028)
 
-/**
- * Fire-and-forget supervisor skills refresh so the MAS picks up
- * newly saved/updated agent configs without a manual admin refresh.
- * Uses `include_hubs=false` query hint (custom extension) so the
- * backend only re-merges cheap sources (filesystem + MongoDB) and
- * keeps the expensive hub cache intact.
- */
 function triggerSupervisorRefresh(): void {
   if (!SUPERVISOR_URL) return;
   const url = `${SUPERVISOR_URL}/skills/refresh?include_hubs=false`;
@@ -98,18 +62,12 @@ function validateAncillaryFiles(
   return { valid: true, totalBytes };
 }
 
-/**
- * Check if user is admin (from session role)
- */
 function isUserAdmin(user: { email: string; role?: string }): boolean {
   return user.role === "admin";
 }
 
 const VALID_VISIBILITIES: SkillVisibility[] = ["private", "team", "global"];
 
-/**
- * MongoDB storage functions
- */
 async function saveAgentSkillToMongoDB(config: AgentSkill): Promise<void> {
   const collection = await getCollection<AgentSkill>("agent_skills");
   await collection.insertOne(config);
@@ -118,75 +76,64 @@ async function saveAgentSkillToMongoDB(config: AgentSkill): Promise<void> {
 async function updateAgentSkillInMongoDB(
   id: string,
   updates: Partial<AgentSkill>,
-  user: { email: string; role?: string }
+  user: { email: string; role?: string },
 ): Promise<void> {
   console.log(`[MongoDB] ========== updateAgentSkillInMongoDB START ==========`);
   console.log(`[MongoDB] Config ID: ${id}`);
   console.log(`[MongoDB] User: ${user.email}, IsAdmin: ${isUserAdmin(user)}`);
-  
+
   const collection = await getCollection<AgentSkill>("agent_skills");
   console.log(`[MongoDB] Got collection`);
-  
+
   const existing = await collection.findOne({ id });
   console.log(`[MongoDB] Found existing config:`, {
     id: existing?.id,
     name: existing?.name,
     is_system: existing?.is_system,
     owner_id: existing?.owner_id,
-    tasks_count: existing?.tasks?.length
+    tasks_count: existing?.tasks?.length,
   });
-  
+
   if (!existing) {
     console.log(`[MongoDB] ERROR: Config not found`);
     throw new ApiError("Agent config not found", 404);
   }
-  
-  // System configs can only be modified by admins
-  if (existing.is_system && !isUserAdmin(user)) {
-    console.log(`[MongoDB] ERROR: Non-admin trying to modify system config`);
-    throw new ApiError("Only admins can modify system configurations", 403);
-  }
-  
-  // Non-system configs can only be modified by owner
+
   if (!existing.is_system && existing.owner_id !== user.email) {
     console.log(`[MongoDB] ERROR: User trying to modify another user's config`);
     throw new ApiError("You don't have permission to update this configuration", 403);
   }
-  
+
   console.log(`[MongoDB] Permission checks passed`);
-  
+
   const updatePayload = { ...updates, updated_at: new Date() };
   console.log(`[MongoDB] Update payload:`, JSON.stringify(updatePayload, null, 2));
   console.log(`[MongoDB] Update payload tasks count:`, updatePayload.tasks?.length);
   if (updatePayload.tasks && updatePayload.tasks.length > 0) {
     console.log(`[MongoDB] First task llm_prompt:`, updatePayload.tasks[0].llm_prompt);
   }
-  
+
   console.log(`[MongoDB] Executing updateOne...`);
-  const updateResult = await collection.updateOne(
-    { id },
-    { $set: updatePayload }
-  );
+  const updateResult = await collection.updateOne({ id }, { $set: updatePayload });
   console.log(`[MongoDB] UpdateOne result:`, {
     matchedCount: updateResult.matchedCount,
     modifiedCount: updateResult.modifiedCount,
-    acknowledged: updateResult.acknowledged
+    acknowledged: updateResult.acknowledged,
   });
-  
-  // Verify the update
+
   console.log(`[MongoDB] Fetching updated config for verification...`);
   const updated = await collection.findOne({ id });
   console.log(`[MongoDB] Verified updated config:`, {
     id: updated?.id,
     name: updated?.name,
     tasks_count: updated?.tasks?.length,
-    updated_at: updated?.updated_at
+    updated_at: updated?.updated_at,
   });
   if (updated?.tasks && updated.tasks.length > 0) {
     console.log(`[MongoDB] First task after update:`, {
       display_text: updated.tasks[0].display_text,
       llm_prompt: updated.tasks[0].llm_prompt,
-      subagent: updated.tasks[0].subagent
+      subagent: updated.tasks[0].subagent,
     });
   }
   console.log(`[MongoDB] ========== updateAgentSkillInMongoDB END ==========`);
@@ -194,25 +141,19 @@ async function updateAgentSkillInMongoDB(
 
 async function deleteAgentSkillFromMongoDB(
   id: string,
-  user: { email: string; role?: string }
+  user: { email: string; role?: string },
 ): Promise<void> {
   const collection = await getCollection<AgentSkill>("agent_skills");
-  
+
   const existing = await collection.findOne({ id });
   if (!existing) {
     throw new ApiError("Agent config not found", 404);
   }
-  
-  // System configs cannot be deleted — they are managed via configuration
-  if (existing.is_system) {
-    throw new ApiError("Built-in skills cannot be deleted. Use the BUILTIN_SKILL_IDS configuration to control which built-in skills are enabled.", 403);
-  }
-  
-  // Non-system configs can only be deleted by owner
+
   if (!existing.is_system && existing.owner_id !== user.email) {
     throw new ApiError("You don't have permission to delete this configuration", 403);
   }
-  
+
   await collection.deleteOne({ id });
 }
 
@@ -237,29 +178,7 @@ async function getAgentSkillsFromMongoDB(ownerEmail: string): Promise<AgentSkill
   return configs;
 }
 
-async function getAgentSkillByIdFromMongoDB(
-  id: string,
-  ownerEmail: string
-): Promise<AgentSkill | null> {
-  const collection = await getCollection<AgentSkill>("agent_skills");
-  const userTeamIds = await getUserTeamIds(ownerEmail);
-
-  const config = await collection.findOne({
-    id,
-    $or: [
-      { is_system: true },
-      { owner_id: ownerEmail },
-      { visibility: "global" },
-      ...(userTeamIds.length > 0
-        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-        : []),
-    ],
-  });
-
-  return config;
-}
-
-// POST /api/agent-skills - Create a new agent config
+// POST /api/skills/configs
 export const POST = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
     throw new ApiError("Skills requires MongoDB to be configured", 503);
@@ -268,19 +187,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (req, user) => {
     const body: CreateAgentSkillInput = await request.json();
 
-    // Validate required fields
     if (!body.name || !body.category || !body.tasks || body.tasks.length === 0) {
       throw new ApiError("Missing required fields: name, category, and at least one task are required", 400);
     }
 
-    // Validate tasks
     for (const task of body.tasks) {
       if (!task.display_text || !task.llm_prompt || !task.subagent) {
         throw new ApiError("Each task must have display_text, llm_prompt, and subagent", 400);
       }
     }
 
-    // Validate visibility
     const visibility: SkillVisibility = body.visibility || "private";
     if (!VALID_VISIBILITIES.includes(visibility)) {
       throw new ApiError(`Invalid visibility: ${visibility}. Must be one of: ${VALID_VISIBILITIES.join(", ")}`, 400);
@@ -289,8 +205,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("At least one team must be selected when visibility is 'team'", 400);
     }
 
-    // Generate ID with skill- prefix and slugified name
-    const nameSlug = (body.name as string).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    const nameSlug = (body.name as string)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
     const id = `skill-${nameSlug}-${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
 
@@ -317,25 +236,48 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ancillary_files: body.ancillary_files,
     };
 
-    const scanResult = await scanSkillContent(body.name, body.skill_content || "", id);
+    const tCreate = Date.now();
+    const scanResult = await runSkillScan(body.name, body.skill_content || "", id);
     config.scan_status = scanResult.scan_status;
+    if (scanResult.scan_summary !== undefined) {
+      config.scan_summary = scanResult.scan_summary;
+    }
+    if (body.skill_content?.trim()) {
+      config.scan_updated_at = new Date();
+    }
+    await recordScanEvent({
+      trigger: "auto_save",
+      skill_id: id,
+      skill_name: body.name,
+      source: "agent_skills",
+      actor: user.email,
+      scan_status: scanResult.scan_status,
+      scan_summary: scanResult.scan_summary,
+      scanner_unavailable: !body.skill_content?.trim() || scanResult.scan_status === "unscanned",
+      duration_ms: Date.now() - tCreate,
+    });
 
     await saveAgentSkillToMongoDB(config);
-    console.log(`[AgentSkill] Created agent config "${body.name}" by ${user.email} (visibility: ${visibility}, scan_status: ${scanResult.scan_status})`);
+    console.log(
+      `[AgentSkill] Created agent config "${body.name}" by ${user.email} (visibility: ${visibility}, scan_status: ${scanResult.scan_status})`,
+    );
 
     triggerSupervisorRefresh();
 
-    return successResponse({
-      id,
-      message: "Agent config created successfully",
-      scan_status: scanResult.scan_status,
-      scan_summary: scanResult.scan_summary,
-      ...(ancillaryCheck.warning ? { ancillary_warning: ancillaryCheck.warning } : {}),
-    }, 201);
+    return successResponse(
+      {
+        id,
+        message: "Agent config created successfully",
+        scan_status: scanResult.scan_status,
+        scan_summary: scanResult.scan_summary,
+        ...(ancillaryCheck.warning ? { ancillary_warning: ancillaryCheck.warning } : {}),
+      },
+      201,
+    );
   });
 });
 
-// GET /api/agent-skills - Retrieve all agent configs (system + user's own)
+// GET /api/skills/configs
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
     throw new ApiError("Skills requires MongoDB to be configured", 503);
@@ -346,9 +288,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   return await withAuth(request, async (req, user) => {
     if (id) {
-      // Get single config by ID
       console.log(`[API GET] Fetching single config: ${id} for user: ${user.email}`);
-      const config = await getAgentSkillByIdFromMongoDB(id, user.email);
+      const config = await getAgentSkillVisibleToUser(id, user.email);
       if (!config) {
         console.log(`[API GET] Config not found: ${id}`);
         throw new ApiError("Agent config not found", 404);
@@ -357,14 +298,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         id: config.id,
         name: config.name,
         tasks_count: config.tasks?.length,
-        updated_at: config.updated_at
+        updated_at: config.updated_at,
       });
       if (config.tasks && config.tasks.length > 0) {
         console.log(`[API GET] First task llm_prompt:`, config.tasks[0].llm_prompt);
       }
       return NextResponse.json(config) as NextResponse;
     } else {
-      // Get all configs
       console.log(`[API GET] Fetching all configs for user: ${user.email}`);
       const configs = await getAgentSkillsFromMongoDB(user.email);
       console.log(`[API GET] Returning ${configs.length} configs`);
@@ -373,7 +313,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   });
 });
 
-// PUT /api/agent-skills?id=<configId> - Update an existing agent config
+// PUT /api/skills/configs?id=<configId>
 export const PUT = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
     throw new ApiError("Skills requires MongoDB to be configured", 503);
@@ -391,16 +331,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
   return await withAuth(request, async (req, user) => {
     console.log(`[API PUT] User: ${user.email}, Role: ${user.role}, IsAdmin: ${isUserAdmin(user)}`);
-    
+
     const body: UpdateAgentSkillInput = await request.json();
     console.log(`[API PUT] Request body:`, JSON.stringify(body, null, 2));
 
-    // Validate that at least one field is provided
     if (Object.keys(body).length === 0) {
       throw new ApiError("At least one field must be provided for update", 400);
     }
 
-    // Validate visibility if provided
     if (body.visibility !== undefined) {
       if (!VALID_VISIBILITIES.includes(body.visibility)) {
         throw new ApiError(`Invalid visibility: ${body.visibility}. Must be one of: ${VALID_VISIBILITIES.join(", ")}`, 400);
@@ -413,7 +351,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
-    // Validate tasks if provided
     if (body.tasks) {
       console.log(`[API PUT] Validating ${body.tasks.length} tasks...`);
       if (body.tasks.length === 0) {
@@ -425,7 +362,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
         }
       }
       console.log(`[API PUT] Tasks validation passed`);
-      // Log first task's llm_prompt for debugging
       console.log(`[API PUT] First task llm_prompt:`, body.tasks[0].llm_prompt);
     }
 
@@ -435,14 +371,30 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       ancillaryWarning = ancillaryCheck.warning;
     }
 
+    let scanSummaryFromSave: string | undefined;
     if (body.skill_content !== undefined) {
-      const scanResult = await scanSkillContent(
-        body.name || id,
-        body.skill_content || "",
-        id,
-      );
+      const tPut = Date.now();
+      const scanResult = await runSkillScan(body.name || id, body.skill_content || "", id);
       (body as Record<string, unknown>).scan_status = scanResult.scan_status;
+      if (scanResult.scan_summary !== undefined) {
+        (body as Record<string, unknown>).scan_summary = scanResult.scan_summary;
+        scanSummaryFromSave = scanResult.scan_summary;
+      }
+      if (body.skill_content?.trim()) {
+        (body as Record<string, unknown>).scan_updated_at = new Date();
+      }
       console.log(`[API PUT] Scan result: ${scanResult.scan_status}`);
+      await recordScanEvent({
+        trigger: "auto_save",
+        skill_id: id,
+        skill_name: body.name || id,
+        source: "agent_skills",
+        actor: user.email,
+        scan_status: scanResult.scan_status,
+        scan_summary: scanResult.scan_summary,
+        scanner_unavailable: !body.skill_content?.trim() || scanResult.scan_status === "unscanned",
+        duration_ms: Date.now() - tPut,
+      });
     }
 
     console.log(`[API PUT] Calling updateAgentSkillInMongoDB...`);
@@ -457,12 +409,13 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       id,
       message: "Agent config updated successfully",
       ...(scanStatus ? { scan_status: scanStatus } : {}),
+      ...(scanSummaryFromSave !== undefined ? { scan_summary: scanSummaryFromSave } : {}),
       ...(ancillaryWarning ? { ancillary_warning: ancillaryWarning } : {}),
     });
   });
 });
 
-// DELETE /api/agent-skills?id=<configId> - Delete an agent config
+// DELETE /api/skills/configs?id=<configId>
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
     throw new ApiError("Skills requires MongoDB to be configured", 503);

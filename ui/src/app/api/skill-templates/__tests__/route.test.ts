@@ -366,7 +366,7 @@ describe("integration with chart data/skills", () => {
     }
 
     const ids = data.map((t: { id: string }) => t.id);
-    expect(ids).toContain("review-specific-pr");
+    expect(ids).toContain("review-my-code-github-pr");
     expect(ids).toContain("check-deployment-status");
     expect(ids).toContain("aws-cost-analysis");
   });

@@ -6,7 +6,7 @@
  *  - Search/filter by name, description, category
  *  - Delete confirm/cancel flow
  *  - Try Skill flow (createConversation, setPendingMessage, navigation)
- *  - View mode switching (all, my-skills, global, workflows)
+ *  - View mode switching (all, my-skills, team, global)
  *  - Edit/delete visibility (admin vs non-admin, system vs user configs)
  *  - Favorites section and toggle
  *  - Loading/error states
@@ -17,7 +17,7 @@
  */
 
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { SkillsGallery } from "../SkillsGallery";
 import type { AgentSkill } from "@/types/agent-skill";
 
@@ -93,8 +93,26 @@ jest.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: any) => <>{children}</>,
 }));
 
+// `SkillFolderViewer` (used by gallery's view-files dialog) imports
+// react-markdown / remark-gfm which ship as ESM and aren't in the Jest
+// transformIgnorePatterns allowlist. Mock them out — these tests don't
+// exercise the viewer's markdown rendering.
+jest.mock("react-markdown", () => ({
+  __esModule: true,
+  default: ({ children }: any) => <div>{children}</div>,
+}));
+
+jest.mock("remark-gfm", () => ({
+  __esModule: true,
+  default: () => {},
+}));
+
 jest.mock("@/components/ui/caipe-spinner", () => ({
   CAIPESpinner: ({ message }: any) => <div data-testid="spinner">{message}</div>,
+}));
+
+jest.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: jest.fn() }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -126,7 +144,7 @@ function makeQuickStart(id = "qs-1"): AgentSkill {
 function makeWorkflow(id = "wf-1"): AgentSkill {
   return {
     id,
-    name: "Multi-Step Deploy Workflow",
+    name: "Deploy Pipeline Workflow",
     description: "Deploy, verify, rollback if needed.",
     category: "ArgoCD",
     is_quick_start: false,
@@ -226,11 +244,6 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () => {
     _configs = [makeQuickStart(), makeWorkflow()];
   });
 
-  it("does NOT render the Multi-Step Workflows section when the flag is off", async () => {
-    await renderGallery();
-    expect(screen.queryByText("Multi-Step Workflows")).not.toBeInTheDocument();
-  });
-
   it("still renders the quick-start card gallery when the flag is off", async () => {
     await renderGallery();
     expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
@@ -265,11 +278,6 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
     _configs = [makeQuickStart(), makeWorkflow()];
   });
 
-  it("renders the Multi-Step Workflows section when the flag is on", async () => {
-    await renderGallery();
-    expect(screen.getByText("Multi-Step Workflows")).toBeInTheDocument();
-  });
-
   it("opens modal and shows Try Skill button when clicking a quick-start card", async () => {
     await renderGallery();
     const card = screen.getByText("Incident Correlation & Root Cause Analysis");
@@ -277,9 +285,10 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
     expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
   });
 
-  it("displays the workflow card name in the Multi-Step Workflows section", async () => {
+  it("displays multi-task workflow in the main Skills grid", async () => {
     await renderGallery();
-    expect(screen.getAllByText("Multi-Step Deploy Workflow").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Skills" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Deploy Pipeline Workflow").length).toBeGreaterThan(0);
   });
 });
 
@@ -312,22 +321,6 @@ describe("SkillsGallery — flag transition (disabled → enabled)", () => {
   });
 });
 
-describe("SkillsGallery — Multi-Step section only with workflow configs", () => {
-  it("does NOT render Multi-Step section even when enabled if there are no workflow configs", async () => {
-    mockWorkflowRunnerEnabled = true;
-    _configs = [makeQuickStart()]; // no multi-step configs
-    await renderGallery();
-    expect(screen.queryByText("Multi-Step Workflows")).not.toBeInTheDocument();
-  });
-
-  it("does NOT render Multi-Step section when disabled even if workflow configs exist", async () => {
-    mockWorkflowRunnerEnabled = false;
-    _configs = [makeWorkflow()];
-    await renderGallery();
-    expect(screen.queryByText("Multi-Step Workflows")).not.toBeInTheDocument();
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Search & filter
 // ---------------------------------------------------------------------------
@@ -344,7 +337,7 @@ describe("SkillsGallery — search and filter", () => {
 
   it("filters configs by search query matching name", async () => {
     await renderGallery();
-    const searchInput = screen.getByPlaceholderText(/search by name/i);
+    const searchInput = screen.getByPlaceholderText(/search name/i);
     fireEvent.change(searchInput, { target: { value: "DevOps" } });
     expect(screen.getByText("DevOps Health Check")).toBeInTheDocument();
     expect(screen.queryByText("Cost Explorer")).not.toBeInTheDocument();
@@ -352,7 +345,7 @@ describe("SkillsGallery — search and filter", () => {
 
   it("filters configs by search query matching description", async () => {
     await renderGallery();
-    const searchInput = screen.getByPlaceholderText(/search by name/i);
+    const searchInput = screen.getByPlaceholderText(/search name/i);
     fireEvent.change(searchInput, { target: { value: "AWS costs" } });
     expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
     expect(screen.queryByText("DevOps Health Check")).not.toBeInTheDocument();
@@ -365,10 +358,10 @@ describe("SkillsGallery — search and filter", () => {
     expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
   });
 
-  it("filters by category button", async () => {
+  it("filters by category picker", async () => {
     await renderGallery();
-    const cloudBtn = screen.getByRole("button", { name: "Cloud" });
-    fireEvent.click(cloudBtn);
+    fireEvent.click(screen.getByRole("button", { name: /category filter/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Cloud" }));
     expect(screen.getByText("Cost Explorer")).toBeInTheDocument();
     expect(screen.queryByText("DevOps Health Check")).not.toBeInTheDocument();
   });
@@ -387,25 +380,32 @@ describe("SkillsGallery — delete", () => {
       is_system: false,
       owner_id: "test@example.com",
     }] as AgentSkill[];
-    jest.spyOn(window, "confirm").mockReturnValue(true);
   });
 
-  afterEach(() => {
-    (window.confirm as jest.Mock).mockRestore();
-  });
+  // Delete now uses a UI Dialog confirmation (not the browser confirm()),
+  // so these tests exercise the dialog's Delete / Cancel buttons.
 
-  it("calls deleteSkill when user confirms deletion", async () => {
+  it("calls deleteSkill when user confirms deletion in the dialog", async () => {
     await renderGallery();
-    const deleteButtons = screen.getAllByTitle("Delete template");
+    const deleteButtons = screen.getAllByTitle("Delete");
     fireEvent.click(deleteButtons[0]);
-    expect(mockDeleteConfig).toHaveBeenCalledWith("qs-del");
+    // Dialog opens; click the destructive "Delete" button inside it. The
+    // built-in template variant uses "Remove" so we accept either.
+    const confirmBtn = await screen.findByRole("button", {
+      name: /^(Delete|Remove)$/,
+    });
+    fireEvent.click(confirmBtn);
+    await waitFor(() => {
+      expect(mockDeleteConfig).toHaveBeenCalledWith("qs-del");
+    });
   });
 
-  it("does NOT call deleteSkill when user cancels", async () => {
-    (window.confirm as jest.Mock).mockReturnValue(false);
+  it("does NOT call deleteSkill when user cancels the dialog", async () => {
     await renderGallery();
-    const deleteButtons = screen.getAllByTitle("Delete template");
+    const deleteButtons = screen.getAllByTitle("Delete");
     fireEvent.click(deleteButtons[0]);
+    const cancelBtn = await screen.findByRole("button", { name: /Cancel/i });
+    fireEvent.click(cancelBtn);
     expect(mockDeleteConfig).not.toHaveBeenCalled();
   });
 });
@@ -420,18 +420,45 @@ describe("SkillsGallery — Skills Builder button", () => {
     _configs = [makeQuickStart()];
   });
 
-  it("calls onCreateNew when Skills Builder button is clicked", async () => {
+  it("calls onCreateNew when Skill Builder button is clicked", async () => {
     const onCreateNew = jest.fn();
     await renderGallery({ onCreateNew });
-    const btn = screen.getByRole("button", { name: /skills builder/i });
+    const btn = screen.getByRole("button", { name: /skill builder/i });
     fireEvent.click(btn);
     expect(onCreateNew).toHaveBeenCalledTimes(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Edit/delete visibility (admin vs non-admin, system vs user configs)
+// Edit/delete visibility (Mongo rows vs catalog-only merge entries)
 // ---------------------------------------------------------------------------
+
+describe("SkillsGallery — source filter (built-in vs custom)", () => {
+  it("shows only user Mongo skills under Custom and only is_system under Built-in", async () => {
+    const userSkill = {
+      ...makeQuickStart("user-owned-1"),
+      name: "My Custom Only Skill",
+      is_system: false,
+      owner_id: "test@example.com",
+    } as AgentSkill;
+    _configs = [makeQuickStart("builtin-1"), userSkill];
+    await renderGallery();
+
+    const sourceGroup = screen.getByRole("group", { name: /filter by skill source/i });
+
+    await act(async () => {
+      fireEvent.click(within(sourceGroup).getByRole("button", { name: "Custom" }));
+    });
+    expect(screen.getByText("My Custom Only Skill")).toBeInTheDocument();
+    expect(screen.queryByText("Incident Correlation & Root Cause Analysis")).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(within(sourceGroup).getByRole("button", { name: "Built-in" }));
+    });
+    expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
+    expect(screen.queryByText("My Custom Only Skill")).not.toBeInTheDocument();
+  });
+});
 
 describe("SkillsGallery — edit/delete visibility", () => {
   it("shows edit and delete buttons for non-system configs", async () => {
@@ -441,26 +468,36 @@ describe("SkillsGallery — edit/delete visibility", () => {
       owner_id: "test@example.com",
     }] as AgentSkill[];
     await renderGallery();
-    expect(screen.getAllByTitle("Edit template").length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle("Delete template").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Edit").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Delete").length).toBeGreaterThan(0);
   });
 
-  it("admin sees edit button on system configs but delete is disabled", async () => {
-    mockIsAdmin = true;
+  it("shows edit and delete for built-in Mongo configs (non-admin)", async () => {
+    mockIsAdmin = false;
     _configs = [makeQuickStart("sys-1")];
     await renderGallery();
-    expect(screen.getAllByTitle("Edit template").length).toBeGreaterThan(0);
-    expect(screen.queryByTitle("Delete template")).not.toBeInTheDocument();
-    expect(screen.getAllByTitle("Built-in skills cannot be deleted").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Edit").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Delete").length).toBeGreaterThan(0);
   });
 
-  it("non-admin does NOT see edit on system configs, delete is disabled", async () => {
+  it("disables delete for catalog-only merge entries", async () => {
     mockIsAdmin = false;
-    _configs = [makeQuickStart("sys-2")];
+    _configs = [
+      {
+        ...makeQuickStart("catalog-x"),
+        id: "catalog-hub-1",
+        is_system: true,
+      } as AgentSkill,
+    ];
     await renderGallery();
-    expect(screen.queryByTitle("Edit template")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Delete template")).not.toBeInTheDocument();
-    expect(screen.getAllByTitle("Built-in skills cannot be deleted").length).toBeGreaterThan(0);
+    // Hub-crawled rows now route through `renderRowActions`'s hub branch:
+    // the trash button is disabled with a "Crawled from GitHub" explanation
+    // and the edit pencil is replaced by a read-only Eye view button.
+    expect(
+      screen.getAllByTitle(/Crawled from GitHub/i).length
+    ).toBeGreaterThan(0);
+    expect(screen.queryByTitle("Delete")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Edit")).not.toBeInTheDocument();
   });
 });
 
@@ -648,16 +685,13 @@ describe("SkillsGallery — view mode", () => {
     expect(screen.queryByText("My Personal Skill")).not.toBeInTheDocument();
   });
 
-  it("Workflows view shows only is_quick_start=false configs when flag is on", async () => {
+  it("All view lists quick-start and multi-task skills together", async () => {
     mockWorkflowRunnerEnabled = true;
     const wf = makeWorkflow("wf-view");
     _configs = [mySkill, wf];
     await renderGallery();
-    const allButtons = screen.getAllByRole("button");
-    const multiStepBtn = allButtons.find(b => b.textContent?.includes("Multi-Step"));
-    fireEvent.click(multiStepBtn!);
-    expect(screen.getByText("Multi-Step Deploy Workflow")).toBeInTheDocument();
-    expect(screen.queryByText("My Personal Skill")).not.toBeInTheDocument();
+    expect(screen.getByText("Deploy Pipeline Workflow")).toBeInTheDocument();
+    expect(screen.getByText("My Personal Skill")).toBeInTheDocument();
   });
 });
 
@@ -740,7 +774,7 @@ describe("SkillsGallery — empty states", () => {
   it("shows 'No skills match your search' when search yields no results", async () => {
     _configs = [makeQuickStart()];
     await renderGallery();
-    const searchInput = screen.getByPlaceholderText(/search by name/i);
+    const searchInput = screen.getByPlaceholderText(/search name/i);
     fireEvent.change(searchInput, { target: { value: "nonexistent-xyz" } });
     await waitFor(() => {
       expect(screen.getByText(/No skills match your search/)).toBeInTheDocument();
@@ -757,8 +791,7 @@ describe("SkillsGallery — empty states", () => {
     await waitFor(() => {
       expect(screen.getByText(/create your first skill/i)).toBeInTheDocument();
     });
-    const builderBtn = screen.getAllByRole("button").filter(b => /skills builder/i.test(b.textContent || ""));
-    expect(builderBtn.length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /skills builder/i }).length).toBeGreaterThan(0);
   });
 });
 
@@ -812,18 +845,18 @@ describe("SkillsGallery — edit callback", () => {
     _configs = [userConfig];
     const onEditConfig = jest.fn();
     await renderGallery({ onEditConfig });
-    const editBtn = screen.getByTitle("Edit template");
+    const editBtn = screen.getByTitle("Edit");
     fireEvent.click(editBtn);
     expect(onEditConfig).toHaveBeenCalledTimes(1);
     expect(onEditConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "edit-1" }));
   });
 
-  it("calls onEditConfig for system config when admin clicks edit", async () => {
-    mockIsAdmin = true;
+  it("calls onEditConfig for system config when any user clicks edit", async () => {
+    mockIsAdmin = false;
     _configs = [makeQuickStart("sys-edit")];
     const onEditConfig = jest.fn();
     await renderGallery({ onEditConfig });
-    const editBtn = screen.getByTitle("Edit template");
+    const editBtn = screen.getByTitle("Edit");
     fireEvent.click(editBtn);
     expect(onEditConfig).toHaveBeenCalledTimes(1);
     expect(onEditConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "sys-edit" }));
@@ -831,15 +864,15 @@ describe("SkillsGallery — edit callback", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Workflow card opens modal
+// Multi-task skill card opens modal
 // ---------------------------------------------------------------------------
 
-describe("SkillsGallery — workflow card opens modal", () => {
+describe("SkillsGallery — multi-task skill card opens modal", () => {
   it("clicking a workflow card opens the modal with Try Skill button", async () => {
     mockWorkflowRunnerEnabled = true;
     _configs = [makeWorkflow("wf-select")];
     await renderGallery();
-    const cards = screen.getAllByText("Multi-Step Deploy Workflow");
+    const cards = screen.getAllByText("Deploy Pipeline Workflow");
     await act(async () => { fireEvent.click(cards[0]); });
     expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
   });

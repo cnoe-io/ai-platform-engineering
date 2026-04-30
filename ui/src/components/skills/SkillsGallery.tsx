@@ -20,6 +20,8 @@ import {
   Loader2,
   AlertCircle,
   Edit,
+  Eye,
+  FolderOpen,
   Trash2,
   Sparkles,
   Zap,
@@ -29,6 +31,8 @@ import {
   Shield,
   Database,
   AlertTriangle,
+  CheckCircle2,
+  HelpCircle,
   CheckCircle,
   Container,
   Terminal,
@@ -50,23 +54,43 @@ import {
   X,
   MessageSquare,
   Star,
-  History,
   Lock,
   Globe,
   UsersRound,
   User,
-  ExternalLink,
+  ChevronsUpDown,
+  Check,
+  Filter,
+  Waypoints,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentSkill, WorkflowDifficulty } from "@/types/agent-skill";
+import type { AgentSkill } from "@/types/agent-skill";
+import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
+import {
+  makeConfigFolderAdapter,
+  makeHubFolderAdapter,
+  makeStaticFolderAdapter,
+} from "@/components/skills/skill-folder-adapters";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface SkillsGalleryProps {
   onEditConfig?: (config: AgentSkill) => void;
@@ -122,15 +146,37 @@ function extractTemplateVars(config: AgentSkill): TemplateVar[] {
   return [];
 }
 
+/** Unified catalog merge entries use synthetic ids; they are not stored in Mongo. */
+function isCatalogOnlySkill(config: AgentSkill): boolean {
+  return config.id.startsWith("catalog-");
+}
+
+/** Hub-crawled rows arrive as "catalog-hub-<hubId>-<skillId>" — read-only. */
+function isHubSkill(config: AgentSkill): boolean {
+  return config.id.startsWith("catalog-hub-");
+}
+
+interface HubSkillRef {
+  hubId: string;
+  skillId: string;
+}
+
+function parseHubId(config: AgentSkill): HubSkillRef | null {
+  const match = config.id.match(/^catalog-hub-([^-]+)-(.+)$/);
+  if (!match) return null;
+  return { hubId: match[1], skillId: match[2] };
+}
+
 const VISIBILITY_BADGE_CONFIG: Record<string, { icon: React.ElementType; label: string; className: string }> = {
-  system: { icon: Shield, label: "System", className: "bg-purple-500/10 text-purple-500 border-purple-500/20" },
   team: { icon: UsersRound, label: "Team", className: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
   global: { icon: Globe, label: "Global", className: "bg-green-500/10 text-green-600 border-green-500/20" },
   private: { icon: Lock, label: "Private", className: "bg-muted text-muted-foreground border-border/50" },
 };
 
 function VisibilityBadge({ config }: { config: AgentSkill }) {
-  const key = config.is_system ? "system" : (config.visibility || "private");
+  /** Built-in / platform rows: source is already shown via CatalogSourceBadge ("Built-in"); omit redundant System shield. */
+  if (config.is_system) return null;
+  const key = config.visibility || "private";
   const badge = VISIBILITY_BADGE_CONFIG[key];
   if (!badge) return null;
   const VIcon = badge.icon;
@@ -146,9 +192,24 @@ type CatalogSource = "default" | "agent_skills" | "hub";
 
 function skillCatalogSource(config: AgentSkill): CatalogSource {
   const raw = (config.metadata as { catalog_source?: string })?.catalog_source;
-  if (raw === "hub" || raw === "agent_skills" || raw === "default") return raw;
+  if (raw === "hub") return "hub";
+  if (raw === "default") return "default";
   if (config.id.startsWith("catalog-")) return "default";
+  // Mongo `agent_skills` platform rows (`is_system`) are built-in templates, not user "Custom"
+  if (config.is_system) return "default";
+  if (raw === "agent_skills") return "agent_skills";
   return "agent_skills";
+}
+
+/**
+ * Scanner badge: shown on every Mongo-backed row AND hub/GitHub-crawled skills.
+ * Skipped only for built-in `default` catalog chips (filesystem templates), which
+ * are vetted at chart-build time and have no per-row scan state to display.
+ */
+function shouldShowSkillScanIndicator(config: AgentSkill): boolean {
+  if (!config.id.startsWith("catalog-")) return true;
+  const src = (config.metadata as { catalog_source?: string } | undefined)?.catalog_source;
+  return src === "hub" || src === "agent_skills";
 }
 
 const SOURCE_LABELS: Record<CatalogSource, string> = {
@@ -195,18 +256,6 @@ function CatalogSourceBadge({ config }: { config: AgentSkill }) {
   );
 }
 
-function SyncDot({ synced, loading }: { synced: boolean; loading: boolean }) {
-  if (loading) {
-    return <span className="h-2 w-2 rounded-full bg-gray-400 animate-pulse" title="Checking sync status..." />;
-  }
-  return (
-    <span
-      className={cn("h-2 w-2 rounded-full", synced ? "bg-green-500" : "bg-gray-400")}
-      title={synced ? "Synced with supervisor" : "Not synced — supervisor not connected or skills not loaded"}
-    />
-  );
-}
-
 // Icon mapping for thumbnails
 const ICON_MAP: Record<string, React.ElementType> = {
   Zap, GitBranch, GitPullRequest, GitMerge, Server, Cloud, Rocket, Shield,
@@ -234,8 +283,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   "Custom": "from-pink-500 to-pink-700",
 };
 
-const ALL_CATEGORIES: string[] = [
-  "All",
+/** Preset categories (shown in picker + merged with categories from loaded skills). */
+const PRESET_CATEGORIES: string[] = [
   "DevOps",
   "Development",
   "Operations",
@@ -247,18 +296,55 @@ const ALL_CATEGORIES: string[] = [
   "Custom",
 ];
 
-const getDifficultyColor = (difficulty?: WorkflowDifficulty) => {
-  switch (difficulty) {
-    case "beginner":
-      return "bg-green-500/20 text-green-400";
-    case "intermediate":
-      return "bg-yellow-500/20 text-yellow-400";
-    case "advanced":
-      return "bg-red-500/20 text-red-400";
-    default:
-      return "bg-muted text-muted-foreground";
+/**
+ * Supervisor sync badge — small inline indicator on each skill card.
+ *
+ * - "synced" → green check; tooltip explains the supervisor has merged this
+ *   skill since its last edit. No click action.
+ * - "stale"  → amber triangle; tooltip explains the supervisor is running an
+ *   older copy. Clicking the badge deep-links to Admin → Skills where the
+ *   user can run "Refresh skills" / re-sync the supervisor.
+ * - "unknown" → muted question mark; supervisor unreachable or no merge yet.
+ */
+function SupervisorSyncBadge({
+  state,
+  size = "sm",
+}: {
+  state: "synced" | "stale" | "unknown";
+  size?: "sm" | "md";
+}) {
+  const iconClass = size === "md" ? "h-4 w-4" : "h-3.5 w-3.5";
+  if (state === "synced") {
+    return (
+      <span
+        className="inline-flex items-center justify-center text-emerald-500"
+        title="In sync with supervisor — your changes are live in the running multi-agent graph."
+      >
+        <CheckCircle2 className={iconClass} aria-label="In sync with supervisor" />
+      </span>
+    );
   }
-};
+  if (state === "stale") {
+    return (
+      <Link
+        href="/admin?tab=skills"
+        className="inline-flex items-center justify-center text-amber-500 hover:text-amber-600 transition-colors"
+        title="Out of sync — this skill was edited after the supervisor's last merge. Click to open Admin and trigger Refresh skills."
+        onClick={(e) => e.stopPropagation()}
+      >
+        <AlertTriangle className={iconClass} aria-label="Supervisor out of sync" />
+      </Link>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center justify-center text-muted-foreground/50"
+      title="Supervisor sync status unavailable — backend not reachable or no merge has occurred yet."
+    >
+      <HelpCircle className={iconClass} aria-label="Supervisor sync unknown" />
+    </span>
+  );
+}
 
 export function SkillsGallery({
   onEditConfig,
@@ -282,10 +368,101 @@ export function SkillsGallery({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false);
+  const [categoryQuery, setCategoryQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"all" | "workflows" | "my-skills" | "team" | "global">("all");
+  const [deleteTarget, setDeleteTarget] = useState<AgentSkill | null>(null);
+  const [viewerTarget, setViewerTarget] = useState<AgentSkill | null>(null);
+  const [viewMode, setViewMode] = useState<"all" | "my-skills" | "team" | "global">("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | CatalogSource>("all");
 
+  const { toast } = useToast();
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [diskTemplates, setDiskTemplates] = useState<{ id: string; label: string }[]>([]);
+  const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
+  const [importSubmitting, setImportSubmitting] = useState(false);
+  const [importTemplatesLoading, setImportTemplatesLoading] = useState(false);
+
+  const openImportModal = useCallback(() => {
+    setImportModalOpen(true);
+    setSelectedImportIds(new Set());
+    setImportTemplatesLoading(true);
+    fetch("/api/skill-templates", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { id: string; name?: string; title?: string }[]) => {
+        const arr = Array.isArray(data) ? data : [];
+        setDiskTemplates(
+          arr.map((t) => ({
+            id: t.id,
+            label: (t.title || t.name || t.id).trim() || t.id,
+          })),
+        );
+      })
+      .catch(() => {
+        setDiskTemplates([]);
+        toast("Could not load packaged templates from disk", "error");
+      })
+      .finally(() => setImportTemplatesLoading(false));
+  }, [toast]);
+
+  const toggleImportId = useCallback((id: string) => {
+    setSelectedImportIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAllImport = useCallback(() => {
+    setSelectedImportIds(new Set(diskTemplates.map((t) => t.id)));
+  }, [diskTemplates]);
+
+  const clearImportSelection = useCallback(() => {
+    setSelectedImportIds(new Set());
+  }, []);
+
+  const submitTemplateImport = useCallback(async () => {
+    if (selectedImportIds.size === 0) {
+      toast("Select at least one template", "warning");
+      return;
+    }
+    setImportSubmitting(true);
+    try {
+      const res = await fetch("/api/skills/templates/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template_ids: Array.from(selectedImportIds) }),
+        credentials: "include",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        data?: { imported?: unknown[]; skipped?: unknown[]; errors?: { error?: string }[] };
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok) {
+        throw new Error(json?.error || json?.message || "Import failed");
+      }
+      const imported = json.data?.imported ?? [];
+      const skipped = json.data?.skipped ?? [];
+      const errors = json.data?.errors ?? [];
+      const errMsg = errors.length
+        ? ` Errors: ${errors.map((e) => e.error).filter(Boolean).join("; ")}`
+        : "";
+      toast(
+        `Imported ${imported.length}, skipped ${skipped.length}.${errMsg}`,
+        errors.length ? "warning" : "success",
+        errors.length ? 8000 : 4000,
+      );
+      setImportModalOpen(false);
+      await loadSkills();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Import failed", "error");
+    } finally {
+      setImportSubmitting(false);
+    }
+  }, [selectedImportIds, toast, loadSkills]);
 
   // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
@@ -294,26 +471,54 @@ export function SkillsGallery({
   // Supervisor sync state
   const [supervisorSynced, setSupervisorSynced] = useState(false);
   const [supervisorLoading, setSupervisorLoading] = useState(true);
+  // ISO timestamp of the supervisor's last `_build_graph()` merge. We compare
+  // each skill's `updated_at` against this to flag per-skill drift; if a skill
+  // was edited *after* the supervisor merged, the running graph is stale.
+  const [supervisorMergedAt, setSupervisorMergedAt] = useState<Date | null>(null);
+  const [supervisorReachable, setSupervisorReachable] = useState(false);
 
   useEffect(() => {
     fetch("/api/skills/supervisor-status")
       .then(res => res.ok ? res.json() : null)
       .then(data => {
+        const reachable = data && typeof data === "object" && !data.message;
+        setSupervisorReachable(Boolean(reachable));
         setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
+        const merged = typeof data?.skills_merged_at === "string" ? new Date(data.skills_merged_at) : null;
+        setSupervisorMergedAt(merged && !Number.isNaN(merged.getTime()) ? merged : null);
       })
-      .catch(() => setSupervisorSynced(false))
+      .catch(() => {
+        setSupervisorSynced(false);
+        setSupervisorReachable(false);
+      })
       .finally(() => setSupervisorLoading(false));
   }, []);
 
-  // Check if user can edit a config (admins can edit system configs)
+  /**
+   * Per-skill supervisor sync state.
+   * - `synced`: edited at-or-before the supervisor's last graph merge.
+   * - `stale`: edited after the supervisor's last merge — graph is running an older copy.
+   * - `unknown`: supervisor unreachable or hasn't reported a merge yet.
+   */
+  const skillSyncState = useCallback(
+    (cfg: AgentSkill): "synced" | "stale" | "unknown" => {
+      if (!supervisorReachable || supervisorLoading) return "unknown";
+      if (!supervisorMergedAt) return "unknown";
+      const updated = cfg.updated_at instanceof Date ? cfg.updated_at : new Date(cfg.updated_at);
+      if (Number.isNaN(updated.getTime())) return "unknown";
+      return updated.getTime() <= supervisorMergedAt.getTime() ? "synced" : "stale";
+    },
+    [supervisorReachable, supervisorLoading, supervisorMergedAt],
+  );
+
   const canEditConfig = (config: AgentSkill) => {
-    if (config.is_system) return isAdmin;
+    if (isCatalogOnlySkill(config)) return false;
     return true;
   };
 
-  // Check if user can delete a config (system configs are never deletable)
   const canDeleteConfig = (config: AgentSkill) => {
-    return !config.is_system;
+    if (isCatalogOnlySkill(config)) return false;
+    return true;
   };
 
   // Catalog skills from GET /api/skills (unified source of truth)
@@ -323,8 +528,13 @@ export function SkillsGallery({
   useEffect(() => {
     loadSkills();
 
-    // Unified catalog: default, agent_skills, and hub entries (FR-021)
-    fetch("/api/skills", { credentials: "include" })
+    // Unified catalog: default, agent_skills, and hub entries (FR-021).
+    //
+    // We request `include_content=true` so the SKILL.md body is available
+    // for the static folder adapter (Files-tab "peek" on default skills)
+    // and so the workspace fallback fetch isn't strictly required when the
+    // user clicks Edit/View on a built-in chart template.
+    fetch("/api/skills?include_content=true", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data?.skills) return;
@@ -333,9 +543,14 @@ export function SkillsGallery({
             id: string;
             name: string;
             source: string;
+            source_id?: string | null;
             description?: string;
             metadata?: Record<string, unknown>;
             visibility?: string;
+            content?: string | null;
+            scan_status?: "passed" | "flagged" | "unscanned";
+            scan_summary?: string;
+            scan_updated_at?: string;
           }) => ({
             id: `catalog-${s.id}`,
             name: s.name,
@@ -348,13 +563,19 @@ export function SkillsGallery({
             created_at: new Date(),
             updated_at: new Date(),
             thumbnail: (s.metadata?.icon as string) || "Zap",
+            skill_content: s.content ?? undefined,
             metadata: {
               tags: (s.metadata?.tags as string[]) || [],
               catalog_source: s.source,
+              catalog_source_id: s.source_id ?? null,
               catalog_visibility: s.visibility,
               hub_location: (s.metadata?.hub_location as string) || "",
               hub_type: (s.metadata?.hub_type as string) || "",
+              hub_path: (s.metadata?.path as string) || "",
             },
+            scan_status: s.scan_status,
+            scan_summary: s.scan_summary,
+            scan_updated_at: s.scan_updated_at ? new Date(s.scan_updated_at) : undefined,
           } as AgentSkill),
         );
         setCatalogSkills(mapped);
@@ -402,7 +623,6 @@ export function SkillsGallery({
 
       const matchesViewMode =
         viewMode === "all" ||
-        (viewMode === "workflows" && !config.is_quick_start) ||
         (viewMode === "my-skills" && !config.is_system && config.owner_id === currentUserEmail) ||
         (viewMode === "team" && config.visibility === "team") ||
         (viewMode === "global" && (config.visibility === "global" || config.is_system));
@@ -414,8 +634,26 @@ export function SkillsGallery({
     });
   }, [allConfigs, searchQuery, selectedCategory, viewMode, currentUserEmail, sourceFilter]);
 
-  const workflowConfigs = filteredConfigs.filter(c => !c.is_quick_start);
   const skillConfigs = filteredConfigs;
+
+  const categoryPickerOptions = useMemo(() => {
+    const merged = new Set<string>(PRESET_CATEGORIES);
+    for (const c of allConfigs) {
+      const cat = String(c.category ?? "").trim();
+      if (cat) merged.add(cat);
+    }
+    return Array.from(merged).sort((a, b) => a.localeCompare(b));
+  }, [allConfigs]);
+
+  const filteredCategoryOptions = useMemo(() => {
+    const q = categoryQuery.trim().toLowerCase();
+    if (!q) return categoryPickerOptions;
+    return categoryPickerOptions.filter((c) => c.toLowerCase().includes(q));
+  }, [categoryPickerOptions, categoryQuery]);
+
+  useEffect(() => {
+    if (!categoryPopoverOpen) setCategoryQuery("");
+  }, [categoryPopoverOpen]);
 
   const mySkillsCount = useMemo(() =>
     allConfigs.filter(c => !c.is_system && c.owner_id === currentUserEmail).length,
@@ -424,19 +662,23 @@ export function SkillsGallery({
 
   const isFilteredView = viewMode === "my-skills" || viewMode === "team" || viewMode === "global";
 
-  const handleDelete = async (config: AgentSkill, e: React.MouseEvent) => {
+  const handleDelete = (config: AgentSkill, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isCatalogOnlySkill(config)) return;
+    setDeleteTarget(config);
+  };
 
-    if (config.is_system) return;
-
-    if (!confirm(`Are you sure you want to delete "${config.name}"?`)) return;
-
+  const confirmDelete = async () => {
+    const config = deleteTarget;
+    if (!config) return;
     setDeletingId(config.id);
     try {
       await deleteSkill(config.id);
-    } catch (error: any) {
+      setDeleteTarget(null);
+    } catch (error) {
       console.error("Failed to delete config:", error);
-      alert(error.message || "Failed to delete configuration");
+      const msg = error instanceof Error ? error.message : "Failed to delete configuration";
+      toast(msg, "error");
     } finally {
       setDeletingId(null);
     }
@@ -477,6 +719,103 @@ export function SkillsGallery({
     router.push(`/chat/${conversationId}`);
   };
 
+  /**
+   * Per-card edit/view/delete affordances.
+   * - Hub-crawled skills are read-only: Eye opens the file viewer; trash is
+   *   disabled with a tooltip that explains why.
+   * - Mongo-backed (custom/built-in) skills get the existing Edit pencil plus
+   *   a Files (FolderOpen) button that opens the editable folder viewer.
+   */
+  const renderRowActions = (config: AgentSkill) => {
+    if (isHubSkill(config)) {
+      return (
+        <>
+          <div className="h-4 w-px bg-border/50" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={(e) => {
+              e.stopPropagation();
+              setViewerTarget(config);
+            }}
+            title="View files (read-only — crawled from GitHub)"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
+            disabled
+            title="Crawled from GitHub — manage upstream and re-sync the hub to remove."
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </>
+      );
+    }
+    return (
+      <>
+        {canEditConfig(config) && (
+          <>
+            <div className="h-4 w-px bg-border/50" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditConfig?.(config);
+              }}
+              title="Edit"
+            >
+              <Edit className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={(e) => {
+                e.stopPropagation();
+                setViewerTarget(config);
+              }}
+              title="Browse files"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        )}
+        {canDeleteConfig(config) ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-red-400 hover:text-red-500"
+            onClick={(e) => handleDelete(config, e)}
+            disabled={deletingId === config.id}
+            title="Delete"
+          >
+            {deletingId === config.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
+            disabled
+            title="Catalog-only entry — remove the MongoDB copy to hide, or use hub settings"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </>
+    );
+  };
+
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
@@ -489,139 +828,303 @@ export function SkillsGallery({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="relative overflow-hidden border-b border-border mb-6 -mx-6 -mt-6 px-6 pt-6 pb-6">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent" />
-        <div className="relative">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl gradient-primary-br shadow-lg shadow-primary/30">
-                <Zap className="h-6 w-6 text-white" />
+      {/* Header + filter panel — z-40 + overflow-visible so category popover stacks above skill cards */}
+      <div className="relative z-40 overflow-visible border-b border-border/60 mb-5 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-0 pb-4">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />
+        <div className="relative space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="p-2.5 rounded-xl gradient-primary-br shadow-md shadow-primary/20 shrink-0">
+                <Zap className="h-5 w-5 text-white" />
               </div>
-              <div>
-                <h1 className="text-2xl font-bold gradient-text">Skills</h1>
-                <p className="text-sm text-muted-foreground">
-                  Quick-start templates and multi-step workflows
-                </p>
-                <p className="text-xs text-muted-foreground mt-1 max-w-xl">
-                  Add repo-backed skills in{" "}
-                  <Link href="/admin" className="text-primary font-medium hover:underline">
-                    Admin → Skill Hubs
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h1 className="text-xl font-semibold gradient-text leading-tight">Skills</h1>
+                  {!isLoading && (
+                    <Badge variant="secondary" className="tabular-nums text-sm font-normal px-2 py-0.5">
+                      {skillConfigs.length}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground leading-snug">
+                  Catalog skills and templates — repo hubs in{" "}
+                  <Link href="/admin?tab=skills" className="text-primary hover:underline">
+                    Admin
                   </Link>
-                  . Catalog sources: <strong>built-in</strong>, <strong>custom</strong>,{" "}
-                  <strong>skill hub</strong> (FR-021).
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap shrink-0 lg:pt-0.5">
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => router.push("/skills/gateway")}
-                className="gap-1.5"
-                title="Skills API Gateway"
+                onClick={() => router.push("/skills/scan-history")}
+                aria-label="Open skill scanner audit log"
+                title="Audit log of every skill scanner run"
+                className="gap-2 h-9 text-sm px-3 font-medium"
               >
-                <ExternalLink className="h-4 w-4" />
-                Skills API Gateway
+                <ScrollText className="h-4 w-4 opacity-90" strokeWidth={2.25} />
+                <span className="hidden md:inline">Scan history</span>
               </Button>
-              <Button size="sm" onClick={onCreateNew} className="gap-2 gradient-primary text-white">
-                <Plus className="h-4 w-4" />
-                Skills Builder
-              </Button>
-            </div>
-          </div>
-
-            <div className="relative max-w-xl">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, tag, or category..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-12 h-12 text-base bg-card/80 backdrop-blur-sm"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 mt-3">
-            <span className="text-xs text-muted-foreground mr-1">Source:</span>
-            {(
-              [
-                ["all", "All sources"],
-                ["default", "Built-in"],
-                ["agent_skills", "Custom"],
-                ["hub", "Skill hub"],
-              ] as const
-            ).map(([key, label]) => (
+              {/* "Skills API Gateway" launcher — original prominent
+                  gradient pill that opens the dedicated Gateway page
+                  (`/skills/gateway`). We tried a Browse / Gateway
+                  segmented toggle here briefly, but the launcher
+                  button reads better in the gallery toolbar and matches
+                  the "preview" UX the rest of the catalog uses. */}
               <Button
-                key={key}
                 type="button"
-                variant={sourceFilter === key ? "default" : "outline"}
                 size="sm"
-                className="h-7 text-xs"
-                onClick={() => setSourceFilter(key)}
+                onClick={() => router.push("/skills/gateway")}
+                aria-label="Open Skills API Gateway — OpenAPI, auth, and agent integration"
+                title="Skills API Gateway: OpenAPI, API keys, and coding-agent setup"
+                className={cn(
+                  "gap-2 h-9 text-sm px-4 font-medium border border-sky-500/20",
+                  "text-sky-50/95 shadow-md shadow-black/25",
+                  "bg-gradient-to-r from-slate-800 via-cyan-950/85 to-teal-950",
+                  "hover:border-sky-400/30 hover:brightness-[1.04]",
+                  "focus-visible:ring-2 focus-visible:ring-sky-500/40 focus-visible:ring-offset-2 ring-offset-background",
+                  "transition-all duration-200",
+                )}
               >
-                {label}
+                <Waypoints className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2.25} />
+                <span className="hidden sm:inline">Skills API Gateway</span>
+                <span className="sm:hidden font-semibold">API Gateway</span>
               </Button>
-            ))}
-          </div>
-
-          {/* View Mode & Categories */}
-          <div className="flex items-center gap-4 mt-4">
-            <div className="flex items-center bg-muted/50 rounded-full p-1">
-              {(["all", "my-skills", "team", "global", ...(workflowRunnerEnabled ? ["workflows" as const] : [])] as const).map(mode => {
-                const label =
-                  mode === "all" ? "All"
-                  : mode === "my-skills" ? `My Skills${mySkillsCount > 0 ? ` (${mySkillsCount})` : ""}`
-                  : mode === "team" ? "Team"
-                  : mode === "global" ? "Global"
-                  : "Multi-Step";
-                const icon =
-                  mode === "my-skills" ? <User className="h-3 w-3" />
-                  : mode === "team" ? <UsersRound className="h-3 w-3" />
-                  : mode === "global" ? <Globe className="h-3 w-3" />
-                  : null;
-                return (
-                  <Button
-                    key={mode}
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setViewMode(mode)}
-                    className={cn(
-                      "rounded-full text-xs gap-1",
-                      viewMode === mode && "bg-primary text-primary-foreground"
-                    )}
-                  >
-                    {icon}
-                    {label}
-                  </Button>
-                );
-              })}
-              {/* History button - only shown when workflow runner is enabled */}
-              {workflowRunnerEnabled && (
+              {isAdmin && (
                 <Button
-                  variant="ghost"
+                  type="button"
                   size="sm"
-                  onClick={() => router.push('/skills/history')}
-                  className="rounded-full text-xs gap-1"
+                  onClick={openImportModal}
+                  title="Import packaged disk templates into MongoDB as system skills"
+                  className={cn(
+                    "gap-2 h-9 text-sm px-4 font-medium border border-violet-500/20",
+                    "text-violet-50/95 shadow-md shadow-black/25",
+                    "bg-gradient-to-r from-slate-800 via-violet-950/90 to-purple-950",
+                    "hover:border-violet-400/30 hover:brightness-[1.04]",
+                    "focus-visible:ring-2 focus-visible:ring-violet-500/40 focus-visible:ring-offset-2 ring-offset-background",
+                    "transition-all duration-200",
+                  )}
                 >
-                  <History className="h-3 w-3" />
-                  History
+                  <PackageCheck className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2.25} />
+                  <span className="hidden sm:inline">Import templates</span>
+                  <span className="sm:hidden font-semibold">Import</span>
                 </Button>
               )}
+              <Button
+                size="sm"
+                onClick={onCreateNew}
+                className={cn(
+                  "gap-2 h-9 text-sm px-4 font-medium",
+                  "border border-primary/35 bg-primary/12 text-primary",
+                  "shadow-sm shadow-black/10 hover:bg-primary/18 hover:border-primary/45",
+                  "focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 ring-offset-background",
+                )}
+                aria-label="Skill Builder"
+              >
+                <Plus className="h-4 w-4 opacity-90" />
+                Skill Builder
+              </Button>
             </div>
+          </div>
 
-            <div className="flex gap-2 flex-wrap">
-              {ALL_CATEGORIES.map(cat => (
-                <Button
-                  key={cat}
-                  variant={selectedCategory === cat ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={cn("rounded-full text-xs", selectedCategory === cat && "bg-primary")}
+          {/* Single-row filter bar.
+              Previously this was split across two rows ("Search + Source"
+              on top; "Scope + Category" below) which made the two pill
+              groups look like duplicate filter widgets and pushed
+              Category off-screen at first glance. The new layout
+              packs everything onto one wrapping row in a deliberate
+              left-to-right reading order:
+                Search → Scope (who owns it) → Source (where it lives)
+                → Category (what it's about)
+              All four controls share the same pill / outline styling
+              so they read as a coherent filter set rather than two
+              separate concepts.
+              On narrow viewports the row wraps naturally; the search
+              input keeps `flex-1` so it always claims the leftover
+              width when groups wrap. */}
+          <div className="rounded-xl border border-border/50 bg-muted/25 p-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="relative flex-1 min-w-[12rem]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Search name, tag, category…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 h-9 text-sm bg-background/80"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                  Scope
+                </span>
+                <div className="flex items-center rounded-full border border-border/60 bg-background/90 p-0.5 shadow-sm ring-1 ring-border/40">
+                  {(["all", "my-skills", "team", "global"] as const).map(mode => {
+                    const label =
+                      mode === "all" ? "All"
+                      : mode === "my-skills" ? `My Skills${mySkillsCount > 0 ? ` (${mySkillsCount})` : ""}`
+                      : mode === "team" ? "Team"
+                      : "Global";
+                    const icon =
+                      mode === "my-skills" ? <User className="h-3.5 w-3.5" />
+                      : mode === "team" ? <UsersRound className="h-3.5 w-3.5" />
+                      : mode === "global" ? <Globe className="h-3.5 w-3.5" />
+                      : null;
+                    return (
+                      <Button
+                        key={mode}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setViewMode(mode)}
+                        className={cn(
+                          "rounded-full text-xs h-7 px-2.5 gap-1 border border-transparent",
+                          viewMode === mode
+                            ? "bg-muted/80 text-foreground border-primary/25 shadow-sm ring-1 ring-primary/10"
+                            : "text-foreground/80 hover:bg-muted/70 hover:border-border/60",
+                        )}
+                      >
+                        {icon}
+                        {label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                  <Filter className="h-3 w-3 shrink-0 text-foreground/55" aria-hidden />
+                  Source
+                </span>
+                <div
+                  className="inline-flex items-center gap-0.5 rounded-full border border-border/60 bg-background/90 p-0.5 shadow-sm ring-1 ring-border/40"
+                  role="group"
+                  aria-label="Filter by skill source"
                 >
-                  {cat}
-                </Button>
-              ))}
+                  {(
+                    [
+                      ["all", "All"],
+                      ["default", "Built-in"],
+                      ["agent_skills", "Custom"],
+                      ["hub", "Hub"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setSourceFilter(key)}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs font-medium transition-colors border border-transparent",
+                        sourceFilter === key
+                          ? "bg-muted/80 text-foreground border-primary/25 shadow-sm ring-1 ring-primary/10"
+                          : "text-foreground/80 hover:bg-muted/70 hover:text-foreground hover:border-border/60",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+                  Category
+                </span>
+                <Popover open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-label="Category filter"
+                      aria-expanded={categoryPopoverOpen}
+                      // Compact inline pill — sized to fit the
+                      // single-row filter bar instead of the
+                      // previous full-width treatment that consumed
+                      // half the screen on its own row.
+                      className="h-8 min-w-[10rem] max-w-[16rem] justify-between gap-2 font-normal text-xs bg-background/80 rounded-full"
+                    >
+                      <span className="truncate text-left">
+                        {selectedCategory === "All" ? "All categories" : selectedCategory}
+                      </span>
+                      <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="bottom"
+                    align="start"
+                    className="w-[min(17rem,calc(100vw-2rem))] p-0 overflow-hidden z-[200] shadow-xl"
+                  >
+                    <div className="border-b border-border/50 p-2">
+                      <Input
+                        placeholder="Search categories…"
+                        value={categoryQuery}
+                        onChange={(e) => setCategoryQuery(e.target.value)}
+                        className="h-9 text-sm"
+                        autoComplete="off"
+                        onKeyDown={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    <ScrollArea className="h-[min(240px,40vh)]">
+                      <div className="p-1">
+                        <button
+                          type="button"
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm",
+                            selectedCategory === "All"
+                              ? "bg-muted text-foreground"
+                              : "hover:bg-muted/70",
+                          )}
+                          onClick={() => {
+                            setSelectedCategory("All");
+                            setCategoryPopoverOpen(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "h-4 w-4 shrink-0",
+                              selectedCategory === "All" ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                          All categories
+                        </button>
+                        {filteredCategoryOptions.length === 0 ? (
+                          <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                            No matching categories
+                          </p>
+                        ) : (
+                          filteredCategoryOptions.map((cat) => (
+                            <button
+                              key={cat}
+                              type="button"
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm",
+                                selectedCategory === cat
+                                  ? "bg-muted text-foreground"
+                                  : "hover:bg-muted/70",
+                              )}
+                              onClick={() => {
+                                setSelectedCategory(cat);
+                                setCategoryPopoverOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={cn(
+                                  "h-4 w-4 shrink-0",
+                                  selectedCategory === cat ? "opacity-100" : "opacity-0",
+                                )}
+                              />
+                              <span className="truncate">{cat}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
           </div>
         </div>
@@ -630,13 +1133,13 @@ export function SkillsGallery({
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center h-64">
-          <CAIPESpinner size="lg" message="Loading workflows..." />
+          <CAIPESpinner size="lg" message="Loading skills..." />
         </div>
       )}
 
       {/* Content */}
       {!isLoading && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="relative z-0 flex-1 overflow-y-auto min-h-0">
           {/* Favorites Section */}
           {getFavoriteSkills().length > 0 && searchQuery === "" && selectedCategory === "All" && !isFilteredView && (
             <div className="mb-8 p-4 bg-gradient-to-br from-yellow-500/10 to-amber-500/10 rounded-xl border border-yellow-500/30">
@@ -666,17 +1169,24 @@ export function SkillsGallery({
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate pr-8">{config.name}</p>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {!workflowRunnerEnabled ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
-                          ) : config.is_quick_start ? (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
-                          )}
-                          <CatalogSourceBadge config={config} />
-                          <VisibilityBadge config={config} />
-                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                          <div className="flex shrink-0 items-center gap-2" aria-label="Skill status icons">
+                            {shouldShowSkillScanIndicator(config) && (
+                              <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
+                            )}
+                            <SupervisorSyncBadge state={skillSyncState(config)} />
+                          </div>
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            {!workflowRunnerEnabled ? (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                            ) : config.is_quick_start ? (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0"><MessageSquare className="h-2.5 w-2.5 mr-0.5" />Skill</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">{config.tasks.length} steps</Badge>
+                            )}
+                            <CatalogSourceBadge config={config} />
+                            <VisibilityBadge config={config} />
+                          </div>
                         </div>
                       </div>
 
@@ -694,42 +1204,7 @@ export function SkillsGallery({
                         >
                           <Star className="h-4 w-4 fill-current" />
                         </Button>
-                        {canEditConfig(config) && (
-                          <>
-                            <div className="h-4 w-px bg-border/50" />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                              title="Edit"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                        {canDeleteConfig(config) ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-red-400 hover:text-red-500"
-                            onClick={(e) => handleDelete(config, e)}
-                            disabled={deletingId === config.id}
-                            title="Delete"
-                          >
-                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
-                            disabled
-                            title="Built-in skills cannot be deleted"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                        {renderRowActions(config)}
                       </div>
                     </motion.div>
                   );
@@ -769,13 +1244,17 @@ export function SkillsGallery({
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
                         </div>
-                        <div className="flex items-center gap-1 flex-wrap justify-end">
-                          <CatalogSourceBadge config={config} />
-                          <VisibilityBadge config={config} />
-                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
-                          <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
-                            {config.difficulty || "beginner"}
-                          </Badge>
+                        <div className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1.5">
+                          <div className="flex shrink-0 items-center gap-2" aria-label="Skill status icons">
+                            {shouldShowSkillScanIndicator(config) && (
+                              <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
+                            )}
+                            <SupervisorSyncBadge state={skillSyncState(config)} />
+                          </div>
+                          <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
+                            <CatalogSourceBadge config={config} />
+                            <VisibilityBadge config={config} />
+                          </div>
                         </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
@@ -809,29 +1288,7 @@ export function SkillsGallery({
                         >
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
-                        {canEditConfig(config) && (
-                          <>
-                            <div className="h-4 w-px bg-border/50" />
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }} title="Edit">
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                        {canDeleteConfig(config) ? (
-                          <Button
-                            variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-500"
-                            onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id} title="Delete"
-                          >
-                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
-                            disabled title="Built-in skills cannot be deleted"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                        {renderRowActions(config)}
                       </div>
                     </motion.div>
                   );
@@ -870,13 +1327,8 @@ export function SkillsGallery({
           )}
 
           {/* Skills */}
-          {viewMode !== "workflows" && !isFilteredView && skillConfigs.length > 0 && (
+          {!isFilteredView && skillConfigs.length > 0 && (
             <div className="mb-8">
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-medium">Skills</h2>
-                <Badge variant="secondary">{skillConfigs.length}</Badge>
-              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {skillConfigs.map((config, index) => {
                   const Icon = ICON_MAP[config.thumbnail || "Zap"] || Zap;
@@ -896,13 +1348,17 @@ export function SkillsGallery({
                         <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", gradientClass)}>
                           <Icon className="h-5 w-5 text-white" />
                         </div>
-                        <div className="flex items-center gap-1 flex-wrap justify-end">
-                          <CatalogSourceBadge config={config} />
-                          <VisibilityBadge config={config} />
-                          <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
-                          <Badge variant="outline" className={cn("text-xs", getDifficultyColor(config.difficulty))}>
-                            {config.difficulty || "beginner"}
-                          </Badge>
+                        <div className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1.5">
+                          <div className="flex shrink-0 items-center gap-2" aria-label="Skill status icons">
+                            {shouldShowSkillScanIndicator(config) && (
+                              <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
+                            )}
+                            <SupervisorSyncBadge state={skillSyncState(config)} />
+                          </div>
+                          <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
+                            <CatalogSourceBadge config={config} />
+                            <VisibilityBadge config={config} />
+                          </div>
                         </div>
                       </div>
                       <h3 className="font-medium mb-1 group-hover:text-primary transition-colors">{config.name}</h3>
@@ -934,129 +1390,7 @@ export function SkillsGallery({
                         >
                           <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
                         </Button>
-                        {canEditConfig(config) && (
-                          <>
-                            <div className="h-4 w-px bg-border/50" />
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}
-                              title="Edit template"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                        {canDeleteConfig(config) ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-red-400 hover:text-red-500"
-                            onClick={(e) => handleDelete(config, e)}
-                            disabled={deletingId === config.id}
-                            title="Delete template"
-                          >
-                            {deletingId === config.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground/40 cursor-not-allowed"
-                            disabled
-                            title="Built-in skills cannot be deleted"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Multi-Step Workflows — only shown when workflow runner is enabled */}
-          {workflowRunnerEnabled && !isFilteredView && workflowConfigs.length > 0 && (
-            <div className="mb-8">
-              <div className="flex items-center gap-2 mb-4">
-                <Workflow className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-medium">Multi-Step Workflows</h2>
-                <Badge variant="secondary">{workflowConfigs.length}</Badge>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {workflowConfigs.map((config, index) => {
-                  const Icon = ICON_MAP[config.thumbnail || "Workflow"] || Workflow;
-                  const gradientClass = CATEGORY_COLORS[config.category] || CATEGORY_COLORS["Custom"];
-
-                  return (
-                    <motion.div
-                      key={config.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      className="group relative p-4 rounded-xl border border-border/50 bg-card/50 hover:border-primary/30 hover:shadow-lg transition-all cursor-pointer"
-                      onClick={() => handleConfigClick(config)}
-                    >
-                      <div className={cn("w-10 h-10 rounded-lg bg-gradient-to-br flex items-center justify-center mb-3", gradientClass)}>
-                        <Icon className="h-5 w-5 text-white" />
-                      </div>
-                      <h3 className="font-medium mb-1 pr-16">{config.name}</h3>
-                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{config.description}</p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        {workflowRunnerEnabled ? (
-                          <>
-                            <Workflow className="h-3.5 w-3.5" />
-                            <span>{config.tasks.length} steps</span>
-                          </>
-                        ) : (
-                          <>
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            <span>Skill</span>
-                          </>
-                        )}
-                        <CatalogSourceBadge config={config} />
-                        <VisibilityBadge config={config} />
-                        <SyncDot synced={supervisorSynced} loading={supervisorLoading} />
-                      </div>
-
-                      {/* Action buttons grouped together - bottom-right on hover */}
-                      <div className="absolute bottom-4 right-4 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-card/95 backdrop-blur-sm rounded-lg p-0.5 border border-border/30 shadow-sm">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-8 w-8",
-                            isFavorite(config.id) ? "text-yellow-500 hover:text-yellow-600" : "text-muted-foreground hover:text-foreground"
-                          )}
-                          onClick={(e) => { e.stopPropagation(); toggleFavorite(config.id); }}
-                          title={isFavorite(config.id) ? "Remove from favorites" : "Add to favorites"}
-                        >
-                          <Star className={cn("h-4 w-4", isFavorite(config.id) && "fill-current")} />
-                        </Button>
-                        <div className="h-5 w-px bg-border/50" />
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); handleConfigClick(config); }}>
-                          <MessageSquare className="h-4 w-4" />
-                        </Button>
-                        {canEditConfig(config) && (
-                          <>
-                            <div className="h-5 w-px bg-border/50" />
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onEditConfig?.(config); }}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
-                        {canDeleteConfig(config) ? (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-500" onClick={(e) => handleDelete(config, e)} disabled={deletingId === config.id}>
-                            {deletingId === config.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                          </Button>
-                        ) : (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 cursor-not-allowed" disabled title="Built-in skills cannot be deleted">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        {renderRowActions(config)}
                       </div>
                     </motion.div>
                   );
@@ -1071,7 +1405,7 @@ export function SkillsGallery({
               <Sparkles className="h-12 w-12 text-muted-foreground/50" />
               <p className="text-muted-foreground text-center max-w-md">
                 No skills match your search or filters. Try another source filter, or add repo-backed skills via{" "}
-                <Link href="/admin" className="text-primary font-medium hover:underline">
+                <Link href="/admin?tab=skills" className="text-primary font-medium hover:underline">
                   Admin → Skill Hubs
                 </Link>
                 .
@@ -1168,10 +1502,51 @@ export function SkillsGallery({
               {/* Footer */}
               <div className="flex items-center justify-between gap-3 p-4 border-t bg-muted/30 shrink-0">
                 <div>
-                  {onEditConfig && (
-                    <Button variant="ghost" size="sm" onClick={() => { setActiveFormConfig(null); onEditConfig(activeFormConfig); }}>
-                      <Edit className="h-3.5 w-3.5 mr-1" /> Edit
+                  {isHubSkill(activeFormConfig) ? (
+                    /*
+                     * Crawled-from-GitHub skills aren't editable in-place; the
+                     * footer offers a read-only viewer instead so users can
+                     * still inspect SKILL.md and ancillary files.
+                     */
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const target = activeFormConfig;
+                        setActiveFormConfig(null);
+                        setViewerTarget(target);
+                      }}
+                      title="Crawled from GitHub — read-only"
+                    >
+                      <Eye className="h-3.5 w-3.5 mr-1" /> View files
                     </Button>
+                  ) : (
+                    onEditConfig && (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setActiveFormConfig(null);
+                            onEditConfig(activeFormConfig);
+                          }}
+                        >
+                          <Edit className="h-3.5 w-3.5 mr-1" /> Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const target = activeFormConfig;
+                            setActiveFormConfig(null);
+                            setViewerTarget(target);
+                          }}
+                          title="Browse skill files"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5 mr-1" /> Files
+                        </Button>
+                      </div>
+                    )
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -1198,6 +1573,185 @@ export function SkillsGallery({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {viewerTarget &&
+        (() => {
+          const ref = parseHubId(viewerTarget);
+          const meta = (viewerTarget.metadata ?? {}) as {
+            upstream_url?: string;
+            catalog_source?: string;
+            catalog_source_id?: string | null;
+          };
+          // `metadata.upstream_url` (when present) lets us deep-link to the
+          // crawled folder on GitHub/GitLab; otherwise we just show the name.
+          const upstream = meta.upstream_url;
+          // For unified-catalog rows the gallery prefixes the id with
+          // "catalog-"; the real `agent_skills._id` (when this row is backed by
+          // Mongo) lives in `metadata.catalog_source_id`. Fall back to the
+          // stripped prefix for non-catalog (direct configs) skills.
+          const configId =
+            meta.catalog_source === "agent_skills" && meta.catalog_source_id
+              ? meta.catalog_source_id
+              : viewerTarget.id.startsWith("catalog-")
+                ? viewerTarget.id.replace(/^catalog-/, "")
+                : viewerTarget.id;
+          const adapter = ref
+            ? makeHubFolderAdapter({
+                hubId: ref.hubId,
+                skillId: ref.skillId,
+                label: viewerTarget.name,
+                externalUrl: upstream,
+              })
+            : meta.catalog_source === "default"
+              ? makeStaticFolderAdapter({
+                  label: viewerTarget.name,
+                  skillContent: viewerTarget.skill_content ?? "",
+                })
+              : makeConfigFolderAdapter({
+                  configId,
+                  label: viewerTarget.name,
+                  editable: canEditConfig(viewerTarget),
+                });
+          return (
+            <SkillFolderViewer
+              open={viewerTarget !== null}
+              onOpenChange={(open) => {
+                if (!open) setViewerTarget(null);
+              }}
+              title={viewerTarget.name}
+              subtitle={
+                ref
+                  ? upstream
+                    ? `Crawled from ${upstream}`
+                    : "Crawled from upstream repository"
+                  : viewerTarget.description
+              }
+              adapter={adapter}
+              editHref={
+                // Hub-backed and user-owned skills both have a stable
+                // workspace route; route the "Open in editor" link
+                // there so the dialog can stay strictly read-only.
+                ref
+                  ? undefined
+                  : `/skills/workspace/${encodeURIComponent(viewerTarget.id)}`
+              }
+            />
+          );
+        })()}
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && deletingId === null) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {deleteTarget?.is_system ? "Remove built-in template" : "Delete skill"}
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              {deleteTarget?.is_system ? (
+                <>
+                  Remove built-in template{" "}
+                  <span className="font-medium text-foreground">&ldquo;{deleteTarget?.name}&rdquo;</span>{" "}
+                  from this environment? You can restore it later via{" "}
+                  <span className="font-medium text-foreground">Import templates</span> or workspace seed.
+                </>
+              ) : (
+                <>
+                  Permanently delete{" "}
+                  <span className="font-medium text-foreground">&ldquo;{deleteTarget?.name}&rdquo;</span>?
+                  This cannot be undone.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deletingId !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deletingId !== null}
+            >
+              {deletingId !== null && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {deleteTarget?.is_system ? "Remove" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Import packaged templates</DialogTitle>
+            <DialogDescription>
+              Copies skills from the server&apos;s packaged template directory into shared storage as system skills.
+              Already-imported templates are skipped.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 py-2">
+            {importTemplatesLoading ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading templates…
+              </div>
+            ) : diskTemplates.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">
+                No packaged templates found. Set <code className="text-xs bg-muted px-1 rounded">SKILLS_DIR</code> or
+                ensure chart data skills exist.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={selectAllImport}>
+                    Select all
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={clearImportSelection}>
+                    Clear
+                  </Button>
+                </div>
+                <ul className="space-y-2 border rounded-md p-2 max-h-64 overflow-y-auto">
+                  {diskTemplates.map((t) => (
+                    <li key={t.id} className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1 rounded border-border"
+                        checked={selectedImportIds.has(t.id)}
+                        onChange={() => toggleImportId(t.id)}
+                        id={`import-tpl-${t.id}`}
+                      />
+                      <label htmlFor={`import-tpl-${t.id}`} className="cursor-pointer leading-snug">
+                        <span className="font-medium">{t.label}</span>
+                        <span className="block text-xs text-muted-foreground font-mono">{t.id}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="ghost" onClick={() => setImportModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submitTemplateImport()}
+              disabled={importSubmitting || diskTemplates.length === 0}
+            >
+              {importSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Import selected
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

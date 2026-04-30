@@ -4,6 +4,11 @@
  * Returns the bootstrap skill template used by the Skills API Gateway UI to
  * render the `/skills` slash command for a particular coding agent.
  *
+ * Gateway narrative (see TrySkillsGateway): users should understand the **live catalog**
+ * (`GET /api/skills` with filters) and the **catalog API key** before using installers.
+ * This route is the default “install one bootstrap command” path; bulk materialization of
+ * many skills uses `install.sh?catalog_url=…` and is documented as advanced.
+ *
  * Query params:
  *   - agent:        agent id (claude | cursor | specify | codex | gemini |
  *                   continue). Defaults to "claude". Unknown values fall back

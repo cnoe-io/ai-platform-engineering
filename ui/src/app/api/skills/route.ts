@@ -12,7 +12,7 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
  *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-skills.
+ *   Otherwise, aggregates locally from disk templates and MongoDB `agent_skills` (same data as GET /api/skills/configs).
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -42,6 +42,22 @@ interface CatalogSkill {
   source_id: string | null;
   content: string | null;
   metadata: Record<string, unknown>;
+  /**
+   * Sibling files (paths relative to the skill folder). Populated only
+   * when the caller asks for `include_content=true`. Lets API gateway
+   * consumers (Claude Code, Cursor, install.sh) materialise the full
+   * skill folder verbatim instead of only SKILL.md.
+   */
+  ancillary_files?: Record<string, string>;
+  /** Operator-facing summary of what was captured / skipped. */
+  ancillary_summary?: {
+    total_files: number;
+    total_bytes: number;
+    skipped_binary: number;
+    skipped_too_large: number;
+    truncated_at_count_cap: boolean;
+    truncated_at_size_cap: boolean;
+  };
 }
 
 interface CatalogResponse {
@@ -234,7 +250,7 @@ async function fetchFromBackend(
 
 /**
  * Local aggregation fallback: merge skill-templates (filesystem) and
- * agent-skills (MongoDB) into a single catalog.
+ * persisted agent skills from MongoDB (`agent_skills`) into a single catalog.
  */
 async function aggregateLocally(
   includeContent: boolean,
@@ -304,6 +320,7 @@ async function aggregateLocally(
               is_system: 1,
               category: 1,
               metadata: 1,
+              ancillary_files: 1,
             },
           },
         )
@@ -326,6 +343,10 @@ async function aggregateLocally(
             visibility: doc.visibility,
             is_system: doc.is_system,
           },
+          ancillary_files:
+            includeContent && doc.ancillary_files
+              ? (doc.ancillary_files as Record<string, string>)
+              : undefined,
         });
       }
       sourcesLoaded.push("agent_skills");
@@ -347,7 +368,16 @@ async function aggregateLocally(
       for (const hub of enabledHubs) {
         try {
           const hubSkills = await getHubSkills(hub);
-          skills.push(...hubSkills);
+          for (const s of hubSkills) {
+            // Hub crawler always returns content + ancillary_files in the
+            // CatalogSkill shape; strip them when the caller didn't ask
+            // for content so the listing payload stays small.
+            skills.push({
+              ...s,
+              content: includeContent ? s.content : null,
+              ancillary_files: includeContent ? s.ancillary_files : undefined,
+            });
+          }
           sourcesLoaded.push(`hub:${hub.id}`);
         } catch (err) {
           console.error(`[Skills] Hub ${hub.location} failed:`, err);

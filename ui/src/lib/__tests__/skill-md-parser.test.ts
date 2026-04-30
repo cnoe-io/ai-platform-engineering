@@ -20,6 +20,7 @@ import {
   parseFrontmatter,
   splitSections,
   updateAllowedToolsInFrontmatter,
+  resolvePersistedSkillMarkdownForEditor,
 } from "../skill-md-parser";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -837,13 +838,13 @@ describe("createBlankSkillMd", () => {
 // Integration: parseSkillMd with our built-in templates
 // ─────────────────────────────────────────────────────────────────────────────
 describe("parseSkillMd integration with built-in templates", () => {
-  it("should parse the review-specific-pr template correctly", () => {
+  it("should parse the review-my-code-github-pr template correctly", () => {
     const content = `---
-name: review-specific-pr
-description: Perform a comprehensive code review of a specific GitHub Pull Request.
+name: review-my-code-github-pr
+description: Review my code on a GitHub Pull Request — analyze changes, security, tests, and standards.
 ---
 
-# Review a Specific PR
+# Review My Code on a GitHub PR
 
 Given a GitHub PR URL or identifier, perform a thorough code review.
 
@@ -868,8 +869,8 @@ Return a structured markdown review.
 - Check if the PR description explains the "why"`;
 
     const result = parseSkillMd(content);
-    expect(result.name).toBe("review-specific-pr");
-    expect(result.title).toBe("Review a Specific PR");
+    expect(result.name).toBe("review-my-code-github-pr");
+    expect(result.title).toBe("Review My Code on a GitHub PR");
     expect(result.sections.size).toBe(4);
     expect(result.sections.has("Instructions")).toBe(true);
     expect(result.sections.has("Output Format")).toBe(true);
@@ -1145,5 +1146,39 @@ allowed-tools: Read, Write
     const updated = updateAllowedToolsInFrontmatter(base, ["Read"]);
     const parsed = parseSkillMd(updated);
     expect(parsed.body).toBe("# Test Skill\n\nDo something.");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// resolvePersistedSkillMarkdownForEditor (legacy seeded rows without skill_content)
+// ─────────────────────────────────────────────────────────────────────────────
+describe("resolvePersistedSkillMarkdownForEditor", () => {
+  it("prefers skill_content when set", () => {
+    const md = "---\nname: x\ndescription: y\n---\n# Body";
+    expect(
+      resolvePersistedSkillMarkdownForEditor({
+        skill_content: md,
+        is_quick_start: true,
+        tasks: [{ llm_prompt: "ignored" }],
+      }),
+    ).toBe(md);
+  });
+
+  it("uses single quick-start task llm_prompt when skill_content is empty", () => {
+    const legacy = "---\nname: incident\n---\n# Real content";
+    expect(
+      resolvePersistedSkillMarkdownForEditor({
+        is_quick_start: true,
+        tasks: [{ llm_prompt: legacy }],
+      }),
+    ).toBe(legacy);
+  });
+
+  it("returns blank template when no content and not legacy quick-start", () => {
+    const blank = resolvePersistedSkillMarkdownForEditor({
+      is_quick_start: false,
+      tasks: [{ llm_prompt: "only a prompt" }],
+    });
+    expect(blank).toBe(createBlankSkillMd());
   });
 });

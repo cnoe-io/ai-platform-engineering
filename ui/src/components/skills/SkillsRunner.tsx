@@ -1471,12 +1471,12 @@ export function SkillsRunner({
           >
             <LayoutGrid className="h-5 w-5" />
           </Button>
-          {/* Back button - navigates to history page */}
+          {/* Back to skills catalog */}
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/skills/history')}
-            title="View workflow history"
+            onClick={() => router.push('/skills')}
+            title="Back to Skills"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>

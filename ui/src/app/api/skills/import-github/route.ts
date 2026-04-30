@@ -9,11 +9,10 @@ import {
 } from "@/lib/api-middleware";
 
 /**
- * POST /api/agent-skills/import-github
+ * POST /api/skills/import-github
  *
  * Fetches all files under a GitHub directory (excluding SKILL.md) and returns
- * them as a `Record<string, string>` so the UI can merge them into the
- * agent-config's `ancillary_files` field before saving.
+ * them as a `Record<string, string>` for merging into `ancillary_files` before save.
  *
  * Body: { repo: "owner/repo", path: "skills/my-skill", credentials_ref?: string }
  */

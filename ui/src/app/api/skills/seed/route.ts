@@ -15,22 +15,25 @@ import {
 /**
  * Seed API Route
  *
- * POST /api/agent-skills/seed
- * Seeds the database with skill templates loaded from disk (charts/data/skills/).
- * Can be called on app startup or manually by admin.
- * Removes system templates that are no longer in the whitelist.
+ * POST /api/skills/seed — seed MongoDB from disk templates (charts/data/skills/).
+ * GET /api/skills/seed — check if seeding is needed
  *
- * GET /api/agent-skills/seed
- * Checks if seeding is needed (returns { needsSeeding: boolean, count: number })
- *
- * The BUILTIN_SKILL_IDS env var controls which disk templates are seeded.
- * When set, only templates whose IDs appear in the comma-separated list are seeded.
- * When unset or empty, all disk templates are seeded.
+ * **Default auto-seed** (when `BUILTIN_SKILL_IDS` is unset): seed **all**
+ * templates discovered on disk. The legacy single-example mode is still
+ * available by setting `SKILLS_AUTO_SEED_TEMPLATE_ID` to a specific template id
+ * — useful for minimal demo deployments where only one example skill is wanted.
+ * Set `BUILTIN_SKILL_IDS` to a comma-separated list to seed an explicit subset
+ * (admin); in that case, non-whitelisted system rows are also deleted.
  */
 
 /**
- * Convert a disk SkillTemplateData into an AgentSkill suitable for MongoDB.
+ * If set (and `BUILTIN_SKILL_IDS` is unset), only the named template is seeded.
+ * Leave unset for the default behaviour of seeding every template under
+ * `charts/ai-platform-engineering/data/skills/`.
  */
+const SINGLE_EXAMPLE_TEMPLATE_ID =
+  process.env.SKILLS_AUTO_SEED_TEMPLATE_ID?.trim() || "";
+
 function templateToAgentSkill(t: SkillTemplateData): AgentSkill {
   const now = new Date();
   return {
@@ -51,6 +54,8 @@ function templateToAgentSkill(t: SkillTemplateData): AgentSkill {
     updated_at: now,
     is_quick_start: true,
     thumbnail: t.icon || "Zap",
+    /** Same bytes as disk SKILL.md so Skills Builder editor loads without blank template */
+    skill_content: t.content,
     metadata: {
       tags: t.tags || [],
       schema_version: "1.0",
@@ -59,22 +64,35 @@ function templateToAgentSkill(t: SkillTemplateData): AgentSkill {
 }
 
 /**
- * Returns the subset of disk templates allowed by the BUILTIN_SKILL_IDS
- * environment variable. If the variable is unset or empty, all templates
- * are returned.
+ * Templates eligible for seeding.
+ *
+ * Precedence:
+ *   1. `BUILTIN_SKILL_IDS` (comma-separated whitelist) — exact subset; also
+ *      enables stale-template removal for non-whitelisted system rows.
+ *   2. `SKILLS_AUTO_SEED_TEMPLATE_ID` — single example template (legacy
+ *      minimal-demo mode). No stale removal.
+ *   3. Default — seed every template discovered under
+ *      `charts/ai-platform-engineering/data/skills/`. No stale removal.
  */
 function getEnabledTemplates(): SkillTemplateData[] {
   const allTemplates = loadSkillTemplatesInternal();
   const raw = process.env.BUILTIN_SKILL_IDS?.trim();
-  if (!raw) {
-    return allTemplates;
+  if (raw) {
+    const allowedIds = new Set(raw.split(",").map((id) => id.trim()).filter(Boolean));
+    return allTemplates.filter((t) => allowedIds.has(t.id));
   }
-  const allowedIds = new Set(raw.split(",").map((id) => id.trim()).filter(Boolean));
-  return allTemplates.filter((t) => allowedIds.has(t.id));
+  if (SINGLE_EXAMPLE_TEMPLATE_ID) {
+    const example = allTemplates.find((t) => t.id === SINGLE_EXAMPLE_TEMPLATE_ID);
+    return example ? [example] : [];
+  }
+  return allTemplates;
 }
 
-// Check if seeding is needed
-async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCount: number; templateCount: number }> {
+async function checkSeedingStatus(): Promise<{
+  needsSeeding: boolean;
+  existingCount: number;
+  templateCount: number;
+}> {
   const enabledTemplates = getEnabledTemplates();
   const allTemplates = loadSkillTemplatesInternal();
 
@@ -87,16 +105,15 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
   const allSystemIds = allTemplates.map((t) => t.id);
   const disabledIds = allSystemIds.filter((id) => !new Set(enabledIds).has(id));
 
-  // Count how many of the enabled templates already exist
   const existingCount = await collection.countDocuments({
     is_system: true,
     id: { $in: enabledIds },
   });
 
-  // Count system templates that should be removed
-  const staleCount = disabledIds.length > 0
-    ? await collection.countDocuments({ is_system: true, id: { $in: disabledIds } })
-    : 0;
+  const staleCount =
+    process.env.BUILTIN_SKILL_IDS?.trim() && disabledIds.length > 0
+      ? await collection.countDocuments({ is_system: true, id: { $in: disabledIds } })
+      : 0;
 
   return {
     needsSeeding: existingCount < enabledTemplates.length || staleCount > 0,
@@ -105,7 +122,6 @@ async function checkSeedingStatus(): Promise<{ needsSeeding: boolean; existingCo
   };
 }
 
-// Seed the database with enabled disk templates and remove non-whitelisted ones
 async function seedTemplatesFromDisk(): Promise<{ seeded: number; skipped: number; removed: number }> {
   if (!isMongoDBConfigured) {
     throw new ApiError("MongoDB is not configured", 503);
@@ -120,7 +136,6 @@ async function seedTemplatesFromDisk(): Promise<{ seeded: number; skipped: numbe
   let skipped = 0;
 
   for (const template of enabledTemplates) {
-    // Check if this template already exists
     const existing = await collection.findOne({ id: template.id });
 
     if (existing) {
@@ -128,7 +143,6 @@ async function seedTemplatesFromDisk(): Promise<{ seeded: number; skipped: numbe
       continue;
     }
 
-    // Convert disk template to AgentSkill and insert
     const configToInsert = templateToAgentSkill(template);
 
     await collection.insertOne(configToInsert);
@@ -136,25 +150,27 @@ async function seedTemplatesFromDisk(): Promise<{ seeded: number; skipped: numbe
     console.log(`[Seed] Seeded template: ${template.name}`);
   }
 
-  // Remove system templates that are no longer in the whitelist
-  const allSystemIds = allTemplates.map((t) => t.id);
-  const disabledIds = allSystemIds.filter((id) => !enabledIds.has(id));
   let removed = 0;
-  if (disabledIds.length > 0) {
-    const result = await collection.deleteMany({
-      is_system: true,
-      id: { $in: disabledIds },
-    });
-    removed = result.deletedCount;
-    if (removed > 0) {
-      console.log(`[Seed] Removed ${removed} non-whitelisted system template(s)`);
+  const whitelistMode = Boolean(process.env.BUILTIN_SKILL_IDS?.trim());
+  if (whitelistMode) {
+    const allSystemIds = allTemplates.map((t) => t.id);
+    const disabledIds = allSystemIds.filter((id) => !enabledIds.has(id));
+    if (disabledIds.length > 0) {
+      const result = await collection.deleteMany({
+        is_system: true,
+        id: { $in: disabledIds },
+      });
+      removed = result.deletedCount;
+      if (removed > 0) {
+        console.log(`[Seed] Removed ${removed} non-whitelisted system template(s)`);
+      }
     }
   }
 
   return { seeded, skipped, removed };
 }
 
-// GET /api/agent-skills/seed - Check if seeding is needed
+// GET /api/skills/seed
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const enabledTemplates = getEnabledTemplates();
 
@@ -177,33 +193,33 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   });
 });
 
-// POST /api/agent-skills/seed - Seed the database (auto-seeds on first call, or admin can force)
+// POST /api/skills/seed
 export const POST = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
     throw new ApiError("MongoDB is not configured", 503);
   }
 
-  // Check if this is an authenticated request (optional - allows auto-seeding on first load)
-  let isAdmin = false;
   try {
-    await withAuth(request, async (req, user) => {
-      // Check if user is admin (via session role)
-      const session = (req as any).session;
-      isAdmin = session?.role === "admin";
+    await withAuth(request, async (req) => {
+      const session = (req as { session?: { role?: string } }).session;
+      void session?.role;
       return NextResponse.json({ ok: true });
     });
   } catch {
-    // Not authenticated - allow seeding anyway for initial setup
-    isAdmin = false;
+    // Not authenticated — allow seeding for initial setup
   }
 
-  // Perform seeding (also removes non-whitelisted system templates)
   const result = await seedTemplatesFromDisk();
 
-  console.log(`[Seed] Seeding complete: ${result.seeded} seeded, ${result.skipped} skipped, ${result.removed} removed`);
+  console.log(
+    `[Seed] Seeding complete: ${result.seeded} seeded, ${result.skipped} skipped, ${result.removed} removed`,
+  );
 
-  return successResponse({
-    message: `Successfully seeded ${result.seeded} templates (${result.removed} removed)`,
-    ...result,
-  }, 201);
+  return successResponse(
+    {
+      message: `Successfully seeded ${result.seeded} templates (${result.removed} removed)`,
+      ...result,
+    },
+    201,
+  );
 });
