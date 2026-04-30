@@ -370,7 +370,10 @@ def test_install_returns_false_when_provider_has_no_add_processor() -> None:
 def test_install_is_idempotent_on_real_provider() -> None:
     sdk = pytest.importorskip("opentelemetry.sdk.trace")
     from opentelemetry import trace
+    from opentelemetry.util._once import Once
 
+    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    trace._TRACER_PROVIDER_SET_ONCE = Once()  # type: ignore[attr-defined]
     provider = sdk.TracerProvider()
     trace.set_tracer_provider(provider)
     try:
@@ -389,3 +392,256 @@ def test_install_is_idempotent_on_real_provider() -> None:
         # Don't leak our provider to other tests — reset to the
         # default NoOp before returning.
         trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+        trace._TRACER_PROVIDER_SET_ONCE = Once()  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: real TracerProvider + SimpleSpanProcessor exporter
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def _real_otel():
+    """Install a real TracerProvider with an in-memory exporter.
+
+    Yields ``(provider, exporter)``. Resets the global provider on
+    teardown so subsequent tests get a fresh NoOp.
+
+    We use ``SimpleSpanProcessor`` (synchronous) so exported spans
+    are visible immediately — ``BatchSpanProcessor`` would require
+    a flush and add timing flake.
+
+    OTel's ``set_tracer_provider`` is a one-shot via
+    ``_TRACER_PROVIDER_SET_ONCE``; we have to clear *both* the
+    provider slot and the once-flag for this fixture to be usable
+    across multiple tests in the same process.
+    """
+    sdk = pytest.importorskip("opentelemetry.sdk.trace")
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+    from opentelemetry.util._once import Once
+
+    # Force a clean slate so ``set_tracer_provider`` is honored.
+    trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+    trace._TRACER_PROVIDER_SET_ONCE = Once()  # type: ignore[attr-defined]
+
+    provider = sdk.TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    assert trace.get_tracer_provider() is provider, (
+        "set_tracer_provider was rejected; OTel global is still NoOp"
+    )
+    try:
+        yield provider, exporter
+    finally:
+        trace._TRACER_PROVIDER = None  # type: ignore[attr-defined]
+        trace._TRACER_PROVIDER_SET_ONCE = Once()  # type: ignore[attr-defined]
+
+
+def test_e2e_skill_payload_scrubbed_from_exported_span(_real_otel) -> None:
+    """Pin the real export path: a span's prompt content is rewritten
+    on its way to the exporter, not just on the in-memory copy."""
+    provider, exporter = _real_otel
+    with mock.patch.dict(os.environ, {"SKILL_TRACE_SCRUB_ENABLED": "true"}):
+        assert install_skill_content_scrubber() is True
+
+    from opentelemetry import trace
+
+    tracer = trace.get_tracer("test")
+    skill_body = (
+        "You are a helpful assistant.\n"
+        "## Skills System\n"
+        "**Available Skills:**\n"
+        "- foo: do foo\n"
+        "  Read /skills/user/foo/SKILL.md for full instructions.\n"
+        "## Other\nstays\n"
+    )
+    with tracer.start_as_current_span("llm.call") as span:
+        span.set_attribute("gen_ai.prompt.0.content", skill_body)
+        span.set_attribute("gen_ai.usage.input_tokens", 999)
+
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1
+    attrs = finished[0].attributes
+    assert "## Skills System [redacted from trace]" in attrs["gen_ai.prompt.0.content"]
+    assert "do foo" not in attrs["gen_ai.prompt.0.content"]
+    assert "/skills/user/foo/SKILL.md" not in attrs["gen_ai.prompt.0.content"]
+    # Non-targeted attribute survives.
+    assert attrs["gen_ai.usage.input_tokens"] == 999
+    # ``## Other`` boundary preserved.
+    assert "## Other\nstays" in attrs["gen_ai.prompt.0.content"]
+
+
+def test_e2e_workflow_tool_io_redacted_wholesale(_real_otel) -> None:
+    """invoke_self_service_task spans must redact entity.input/output
+    even when the payload has no markdown header — pins the
+    tool-name short-circuit on a real exporter pipeline."""
+    provider, exporter = _real_otel
+    with mock.patch.dict(os.environ, {"SKILL_TRACE_SCRUB_ENABLED": "true"}):
+        assert install_skill_content_scrubber() is True
+
+    from opentelemetry import trace
+
+    tracer = trace.get_tracer("test")
+    payload = json.dumps(
+        {
+            "tasks": [{"id": 0, "llm_prompt": "Internal prompt with API key XYZ"}],
+        }
+    )
+    with tracer.start_as_current_span("invoke_self_service_task") as span:
+        span.set_attribute("traceloop.entity.name", "invoke_self_service_task")
+        span.set_attribute("traceloop.entity.input", json.dumps({"task_name": "X"}))
+        span.set_attribute("traceloop.entity.output", payload)
+        span.set_attribute("gen_ai.usage.output_tokens", 42)
+
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1
+    attrs = finished[0].attributes
+    assert attrs["traceloop.entity.input"] == DEFAULT_PLACEHOLDER
+    assert attrs["traceloop.entity.output"] == DEFAULT_PLACEHOLDER
+    assert "API key XYZ" not in str(attrs.values())
+    assert attrs["gen_ai.usage.output_tokens"] == 42
+
+
+def test_e2e_non_skill_span_passes_through_untouched(_real_otel) -> None:
+    """Regression guard: an ordinary tool span (no skill markers, no
+    workflow-tool name) is exported byte-for-byte unchanged. This is
+    the whole point of scoped scrubbing — keep Langfuse useful."""
+    provider, exporter = _real_otel
+    with mock.patch.dict(os.environ, {"SKILL_TRACE_SCRUB_ENABLED": "true"}):
+        assert install_skill_content_scrubber() is True
+
+    from opentelemetry import trace
+
+    tracer = trace.get_tracer("test")
+    user_msg = "What's the weather in Tokyo?"
+    completion = "It's sunny and 22°C in Tokyo."
+    with tracer.start_as_current_span("llm.call") as span:
+        span.set_attribute("gen_ai.prompt.0.content", user_msg)
+        span.set_attribute("gen_ai.completion.0.content", completion)
+        span.set_attribute("traceloop.entity.name", "github_search")
+        span.set_attribute(
+            "traceloop.entity.output",
+            json.dumps({"results": [{"name": "ai-platform-engineering"}]}),
+        )
+
+    attrs = exporter.get_finished_spans()[0].attributes
+    assert attrs["gen_ai.prompt.0.content"] == user_msg
+    assert attrs["gen_ai.completion.0.content"] == completion
+    parsed = json.loads(attrs["traceloop.entity.output"])
+    assert parsed == {"results": [{"name": "ai-platform-engineering"}]}
+
+
+def test_e2e_disabled_env_means_payloads_are_exported_raw(_real_otel) -> None:
+    """Sanity-pin the off switch: with SKILL_TRACE_SCRUB_ENABLED=false
+    the install is a no-op and skill content reaches the exporter
+    intact. Required for one-shot debug sessions to actually work."""
+    provider, exporter = _real_otel
+    with mock.patch.dict(os.environ, {"SKILL_TRACE_SCRUB_ENABLED": "false"}):
+        assert install_skill_content_scrubber() is False
+
+    from opentelemetry import trace
+
+    tracer = trace.get_tracer("test")
+    skill_body = "Top.\n## Skills System\n- secret\n## End"
+    with tracer.start_as_current_span("llm.call") as span:
+        span.set_attribute("gen_ai.prompt.0.content", skill_body)
+
+    attrs = exporter.get_finished_spans()[0].attributes
+    # Payload reaches exporter unredacted.
+    assert attrs["gen_ai.prompt.0.content"] == skill_body
+    assert "[redacted from trace]" not in attrs["gen_ai.prompt.0.content"]
+
+
+def test_e2e_install_idempotent_via_repeat_calls(_real_otel) -> None:
+    """Multiple AgentRuntime instances call install_skill_content_scrubber()
+    on each construction. Walk that path — the active provider must
+    end up with exactly one scrubber processor attached, and span
+    content must be redacted exactly once (not duplicate-mangled)."""
+    provider, exporter = _real_otel
+    with mock.patch.dict(os.environ, {"SKILL_TRACE_SCRUB_ENABLED": "true"}):
+        for _ in range(5):
+            assert install_skill_content_scrubber() is True
+
+    processors = provider._active_span_processor._span_processors  # type: ignore[attr-defined]
+    scrubbers = [
+        p for p in processors if type(p).__name__ == "SkillContentScrubbingProcessor"
+    ]
+    assert len(scrubbers) == 1, (
+        f"expected exactly one scrubber processor, got {len(scrubbers)}"
+    )
+
+    from opentelemetry import trace
+
+    tracer = trace.get_tracer("test")
+    body = "Top.\n## Skills System\n- foo\n## End"
+    with tracer.start_as_current_span("llm.call") as span:
+        span.set_attribute("gen_ai.prompt.0.content", body)
+
+    out = exporter.get_finished_spans()[0].attributes["gen_ai.prompt.0.content"]
+    # "[redacted from trace]" appears exactly once — proves a second
+    # processor isn't running over the already-redacted text.
+    assert out.count("[redacted from trace]") == 1
+
+
+def test_e2e_install_after_existing_processors_does_not_disturb_them(
+    _real_otel,
+) -> None:
+    """The cnoe-agent-utils TracingManager registers its own
+    BatchSpanProcessor. We attach ours alongside; both must run.
+    The fixture already has a SimpleSpanProcessor attached — verify
+    it still receives spans after our install."""
+    provider, exporter = _real_otel
+    pre_install_count = len(
+        provider._active_span_processor._span_processors  # type: ignore[attr-defined]
+    )
+    with mock.patch.dict(os.environ, {"SKILL_TRACE_SCRUB_ENABLED": "true"}):
+        install_skill_content_scrubber()
+    post_install_count = len(
+        provider._active_span_processor._span_processors  # type: ignore[attr-defined]
+    )
+    assert post_install_count == pre_install_count + 1
+
+    from opentelemetry import trace
+
+    tracer = trace.get_tracer("test")
+    with tracer.start_as_current_span("smoke") as span:
+        span.set_attribute("gen_ai.usage.input_tokens", 1)
+
+    # Pre-existing exporter still receives the span.
+    assert len(exporter.get_finished_spans()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Integration smoke: dynamic-agents lifespan wiring
+# ---------------------------------------------------------------------------
+
+def test_dynamic_agents_lifespan_eagerly_installs_scrubber(_real_otel) -> None:
+    """The dynamic-agents FastAPI lifespan handler calls
+    install_skill_content_scrubber() at startup so the processor is
+    registered before any request span fires (no lazy
+    AgentRuntime-on-first-chat race).
+
+    We don't spin up the full FastAPI app — that pulls in MongoDB
+    and uvicorn. Instead we exercise the same code path the
+    lifespan executes: TracingManager() singleton + install. If the
+    contract changes (e.g. install moves elsewhere), this test
+    fails loudly."""
+    provider, _ = _real_otel
+    pytest.importorskip("cnoe_agent_utils.tracing")
+    from cnoe_agent_utils.tracing import TracingManager
+
+    with mock.patch.dict(
+        os.environ,
+        {"SKILL_TRACE_SCRUB_ENABLED": "true", "ENABLE_TRACING": "false"},
+    ):
+        TracingManager()
+        assert install_skill_content_scrubber() is True
+
+    processors = provider._active_span_processor._span_processors  # type: ignore[attr-defined]
+    assert any(
+        type(p).__name__ == "SkillContentScrubbingProcessor" for p in processors
+    )

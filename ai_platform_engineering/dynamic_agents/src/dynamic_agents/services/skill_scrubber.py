@@ -1,5 +1,14 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
+#
+# VENDORED COPY — source of truth lives at
+#   ai_platform_engineering/utils/tracing/skill_scrubber.py
+# Kept in-tree because ``dynamic_agents`` ships as its own deploy
+# unit (separate Dockerfile + Helm chart) and does not depend on
+# the supervisor's package. Keep this file byte-for-byte in sync
+# with the source-of-truth except for this header. Unit tests for
+# the scrubber live alongside the source-of-truth copy and cover
+# both since the modules are identical.
 
 """Operator-content scrubber for OpenTelemetry spans.
 
