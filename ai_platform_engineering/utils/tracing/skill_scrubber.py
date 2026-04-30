@@ -1,28 +1,42 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Skill content scrubber for OpenTelemetry spans.
+"""Operator-content scrubber for OpenTelemetry spans.
 
 Problem
 -------
 The supervisor + dynamic-agents emit OTel spans through the Traceloop
 (``opentelemetry-instrumentation-{langchain,bedrock,anthropic,...}``)
 instrumentors. By default, those instrumentors stamp full prompt /
-completion / tool-I/O bodies onto every span. When a multi-step skill
-runs, the SKILL.md body and ancillary file payloads are echoed onto
-**every** step's span via two channels:
+completion / tool-I/O bodies onto every span. Two classes of
+operator-authored content end up echoed onto **every** step's span
+that we want to keep out of Langfuse:
+
+* **Skill payloads** — ``SKILL.md`` bodies and ancillary files loaded
+  by the deepagents ``SkillsMiddleware``. Surface points:
 
   1. The ``## Skills System`` block in the system prompt
-     (``gen_ai.prompt.<n>.content``) — only metadata today, but still
+     (``gen_ai.prompt.<n>.content``) — metadata only today, still
      redundant on every step.
-
   2. ``read_file`` tool-call results when the agent loads
      ``/skills/<source>/<name>/SKILL.md`` or any ancillary file —
      this is where the bulk volume lives.
-
   3. The ``skills_metadata`` graph-state channel that Traceloop's
      LangChain instrumentor stamps as ``traceloop.entity.input`` /
      ``...output`` on each node.
+
+* **task_config workflow prompts** — multi-paragraph operator
+  instructions defined under ``task_configs`` in MongoDB / the
+  fallback ``task_config.yaml``. Surface points:
+
+  4. The ``tasks`` / ``todos`` graph-state channels (each entry
+     carries the rendered ``llm_prompt``) — stamped on every node
+     span by the LangChain instrumentor for the duration of a
+     workflow run.
+  5. The ``get_workflow_definition`` tool result, which renders
+     every step's ``llm_prompt`` inside a ``## Workflow:`` block.
+  6. The ``invoke_self_service_task`` tool span input/output — the
+     tool's state-update return carries the full ``tasks`` array.
 
 Setting ``TRACELOOP_TRACE_CONTENT=false`` would fix this but it also
 wipes every chat / tool body globally, which kills debuggability of
@@ -76,10 +90,27 @@ DEFAULT_PLACEHOLDER = "[redacted: skill payload]"
 # We match liberally so future source-name additions Just Work.
 _SKILL_PATH_RE = re.compile(r"(?:^|[^a-zA-Z0-9_])/skills/[^\s\"',)]+", re.IGNORECASE)
 
-# The boundary marker the SkillsMiddleware emits at the top of its
-# system-prompt section. Used to surgically remove just the skills
-# block from a system prompt without touching the rest of it.
+# Boundary markers for the two operator-authored content blocks we
+# strip from prompts: deepagents' SkillsMiddleware section and the
+# platform-engineer's task_config workflow listing.
 _SKILLS_SECTION_HEADER = "## Skills System"
+_WORKFLOW_SECTION_HEADER = "## Self-Service Workflows"
+# Header rendered by ``get_workflow_definition`` tool output for
+# each requested workflow (the bulk-payload case).
+_WORKFLOW_DEFN_HEADER = "## Workflow:"
+
+# Tool / entity names whose I/O we redact wholesale because they
+# echo task_config llm_prompts directly. These are stable surface
+# names from
+# ``ai_platform_engineering/multi_agents/platform_engineer/deep_agent.py``.
+_WORKFLOW_TOOL_NAMES = frozenset(
+    {
+        "get_workflow_definition",
+        "invoke_self_service_task",
+        # list_self_service_workflows returns names only — small —
+        # so we deliberately leave it alone for trace clarity.
+    }
+)
 
 # Attributes whose **value** should be inspected and rewritten.
 # Listed by stable Traceloop / OTel-GenAI semantic-convention
@@ -100,10 +131,14 @@ _LANGCHAIN_IO_ATTR_KEYS = (
 )
 
 # State channels we want to drop entirely when serialized into a
-# JSON blob on an attribute.
-_SKILL_STATE_CHANNELS = (
+# JSON blob on an attribute. Both skill catalogs and task_config
+# workflows live in the agent's graph state and therefore get
+# stamped onto every node span by the LangChain instrumentor.
+_SENSITIVE_STATE_CHANNELS = (
     "skills_metadata",
-    "skills",  # alternate name some middlewares use
+    "skills",       # alternate name some middlewares use
+    "tasks",        # task_config: list of dicts with full llm_prompt
+    "todos",        # mirrors `tasks` (display_text + status)
 )
 
 
@@ -111,30 +146,30 @@ _SKILL_STATE_CHANNELS = (
 # Redaction primitives
 # ---------------------------------------------------------------------------
 
-def _strip_skills_section(text: str) -> str:
-    """Remove the ``## Skills System`` block from a system prompt.
+def _strip_marker_section(text: str, header: str) -> str:
+    """Remove a ``## <header>`` block from a markdown-shaped string.
 
-    The block is bounded by the ``_SKILLS_SECTION_HEADER`` line on
-    one end and either the next ``##`` header or end-of-string on
-    the other. We rebuild the prompt without it so the rest of the
-    system message (operator instructions, tool docs, …) is
-    preserved.
+    The block is bounded by ``header`` on one end and either the
+    next top-level (``##`` / ``#``) header or end-of-string on the
+    other. The rest of the message (operator instructions, tool
+    docs, …) is preserved verbatim. Returns ``text`` unchanged when
+    the header is absent.
     """
-    if _SKILLS_SECTION_HEADER not in text:
+    if header not in text:
         return text
     lines = text.splitlines(keepends=True)
     out: list[str] = []
     skipping = False
     for line in lines:
         stripped = line.lstrip()
-        if stripped.startswith(_SKILLS_SECTION_HEADER):
+        if stripped.startswith(header):
             skipping = True
-            out.append(f"{_SKILLS_SECTION_HEADER} [redacted from trace]\n")
+            out.append(f"{header} [redacted from trace]\n")
             continue
         if skipping:
             # Only stop at top-level (## or #) headers so we don't
             # accidentally exit on bullet sub-headers nested in the
-            # skills block.
+            # skills/workflows block.
             if stripped.startswith("## ") or stripped.startswith("# "):
                 skipping = False
                 out.append(line)
@@ -142,6 +177,18 @@ def _strip_skills_section(text: str) -> str:
         else:
             out.append(line)
     return "".join(out)
+
+
+def _strip_known_sections(text: str) -> str:
+    """Strip every operator-authored sensitive section we know about."""
+    text = _strip_marker_section(text, _SKILLS_SECTION_HEADER)
+    text = _strip_marker_section(text, _WORKFLOW_SECTION_HEADER)
+    text = _strip_marker_section(text, _WORKFLOW_DEFN_HEADER)
+    return text
+
+
+# Back-compat shim — earlier tests import the old name.
+_strip_skills_section = _strip_known_sections
 
 
 def _looks_like_skill_read(value: str) -> bool:
@@ -189,7 +236,7 @@ def _redact_value(value: Any, placeholder: str) -> Any:
         # Fall through to plain-string handling on JSON parse failure.
 
     # Plain string path.
-    redacted = _strip_skills_section(value)
+    redacted = _strip_known_sections(value)
     if _looks_like_skill_read(redacted):
         # The string is a tool-call result that loaded a skill file
         # (or a system message with embedded skill paths). Wholesale
@@ -204,8 +251,8 @@ def _scrub_json(obj: Any, placeholder: str) -> Any:
     if isinstance(obj, dict):
         out: dict[str, Any] = {}
         for k, v in obj.items():
-            # Drop entire skill state channels by key.
-            if k in _SKILL_STATE_CHANNELS:
+            # Drop entire sensitive state channels by key.
+            if k in _SENSITIVE_STATE_CHANNELS:
                 out[k] = placeholder
                 continue
             # The deepagents ``files`` channel is a path -> body
@@ -229,8 +276,12 @@ def _scrub_json(obj: Any, placeholder: str) -> Any:
         # see noise either way.
         if len(obj) > 200 and _looks_like_skill_read(obj):
             return placeholder
-        if len(obj) > 200 and _SKILLS_SECTION_HEADER in obj:
-            return _strip_skills_section(obj)
+        if len(obj) > 200 and (
+            _SKILLS_SECTION_HEADER in obj
+            or _WORKFLOW_SECTION_HEADER in obj
+            or _WORKFLOW_DEFN_HEADER in obj
+        ):
+            return _strip_known_sections(obj)
     return obj
 
 
@@ -262,16 +313,40 @@ class SkillContentScrubbingProcessor:
             attrs = getattr(span, "attributes", None)
             if not attrs:
                 return
+
+            # Tool-name short-circuit. The LangChain instrumentor
+            # tags every tool span with ``traceloop.entity.name`` (and
+            # mirrors it on the OTel ``span.name``). When the tool is
+            # one of our task_config workflow tools we redact its
+            # I/O wholesale — those payloads always carry llm_prompt
+            # bodies regardless of any markdown markers.
+            entity_name = attrs.get("traceloop.entity.name") or getattr(
+                span, "name", None
+            )
+            workflow_tool = (
+                isinstance(entity_name, str)
+                and entity_name in _WORKFLOW_TOOL_NAMES
+            )
+
             updates: dict[str, Any] = {}
             for key, value in attrs.items():
                 if not isinstance(key, str):
                     continue
-                if key in _LANGCHAIN_IO_ATTR_KEYS or any(
+                in_io_attr = key in _LANGCHAIN_IO_ATTR_KEYS
+                in_prompt_attr = any(
                     key.startswith(p) for p in _PROMPT_ATTR_PREFIXES
-                ):
-                    new_value = _redact_value(value, self._placeholder)
-                    if new_value is not value:
-                        updates[key] = new_value
+                )
+                if not (in_io_attr or in_prompt_attr):
+                    continue
+                if workflow_tool and in_io_attr:
+                    # Wholesale replace — the entire entity I/O of a
+                    # workflow tool is operator-authored prompt text.
+                    if value != self._placeholder:
+                        updates[key] = self._placeholder
+                    continue
+                new_value = _redact_value(value, self._placeholder)
+                if new_value is not value:
+                    updates[key] = new_value
             if updates:
                 # ReadableSpan exposes attributes as a read-only
                 # mapping; the underlying dict on ReadableSpan /
