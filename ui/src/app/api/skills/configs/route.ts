@@ -17,6 +17,10 @@ import type {
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
+import {
+  canMutateBuiltinSkill,
+  BUILTIN_LOCKED_MESSAGE,
+} from "@/lib/builtin-skill-policy";
 
 /**
  * Persisted agent skill configs (CRUD)
@@ -99,6 +103,12 @@ async function updateAgentSkillInMongoDB(
     throw new ApiError("Agent config not found", 404);
   }
 
+  // Layered authorisation. Built-in lock first so a misconfigured
+  // ownership check can't accidentally let a built-in through.
+  if (existing.is_system && !canMutateBuiltinSkill(existing)) {
+    console.log(`[MongoDB] ERROR: Built-in skill mutation locked by policy`);
+    throw new ApiError(BUILTIN_LOCKED_MESSAGE, 403);
+  }
   if (!existing.is_system && existing.owner_id !== user.email) {
     console.log(`[MongoDB] ERROR: User trying to modify another user's config`);
     throw new ApiError("You don't have permission to update this configuration", 403);
@@ -150,6 +160,9 @@ async function deleteAgentSkillFromMongoDB(
     throw new ApiError("Agent config not found", 404);
   }
 
+  if (existing.is_system && !canMutateBuiltinSkill(existing)) {
+    throw new ApiError(BUILTIN_LOCKED_MESSAGE, 403);
+  }
   if (!existing.is_system && existing.owner_id !== user.email) {
     throw new ApiError("You don't have permission to delete this configuration", 403);
   }

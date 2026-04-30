@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
+  Copy,
   Download,
   Eye,
   FileCode,
@@ -56,6 +57,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 import {
@@ -388,6 +390,49 @@ export function SkillWorkspace({
     }
   }, [existingConfig, toast]);
 
+  // -------------------------------------------------------------------
+  // Built-in mutation lock
+  //
+  // When a built-in skill is opened (read-only) and the operator
+  // hasn't set ALLOW_BUILTIN_SKILL_MUTATION=true, we surface a
+  // "Clone to edit" CTA next to the disabled Save. This is the same
+  // escape hatch the gallery offers; rendering it here too means the
+  // user can act on the lock without going back to the gallery.
+  // -------------------------------------------------------------------
+  const allowBuiltinSkillMutation = getConfig("allowBuiltinSkillMutation");
+  const showCloneCta =
+    !!existingConfig &&
+    !!existingConfig.is_system &&
+    !allowBuiltinSkillMutation;
+
+  const [isCloning, setIsCloning] = useState(false);
+  const handleClone = useCallback(async () => {
+    if (!existingConfig || isCloning) return;
+    setIsCloning(true);
+    try {
+      const res = await fetch(
+        `/api/skills/configs/${encodeURIComponent(existingConfig.id)}/clone`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Clone failed (${res.status})`);
+      }
+      const data = await res.json();
+      toast(`Cloned to "${data.name}"`, "success");
+      router.push(`/skills/workspace/${encodeURIComponent(data.id)}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Clone failed";
+      toast(`Clone failed: ${message}`, "error");
+    } finally {
+      setIsCloning(false);
+    }
+  }, [existingConfig, isCloning, router, toast]);
+
   const submitDisabled = useMemo(
     () =>
       readOnly ||
@@ -495,19 +540,44 @@ export function SkillWorkspace({
                 {isExporting ? "Exporting…" : "Export"}
               </Button>
             )}
-            <Button
-              size="sm"
-              onClick={() => void form.handleSubmit()}
-              disabled={submitDisabled}
-              className="gap-1.5"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {form.isSubmitting
-                ? "Saving…"
-                : existingConfig
-                  ? "Save"
-                  : "Create skill"}
-            </Button>
+            {showCloneCta && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => void handleClone()}
+                disabled={isCloning}
+                className="gap-1.5"
+                title="Built-in skills are read-only. Clone produces an editable copy you own."
+                data-testid="skill-workspace-clone"
+              >
+                {isCloning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {isCloning ? "Cloning…" : "Clone to edit"}
+              </Button>
+            )}
+            {/* When the built-in lock is active we hide the disabled
+                Save altogether — the Clone CTA above is the actionable
+                next step. Showing both a disabled Save *and* a Clone
+                button doubled up the visual noise without adding
+                signal. */}
+            {!showCloneCta && (
+              <Button
+                size="sm"
+                onClick={() => void form.handleSubmit()}
+                disabled={submitDisabled}
+                className="gap-1.5"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {form.isSubmitting
+                  ? "Saving…"
+                  : existingConfig
+                    ? "Save"
+                    : "Create skill"}
+              </Button>
+            )}
           </div>
         </div>
       </header>

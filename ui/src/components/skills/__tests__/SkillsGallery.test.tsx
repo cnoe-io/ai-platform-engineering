@@ -472,12 +472,26 @@ describe("SkillsGallery — edit/delete visibility", () => {
     expect(screen.getAllByTitle("Delete").length).toBeGreaterThan(0);
   });
 
-  it("shows edit and delete for built-in Mongo configs (non-admin)", async () => {
+  it("locks edit and delete on built-in Mongo configs by default (lock policy)", async () => {
+    // ALLOW_BUILTIN_SKILL_MUTATION defaults to false → built-ins
+    // are surfaced with disabled Edit/Delete buttons + Clone CTA.
+    // The actionable affordances (`title="Edit"` / `title="Delete"`)
+    // are absent; only the locked-tooltip variants are present.
     mockIsAdmin = false;
     _configs = [makeQuickStart("sys-1")];
     await renderGallery();
-    expect(screen.getAllByTitle("Edit").length).toBeGreaterThan(0);
-    expect(screen.getAllByTitle("Delete").length).toBeGreaterThan(0);
+    expect(screen.queryByTitle("Edit")).toBeNull();
+    expect(screen.queryByTitle("Delete")).toBeNull();
+    expect(
+      screen.getAllByTitle(/Built-in skill is read-only/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByTitle(/Built-in skill cannot be deleted/i).length,
+    ).toBeGreaterThan(0);
+    // Clone is the escape hatch and must always be reachable.
+    expect(
+      screen.getAllByTitle(/Clone to an editable copy/i).length,
+    ).toBeGreaterThan(0);
   });
 
   it("disables delete for catalog-only merge entries", async () => {
@@ -851,15 +865,24 @@ describe("SkillsGallery — edit callback", () => {
     expect(onEditConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "edit-1" }));
   });
 
-  it("calls onEditConfig for system config when any user clicks edit", async () => {
+  it("locks Edit on system (built-in) configs by default — surfaces a disabled affordance instead", async () => {
+    // Built-in lock is on by default (ALLOW_BUILTIN_SKILL_MUTATION
+    // unset → false). The Edit button must NOT invoke onEditConfig
+    // for an `is_system: true` row, and the read-only tooltip must
+    // be exposed so admins discover the Clone path.
     mockIsAdmin = false;
     _configs = [makeQuickStart("sys-edit")];
     const onEditConfig = jest.fn();
     await renderGallery({ onEditConfig });
-    const editBtn = screen.getByTitle("Edit");
-    fireEvent.click(editBtn);
-    expect(onEditConfig).toHaveBeenCalledTimes(1);
-    expect(onEditConfig).toHaveBeenCalledWith(expect.objectContaining({ id: "sys-edit" }));
+
+    // The actionable Edit button is gone; only the disabled,
+    // read-only-tooltip variant remains.
+    expect(screen.queryByTitle("Edit")).toBeNull();
+    const lockedBtn = screen.getByTitle(/Built-in skill is read-only/i);
+    expect(lockedBtn).toBeDisabled();
+
+    fireEvent.click(lockedBtn);
+    expect(onEditConfig).not.toHaveBeenCalled();
   });
 });
 

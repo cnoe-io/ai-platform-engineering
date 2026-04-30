@@ -1,5 +1,6 @@
 import { getCollection } from "@/lib/mongodb";
 import { getUserTeamIds } from "@/lib/api-middleware";
+import { canMutateBuiltinSkill } from "@/lib/builtin-skill-policy";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
@@ -26,13 +27,32 @@ export async function getAgentSkillVisibleToUser(
   });
 }
 
-/** Same rules as updating a skill in MongoDB (owner for user skills; any auth user for built-in rows). */
+/**
+ * Authorisation for skill mutation (PUT / PATCH / DELETE / file-write).
+ *
+ * Layered policy:
+ *
+ *   1. Built-in lock (``ALLOW_BUILTIN_SKILL_MUTATION``, default off):
+ *      ``is_system: true`` rows are read-only for all users unless
+ *      the operator has explicitly opted in via the env flag. Admins
+ *      escape via the ``POST /api/skills/configs/[id]/clone`` route
+ *      that produces an editable user-owned copy.
+ *
+ *   2. Ownership: a user can mutate a non-built-in row when they
+ *      own it. (Visibility-based read access is handled by
+ *      ``getAgentSkillVisibleToUser`` separately.)
+ *
+ * Note: the ``user`` argument is kept for forward-compatibility with
+ * an admin override (e.g. ``user.role === "admin"`` could in future
+ * bypass the built-in lock). Today no role auto-bypasses — the env
+ * flag is the only escape.
+ */
 export function userCanModifyAgentSkill(
   existing: AgentSkill,
   user: { email: string; role?: string },
 ): boolean {
   if (existing.is_system) {
-    return true;
+    return canMutateBuiltinSkill(existing);
   }
   return existing.owner_id === user.email;
 }
