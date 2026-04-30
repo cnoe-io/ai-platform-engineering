@@ -1,13 +1,13 @@
 """Conversations endpoint for Dynamic Agents.
 
-Provides access to conversation history stored in the LangGraph checkpointer.
-Metadata (ownership, sharing) is stored in the `conversations` collection,
-while messages are stored in the `checkpoints_conversation` collection.
+Provides access to conversation state stored in the LangGraph checkpointer:
+interrupt state, files, and clear operations.
+
+Messages are served by the Next.js layer directly from MongoDB.
 """
 
 import logging
 from datetime import datetime, timezone
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -23,31 +23,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
-class ConversationMessage(BaseModel):
-    """Message from conversation history."""
-
-    id: str
-    role: Literal["user", "assistant"]
-    content: str
-    timestamp: datetime | None = None
-
-
 class InterruptData(BaseModel):
     """Data for a pending HITL interrupt."""
 
     interrupt_id: str
     prompt: str
     fields: list[dict]
-
-
-class ConversationMessagesResponse(BaseModel):
-    """Response containing conversation messages from checkpointer."""
-
-    conversation_id: str
-    agent_id: str
-    messages: list[ConversationMessage]
-    has_pending_interrupt: bool = False
-    interrupt_data: InterruptData | None = None
 
 
 class ConversationFilesListResponse(BaseModel):
@@ -64,163 +45,6 @@ class FileContentResponse(BaseModel):
     conversation_id: str
     path: str
     content: str
-
-
-@router.get("/{conversation_id}/messages", response_model=ConversationMessagesResponse)
-async def get_conversation_messages(
-    conversation_id: str,
-    agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_user_context),
-    mongo: MongoDBService = Depends(get_mongo_service),
-) -> ConversationMessagesResponse:
-    """Get messages for a conversation from the LangGraph checkpointer.
-
-    This endpoint retrieves the full message history for a conversation,
-    including any pending HITL interrupt state.
-
-    Access control is handled by `can_access_conversation()` in auth/access.py.
-
-    Messages are extracted from the LangGraph checkpoint state.
-    Only HumanMessage and AIMessage are returned (tool messages filtered out).
-    """
-    # 1. Verify agent exists and user can access it
-    agent = mongo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    # 2. Check conversation ownership via conversations collection
-    # The conversations collection is in the same database
-    if mongo._client is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-    db = mongo._db
-    if db is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-
-    conversations_coll = db["conversations"]
-    conversation = conversations_coll.find_one({"_id": conversation_id})
-
-    if not conversation:
-        # Conversation doesn't exist in metadata collection
-        # This could be a new conversation that hasn't been persisted yet
-        # Return empty messages
-        logger.info(f"Conversation {conversation_id} not found in metadata collection, returning empty messages")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    # 3. Check access
-    if not can_access_conversation(conversation, user):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    # 4. Get MCP servers for the agent and its subagents (needed to create runtime)
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
-
-    # 5. Get or create runtime to access checkpointer
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 6. Get state from checkpointer
-    if not runtime._graph:
-        logger.warning(f"Runtime graph not initialized for conversation {conversation_id}")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    if not state or not state.values:
-        logger.info(f"No checkpoint state found for conversation {conversation_id}")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    # 7. Extract messages from state
-    raw_messages = state.values.get("messages", [])
-    messages: list[ConversationMessage] = []
-
-    for msg in raw_messages:
-        msg_type = type(msg).__name__
-
-        # Filter to HumanMessage and AIMessage only
-        if "HumanMessage" in msg_type:
-            role = "user"
-        elif "AIMessage" in msg_type:
-            role = "assistant"
-        else:
-            # Skip ToolMessage, SystemMessage, etc.
-            continue
-
-        # Extract content
-        content = getattr(msg, "content", "")
-        if isinstance(content, list):
-            # Handle multimodal content (extract text parts)
-            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-
-        # Extract timestamp from additional_kwargs if available
-        timestamp = None
-        additional_kwargs = getattr(msg, "additional_kwargs", {})
-        if "timestamp" in additional_kwargs:
-            try:
-                ts = datetime.fromisoformat(additional_kwargs["timestamp"])
-                timestamp = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
-            except (ValueError, TypeError):
-                pass
-
-        # Use message ID or generate one
-        msg_id = getattr(msg, "id", None) or f"msg-{len(messages)}"
-
-        messages.append(
-            ConversationMessage(
-                id=msg_id,
-                role=role,
-                content=content,
-                timestamp=timestamp,
-            )
-        )
-
-    # 8. Check for pending interrupt
-    interrupt_data = await runtime.has_pending_interrupt(conversation_id)
-    has_pending_interrupt = interrupt_data is not None
-
-    logger.debug(
-        f"Retrieved {len(messages)} messages for conversation {conversation_id}, "
-        f"has_pending_interrupt={has_pending_interrupt}"
-    )
-
-    return ConversationMessagesResponse(
-        conversation_id=conversation_id,
-        agent_id=agent_id,
-        messages=messages,
-        has_pending_interrupt=has_pending_interrupt,
-        interrupt_data=InterruptData(**interrupt_data) if interrupt_data else None,
-    )
 
 
 class InterruptStateResponse(BaseModel):

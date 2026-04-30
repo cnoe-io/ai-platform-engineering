@@ -20,6 +20,8 @@ from botocore.config import Config as BotocoreConfig
 from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
+from deepagents.backends.state import StateBackend
+from deepagents.middleware.skills import SkillsMiddleware
 from jinja2 import ChainableUndefined, TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -197,19 +199,23 @@ class AgentRuntime(StreamingMixin):
 
         t_start = time.monotonic()
 
-        # 1. Build MCP connections for servers referenced in allowed_tools
+        # ─────────────────────────────────────────────────────────────────
+        # Tools
+        # ─────────────────────────────────────────────────────────────────
+
+        # 1. Attach MCP servers and tools
         server_ids = list(self.config.allowed_tools.keys())
         if not server_ids:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
         else:
+            # 1a. Fetch relevant MCP server configs
             connections = build_mcp_connections(self.mcp_servers, server_ids)
 
             if not connections:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
                 tools = []
             else:
-                # 2. Get tools from MCP servers with per-server error handling
                 # This connects to each server independently so one failure doesn't affect others
                 t_mcp = time.monotonic()
                 all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
@@ -226,7 +232,7 @@ class AgentRuntime(StreamingMixin):
                     error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed_servers]
                     self._failed_servers_error = "; ".join(error_parts)
 
-                # 3. Filter tools based on allowed_tools in the agent config
+                # 1b. Filter MCP tools by allowlist
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
 
                 # Only report missing tools for servers that connected successfully
@@ -245,26 +251,29 @@ class AgentRuntime(StreamingMixin):
                     f"Agent '{self.config.name}': loaded {len(tools)} tools from {connected_count}/{len(connections)} MCP servers"
                 )
 
-        # 4 Add built-in tools based on agent config
+        # 2. Add built-in tools
         client_ctx = self._client_context.model_dump() if self._client_context else None
         builtin_tools = self._build_builtin_tools(self._user, client_context=client_ctx)
         if builtin_tools:
             tools = tools + builtin_tools
 
-        # 5. Wrap ALL tools with error handling so exceptions become
-        #    LLM-visible "ERROR: ..." strings instead of crashing the agent loop.
+        # 3. Wrap all tools with error handling
+        #    Exceptions become LLM-visible "ERROR: ..." strings instead of crashing the agent loop.
         if tools:
             tools = wrap_tools_with_error_handling(tools, agent_name=self.config.name)
 
-        # 6. System prompt from agent config, rendered with client context
+        # ─────────────────────────────────────────────────────────────────
+        # Prompt & LLM
+        # ─────────────────────────────────────────────────────────────────
+
+        # 4. Render system prompt with templating
         try:
             system_prompt = _render_system_prompt(self.config.system_prompt, self._client_context, self._user)
         except SystemPromptRenderError as exc:
             logger.error(f"Agent '{self.config.name}' failed to initialize: {exc}")
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
 
-        # 7. Create the LLM
-        # model.id and model.provider are required fields - no fallback to env vars
+        # 5. Instantiate LLM
         logger.info(
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
             f"provider={self.config.model.provider}, model={self.config.model.id}"
@@ -290,16 +299,20 @@ class AgentRuntime(StreamingMixin):
         llm = LLMFactory(provider=self.config.model.provider).get_llm(**llm_kwargs)
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
-        # 8. Resolve subagents (other dynamic agents that this agent can delegate to)
+        # ─────────────────────────────────────────────────────────────────
+        # Extensions
+        # ─────────────────────────────────────────────────────────────────
+
+        # 6. Subagents
         subagents = await self._resolve_subagents(self.config.subagents)
         if subagents:
             logger.info(
                 f"Agent '{self.config.name}': resolved {len(subagents)} subagents: {[s['name'] for s in subagents]}"
             )
 
-        # 8b. Load skills from agent_skills collection if configured
+        # 7. Skills
         self._skills_files: dict[str, Any] = {}
-        skills_middleware_list: list = []
+        skills_middleware = None
         if self.config.skills:
             try:
                 skills_data = load_skills(
@@ -318,10 +331,7 @@ class AgentRuntime(StreamingMixin):
                 if skills_data:
                     self._skills_files, skills_sources = build_skills_files(skills_data)
                     if skills_sources:
-                        from deepagents.backends.state import StateBackend
-                        from deepagents.middleware.skills import SkillsMiddleware
-
-                        skills_middleware_list.append(SkillsMiddleware(backend=StateBackend, sources=skills_sources))
+                        skills_middleware = SkillsMiddleware(backend=StateBackend, sources=skills_sources)
                         logger.info(
                             f"Agent '{self.config.name}': loaded {len(skills_data)} skills "
                             f"({len(self._skills_files)} files, {len(skills_sources)} sources)"
@@ -342,7 +352,7 @@ class AgentRuntime(StreamingMixin):
         if skills_middleware_list:
             middleware_stack = skills_middleware_list + middleware_stack
 
-        # 10. Create the agent graph
+        # 10. Create agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
