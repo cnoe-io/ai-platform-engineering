@@ -90,6 +90,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   // so we don't re-show it after the restore effect runs.
   const dismissedInputForMessageRef = useRef<Set<string>>(new Set());
 
+  // Whether we're still checking for a pending HITL interrupt (after page refresh)
+  const [checkingInterrupt, setCheckingInterrupt] = useState(false);
+
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -300,6 +303,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Skip if no conversationId (new conversation) or agentId
     if (!conversationId || !agentId) return;
     
+    // Wait for messages to be loaded (race condition on page refresh:
+    // this effect can fire before ChatContainer finishes loading messages
+    // from MongoDB, causing lastMsg to be undefined and recovery to fail)
+    if (isLoadingMessages) return;
+    
     // Skip if already checked this conversation
     if (interruptCheckedRef.current.has(conversationId)) return;
     
@@ -307,6 +315,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     interruptCheckedRef.current.add(conversationId);
 
     const checkInterruptState = async () => {
+      setCheckingInterrupt(true);
       try {
         // Check for pending HITL interrupt state (lightweight call to checkpointer)
         // Messages are already loaded by ChatContainer - we only check interrupt state here
@@ -367,11 +376,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       } catch (interruptError) {
         // Non-fatal: HITL state check failed
         console.warn("[ChatPanel] Failed to check interrupt state:", interruptError);
+      } finally {
+        setCheckingInterrupt(false);
       }
     };
 
     checkInterruptState();
-  }, [conversationId, agentId]);
+  }, [conversationId, agentId, isLoadingMessages]);
 
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)
@@ -1604,6 +1615,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
                 disabled={isThisConversationStreaming}
               />
+            )}
+
+            {/* Loading indicator while checking for pending HITL interrupt */}
+            {checkingInterrupt && !pendingUserInput && !pendingToolApproval && (
+              <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Checking conversation state...</span>
+              </div>
             )}
 
             {/* Invisible marker for scroll-to-bottom */}
