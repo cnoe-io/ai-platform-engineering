@@ -30,6 +30,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Evaluate gates (ERROR if violations unjustified)
    - Phase 0: Generate research.md (resolve all NEEDS CLARIFICATION)
    - Phase 1: Generate data-model.md, contracts/, quickstart.md
+   - Phase 1: **Database migrations** — When **Storage** is not N/A, generate `db-migration.md` (or `mongodb-migration.md` / SQL notes per convention): required vs no-op, schema/index/backfill, rollback; link `data-model.md`. Stateless features: omit file; state N/A in plan.md.
    - Phase 1: Update agent context by running the agent script
    - Re-evaluate Constitution Check post-design
 
@@ -74,14 +75,17 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Use standard REST/GraphQL patterns
    - Output OpenAPI/GraphQL schema to `/contracts/`
 
-3. **Agent context update**:
+3. **Database migrations** (when feature uses persisted storage):
+   - Produce `db-migration.md` or project-specific name in `SPECS_DIR` per `.specify/templates/plan-template.md`
+
+4. **Agent context update**:
    - Run `.specify/scripts/bash/update-agent-context.sh cursor-agent`
    - These scripts detect which AI agent is in use
    - Update the appropriate agent-specific context file
    - Add only new technology from current plan
    - Preserve manual additions between markers
 
-**Output**: data-model.md, /contracts/*, quickstart.md, agent-specific file
+**Output**: data-model.md, /contracts/*, quickstart.md, **db-migration.md when Storage ≠ N/A**, agent-specific file
 
 ## Key rules
 

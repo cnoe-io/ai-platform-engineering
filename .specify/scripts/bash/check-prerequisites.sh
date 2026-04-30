@@ -146,6 +146,13 @@ fi
 
 [[ -f "$QUICKSTART" ]] && docs+=("quickstart.md")
 
+# Optional DB migration artifact from /speckit.plan (canonical or project-specific name)
+if [[ -f "$FEATURE_DIR/db-migration.md" ]]; then
+    docs+=("db-migration.md")
+elif [[ -f "$FEATURE_DIR/mongodb-migration.md" ]]; then
+    docs+=("mongodb-migration.md")
+fi
+
 # Include tasks.md if requested and it exists
 if $INCLUDE_TASKS && [[ -f "$TASKS" ]]; then
     docs+=("tasks.md")

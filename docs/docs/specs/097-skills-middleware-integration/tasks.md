@@ -254,7 +254,7 @@
 - [X] T072 [P] Generalize `_persist_scan_run` in `ai_platform_engineering/skills_middleware/hub_skill_scan.py` to accept `source_type` (`hub` | `agent_skills`) and `source_id` instead of only `hub_id`
 - [X] T073 Add `POST /skills/scan-content` endpoint in `ai_platform_engineering/skills_middleware/router.py`: accept `{name, content}`, run scanner, apply gate logic, persist findings via generalized helper, return `{passed, blocked, max_severity, exit_code, summary}`
 - [X] T074 [P] Add `scan_status?: "passed" | "flagged" | "unscanned"` to `AgentSkill`, `CreateAgentSkillInput`, `UpdateAgentSkillInput` in `ui/src/types/agent-skill.ts`
-- [X] T075 Wire scanner call into `POST` and `PUT` handlers in `ui/src/app/api/agent-skills/route.ts`: call Python `POST /skills/scan-content` when `skill_content` present; set `scan_status` on persisted document; include in response
+- [X] T075 Wire scanner call into `POST` and `PUT` handlers in `ui/src/app/api/skills/configs/route.ts` (historically `agent-skills/route.ts`): call Python `POST /skills/scan-content` when `skill_content` present; set `scan_status` on persisted document; include in response
 - [X] T076 When `SKILL_SCANNER_GATE=strict`, add `scan_status: { $ne: "flagged" }` filter to MongoDB query in `ai_platform_engineering/skills_middleware/loaders/agent_skill.py`
 
 **Checkpoint**: SC-011 satisfied; flagged documents excluded under strict gate; findings in `skill_scan_findings` with `source_type: "agent_skills"`.
@@ -362,7 +362,7 @@ T051: Next.js proxy routes (after T050 handler shapes exist)
 | T081 | Update `build_skills_files` in `backend_sync.py` to write ancillary files to StateBackend | Done |
 | T082 | Add `ancillary_files` field to `AgentSkill` types in `agent-skill.ts` | Done |
 | T083 | Project `ancillary_files` from MongoDB in `agent_skill.py` loader | Done |
-| T084 | Persist `ancillary_files` in POST/PUT with 5 MB limit + GitHub import endpoint in `agent-skills/route.ts` | Done |
+| T084 | Persist `ancillary_files` in POST/PUT with 5 MB limit + GitHub import endpoint in `ui/src/app/api/skills/configs/route.ts` | Done |
 | T085 | Add file drop zone and GitHub import UI in `SkillsBuilderEditor.tsx` | Done |
 | T086 | Update `data-model.md`, `research.md`, and `tasks.md` for Phase 18 | Done |
 

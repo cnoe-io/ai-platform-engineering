@@ -38,12 +38,13 @@
 ### Documentation (this feature)
 
 ```text
-specs/[###-feature]/
+specs/<YYYY-MM-DD-feature>/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output (/speckit.plan command)
 ├── data-model.md        # Phase 1 output (/speckit.plan command)
 ├── quickstart.md        # Phase 1 output (/speckit.plan command)
 ├── contracts/           # Phase 1 output (/speckit.plan command)
+├── db-migration.md      # Phase 1 when storage is involved; optional: mongodb-migration.md, sql-migrations.md
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
 
@@ -93,6 +94,14 @@ ios/ or android/
 
 **Structure Decision**: [Document the selected structure and reference the real
 directories captured above]
+
+## Database migrations
+
+*Include when **Technical Context → Storage** is not N/A. Omit for UI-only or stateless features.*
+
+**Deliverable**: `db-migration.md` (or e.g. `mongodb-migration.md`, `sql-migrations/README.md`).
+
+**Must cover**: required vs no-op; schema/index/backfill; rollback; link to `data-model.md`. If no persisted storage: *N/A — no `db-migration.md`.*
 
 ## Complexity Tracking
 
