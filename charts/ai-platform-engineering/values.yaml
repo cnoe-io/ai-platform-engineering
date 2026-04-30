@@ -126,6 +126,20 @@ global:
   langgraphRedis:
     enabled: false
 
+  # Standalone cisco-ai-defense/skill-scanner microservice. The CAIPE UI
+  # uploads zipped SKILL packages to this Service for safety scanning.
+  # Disabled by default; enable when you want the scanner running in
+  # cluster (recommended for any production deployment that exposes the
+  # Skills builder). When enabled, also wire the URL into caipe-ui:
+  #
+  #   caipe-ui:
+  #     config:
+  #       SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
+  #
+  # The scanner is unauthenticated by design — Service stays ClusterIP.
+  skillScanner:
+    enabled: false
+
   # Global checkpoint persistence for all agents + supervisor.
   # Set once here; all subcharts inherit automatically.
   # Per-agent override: set checkpointPersistence on individual agent sections.

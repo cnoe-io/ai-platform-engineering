@@ -196,6 +196,11 @@ dependencies:
   - name: langgraph-redis
     version: 0.4.5-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     condition: global.langgraphRedis.enabled
+  # Skill Scanner — standalone cisco-ai-defense/skill-scanner REST API.
+  # Required for the UI's skill safety scan; off by default.
+  - name: skill-scanner
+    version: 0.4.5-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: global.skillScanner.enabled
   # Slack Bot Integration (client, not an agent)
   - name: slack-bot
     version: 0.4.5-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
