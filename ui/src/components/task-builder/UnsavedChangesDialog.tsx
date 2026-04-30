@@ -8,12 +8,24 @@ interface UnsavedChangesDialogProps {
   open: boolean;
   onDiscard: () => void;
   onCancel: () => void;
+  /** Optional dialog headline. Defaults preserve Task Builder copy. */
+  title?: string;
+  /** Optional body text. Defaults preserve Task Builder copy. */
+  description?: string;
+  /** Optional label for the destructive (discard) button. */
+  discardLabel?: string;
+  /** Optional label for the cancel (keep editing) button. */
+  cancelLabel?: string;
 }
 
 export function UnsavedChangesDialog({
   open,
   onDiscard,
   onCancel,
+  title = "Unsaved changes",
+  description = "You have unsaved changes in the Task Builder. They will be lost if you leave now.",
+  discardLabel = "Discard changes",
+  cancelLabel = "Keep editing",
 }: UnsavedChangesDialogProps) {
   if (!open) return null;
 
@@ -29,11 +41,10 @@ export function UnsavedChangesDialog({
             <AlertTriangle className="h-6 w-6 text-amber-400" />
           </div>
           <h3 className="text-base font-bold text-foreground mb-1">
-            Unsaved changes
+            {title}
           </h3>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            You have unsaved changes in the Task Builder. They will be lost if
-            you leave now.
+            {description}
           </p>
         </div>
         <div className="flex gap-2 px-6 pb-6">
@@ -42,14 +53,14 @@ export function UnsavedChangesDialog({
             className="flex-1"
             onClick={onCancel}
           >
-            Keep editing
+            {cancelLabel}
           </Button>
           <Button
             variant="destructive"
             className="flex-1"
             onClick={onDiscard}
           >
-            Discard changes
+            {discardLabel}
           </Button>
         </div>
       </div>
