@@ -12,7 +12,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Trash2, Loader2, AlertCircle, Bot, Info, Globe, Users, Lock } from "lucide-react";
+import { Plus, Trash2, Loader2, AlertCircle, Bot, Globe, Users, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getGradientStyle } from "@/lib/gradient-themes";
 import type { SubAgentRef, AvailableSubagent, VisibilityType } from "@/types/dynamic-agent";
@@ -197,14 +197,10 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
 
   return (
     <div className="space-y-4">
-      {/* Visibility rules hint */}
-      <div className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3 flex items-start gap-2">
-        <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
-        <span>
-          Private agents can use any subagent. Team agents can use team or global subagents.
-          Global agents can only use global subagents.
-        </span>
-      </div>
+      {/* Visibility note */}
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium">Note:</span>{" "}Agents that don&apos;t have the same sharing permissions as this agent cannot be added, and are disabled.
+      </p>
 
       {/* Currently configured subagents */}
       {value.length > 0 && (

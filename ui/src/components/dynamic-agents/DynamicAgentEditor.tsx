@@ -247,8 +247,8 @@ function AdvancedStep({
         badge={`${subagents.length} subagent${subagents.length !== 1 ? "s" : ""}`}
         defaultExpanded={subagents.length > 0}
       >
-        <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
-          Note: Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
+        <p className="text-xs text-muted-foreground mb-2">
+          <span className="font-medium">Note:</span> Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
         </p>
         <SubagentPicker
           agentId={agent?._id || null}

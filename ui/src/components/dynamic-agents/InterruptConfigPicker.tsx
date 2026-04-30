@@ -79,6 +79,7 @@ function getToolOptions(
   namespace: string,
   allowedTools: Record<string, string[]>,
   builtinTools?: BuiltinToolsConfig,
+  probedTools?: Record<string, string[]>,
 ): string[] {
   if (namespace === "builtin") {
     if (!builtinTools) return [];
@@ -87,12 +88,12 @@ function getToolOptions(
       .filter(([, cfg]) => cfg && typeof cfg === "object" && "enabled" in cfg && cfg.enabled)
       .map(([name]) => name);
   }
-  // MCP server: return tool names from allowedTools
-  const tools = allowedTools[namespace];
-  if (!tools) return [];
-  // Empty array means "all tools" — we can't enumerate them without probing
-  // Just show "*" option in that case
-  return tools;
+  // MCP server: use specific allowed tools if configured, otherwise use probed tools
+  const configured = allowedTools[namespace];
+  if (!configured) return [];
+  if (configured.length > 0) return configured;
+  // Empty array means "all tools" — use probed tools if available
+  return probedTools?.[namespace] || [];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +109,32 @@ export function InterruptConfigPicker({
 }: InterruptConfigPickerProps) {
   const [rows, setRows] = React.useState<InterruptRow[]>(() => configToRows(value));
   const [expandedRows, setExpandedRows] = React.useState<Set<string>>(new Set());
+  const [probedTools, setProbedTools] = React.useState<Record<string, string[]>>({});
+  const [probingServers, setProbingServers] = React.useState<Set<string>>(new Set());
+
+  // Probe a single MCP server for its tools
+  const probeServer = React.useCallback((serverId: string) => {
+    if (probedTools[serverId] || probingServers.has(serverId)) return;
+    setProbingServers((prev) => new Set(prev).add(serverId));
+    fetch(`/api/mcp-servers/probe?id=${serverId}`, { method: "POST" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.data?.tools) {
+          setProbedTools((prev) => ({
+            ...prev,
+            [serverId]: (data.data.tools as { name: string }[]).map((t) => t.name),
+          }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        setProbingServers((prev) => {
+          const next = new Set(prev);
+          next.delete(serverId);
+          return next;
+        });
+      });
+  }, [probedTools, probingServers]);
 
   // Sync rows → parent on change
   const updateRows = React.useCallback(
@@ -131,7 +158,7 @@ export function InterruptConfigPicker({
   const isStaleRow = React.useCallback(
     (row: InterruptRow): boolean => {
       if (row.tool === "*") return false;
-      const available = getToolOptions(row.namespace, allowedTools, builtinTools);
+      const available = getToolOptions(row.namespace, allowedTools, builtinTools, probedTools);
       // If namespace doesn't exist at all, it's stale
       if (row.namespace !== "builtin" && !allowedTools[row.namespace]) return true;
       // If tools list is empty for MCP (meaning "all"), we can't validate — assume ok
@@ -178,10 +205,12 @@ export function InterruptConfigPicker({
   };
 
   const handleNamespaceChange = (rowId: string, namespace: string) => {
-    // Reset tool when namespace changes
-    const tools = getToolOptions(namespace, allowedTools, builtinTools);
-    const defaultTool = tools.length > 0 ? tools[0] : "*";
-    updateRow(rowId, { namespace, tool: defaultTool });
+    // Probe MCP server if not already probed
+    if (namespace !== "builtin") {
+      probeServer(namespace);
+    }
+    // Reset tool to "all tools" when namespace changes
+    updateRow(rowId, { namespace, tool: "*" });
   };
 
   const handleToolChange = (rowId: string, tool: string) => {
@@ -224,6 +253,23 @@ export function InterruptConfigPicker({
 
   return (
     <div className="space-y-3">
+      {/* Top-right add button */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Tools listed here will pause execution and require human approval before running.
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          className="h-7 text-xs gap-1.5 shrink-0 ml-4"
+          onClick={addRow}
+          disabled={disabled}
+        >
+          <Plus className="h-3 w-3" />
+          Add rule
+        </Button>
+      </div>
+
       {rows.length === 0 && (
         <p className="text-xs text-muted-foreground italic py-2">
           No interrupt rules configured. The agent will execute all tools without approval.
@@ -234,7 +280,7 @@ export function InterruptConfigPicker({
         {rows.map((row) => {
           const isExpanded = expandedRows.has(row.id);
           const stale = isStaleRow(row);
-          const toolOptions = getToolOptions(row.namespace, allowedTools, builtinTools);
+          const toolOptions = getToolOptions(row.namespace, allowedTools, builtinTools, probedTools);
 
           return (
             <div
@@ -268,6 +314,9 @@ export function InterruptConfigPicker({
                   className="h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[140px] flex-1"
                 >
                   <option value="*">All tools</option>
+                  {row.namespace !== "builtin" && probingServers.has(row.namespace) && (
+                    <option value="" disabled>Loading tools...</option>
+                  )}
                   {toolOptions.map((tool) => (
                     <option key={tool} value={tool}>
                       {tool}
@@ -351,19 +400,6 @@ export function InterruptConfigPicker({
           );
         })}
       </div>
-
-      {/* Add rule button */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={addRow}
-        disabled={disabled}
-        className="w-full"
-      >
-        <Plus className="h-3.5 w-3.5 mr-1.5" />
-        Add interrupt rule
-      </Button>
     </div>
   );
 }

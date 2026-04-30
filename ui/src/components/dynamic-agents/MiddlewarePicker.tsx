@@ -409,6 +409,19 @@ export function MiddlewarePicker({
 
   const [showAddMenu, setShowAddMenu] = React.useState(false);
   const [lastAddedIndex, setLastAddedIndex] = React.useState<number | null>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  // Close menu on click outside
+  React.useEffect(() => {
+    if (!showAddMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showAddMenu]);
 
   // Clear lastAddedIndex after it's been consumed by the render
   React.useEffect(() => {
@@ -490,18 +503,20 @@ export function MiddlewarePicker({
 
       {!loading && !error && (
         <>
-          <div className="flex items-center justify-end">
-            <div className="relative">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Add middleware to customize agent behavior during execution.
+            </p>
+            <div className="relative shrink-0 ml-4" ref={menuRef}>
               <Button
                 type="button"
-                variant="outline"
                 size="sm"
-                className="h-7 text-xs gap-1"
+                className="h-7 text-xs gap-1.5"
                 onClick={() => setShowAddMenu(!showAddMenu)}
                 disabled={disabled || addableTypes.length === 0}
               >
                 <Plus className="h-3 w-3" />
-                Add
+                Add configuration
               </Button>
               {showAddMenu && (
                 <div className="absolute top-full right-0 mt-1 z-50 w-64 rounded-lg border bg-background shadow-xl py-1">
