@@ -125,7 +125,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Let's remove it for now to avoid errors, as Dynamic Agents rely on SSE resume, not task polling.
     evictOldMessageContent,
     loadMessagesFromServer,
-    saveMessagesToServer,
     updateConversationTitle,
   } = useChatStore();
 
@@ -794,9 +793,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const turnStreamEvents = currentConv?.streamEvents || [];
 
     if (wasAlreadyCancelled) {
-      saveMessagesToServer(conversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save cancelled messages:', err);
-      });
+      // Store's setConversationStreaming(null) hook already saved — nothing to do.
       return;
     }
 
@@ -816,10 +813,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
     });
     setConversationStreaming(conversationId, null);
-    saveMessagesToServer(conversationId).catch((err) => {
-      console.error('[DynamicAgent] Failed to save messages:', err);
-    });
-  }, [updateMessage, setConversationStreaming, saveMessagesToServer]);
+    // Store's setConversationStreaming(null) hook auto-saves after 500ms.
+  }, [updateMessage, setConversationStreaming]);
 
   // Core submit function that accepts a message directly
   const submitMessage = useCallback(async (messageToSend: string) => {
@@ -898,13 +893,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           turnStatus: "interrupted" as TurnStatus,
         });
       }
-      // Set interrupted status on error
+      // Set interrupted status on error — store auto-saves on streaming=null
       setConversationStreaming(convId, null);
-      saveMessagesToServer(convId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save error messages:', err);
-      });
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1176,12 +1168,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         turnStatus: "interrupted" as TurnStatus,
       });
       setConversationStreaming(activeConversationId, null);
-      saveMessagesToServer(activeConversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save HITL resume error messages:', err);
-      });
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      setConversationStreaming, saveMessagesToServer,
+      setConversationStreaming,
       clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle tool approval decisions (approve/reject/edit)
