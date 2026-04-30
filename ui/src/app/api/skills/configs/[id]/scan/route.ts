@@ -124,6 +124,11 @@ export const POST = withErrorHandler(
       const t0 = Date.now();
       const scanResult = await scanSkillContent(existing.name, content, id);
       const now = new Date();
+      // Persist the unscanned reason so the workspace Scan tab can
+      // explain *why* (empty content, scanner timeout, HTTP error)
+      // instead of leaving the user staring at a grey badge.
+      const persistedSummary =
+        scanResult.scan_summary ?? scanResult.unscanned_reason;
 
       await recordScanEvent({
         trigger: "manual_user_skill",
@@ -132,7 +137,7 @@ export const POST = withErrorHandler(
         source: existing.is_system ? "default" : "agent_skills",
         actor: user.email,
         scan_status: scanResult.scan_status,
-        scan_summary: scanResult.scan_summary,
+        scan_summary: persistedSummary,
         scanner_unavailable: scanResult.scan_status === "unscanned",
         duration_ms: Date.now() - t0,
       });
@@ -143,8 +148,8 @@ export const POST = withErrorHandler(
         {
           $set: {
             scan_status: scanResult.scan_status,
-            ...(scanResult.scan_summary !== undefined
-              ? { scan_summary: scanResult.scan_summary }
+            ...(persistedSummary !== undefined
+              ? { scan_summary: persistedSummary }
               : {}),
             scan_updated_at: now,
             updated_at: now,
@@ -157,7 +162,7 @@ export const POST = withErrorHandler(
       return successResponse({
         id,
         scan_status: scanResult.scan_status,
-        scan_summary: scanResult.scan_summary,
+        scan_summary: persistedSummary,
         scan_updated_at: now.toISOString(),
       });
     });

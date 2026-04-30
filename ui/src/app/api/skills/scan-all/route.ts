@@ -156,9 +156,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           scanResult = await scanSkillContent(skill.name, content, skill.id);
         } catch (err) {
           error = err instanceof Error ? err.message : String(err);
-          scanResult = { scan_status: "unscanned" };
+          scanResult = { scan_status: "unscanned", unscanned_reason: error };
         }
         const dur = Date.now() - t0;
+
+        // Surface the scanner's "why unscanned" reason to the dialog
+        // row + persist it as scan_summary so admins can see at a
+        // glance whether it was empty content, an HTTP error, a
+        // timeout, etc. — without digging into Next.js logs.
+        const rowError = error ?? scanResult.unscanned_reason;
+        const persistedSummary =
+          scanResult.scan_summary ?? scanResult.unscanned_reason;
 
         // Persist onto the skill so the gallery shield reflects the
         // new state without a manual save.
@@ -169,8 +177,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
             {
               $set: {
                 scan_status: scanResult.scan_status,
-                ...(scanResult.scan_summary !== undefined
-                  ? { scan_summary: scanResult.scan_summary }
+                ...(persistedSummary !== undefined
+                  ? { scan_summary: persistedSummary }
                   : {}),
                 scan_updated_at: now,
                 updated_at: now,
@@ -191,7 +199,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           source: skill.is_system ? "default" : "agent_skills",
           actor: user.email,
           scan_status: scanResult.scan_status,
-          scan_summary: scanResult.scan_summary,
+          scan_summary: persistedSummary,
           scanner_unavailable: scanResult.scan_status === "unscanned",
           duration_ms: dur,
         });
@@ -204,7 +212,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           name: skill.name,
           scan_status: scanResult.scan_status,
           scan_summary: scanResult.scan_summary,
-          error,
+          error: rowError,
           duration_ms: dur,
         });
 
@@ -261,9 +269,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           );
         } catch (err) {
           error = err instanceof Error ? err.message : String(err);
-          scanResult = { scan_status: "unscanned" };
+          scanResult = { scan_status: "unscanned", unscanned_reason: error };
         }
         const dur = Date.now() - t0;
+
+        const rowError = error ?? scanResult.unscanned_reason;
+        const persistedSummary =
+          scanResult.scan_summary ?? scanResult.unscanned_reason;
 
         const now = new Date();
         try {
@@ -272,8 +284,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
             {
               $set: {
                 scan_status: scanResult.scan_status,
-                ...(scanResult.scan_summary !== undefined
-                  ? { scan_summary: scanResult.scan_summary }
+                ...(persistedSummary !== undefined
+                  ? { scan_summary: persistedSummary }
                   : {}),
                 scan_updated_at: now,
               },
@@ -294,7 +306,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           hub_id: doc.hub_id,
           actor: user.email,
           scan_status: scanResult.scan_status,
-          scan_summary: scanResult.scan_summary,
+          scan_summary: persistedSummary,
           scanner_unavailable: scanResult.scan_status === "unscanned",
           duration_ms: dur,
         });
@@ -307,7 +319,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           name: doc.name,
           scan_status: scanResult.scan_status,
           scan_summary: scanResult.scan_summary,
-          error,
+          error: rowError,
           duration_ms: dur,
         });
       }

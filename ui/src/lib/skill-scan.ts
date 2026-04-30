@@ -88,9 +88,27 @@ export async function scanSkillContent(
   content: string,
   configId?: string,
   _auth?: ScanAuth,
-): Promise<{ scan_status: ScanStatus; scan_summary?: string }> {
-  if (!SKILL_SCANNER_URL || !content?.trim()) {
-    return { scan_status: "unscanned" };
+): Promise<{
+  scan_status: ScanStatus;
+  scan_summary?: string;
+  /**
+   * Populated when `scan_status === "unscanned"` so callers (bulk
+   * scan dialog, per-skill UI, audit log) can show *why* the scan
+   * didn't run instead of leaving the user guessing.
+   */
+  unscanned_reason?: string;
+}> {
+  if (!SKILL_SCANNER_URL) {
+    return {
+      scan_status: "unscanned",
+      unscanned_reason: "Scanner not configured (SKILL_SCANNER_URL unset)",
+    };
+  }
+  if (!content?.trim()) {
+    return {
+      scan_status: "unscanned",
+      unscanned_reason: "Skill has no SKILL.md content to scan",
+    };
   }
 
   let zipBuffer: Uint8Array;
@@ -112,7 +130,10 @@ export async function scanSkillContent(
     });
   } catch (err) {
     console.warn("[ScanSkill] Failed to build scan ZIP:", err);
-    return { scan_status: "unscanned" };
+    return {
+      scan_status: "unscanned",
+      unscanned_reason: `Failed to package SKILL.md for scanner: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   const form = new FormData();
@@ -138,13 +159,25 @@ export async function scanSkillContent(
       console.warn(
         `[ScanSkill] skill-scanner returned ${resp.status}: ${body.slice(0, 200)}`,
       );
-      return { scan_status: "unscanned" };
+      return {
+        scan_status: "unscanned",
+        unscanned_reason: `Scanner returned HTTP ${resp.status}${body ? `: ${body.slice(0, 160)}` : ""}`,
+      };
     }
     const data = (await resp.json()) as ScannerResponse;
     return interpretScannerResponse(data);
   } catch (err) {
-    console.warn("[ScanSkill] skill-scanner unreachable:", err);
-    return { scan_status: "unscanned" };
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn("[ScanSkill] skill-scanner unreachable:", reason);
+    // Differentiate timeout (60s) from connection error so the operator
+    // knows whether to bump the timeout or check the scanner pod.
+    const isTimeout = err instanceof DOMException && err.name === "TimeoutError";
+    return {
+      scan_status: "unscanned",
+      unscanned_reason: isTimeout
+        ? "Scanner did not respond within 60s — pod may be overloaded"
+        : `Scanner unreachable: ${reason}`,
+    };
   }
 }
 
@@ -259,12 +292,16 @@ export async function scanHubSkillsAsync(
       const startedAt = Date.now();
       try {
         const result = await scanSkillContent(ref.name, ref.content, ref.skill_id);
+        // Persist the unscanned reason as scan_summary so admins see
+        // *why* a hub skill is unscanned without digging into logs.
+        const persistedSummary =
+          result.scan_summary ?? result.unscanned_reason ?? null;
         await hubSkillsCol.updateOne(
           { hub_id: ref.hub_id, skill_id: ref.skill_id },
           {
             $set: {
               scan_status: result.scan_status,
-              scan_summary: result.scan_summary ?? null,
+              scan_summary: persistedSummary,
               scan_updated_at: new Date(),
             },
           },
@@ -278,7 +315,7 @@ export async function scanHubSkillsAsync(
           source: "hub",
           hub_id: ref.hub_id,
           scan_status: result.scan_status,
-          scan_summary: result.scan_summary,
+          scan_summary: persistedSummary ?? undefined,
           scanner_unavailable: result.scan_status === "unscanned",
           duration_ms: Date.now() - startedAt,
         });
