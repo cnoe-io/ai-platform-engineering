@@ -57,7 +57,7 @@ Skills are authored **once** in `.specify/templates/commands/*.md` and manually 
 | Skill | Location | Description |
 |-------|----------|-------------|
 | Python Rules | `.cursor/rules/` | Ruff, Black, type hints, Google-style docstrings |
-| TypeScript Rules | `ui/.cursor/rules/` | ESLint, Prettier, React 19 patterns |
+| TypeScript Rules | `.cursor/rules/` | ESLint, Prettier, React 19 patterns |
 
 ## Sourcing Public Skills
 
