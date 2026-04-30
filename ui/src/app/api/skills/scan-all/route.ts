@@ -11,6 +11,28 @@ import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
 import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
 import type { HubSkillDoc } from "@/lib/hub-crawl";
+import {
+  loadSkillTemplatesInternal,
+  loadTemplateAncillaryFiles,
+  resolveTemplateDir,
+} from "@/app/api/skills/skill-templates-loader";
+
+/**
+ * Persistence shape for a built-in template scan. Built-ins live on the
+ * filesystem and have no agent_skills row, so we keep their scan state
+ * in a dedicated `builtin_skill_scans` collection keyed by the loader's
+ * stable template id (frontmatter `name` || directory name). The
+ * gallery surfaces this via the same shield the custom/hub paths use.
+ */
+interface BuiltinScanDoc {
+  id: string;
+  name: string;
+  scan_status: ScanStatus;
+  scan_summary?: string;
+  scan_updated_at: Date;
+}
+
+const BUILTIN_SCAN_COLLECTION = "builtin_skill_scans";
 
 /**
  * POST /api/skills/scan-all
@@ -22,7 +44,7 @@ import type { HubSkillDoc } from "@/lib/hub-crawl";
  *
  * Body (all optional):
  *   {
- *     scope?: "custom" | "hub" | "all"   // default: "all"
+ *     scope?: "custom" | "hub" | "builtin" | "all"   // default: "all"
  *     hub_id?: string                    // legacy single-hub filter (kept for back-compat)
  *     hub_ids?: string[]                 // multi-select filter (preferred); empty/omitted = all hubs
  *     limit?: number                     // safety cap, default 500, max 1000
@@ -53,7 +75,7 @@ const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 1000;
 const CONCURRENCY = 1;
 
-type Scope = "custom" | "hub" | "all";
+type Scope = "custom" | "hub" | "builtin" | "all";
 
 interface BulkBody {
   scope?: Scope;
@@ -66,7 +88,7 @@ interface BulkBody {
 
 interface ResultRow {
   id: string;
-  source: "agent_skills" | "hub";
+  source: "agent_skills" | "hub" | "builtin";
   name: string;
   scan_status: ScanStatus;
   scan_summary?: string;
@@ -357,6 +379,122 @@ async function runBulkScan(
     }
   }
 
+  // -----------------------------------------------------------------
+  // Built-in (packaged) skill templates
+  //
+  // Built-ins live on the filesystem (`SKILLS_DIR`) and have no Mongo
+  // doc, so we scan straight from the loader and persist results into
+  // a dedicated `builtin_skill_scans` collection. Without this branch
+  // packaged templates were never analyzed even though the agent
+  // runtime materializes them (and their ancillary scripts) into the
+  // StateBackend at /skills/default/<name>/<rel_path> — exactly the
+  // attack surface a static analyzer needs to see.
+  // -----------------------------------------------------------------
+  if ((scope === "builtin" || scope === "all") && results.length < limit) {
+    const templates = loadSkillTemplatesInternal();
+    let scanCol: Awaited<ReturnType<typeof getCollection<BuiltinScanDoc>>> | null;
+    try {
+      scanCol = await getCollection<BuiltinScanDoc>(BUILTIN_SCAN_COLLECTION);
+    } catch (err) {
+      // Persistence is best-effort — Mongo failure must not stop the
+      // scan, just leave the badge un-cached. Surface in logs only.
+      console.warn(
+        "[scan-all] Failed to open builtin_skill_scans collection:",
+        err,
+      );
+      scanCol = null;
+    }
+    for (const tpl of templates) {
+      if (results.length >= limit) break;
+      const content = tpl.content?.trim();
+      if (!content) {
+        skipped += 1;
+        await emit({
+          id: tpl.id,
+          source: "builtin",
+          name: tpl.name,
+          scan_status: "unscanned",
+          error: "No SKILL.md body to scan",
+          duration_ms: 0,
+        });
+        continue;
+      }
+
+      // Pull ancillary files off disk for this template. `resolveTemplateDir`
+      // handles both the canonical layout (id == dirname) and the
+      // frontmatter-name override the loader does. Empty map is safe.
+      const tplDir = resolveTemplateDir(tpl.id);
+      const ancillaryFiles = tplDir ? loadTemplateAncillaryFiles(tplDir) : {};
+
+      const t0 = Date.now();
+      let scanResult: Awaited<ReturnType<typeof scanSkillContent>>;
+      let error: string | undefined;
+      try {
+        scanResult = await scanSkillContent(tpl.name, content, tpl.id, {
+          ancillaryFiles,
+        });
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+        scanResult = { scan_status: "unscanned", unscanned_reason: error };
+      }
+      const dur = Date.now() - t0;
+
+      const rowError = error ?? scanResult.unscanned_reason;
+      const persistedSummary =
+        scanResult.scan_summary ?? scanResult.unscanned_reason;
+
+      if (scanCol) {
+        const now = new Date();
+        try {
+          await scanCol.updateOne(
+            { id: tpl.id },
+            {
+              $set: {
+                id: tpl.id,
+                name: tpl.name,
+                scan_status: scanResult.scan_status,
+                ...(persistedSummary !== undefined
+                  ? { scan_summary: persistedSummary }
+                  : {}),
+                scan_updated_at: now,
+              },
+            },
+            { upsert: true },
+          );
+        } catch (err) {
+          console.warn(
+            `[scan-all] Failed to persist scan for builtin/${tpl.id}:`,
+            err,
+          );
+        }
+      }
+
+      await recordScanEvent({
+        trigger: "bulk_user_skill",
+        skill_id: tpl.id,
+        skill_name: tpl.name,
+        source: "default",
+        actor,
+        scan_status: scanResult.scan_status,
+        scan_summary: persistedSummary,
+        scanner_unavailable: scanResult.scan_status === "unscanned",
+        duration_ms: dur,
+      });
+
+      scanned += 1;
+      counts[scanResult.scan_status] += 1;
+      await emit({
+        id: tpl.id,
+        source: "builtin",
+        name: tpl.name,
+        scan_status: scanResult.scan_status,
+        scan_summary: scanResult.scan_summary,
+        error: rowError,
+        duration_ms: dur,
+      });
+    }
+  }
+
   return {
     scope,
     total: results.length,
@@ -398,6 +536,12 @@ async function planTotal(
       filter.hub_id = body.hub_id;
     }
     total += await col.countDocuments(filter);
+    if (total >= limit) return limit;
+  }
+  if (scope === "builtin" || scope === "all") {
+    // Loader is cached + cheap (filesystem readdir, 30s TTL). Counting
+    // here costs ~ms even for large catalogs.
+    total += loadSkillTemplatesInternal().length;
   }
   return Math.min(limit, total);
 }
@@ -489,7 +633,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const body = (await req.json().catch(() => ({}))) as BulkBody;
     const scope: Scope = body.scope ?? "all";
-    if (!["custom", "hub", "all"].includes(scope)) {
+    if (!["custom", "hub", "builtin", "all"].includes(scope)) {
       throw new ApiError(`Invalid scope: ${scope}`, 400);
     }
     const limit = Math.min(

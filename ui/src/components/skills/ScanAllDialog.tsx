@@ -22,11 +22,11 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ScanStatus } from "@/types/agent-skill";
 
-type Scope = "custom" | "hub" | "all";
+type Scope = "custom" | "hub" | "builtin" | "all";
 
 interface BulkResultRow {
   id: string;
-  source: "agent_skills" | "hub";
+  source: "agent_skills" | "hub" | "builtin";
   name: string;
   scan_status: ScanStatus;
   scan_summary?: string;
@@ -63,10 +63,26 @@ interface Props {
 }
 
 const SCOPE_OPTIONS: Array<{ v: Scope; l: string; hint: string }> = [
-  { v: "all", l: "All", hint: "Custom + hub-cached skills" },
+  { v: "all", l: "All", hint: "Custom + hub-cached + built-in templates" },
   { v: "custom", l: "Custom only", hint: "Skills authored in this workspace" },
   { v: "hub", l: "Hubs only", hint: "Imported / crawled hub skills" },
+  {
+    v: "builtin",
+    l: "Built-ins only",
+    hint: "Packaged templates from SKILLS_DIR (read-only on disk)",
+  },
 ];
+
+function sourceLabel(source: BulkResultRow["source"]): string {
+  switch (source) {
+    case "agent_skills":
+      return "Custom";
+    case "hub":
+      return "Hub";
+    case "builtin":
+      return "Built-in";
+  }
+}
 
 /**
  * Admin-only "Scan all skills" modal. Posts to `/api/skills/scan-all`
@@ -511,7 +527,7 @@ export function ScanAllDialog({
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{row.name}</span>
                         <Badge variant="outline" className="text-[10px] px-1 py-0">
-                          {row.source === "agent_skills" ? "Custom" : "Hub"}
+                          {sourceLabel(row.source)}
                         </Badge>
                       </div>
                       {(row.scan_summary || row.error) && (
@@ -575,7 +591,7 @@ export function ScanAllDialog({
                     <div className="flex items-center gap-2">
                       <span className="font-medium truncate">{row.name}</span>
                       <Badge variant="outline" className="text-[10px] px-1 py-0">
-                        {row.source === "agent_skills" ? "Custom" : "Hub"}
+                        {sourceLabel(row.source)}
                       </Badge>
                     </div>
                     {(row.scan_summary || row.error) && (
