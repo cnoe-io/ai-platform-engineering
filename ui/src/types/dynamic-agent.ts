@@ -239,6 +239,24 @@ export interface SubAgentRef {
   description: string;  // Description for LLM routing decisions
 }
 
+/**
+ * Per-tool interrupt configuration for HITL approval workflows.
+ * Controls what decisions a reviewer can make when a tool call is intercepted.
+ */
+export type DecisionType = "approve" | "edit" | "reject";
+
+export interface InterruptToolConfig {
+  allowed_decisions: DecisionType[];
+}
+
+/**
+ * Interrupt configuration: namespace -> { tool_name: true | InterruptToolConfig }
+ * "builtin" is the reserved namespace for built-in tools (no server prefix).
+ * Tool name "*" means all tools in that namespace.
+ * `true` is shorthand for { allowed_decisions: ["approve", "edit", "reject"] }.
+ */
+export type InterruptOn = Record<string, Record<string, boolean | InterruptToolConfig>>;
+
 export interface DynamicAgentConfig {
   _id: string;
   name: string;
@@ -253,6 +271,7 @@ export interface DynamicAgentConfig {
   skills: string[];  // Skill document IDs from agent_skills collection
   ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
   features?: FeaturesConfig;  // Middleware and feature flags
+  interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
   enabled: boolean;
   owner_id: string;
   is_system: boolean;
@@ -275,6 +294,7 @@ export interface DynamicAgentConfigCreate {
   skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
+  interrupt_on?: InterruptOn;
   enabled?: boolean;
 }
 
@@ -291,6 +311,7 @@ export interface DynamicAgentConfigUpdate {
   skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
+  interrupt_on?: InterruptOn;
   enabled?: boolean;
 }
 

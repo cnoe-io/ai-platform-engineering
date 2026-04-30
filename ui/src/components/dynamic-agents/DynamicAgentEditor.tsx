@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,9 +25,11 @@ import type {
   BuiltinToolsConfig,
   AgentUIConfig,
   FeaturesConfig,
+  InterruptOn,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
+import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
 import { SkillsSelector } from "./SkillsSelector";
@@ -100,9 +102,9 @@ const STEPS = [
     hint: "Attach skills that guide your agent's behavior (optional)" 
   },
   { 
-    id: "subagents" as const, 
-    label: "Subagents", 
-    hint: "Delegate tasks to other agents (optional)" 
+    id: "advanced" as const, 
+    label: "Advanced", 
+    hint: "Subagents, approval rules, and middleware" 
   },
 ];
 
@@ -153,6 +155,142 @@ function StepIndicator({
   );
 }
 
+/**
+ * Collapsible sub-section used in the Advanced step.
+ */
+function CollapsibleSection({
+  title,
+  description,
+  badge,
+  defaultExpanded = false,
+  children,
+}: {
+  title: string;
+  description: string;
+  badge?: string;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
+
+  return (
+    <div className="border rounded-lg">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors rounded-lg"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        )}
+        <div className="flex-1">
+          <span className="text-sm font-semibold">{title}</span>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        {badge && (
+          <span className="text-xs text-muted-foreground font-medium">{badge}</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 pt-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Advanced step: collapsible sub-sections for subagents, interrupts, middleware.
+ */
+function AdvancedStep({
+  agent,
+  subagents,
+  setSubagents,
+  interruptOn,
+  setInterruptOn,
+  allowedTools,
+  builtinTools,
+  features,
+  setFeatures,
+  availableModels,
+  setMiddlewareError,
+  loading,
+  visibility,
+}: {
+  agent: DynamicAgentConfig | null;
+  subagents: SubAgentRef[];
+  setSubagents: (v: SubAgentRef[]) => void;
+  interruptOn: InterruptOn;
+  setInterruptOn: (v: InterruptOn) => void;
+  allowedTools: Record<string, string[]>;
+  builtinTools?: BuiltinToolsConfig;
+  features: FeaturesConfig | undefined;
+  setFeatures: (v: FeaturesConfig | undefined) => void;
+  availableModels: { model_id: string; name: string; provider: string }[];
+  setMiddlewareError: (v: boolean) => void;
+  loading: boolean;
+  visibility: VisibilityType;
+}) {
+  const interruptRuleCount = Object.values(interruptOn).reduce(
+    (sum, tools) => sum + Object.keys(tools).length, 0
+  );
+  const middlewareCount = features?.middleware?.length ?? 0;
+
+  return (
+    <div className="space-y-4 pt-2">
+      <CollapsibleSection
+        title="Subagent Delegation"
+        description="Delegate tasks to other custom agents"
+        badge={`${subagents.length} subagent${subagents.length !== 1 ? "s" : ""}`}
+        defaultExpanded={subagents.length > 0}
+      >
+        <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+          Note: Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
+        </p>
+        <SubagentPicker
+          agentId={agent?._id || null}
+          value={subagents}
+          onChange={setSubagents}
+          disabled={loading}
+          parentVisibility={visibility}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Human Approval"
+        description="Require approval before executing specific tools"
+        badge={`${interruptRuleCount} rule${interruptRuleCount !== 1 ? "s" : ""}`}
+        defaultExpanded
+      >
+        <InterruptConfigPicker
+          value={interruptOn}
+          onChange={setInterruptOn}
+          allowedTools={allowedTools}
+          builtinTools={builtinTools}
+          disabled={loading}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Middleware"
+        description="Retries, limits, and preprocessing"
+        badge={`${middlewareCount} middleware${middlewareCount !== 1 ? "s" : ""}`}
+      >
+        <MiddlewarePicker
+          value={features}
+          onChange={setFeatures}
+          disabled={loading}
+          availableModels={availableModels}
+          onError={setMiddlewareError}
+        />
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
@@ -185,6 +323,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   );
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
     source?.features
+  );
+  const [interruptOn, setInterruptOn] = React.useState<InterruptOn>(
+    source?.interrupt_on || { builtin: { request_user_input: true } }
   );
   const [modelId, setModelId] = React.useState(source?.model?.id || "");
   const [modelProvider, setModelProvider] = React.useState(source?.model?.provider || "");
@@ -544,6 +685,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
+          interrupt_on: interruptOn,
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -572,6 +714,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
+          interrupt_on: interruptOn,
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -1149,17 +1292,6 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   disabled={loading}
                 />
               </div>
-
-              {/* Advanced: Middleware */}
-              <div className="border-t pt-4">
-                <MiddlewarePicker
-                  value={features}
-                  onChange={setFeatures}
-                  disabled={loading}
-                  availableModels={availableModels}
-                  onError={setMiddlewareError}
-                />
-              </div>
             </div>
           )}
 
@@ -1181,28 +1313,23 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </div>
           )}
 
-          {/* Subagents Step */}
-          {activeStep === "subagents" && (
-            <div className="space-y-4 pt-2">
-              <div>
-                <Label>Subagent Delegation</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Configure other custom agents that this agent can delegate tasks to.
-                  The LLM will automatically decide when to use each subagent based on the description you provide.
-                </p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
-                  Note: Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
-                </p>
-              </div>
-
-              <SubagentPicker
-                agentId={agent?._id || null}
-                value={subagents}
-                onChange={setSubagents}
-                disabled={loading}
-                parentVisibility={visibility}
-              />
-            </div>
+          {/* Advanced Step */}
+          {activeStep === "advanced" && (
+            <AdvancedStep
+              agent={agent}
+              subagents={subagents}
+              setSubagents={setSubagents}
+              interruptOn={interruptOn}
+              setInterruptOn={setInterruptOn}
+              allowedTools={allowedTools}
+              builtinTools={builtinTools}
+              features={features}
+              setFeatures={setFeatures}
+              availableModels={availableModels}
+              setMiddlewareError={setMiddlewareError}
+              loading={loading}
+              visibility={visibility}
+            />
           )}
 
           {/* Error */}
