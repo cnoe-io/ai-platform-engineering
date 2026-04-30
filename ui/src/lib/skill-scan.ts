@@ -83,11 +83,94 @@ interface ScannerResponse {
  * `auth` is accepted for backwards-compatibility with the old supervisor-
  * based client and ignored.
  */
+/**
+ * Hard cap on total ancillary bytes packed into a single scan ZIP.
+ *
+ * Two reasons we cap aggressively (default 4 MB) instead of trusting the
+ * scanner's 50 MB ingest limit:
+ *
+ *   1. Static analyzers in the scanner walk every file; a 50 MB upload
+ *      can balloon LLM analyzer cost and push the per-skill scan past
+ *      our 60s timeout.
+ *   2. Hub crawls already cap individual ancillary files (~256 KB each)
+ *      but a skill with hundreds of small files can still exceed what
+ *      the scanner can usefully analyze. When we hit the cap we drop
+ *      additional files (largest first) and surface the truncation in
+ *      `scan_summary` so admins notice instead of getting a silent
+ *      partial scan.
+ */
+const ANCILLARY_BYTE_CAP = (() => {
+  const raw = parseInt(process.env.SKILL_SCAN_ANCILLARY_BYTE_CAP || "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 4 * 1024 * 1024;
+})();
+
+/**
+ * Reject paths that try to escape the synthesized skill directory or
+ * collide with the SKILL.md root file. Anything suspicious is dropped
+ * silently — this is content sourced from MongoDB / GitHub that was
+ * already validated upstream, but defense in depth is cheap here.
+ */
+function isSafeAncillaryPath(rel: string): boolean {
+  if (!rel || typeof rel !== "string") return false;
+  if (rel === "SKILL.md") return false; // never overwrite root
+  if (rel.startsWith("/") || rel.startsWith("\\")) return false;
+  if (rel.includes("..")) return false;
+  // Scanner runs on Linux, but a malicious key with a NUL or control
+  // char could trip the unzip step.
+  if (/[\x00-\x1f]/.test(rel)) return false;
+  return true;
+}
+
+interface AncillaryEntry {
+  rel: string;
+  content: string;
+  bytes: number;
+}
+
+/**
+ * Validate, dedupe, and sort ancillary files for inclusion in the scan
+ * ZIP. Smallest-first ordering means a single oversized file can't
+ * starve the smaller scripts/prompts most likely to carry injection
+ * payloads. Invalid paths are dropped silently — content is sourced
+ * from MongoDB / GitHub which already validated upstream, but we
+ * defense-in-depth here.
+ */
+function collectAncillaryEntries(
+  files: Record<string, string> | undefined,
+): AncillaryEntry[] {
+  if (!files || typeof files !== "object") return [];
+  const entries: AncillaryEntry[] = [];
+  for (const [rel, content] of Object.entries(files)) {
+    if (!isSafeAncillaryPath(rel)) continue;
+    if (typeof content !== "string" || content.length === 0) continue;
+    // UTF-8 byte count, not char count, so the cap is meaningful.
+    const bytes = Buffer.byteLength(content, "utf8");
+    entries.push({ rel, content, bytes });
+  }
+  entries.sort((a, b) => a.bytes - b.bytes);
+  return entries;
+}
+
+export interface ScanOptions {
+  /**
+   * Sibling files referenced by SKILL.md (scripts, prompts, JSON specs,
+   * examples). When provided, they're packaged alongside SKILL.md in
+   * the scan ZIP so static + LLM analyzers see the same surface that
+   * the agent runtime materializes into the StateBackend. See
+   * `skills_middleware/backend_sync.py` and
+   * `dynamic_agents/services/skills.py` for the runtime side.
+   *
+   * Keyed by relative path (e.g. `scripts/check.sh`,
+   * `examples/report.md`). Path validation: see `isSafeAncillaryPath`.
+   */
+  ancillaryFiles?: Record<string, string>;
+}
+
 export async function scanSkillContent(
   name: string,
   content: string,
   configId?: string,
-  _auth?: ScanAuth,
+  optionsOrAuth?: ScanOptions | ScanAuth,
 ): Promise<{
   scan_status: ScanStatus;
   scan_summary?: string;
@@ -111,7 +194,17 @@ export async function scanSkillContent(
     };
   }
 
+  // Backwards compat: previous signature was `(name, content, id, ScanAuth)`.
+  // ScanAuth is now a no-op; ScanOptions is the new payload. Detect by the
+  // presence of the new `ancillaryFiles` key vs the legacy auth keys.
+  const options: ScanOptions =
+    optionsOrAuth && "ancillaryFiles" in optionsOrAuth
+      ? (optionsOrAuth as ScanOptions)
+      : {};
+  const ancillaryEntries = collectAncillaryEntries(options.ancillaryFiles);
+
   let zipBuffer: Uint8Array;
+  let truncatedAncillary: { dropped: number; reason: string } | null = null;
   try {
     const zip = new JSZip();
     // Sanitize the directory name: scanner uses the top-level dir as the
@@ -121,11 +214,35 @@ export async function scanSkillContent(
       .replace(/[^a-zA-Z0-9._-]/g, "_")
       .slice(0, 64) || "skill";
     zip.file(`${safeName}/SKILL.md`, content);
+
+    // Ancillary files: pack smallest-first up to ANCILLARY_BYTE_CAP so
+    // that a runaway megabyte file doesn't starve the small scripts /
+    // prompts that are most likely to carry injection content.
+    let consumed = 0;
+    let dropped = 0;
+    for (const entry of ancillaryEntries) {
+      if (consumed + entry.bytes > ANCILLARY_BYTE_CAP) {
+        dropped += 1;
+        continue;
+      }
+      zip.file(`${safeName}/${entry.rel}`, entry.content);
+      consumed += entry.bytes;
+    }
+    if (dropped > 0) {
+      truncatedAncillary = {
+        dropped,
+        reason: `${dropped} ancillary file(s) skipped — exceeded ${Math.round(ANCILLARY_BYTE_CAP / 1024)} KB scan cap`,
+      };
+      console.warn(
+        `[ScanSkill] Truncated ancillary payload for "${safeName}": ${truncatedAncillary.reason}`,
+      );
+    }
+
     zipBuffer = await zip.generateAsync({
       type: "uint8array",
       compression: "DEFLATE",
-      // Keep small — scanner's upload cap is 50 MB; a single SKILL.md
-      // never approaches it, but stay defensive.
+      // Keep small — scanner's upload cap is 50 MB; even with ancillary
+      // files our cap above keeps us well below it.
       compressionOptions: { level: 6 },
     });
   } catch (err) {
@@ -165,7 +282,15 @@ export async function scanSkillContent(
       };
     }
     const data = (await resp.json()) as ScannerResponse;
-    return interpretScannerResponse(data);
+    const result = interpretScannerResponse(data);
+    if (truncatedAncillary) {
+      // Surface truncation alongside any scanner summary so the
+      // operator knows the scan was partial.
+      result.scan_summary = result.scan_summary
+        ? `${result.scan_summary} — ${truncatedAncillary.reason}`
+        : truncatedAncillary.reason;
+    }
+    return result;
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.warn("[ScanSkill] skill-scanner unreachable:", reason);
@@ -234,6 +359,13 @@ export interface HubSkillScanRef {
   skill_id: string;
   name: string;
   content: string;
+  /**
+   * Sibling files (scripts, prompts, JSON specs, examples) that the
+   * hub crawler captured into `hub_skills.ancillary_files`. Forwarded
+   * to the scanner so static + LLM analyzers see the same surface the
+   * agent runtime injects into the StateBackend.
+   */
+  ancillary_files?: Record<string, string>;
 }
 
 /**
@@ -291,7 +423,9 @@ export async function scanHubSkillsAsync(
       if (!ref) return;
       const startedAt = Date.now();
       try {
-        const result = await scanSkillContent(ref.name, ref.content, ref.skill_id);
+        const result = await scanSkillContent(ref.name, ref.content, ref.skill_id, {
+          ancillaryFiles: ref.ancillary_files,
+        });
         // Persist the unscanned reason as scan_summary so admins see
         // *why* a hub skill is unscanned without digging into logs.
         const persistedSummary =

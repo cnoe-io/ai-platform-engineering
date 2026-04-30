@@ -788,6 +788,12 @@ async function _crawlAndCache(
         skill_id: skill.id,
         name: skill.name,
         content: skill.content,
+        // Forward ancillary files so the scanner sees the same surface
+        // the agent runtime materializes into the StateBackend (see
+        // `skills_middleware/backend_sync.py` and
+        // `dynamic_agents/services/skills.py`). Otherwise scripts /
+        // prompts shipped alongside SKILL.md would never be analyzed.
+        ancillary_files: skill.ancillary_files,
       });
     }
   }

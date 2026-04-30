@@ -153,7 +153,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         let scanResult: Awaited<ReturnType<typeof scanSkillContent>>;
         let error: string | undefined;
         try {
-          scanResult = await scanSkillContent(skill.name, content, skill.id);
+          scanResult = await scanSkillContent(skill.name, content, skill.id, {
+            ancillaryFiles: skill.ancillary_files,
+          });
         } catch (err) {
           error = err instanceof Error ? err.message : String(err);
           scanResult = { scan_status: "unscanned", unscanned_reason: error };
@@ -266,6 +268,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
             doc.name,
             content,
             `hub-${doc.hub_id}-${doc.skill_id}`,
+            { ancillaryFiles: doc.ancillary_files },
           );
         } catch (err) {
           error = err instanceof Error ? err.message : String(err);

@@ -74,6 +74,12 @@ export const POST = withErrorHandler(
         doc.name,
         content,
         `hub-${hubId}-${skillId}`,
+        {
+          // Bundle ancillary files captured during crawl so the scanner
+          // analyzes the same surface the agent runtime materializes
+          // (see `skills_middleware/backend_sync.py`).
+          ancillaryFiles: doc.ancillary_files,
+        },
       );
       const now = new Date();
       // Surface the unscanned reason (empty content / scanner timeout

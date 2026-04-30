@@ -122,7 +122,13 @@ export const POST = withErrorHandler(
       };
 
       const t0 = Date.now();
-      const scanResult = await scanSkillContent(existing.name, content, id);
+      const scanResult = await scanSkillContent(existing.name, content, id, {
+        // Include ancillary files so the scanner sees the same files
+        // the agent runtime injects into the StateBackend at
+        // /skills/<source>/<name>/<rel_path>. Without this, scripts /
+        // prompts referenced from SKILL.md would never be analyzed.
+        ancillaryFiles: existing.ancillary_files,
+      });
       const now = new Date();
       // Persist the unscanned reason so the workspace Scan tab can
       // explain *why* (empty content, scanner timeout, HTTP error)
