@@ -220,6 +220,131 @@ def test_processor_swallows_errors_to_protect_exporter() -> None:
 
 
 # ---------------------------------------------------------------------------
+# task_config workflow scrubbing
+# ---------------------------------------------------------------------------
+
+def test_scrub_json_drops_tasks_and_todos_state_channels() -> None:
+    # LangChain instrumentor stamps the full graph state on every
+    # node span; while a workflow runs, ``tasks`` carries the
+    # rendered ``llm_prompt`` for each step (multi-paragraph
+    # operator instructions, often with embedded API endpoints,
+    # project names, etc.).
+    payload = {
+        "messages": [{"role": "user", "content": "create a repo"}],
+        "tasks": [
+            {
+                "id": 0,
+                "display_text": "Collect repo details",
+                "subagent": "caipe",
+                "llm_prompt": "Ask the user for: org, repo, visibility, "
+                              "default_branch. Then call ...",
+            },
+            {
+                "id": 1,
+                "display_text": "Create GitHub repo",
+                "subagent": "github",
+                "llm_prompt": "Use github_create_repo with the collected fields ...",
+            },
+        ],
+        "todos": [
+            {"id": 0, "content": "[Caipe] Collect repo details", "status": "pending"},
+        ],
+    }
+    out = _scrub_json(payload, DEFAULT_PLACEHOLDER)
+    assert out["tasks"] == DEFAULT_PLACEHOLDER
+    assert out["todos"] == DEFAULT_PLACEHOLDER
+    assert out["messages"] == [{"role": "user", "content": "create a repo"}]
+
+
+def test_strip_known_sections_removes_workflow_definition_block() -> None:
+    # Mirrors ``get_workflow_definition`` tool output: every step's
+    # llm_prompt is rendered in fenced blocks under a ``## Workflow:``
+    # header. We strip the whole block.
+    rendered = (
+        "Top-level note.\n"
+        "## Workflow: Create GitHub Repo\n"
+        "Steps: 2\n"
+        "### Step 1: Collect repo details\n"
+        "Subagent: `caipe`\n"
+        "Prompt:\n```\nAsk the user for: org, repo, visibility ...\n```\n"
+        "### Step 2: Create GitHub repo\n"
+        "Prompt:\n```\nUse github_create_repo with API token ABCD ...\n```\n"
+        "## Other section\nstays\n"
+    )
+    out = _strip_skills_section(rendered)  # back-compat alias
+    assert "Ask the user for" not in out
+    assert "github_create_repo" not in out
+    assert "API token ABCD" not in out
+    assert "Top-level note." in out
+    assert "## Other section\nstays" in out
+    assert "[redacted from trace]" in out
+
+
+def test_strip_workflow_section_removes_self_service_block_in_system_prompt() -> None:
+    # The supervisor's system prompt has its own
+    # ``## Self-Service Workflows`` boilerplate; today it doesn't
+    # inline the prompts but we strip it preemptively in case future
+    # rev's of deep_agent.py start appending the workflow listing.
+    prompt = (
+        "Be helpful.\n"
+        "## Self-Service Workflows\n"
+        "blah blah every step llm_prompt here ...\n"
+        "## Tools\nuse them.\n"
+    )
+    out = _strip_skills_section(prompt)
+    assert "every step llm_prompt" not in out
+    assert "## Tools\nuse them." in out
+
+
+def test_processor_redacts_workflow_tool_io_wholesale() -> None:
+    # ``invoke_self_service_task`` returns a short ToolMessage but
+    # its state-update carries the full ``tasks`` array. The
+    # LangChain instrumentor serializes the state-update into
+    # ``traceloop.entity.input``/``output``. Tool-name short-circuit
+    # ensures we redact even when no markdown header is present.
+    span = _FakeSpan(
+        {
+            "traceloop.entity.name": "invoke_self_service_task",
+            "traceloop.entity.input": json.dumps({"task_name": "Create GitHub Repo"}),
+            "traceloop.entity.output": json.dumps(
+                {
+                    "tasks": [
+                        {"id": 0, "llm_prompt": "Internal prompt with API key XYZ"},
+                    ],
+                    "todos": [{"id": 0, "content": "[Caipe] step 1"}],
+                }
+            ),
+            # Non-IO attribute on the same span: untouched.
+            "gen_ai.usage.input_tokens": 42,
+        }
+    )
+    SkillContentScrubbingProcessor().on_end(span)
+    assert span.attributes["traceloop.entity.input"] == DEFAULT_PLACEHOLDER
+    assert span.attributes["traceloop.entity.output"] == DEFAULT_PLACEHOLDER
+    assert span.attributes["gen_ai.usage.input_tokens"] == 42
+
+
+def test_processor_leaves_non_workflow_tool_io_alone() -> None:
+    # A regular tool call (e.g. github_search) with no skill or
+    # workflow markers must pass through untouched — the whole
+    # point of scoped scrubbing is non-skill spans stay debuggable.
+    span = _FakeSpan(
+        {
+            "traceloop.entity.name": "github_search",
+            "traceloop.entity.input": json.dumps({"q": "kind:repo language:python"}),
+            "traceloop.entity.output": json.dumps(
+                {"results": [{"name": "ai-platform-engineering"}]}
+            ),
+        }
+    )
+    original_in = span.attributes["traceloop.entity.input"]
+    original_out = span.attributes["traceloop.entity.output"]
+    SkillContentScrubbingProcessor().on_end(span)
+    assert span.attributes["traceloop.entity.input"] == original_in
+    assert span.attributes["traceloop.entity.output"] == original_out
+
+
+# ---------------------------------------------------------------------------
 # Installer
 # ---------------------------------------------------------------------------
 
