@@ -202,13 +202,16 @@ function skillCatalogSource(config: AgentSkill): CatalogSource {
 
 /**
  * Scanner badge: shown on every Mongo-backed row AND hub/GitHub-crawled skills.
- * Skipped only for built-in `default` catalog chips (filesystem templates), which
- * are vetted at chart-build time and have no per-row scan state to display.
+ * Now applied to *every* catalog source — built-in templates were never
+ * "vetted at chart-build time" in any verifiable way, and we now persist
+ * their scan state in `builtin_skill_scans` so the badge has something
+ * real to show. Built-ins start as Unscanned (orange shield) until an
+ * admin runs Scan now from this card or a bulk sweep.
  */
 function shouldShowSkillScanIndicator(config: AgentSkill): boolean {
   if (!config.id.startsWith("catalog-")) return true;
   const src = (config.metadata as { catalog_source?: string } | undefined)?.catalog_source;
-  return src === "hub" || src === "agent_skills";
+  return src === "hub" || src === "agent_skills" || src === "default";
 }
 
 const SOURCE_LABELS: Record<CatalogSource, string> = {

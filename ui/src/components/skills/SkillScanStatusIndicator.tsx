@@ -55,7 +55,12 @@ function formatScanTime(value: Date | string | undefined): string | null {
 export interface SkillScanStatusIndicatorProps {
   config: Pick<
     AgentSkill,
-    "scan_status" | "scan_summary" | "name" | "id" | "scan_updated_at"
+    | "scan_status"
+    | "scan_summary"
+    | "name"
+    | "id"
+    | "scan_updated_at"
+    | "metadata"
   >;
   /** Larger icon (e.g. builder header) */
   size?: "sm" | "md";
@@ -63,18 +68,21 @@ export interface SkillScanStatusIndicatorProps {
   /** After a successful manual scan, refresh lists (e.g. loadSkills). */
   onScanComplete?: () => void | Promise<void>;
   /**
-   * Manual scan applies to Mongo-backed skills and hub-crawled skills.
-   * Default: hidden only for filesystem `catalog-default-*` chips, which have
-   * no per-row scan state to persist.
+   * Manual scan applies to Mongo-backed skills, hub-crawled skills, and
+   * (since the `builtin_skill_scans` collection landed) packaged
+   * filesystem templates. Default: allowed for every recognized catalog
+   * source. Pass `false` to lock the dialog into read-only mode.
    */
   allowManualScan?: boolean;
 }
 
-function defaultAllowManualScan(id: string): boolean {
-  if (!id.startsWith("catalog-")) return true;
-  if (id.startsWith("catalog-hub-")) return true;
-  if (id.startsWith("catalog-agent_skills-")) return true;
-  return false;
+function defaultAllowManualScan(): boolean {
+  // Every catalog source now has a server-side scan endpoint:
+  //   agent_skills   → POST /api/skills/configs/[id]/scan
+  //   hub            → POST /api/skills/hub/[hubId]/[skillId]/scan
+  //   default        → POST /api/skill-templates/[id]/scan
+  // The dialog hides Scan now if the caller explicitly disables it.
+  return true;
 }
 
 /**
@@ -96,7 +104,7 @@ export function SkillScanStatusIndicator({
   // TypeError in production. Resolve it inside the body where we can guard.
   if (!config) return null;
   const effectiveAllowManualScan =
-    allowManualScan ?? defaultAllowManualScan(config.id);
+    allowManualScan ?? defaultAllowManualScan();
   const { toast } = useToast();
   const [reportOpen, setReportOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -151,15 +159,33 @@ export function SkillScanStatusIndicator({
   const scannerConfigured = true;
 
   /**
-   * Hub-crawled rows arrive as `catalog-hub-<hubId>-<skillId>` and live in the
-   * `hub_skills` cache, not `agent_skills`. Route those to the dedicated
-   * hub-scan endpoint so manual scans persist back to the hub cache doc.
+   * Catalog rows are prefixed with `catalog-` and need to be split by source
+   * because each source has its own persistence model:
+   *
+   *   catalog-hub-<hubId>-<skillId>  → POST /api/skills/hub/.../scan
+   *                                    (persists into `hub_skills` cache)
+   *   catalog-default-* (source==="default") → POST /api/skill-templates/<id>/scan
+   *                                    (persists into `builtin_skill_scans`)
+   *   anything else                  → POST /api/skills/configs/<id>/scan
+   *                                    (persists onto the agent_skills doc)
+   *
+   * `metadata.catalog_source` is the source of truth (set by the
+   * gallery's `/api/skills` mapping); the id-prefix fallback handles
+   * legacy callers that don't pass metadata.
    */
   const scanEndpoint = (() => {
     const hubMatch = config.id.match(/^catalog-hub-([^-]+)-(.+)$/);
     if (hubMatch) {
       const [, hubId, skillId] = hubMatch;
       return `/api/skills/hub/${encodeURIComponent(hubId)}/${encodeURIComponent(skillId)}/scan`;
+    }
+    const catalogSource = (
+      config.metadata as { catalog_source?: string } | undefined
+    )?.catalog_source;
+    if (catalogSource === "default" && config.id.startsWith("catalog-")) {
+      // Strip the `catalog-` prefix to recover the loader's template id.
+      const templateId = config.id.slice("catalog-".length);
+      return `/api/skill-templates/${encodeURIComponent(templateId)}/scan`;
     }
     return `/api/skills/configs/${encodeURIComponent(config.id)}/scan`;
   })();
