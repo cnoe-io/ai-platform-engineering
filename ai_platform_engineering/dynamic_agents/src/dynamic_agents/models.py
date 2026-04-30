@@ -66,25 +66,6 @@ class MCPServerConfigBase(BaseModel):
     enabled: bool = Field(True, description="Whether the server is enabled")
 
 
-class MCPServerConfigCreate(MCPServerConfigBase):
-    """Model for creating an MCP server config."""
-
-    id: str = Field(..., description="Unique slug ID (e.g., 'github')")
-
-
-class MCPServerConfigUpdate(BaseModel):
-    """Model for updating an MCP server config."""
-
-    name: str | None = None
-    description: str | None = None
-    transport: TransportType | None = None
-    endpoint: str | None = None
-    command: str | None = None
-    args: list[str] | None = None
-    env: dict[str, str] | None = None
-    enabled: bool | None = None
-
-
 class MCPServerConfig(MCPServerConfigBase):
     """Full MCP server config as stored in MongoDB."""
 
@@ -421,30 +402,6 @@ class DynamicAgentConfigBase(BaseModel):
         return data
 
 
-class DynamicAgentConfigCreate(DynamicAgentConfigBase):
-    """Model for creating a dynamic agent config."""
-
-    pass
-
-
-class DynamicAgentConfigUpdate(BaseModel):
-    """Model for updating a dynamic agent config."""
-
-    name: str | None = None
-    description: str | None = None
-    system_prompt: str | None = None
-    allowed_tools: dict[str, list[str]] | None = None
-    model: ModelConfig | None = None
-    visibility: VisibilityType | None = None
-    shared_with_teams: list[str] | None = None
-    subagents: list[SubAgentRef] | None = None
-    skills: list[str] | None = None
-    builtin_tools: BuiltinToolsConfig | None = None
-    ui: AgentUIConfig | None = None
-    features: FeaturesConfig | None = None
-    enabled: bool | None = None
-
-
 class DynamicAgentConfig(DynamicAgentConfigBase):
     """Full dynamic agent config as stored in MongoDB."""
 
@@ -513,13 +470,3 @@ class ApiResponse(BaseModel):
     success: bool = True
     data: dict | list | None = None
     error: str | None = None
-
-
-class PaginatedResponse(BaseModel):
-    """Paginated list response."""
-
-    items: list
-    total: int
-    page: int
-    limit: int
-    total_pages: int
