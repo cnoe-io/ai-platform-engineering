@@ -30,6 +30,7 @@ import {
   Workflow,
   Bug,
   Clock,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +45,6 @@ import {
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
-import { useAdminRole } from "@/hooks/use-admin-role";
 import type {
   AgentSkill,
   AgentSkillTask,
@@ -153,7 +153,6 @@ export function AgentBuilderEditor({
 }: AgentBuilderEditorProps) {
   const isEditMode = !!existingConfig;
   const { createSkill, updateSkill } = useAgentSkillsStore();
-  const { isAdmin } = useAdminRole();
   const { toast } = useToast();
 
   const [isQuickStart, setIsQuickStart] = useState(existingConfig?.is_quick_start ?? false);
@@ -299,16 +298,6 @@ export function AgentBuilderEditor({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Check permission for system configs
-    if (isEditMode && existingConfig?.is_system && !isAdmin) {
-      toast(
-        "Only administrators can edit system templates.\n\nTo customize this template:\n• Use 'Try Skill' to test variations\n• Create your own workflow based on this template\n• Contact your admin for template modifications",
-        "warning",
-        7000
-      );
-      return;
-    }
-
     const validation = validateForm();
     
     if (!validation.isValid) {
@@ -419,14 +408,13 @@ export function AgentBuilderEditor({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Warning for system configs */}
-      {existingConfig?.is_system && !isAdmin && (
-        <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-          <AlertCircle className="h-5 w-5 text-amber-500 shrink-0" />
-          <div className="flex-1 text-sm">
-            <p className="font-medium text-amber-500">System Template - Read Only</p>
-            <p className="text-amber-600/80 text-xs mt-1">
-              Only administrators can edit system templates. Changes will not be saved.
+      {existingConfig?.is_system && (
+        <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/25 rounded-lg text-sm text-muted-foreground">
+          <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-medium text-foreground">Built-in template</p>
+            <p className="text-xs mt-1">
+              Saves apply for everyone using this catalog. To restore defaults after removal, use Import templates or workspace seed.
             </p>
           </div>
         </div>
@@ -911,9 +899,8 @@ export function AgentBuilderEditor({
         
         <Button
           type="submit"
-          disabled={isSubmitting || (existingConfig?.is_system && !isAdmin)}
+          disabled={isSubmitting}
           className="flex-1 gap-2 gradient-primary hover:opacity-90 text-white"
-          title={existingConfig?.is_system && !isAdmin ? "Only administrators can edit system templates" : undefined}
         >
           {isSubmitting ? (
             <>
