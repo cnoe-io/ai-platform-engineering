@@ -350,6 +350,19 @@ class FeaturesConfig(BaseModel):
 # =============================================================================
 
 
+class InterruptConfig(BaseModel):
+    """Per-tool interrupt configuration for HITL workflows.
+
+    Controls what decisions a human reviewer can make when a tool call
+    is intercepted.  See deepagents docs: human-in-the-loop.
+    """
+
+    allowed_decisions: list[str] = Field(
+        default=["approve", "edit", "reject"],
+        description="Decisions the reviewer is allowed to make",
+    )
+
+
 class DynamicAgentConfigBase(BaseModel):
     """Base fields for dynamic agent configuration."""
 
@@ -384,6 +397,14 @@ class DynamicAgentConfigBase(BaseModel):
         description="Feature flags and middleware configuration. None = apply defaults.",
     )
     enabled: bool = Field(True, description="Whether the agent is active")
+    interrupt_on: dict[str, dict[str, bool | InterruptConfig]] = Field(
+        default_factory=lambda: {"builtin": {"request_user_input": True}},
+        description=(
+            "Tools that require human approval before execution. "
+            "Map of server_id -> {tool_name: config}. "
+            "Use 'builtin' as server_id for built-in tools (no namespace prefix)."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

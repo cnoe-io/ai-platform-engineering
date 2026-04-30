@@ -35,6 +35,7 @@ from dynamic_agents.models import (
     AgentContext,
     ClientContext,
     DynamicAgentConfig,
+    InterruptConfig,
     MCPServerConfig,
     SubAgentRef,
     UserContext,
@@ -255,6 +256,7 @@ class AgentRuntime:
         # 2. Add built-in tools
         client_ctx = self._client_context.model_dump() if self._client_context else None
         builtin_tools = self._build_builtin_tools(self._user, client_context=client_ctx)
+        builtin_tool_names = {t.name for t in builtin_tools}
         if builtin_tools:
             tools = tools + builtin_tools
 
@@ -353,11 +355,15 @@ class AgentRuntime:
         if skills_middleware_list:
             middleware_stack = skills_middleware_list + middleware_stack
 
-        # 10. Create agent graph
+        # 10. Interrupt config
+        interrupt_config = self._build_interrupt_config(tools, builtin_tool_names)
+
+        # 11. Create agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
         safe_name = _sanitize_agent_name(self.config.name)
+
         self._graph = create_deep_agent(
             model=llm,
             tools=tools,
@@ -366,7 +372,7 @@ class AgentRuntime:
             checkpointer=self._checkpointer,
             name=safe_name,
             subagents=subagents if subagents else None,
-            interrupt_on={"request_user_input": True},
+            interrupt_on=interrupt_config,
             middleware=middleware_stack,
         )
 
@@ -457,6 +463,34 @@ class AgentRuntime:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
 
         return tools
+
+    def _build_interrupt_config(self, tools: list, builtin_tool_names: set[str]) -> dict[str, Any]:
+        """Build flattened interrupt_on config for deepagents.
+
+        Converts the namespaced storage format (server_id -> {tool: config})
+        into the flat format deepagents expects ({namespaced_tool: config}).
+
+        Supports "*" wildcard to gate all tools in a namespace.
+        "builtin" is the reserved namespace for non-MCP tools (no prefix).
+        """
+        interrupt_config: dict[str, Any] = {}
+        for server_id, tools_map in self.config.interrupt_on.items():
+            for tool_name, cfg in tools_map.items():
+                resolved_cfg = cfg.model_dump() if isinstance(cfg, InterruptConfig) else cfg
+                if tool_name == "*":
+                    if server_id == "builtin":
+                        for t in tools:
+                            if t.name in builtin_tool_names:
+                                interrupt_config[t.name] = resolved_cfg
+                    else:
+                        prefix = f"{server_id}_"
+                        for t in tools:
+                            if t.name not in builtin_tool_names and t.name.startswith(prefix):
+                                interrupt_config[t.name] = resolved_cfg
+                else:
+                    full_name = tool_name if server_id == "builtin" else f"{server_id}_{tool_name}"
+                    interrupt_config[full_name] = resolved_cfg
+        return interrupt_config
 
     async def _resolve_subagents(
         self,
