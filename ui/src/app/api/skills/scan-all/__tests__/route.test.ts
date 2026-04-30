@@ -108,6 +108,16 @@ const hubSkillsCol = {
   }),
 };
 
+// Built-in scan persistence — mirrors agent_skills/hub_skills shape so the
+// new "builtin" branch can upsert without exploding the test.
+const builtinScanUpserts: any[] = [];
+const builtinScansCol = {
+  updateOne: jest.fn(async (filter: any, update: any) => {
+    builtinScanUpserts.push({ filter, update });
+    return { matchedCount: 1, upsertedCount: 1 };
+  }),
+};
+
 let isMongoDBConfiguredFlag = true;
 jest.mock("@/lib/mongodb", () => ({
   get isMongoDBConfigured() {
@@ -116,8 +126,18 @@ jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => {
     if (name === "agent_skills") return agentSkillsCol;
     if (name === "hub_skills") return hubSkillsCol;
+    if (name === "builtin_skill_scans") return builtinScansCol;
     throw new Error(`Unexpected collection: ${name}`);
   }),
+}));
+
+// Built-in skills loader — controllable per test. Defaults to empty so
+// existing tests that don't care about built-ins keep their assertions.
+const builtinTemplates: any[] = [];
+jest.mock("@/app/api/skills/skill-templates-loader", () => ({
+  loadSkillTemplatesInternal: jest.fn(() => builtinTemplates),
+  loadTemplateAncillaryFiles: jest.fn(() => ({})),
+  resolveTemplateDir: jest.fn(() => null),
 }));
 
 // Scanner: configurable per test.
@@ -189,6 +209,8 @@ beforeEach(() => {
   hubFindCalls.length = 0;
   scanCalls.length = 0;
   scanResultsQueue.length = 0;
+  builtinTemplates.length = 0;
+  builtinScanUpserts.length = 0;
   isMongoDBConfiguredFlag = true;
   scannerConfigured = true;
   mockUser.role = "admin";
@@ -326,6 +348,56 @@ describe("POST /api/skills/scan-all — sweep", () => {
     const failed = data.results.find((r: any) => r.id === "s1");
     expect(failed.error).toMatch(/boom/);
     expect(failed.scan_status).toBe("unscanned");
+  });
+
+  it("scope=builtin scans packaged templates and upserts builtin_skill_scans", async () => {
+    // Custom + hub data that MUST be ignored when scope=builtin.
+    agentSkillsDocs.push({ id: "s1", name: "alpha", skill_content: "# a" });
+    hubSkillsDocs.push({ hub_id: "h1", skill_id: "k1", name: "beta", content: "# b" });
+    builtinTemplates.push(
+      { id: "review-pr", name: "review-pr", content: "# Review\nbody" },
+      // Empty body must be skipped (counted in `skipped`, not `scanned`).
+      { id: "empty-tpl", name: "empty-tpl", content: "" },
+    );
+    scanResultsQueue.push({ scan_status: "passed", scan_summary: "clean" });
+
+    const res = await POST(makeReq({ scope: "builtin" }));
+    const body = await res.json();
+    const data = body.data ?? body;
+
+    // Only the built-in body got scanned — custom + hub were skipped.
+    expect(scanCalls.map((c) => c[0])).toEqual(["review-pr"]);
+    expect(data.scanned).toBe(1);
+    expect(data.skipped).toBe(1);
+    expect(agentSkillsCol.updateOne).not.toHaveBeenCalled();
+    expect(hubSkillsCol.updateOne).not.toHaveBeenCalled();
+
+    // Built-in scan persisted as upsert keyed by template id.
+    expect(builtinScansCol.updateOne).toHaveBeenCalledWith(
+      { id: "review-pr" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          id: "review-pr",
+          scan_status: "passed",
+        }),
+      }),
+      expect.objectContaining({ upsert: true }),
+    );
+
+    // Audit row uses source: "default" so the scan-history filter
+    // matches the same family the per-skill route emits.
+    expect(recordScanEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skill_id: "review-pr",
+        source: "default",
+        scan_status: "passed",
+      }),
+    );
+
+    // The result row carries source: "builtin" so the dialog can
+    // label it correctly.
+    const builtinRow = data.results.find((r: any) => r.id === "review-pr");
+    expect(builtinRow.source).toBe("builtin");
   });
 
   it("hub_ids[] narrows the hub_skills cursor via $in", async () => {
