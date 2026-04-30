@@ -34,7 +34,7 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  *   503 — { error: "skills_unavailable", message: "..." }
  */
 
-interface CatalogSkill {
+export interface CatalogSkill {
   id: string;
   name: string;
   description: string;
@@ -68,6 +68,20 @@ interface CatalogSkill {
   scan_status?: "passed" | "flagged" | "unscanned";
   scan_summary?: string;
   scan_updated_at?: string;
+  /**
+   * Whether the skill is runnable / installable / ingestible. Set to
+   * `false` whenever the security scanner has flagged the skill — the
+   * UI surfaces this as a disabled card with a "Disabled — flagged"
+   * badge so admins can still see and re-scan it. Defaults to `true`
+   * when omitted.
+   *
+   * The supervisor + dynamic agents enforce the same rule
+   * independently (Python ``scan_gate`` module) so a stale UI badge
+   * cannot make a flagged skill executable.
+   */
+  runnable?: boolean;
+  /** Operator-visible reason for ``runnable=false``. */
+  blocked_reason?: "scan_flagged";
 }
 
 interface CatalogResponse {
@@ -511,13 +525,34 @@ function sanitizeSkillContent(content: string | null): string | null {
   return content.replace(/^(<!--[\s\S]*?-->\s*\n?)+/, "");
 }
 
+/**
+ * Stamp ``runnable`` / ``blocked_reason`` on every skill based on its
+ * cached scan status. Default is ``runnable: true``; a ``flagged``
+ * skill is forced to ``runnable: false`` with reason ``scan_flagged``.
+ *
+ * This is the single UI-facing enforcement point so the gallery,
+ * runner, and downstream consumers (Skills API gateway, install.sh)
+ * all agree without each having to re-derive the rule. The Python
+ * supervisor and dynamic agents enforce the same policy via
+ * ``scan_gate.py``; this stamp is for UI affordances + defense in
+ * depth against a backend that hasn't yet been updated.
+ */
+export function applyRunnableGate(skill: CatalogSkill): CatalogSkill {
+  if (skill.scan_status === "flagged") {
+    return { ...skill, runnable: false, blocked_reason: "scan_flagged" };
+  }
+  return { ...skill, runnable: skill.runnable ?? true };
+}
+
 function sanitizeCatalogResponse(data: CatalogResponse): CatalogResponse {
   return {
     ...data,
-    skills: data.skills.map((s) => ({
-      ...s,
-      content: sanitizeSkillContent(s.content),
-    })),
+    skills: data.skills.map((s) =>
+      applyRunnableGate({
+        ...s,
+        content: sanitizeSkillContent(s.content),
+      }),
+    ),
   };
 }
 
@@ -542,7 +577,7 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
       sources_loaded: catalog.meta.sources_loaded,
       unavailable_sources: catalog.meta.unavailable_sources,
     });
-    return NextResponse.json(response);
+    return NextResponse.json(sanitizeCatalogResponse(response));
   } catch (err) {
     console.error("[Skills] Catalog unavailable:", err);
     return NextResponse.json(

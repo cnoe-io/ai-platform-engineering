@@ -155,6 +155,31 @@ function isHubSkill(config: AgentSkill): boolean {
   return config.id.startsWith("catalog-hub-");
 }
 
+/**
+ * A skill the security scanner has marked unsafe — must not be runnable.
+ *
+ * The supervisor + dynamic agents enforce the same rule independently
+ * (Python ``scan_gate`` module). This helper is the UI mirror so the
+ * gallery can render flagged skills as disabled cards (admins still
+ * see them, can re-scan, but can't launch / install).
+ */
+function isFlaggedSkill(config: AgentSkill): boolean {
+  return config.scan_status === "flagged";
+}
+
+function FlaggedDisabledBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px] px-1.5 py-0 gap-1 bg-red-500/10 text-red-600 border-red-500/30"
+      title="Disabled — security scan flagged this skill. Re-scan after fixing the underlying SKILL.md to restore."
+    >
+      <Lock className="h-2.5 w-2.5" />
+      Disabled — flagged
+    </Badge>
+  );
+}
+
 interface HubSkillRef {
   hubId: string;
   skillId: string;
@@ -648,6 +673,16 @@ export function SkillsGallery({
   };
 
   const handleConfigClick = (config: AgentSkill) => {
+    if (isFlaggedSkill(config)) {
+      // Hard stop: a flagged skill must not be runnable from the UI.
+      // Leave the card visible so admins can still open the file
+      // viewer + re-scan — only the launch path is blocked.
+      toast(
+        `"${config.name}" was flagged by the security scanner and is disabled. Re-scan after fixing SKILL.md to restore.`,
+        "error",
+      );
+      return;
+    }
     setActiveFormConfig(config);
     // Pre-fill parameter values from defaults
     const vars = extractTemplateVars(config);
@@ -1138,6 +1173,7 @@ export function SkillsGallery({
                               <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
                             )}
                             <SupervisorSyncBadge state={skillSyncState(config)} />
+                            {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
                           </div>
                           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                             {!workflowRunnerEnabled ? (
@@ -1213,6 +1249,7 @@ export function SkillsGallery({
                               <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
                             )}
                             <SupervisorSyncBadge state={skillSyncState(config)} />
+                            {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                             <CatalogSourceBadge config={config} />
@@ -1317,6 +1354,7 @@ export function SkillsGallery({
                               <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
                             )}
                             <SupervisorSyncBadge state={skillSyncState(config)} />
+                            {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                             <CatalogSourceBadge config={config} />

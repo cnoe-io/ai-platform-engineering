@@ -49,7 +49,10 @@ def run_scan_all_on_directory(target_dir: Path) -> dict[str, Any]:
         }
 
     policy = os.getenv("SKILL_SCANNER_POLICY", "balanced").strip() or "balanced"
-    gate = os.getenv("SKILL_SCANNER_GATE", "warn").strip().lower()
+    # Use the shared gate so behaviour matches the loaders. Default
+    # is "strict" — see ``scan_gate.py`` for the policy table.
+    from ai_platform_engineering.skills_middleware.scan_gate import get_scan_gate
+    gate = get_scan_gate()
     fail_on = (os.getenv("SKILL_SCANNER_FAIL_ON") or "").strip()
     if gate == "strict" and not fail_on:
         fail_on = "high"
