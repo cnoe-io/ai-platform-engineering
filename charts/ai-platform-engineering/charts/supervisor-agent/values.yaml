@@ -173,6 +173,13 @@ externalSecrets:
 # -- Non-sensitive environment variables injected into the supervisor container
 env:
   EXTERNAL_URL: "http://localhost:8000"
+  # -- Strip skill payloads (SKILL.md bodies, ancillary files,
+  # skills_metadata channel) and task_config workflow prompts
+  # (tasks/todos channels, get_workflow_definition output,
+  # invoke_self_service_task IO) from OTel spans before they ship
+  # to Langfuse. Keeps Langfuse active for non-skill flows.
+  # Set to "false" for one-off debug sessions only.
+  SKILL_TRACE_SCRUB_ENABLED: "true"
 
 multiAgentConfig:
   # -- Agent-to-agent protocol (`a2a` or `slim`)

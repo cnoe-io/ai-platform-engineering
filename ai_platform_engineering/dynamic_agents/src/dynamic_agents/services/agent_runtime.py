@@ -54,7 +54,6 @@ from dynamic_agents.services.middleware import build_middleware
 from dynamic_agents.services.skills import build_skills_files, load_skills
 from dynamic_agents.services.streaming import StreamingMixin
 
-
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
 
@@ -177,7 +176,11 @@ class AgentRuntime(StreamingMixin):
         # sets up the TracerProvider) and is idempotent so multiple
         # AgentRuntime instances all share the same processor.
         try:
-            from ai_platform_engineering.utils.tracing import install_skill_content_scrubber
+            # Vendored — see skill_scrubber.py header for the
+            # source-of-truth path under ai_platform_engineering/.
+            from dynamic_agents.services.skill_scrubber import (
+                install_skill_content_scrubber,
+            )
             install_skill_content_scrubber()
         except Exception as exc:  # noqa: BLE001 — tracing is best-effort
             import logging as _logging
