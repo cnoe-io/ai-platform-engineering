@@ -18,6 +18,7 @@ import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
 import { getGradientStyle } from "@/lib/gradient-themes";
@@ -73,6 +74,16 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // SSE/Dynamic Agent specific fields
     isSSE?: boolean;
     agentId?: string;
+  } | null>(null);
+
+  // Tool approval state (HITL for gated tools)
+  const [pendingToolApproval, setPendingToolApproval] = useState<{
+    messageId: string;
+    interruptId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+    allowedDecisions: string[];
+    agentId: string;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -306,38 +317,50 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (interruptResponse.ok) {
           const interruptData = await interruptResponse.json();
           
-          // Handle pending interrupt - restore the HITL form if present
+          // Handle pending interrupt - restore the HITL form or tool approval card
           if (interruptData.has_pending_interrupt && interruptData.interrupt_data) {
-            const { prompt, fields } = interruptData.interrupt_data;
+            const idata = interruptData.interrupt_data;
             
             // Get the last message from the store (already loaded by ChatContainer)
             const currentConv = useChatStore.getState().conversations.find(c => c.id === conversationId);
             const lastMsg = currentConv?.messages?.[currentConv.messages.length - 1];
             
             if (lastMsg && lastMsg.role === "assistant") {
-              const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
-                field_name: f.field_name,
-                field_label: f.field_label,
-                field_description: f.field_description,
-                field_type: f.field_type,
-                field_values: f.field_values,
-                required: f.required,
-                default_value: f.default_value,
-                placeholder: f.placeholder,
-              }));
+              if (idata.type === "tool_approval") {
+                setPendingToolApproval({
+                  messageId: lastMsg.id,
+                  interruptId: idata.interrupt_id,
+                  toolName: idata.tool_name,
+                  toolArgs: idata.tool_args || {},
+                  allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
+                  agentId,
+                });
+              } else {
+                const { prompt, fields } = idata;
+                const inputFields: InputField[] = (fields || []).map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
+                  field_name: f.field_name,
+                  field_label: f.field_label,
+                  field_description: f.field_description,
+                  field_type: f.field_type,
+                  field_values: f.field_values,
+                  required: f.required,
+                  default_value: f.default_value,
+                  placeholder: f.placeholder,
+                }));
 
-              setPendingUserInput({
-                messageId: lastMsg.id,
-                metadata: {
-                  user_input: true,
-                  input_title: `Input Required`,
-                  input_description: prompt,
-                  input_fields: inputFields,
-                },
-                contextId: conversationId,
-                isSSE: true,
-                agentId: agentId,
-              });
+                setPendingUserInput({
+                  messageId: lastMsg.id,
+                  metadata: {
+                    user_input: true,
+                    input_title: `Input Required`,
+                    input_description: prompt || "",
+                    input_fields: inputFields,
+                  },
+                  contextId: conversationId,
+                  isSSE: true,
+                  agentId: agentId,
+                });
+              }
             }
           }
         }
@@ -507,6 +530,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
        if (hasUserReplyAfter) {
          return;
        }
+
+       // Tool approval events don't have fields — skip form restore for those
+       if (!fields) return;
 
        const inputFields: InputField[] = fields.map(f => ({
             field_name: f.field_name,
@@ -690,6 +716,34 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         loopState.accumulatedText = prompt;
         updateMessage(convId, assistantMsgId, { content: loopState.accumulatedText });
       }
+    },
+
+    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent) {
+      loopState.hitlFormRequested = true;
+
+      const streamEvent = createStreamEvent("input_required", {
+        type: "tool_approval",
+        interrupt_id: interruptId,
+        tool_name: toolName,
+        tool_args: toolArgs,
+        allowed_decisions: allowedDecisions,
+        agent,
+        namespace: [],
+      });
+      addStreamEvent(streamEvent, convId);
+
+      setPendingToolApproval({
+        messageId: assistantMsgId,
+        interruptId,
+        toolName,
+        toolArgs,
+        allowedDecisions,
+        agentId,
+      });
+
+      updateMessage(convId, assistantMsgId, {
+        content: `Requesting approval to run \`${toolName}\`...`,
+      });
     },
 
     onWarning(message, namespace) {
@@ -1075,8 +1129,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       ...(conv?.sharing && { chat_sharing: conv.sharing }),
     };
 
-    // Send form data as JSON string
-    const formDataJson = JSON.stringify(formData);
+    // Send form data as discriminated resume payload
+    const formDataJson = JSON.stringify({ type: "form_input", values: formData });
 
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
@@ -1097,7 +1151,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson, clientContext },
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData: formDataJson, clientContext },
         callbacks,
       );
 
@@ -1118,6 +1172,74 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
       setConversationStreaming, saveMessagesToServer,
       clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
+
+  // Handle tool approval decisions (approve/reject/edit)
+  const handleToolApprovalDecision = useCallback(async (
+    decision: "approve" | "reject" | "edit",
+    editedArgs?: Record<string, unknown>,
+  ) => {
+    if (!pendingToolApproval || !activeConversationId) return;
+
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const decisionLabel = decision === "approve" ? "Approved" : decision === "reject" ? "Rejected" : "Edited & approved";
+    addMessage(activeConversationId, {
+      role: "user",
+      content: `${decisionLabel} \`${pendingToolApproval.toolName}\``,
+    }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    const resumeAgentId = pendingToolApproval.agentId;
+    setPendingToolApproval(null);
+
+    clearStreamEvents(activeConversationId);
+
+    const adapter = createStreamAdapter({
+      protocol: agentProtocol as "custom" | "agui",
+      accessToken,
+    });
+
+    const clientContext: Record<string, unknown> = { source: "webui" };
+
+    let resumePayload: Record<string, unknown>;
+    if (decision === "edit" && editedArgs) {
+      resumePayload = { type: "tool_approval", decision: "edit", edited_args: editedArgs };
+    } else {
+      resumePayload = { type: "tool_approval", decision };
+    }
+    const resumeData = JSON.stringify(resumePayload);
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => adapter.abort() } as any,
+      streamAdapter: adapter,
+    });
+
+    const loopState: StreamLoopState = {
+      accumulatedText: "",
+      rawStreamContent: "",
+      hitlFormRequested: false,
+      hasError: false,
+    };
+    const toolCallIdToName = new Map<string, string>();
+
+    try {
+      const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
+      await adapter.resumeStream(
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData, clientContext },
+        callbacks,
+      );
+      finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
+    } catch (error) {
+      console.error("[DynamicAgent] Tool approval resume error:", error);
+      updateMessage(activeConversationId, assistantMsgId, {
+        error: (error as Error).message || "Failed to resume",
+        turnStatus: "interrupted" as TurnStatus,
+      });
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+      setConversationStreaming, clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1451,12 +1573,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                         accessToken,
                       });
                       // Fire-and-forget: resume with rejection message
-                      const dismissalMessage = "User dismissed the input form without providing values.";
+                      const dismissalPayload = JSON.stringify({ type: "form_input", dismissed: true });
                       dismissAdapter.resumeStream(
                         {
                           conversationId: activeConversationId,
                           agentId: pendingUserInput.agentId,
-                          formData: dismissalMessage,
+                          resumeData: dismissalPayload,
                         },
                         {}, // No callbacks — we don't render the response
                       ).catch((err) => {
@@ -1466,6 +1588,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                   }
                   setPendingUserInput(null);
                 }}
+                disabled={isThisConversationStreaming}
+              />
+            )}
+
+            {/* Tool Approval Card */}
+            {pendingToolApproval && (
+              <ToolApprovalCard
+                toolName={pendingToolApproval.toolName}
+                toolArgs={pendingToolApproval.toolArgs}
+                allowedDecisions={pendingToolApproval.allowedDecisions}
+                onApprove={() => handleToolApprovalDecision("approve")}
+                onReject={() => handleToolApprovalDecision("reject")}
+                onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
                 disabled={isThisConversationStreaming}
               />
             )}

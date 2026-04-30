@@ -43,8 +43,8 @@ export interface StreamParams {
   conversationId: string;
   /** Agent config ID (determines routing in unified gateway) */
   agentId: string;
-  /** JSON-stringified form data (for HITL resume) */
-  formData?: string;
+  /** JSON-stringified resume data (for HITL resume — form input or tool approval) */
+  resumeData?: string;
   /** Turn ID for request/response pairing */
   turnId?: string;
   /** Client source identifier */
@@ -85,6 +85,15 @@ export interface StreamCallbacks {
     interruptId: string,
     prompt: string,
     fields: InputFieldDefinition[],
+    agent: string,
+  ): void;
+
+  /** Agent tool call requires human approval (HITL) */
+  onToolApprovalRequired?(
+    interruptId: string,
+    toolName: string,
+    toolArgs: Record<string, unknown>,
+    allowedDecisions: string[],
     agent: string,
   ): void;
 

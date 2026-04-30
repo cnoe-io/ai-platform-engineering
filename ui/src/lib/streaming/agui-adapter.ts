@@ -123,7 +123,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
     const body = JSON.stringify({
       conversation_id: params.conversationId,
       agent_id: params.agentId,
-      form_data: params.formData,
+      resume_data: params.resumeData,
       protocol: "agui",
       ...(params.clientContext && { client_context: params.clientContext }),
     });
@@ -311,13 +311,25 @@ export class AGUIStreamAdapter implements StreamAdapter {
     if (outcome === "interrupt") {
       const interrupt = parsed.interrupt as Record<string, unknown> | undefined;
       if (interrupt) {
+        const reason = interrupt.reason as string | undefined;
         const payload = interrupt.payload as Record<string, unknown> | undefined;
-        callbacks.onInputRequired?.(
-          interrupt.id as string,
-          (payload?.prompt as string) || "",
-          (payload?.fields as InputFieldDefinition[]) || [],
-          (payload?.agent as string) || "",
-        );
+
+        if (reason === "tool_approval") {
+          callbacks.onToolApprovalRequired?.(
+            interrupt.id as string,
+            (payload?.tool_name as string) || "",
+            (payload?.tool_args as Record<string, unknown>) || {},
+            (payload?.allowed_decisions as string[]) || ["approve", "edit", "reject"],
+            (payload?.agent as string) || "",
+          );
+        } else {
+          callbacks.onInputRequired?.(
+            interrupt.id as string,
+            (payload?.prompt as string) || "",
+            (payload?.fields as InputFieldDefinition[]) || [],
+            (payload?.agent as string) || "",
+          );
+        }
       }
       return true;
     }

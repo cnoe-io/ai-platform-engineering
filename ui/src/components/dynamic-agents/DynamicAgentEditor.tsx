@@ -242,10 +242,10 @@ function AdvancedStep({
   return (
     <div className="space-y-4 pt-2">
       <CollapsibleSection
-        title="Subagent Delegation"
+        title="Subagents"
         description="Delegate tasks to other custom agents"
         badge={`${subagents.length} subagent${subagents.length !== 1 ? "s" : ""}`}
-        defaultExpanded={subagents.length > 0}
+        defaultExpanded={false}
       >
         <p className="text-xs text-muted-foreground mb-2">
           <span className="font-medium">Note:</span> Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
@@ -263,7 +263,7 @@ function AdvancedStep({
         title="Human Approval"
         description="Require approval before executing specific tools"
         badge={`${interruptRuleCount} rule${interruptRuleCount !== 1 ? "s" : ""}`}
-        defaultExpanded
+        defaultExpanded={false}
       >
         <InterruptConfigPicker
           value={interruptOn}
@@ -286,6 +286,16 @@ function AdvancedStep({
           availableModels={availableModels}
           onError={setMiddlewareError}
         />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Task Builder"
+        description="Select tasks the agent can invoke"
+        badge="0 tasks"
+      >
+        <p className="text-xs text-muted-foreground italic py-2">
+          Task configuration will allow you to define deterministic workflows that the agent can execute step-by-step.
+        </p>
       </CollapsibleSection>
     </div>
   );
@@ -332,6 +342,34 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default"
   );
+
+  // Sync request_user_input interrupt rule with builtin tool enabled state
+  React.useEffect(() => {
+    const isEnabled = !!(builtinTools?.request_user_input && typeof builtinTools.request_user_input === "object" && "enabled" in builtinTools.request_user_input && builtinTools.request_user_input.enabled);
+    const hasRule = !!interruptOn?.builtin?.request_user_input;
+
+    if (isEnabled && !hasRule) {
+      // Tool enabled — add the rule
+      setInterruptOn((prev) => ({
+        ...prev,
+        builtin: { ...prev.builtin, request_user_input: true },
+      }));
+    } else if (!isEnabled && hasRule) {
+      // Tool disabled — remove the rule
+      setInterruptOn((prev) => {
+        const next = { ...prev };
+        if (next.builtin) {
+          const { request_user_input: _, ...rest } = next.builtin;
+          if (Object.keys(rest).length === 0) {
+            delete next.builtin;
+          } else {
+            next.builtin = rest;
+          }
+        }
+        return next;
+      });
+    }
+  }, [builtinTools]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -749,9 +787,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           <div>
             <CardTitle>
               {readOnly
-                ? `View Agent — ${agent?.name}`
+                ? `View Agent - ${agent?.name}`
                 : isEditing
-                ? `Edit Agent — ${agent?.name}`
+                ? `Edit Agent - ${agent?.name}`
                 : isCloning
                 ? "Clone Agent"
                 : "Create Agent"}

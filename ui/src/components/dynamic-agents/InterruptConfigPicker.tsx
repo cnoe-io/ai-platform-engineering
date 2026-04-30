@@ -3,7 +3,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Plus, Settings2, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Settings2, Trash2, AlertTriangle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { InterruptOn, InterruptToolConfig, DecisionType, BuiltinToolsConfig } from "@/types/dynamic-agent";
 
@@ -74,7 +74,7 @@ function rowsToConfig(rows: InterruptRow[]): InterruptOn {
   return config;
 }
 
-/** Get available tool names for a namespace. */
+/** Get available tool names for a namespace (excludes request_user_input — auto-managed). */
 function getToolOptions(
   namespace: string,
   allowedTools: Record<string, string[]>,
@@ -83,9 +83,9 @@ function getToolOptions(
 ): string[] {
   if (namespace === "builtin") {
     if (!builtinTools) return [];
-    // Return enabled builtin tool names
+    // Return enabled builtin tool names, excluding request_user_input (auto-managed)
     return Object.entries(builtinTools)
-      .filter(([, cfg]) => cfg && typeof cfg === "object" && "enabled" in cfg && cfg.enabled)
+      .filter(([name, cfg]) => name !== "request_user_input" && cfg && typeof cfg === "object" && "enabled" in cfg && cfg.enabled)
       .map(([name]) => name);
   }
   // MCP server: use specific allowed tools if configured, otherwise use probed tools
@@ -136,6 +136,18 @@ export function InterruptConfigPicker({
       });
   }, [probedTools, probingServers]);
 
+  // On mount, probe any MCP servers that existing rows reference (deduplicated)
+  React.useEffect(() => {
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (row.namespace !== "builtin" && !seen.has(row.namespace)) {
+        seen.add(row.namespace);
+        probeServer(row.namespace);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once on mount
+
   // Sync rows → parent on change
   const updateRows = React.useCallback(
     (newRows: InterruptRow[]) => {
@@ -154,10 +166,24 @@ export function InterruptConfigPicker({
     return ns;
   }, [allowedTools]);
 
+  // A row is "locked" if it's the builtin request_user_input rule and that tool is enabled.
+  // Locked rows cannot be edited or deleted — they're auto-managed.
+  const isLockedRow = React.useCallback(
+    (row: InterruptRow): boolean => {
+      if (row.namespace !== "builtin" || row.tool !== "request_user_input") return false;
+      if (!builtinTools) return false;
+      const cfg = builtinTools["request_user_input" as keyof BuiltinToolsConfig];
+      return !!(cfg && typeof cfg === "object" && "enabled" in cfg && cfg.enabled);
+    },
+    [builtinTools],
+  );
+
   // Check if a row's tool still exists in the current config
   const isStaleRow = React.useCallback(
     (row: InterruptRow): boolean => {
       if (row.tool === "*") return false;
+      // Locked rows are never stale (auto-managed)
+      if (row.namespace === "builtin" && row.tool === "request_user_input") return false;
       const available = getToolOptions(row.namespace, allowedTools, builtinTools, probedTools);
       // If namespace doesn't exist at all, it's stale
       if (row.namespace !== "builtin" && !allowedTools[row.namespace]) return true;
@@ -280,7 +306,15 @@ export function InterruptConfigPicker({
         {rows.map((row) => {
           const isExpanded = expandedRows.has(row.id);
           const stale = isStaleRow(row);
+          const locked = isLockedRow(row);
           const toolOptions = getToolOptions(row.namespace, allowedTools, builtinTools, probedTools);
+          // Filter out tools that already have a rule (one rule per namespace+tool)
+          const usedTools = new Set(
+            rows.filter((r) => r.id !== row.id && r.namespace === row.namespace).map((r) => r.tool),
+          );
+          const availableToolOptions = toolOptions.filter((t) => !usedTools.has(t));
+          // Also disable "All tools" if another row in same namespace already uses it
+          const allToolsTaken = usedTools.has("*");
 
           return (
             <div
@@ -288,6 +322,7 @@ export function InterruptConfigPicker({
               className={cn(
                 "border rounded-md p-3 space-y-2",
                 stale && "border-amber-400/50 bg-amber-50/50 dark:bg-amber-950/20",
+                locked && "bg-muted/30",
               )}
             >
               {/* Main row */}
@@ -296,7 +331,7 @@ export function InterruptConfigPicker({
                 <select
                   value={row.namespace}
                   onChange={(e) => handleNamespaceChange(row.id, e.target.value)}
-                  disabled={disabled}
+                  disabled={disabled || locked}
                   className="h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[100px]"
                 >
                   {namespaces.map((ns) => (
@@ -307,22 +342,34 @@ export function InterruptConfigPicker({
                 </select>
 
                 {/* Tool dropdown */}
-                <select
-                  value={row.tool}
-                  onChange={(e) => handleToolChange(row.id, e.target.value)}
-                  disabled={disabled}
-                  className="h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[140px] flex-1"
-                >
-                  <option value="*">All tools</option>
-                  {row.namespace !== "builtin" && probingServers.has(row.namespace) && (
-                    <option value="" disabled>Loading tools...</option>
-                  )}
-                  {toolOptions.map((tool) => (
-                    <option key={tool} value={tool}>
-                      {tool}
-                    </option>
-                  ))}
-                </select>
+                {row.namespace !== "builtin" && row.tool !== "*" && probingServers.has(row.namespace) ? (
+                  <span className="h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[140px] flex-1 flex items-center text-muted-foreground">
+                    Loading tools…
+                  </span>
+                ) : (
+                  <select
+                    value={row.tool}
+                    onChange={(e) => handleToolChange(row.id, e.target.value)}
+                    disabled={disabled || locked}
+                    className="h-8 rounded-md border bg-background px-2 text-xs font-mono min-w-[140px] flex-1"
+                  >
+                    <option value="*" disabled={allToolsTaken && row.tool !== "*"}>All tools</option>
+                    {row.namespace !== "builtin" && probingServers.has(row.namespace) && (
+                      <option value="" disabled>Loading tools...</option>
+                    )}
+                    {/* Show current tool even if taken (it's this row's own selection) */}
+                    {row.tool !== "*" && !availableToolOptions.includes(row.tool) && (
+                      <option key={row.tool} value={row.tool}>
+                        {row.tool}
+                      </option>
+                    )}
+                    {availableToolOptions.map((tool) => (
+                      <option key={tool} value={tool}>
+                        {tool}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 {/* Stale warning */}
                 {stale && (
@@ -341,13 +388,29 @@ export function InterruptConfigPicker({
                   </TooltipProvider>
                 )}
 
+                {/* Locked row info */}
+                {locked && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground shrink-0" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">
+                          Required while the request_user_input tool is enabled.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+
                 {/* Configure button */}
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={() => toggleExpanded(row.id)}
-                  disabled={disabled}
+                  disabled={disabled || locked}
                   className={cn("h-8 w-8 p-0", isExpanded && "text-primary")}
                   title="Configure allowed decisions"
                 >
@@ -360,9 +423,9 @@ export function InterruptConfigPicker({
                   variant="ghost"
                   size="sm"
                   onClick={() => removeRow(row.id)}
-                  disabled={disabled}
+                  disabled={disabled || locked}
                   className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                  title="Remove rule"
+                  title={locked ? "This rule is required while the tool is enabled" : "Remove rule"}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
