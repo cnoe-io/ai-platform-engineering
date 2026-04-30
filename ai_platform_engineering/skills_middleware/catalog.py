@@ -40,6 +40,77 @@ HUB_CACHE_TTL = int(os.getenv("HUB_CACHE_TTL", "3600"))  # seconds (default 1 ho
 _catalog_cache_generation: int = 0
 
 
+def _filter_hub_skills_by_scan(
+    db: Any,
+    hub_id: str,
+    skills: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop hub skills the UI scanner has flagged.
+
+    The supervisor fetches hub skills live from GitHub, so it has no
+    scanner output of its own. The UI side (hub crawl + bulk scan)
+    persists per-skill scan results into ``hub_skills`` keyed by
+    ``(hub_id, skill_id)``. To keep the supervisor and the UI in
+    agreement, look up cached ``scan_status`` here and gate via the
+    shared policy.
+
+    We match on ``name`` in addition to ``skill_id`` because the
+    Python live fetcher derives ``skill_id`` from the directory name
+    while the UI crawler may use a normalized id; the frontmatter
+    ``name`` is the one field both sides agree on.
+    """
+    if not skills:
+        return skills
+
+    from ai_platform_engineering.skills_middleware.scan_gate import is_status_blocked
+
+    try:
+        col = db["hub_skills"]
+        names = [s.get("name") for s in skills if s.get("name")]
+        if not names:
+            return skills
+        rows = list(
+            col.find(
+                {"hub_id": hub_id, "name": {"$in": names}},
+                {"_id": 0, "name": 1, "skill_id": 1, "scan_status": 1},
+            )
+        )
+    except Exception:
+        return skills
+
+    # Index by (name) — there can be at most one per hub by convention.
+    status_by_name: dict[str, str | None] = {}
+    for row in rows:
+        n = row.get("name")
+        if isinstance(n, str):
+            status_by_name[n] = row.get("scan_status")
+
+    out: list[dict[str, Any]] = []
+    blocked = 0
+    for s in skills:
+        name = s.get("name")
+        status = status_by_name.get(name) if isinstance(name, str) else None
+        # Stamp the status on the skill so downstream consumers (and
+        # the listing API surfaces) can show it without a re-query.
+        s["scan_status"] = status
+        if is_status_blocked(status):
+            blocked += 1
+            logger.info(
+                "Excluding hub skill %r (hub=%s) from supervisor catalog (scan_status=%r)",
+                name,
+                hub_id,
+                status,
+            )
+            continue
+        out.append(s)
+
+    if blocked:
+        logger.warning(
+            "Scan gate excluded %d hub skills from hub %s", blocked, hub_id
+        )
+    return out
+
+
 def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
     """Load skills from all enabled hubs in MongoDB ``skill_hubs`` collection.
 
@@ -104,6 +175,22 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
                     continue
             except Exception as scan_err:
                 logger.warning("Skill scanner hook skipped for hub %s: %s", hub_id, scan_err)
+
+            # Per-skill scan gate: drop individual hub skills the UI
+            # bulk-scanner has flagged. The supervisor's live GitHub
+            # fetch has no scan signal of its own — we look up cached
+            # status from the ``hub_skills`` Mongo collection (written
+            # by the UI hub scan + UI bulk-scan). Missing rows are
+            # treated as ``unscanned`` and gated by SKILL_SCANNER_GATE
+            # via the shared helper.
+            try:
+                skills = _filter_hub_skills_by_scan(db, str(hub_id), skills)
+            except Exception as scan_err:  # pragma: no cover - defensive
+                logger.warning(
+                    "Per-skill hub scan filter skipped for hub %s: %s",
+                    hub_id,
+                    scan_err,
+                )
 
             all_hub_skills.extend(skills)
 

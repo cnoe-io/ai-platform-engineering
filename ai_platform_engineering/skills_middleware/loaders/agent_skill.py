@@ -42,19 +42,27 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
     return []
 
   database = os.getenv("MONGODB_DATABASE", "caipe")
-  gate = os.getenv("SKILL_SCANNER_GATE", "warn").strip().lower()
+  # Shared scan-gating policy: flagged is always blocked, unscanned
+  # is blocked under SKILL_SCANNER_GATE=strict (the default).
+  from ai_platform_engineering.skills_middleware.scan_gate import (
+    is_skill_blocked,
+    mongo_scan_filter,
+  )
   try:
     db = client[database]
     collection = db["agent_skills"]
     query: dict[str, Any] = {
-      "$or": [
-        {"skill_content": {"$exists": True, "$ne": ""}},
-        {"skill_template": {"$exists": True, "$ne": ""}},
-        {"tasks.0.llm_prompt": {"$exists": True, "$ne": ""}},
+      "$and": [
+        {
+          "$or": [
+            {"skill_content": {"$exists": True, "$ne": ""}},
+            {"skill_template": {"$exists": True, "$ne": ""}},
+            {"tasks.0.llm_prompt": {"$exists": True, "$ne": ""}},
+          ]
+        },
+        mongo_scan_filter(),
       ]
     }
-    if gate == "strict":
-      query["scan_status"] = {"$ne": "flagged"}
     docs = list(
       collection.find(
         query,
@@ -71,6 +79,7 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
           "team_ids": 1,
           "owner_user_id": 1,
           "ancillary_files": 1,
+          "scan_status": 1,
         },
       )
     )
@@ -79,10 +88,23 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
     return []
 
   skills: list[dict[str, Any]] = []
+  blocked = 0
   for doc in docs:
     name = doc.get("name", "")
     description = doc.get("description", "")
     if not name or not description:
+      continue
+
+    # Belt + suspenders: even if the Mongo predicate above somehow
+    # let a flagged doc through (e.g. legacy rows missing scan_status
+    # under a non-strict gate), reapply the policy in Python.
+    if is_skill_blocked(doc):
+      blocked += 1
+      logger.info(
+        "Excluding agent_skill %r from supervisor catalog (scan_status=%r)",
+        name,
+        doc.get("scan_status"),
+      )
       continue
 
     owner_user = doc.get("owner_user_id")
@@ -104,8 +126,13 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
       "team_ids": doc.get("team_ids"),
       "owner_user_id": owner_user,
       "ancillary_files": ancillary if include_content else {},
+      "scan_status": doc.get("scan_status"),
     }
     skills.append(skill)
 
+  if blocked:
+    logger.warning(
+      "Scan gate excluded %d agent_skills from supervisor catalog", blocked
+    )
   logger.info("Loaded %d skills from agent_skills", len(skills))
   return skills

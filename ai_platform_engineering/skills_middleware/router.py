@@ -463,7 +463,8 @@ async def scan_skill_content(
     )
     from ai_platform_engineering.skills_middleware.hub_skill_scan import _persist_scan_run
 
-    gate = os.getenv("SKILL_SCANNER_GATE", "warn").strip().lower()
+    from ai_platform_engineering.skills_middleware.scan_gate import get_scan_gate
+    gate = get_scan_gate()
     fail_on = (os.getenv("SKILL_SCANNER_FAIL_ON") or "").strip().lower()
     if gate == "strict" and not fail_on:
         fail_on = "high"
