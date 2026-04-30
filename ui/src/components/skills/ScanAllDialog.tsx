@@ -99,6 +99,14 @@ export function ScanAllDialog({
   const [result, setResult] = useState<BulkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Live-progress state populated by the NDJSON stream. We render the
+  // progress card when `liveTotal > 0` (after the `start` event) and
+  // hide it once `result` lands. `liveRows` accumulates per-row events
+  // so the operator sees skills flip to passed/flagged/unscanned in
+  // real time instead of waiting for the whole sweep to finish.
+  const [liveTotal, setLiveTotal] = useState(0);
+  const [liveRows, setLiveRows] = useState<BulkResultRow[]>([]);
+
   // Hub picker state — only fetched when scope=hub. We default to
   // "all hubs selected" so untouched scope=hub behaves like before.
   const [hubs, setHubs] = useState<HubOption[] | null>(null);
@@ -113,6 +121,8 @@ export function ScanAllDialog({
     setResult(null);
     setError(null);
     setRunning(false);
+    setLiveRows([]);
+    setLiveTotal(0);
   }, []);
 
   // When the dialog (re)opens, honour the caller-provided initial scope /
@@ -211,6 +221,8 @@ export function ScanAllDialog({
     setRunning(true);
     setError(null);
     setResult(null);
+    setLiveRows([]);
+    setLiveTotal(0);
     try {
       // Only forward hub_ids when scope=hub AND the user narrowed the
       // selection. Sending an empty array when the user picked "all hubs"
@@ -221,17 +233,47 @@ export function ScanAllDialog({
           : undefined;
       const res = await fetch("/api/skills/scan-all", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // Opt into the route's NDJSON streaming path so we get
+          // start / row / complete events instead of one big JSON
+          // dump after the whole sweep finishes. Server falls back to
+          // aggregate JSON for clients that don't send this header.
+          Accept: "application/x-ndjson",
+        },
         credentials: "include",
         body: JSON.stringify({ scope, ...(hubIds ? { hub_ids: hubIds } : {}) }),
       });
-      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error(
-          data?.error || data?.message || `Request failed (${res.status})`,
-        );
+        // Errors from the route stay JSON (auth/validation) so we can
+        // surface a useful message instead of a half-empty stream.
+        let message = `Request failed (${res.status})`;
+        try {
+          const data = await res.json();
+          message = data?.error || data?.message || message;
+        } catch {
+          /* fall through */
+        }
+        throw new Error(message);
       }
-      setResult((data?.data ?? data) as BulkResponse);
+
+      const ct = res.headers.get("Content-Type") ?? "";
+      if (ct.includes("application/x-ndjson") && res.body) {
+        // Stream path: parse newline-delimited JSON events as they
+        // arrive. Each `row` event flips a skill in the live list and
+        // bumps the progress bar; `complete` carries the same summary
+        // shape the legacy JSON path returned.
+        await consumeNdjsonStream(res.body, {
+          onStart: (total) => setLiveTotal(total),
+          onRow: (row) => setLiveRows((prev) => [...prev, row]),
+          onComplete: (summary) => setResult(summary),
+        });
+      } else {
+        // Legacy / non-streaming path (e.g. older server). Still works.
+        const data = await res.json();
+        setResult((data?.data ?? data) as BulkResponse);
+      }
       onComplete?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -239,6 +281,18 @@ export function ScanAllDialog({
       setRunning(false);
     }
   }, [scope, hubs, selectedHubIds, onComplete]);
+
+  // Live counts derived from the streamed rows. Reused for the
+  // in-progress progress bar + summary line so the operator doesn't
+  // have to wait for `complete` to know how the sweep is trending.
+  const liveCounts = useMemo(() => {
+    const c = { passed: 0, flagged: 0, unscanned: 0 };
+    for (const r of liveRows) c[r.scan_status] += 1;
+    return c;
+  }, [liveRows]);
+  const livePct = liveTotal > 0
+    ? Math.min(100, Math.round((liveRows.length / liveTotal) * 100))
+    : 0;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -255,7 +309,7 @@ export function ScanAllDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {!result && (
+        {!result && !running && (
           <div className="space-y-3" data-testid="scan-all-form">
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Scope</legend>
@@ -404,6 +458,86 @@ export function ScanAllDialog({
           </div>
         )}
 
+        {!result && running && liveTotal > 0 && (
+          <div className="space-y-3" data-testid="scan-all-progress">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Scanning skill {Math.min(liveRows.length + 1, liveTotal)}{" "}
+                  of {liveTotal}…
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  {livePct}%
+                </span>
+              </div>
+              <div
+                className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={livePct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Scan progress"
+              >
+                <div
+                  className="h-full bg-primary transition-all duration-150"
+                  style={{ width: `${livePct}%` }}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-600" />{" "}
+                  {liveCounts.passed}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <ShieldAlert className="h-3 w-3 text-amber-600" />{" "}
+                  {liveCounts.flagged}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <ShieldQuestion className="h-3 w-3" /> {liveCounts.unscanned}
+                </span>
+              </div>
+            </div>
+
+            {liveRows.length > 0 && (
+              <div className="max-h-72 overflow-y-auto rounded-md border border-border/60 divide-y divide-border/60">
+                {/* Newest first so the just-completed skill is always at the top */}
+                {[...liveRows].reverse().map((row) => (
+                  <div
+                    key={`${row.source}-${row.id}`}
+                    className="flex items-start gap-3 px-3 py-2 text-xs"
+                  >
+                    <StatusIcon status={row.scan_status} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium truncate">{row.name}</span>
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">
+                          {row.source === "agent_skills" ? "Custom" : "Hub"}
+                        </Badge>
+                      </div>
+                      {(row.scan_summary || row.error) && (
+                        <div
+                          className={cn(
+                            "mt-0.5 line-clamp-2",
+                            row.error
+                              ? "text-destructive"
+                              : "text-muted-foreground",
+                          )}
+                          title={row.error || row.scan_summary}
+                        >
+                          {row.error || row.scan_summary}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground tabular-nums">
+                      {row.duration_ms ? `${row.duration_ms}ms` : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {result && (
           <div className="space-y-3" data-testid="scan-all-result">
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -467,7 +601,7 @@ export function ScanAllDialog({
           </div>
         )}
 
-        {!result && noHubsSelected && (
+        {!result && !running && noHubsSelected && (
           <p className="text-xs text-amber-600 dark:text-amber-400 -mt-2">
             Select at least one hub, or switch scope to <strong>All</strong> /{" "}
             <strong>Custom only</strong>.
@@ -508,6 +642,68 @@ export function ScanAllDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * NDJSON stream events emitted by `POST /api/skills/scan-all` when the
+ * client sends `Accept: application/x-ndjson`. Mirror of the server's
+ * `StreamEvent` type — kept inline here to avoid importing server-only
+ * route code into a client component.
+ */
+type ScanStreamEvent =
+  | { type: "start"; scope: Scope; total_planned: number }
+  | { type: "row"; row: BulkResultRow; index: number }
+  | { type: "complete"; summary: BulkResponse };
+
+interface StreamHandlers {
+  onStart: (totalPlanned: number) => void;
+  onRow: (row: BulkResultRow) => void;
+  onComplete: (summary: BulkResponse) => void;
+}
+
+/**
+ * Drain a NDJSON-streaming Response body and dispatch each event to
+ * the matching handler. Tolerates partial lines across chunks (the
+ * common case when many rows arrive faster than the network flushes).
+ */
+async function consumeNdjsonStream(
+  body: ReadableStream<Uint8Array>,
+  handlers: StreamHandlers,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      try {
+        const evt = JSON.parse(line) as ScanStreamEvent;
+        if (evt.type === "start") handlers.onStart(evt.total_planned);
+        else if (evt.type === "row") handlers.onRow(evt.row);
+        else if (evt.type === "complete") handlers.onComplete(evt.summary);
+      } catch {
+        // Don't crash the dialog if the server emits a malformed line —
+        // worst case we miss one row's UI update; the persisted state
+        // is already correct since the server writes Mongo before
+        // emitting.
+      }
+    }
+  }
+  // Flush any trailing line that didn't end with \n.
+  if (buf.trim()) {
+    try {
+      const evt = JSON.parse(buf.trim()) as ScanStreamEvent;
+      if (evt.type === "complete") handlers.onComplete(evt.summary);
+    } catch {
+      /* swallow */
+    }
+  }
 }
 
 function StatusIcon({ status }: { status: ScanStatus }) {

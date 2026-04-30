@@ -24,9 +24,17 @@ const mockNextResponseJson = jest.fn(
     headers: new Map(Object.entries(init?.headers ?? {})),
   }),
 );
-jest.mock("next/server", () => ({
-  NextResponse: { json: (...args: any[]) => mockNextResponseJson(...args) },
-}));
+// Streaming-path also needs `new NextResponse(stream, init)`. We forward
+// to the real Web `Response` (Node 18+ ships it) so test code can read
+// the NDJSON body via `.body.getReader()` exactly like the dialog does.
+jest.mock("next/server", () => {
+  class MockNextResponse extends Response {}
+  return {
+    NextResponse: Object.assign(MockNextResponse, {
+      json: (...args: any[]) => mockNextResponseJson(...args),
+    }),
+  };
+});
 
 // Auth: provide a user we can flip role on per test.
 const mockUser = { email: "admin@example.com", name: "Admin", role: "admin" };
@@ -61,8 +69,26 @@ function makeCursor(docs: any[]) {
   };
 }
 
+function matchHubDocs(filter?: any) {
+  let matching = hubSkillsDocs;
+  if (filter && filter.hub_id) {
+    if (typeof filter.hub_id === "string") {
+      matching = hubSkillsDocs.filter((d) => d.hub_id === filter.hub_id);
+    } else if (filter.hub_id.$in) {
+      matching = hubSkillsDocs.filter((d) =>
+        filter.hub_id.$in.includes(d.hub_id),
+      );
+    }
+  }
+  return matching;
+}
+
 const agentSkillsCol = {
   find: () => makeCursor(agentSkillsDocs),
+  // `planTotal()` (streaming path) calls countDocuments to compute the
+  // upper bound for the start event's progress bar. Mirror the same
+  // shape `find()` would walk so the count + iteration stay aligned.
+  countDocuments: jest.fn(async () => agentSkillsDocs.length),
   updateOne: jest.fn(async (filter: any, update: any) => {
     agentSkillsUpdates.push({ filter, update });
     return { matchedCount: 1 };
@@ -73,18 +99,9 @@ const hubSkillsCol = {
     hubFindCalls.push(filter);
     // Mimic the route's filter semantics so the cursor only yields the
     // matching hub docs — keeps the assertions honest end-to-end.
-    let matching = hubSkillsDocs;
-    if (filter && filter.hub_id) {
-      if (typeof filter.hub_id === "string") {
-        matching = hubSkillsDocs.filter((d) => d.hub_id === filter.hub_id);
-      } else if (filter.hub_id.$in) {
-        matching = hubSkillsDocs.filter((d) =>
-          filter.hub_id.$in.includes(d.hub_id),
-        );
-      }
-    }
-    return makeCursor(matching);
+    return makeCursor(matchHubDocs(filter));
   },
+  countDocuments: jest.fn(async (filter?: any) => matchHubDocs(filter).length),
   updateOne: jest.fn(async (filter: any, update: any) => {
     hubSkillsUpdates.push({ filter, update });
     return { matchedCount: 1 };
@@ -127,11 +144,40 @@ jest.mock("@/lib/skill-scan-history", () => ({
 
 import { POST } from "../route";
 
-function makeReq(body: unknown = {}) {
+function makeReq(body: unknown = {}, headers: Record<string, string> = {}) {
+  // Lower-case lookups so the route's `req.headers.get("accept")` matches
+  // regardless of whether the caller passes "Accept" or "accept".
+  const lower: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = v;
   return {
-    headers: { get: () => null },
+    headers: { get: (name: string) => lower[name.toLowerCase()] ?? null },
     json: async () => body,
   } as any;
+}
+
+/**
+ * Drain a NDJSON-streaming Response into its individual events. Used by
+ * the streaming-path tests so we can assert on the event sequence the
+ * `<ScanAllDialog>` consumes.
+ */
+async function readNdjsonEvents(res: Response): Promise<any[]> {
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  const events: any[] = [];
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (line) events.push(JSON.parse(line));
+    }
+  }
+  if (buf.trim()) events.push(JSON.parse(buf));
+  return events;
 }
 
 beforeEach(() => {
@@ -335,5 +381,67 @@ describe("POST /api/skills/scan-all — sweep", () => {
     expect(content).toContain("## Step 1");
     expect(content).toContain("step one");
     expect(content).toContain("step two");
+  });
+});
+
+describe("POST /api/skills/scan-all — streaming (Accept: application/x-ndjson)", () => {
+  it("emits start → row(s) → complete in order with the same row data the JSON path returns", async () => {
+    agentSkillsDocs.push(
+      { id: "s1", name: "alpha", skill_content: "# alpha\nbody" },
+      { id: "s2", name: "beta", skill_content: "# beta\nbody" },
+    );
+    scanResultsQueue.push(
+      { scan_status: "passed", scan_summary: "clean" },
+      { scan_status: "flagged", scan_summary: "high: x" },
+    );
+
+    const res = await POST(
+      makeReq({ scope: "custom" }, { accept: "application/x-ndjson" }),
+    );
+    expect(res.headers.get("Content-Type")).toMatch(/x-ndjson/);
+
+    const events = await readNdjsonEvents(res as unknown as Response);
+
+    // Sequence: 1× start, N× row, 1× complete.
+    expect(events[0]).toEqual({
+      type: "start",
+      scope: "custom",
+      total_planned: 2,
+    });
+    const rows = events.filter((e) => e.type === "row");
+    expect(rows.map((r) => r.row.name)).toEqual(["alpha", "beta"]);
+    expect(rows[0].row.scan_status).toBe("passed");
+    expect(rows[1].row.scan_status).toBe("flagged");
+    expect(rows.map((r) => r.index)).toEqual([0, 1]);
+
+    const complete = events.at(-1);
+    expect(complete.type).toBe("complete");
+    expect(complete.summary.scanned).toBe(2);
+    expect(complete.summary.counts.passed).toBe(1);
+    expect(complete.summary.counts.flagged).toBe(1);
+    expect(complete.summary.results).toHaveLength(2);
+  });
+
+  it("counts skipped rows in start total but emits them as row events too", async () => {
+    agentSkillsDocs.push(
+      { id: "s1", name: "alpha", skill_content: "" }, // skipped
+      { id: "s2", name: "beta", skill_content: "# beta\nbody" },
+    );
+    scanResultsQueue.push({ scan_status: "passed" });
+
+    const res = await POST(
+      makeReq({ scope: "custom" }, { accept: "application/x-ndjson" }),
+    );
+    const events = await readNdjsonEvents(res as unknown as Response);
+
+    // total_planned reflects what the cursor will yield (countDocuments),
+    // not what actually scans — important so the UI's progress bar lines
+    // up when the dialog increments per `row` event.
+    expect(events[0].total_planned).toBe(2);
+    const rowEvents = events.filter((e) => e.type === "row");
+    expect(rowEvents).toHaveLength(2);
+    expect(rowEvents[0].row.name).toBe("alpha");
+    expect(rowEvents[0].row.scan_status).toBe("unscanned");
+    expect(rowEvents[0].row.error).toMatch(/No SKILL\.md/);
   });
 });
