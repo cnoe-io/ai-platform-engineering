@@ -76,6 +76,10 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
+          {{- with .Values.mcp.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.mcp.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

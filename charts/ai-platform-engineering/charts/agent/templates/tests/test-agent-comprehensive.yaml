@@ -20,16 +20,11 @@ spec:
       set -e
       echo "Testing Agent comprehensive functionality..."
 
-      # Test main agent service
-      echo "Testing main agent service..."
-      curl -f http://{{ include "agent.fullname" . }}:{{ .Values.service.port }}/health || echo "Health endpoint not available, trying basic connectivity"
-      curl -f http://{{ include "agent.fullname" . }}:{{ .Values.service.port }} || echo "Basic connectivity test"
-
-      # Test MCP service if enabled
-      {{- if .Values.mcp.enabled }}
-      echo "Testing MCP service..."
-      curl -f http://{{ include "agent.fullname" . }}-mcp:{{ .Values.mcp.service.port }}/health || echo "MCP health endpoint not available"
-      {{- end }}
+      # Test main agent service health and readiness endpoints
+      echo "Testing agent /health endpoint..."
+      curl -sf http://{{ include "agent.fullname" . }}:{{ .Values.service.port }}/health | grep -q '"status":"ok"'
+      echo "Testing agent /ready endpoint..."
+      curl -sf http://{{ include "agent.fullname" . }}:{{ .Values.service.port }}/ready | grep -q '"status":"ok"'
 
       # Test environment variables
       echo "Checking environment configuration..."
