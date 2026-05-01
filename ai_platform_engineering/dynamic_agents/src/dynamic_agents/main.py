@@ -9,8 +9,6 @@ from dynamic_agents.log_config import setup_logging
 # Setup logging before other imports that trigger cnoe-agent-utils
 logger = setup_logging()
 
-import dynamic_agents._provider_guard  # noqa: E402, F401 — must run before cnoe_agent_utils is imported
-
 
 def fatal_exit(message: str) -> None:
     """Log a critical error and forcefully terminate the process.

@@ -26,7 +26,6 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from pymongo import MongoClient
 
-from dynamic_agents._provider_guard import enable_provider
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.metrics import metrics as prom_metrics
 from dynamic_agents.models import (
@@ -270,8 +269,6 @@ class AgentRuntime(StreamingMixin):
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
             f"provider={self.config.model.provider}, model={self.config.model.id}"
         )
-        # Lazy-load the provider's langchain module (if not already loaded)
-        enable_provider(self.config.model.provider)
         # Build kwargs for LLMFactory. If a shared transport client is provided,
         # pass it through so ChatBedrockConverse/ChatOpenAI reuse it instead of
         # creating a new one (~20MB savings per runtime).
