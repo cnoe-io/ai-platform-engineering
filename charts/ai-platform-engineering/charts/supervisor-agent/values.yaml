@@ -173,6 +173,22 @@ externalSecrets:
 # -- Non-sensitive environment variables injected into the supervisor container
 env:
   EXTERNAL_URL: "http://localhost:8000"
+  # -- Strip skill payloads (SKILL.md bodies, ancillary files,
+  # skills_metadata channel) and task_config workflow prompts
+  # (tasks/todos channels, get_workflow_definition output,
+  # invoke_self_service_task IO) from OTel spans before they ship
+  # to Langfuse. Keeps Langfuse active for non-skill flows.
+  # Set to "false" for one-off debug sessions only.
+  SKILL_TRACE_SCRUB_ENABLED: "true"
+  # Defensive cap on per-attribute size in OTel spans. Langfuse's
+  # ingest is fronted by nginx with a default 1 MiB body limit;
+  # without this cap, a single large attribute (full tool-def
+  # JSON, multi-turn message arrays, raw Bedrock bodies) can push
+  # the whole batch past the limit and trigger 413, dropping the
+  # entire trace. 256 KiB is a safe per-attribute slice that
+  # keeps batches well under 1 MiB even with a few oversized
+  # attributes. Set to "0" to disable.
+  SKILL_TRACE_MAX_ATTR_BYTES: "262144"
 
 multiAgentConfig:
   # -- Agent-to-agent protocol (`a2a` or `slim`)

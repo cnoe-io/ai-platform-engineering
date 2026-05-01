@@ -212,6 +212,18 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
     depends_on:
       caipe-mongodb:
         condition: service_healthy
@@ -329,6 +341,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -376,6 +400,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
     profiles:
       - petstore
       - all-agents
@@ -421,6 +457,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication (PAT fallback)
       # GitHub App authentication (recommended - auto-refreshing tokens)
       - GITHUB_APP_ID=${GITHUB_APP_ID:-}
@@ -460,6 +508,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-AI Agent}
       - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-ai-agent@cnoe.io}
       - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-AI Agent}
@@ -1963,6 +2023,18 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
