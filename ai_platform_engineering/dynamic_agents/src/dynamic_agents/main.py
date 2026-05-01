@@ -129,9 +129,9 @@ def create_app() -> FastAPI:
             content={
                 "error": "agent_busy",
                 "message": "This agent is at capacity right now. Please try again in a moment.",
-                "retry_after_seconds": 10,
+                "retry_after_seconds": 5,
             },
-            headers={"Retry-After": "10"},
+            headers={"Retry-After": "5"},
         )
 
     @app.get("/")
