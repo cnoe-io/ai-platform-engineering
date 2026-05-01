@@ -186,7 +186,7 @@ class AgentRuntimeCache:
             logger.info("Created shared MongoClient for runtime cache")
 
         # Get shared LLM transport client for this provider (saves ~20MB/runtime)
-        llm_client = get_shared_llm_client(agent_config.model.provider, agent_config.model.id)
+        llm_client = get_shared_llm_client(agent_config.model.provider)
 
         # Create new runtime
         runtime = AgentRuntime(

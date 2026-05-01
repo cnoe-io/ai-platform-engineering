@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
 
     # Runtime
-    agent_runtime_ttl_seconds: int = 600  # 10 min inactivity TTL for agent runtimes
+    agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
     # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).
     # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
     agent_runtime_max_cache_size: int = 20
