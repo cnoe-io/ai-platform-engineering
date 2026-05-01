@@ -50,7 +50,7 @@ testpaths = ["tests"]
 [dependency-groups]
 dev = [
     "ruff==0.15.5",
-    "memray>=1.12",
+    "memray==1.19.3",
 ]
 
 [tool.uv]
