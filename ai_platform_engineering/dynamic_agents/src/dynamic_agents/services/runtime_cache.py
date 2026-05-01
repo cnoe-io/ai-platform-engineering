@@ -2,7 +2,7 @@
 
 Manages a pool of ``AgentRuntime`` instances keyed by
 ``(agent_id, session_id)``, with automatic expiry, config-change
-invalidation, and adaptive memory-based capacity limits.
+invalidation, and a flat capacity limit.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import logging
 import os
 import resource
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pymongo import MongoClient
@@ -52,70 +51,6 @@ class RuntimeCapacityError(Exception):
         super().__init__(f"Agent runtime cache at capacity ({max_size} active streams). Please try again shortly.")
 
 
-def _read_cgroup_memory_limit() -> int | None:
-    """Read container memory limit from cgroup (v2 first, then v1).
-
-    Returns:
-        Memory limit in bytes, or None if not in a cgroup or unlimited.
-    """
-    # cgroup v2
-    cgroup_v2 = Path("/sys/fs/cgroup/memory.max")
-    if cgroup_v2.exists():
-        try:
-            value = cgroup_v2.read_text().strip()
-            if value != "max":
-                return int(value)
-        except (ValueError, OSError):
-            pass
-
-    # cgroup v1
-    cgroup_v1 = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
-    if cgroup_v1.exists():
-        try:
-            value = int(cgroup_v1.read_text().strip())
-            # Very large values (close to max int64) mean "unlimited"
-            if value < 2**62:
-                return value
-        except (ValueError, OSError):
-            pass
-
-    return None
-
-
-def _compute_adaptive_max_size(
-    baseline_mb: int,
-    headroom_mb: int,
-    per_runtime_mb: int,
-    fallback_max: int,
-) -> int:
-    """Compute max cache size based on container memory limit.
-
-    Falls back to the configured fallback if no cgroup limit is detected.
-    """
-    limit_bytes = _read_cgroup_memory_limit()
-    if limit_bytes is None:
-        logger.info(
-            "No cgroup memory limit detected, using fallback max_cache_size=%d",
-            fallback_max,
-        )
-        return fallback_max
-
-    limit_mb = limit_bytes / (1024 * 1024)
-    usable_mb = limit_mb - baseline_mb - headroom_mb
-    computed = max(2, int(usable_mb / per_runtime_mb))
-    # Hard upper cap to prevent unbounded growth even with huge limits
-    capped = min(computed, 50)
-
-    logger.info(
-        "Adaptive cache size: container_limit=%dMB, usable=%dMB, per_runtime=%dMB, max_runtimes=%d",
-        int(limit_mb),
-        int(usable_mb),
-        per_runtime_mb,
-        capped,
-    )
-    return capped
-
-
 class AgentRuntimeCache:
     """Cache for AgentRuntime instances with TTL + bounded LRU eviction.
 
@@ -142,17 +77,11 @@ class AgentRuntimeCache:
         # Created lazily on first get_or_create.
         self._shared_mongo_client: MongoClient | None = None
 
-        # Adaptive or configured max size
+        # Flat cap on concurrent cached runtimes
         if max_size is not None:
             self._max_size = max_size
         else:
-            settings = get_settings()
-            self._max_size = _compute_adaptive_max_size(
-                baseline_mb=settings.runtime_baseline_mb,
-                headroom_mb=settings.runtime_headroom_mb,
-                per_runtime_mb=settings.runtime_estimated_mb,
-                fallback_max=settings.agent_runtime_max_cache_size,
-            )
+            self._max_size = get_settings().agent_runtime_max_cache_size
 
     def set_mongo_service(self, mongo_service: "MongoDBService") -> None:
         """Set the MongoDB service for subagent resolution.
