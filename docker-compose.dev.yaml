@@ -505,7 +505,7 @@ services:
       - USE_PIPELINE=true
       - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
       - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN}}
- 
+
       # Option 1: Simple read-only mode (blocks all write operations)
       - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
       # Option 2: Fine-grained control via regex (see examples in comments above)
@@ -680,10 +680,17 @@ services:
     container_name: mcp-confluence
     env_file: [.env]
     ports: ["18003:8000"]
+    # Default entrypoint runs stdio transport (which exits immediately when no
+    # stdin is attached). Force streamable-HTTP so dynamic-agents can reach it
+    # at http://mcp-confluence:8000/mcp.
+    command: ["--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      - CONFLUENCE_URL=${CONFLUENCE_URL}
-      - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME}
-      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN}
+      - CONFLUENCE_URL=${CONFLUENCE_URL:-${ATLASSIAN_API_URL}/wiki}
+      - CONFLUENCE_USERNAME=${CONFLUENCE_USERNAME:-${ATLASSIAN_EMAIL}}
+      - CONFLUENCE_API_TOKEN=${CONFLUENCE_API_TOKEN:-${ATLASSIAN_TOKEN}}
+      - JIRA_URL=${JIRA_URL:-${ATLASSIAN_API_URL}}
+      - JIRA_USERNAME=${JIRA_USERNAME:-${ATLASSIAN_EMAIL}}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN:-${ATLASSIAN_TOKEN}}
     profiles:
       - confluence
       - all-agents
@@ -1009,6 +1016,73 @@ services:
       - webex
       - all-agents
 
+  # Webex Meetings MCP — local proxy that forwards to webexapis.com.
+  # Drop-in shape match for Cisco's official Meetings MCP. Auth = per-user
+  # OAuth: dynamic-agents runtime injects Authorization: Bearer <token> from
+  # vendor_connections; this server forwards it untouched.
+  mcp-webex-meetings:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=webex_meetings
+    image: ghcr.io/cnoe-io/mcp-webex-meetings:${IMAGE_TAG:-localtag}
+    container_name: mcp-webex-meetings
+    env_file: [.env]
+    ports: ["18021:8000"]
+    volumes:
+      - ./ai_platform_engineering/agents/webex_meetings/mcp/mcp_webex_meetings:/app/mcp_webex_meetings
+    environment:
+      - MCP_MODE=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - webex
+      - webex-meetings
+      - dynamic-agents
+      - all-agents
+
+
+  # Pod Meeting MCP — pure utility (VTT parsing, action/decision regex,
+  # owner resolution, agenda/notes XHTML rendering, pods Mongo CRUD).
+  # Server-to-server: no per-user OAuth. Used by Pam Beesly.
+  mcp-pod-meeting:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=pod_meeting
+    image: ghcr.io/cnoe-io/mcp-pod-meeting:${IMAGE_TAG:-localtag}
+    container_name: mcp-pod-meeting
+    env_file: [.env]
+    ports: ["18022:8000"]
+    volumes:
+      - ./ai_platform_engineering/agents/pod_meeting/mcp/mcp_pod_meeting:/app/mcp_pod_meeting
+    environment:
+      - MCP_MODE=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - pod-meeting
+      - webex
+      - dynamic-agents
+      - all-agents
+
+
   # VictorOps Agent
   agent-victorops:
     build:
@@ -1172,17 +1246,21 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
+      target: build  # use the build stage (has node_modules + source) so we can run `next dev`
       args:
         - IMAGE_TAG=${IMAGE_TAG:-localtag}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
         - BUILD_DATE=${BUILD_DATE:-}
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}
+        - BUILDPLATFORM=${BUILDPLATFORM:-linux/amd64}
+    # image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}  # commented to force local build (no ghcr pull)
     container_name: caipe-ui
     ports: ["3000:3000"]
+    # Run Next.js dev server (Turbopack) — hot-reloads files mounted from ./ui
+    command: ["npm", "run", "dev", "--", "-H", "0.0.0.0", "-p", "3000"]
     env_file:
       - .env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       # CAIPE supervisor A2A endpoint URL
       # Override with A2A_BASE_URL environment variable
       - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
@@ -1221,13 +1299,25 @@ services:
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
       - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # Webex per-user OAuth (Pam Beesly / Webex Meetings MCP)
+      - WEBEX_OAUTH_CLIENT_ID=${WEBEX_OAUTH_CLIENT_ID:-}
+      - WEBEX_OAUTH_CLIENT_SECRET=${WEBEX_OAUTH_CLIENT_SECRET:-}
+      - WEBEX_OAUTH_REDIRECT_URI=${WEBEX_OAUTH_REDIRECT_URI:-http://localhost:3000/api/integrations/webex/callback}
+      - WEBEX_OAUTH_SCOPES=${WEBEX_OAUTH_SCOPES:-}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # App config: loaded at Next.js startup via instrumentation.ts
       - APP_CONFIG_PATH=/app/config/app-config.yaml
+      # Allow Next.js dev server to listen on all interfaces inside container
+      - HOST=0.0.0.0
     volumes:
+      # Bind-mount UI source so edits in ./ui hot-reload in the container.
+      # Anonymous volumes preserve image-installed node_modules / .next.
+      - ./ui:/app
+      - /app/node_modules
+      - /app/.next
       # Override host path with CAIPE_APP_CONFIG_FILE (e.g. ./config/app-config.local.yaml)
       - ${CAIPE_APP_CONFIG_FILE:-./config/app-config.yaml}:/app/config/app-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
@@ -1292,8 +1382,13 @@ services:
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
       - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      # Webex per-user OAuth (used by vendor_tokens.py for token refresh)
+      - WEBEX_OAUTH_CLIENT_ID=${WEBEX_OAUTH_CLIENT_ID:-}
+      - WEBEX_OAUTH_CLIENT_SECRET=${WEBEX_OAUTH_CLIENT_SECRET:-}
+      - WEBEX_OAUTH_TOKEN_URL=${WEBEX_OAUTH_TOKEN_URL:-https://webexapis.com/v1/access_token}
+      - WEBEX_OAUTH_REFRESH_ENABLED=${WEBEX_OAUTH_REFRESH_ENABLED:-true}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/healthz')"]
       interval: 30s
       timeout: 5s
       retries: 3

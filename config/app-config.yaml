@@ -13,21 +13,125 @@
 # ConfigMap, so the mounted YAML contains literal values.
 
 # ── Models ────────────────────────────────────────────────────────
-models: []
-  # - model_id: "gpt-4o"
-  #   name: "GPT-4o"
-  #   provider: "openai"
-  #   description: "OpenAI GPT-4o"
+models:
+  - model_id: "bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    name: "Claude Haiku 4.5 (Bedrock via LiteLLM)"
+    provider: "openai"
+    description: "Fast/cheap Claude Haiku, served through Outshift LiteLLM"
+  - model_id: "bedrock/global.anthropic.claude-sonnet-4-6"
+    name: "Claude Sonnet 4.6 (Bedrock via LiteLLM)"
+    provider: "openai"
+    description: "Higher-quality Claude Sonnet, served through Outshift LiteLLM"
+  - model_id: "gpt-4o"
+    name: "GPT-4o"
+    provider: "openai"
+    description: "OpenAI GPT-4o via LiteLLM"
+  - model_id: "gpt-4o-mini"
+    name: "GPT-4o mini"
+    provider: "openai"
+    description: "Cheaper OpenAI GPT-4o-mini via LiteLLM"
 
 # ── MCP Servers ───────────────────────────────────────────────────
 # Supported transports: "http" (streamable HTTP), "sse", "stdio"
-mcp_servers: []
-  # - id: "github-mcp"
-  #   name: "GitHub"
-  #   description: "GitHub MCP server for repository operations"
-  #   transport: "http"
-  #   endpoint: "http://github-mcp-server:8080/mcp"
-  #   enabled: true
+# Hostnames are docker-compose service names; only services actually running
+# in your COMPOSE_PROFILES will be reachable. Disabled-by-default ones can
+# still be flipped on via the UI later.
+mcp_servers:
+  # ── Per-user OAuth (Webex Meetings) — for Pam Beesly ─────────
+  # Local proxy that mirrors Cisco's official Webex Meetings MCP tool surface
+  # but hits webexapis.com REST directly. Drop-in swap for
+  # https://mcp.webexapis.com/mcp/webex-meeting once cisco.com Control Hub
+  # enables agentic apps for the org. The dynamic-agents runtime injects the
+  # per-user OAuth bearer (resolved from vendor_connections) on every request;
+  # the MCP server forwards it to webexapis.com.
+  - id: "webex_meetings"
+    name: "Webex Meetings"
+    description: "Webex meeting/transcript tools (per-user OAuth — Settings → Integrations → Connect Webex)."
+    transport: "http"
+    endpoint: "http://mcp-webex-meetings:8000/mcp"
+    auth:
+      type: "user_oauth"
+      provider: "webex"
+    enabled: true
+
+  # ── Pod Meeting helper (Pam Beesly internal utility) ─────────
+  # Pure server-to-server. No auth. Reads MONGODB_URI for pod registry.
+  - id: "pod_meeting"
+    name: "Pod Meeting Helper"
+    description: "Deterministic helpers for pod meeting prep + writeup (VTT parse, action/decision extraction, agenda + notes XHTML)."
+    transport: "http"
+    endpoint: "http://mcp-pod-meeting:8000/mcp"
+    enabled: true
+
+  # ── In-house MCP servers (require their compose profiles) ────
+  - id: "webex"
+    name: "Webex"
+    description: "In-house Webex messaging MCP (uses shared WEBEX_TOKEN bot)"
+    transport: "http"
+    endpoint: "http://mcp-webex:8000/mcp"
+    enabled: true
+
+  # Same mcp-webex deployment, different bot identity. Runtime injects
+  # WEBEX_PAM_TOKEN per-request as the Authorization header; mcp-webex
+  # forwards it to webexapis.com. Add more entries here for additional
+  # personas (Dwight, Jim, etc.) — one Mongo row per bot, one shared pod.
+  - id: "webex_pam"
+    name: "Webex (Pam Bot)"
+    description: "Webex messaging via Pam Beesly's bot identity."
+    transport: "http"
+    endpoint: "http://mcp-webex:8000/mcp"
+    auth:
+      type: "bot_token"
+      secret_ref: "WEBEX_PAM_TOKEN"
+    enabled: true
+  - id: "confluence"
+    name: "Confluence"
+    description: "Confluence wiki and documentation"
+    transport: "http"
+    endpoint: "http://mcp-confluence:8000/mcp"
+    enabled: true
+  - id: "jira"
+    name: "Jira"
+    description: "Jira issue tracking and project management"
+    transport: "http"
+    endpoint: "http://mcp-jira:8000/mcp"
+    enabled: false
+  - id: "argocd"
+    name: "ArgoCD"
+    description: "ArgoCD application and deployment management"
+    transport: "http"
+    endpoint: "http://mcp-argocd:8000/mcp"
+    enabled: false
+  - id: "pagerduty"
+    name: "PagerDuty"
+    description: "PagerDuty incident management"
+    transport: "http"
+    endpoint: "http://mcp-pagerduty:8000/mcp"
+    enabled: false
+  - id: "slack"
+    name: "Slack"
+    description: "Slack messaging"
+    transport: "http"
+    endpoint: "http://mcp-slack:8000/mcp"
+    enabled: false
+  - id: "backstage"
+    name: "Backstage"
+    description: "Backstage catalog"
+    transport: "http"
+    endpoint: "http://mcp-backstage:8000/mcp"
+    enabled: false
+  - id: "github"
+    name: "GitHub"
+    description: "GitHub repository operations"
+    transport: "http"
+    endpoint: "http://mcp-github:8000/mcp"
+    enabled: false
+  - id: "knowledge-base"
+    name: "Knowledge Base"
+    description: "RAG knowledge base"
+    transport: "http"
+    endpoint: "http://rag_server:9446/mcp"
+    enabled: true
 
 # ── Agents ────────────────────────────────────────────────────────
 agents: []

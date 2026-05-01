@@ -7,11 +7,49 @@ from enum import Enum
 from typing import Annotated
 
 import httpx
+from fastmcp.server.dependencies import get_http_headers
 from mcp.shared.exceptions import McpError
 from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ErrorData, TextContent
 from pydantic import BaseModel, Field, model_validator
 
 WEBEX_API_BASE = "https://webexapis.com/v1"
+
+
+def _bearer_from_request(default_token: str | None) -> str:
+    """Resolve the Webex bearer for the current MCP request.
+
+    Priority:
+      1. ``Authorization`` header on the inbound MCP request — set by the
+         dynamic-agents runtime when this MCP server's Mongo entry has
+         ``auth.type=bot_token`` (or ``user_oauth``). This lets a single
+         ``mcp_webex`` deployment serve N bot identities (Pam, Jarvis, ...)
+         by routing different Mongo entries at the same endpoint with
+         different ``secret_ref`` values.
+      2. Fall back to ``default_token`` (the ``WEBEX_TOKEN`` env at
+         container startup) for backward compatibility with deployments
+         that don't use the runtime token-injection path.
+    """
+    try:
+        # FastMCP strips ``authorization`` by default — must opt in.
+        headers = get_http_headers(include={"authorization"})
+    except Exception:  # noqa: BLE001 — stdio transport / no request scope
+        headers = {}
+    auth = headers.get("authorization") or headers.get("Authorization")
+    if auth:
+        # Header is the full ``Bearer <token>`` value; strip prefix to
+        # match how the rest of this file passes raw tokens around.
+        return auth.removeprefix("Bearer ").removeprefix("bearer ").strip()
+    if default_token:
+        return default_token
+    raise McpError(
+        ErrorData(
+            code=INVALID_PARAMS,
+            message=(
+                "No bearer token available: neither an inbound Authorization "
+                "header nor a startup WEBEX_TOKEN env var was provided."
+            ),
+        )
+    )
 
 
 class PostMessage(BaseModel):
@@ -215,7 +253,7 @@ def register_tools(server, auth_token):
         }
         response = await http_client.post(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
             json={k: v for k, v in payload.items() if v is not None},
         )
         response.raise_for_status()
@@ -227,7 +265,7 @@ def register_tools(server, auth_token):
         payload = {"title": args.title}
         response = await http_client.post(
             "/rooms",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
             json=payload,
         )
         response.raise_for_status()
@@ -258,7 +296,7 @@ def register_tools(server, auth_token):
             try:
                 response = await http_client.post(
                     "/memberships",
-                    headers={"Authorization": f"Bearer {auth_token}"},
+                    headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
                     json=membership_payload,
                 )
                 response.raise_for_status()
@@ -284,7 +322,7 @@ def register_tools(server, auth_token):
         query_params = {"personEmail": args.person_email, "max": args.max_results}
         response = await http_client.get(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
             params=query_params,
         )
         response.raise_for_status()
@@ -319,7 +357,7 @@ def register_tools(server, auth_token):
             params["parentId"] = args.parent_id
         response = await http_client.get(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
             params=params,
         )
         response.raise_for_status()
@@ -343,7 +381,7 @@ def register_tools(server, auth_token):
             params["teamId"] = args.team_id
         response = await http_client.get(
             "/rooms",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
             params=params,
         )
         response.raise_for_status()
@@ -362,7 +400,7 @@ def register_tools(server, auth_token):
             params["max"] = str(args.max)
         response = await http_client.get(
             "/memberships",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
             params=params,
         )
         response.raise_for_status()
@@ -388,7 +426,7 @@ def register_tools(server, auth_token):
             params["max"] = str(args.max)
         response = await http_client.get(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_bearer_from_request(auth_token)}"},
             params=params,
         )
         response.raise_for_status()
