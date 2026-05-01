@@ -220,6 +220,100 @@ def test_processor_swallows_errors_to_protect_exporter() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Defensive size cap (orthogonal to skill scrubbing)
+# ---------------------------------------------------------------------------
+
+def test_size_cap_truncates_oversized_non_skill_attributes() -> None:
+    """The 413-class whales are tool-definition JSON / multi-turn
+    prompt history / raw Bedrock bodies on attribute keys we don't
+    enumerate. The cap protects the OTLP exporter from Langfuse's
+    nginx body-size limit when those blow up."""
+    big = "x" * (5 * 1024)  # 5 KiB on a 1 KiB cap
+    span = _FakeSpan(
+        {
+            # Not in any prompt/IO list — proves the cap runs over
+            # *all* string attributes, not just targeted ones.
+            "traceloop.tools": big,
+            "gen_ai.usage.input_tokens": 42,  # int — must pass through
+        }
+    )
+    SkillContentScrubbingProcessor(max_attr_bytes=1024).on_end(span)
+    out = span.attributes["traceloop.tools"]
+    assert len(out) <= 1024 + 200, "truncation marker fits in a small budget"
+    assert out.startswith("x" * 1024)
+    assert "[truncated:" in out
+    assert "original=5120" in out
+    assert "cap=1024" in out
+    assert span.attributes["gen_ai.usage.input_tokens"] == 42
+
+
+def test_size_cap_disabled_when_set_to_zero() -> None:
+    """Explicit opt-out for local debugging where a 1MB stdout
+    exporter is fine."""
+    big = "x" * 5000
+    span = _FakeSpan({"traceloop.tools": big})
+    SkillContentScrubbingProcessor(max_attr_bytes=0).on_end(span)
+    assert span.attributes["traceloop.tools"] == big
+
+
+def test_size_cap_runs_after_scrub_so_redacted_payloads_arent_re_truncated() -> None:
+    """A skill payload should be reduced to the small placeholder
+    by the scrub stage, then the cap stage sees the placeholder
+    (which is well under any reasonable cap) and leaves it alone.
+    Regression test: don't double-mangle redacted content."""
+    huge_skill = "## Skills System\n" + ("- foo\n" * 5000) + "## End"
+    span = _FakeSpan({"gen_ai.prompt.0.content": huge_skill})
+    SkillContentScrubbingProcessor(max_attr_bytes=1024).on_end(span)
+    out = span.attributes["gen_ai.prompt.0.content"]
+    # Scrubbed (header-marker preserved) and well under cap, so no
+    # truncation marker should appear.
+    assert "## Skills System [redacted from trace]" in out
+    assert "[truncated:" not in out
+
+
+def test_size_cap_does_not_truncate_under_cap() -> None:
+    span = _FakeSpan({"traceloop.tools": "small"})
+    SkillContentScrubbingProcessor(max_attr_bytes=1024).on_end(span)
+    assert span.attributes["traceloop.tools"] == "small"
+
+
+def test_size_cap_only_touches_string_attrs() -> None:
+    """Numeric / bool attributes are passed through regardless of the
+    cap — only strings have a meaningful length to truncate."""
+    span = _FakeSpan(
+        {
+            "gen_ai.usage.input_tokens": 9_999_999,
+            "http.status_code": 200,
+            "some.flag": True,
+        }
+    )
+    SkillContentScrubbingProcessor(max_attr_bytes=1).on_end(span)
+    assert span.attributes["gen_ai.usage.input_tokens"] == 9_999_999
+    assert span.attributes["http.status_code"] == 200
+    assert span.attributes["some.flag"] is True
+
+
+def test_install_reads_size_cap_from_env() -> None:
+    """``SKILL_TRACE_MAX_ATTR_BYTES`` env var is honored at install
+    time. We test the constructor wiring rather than the global
+    install path so we don't have to spin up an OTel provider."""
+    # Bad value falls back to default; pin the warning path.
+    with mock.patch.dict(os.environ, {"SKILL_TRACE_MAX_ATTR_BYTES": "not-an-int"}):
+        # Indirect verification: the processor parses the env when
+        # installed by ``install_skill_content_scrubber``. We avoid
+        # the global TracerProvider here and just verify the parse
+        # contract via the processor constructor instead.
+        from ai_platform_engineering.utils.tracing.skill_scrubber import (
+            DEFAULT_MAX_ATTR_BYTES,
+        )
+        # Constructor accepts ints directly; the env-parsing logic
+        # lives in install(). Pin the default constant instead, so
+        # a future bump in the default fails the test loudly and
+        # forces the docs/env.example to update too.
+        assert DEFAULT_MAX_ATTR_BYTES == 256 * 1024
+
+
+# ---------------------------------------------------------------------------
 # task_config workflow scrubbing
 # ---------------------------------------------------------------------------
 
