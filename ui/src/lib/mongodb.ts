@@ -260,6 +260,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
+
+    // Authorized Webex spaces collection (Webex bot integration)
+    safeCreateIndex(db, 'authorized_webex_spaces', { roomId: 1 }, { unique: true }),
+    safeCreateIndex(db, 'authorized_webex_spaces', { status: 1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

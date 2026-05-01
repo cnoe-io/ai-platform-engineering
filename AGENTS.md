@@ -67,3 +67,4 @@ Before committing code changes, run relevant checks:
 
 ## Recent Changes
 - 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router
+- 098-webex-bot-integration: Added Python (websockets, webexteamssdk) Webex bot, MongoDB space authorization, CAIPE UI admin integration
