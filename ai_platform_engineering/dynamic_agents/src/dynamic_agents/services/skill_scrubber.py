@@ -10,6 +10,7 @@
 # the scrubber live alongside the source-of-truth copy and cover
 # both since the modules are identical.
 
+
 """Operator-content scrubber for OpenTelemetry spans.
 
 Problem
@@ -73,6 +74,14 @@ Configuration
 ``SKILL_TRACE_SCRUB_PLACEHOLDER`` — the string that replaces redacted
 content (default ``"[redacted: skill payload]"``).
 
+Defensive size cap (orthogonal to skill scrubbing — protects the
+OTLP exporter from Langfuse's nginx 413 limit when *non*-skill
+attributes blow up):
+
+``SKILL_TRACE_MAX_ATTR_BYTES`` — any string attribute above this
+size, after skill scrubbing, is truncated with a marker. Default
+``262144`` (256 KiB). Set ``0`` to disable.
+
 Set ``SKILL_TRACE_SCRUB_ENABLED=false`` for one debug session if you
 need to read raw skill prompts in Langfuse.
 """
@@ -92,6 +101,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_PLACEHOLDER = "[redacted: skill payload]"
+
+# Hard cap on the byte-length of any single string attribute we
+# emit. Langfuse's ingest is fronted by nginx with a default
+# ``client_max_body_size 1m``; a single supervisor span can blow
+# past that with full multi-turn prompt history + tool definitions
+# even when skill content has been scrubbed. Truncating per
+# attribute is far less destructive than dropping the whole batch
+# (which is what nginx 413 forces today).
+DEFAULT_MAX_ATTR_BYTES = 256 * 1024  # 256 KiB
 
 # Match deepagents skill paths in tool-call inputs. The middleware
 # always uses absolute paths under ``/skills/<source>/<name>/...``
@@ -307,8 +325,16 @@ class SkillContentScrubbingProcessor:
     environments that don't have the SDK installed).
     """
 
-    def __init__(self, placeholder: str = DEFAULT_PLACEHOLDER) -> None:
+    def __init__(
+        self,
+        placeholder: str = DEFAULT_PLACEHOLDER,
+        max_attr_bytes: int = DEFAULT_MAX_ATTR_BYTES,
+    ) -> None:
         self._placeholder = placeholder
+        # ``0`` disables the cap — useful when running against an
+        # exporter without an nginx body limit (e.g. local stdout
+        # exporter for debugging).
+        self._max_attr_bytes = max_attr_bytes if max_attr_bytes > 0 else 0
 
     # The OTel SDK calls these four methods. on_start / shutdown /
     # force_flush are no-ops; the work happens in on_end where the
@@ -345,17 +371,43 @@ class SkillContentScrubbingProcessor:
                 in_prompt_attr = any(
                     key.startswith(p) for p in _PROMPT_ATTR_PREFIXES
                 )
-                if not (in_io_attr or in_prompt_attr):
-                    continue
-                if workflow_tool and in_io_attr:
-                    # Wholesale replace — the entire entity I/O of a
-                    # workflow tool is operator-authored prompt text.
-                    if value != self._placeholder:
-                        updates[key] = self._placeholder
-                    continue
-                new_value = _redact_value(value, self._placeholder)
-                if new_value is not value:
-                    updates[key] = new_value
+                # Skill / workflow scrubbing path — same as before.
+                if in_io_attr or in_prompt_attr:
+                    if workflow_tool and in_io_attr:
+                        if value != self._placeholder:
+                            updates[key] = self._placeholder
+                    else:
+                        new_value = _redact_value(value, self._placeholder)
+                        if new_value is not value:
+                            updates[key] = new_value
+
+            # Defensive size cap. Runs over **all** string
+            # attributes, not just the targeted ones, because the
+            # 413-class whales (tool-definition JSON, multi-turn
+            # message arrays, raw Bedrock response bodies) live on
+            # attribute keys we don't enumerate. Using
+            # ``updates.get(key, value)`` so we cap the
+            # already-scrubbed value rather than re-checking the
+            # raw skill payload (and so a truncated placeholder
+            # itself never gets re-truncated below the marker).
+            if self._max_attr_bytes:
+                for key, value in attrs.items():
+                    if not isinstance(key, str):
+                        continue
+                    candidate = updates.get(key, value)
+                    if not isinstance(candidate, str):
+                        continue
+                    # ``len(str)`` is char-count, not byte-count;
+                    # close enough for a cap (UTF-8 encoded length
+                    # is at most 4× this). Avoid encoding every
+                    # attribute on the hot path.
+                    if len(candidate) > self._max_attr_bytes:
+                        truncated = candidate[: self._max_attr_bytes]
+                        marker = (
+                            f"\n[truncated: original={len(candidate)} chars, "
+                            f"cap={self._max_attr_bytes}]"
+                        )
+                        updates[key] = truncated + marker
             if updates:
                 # We're inside ``on_end``: the span's ``_end_time``
                 # is already set, which makes ``set_attribute`` a
@@ -434,7 +486,21 @@ def install_skill_content_scrubber() -> bool:
         return True
 
     placeholder = os.getenv("SKILL_TRACE_SCRUB_PLACEHOLDER", DEFAULT_PLACEHOLDER)
-    processor = SkillContentScrubbingProcessor(placeholder=placeholder)
+    raw_cap = os.getenv("SKILL_TRACE_MAX_ATTR_BYTES")
+    try:
+        max_attr_bytes = int(raw_cap) if raw_cap is not None else DEFAULT_MAX_ATTR_BYTES
+    except ValueError:
+        logger.warning(
+            "[skill-scrubber] SKILL_TRACE_MAX_ATTR_BYTES=%r is not an int; "
+            "falling back to default %d",
+            raw_cap,
+            DEFAULT_MAX_ATTR_BYTES,
+        )
+        max_attr_bytes = DEFAULT_MAX_ATTR_BYTES
+    processor = SkillContentScrubbingProcessor(
+        placeholder=placeholder,
+        max_attr_bytes=max_attr_bytes,
+    )
     add_processor(processor)
 
     # Front-load the scrubber. The SDK fans every span through
@@ -469,5 +535,9 @@ def install_skill_content_scrubber() -> bool:
         # Some provider implementations forbid attribute writes.
         # Idempotency is best-effort.
         pass
-    logger.info("[skill-scrubber] installed (placeholder=%r)", placeholder)
+    logger.info(
+        "[skill-scrubber] installed (placeholder=%r, max_attr_bytes=%s)",
+        placeholder,
+        max_attr_bytes if max_attr_bytes else "disabled",
+    )
     return True
