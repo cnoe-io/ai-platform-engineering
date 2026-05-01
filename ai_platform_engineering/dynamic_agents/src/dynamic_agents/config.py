@@ -49,6 +49,10 @@ class Settings(BaseSettings):
 
     # Runtime
     agent_runtime_ttl_seconds: int = 600  # 10 min inactivity TTL for agent runtimes
+    agent_runtime_max_cache_size: int = 20  # Fallback if adaptive sizing unavailable
+    runtime_estimated_mb: int = 50  # Estimated memory per runtime for adaptive sizing
+    runtime_baseline_mb: int = 400  # Process baseline memory reservation
+    runtime_headroom_mb: int = 200  # Extra headroom buffer
 
 
 @lru_cache

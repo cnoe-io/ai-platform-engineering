@@ -76,5 +76,7 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
 
-# Run the application
-CMD ["python3", "src/dynamic_agents/main.py"]
+# Run the application with gunicorn for worker lifecycle management.
+# Gunicorn's max_requests enables periodic worker recycling to reclaim memory.
+# Falls back to direct uvicorn via main.py if DISABLE_GUNICORN=1 (dev).
+CMD ["gunicorn", "dynamic_agents.main:app", "-c", "gunicorn.conf.py"]

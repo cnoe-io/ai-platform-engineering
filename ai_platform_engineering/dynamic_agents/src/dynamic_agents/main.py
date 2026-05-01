@@ -9,6 +9,8 @@ from dynamic_agents.log_config import setup_logging
 # Setup logging before other imports that trigger cnoe-agent-utils
 logger = setup_logging()
 
+import dynamic_agents._provider_guard  # noqa: E402, F401 — must run before cnoe_agent_utils is imported
+
 
 def fatal_exit(message: str) -> None:
     """Log a critical error and forcefully terminate the process.
@@ -29,8 +31,8 @@ from fastapi.responses import JSONResponse
 from dynamic_agents.config import get_settings
 from dynamic_agents.metrics import PrometheusHTTPMiddleware
 from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, health, mcp_servers, middleware
-from dynamic_agents.services.runtime_cache import RuntimeInitError, get_runtime_cache
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
+from dynamic_agents.services.runtime_cache import RuntimeCapacityError, RuntimeInitError, get_runtime_cache
 
 
 @asynccontextmanager
@@ -119,6 +121,19 @@ def create_app() -> FastAPI:
                 "agent_id": exc.agent_id,
                 "error_type": type(exc.cause).__name__,
             },
+        )
+
+    @app.exception_handler(RuntimeCapacityError)
+    async def runtime_capacity_error_handler(request: Request, exc: RuntimeCapacityError):
+        """Return a 503 when the runtime cache is at capacity."""
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "agent_busy",
+                "message": "This agent is at capacity right now. Please try again in a moment.",
+                "retry_after_seconds": 10,
+            },
+            headers={"Retry-After": "10"},
         )
 
     @app.get("/")

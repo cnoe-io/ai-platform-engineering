@@ -34,6 +34,7 @@ class StreamingMixin:
     config: Any
     _graph: Any
     _cancelled: bool
+    _is_streaming: bool
     _initialized: bool
     _skills_files: dict[str, Any]
     _failed_servers: list[str]
@@ -107,6 +108,7 @@ class StreamingMixin:
         assert encoder is not None, "encoder must be provided"
 
         self._cancelled = False
+        self._is_streaming = True
 
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
@@ -155,6 +157,7 @@ class StreamingMixin:
                 )
                 turn_status = "cancelled"
                 self._record_turn(turn_start, "stream", turn_status)
+                self._is_streaming = False
                 return
 
             for frame in encoder.on_chunk(chunk):
@@ -178,6 +181,7 @@ class StreamingMixin:
             ):
                 yield frame
             self._record_turn(turn_start, "stream", "interrupted")
+            self._is_streaming = False
             return
 
         # ── Core lifecycle: run finish ──
@@ -188,6 +192,7 @@ class StreamingMixin:
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
         self._record_turn(turn_start, "stream", turn_status)
+        self._is_streaming = False
 
     # ─────────────────────── has_pending_interrupt ───────────────────────
 
@@ -258,6 +263,7 @@ class StreamingMixin:
         assert encoder is not None, "encoder must be provided"
 
         self._cancelled = False
+        self._is_streaming = True
 
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
@@ -332,6 +338,7 @@ class StreamingMixin:
                 )
                 turn_status = "cancelled"
                 self._record_turn(turn_start, "resume", turn_status)
+                self._is_streaming = False
                 return
 
             for frame in encoder.on_chunk(chunk):
@@ -353,6 +360,7 @@ class StreamingMixin:
             ):
                 yield frame
             self._record_turn(turn_start, "resume", "interrupted")
+            self._is_streaming = False
             return
 
         # ── Core lifecycle: run finish ──
@@ -363,6 +371,7 @@ class StreamingMixin:
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
         self._record_turn(turn_start, "resume", turn_status)
+        self._is_streaming = False
 
     # ─────────────────────────── metrics ─────────────────────────────────
 

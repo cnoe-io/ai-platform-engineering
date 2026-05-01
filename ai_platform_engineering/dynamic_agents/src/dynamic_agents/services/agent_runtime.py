@@ -26,6 +26,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from pymongo import MongoClient
 
+from dynamic_agents._provider_guard import enable_provider
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.metrics import metrics as prom_metrics
 from dynamic_agents.models import (
@@ -53,7 +54,6 @@ from dynamic_agents.services.mcp_client import (
 from dynamic_agents.services.middleware import build_middleware
 from dynamic_agents.services.skills import build_skills_files, load_skills
 from dynamic_agents.services.streaming import StreamingMixin
-
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -149,6 +149,8 @@ class AgentRuntime(StreamingMixin):
         user: UserContext | None = None,
         client_context: ClientContext | None = None,
         session_id: str | None = None,
+        mongo_client: MongoClient | None = None,
+        llm_client: object | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
@@ -157,8 +159,11 @@ class AgentRuntime(StreamingMixin):
         self._user = user
         self._client_context = client_context
         self._session_id = session_id
+        self._llm_client = llm_client  # shared transport client (boto3/httpx)
         self._graph = None
-        self._mongo_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)
+        # Use shared MongoClient if provided; otherwise create our own
+        self._owns_mongo_client = mongo_client is None
+        self._mongo_client = mongo_client or MongoClient(self.settings.mongodb_uri, tz_aware=True)
         # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
         self._checkpointer = MongoDBSaver(
             self._mongo_client,
@@ -168,6 +173,7 @@ class AgentRuntime(StreamingMixin):
         )
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
+        self._is_streaming = False  # guards LRU eviction — never evict mid-stream
         self._created_at = time.time()
         self._last_interaction = time.time()
         self.tracing = TracingManager()
@@ -264,13 +270,27 @@ class AgentRuntime(StreamingMixin):
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
             f"provider={self.config.model.provider}, model={self.config.model.id}"
         )
-        # Configure botocore with extended timeouts for Bedrock to prevent
-        # ReadTimeoutError during long-running agent operations (especially subagents)
-        boto_config = BotocoreConfig(read_timeout=300, connect_timeout=60)
-        llm = LLMFactory(provider=self.config.model.provider).get_llm(
-            model=self.config.model.id,
-            config=boto_config,
-        )
+        # Lazy-load the provider's langchain module (if not already loaded)
+        enable_provider(self.config.model.provider)
+        # Build kwargs for LLMFactory. If a shared transport client is provided,
+        # pass it through so ChatBedrockConverse/ChatOpenAI reuse it instead of
+        # creating a new one (~20MB savings per runtime).
+        llm_kwargs: dict[str, Any] = {"model": self.config.model.id}
+        provider_lower = self.config.model.provider.lower().replace("-", "_")
+        if self._llm_client is not None:
+            if "bedrock" in provider_lower or "aws" in provider_lower:
+                # _llm_client is a tuple: (data_plane_client, control_plane_client)
+                runtime_client, control_client = self._llm_client
+                llm_kwargs["client"] = runtime_client
+                llm_kwargs["bedrock_client"] = control_client
+            elif "openai" in provider_lower or "azure" in provider_lower:
+                # ChatOpenAI/AzureChatOpenAI accept http_client=
+                llm_kwargs["http_client"] = self._llm_client
+        else:
+            # No shared client — pass botocore config for timeout handling
+            llm_kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
+
+        llm = LLMFactory(provider=self.config.model.provider).get_llm(**llm_kwargs)
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # 8. Resolve subagents (other dynamic agents that this agent can delegate to)
@@ -548,17 +568,30 @@ class AgentRuntime(StreamingMixin):
         return tools
 
     async def cleanup(self) -> None:
-        """Cleanup MCP client connections and MongoDB checkpointer."""
+        """Cleanup all resources held by this runtime.
+
+        Releases MCP client, checkpointer, graph, and MongoClient (if owned).
+        After cleanup, this runtime instance should not be reused.
+        """
+        # 1. MCP client — release reference
         if self._mcp_client:
-            # Note: As of langchain-mcp-adapters 0.1.0, MultiServerMCPClient
-            # doesn't require explicit cleanup when not used as context manager
             self._mcp_client = None
 
-        if self._checkpointer:
-            self._checkpointer.close()
-            logger.info("Closed MongoDB checkpointer for agent runtime")
+        # 2. Checkpointer — do NOT call .close() as it closes the underlying
+        #    MongoClient (which may be shared). Just release the reference.
+        self._checkpointer = None
+
+        # 3. MongoClient — only close if we created it ourselves
+        if self._owns_mongo_client and self._mongo_client:
+            self._mongo_client.close()
+            logger.info("Closed owned MongoClient for agent '%s'", self.config.name)
+        self._mongo_client = None
+
+        # 4. Graph — release compiled LangGraph to free tool references
+        self._graph = None
 
         self._initialized = False
+        self._is_streaming = False
 
     def cancel(self) -> bool:
         """Request cancellation of the active stream.
