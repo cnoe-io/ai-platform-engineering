@@ -533,7 +533,7 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "memray", specifier = ">=1.12" },
+    { name = "memray", specifier = "==1.19.3" },
     { name = "ruff", specifier = "==0.15.5" },
 ]
 
