@@ -1,21 +1,11 @@
 [project]
-name = "caipe_cron_runner"
-description = "Tiny per-schedule pod that reads SCHEDULE_ID from env, fetches the schedule from caipe-scheduler, POSTs the chat message to CAIPE, and reports run status back. Has no Mongo or k8s API access."
-authors = [
-    { name = "CNOE", email = "cnoe-developers@cisco.com" }
-]
-dynamic = ["version"]
-readme = "README.md"
+name = "caipe-cron-runner"
+version = "0.1.0"
+description = "Per-schedule single-shot pod for caipe-scheduler. Reads SCHEDULE_ID, fetches schedule, POSTs chat, reports status."
 requires-python = ">=3.13,<4.0"
 dependencies = [
     "httpx==0.28.1",
 ]
-
-[tool.uv]
-constraint-dependencies = ["uv==0.11.6"]
-
-[tool.hatch.version]
-path = "caipe_cron_runner/__about__.py"
 
 [project.scripts]
 caipe-cron-runner = "caipe_cron_runner.runner:main"

@@ -9,7 +9,6 @@ privileges via this path.
 from __future__ import annotations
 
 import logging
-import os
 import re
 
 from kubernetes import client, config

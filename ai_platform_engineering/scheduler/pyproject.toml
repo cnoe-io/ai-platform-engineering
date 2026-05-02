@@ -1,37 +1,26 @@
 [project]
-name = "caipe_scheduler"
-description = "Cron schedule registry + k8s CronJob orchestrator for CAIPE. Receives schedule requests from dynamic-agents (e.g. Pam's schedule_prep tool), validates them, persists to Mongo, and creates per-schedule k8s CronJobs from a hard-coded podTemplate."
-authors = [
-    { name = "CNOE", email = "cnoe-developers@cisco.com" }
-]
-dynamic = ["version"]
-readme = "README.md"
-keywords = ["scheduler", "cron", "kubernetes", "caipe"]
+name = "caipe-scheduler"
+version = "0.1.0"
+description = "Cron schedule registry + k8s CronJob orchestrator for CAIPE."
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "fastapi==0.121.2",
-    "uvicorn[standard]==0.40.0",
-    "pydantic==2.12.5",
-    "pymongo==4.16.0",
-    "kubernetes==36.0.0",
-    "croniter==6.0.1",
-    "pytz==2025.3",
-    "python-dotenv==1.2.1",
+    "fastapi==0.135.3",
+    "uvicorn[standard]==0.34.2",
+    "pydantic==2.11.3",
+    "pymongo==4.12.1",
+    "kubernetes==35.0.0",
+    "croniter==6.2.2",
+    "pytz==2025.2",
+    "python-dotenv==1.0.1",
     "httpx==0.28.1",
 ]
 
-[tool.uv]
-constraint-dependencies = ["uv==0.11.6"]
-dev-dependencies = [
-    "pyright==1.1.408",
-    "ruff==0.15.1",
+[project.optional-dependencies]
+dev = [
     "pytest==9.0.3",
     "pytest-asyncio==1.3.0",
-    "hatch==1.16.3",
+    "ruff==0.15.5",
 ]
-
-[tool.hatch.version]
-path = "caipe_scheduler/__about__.py"
 
 [project.scripts]
 caipe-scheduler = "caipe_scheduler.main:main"
@@ -40,11 +29,8 @@ caipe-scheduler = "caipe_scheduler.main:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
-
 [tool.hatch.build.targets.wheel]
 packages = ["caipe_scheduler"]
+
+[tool.uv]
+constraint-dependencies = ["starlette>=0.50.0"]

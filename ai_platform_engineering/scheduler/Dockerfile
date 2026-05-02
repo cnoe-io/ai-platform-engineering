@@ -10,12 +10,6 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /app/scheduler
 
-# Lockless build: pyproject.toml is the source of truth. We do not commit a
-# uv.lock for this service yet — keeps the dep surface small and easy to audit.
-COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_HTTP_TIMEOUT=300 uv sync --no-dev --no-install-project
-
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --no-dev

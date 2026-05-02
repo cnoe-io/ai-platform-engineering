@@ -112,13 +112,11 @@ caipe:
   apiTokenSecret: "caipe-cron-runner-token"
   apiTokenSecretKey: "token"
 
-# Shared service token (X-Scheduler-Token header) between dynamic-agents,
-# the scheduler MCP, and cron-runner. If `existingSecret` is set, that takes
-# precedence; otherwise the chart creates a Secret from `value`.
+# Shared X-Scheduler-Token. Set existingSecret in production.
 serviceToken:
-  existingSecret: ""           # name of existing Secret holding the token
+  existingSecret: ""
   existingSecretKey: "token"
-  value: ""                    # used only if existingSecret is empty (dev only)
+  value: ""
 
 # Limits enforced by scheduler-svc.
 limits:
