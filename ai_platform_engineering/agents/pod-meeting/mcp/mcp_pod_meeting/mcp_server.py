@@ -20,9 +20,7 @@ import os
 import re
 from datetime import datetime, timezone
 from html import escape
-from typing import Annotated, Any, Literal
-from urllib.parse import urlparse
-from uuid import uuid4
+from typing import Annotated, Any
 
 import httpx
 from mcp.shared.exceptions import McpError
