@@ -93,7 +93,8 @@ Default to **B1** for v1.
 
 ## Phase 4 — Trigger: chat + optional CronJob, approvals over Webex bot
 
-- **Primary trigger (v1):** PgM types in CAIPE chat *or* DMs the Webex bot, e.g. `"Pam, prep mycelium's next pod meeting"` or `"Pam, write up notes from yesterday's mycelium meeting"`. The existing **Webex bot integration** (`ai_platform_engineering/integrations/webex_bot`, see `docs/docs/integrations/webex-bot.md`) already forwards Webex DMs to the supervisor over A2A; Pam is just another sub-agent on that path. *Confirm the bot is wired into the dynamic-agents chat surface, not only the supervisor — if not, that's a small bridging patch.*
+- **Primary trigger (v1):** PgM types in CAIPE chat (the grid). **No Webex bot listener in v1** — there's no bot integration wired into dynamic-agents today, so all approvals stay in-grid. Cron-triggered prep posts a draft Confluence link into the chat session for the PgM to review.
+- **Webex bot listener — Phase 2, post-merge.** After v1 ships, add a Webex bot integration that forwards DMs to Pam's chat session so PgMs can approve from Webex instead of the grid. Tracked separately.
 - **Scheduled trigger (v1, optional):** A `CronWorkflow` / `CronJob` per pod that POSTs to `/api/v1/chat/stream` with agent_id `pam-beesly` and a templated message. Schedule cadence = "1 day before pod meeting" — the cron just kicks the workflow; Pam uses `mcp_webex.list_meetings` to confirm the actual upcoming meeting.
 - **Approvals (v1, in Webex):** Pam DMs the PgM via the bot with a Confluence link + summary. PgM replies in the same Webex DM thread → bot forwards to Pam's chat session → Pam treats it as the next user turn. Pam looks for an explicit `approve` token (or PgM-edited content) and only then posts to the pod space. From Pam's perspective the channel is irrelevant — it's just chat.
 

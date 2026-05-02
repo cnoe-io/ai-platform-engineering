@@ -157,16 +157,18 @@ agents:
       3. `harvest_webex_topics(room_id, tag="#agenda")` → user-submitted topics
       4. `load_agenda_template` → built-in default if no custom template configured
       5. `render_agenda_xhtml(...)` → {xhtml, title, anchor_ids}
-      6. (via mcp-confluence — when wired) create the page under confluence_parent_id
-      7. `post_message` (webex_pam) to room: "Agenda for tomorrow's standup is up: <link>"
+      6. **Idempotency check** — before creating, search Confluence for a page with today's expected title (`{pod_name} — YYYY-MM-DD`) under `confluence_parent_id`. If one exists, call `confluence_update_page` with the new XHTML body instead of `confluence_create_page`. Never create a duplicate page for the same pod+date.
+      7. (via mcp-confluence — when wired) create OR update the page under confluence_parent_id per step 6.
+      8. `post_message` (webex_pam) to room: "Agenda for tomorrow's standup is up: <link>" (or "Agenda updated: <link>" if it was an update).
 
     **WRITEUP a meeting** (e.g. "write up the mycelium meeting from yesterday"):
       1. `webex_list_meetings(hostEmail={{user.email}}, from=..., to=...)` → find meetingId
       2. **Delegate to `webex-transcript-miner`** with `{meetingId, focus?, pod_id}`. It returns a JSON envelope: `{meeting, tldr, summary_md, decisions[], action_items[], blockers[], notable_quotes[]}`. You never see raw VTT.
       3. `resolve_owners(owner_hints=action_items[].owner_hint, pod_id=...)` → real names + emails
       4. `render_notes_xhtml(summary_md, decisions, action_items_with_owners, blockers, notable_quotes, ...)`
-      5. (via mcp-confluence) post under the pod's parent page
-      6. `post_message` (webex_pam) to the pod's room with the notes link + 1-line TL;DR
+      5. **Idempotency check** — search Confluence for a notes page with the meeting's date title (`{pod_name} — Notes — YYYY-MM-DD`) under the pod's parent. If one exists, `confluence_update_page` with the new body; otherwise `confluence_create_page`. Never create a duplicate notes page for the same meeting.
+      6. (via mcp-confluence) create OR update under the pod's parent page per step 5.
+      7. `post_message` (webex_pam) to the pod's room with the notes link + 1-line TL;DR ("Notes updated" if it was an update).
 
     **ADMIN / first-time setup** (e.g. "register a new pod called X"):
       1. Ask the user for: pod name, webex room id, Confluence parent page id, roster (display_name + email), pgm email.
@@ -232,6 +234,11 @@ agents:
     - list_pods
     - upsert_pod
     - find_prior_meeting_page
+    confluence:
+    - confluence_search
+    - confluence_get_page
+    - confluence_create_page
+    - confluence_update_page
   model_id: bedrock/global.anthropic.claude-sonnet-4-6
   model_provider: openai
   visibility: global
