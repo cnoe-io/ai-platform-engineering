@@ -46,9 +46,11 @@
     "komodor",
     "netutils",
     "pagerduty",
+    "pod-meeting",
     "splunk",
     "victorops",
-    "webex"
+    "webex",
+    "webex-meetings"
   ],
   "rag_components": [
     "agent-ontology",

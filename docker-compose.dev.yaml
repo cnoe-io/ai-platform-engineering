@@ -1025,13 +1025,13 @@ services:
       context: .
       dockerfile: build/agents/Dockerfile.mcp
       args:
-        - AGENT_NAME=webex_meetings
+        - AGENT_NAME=webex-meetings
     image: ghcr.io/cnoe-io/mcp-webex-meetings:${IMAGE_TAG:-localtag}
     container_name: mcp-webex-meetings
     env_file: [.env]
     ports: ["18021:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/webex_meetings/mcp/mcp_webex_meetings:/app/mcp_webex_meetings
+      - ./ai_platform_engineering/agents/webex-meetings/mcp/mcp_webex_meetings:/app/mcp_webex_meetings
     environment:
       - MCP_MODE=streamable-http
       - MCP_HOST=0.0.0.0
@@ -1057,13 +1057,13 @@ services:
       context: .
       dockerfile: build/agents/Dockerfile.mcp
       args:
-        - AGENT_NAME=pod_meeting
+        - AGENT_NAME=pod-meeting
     image: ghcr.io/cnoe-io/mcp-pod-meeting:${IMAGE_TAG:-localtag}
     container_name: mcp-pod-meeting
     env_file: [.env]
     ports: ["18022:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/pod_meeting/mcp/mcp_pod_meeting:/app/mcp_pod_meeting
+      - ./ai_platform_engineering/agents/pod-meeting/mcp/mcp_pod_meeting:/app/mcp_pod_meeting
     environment:
       - MCP_MODE=streamable-http
       - MCP_HOST=0.0.0.0

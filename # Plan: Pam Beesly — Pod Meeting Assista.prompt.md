@@ -12,7 +12,7 @@
 
 ## Phase 1 — New MCP server: `mcp_webex_meetings`
 
-A thin REST proxy. Located at `ai_platform_engineering/agents/webex_meetings/mcp/`. Built using the same FastMCP + Pydantic + Click template as `mcp_webex`. Streamable-HTTP only (per-user auth requires HTTP).
+A thin REST proxy. Located at `ai_platform_engineering/agents/webex-meetings/mcp/`. Built using the same FastMCP + Pydantic + Click template as `mcp_webex`. Streamable-HTTP only (per-user auth requires HTTP).
 
 **Auth model:** the dynamic-agents runtime injects `Authorization: Bearer <user-token>` when calling this MCP (because the MCP server config has `auth.type=user_oauth, provider=webex`). The MCP server reads that header off the incoming request via `fastmcp.server.dependencies.get_http_headers()` and forwards it to `webexapis.com`. No Mongo access from inside the MCP — single source of truth stays in `vendor_connections`.
 
@@ -35,7 +35,7 @@ A thin REST proxy. Located at `ai_platform_engineering/agents/webex_meetings/mcp
 
 ## Phase 1b — New MCP server: `mcp_pod_meeting`
 
-Built using the same FastMCP + Pydantic + Click template as `mcp_webex`. Located at `ai_platform_engineering/agents/pod_meeting/mcp/`.
+Built using the same FastMCP + Pydantic + Click template as `mcp_webex`. Located at `ai_platform_engineering/agents/pod-meeting/mcp/`.
 
 **Tools (deterministic, no LLM in the path):**
 
@@ -95,10 +95,163 @@ Default to **B1** for v1.
 
 - **Primary trigger (v1):** PgM types in CAIPE chat (the grid). **No Webex bot listener in v1** — there's no bot integration wired into dynamic-agents today, so all approvals stay in-grid. Cron-triggered prep posts a draft Confluence link into the chat session for the PgM to review.
 - **Webex bot listener — Phase 2, post-merge.** After v1 ships, add a Webex bot integration that forwards DMs to Pam's chat session so PgMs can approve from Webex instead of the grid. Tracked separately.
-- **Scheduled trigger (v1, optional):** A `CronWorkflow` / `CronJob` per pod that POSTs to `/api/v1/chat/stream` with agent_id `pam-beesly` and a templated message. Schedule cadence = "1 day before pod meeting" — the cron just kicks the workflow; Pam uses `mcp_webex.list_meetings` to confirm the actual upcoming meeting.
+- **Scheduled trigger (v1):** see **Phase 4b — Scheduler service** below. Pam exposes `schedule_prep` / `unschedule_prep` / `list_schedules` tools; the actual cron lives in a separate `scheduler-svc` pod that creates per-schedule k8s `CronJob`s. dynamic-agents itself never gets k8s API perms.
 - **Approvals (v1, in Webex):** Pam DMs the PgM via the bot with a Confluence link + summary. PgM replies in the same Webex DM thread → bot forwards to Pam's chat session → Pam treats it as the next user turn. Pam looks for an explicit `approve` token (or PgM-edited content) and only then posts to the pod space. From Pam's perspective the channel is irrelevant — it's just chat.
 
 **Re: "fake CAIPE email" auto-pickup.** Out of scope for v1 because it requires (a) a Microsoft Graph / Exchange integration that doesn't exist anywhere in the repo, (b) a webhook listener service, (c) a calendar-invite parser to extract pod identity. Realistic effort is a separate small service (Graph subscription → webhook → POST to Pam's chat endpoint with parsed metadata) — track as Phase 6.
+
+---
+
+## Phase 4b — Scheduler service (`scheduler-svc`)
+
+**Why a separate service:** Pam (and any other dynamic agent) needs to register cron-style schedules for itself. Granting k8s `cronjobs.*` RBAC to dynamic-agents is unsafe — a compromised LLM tool could schedule arbitrary container workloads. Instead, dynamic-agents talks to a small REST service that owns the k8s perms behind a hard-coded podTemplate. dynamic-agents stays exactly as privileged as it is today (HTTP-out only).
+
+### Trust boundaries
+
+| Component | Can do | Cannot do |
+|---|---|---|
+| dynamic-agents (Pam) | HTTP POST to `scheduler-svc` only | Touch k8s API, mount secrets, choose image |
+| `scheduler-svc` (new pod) | Create/delete `CronJob`s from one **hard-coded** podTemplate; only `schedule`, `timeZone`, and `SCHEDULE_ID` env are user-controlled | Run arbitrary containers (template baked in code) |
+| `cron-runner` pod (per scheduled fire) | Read its own chat-API-token Secret; POST to chat endpoint | Talk to Mongo, k8s API, anything else |
+
+### Repo placement
+
+New top-level service: `ai_platform_engineering/services/scheduler/` (parallel to `agents/` and `dynamic_agents/`). Plus a tiny `ai_platform_engineering/services/cron-runner/` image.
+
+### Mongo collection: `schedules`
+
+```
+{
+  _id: ObjectId,
+  schedule_id: "sched_<uuid>",        // public id, used as CronJob name
+  owner_user_id: "<caipe user id or email>",
+  agent_id: "agent-sunny-webex-meeting-test",
+  message_template: "Pam, prep <pod_name>'s next pod meeting",
+  pod_id: "mycelium",                  // optional, stored for UI/listing
+  cron: "0 9 * * MON",
+  tz: "America/Los_Angeles",
+  enabled: true,
+  created_at, updated_at,
+  last_run: { ts, status: "ok"|"error", error?, http_status? }
+}
+```
+
+### REST API (scheduler-svc)
+
+- `POST   /v1/schedules` — create. Body: `{agent_id, message_template, cron, tz, pod_id?, owner_user_id}`. Returns `{schedule_id, cronjob_name}`.
+- `GET    /v1/schedules?owner=&pod_id=&agent_id=` — list.
+- `GET    /v1/schedules/{id}` — single.
+- `PATCH  /v1/schedules/{id}` — enable/disable, change cron/tz/message.
+- `DELETE /v1/schedules/{id}` — removes Mongo doc + CronJob.
+
+**Auth:** shared service token (`X-Scheduler-Token`) between dynamic-agents → scheduler-svc, stored in k8s Secret. Multi-user attribution comes from `owner_user_id` field, not request auth.
+
+### Validation on `POST`
+
+1. `croniter(cron)` parses → 400 if not.
+2. `tz` is valid IANA → 400 if not.
+3. `agent_id` exists in `dynamic_agents` collection → 404 if not.
+4. `message_template` length ≤ 2000 chars.
+5. Per-owner cap (e.g. 50 schedules) → 429.
+
+### On `POST /schedules`, scheduler-svc:
+
+1. Insert Mongo doc.
+2. Render `CronJob` from baked-in template (below).
+3. `kubectl create cronjob` via Python `kubernetes` lib.
+4. If k8s create fails → delete Mongo doc, return 500.
+5. Set `ownerReferences` → scheduler-svc's own Deployment, so uninstall cascades all CronJobs.
+
+### Hard-coded CronJob podTemplate (in scheduler-svc code)
+
+```yaml
+spec:
+  schedule: "<user-provided>"
+  timeZone: "<user-provided>"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: cron-runner       # default SA, no perms
+          restartPolicy: OnFailure
+          containers:
+          - name: runner
+            image: ghcr.io/cnoe-io/caipe-cron-runner:<pinned>
+            env:
+            - name: SCHEDULE_ID
+              value: "<sched_id>"
+            - name: SCHEDULER_API_URL
+              value: "http://scheduler-svc:8080"
+            - name: CAIPE_API_URL
+              valueFrom: { configMapKeyRef: ... }
+            - name: CAIPE_API_TOKEN
+              valueFrom: { secretKeyRef: ... }
+            resources:
+              limits: { cpu: 100m, memory: 128Mi }
+```
+
+User input only fills `schedule`, `timeZone`, and `SCHEDULE_ID`. Everything else is fixed.
+
+### `cron-runner` image (separate small image)
+
+One Python file:
+1. Read `SCHEDULE_ID` env.
+2. `GET scheduler-svc/v1/schedules/{id}` → fetch `agent_id`, `message_template`, `owner_user_id`.
+3. POST chat API with `{agent_id, message}` as the owner user.
+4. `PATCH scheduler-svc/v1/schedules/{id}` with `last_run`.
+
+No Mongo connection. No k8s API. Only HTTP.
+
+### RBAC
+
+Single `Role` bound to the scheduler-svc ServiceAccount, namespace-scoped:
+
+```yaml
+- apiGroups: ["batch"]
+  resources: ["cronjobs"]
+  verbs: ["create", "get", "list", "update", "delete", "patch"]
+```
+
+`cron-runner` SA gets nothing.
+
+### Pam's tools (`mcp_pod_meeting`, new)
+
+- `schedule_prep(pod_id, cron, tz)` → POST scheduler-svc with `agent_id=agent-sunny-webex-meeting-test`, `message="Pam, prep <pod_name>'s next pod meeting"`, `owner_user_id={{user.email}}`.
+- `unschedule_prep(pod_id)` → DELETE the matching schedule.
+- `list_schedules(pod_id?)` → GET.
+
+User flow: *"Pam, set up auto-prep for mycelium every Monday at 9am Pacific."* → Pam calls `schedule_prep("mycelium", "0 9 * * MON", "America/Los_Angeles")`.
+
+### Helm
+
+New sub-chart: `charts/ai-platform-engineering/charts/scheduler/`. Values:
+
+- `scheduler.enabled` (default `false` — opt in)
+- `scheduler.image`
+- `scheduler.cronRunner.image`
+- `scheduler.token` (mounted into both scheduler-svc and dynamic-agents)
+- Namespace pinned to the chart's namespace.
+
+### Open lock-ins (decide before code)
+
+1. Repo location: `ai_platform_engineering/services/scheduler/` ok?
+2. Language: **Python** (matches MCP stack) — confirm vs. Go.
+3. Image registry: `ghcr.io/cnoe-io/caipe-scheduler` + `ghcr.io/cnoe-io/caipe-cron-runner`?
+4. `owner_user_id`: CAIPE user id, or email string?
+5. WRITEUP via cron — out of scope (needs host's Webex OAuth; PgM does writeup manually). Confirm.
+
+### Phase 4b deliverables
+
+1. `services/scheduler/` Python service (FastAPI + `kubernetes` + `pymongo` + `croniter`).
+2. `services/cron-runner/` tiny Python image.
+3. Helm sub-chart with Deployment, Service, Role, RoleBinding, ServiceAccount, Secret.
+4. `mcp_pod_meeting`: 3 new tools (`schedule_prep`, `unschedule_prep`, `list_schedules`).
+5. Pam's seed `allowed_tools.pod_meeting` extended; system prompt gets a "scheduling" mini-section.
+6. Compose: **not shipped** — k8s only. Devs test by `python services/scheduler/main.py` against local Mongo + a kind cluster, or just `python services/cron-runner/main.py` directly with a stubbed `SCHEDULE_ID`.
 
 ---
 
@@ -121,7 +274,7 @@ Default to **B1** for v1.
 
 ## Steps (execution order)
 
-1. **Phase 1** — Scaffold `ai_platform_engineering/agents/pod_meeting/mcp/` from the `mcp_webex` template; implement tools 1–4 (transcript parsing) first against the Mycelium VTT fixture. *Parallelizable substeps after scaffold: (1+2+3 transcript pipeline), (5 webex harvester), (9 pod CRUD), (6+7+8 templates+rendering), (10 prior-page lookup).*
+1. **Phase 1** — Scaffold `ai_platform_engineering/agents/pod-meeting/mcp/` from the `mcp_webex` template; implement tools 1–4 (transcript parsing) first against the Mycelium VTT fixture. *Parallelizable substeps after scaffold: (1+2+3 transcript pipeline), (5 webex harvester), (9 pod CRUD), (6+7+8 templates+rendering), (10 prior-page lookup).*
 2. **Phase 1b** — Extend `mcp_webex` with `list_meetings` / `get_meeting` / `list_transcripts` / `download_transcript`. *Parallel with Phase 1.*
 3. **Phase 2** — Add three entries to `dynamic_agents/services/config.yaml`. *Depends on 1 + 1b.*
 4. **Phase 3** — Add Pam's seed agent block to `config.yaml` with full system prompt + tool allow-list. *Depends on 2.*
@@ -140,7 +293,7 @@ Default to **B1** for v1.
 - `ai_platform_engineering/dynamic_agents/src/dynamic_agents/models.py` — `DynamicAgentConfig`, `MCPServerConfig`, `TransportType` schemas.
 - `ai_platform_engineering/dynamic_agents/README.md` + `ARCHITECTURE.md` — confirm seed/Mongo flow and visibility model.
 - `Mycelium Team-20260424 2031-1.vtt` — primary test fixture for transcript parsing.
-- (new) `ai_platform_engineering/agents/pod_meeting/mcp/mcp_pod_meeting/` — new MCP package.
+- (new) `ai_platform_engineering/agents/pod-meeting/mcp/mcp_pod_meeting/` — new MCP package.
 - (new, optional) `deploy/cron/pam-pod-prep.yaml` — sample cron trigger.
 
 ---
