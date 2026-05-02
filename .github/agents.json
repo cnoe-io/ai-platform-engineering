@@ -47,6 +47,7 @@
     "netutils",
     "pagerduty",
     "pod-meeting",
+    "scheduler",
     "splunk",
     "victorops",
     "webex",

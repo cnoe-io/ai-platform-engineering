@@ -1,0 +1,136 @@
+# Default values for caipe-scheduler.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Schedule the chart's own enablement (parent umbrella may toggle).
+enabled: true
+
+image:
+  repository: "ghcr.io/cnoe-io/caipe-scheduler"
+  pullPolicy: "Always"
+  tag: ""
+
+# The cron-runner image used by every CronJob this scheduler creates.
+# Hard-coded into the per-CronJob podTemplate by caipe-scheduler at create
+# time; user-controlled fields are limited to schedule, timezone, and SCHEDULE_ID.
+cronRunner:
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-cron-runner"
+    pullPolicy: "IfNotPresent"
+    tag: ""
+  # Resource limits per cron-runner pod. Kept tight — the runner makes 2-3 HTTP calls and exits.
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+imagePullSecrets: []
+
+# Service account for the scheduler-svc Deployment. Gets `cronjobs.*` Role bound.
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+# Service account for cron-runner pods (created by every CronJob). Gets NO RBAC.
+cronRunnerServiceAccount:
+  create: true
+  name: "caipe-cron-runner"
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 8080
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+# Mongo connection
+mongo:
+  uri: ""                      # If unset, falls back to global.mongo.uri or existingSecret
+  database: "caipe"
+  schedulesCollection: "schedules"
+  # Existing Secret holding MONGODB_URI under key "uri" (preferred).
+  existingSecret: ""
+  existingSecretKey: "uri"
+
+# Where the runner POSTs the chat message.
+caipe:
+  apiUrl: "http://caipe-ui:3000"
+  chatPath: "/api/chat/stream"
+  # Existing Secret holding the chat API token under key "token".
+  apiTokenSecret: "caipe-cron-runner-token"
+  apiTokenSecretKey: "token"
+
+# Shared service token (X-Scheduler-Token header) between dynamic-agents,
+# the scheduler MCP, and cron-runner. If `existingSecret` is set, that takes
+# precedence; otherwise the chart creates a Secret from `value`.
+serviceToken:
+  existingSecret: ""           # name of existing Secret holding the token
+  existingSecretKey: "token"
+  value: ""                    # used only if existingSecret is empty (dev only)
+
+# Limits enforced by scheduler-svc.
+limits:
+  maxSchedulesPerOwner: 50
+  maxMessageChars: 2000
+
+# Set ownerReferences on every CronJob → scheduler-svc's own Deployment, so
+# uninstalling the chart cascades CronJob deletion. Default true.
+cronJobOwnerReferences: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+volumes: []
+volumeMounts: []

@@ -1083,6 +1083,46 @@ services:
       - all-agents
 
 
+  # Scheduler MCP — generic FastMCP wrapper around caipe-scheduler's REST API.
+  # Usable by any dynamic agent that wants to create/list/update/delete cron
+  # schedules. In compose-dev, caipe-scheduler itself is k8s-only (it needs
+  # the kube-apiserver to create CronJobs), so SCHEDULER_URL by default points
+  # at a non-existent host — tool-discovery and prompt loops still work; the
+  # actual create-schedule call will fail loudly. Point SCHEDULER_URL at a
+  # real cluster (e.g. kind + helm-installed caipe-scheduler with port-forward)
+  # to exercise the full path locally.
+  mcp-scheduler:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=scheduler
+    image: ghcr.io/cnoe-io/mcp-scheduler:${IMAGE_TAG:-localtag}
+    container_name: mcp-scheduler
+    env_file: [.env]
+    ports: ["18023:8000"]
+    volumes:
+      - ./ai_platform_engineering/agents/scheduler/mcp/mcp_scheduler:/app/mcp_scheduler
+    environment:
+      - MCP_MODE=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      # Default points at the in-cluster service name; override in .env for
+      # local kind+port-forward (e.g. http://host.docker.internal:8080).
+      - SCHEDULER_URL=${SCHEDULER_URL:-http://caipe-scheduler:8080}
+      - SCHEDULER_SERVICE_TOKEN=${SCHEDULER_SERVICE_TOKEN:-dev-only-not-a-real-token}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - pod-meeting
+      - dynamic-agents
+      - all-agents
+
+
   # VictorOps Agent
   agent-victorops:
     build:
