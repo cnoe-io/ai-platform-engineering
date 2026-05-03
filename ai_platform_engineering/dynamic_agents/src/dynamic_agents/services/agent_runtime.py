@@ -198,19 +198,30 @@ class AgentRuntime(StreamingMixin):
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
         else:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            user_email = self._user.email if self._user else None
+            connections, auth_errors = build_mcp_connections(
+                self.mcp_servers, server_ids, user_email=user_email
+            )
 
-            if not connections:
+            if not connections and not auth_errors:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
                 tools = []
             else:
                 # 2. Get tools from MCP servers with per-server error handling
                 # This connects to each server independently so one failure doesn't affect others
                 t_mcp = time.monotonic()
-                all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
+                if connections:
+                    all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
+                else:
+                    all_tools, failed_servers, failed_errors = [], [], {}
+                # Merge auth-resolution failures (e.g. user hasn't connected Webex)
+                # so they surface to the UI as per-server connection failures.
+                for sid, msg in auth_errors.items():
+                    failed_servers.append(sid)
+                    failed_errors[sid] = msg
                 logger.info(
                     f"[init] MCP tools fetched in {time.monotonic() - t_mcp:.2f}s "
-                    f"(agent='{self.config.name}', servers={len(connections)}, "
+                    f"(agent='{self.config.name}', servers={len(connections) + len(auth_errors)}, "
                     f"failed={len(failed_servers)})"
                 )
 
@@ -265,12 +276,15 @@ class AgentRuntime(StreamingMixin):
             f"provider={self.config.model.provider}, model={self.config.model.id}"
         )
         # Configure botocore with extended timeouts for Bedrock to prevent
-        # ReadTimeoutError during long-running agent operations (especially subagents)
-        boto_config = BotocoreConfig(read_timeout=300, connect_timeout=60)
-        llm = LLMFactory(provider=self.config.model.provider).get_llm(
-            model=self.config.model.id,
-            config=boto_config,
-        )
+        # ReadTimeoutError during long-running agent operations (especially
+        # subagents). Only pass `config` for Bedrock — other providers
+        # (ChatOpenAI, ChatAnthropic, etc.) reject it and the OpenAI SDK
+        # raises `AsyncCompletions.create() got an unexpected keyword argument
+        # 'config'` after LangChain forwards it via model_kwargs.
+        llm_kwargs: dict[str, Any] = {"model": self.config.model.id}
+        if (self.config.model.provider or "").lower() == "bedrock":
+            llm_kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
+        llm = LLMFactory(provider=self.config.model.provider).get_llm(**llm_kwargs)
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # 8. Resolve subagents (other dynamic agents that this agent can delegate to)
@@ -525,10 +539,18 @@ class AgentRuntime(StreamingMixin):
         # 1. Build MCP tools from subagent's allowed_tools config
         server_ids = list(subagent_config.allowed_tools.keys())
         if server_ids:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
-            if connections:
-                # Use resilient connection so one failing server doesn't break the subagent
-                all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
+            user_email = self._user.email if self._user else None
+            connections, auth_errors = build_mcp_connections(
+                self.mcp_servers, server_ids, user_email=user_email
+            )
+            if connections or auth_errors:
+                if connections:
+                    all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
+                else:
+                    all_tools, failed, failed_errors = [], [], {}
+                for sid, msg in auth_errors.items():
+                    failed.append(sid)
+                    failed_errors[sid] = msg
                 if failed:
                     error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed]
                     logger.warning(f"Subagent '{subagent_config.name}': failed MCP servers: {'; '.join(error_parts)}")

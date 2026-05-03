@@ -1,0 +1,51 @@
+# caipe-cron-runner — single-shot pod fired by every CronJob.
+#
+# This image is launched many times per day per schedule. It must be small,
+# fast to pull, and minimal-surface. The pod has zero RBAC and zero Mongo
+# access — its only outbound calls are httpx requests to caipe-scheduler
+# and the CAIPE chat API.
+#
+# Two-stage build keeps the runtime image free of build tooling.
+
+# =============================================================================
+# Stage 1: Builder
+# =============================================================================
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
+
+WORKDIR /app/cron-runner
+
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_HTTP_TIMEOUT=300 uv sync --no-dev
+
+RUN find /app/cron-runner/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/cron-runner/.venv -type d -name tests -exec rm -rf {} + 2>/dev/null || true && \
+    find /app/cron-runner/.venv -name "*.pyc"       -delete 2>/dev/null || true
+
+# =============================================================================
+# Stage 2: Runtime
+# =============================================================================
+FROM python:3.13-slim-bookworm
+
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1001 app && \
+    useradd --uid 1001 --gid app --shell /bin/bash --create-home app
+
+COPY --from=builder --chown=app:app /app /app
+
+WORKDIR /app/cron-runner
+
+ENV PATH="/app/cron-runner/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+USER app
+
+# No EXPOSE — the runner makes outbound HTTPS calls and exits.
+# No HEALTHCHECK — Kubernetes treats Job completion as success/failure.
+
+CMD ["caipe-cron-runner"]

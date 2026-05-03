@@ -22,6 +22,7 @@ tags:
   agent-petstore: false
   rag-stack: false
   slack-bot: false
+  scheduler: false
 
 # Global configuration shared across all subcharts
 global:
@@ -797,6 +798,92 @@ dynamic-agents:
       #   remoteRef:
       #     key: dev/dynamic-agents
       #     property: OPENAI_API_KEY
+
+######### Scheduler service configuration #########
+# Cron schedule registry + k8s CronJob orchestrator.
+# Enable with: scheduler.enabled=true
+scheduler:
+  enabled: false
+  # The scheduler service and cron-runner code currently use these stable names
+  # for internal URLs and the shared service-token Secret.
+  fullnameOverride: "caipe-scheduler"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-scheduler"
+    # tag defaults to global.image.tag or the chart appVersion when not specified
+    tag: ""
+    pullPolicy: "IfNotPresent"
+  cronRunner:
+    image:
+      repository: "ghcr.io/cnoe-io/caipe-cron-runner"
+      # tag defaults to global.image.tag or the chart appVersion when not specified
+      tag: ""
+      pullPolicy: "IfNotPresent"
+  # Shared X-Scheduler-Token. In production, prefer existingSecret.
+  serviceToken:
+    existingSecret: ""
+    existingSecretKey: "token"
+    value: ""
+
+######### Standalone MCP server configuration #########
+# MCP servers consumed by Dynamic Agents that are not tied to a platform-agent
+# subchart. Each entry renders a Deployment + ClusterIP Service when enabled.
+standaloneMcpServers:
+  webexMeetings:
+    enabled: false
+    nameOverride: "mcp-webex-meetings"
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-webex-meetings"
+      # tag defaults to global.image.tag or the parent chart appVersion when not specified
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    service:
+      port: 8000
+    env:
+      MCP_MODE: "streamable-http"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+  podMeeting:
+    enabled: false
+    nameOverride: "mcp-pod-meeting"
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-pod-meeting"
+      # tag defaults to global.image.tag or the parent chart appVersion when not specified
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    service:
+      port: 8000
+    env:
+      MCP_MODE: "streamable-http"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+      MONGODB_DATABASE: "caipe"
+    # Example secret env wiring:
+    # secretEnv:
+    #   MONGODB_URI:
+    #     secretName: "caipe-mongodb"
+    #     secretKey: "uri"
+    #   WEBEX_TOKEN:
+    #     secretName: "webex-secrets"
+    #     secretKey: "WEBEX_TOKEN"
+  schedulerMcp:
+    enabled: false
+    nameOverride: "mcp-scheduler"
+    image:
+      repository: "ghcr.io/cnoe-io/mcp-scheduler"
+      # tag defaults to global.image.tag or the parent chart appVersion when not specified
+      tag: ""
+      pullPolicy: "IfNotPresent"
+    service:
+      port: 8000
+    env:
+      MCP_MODE: "streamable-http"
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+      SCHEDULER_URL: "http://caipe-scheduler:8080"
+    secretEnv:
+      SCHEDULER_SERVICE_TOKEN:
+        secretName: "caipe-scheduler-service-token"
+        secretKey: "token"
 
 ######### Slack Bot Integration configuration #########
 # The Slack bot is a client integration (not an agent) that connects to the

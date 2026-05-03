@@ -2,37 +2,123 @@
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from dynamic_agents.models import MCPServerConfig, TransportType
+from dynamic_agents.models import MCPAuthProvider, MCPAuthType, MCPServerConfig, TransportType
+from dynamic_agents.services.vendor_tokens import VendorTokenError, get_webex_access_token
 
 logger = logging.getLogger(__name__)
 
 
-def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
+def _resolve_user_oauth_headers(server: MCPServerConfig, user_email: str | None) -> dict[str, str]:
+    """Resolve ``Authorization`` headers for an MCP server with user_oauth auth.
+
+    Raises:
+        VendorTokenError: if the user has not connected the vendor or the
+            token cannot be refreshed. Caller is expected to surface this
+            as a per-server connection failure (handled in
+            ``get_tools_with_resilience``).
+    """
+    if server.auth is None or server.auth.type != MCPAuthType.USER_OAUTH:
+        return {}
+    if not user_email:
+        raise VendorTokenError(
+            f"MCP server '{server.id}' requires user OAuth but no user is bound to this session"
+        )
+    if server.auth.provider == MCPAuthProvider.WEBEX:
+        token = get_webex_access_token(user_email)
+        return {"Authorization": f"Bearer {token}"}
+    raise VendorTokenError(
+        f"MCP server '{server.id}' has unsupported user_oauth provider: {server.auth.provider}"
+    )
+
+
+def _resolve_bot_token_headers(server: MCPServerConfig) -> dict[str, str]:
+    """Resolve ``Authorization`` headers for an MCP server with bot_token auth.
+
+    Reads the bot token from the environment variable named in
+    ``server.auth.secret_ref``. The MCP server itself must be patched to
+    honor the inbound ``Authorization`` header (rather than reading the
+    token from its own env at boot) for this to do anything useful —
+    otherwise the upstream MCP will use whatever token it was started
+    with regardless.
+    """
+    if server.auth is None or server.auth.type != MCPAuthType.BOT_TOKEN:
+        return {}
+    secret_ref = server.auth.secret_ref
+    if not secret_ref:
+        raise VendorTokenError(
+            f"MCP server '{server.id}': auth.secret_ref is required for bot_token"
+        )
+    token = os.environ.get(secret_ref)
+    if not token:
+        raise VendorTokenError(
+            f"MCP server '{server.id}': env var '{secret_ref}' is not set"
+        )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _resolve_auth_headers(
+    server: MCPServerConfig, user_email: str | None
+) -> dict[str, str]:
+    """Dispatch to the right auth resolver based on ``server.auth.type``."""
+    if server.auth is None:
+        return {}
+    if server.auth.type == MCPAuthType.USER_OAUTH:
+        return _resolve_user_oauth_headers(server, user_email)
+    if server.auth.type == MCPAuthType.BOT_TOKEN:
+        return _resolve_bot_token_headers(server)
+    raise VendorTokenError(
+        f"MCP server '{server.id}': unsupported auth.type: {server.auth.type}"
+    )
+
+
+def build_mcp_connection_config(
+    server: MCPServerConfig,
+    *,
+    user_email: str | None = None,
+) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
     Args:
         server: MCP server configuration
+        user_email: Authenticated user's email (required when the server
+            uses ``auth.type=user_oauth``).
 
     Returns:
         Connection config dict compatible with langchain_mcp_adapters
     """
     if server.transport == TransportType.SSE:
-        return {
+        config: dict[str, Any] = {
             "url": server.endpoint,
             "transport": "sse",
         }
+        headers = _resolve_auth_headers(server, user_email)
+        if headers:
+            config["headers"] = headers
+        return config
     elif server.transport == TransportType.HTTP:
-        return {
+        config = {
             "url": server.endpoint,
             "transport": "streamable_http",
         }
+        headers = _resolve_auth_headers(server, user_email)
+        if headers:
+            config["headers"] = headers
+        return config
     else:  # stdio
-        config: dict[str, Any] = {
+        if server.auth is not None and server.auth.type in (
+            MCPAuthType.USER_OAUTH,
+            MCPAuthType.BOT_TOKEN,
+        ):
+            raise VendorTokenError(
+                f"MCP server '{server.id}': auth.type={server.auth.type.value} is not supported on stdio transport"
+            )
+        config = {
             "command": server.command,
             "transport": "stdio",
         }
@@ -46,17 +132,27 @@ def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
 def build_mcp_connections(
     servers: list[MCPServerConfig],
     server_ids: list[str],
-) -> dict[str, dict[str, Any]]:
+    *,
+    user_email: str | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
     Args:
         servers: List of all available MCP server configs
         server_ids: List of server IDs to include
+        user_email: Authenticated user's email (required for any server
+            with ``auth.type=user_oauth``).
 
     Returns:
-        Dict mapping server_id to connection config
+        Tuple of:
+        - connections dict (server_id -> connection config)
+        - auth_errors dict (server_id -> error message) for servers that
+          could not be resolved because the user has not connected the
+          vendor or the token refresh failed. The caller is expected to
+          merge these into the overall failed_errors map.
     """
     connections: dict[str, dict[str, Any]] = {}
+    auth_errors: dict[str, str] = {}
 
     server_map = {s.id: s for s in servers}
 
@@ -69,9 +165,13 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
-        connections[server_id] = build_mcp_connection_config(server)
+        try:
+            connections[server_id] = build_mcp_connection_config(server, user_email=user_email)
+        except VendorTokenError as exc:
+            logger.warning(f"MCP server '{server_id}' auth resolution failed: {exc}")
+            auth_errors[server_id] = str(exc)
 
-    return connections
+    return connections, auth_errors
 
 
 def filter_tools_by_allowed(

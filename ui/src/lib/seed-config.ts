@@ -226,6 +226,8 @@ async function seedMCPServers(
       command: (serverData.command as string) ?? undefined,
       args: (serverData.args as string[]) ?? undefined,
       env: (serverData.env as Record<string, string>) ?? undefined,
+      auth:
+        (serverData.auth as MCPServerConfig["auth"]) ?? undefined,
       enabled: (serverData.enabled as boolean) ?? true,
       config_driven: true,
       created_at: createdAt,

@@ -1,0 +1,162 @@
+{{- /*
+Standalone MCP servers for Dynamic Agents.
+These are MCP-only services that do not have a platform-agent subchart, such as
+mcp-webex-meetings and mcp-scheduler.
+*/ -}}
+{{- range $key, $server := .Values.standaloneMcpServers }}
+{{- if $server.enabled }}
+{{- $name := $server.nameOverride | default (printf "mcp-%s" ($key | lower)) }}
+{{- $image := $server.image | default dict }}
+{{- $service := $server.service | default dict }}
+{{- $port := $service.port | default 8000 }}
+{{- if $image.repository }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    helm.sh/chart: {{ include "ai-platform-engineering.chart" $ }}
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    {{- if $.Chart.AppVersion }}
+    app.kubernetes.io/version: {{ $.Chart.AppVersion | quote }}
+    {{- end }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/part-of: dynamic-agents
+spec:
+  replicas: {{ $server.replicaCount | default 1 }}
+  revisionHistoryLimit: {{ $server.revisionHistoryLimit | default 3 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/component: mcp
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: {{ include "ai-platform-engineering.chart" $ }}
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        {{- if $.Chart.AppVersion }}
+        app.kubernetes.io/version: {{ $.Chart.AppVersion | quote }}
+        {{- end }}
+        app.kubernetes.io/managed-by: {{ $.Release.Service }}
+        app.kubernetes.io/component: mcp
+        app.kubernetes.io/part-of: dynamic-agents
+        {{- with $server.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $server.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $server.serviceAccountName | default "default" }}
+      automountServiceAccountToken: {{ $server.automountServiceAccountToken | default false }}
+      {{- with $server.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $server.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mcp
+          {{- with $server.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ $image.repository }}:{{ $image.tag | default (include "ai-platform-engineering.appVersion" $) }}"
+          imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ $port }}
+              protocol: TCP
+          {{- if or $server.env $server.secretEnv $server.extraEnv }}
+          env:
+            {{- range $envName, $envValue := $server.env }}
+            - name: {{ $envName }}
+              value: {{ $envValue | quote }}
+            {{- end }}
+            {{- range $envName, $ref := $server.secretEnv }}
+            - name: {{ $envName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName | quote }}
+                  key: {{ $ref.secretKey | default $envName | quote }}
+                  {{- if hasKey $ref "optional" }}
+                  optional: {{ $ref.optional }}
+                  {{- end }}
+            {{- end }}
+            {{- with $server.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with $server.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $server.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $server.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $server.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $server.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with $server.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    helm.sh/chart: {{ include "ai-platform-engineering.chart" $ }}
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    {{- if $.Chart.AppVersion }}
+    app.kubernetes.io/version: {{ $.Chart.AppVersion | quote }}
+    {{- end }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/part-of: dynamic-agents
+spec:
+  type: {{ $service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ $port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+{{- end }}
+{{- end }}
+{{- end }}

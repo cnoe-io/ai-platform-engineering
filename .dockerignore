@@ -130,3 +130,10 @@ docs/_build/
 .env
 .env.local
 .env.*.local
+
+# UI build artifacts (host-side; rebuilt fresh inside the image)
+ui/node_modules
+ui/.next
+ui/.turbo
+**/node_modules
+**/.next

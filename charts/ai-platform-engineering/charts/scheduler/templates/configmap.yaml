@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "scheduler.fullname" . }}-config
+  labels:
+    {{- include "scheduler.labels" . | nindent 4 }}
+data:
+  MONGODB_DATABASE: {{ .Values.mongo.database | quote }}
+  SCHEDULES_COLLECTION: {{ .Values.mongo.schedulesCollection | quote }}
+  SCHEDULER_NAMESPACE: {{ .Release.Namespace | quote }}
+  CRON_RUNNER_IMAGE: "{{ .Values.cronRunner.image.repository }}:{{ .Values.cronRunner.image.tag | default (include "scheduler.appVersion" .) }}"
+  CRON_RUNNER_SERVICE_ACCOUNT: {{ include "scheduler.cronRunnerServiceAccountName" . | quote }}
+  SCHEDULER_INTERNAL_URL: "http://{{ include "scheduler.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
+  CAIPE_API_URL: {{ .Values.caipe.apiUrl | quote }}
+  CAIPE_CHAT_PATH: {{ .Values.caipe.chatPath | quote }}
+  CAIPE_API_TOKEN_SECRET: {{ .Values.caipe.apiTokenSecret | quote }}
+  CAIPE_API_TOKEN_SECRET_KEY: {{ .Values.caipe.apiTokenSecretKey | quote }}
+  MAX_SCHEDULES_PER_OWNER: {{ .Values.limits.maxSchedulesPerOwner | quote }}
+  MAX_MESSAGE_CHARS: {{ .Values.limits.maxMessageChars | quote }}
+  PORT: {{ .Values.service.port | quote }}

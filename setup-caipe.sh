@@ -12,6 +12,8 @@ set -euo pipefail
 # ─── Defaults ────────────────────────────────────────────────────────────────
 CAIPE_CHART_VERSION="${CAIPE_CHART_VERSION:-}"
 CAIPE_OCI_REPO="oci://ghcr.io/cnoe-io/charts/ai-platform-engineering"
+DEFAULT_OPENAI_ENDPOINT="https://api.openai.com/v1"
+DEFAULT_OPENAI_MODEL_NAME="gpt-5.2"
 LANGFUSE_PORT=3100
 SUPERVISOR_PORT=8000
 UI_PORT=3000
@@ -32,8 +34,8 @@ ENABLE_RAG=false
 ENABLE_TRACING=false
 ENABLE_PERSISTENCE=false
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
-OPENAI_ENDPOINT="https://api.openai.com/v1"
-OPENAI_MODEL_NAME="gpt-5.2"
+OPENAI_ENDPOINT="${OPENAI_ENDPOINT:-}"
+OPENAI_MODEL_NAME="${OPENAI_MODEL_NAME:-}"
 LITELLM_ENDPOINT="${LITELLM_ENDPOINT:-}"
 LITELLM_API_KEY="${LITELLM_API_KEY:-}"
 LITELLM_MODEL_NAME="${LITELLM_MODEL_NAME:-gpt-oss-20B}"
@@ -983,6 +985,22 @@ _collect_openai_credentials() {
       exit 1
     fi
     log "API key received"
+  fi
+
+  if [[ -n "${OPENAI_ENDPOINT:-}" ]]; then
+    if ! $ENABLE_VLLM && ! $ENABLE_OLLAMA; then
+      log "Using OPENAI_ENDPOINT from environment"
+    fi
+  else
+    OPENAI_ENDPOINT="$DEFAULT_OPENAI_ENDPOINT"
+  fi
+
+  if [[ -n "${OPENAI_MODEL_NAME:-}" ]]; then
+    if ! $ENABLE_VLLM && ! $ENABLE_OLLAMA; then
+      log "Using OPENAI_MODEL_NAME from environment"
+    fi
+  else
+    OPENAI_MODEL_NAME="$DEFAULT_OPENAI_MODEL_NAME"
   fi
 
   if ! $NON_INTERACTIVE; then
@@ -5008,7 +5026,8 @@ BANNER
       AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE
       BEDROCK_TEMPERATURE
       AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_API_VERSION
-      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_API_BASE)
+      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_ENDPOINT OPENAI_MODEL_NAME
+      OPENAI_API_BASE)
     for _v in "${_llm_vars[@]}"; do
       local _val
       _val=$(_env_get "$ENV_FILE" "$_v")
