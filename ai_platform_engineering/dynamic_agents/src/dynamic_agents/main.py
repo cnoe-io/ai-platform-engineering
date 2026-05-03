@@ -4,6 +4,10 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
+import dotenv
+
+dotenv.load_dotenv()  # Ensure .env is in os.environ before any boto3/httpx clients are created
+
 from dynamic_agents.log_config import setup_logging
 
 # Setup logging before other imports that trigger cnoe-agent-utils

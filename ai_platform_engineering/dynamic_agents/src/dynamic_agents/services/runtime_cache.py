@@ -76,6 +76,10 @@ class AgentRuntimeCache:
         # Shared MongoClient for all runtimes (checkpointer).
         # Created lazily on first get_or_create.
         self._shared_mongo_client: MongoClient | None = None
+        # Single-flight: futures for in-progress initializations.
+        # Prevents duplicate init when concurrent requests hit the same key.
+        # Self-cleaning: removed in finally block after init completes/fails.
+        self._pending: dict[str, asyncio.Future["AgentRuntime"]] = {}
 
         # Flat cap on concurrent cached runtimes
         if max_size is not None:
@@ -144,6 +148,10 @@ class AgentRuntimeCache:
     ) -> "AgentRuntime":
         """Get an existing runtime or create a new one.
 
+        Uses a single-flight pattern: if multiple concurrent requests arrive
+        for the same key, only the first performs initialization. Others await
+        the same future, receiving the same runtime (or the same exception).
+
         Raises:
             RuntimeCapacityError: If the cache is full and all runtimes are streaming.
             RuntimeInitError: If the new runtime fails to initialize.
@@ -152,10 +160,9 @@ class AgentRuntimeCache:
 
         key = self._make_key(agent_config.id, session_id)
 
-        # Check if we have a cached runtime
+        # Fast path: cached and valid
         if key in self._cache:
             runtime = self._cache[key]
-            # Invalidate if config has changed or TTL expired
             if runtime.is_stale(agent_config, mcp_servers):
                 logger.info(
                     "Runtime cache invalidated due to config change for agent %s",
@@ -174,6 +181,38 @@ class AgentRuntimeCache:
             else:
                 runtime.touch()
                 return runtime
+
+        # Someone else is already initializing this key — wait for their result
+        if key in self._pending:
+            return await self._pending[key]
+
+        # We're the first — create a future and perform initialization
+        loop = asyncio.get_event_loop()
+        fut: asyncio.Future["AgentRuntime"] = loop.create_future()
+        self._pending[key] = fut
+
+        try:
+            runtime = await self._create_runtime(key, agent_config, mcp_servers, session_id, user, client_context)
+            self._cache[key] = runtime
+            fut.set_result(runtime)
+            return runtime
+        except Exception as e:
+            fut.set_exception(e)
+            raise
+        finally:
+            self._pending.pop(key, None)
+
+    async def _create_runtime(
+        self,
+        key: str,
+        agent_config: DynamicAgentConfig,
+        mcp_servers: list[MCPServerConfig],
+        session_id: str,
+        user: UserContext | None,
+        client_context: ClientContext | None,
+    ) -> "AgentRuntime":
+        """Create and initialize a new runtime. Called under single-flight guard."""
+        from dynamic_agents.services.agent_runtime import AgentRuntime
 
         # Evict if at capacity
         if len(self._cache) >= self._max_size:
@@ -205,7 +244,6 @@ class AgentRuntimeCache:
             logger.exception("Runtime initialization failed for agent '%s'", agent_config.id)
             raise RuntimeInitError(agent_config.id, e) from e
 
-        self._cache[key] = runtime
         return runtime
 
     async def _evict_lru(self) -> None:
@@ -341,6 +379,17 @@ class AgentRuntimeCache:
         else:
             rss_mb = round(rusage.ru_maxrss / 1024, 1)
 
+        # Current RSS from /proc (Linux) — more useful for capacity planning
+        rss_current_mb = None
+        try:
+            with open(f"/proc/{os.getpid()}/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        rss_current_mb = round(int(line.split()[1]) / 1024, 1)
+                        break
+        except (OSError, ValueError):
+            pass
+
         return {
             "count": len(self._cache),
             "max_size": self._max_size,
@@ -348,6 +397,7 @@ class AgentRuntimeCache:
             "process": {
                 "pid": os.getpid(),
                 "rss_peak_mb": rss_mb,
+                "rss_current_mb": rss_current_mb,
             },
             "runtimes": runtimes,
         }
