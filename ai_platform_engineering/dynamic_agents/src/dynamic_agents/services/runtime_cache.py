@@ -156,8 +156,6 @@ class AgentRuntimeCache:
             RuntimeCapacityError: If the cache is full and all runtimes are streaming.
             RuntimeInitError: If the new runtime fails to initialize.
         """
-        from dynamic_agents.services.agent_runtime import AgentRuntime
-
         key = self._make_key(agent_config.id, session_id)
 
         # Fast path: cached and valid
