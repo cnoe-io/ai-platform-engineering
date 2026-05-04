@@ -20,9 +20,11 @@
  *                   `./.agents/skills/<name>/SKILL.md`
  *
  * The agent picker only affects:
- *   - which `argRef` substitution token (`$ARGUMENTS` vs `$1`) is baked
- *     into the helper templates, and
- *   - which launch-guide footer the success card prints.
+ *   - which launch-guide footer the success card prints (every agent
+ *     receives the same `$ARGUMENTS` token in the rendered SKILL.md
+ *     body — only Claude actually substitutes it; the other four
+ *     read SKILL.md verbatim and surface the token as instructional
+ *     text the model interprets).
  *
  * Modes
  * -----

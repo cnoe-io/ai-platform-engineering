@@ -6,9 +6,20 @@
  * Cursor, Codex CLI, Gemini CLI, opencode) consumes the same
  * `agentskills.io` standard format. The agent picker only affects:
  *
- *   - Which `argRef` placeholder is substituted (`$ARGUMENTS` for
- *     Claude/Cursor/opencode, `$1` for Codex/Gemini whose slash-command
- *     runtimes use positional args).
+ *   - Which `argRef` placeholder is substituted into `{{ARG_REF}}`. Per
+ *     the upstream agent docs, ONLY Claude Code does template
+ *     substitution in the SKILL.md body (`$ARGUMENTS`, `$N`, `$name`).
+ *     Cursor, Codex CLI, Gemini CLI, and opencode all read SKILL.md
+ *     verbatim and let the model interpret user input -- no per-agent
+ *     argRef token is required for those four. We standardize on
+ *     `$ARGUMENTS` for everyone: Claude renders it, the other four
+ *     treat it as instructional text the model can reason about.
+ *     References:
+ *       https://docs.claude.com/en/docs/claude-code/skills (substitution table)
+ *       https://cursor.com/docs/skills (frontmatter only; no substitution)
+ *       https://developers.openai.com/codex/skills (no substitution mechanism documented)
+ *       https://geminicli.com/docs/cli/skills/ (no substitution mechanism documented)
+ *       https://opencode.ai/docs/skills/ (only name/description/license/compatibility/metadata recognized)
  *   - Which `launchGuide` text is shown after install.
  *
  * Every install writes to TWO universal locations per scope so a single
@@ -73,14 +84,18 @@ export interface AgentSpec {
    */
   installPaths: Partial<Record<AgentScope, readonly string[]>>;
   /**
-   * Reference syntax for "the user's argument" in the agent's
-   * slash-command surface. Substituted into the template's
-   * `{{ARG_REF}}` placeholder.
+   * Reference syntax for "the user's argument" in the rendered
+   * SKILL.md body. Substituted into the template's `{{ARG_REF}}`
+   * placeholder.
    *
-   * - `$ARGUMENTS` — Claude Code, Cursor, opencode
-   * - `$1`         — Codex CLI, Gemini CLI (positional args)
+   * Only Claude Code performs template substitution per its skills
+   * docs. Cursor, Codex CLI, Gemini CLI, and opencode read SKILL.md
+   * verbatim, so the token surfaces as plain instructional text the
+   * model interprets. We standardize on `$ARGUMENTS` (Claude's
+   * canonical token) across every agent to keep the rendered file
+   * byte-identical and discoverable on either tree.
    */
-  argRef: "$ARGUMENTS" | "$1";
+  argRef: "$ARGUMENTS";
   /**
    * Short, copy-pasteable launch + invocation guidance shown in the UI
    * after the install step. Markdown allowed. Use `{name}` for the
@@ -153,8 +168,10 @@ export const AGENTS: Record<string, AgentSpec> = {
       user: UNIVERSAL_USER_PATHS,
       project: UNIVERSAL_PROJECT_PATHS,
     },
-    // Codex CLI substitutes positional args; $1 is the first argument.
-    argRef: "$1",
+    // Codex CLI reads SKILL.md verbatim with no template substitution
+    // (per https://developers.openai.com/codex/skills). The token is
+    // surfaced as instructional text the model reasons about.
+    argRef: "$ARGUMENTS",
     docsUrl: "https://developers.openai.com/codex/skills",
     launchGuide: [
       "**Install Codex CLI**:",
@@ -168,9 +185,10 @@ export const AGENTS: Record<string, AgentSpec> = {
       "codex",
       "```",
       "",
-      "**Use the skill**:",
-      "- `/{name}` &mdash; browse the catalog",
-      "- `/{name} kubernetes` &mdash; search (with `$1=\"kubernetes\"`)",
+      "**Use the skill** (e.g. `{name}`):",
+      "- Just describe what you want &mdash; Codex auto-loads matching skills",
+      "  from the catalog when the model decides they're relevant.",
+      "- Or invoke explicitly: `Use the {name} skill to <task>`",
       "",
       "Codex CLI auto-discovers skills from the vendor-neutral `~/.agents/skills/` directory (user-global) and `./.agents/skills/` (per-repo). Codex picks them up on next launch.",
     ].join("\n"),
@@ -183,8 +201,10 @@ export const AGENTS: Record<string, AgentSpec> = {
       user: UNIVERSAL_USER_PATHS,
       project: UNIVERSAL_PROJECT_PATHS,
     },
-    // Gemini CLI uses $1 (or {{args}}); $1 is portable across recent versions.
-    argRef: "$1",
+    // Gemini CLI reads SKILL.md verbatim with no template substitution
+    // (per https://geminicli.com/docs/cli/skills/). The token is
+    // surfaced as instructional text the model reasons about.
+    argRef: "$ARGUMENTS",
     docsUrl: "https://geminicli.com/docs/cli/skills/",
     launchGuide: [
       "**Install Gemini CLI**:",
@@ -197,9 +217,10 @@ export const AGENTS: Record<string, AgentSpec> = {
       "gemini",
       "```",
       "",
-      "**Use the skill**:",
-      "- `/{name}` &mdash; browse the catalog",
-      "- `/{name} \"docker\"` &mdash; search (quote multi-word args; `$1` receives the string)",
+      "**List & use the skill** (e.g. `{name}`):",
+      "- `/skills list` &mdash; show every skill Gemini has discovered",
+      "- Then describe what you want &mdash; Gemini picks the right skill",
+      "  automatically based on its description (e.g. `Use the {name} skill to <task>`).",
       "",
       "Skills live in `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo). Gemini reloads skills on each invocation.",
     ].join("\n"),

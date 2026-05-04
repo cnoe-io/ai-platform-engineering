@@ -114,8 +114,12 @@ describe('AGENTS registry', () => {
       // once so users learn the actual invocation syntax.
       expect(agent.launchGuide).toContain('{name}');
 
-      // argRef must be one of the two known patterns.
-      expect(['$ARGUMENTS', '$1']).toContain(agent.argRef);
+      // argRef is now standardized on Claude's `$ARGUMENTS` token for
+      // every agent. Only Claude does template substitution per its
+      // upstream docs; the other four read SKILL.md verbatim and
+      // surface the token as instructional text the model interprets.
+      // See agents.ts module header for citations.
+      expect(agent.argRef).toBe('$ARGUMENTS');
     });
 
     it('docs URL, when present, is https', () => {
@@ -125,12 +129,19 @@ describe('AGENTS registry', () => {
     });
   });
 
-  it('claude/cursor/opencode use $ARGUMENTS; codex/gemini use $1', () => {
-    expect(AGENTS.claude.argRef).toBe('$ARGUMENTS');
-    expect(AGENTS.cursor.argRef).toBe('$ARGUMENTS');
-    expect(AGENTS.opencode.argRef).toBe('$ARGUMENTS');
-    expect(AGENTS.codex.argRef).toBe('$1');
-    expect(AGENTS.gemini.argRef).toBe('$1');
+  it('every agent uses the unified $ARGUMENTS argRef token', () => {
+    // Cleanup (2026-05-04): previously codex/gemini were configured
+    // with `$1` on the assumption their slash-command runtimes did
+    // positional substitution. The published docs for both confirm
+    // they do NOT substitute SKILL.md bodies at all -- they just
+    // read the file and let the model reason about user intent.
+    // Standardizing on `$ARGUMENTS` keeps the rendered file
+    // byte-identical across every install location, which simplifies
+    // the dual-tree (`~/.claude/skills/` + `~/.agents/skills/`)
+    // installer and the manifest.
+    for (const agent of Object.values(AGENTS)) {
+      expect(agent.argRef).toBe('$ARGUMENTS');
+    }
   });
 
   it('every agent installs to BOTH the agent-specific tree AND the vendor-neutral mirror', () => {
@@ -276,14 +287,17 @@ describe('renderForAgent — universal SKILL.md output', () => {
     },
   );
 
-  it('claude: $ARGUMENTS substitution; codex: $1 substitution', () => {
-    const claude = renderForAgent(AGENTS.claude, baseInputs({ scope: 'user' }));
-    expect(claude.template).toContain('$ARGUMENTS');
-    expect(claude.template).not.toContain('$1');
-
-    const codex = renderForAgent(AGENTS.codex, baseInputs({ scope: 'user' }));
-    expect(codex.template).toContain('$1');
-    expect(codex.template).not.toContain('$ARGUMENTS');
+  it('every agent renders the unified $ARGUMENTS token in the SKILL.md body', () => {
+    // Cleanup (2026-05-04): codex/gemini previously rendered with `$1`.
+    // Their docs confirm no substitution happens server-side, so the
+    // token's only role is instructional. Standardizing on
+    // `$ARGUMENTS` keeps the rendered file byte-identical across
+    // every install location.
+    for (const agent of Object.values(AGENTS)) {
+      const out = renderForAgent(agent, baseInputs({ scope: 'user' }));
+      expect(out.template).toContain('$ARGUMENTS');
+      expect(out.template).not.toContain('$1');
+    }
   });
 
   it('substitutes a custom command name into both body and install paths', () => {
@@ -372,8 +386,13 @@ describe('renderForAgent — universal SKILL.md output', () => {
 
 describe('renderForAgent — launch_guide', () => {
   it('substitutes {name} with the slash-command name', () => {
+    // Each launchGuide references `{name}` at least once (enforced by
+    // the schema test above). After the 2026-05-04 cleanup the Gemini
+    // guide invokes the skill descriptively (e.g. "Use the cat skill")
+    // rather than via `/<name>`, so we assert the name appears -- the
+    // exact prefix (`/` vs descriptive prose) is agent-specific.
     const out = renderForAgent(AGENTS.gemini, baseInputs({ commandName: 'cat' }));
-    expect(out.launch_guide).toContain('/cat');
+    expect(out.launch_guide).toContain('cat');
     expect(out.launch_guide).not.toContain('{name}');
   });
 
