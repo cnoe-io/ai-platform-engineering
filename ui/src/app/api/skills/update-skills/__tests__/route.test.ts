@@ -60,12 +60,11 @@ afterAll(() => {
   process.env = { ...ORIG_ENV };
 });
 
+// After the skills-only overhaul `?layout=` is silently accepted and
+// ignored. We pass through whatever URL the test author wrote -- no
+// auto-injection of legacy params is necessary.
 const callGET = async (url: string) => {
-  const u = new URL(url);
-  if (!u.searchParams.has('layout')) {
-    u.searchParams.set('layout', 'commands');
-  }
-  const res = await GET(new Request(u.toString()));
+  const res = await GET(new Request(url));
   return res.json() as Promise<any>;
 };
 
@@ -169,8 +168,10 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
       'https://app.example.com/api/skills/update-skills?scope=user',
     );
 
-    // Spot-check the contract surface that the UI + install.sh both
-    // depend on. If any of these go missing we want a loud failure.
+    // Spot-check the post-overhaul contract surface that the UI +
+    // install.sh both depend on. Layout/format/fragment fields were
+    // removed; if any of these REMAINING fields go missing we want a
+    // loud failure.
     expect(data).toMatchObject({
       agent: expect.any(String),
       agent_fallback: expect.any(Boolean),
@@ -181,12 +182,7 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
       scope_requested: 'user',
       scope_fallback: expect.any(Boolean),
       scopes_available: expect.any(Array),
-      file_extension: expect.any(String),
-      format: expect.any(String),
-      is_fragment: expect.any(Boolean),
       launch_guide: expect.any(String),
-      layout: expect.any(String),
-      layouts_available: expect.any(Array),
       agents: expect.any(Array),
       source: expect.any(String),
       inputs: expect.objectContaining({
@@ -201,13 +197,28 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
         '{{ARG_REF}}',
       ]),
     });
+
+    // install_paths[scope] is an ARRAY of universal-target paths.
+    expect(Array.isArray(data.install_paths.user)).toBe(true);
+    expect(data.install_paths.user).toContain(
+      '~/.claude/skills/update-skills/SKILL.md',
+    );
+    expect(data.install_paths.user).toContain(
+      '~/.agents/skills/update-skills/SKILL.md',
+    );
+
+    // Dropped legacy fields must not reappear.
+    expect(data.format).toBeUndefined();
+    expect(data.file_extension).toBeUndefined();
+    expect(data.is_fragment).toBeUndefined();
+    expect(data.layout).toBeUndefined();
+    expect(data.layouts_available).toBeUndefined();
   });
 
   it('sets Cache-Control: no-store', async () => {
-    const u = new URL('https://app.example.com/api/skills/update-skills');
-    u.searchParams.set('layout', 'commands');
-    const res = await GET(new Request(u.toString()));
-
+    const res = await GET(
+      new Request('https://app.example.com/api/skills/update-skills'),
+    );
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 });
