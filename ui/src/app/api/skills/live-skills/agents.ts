@@ -1,105 +1,92 @@
 /**
  * Agent registry + per-agent rendering for the live-skills skill.
  *
- * One canonical Markdown template (with `---\ndescription:\n---` frontmatter
- * and `{{COMMAND_NAME}}`, `{{DESCRIPTION}}`, `{{BASE_URL}}`, `{{ARG_REF}}`
- * placeholders) is parsed once, then re-wrapped per agent surface
- * (Markdown frontmatter, plain Markdown, Gemini TOML, or Continue JSON
- * fragment).
+ * One canonical Markdown template is parsed once, then re-emitted as a
+ * single `SKILL.md` per agent — every supported coding agent (Claude Code,
+ * Cursor, Codex CLI, Gemini CLI, opencode) consumes the same
+ * `agentskills.io` standard format. The agent picker only affects:
  *
- * Adding a new agent = one entry in AGENTS + one case in renderForAgent().
+ *   - Which `argRef` placeholder is substituted (`$ARGUMENTS` for
+ *     Claude/Cursor/opencode, `$1` for Codex/Gemini whose slash-command
+ *     runtimes use positional args).
+ *   - Which `launchGuide` text is shown after install.
+ *
+ * Every install writes to TWO universal locations per scope so a single
+ * install satisfies every supported agent simultaneously:
+ *
+ *   user scope    → `~/.claude/skills/<name>/SKILL.md`
+ *                   `~/.agents/skills/<name>/SKILL.md`
+ *   project scope → `.claude/skills/<name>/SKILL.md`
+ *                   `.agents/skills/<name>/SKILL.md`
+ *
+ * Adding a new agent = one entry in AGENTS.
+ *
+ * History: this module previously supported a `commands`-vs-`skills`
+ * layout toggle and four per-agent file formats (markdown-frontmatter,
+ * markdown-plain, gemini-toml, continue-json-fragment). All five target
+ * agents have since standardized on the agentskills.io `SKILL.md` format,
+ * so the toggle and the per-format renderers were removed. See
+ * docs/docs/specs/2026-05-04-skills-only-overhaul/spec.md for the
+ * design rationale.
  */
-
-export type AgentFormat =
-  | "markdown-frontmatter"
-  | "markdown-plain"
-  | "gemini-toml"
-  | "continue-json-fragment";
 
 /**
  * Where on disk the rendered artifact lives.
  *
  * - `user`    — user-global (under `~`), reused across every project
  * - `project` — project-local (under the current repo), version-controllable
- *
- * Not every agent supports both scopes:
- * - Codex CLI only loads prompts from `~/.codex/prompts/` (project scope is
- *   "not planned" upstream — openai/codex#9848). Project scope is `undefined`.
- * - Spec Kit's slash commands live in `./.specify/templates/commands/` and
- *   are re-synced into agent dirs by `specify` itself; user-scope is an open
- *   feature request (github/spec-kit#317). User scope is `undefined`.
  */
 export type AgentScope = "user" | "project";
 
 /**
- * Agent file-system layout for skill artifacts.
+ * Universal install paths — every agent gets the same two paths per
+ * scope. `{name}` is replaced with the slash command name. Tilde paths
+ * (`~/...`) are expanded at install time by the shell or the generated
+ * install.sh. Project paths intentionally use a leading `./` so they're
+ * unambiguous in shell snippets.
  *
- * - `commands` — legacy slash-command layout (`<dir>/commands/{name}.<ext>`),
- *   one file per command. This is what shipped first, and is the only
- *   layout supported by Codex CLI, Spec Kit, Continue, and Gemini today.
- * - `skills`  — modern skills layout (`<dir>/skills/{name}/SKILL.md`), one
- *   directory per skill containing a canonical `SKILL.md`. Standardized by
- *   Claude Code (Oct 2025), Cursor, and opencode; all three back-scan
- *   `.claude/skills/` for cross-agent compatibility.
- *
- * The live-skills UI exposes this as a per-agent toggle for agents that
- * support both layouts (Claude, Cursor today). Agents without a
- * `skillsPaths` entry only support `commands`.
+ * The `~/.agents/skills/` mirror is the vendor-neutral discovery path
+ * read by Codex CLI, Gemini CLI, and opencode (and harmlessly ignored
+ * by agents that don't look there).
  */
-export type AgentLayout = "commands" | "skills";
+const UNIVERSAL_USER_PATHS: readonly string[] = [
+  "~/.claude/skills/{name}/SKILL.md",
+  "~/.agents/skills/{name}/SKILL.md",
+];
+
+const UNIVERSAL_PROJECT_PATHS: readonly string[] = [
+  "./.claude/skills/{name}/SKILL.md",
+  "./.agents/skills/{name}/SKILL.md",
+];
 
 export interface AgentSpec {
-  /** Stable id used in URLs (e.g. ?agent=gemini). */
+  /** Stable id used in URLs (e.g. `?agent=gemini`). */
   id: string;
   /** Human-readable label for the UI dropdown. */
   label: string;
-  /** File extension for the rendered artifact (no leading dot). */
-  ext: string;
   /**
-   * Install paths per scope, for the legacy `commands` layout. `{name}` is
-   * replaced with the slash command name.
-   * Tilde paths (`~/...`) are expanded at install time by the shell or the
-   * generated install.sh. Project paths use a leading `./` so they're
-   * unambiguous in shell snippets.
+   * Install paths per scope. Each scope maps to an array of universal
+   * paths (typically two — the agent-specific tree + the vendor-neutral
+   * `~/.agents/skills/` mirror). Every entry MUST end in
+   * `/{name}/SKILL.md` so callers can derive the parent skill directory
+   * by stripping the trailing two segments.
+   */
+  installPaths: Partial<Record<AgentScope, readonly string[]>>;
+  /**
+   * Reference syntax for "the user's argument" in the agent's
+   * slash-command surface. Substituted into the template's
+   * `{{ARG_REF}}` placeholder.
    *
-   * If a scope key is missing, the agent does not support that scope and the
-   * UI should disable the radio for it.
+   * - `$ARGUMENTS` — Claude Code, Cursor, opencode
+   * - `$1`         — Codex CLI, Gemini CLI (positional args)
    */
-  installPaths: Partial<Record<AgentScope, string>>;
+  argRef: "$ARGUMENTS" | "$1";
   /**
-   * Install paths per scope for the modern `skills` layout
-   * (`<dir>/skills/{name}/SKILL.md`). Optional: present only for agents
-   * that support the skills layout (Claude, Cursor today).
-   *
-   * The path MUST end in `/{name}/SKILL.md` so `commandsDirFor()` can
-   * strip the trailing two segments to find the parent skills directory
-   * for bulk installs.
-   */
-  skillsPaths?: Partial<Record<AgentScope, string>>;
-  /**
-   * Default layout for this agent. If `skillsPaths` is present and this
-   * is unset, `skills` is used as the default. If `skillsPaths` is absent,
-   * `commands` is the only choice regardless of this field.
-   */
-  defaultLayout?: AgentLayout;
-  /** How to wrap the canonical body. */
-  format: AgentFormat;
-  /**
-   * Reference syntax for "the user's argument" in the agent's slash-command
-   * surface. Substituted into the template's `{{ARG_REF}}` placeholder.
-   */
-  argRef: string;
-  /**
-   * Short, copy-pasteable launch + invocation guidance shown in the UI after
-   * the install step. Markdown allowed. Use `{name}` for the slash command.
+   * Short, copy-pasteable launch + invocation guidance shown in the UI
+   * after the install step. Markdown allowed. Use `{name}` for the
+   * slash command name.
    */
   launchGuide: string;
-  /**
-   * If true, the rendered artifact is a *fragment* meant to be merged into
-   * an existing config file (rather than dropped as a standalone file).
-   * The UI renders different install instructions in this case.
-   */
-  isFragment?: boolean;
   /** Optional homepage / docs link. */
   docsUrl?: string;
 }
@@ -108,19 +95,12 @@ export const AGENTS: Record<string, AgentSpec> = {
   claude: {
     id: "claude",
     label: "Claude Code",
-    ext: "md",
     installPaths: {
-      user: "~/.claude/commands/{name}.md",
-      project: "./.claude/commands/{name}.md",
+      user: UNIVERSAL_USER_PATHS,
+      project: UNIVERSAL_PROJECT_PATHS,
     },
-    skillsPaths: {
-      user: "~/.claude/skills/{name}/SKILL.md",
-      project: "./.claude/skills/{name}/SKILL.md",
-    },
-    defaultLayout: "skills",
-    format: "markdown-frontmatter",
     argRef: "$ARGUMENTS",
-    docsUrl: "https://docs.claude.com/en/docs/claude-code",
+    docsUrl: "https://docs.claude.com/en/docs/claude-code/skills",
     launchGuide: [
       "**Install Claude Code**:",
       "```bash",
@@ -133,81 +113,49 @@ export const AGENTS: Record<string, AgentSpec> = {
       "claude",
       "```",
       "",
-      "**Use the command**:",
+      "**Use the skill**:",
       "- `/{name}` &mdash; browse the catalog",
       "- `/{name} kubernetes` &mdash; search",
       "- `/{name} run create-ci-pipeline` &mdash; fetch & execute inline",
       "- `/{name} install create-ci-pipeline` &mdash; save locally",
       "",
-      "Claude Code auto-discovers commands in `./.claude/commands/` (per-repo) and `~/.claude/commands/` (user-global).",
+      "Claude Code auto-discovers skills in `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo).",
     ].join("\n"),
   },
 
   cursor: {
     id: "cursor",
     label: "Cursor",
-    ext: "md",
     installPaths: {
-      user: "~/.cursor/commands/{name}.md",
-      project: "./.cursor/commands/{name}.md",
+      user: UNIVERSAL_USER_PATHS,
+      project: UNIVERSAL_PROJECT_PATHS,
     },
-    skillsPaths: {
-      user: "~/.cursor/skills/{name}/SKILL.md",
-      project: "./.cursor/skills/{name}/SKILL.md",
-    },
-    defaultLayout: "skills",
-    format: "markdown-frontmatter",
     argRef: "$ARGUMENTS",
-    docsUrl: "https://docs.cursor.com",
+    docsUrl: "https://cursor.com/docs/skills",
     launchGuide: [
       "**Install Cursor**: download from [cursor.com](https://cursor.com).",
       "",
       "**Open the repo in Cursor**, then open the chat (`Cmd/Ctrl + L`).",
       "",
-      "**Use the command** in the chat:",
+      "**Use the skill** in the chat:",
       "- `/{name}` &mdash; browse the catalog",
       "- `/{name} pipeline` &mdash; search",
       "- `/{name} run <skill>` &mdash; fetch & execute inline",
       "",
-      "Cursor reads slash commands from `./.cursor/commands/` per repo and `~/.cursor/commands/` user-global. Reload the window if a new command does not appear in the picker.",
-    ].join("\n"),
-  },
-
-  specify: {
-    id: "specify",
-    label: "Spec Kit",
-    ext: "md",
-    installPaths: {
-      // No user/global scope yet — github/spec-kit#317.
-      project: "./.specify/templates/commands/{name}.md",
-    },
-    format: "markdown-frontmatter",
-    argRef: "$ARGUMENTS",
-    docsUrl: "https://github.com/github/spec-kit",
-    launchGuide: [
-      "**Install Spec Kit** (uses `uv`):",
-      "```bash",
-      "uvx --from git+https://github.com/github/spec-kit.git specify init",
-      "```",
-      "",
-      "Spec Kit re-syncs commands into the agent-specific directory (`./.claude/commands/`, `./.cursor/commands/`, etc.) the next time you run a Spec Kit command. Use `/specify`, `/plan`, `/tasks`, `/implement` as usual; the new `/{name}` command becomes available alongside them.",
-      "",
-      "_Spec Kit only supports project-local commands today (see github/spec-kit#317 for user-global support)._",
+      "Cursor reads skills from `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo) for cross-agent compatibility. Reload the window if a new skill does not appear in the picker.",
     ].join("\n"),
   },
 
   codex: {
     id: "codex",
     label: "Codex CLI (OpenAI)",
-    ext: "md",
     installPaths: {
-      // No project scope — openai/codex#9848 closed as not planned.
-      user: "~/.codex/prompts/{name}.md",
+      user: UNIVERSAL_USER_PATHS,
+      project: UNIVERSAL_PROJECT_PATHS,
     },
-    format: "markdown-plain",
-    // Codex CLI substitutes positional args; $1 is the first argument string.
+    // Codex CLI substitutes positional args; $1 is the first argument.
     argRef: "$1",
-    docsUrl: "https://github.com/openai/codex",
+    docsUrl: "https://developers.openai.com/codex/skills",
     launchGuide: [
       "**Install Codex CLI**:",
       "```bash",
@@ -220,26 +168,24 @@ export const AGENTS: Record<string, AgentSpec> = {
       "codex",
       "```",
       "",
-      "**Use the prompt** from inside Codex with the slash menu, or invoke directly:",
-      "- `/{name}` &mdash; runs the prompt with no argument (browse mode)",
-      "- `/{name} kubernetes` &mdash; runs the prompt with `$1=\"kubernetes\"` (search mode)",
+      "**Use the skill**:",
+      "- `/{name}` &mdash; browse the catalog",
+      "- `/{name} kubernetes` &mdash; search (with `$1=\"kubernetes\"`)",
       "",
-      "Codex CLI only loads prompts from `~/.codex/prompts/` (user-global); project-local prompts are not supported (openai/codex#9848). Codex picks them up on next launch.",
+      "Codex CLI auto-discovers skills from the vendor-neutral `~/.agents/skills/` directory (user-global) and `./.agents/skills/` (per-repo). Codex picks them up on next launch.",
     ].join("\n"),
   },
 
   gemini: {
     id: "gemini",
     label: "Gemini CLI",
-    ext: "toml",
     installPaths: {
-      user: "~/.gemini/commands/{name}.toml",
-      project: "./.gemini/commands/{name}.toml",
+      user: UNIVERSAL_USER_PATHS,
+      project: UNIVERSAL_PROJECT_PATHS,
     },
-    format: "gemini-toml",
     // Gemini CLI uses $1 (or {{args}}); $1 is portable across recent versions.
     argRef: "$1",
-    docsUrl: "https://github.com/google-gemini/gemini-cli",
+    docsUrl: "https://geminicli.com/docs/cli/skills/",
     launchGuide: [
       "**Install Gemini CLI**:",
       "```bash",
@@ -251,43 +197,40 @@ export const AGENTS: Record<string, AgentSpec> = {
       "gemini",
       "```",
       "",
-      "**Use the command**:",
+      "**Use the skill**:",
       "- `/{name}` &mdash; browse the catalog",
-      "- `/{name} \"docker\"` &mdash; search (quote multi-word args)",
+      "- `/{name} \"docker\"` &mdash; search (quote multi-word args; `$1` receives the string)",
       "",
-      "Commands live in `~/.gemini/commands/` (user-global) or `./.gemini/commands/` (per-repo). Gemini reloads commands on each invocation.",
+      "Skills live in `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo). Gemini reloads skills on each invocation.",
     ].join("\n"),
   },
 
-  continue: {
-    id: "continue",
-    label: "Continue (VS Code / JetBrains)",
-    ext: "json",
+  opencode: {
+    id: "opencode",
+    label: "opencode",
     installPaths: {
-      user: "~/.continue/config.json",
-      project: "./.continue/config.json",
+      user: UNIVERSAL_USER_PATHS,
+      project: UNIVERSAL_PROJECT_PATHS,
     },
-    format: "continue-json-fragment",
-    isFragment: true,
-    // Continue passes the full slash-command string after the name; we use a
-    // sentinel that the prompt template references in plain prose.
-    argRef: "{{input}}",
-    docsUrl: "https://docs.continue.dev",
+    argRef: "$ARGUMENTS",
+    docsUrl: "https://opencode.ai/docs/skills/",
     launchGuide: [
-      "**Install Continue**: from the VS Code or JetBrains marketplace.",
-      "",
-      "**Add the command**: open the target `config.json` (`~/.continue/config.json` for user-global, `./.continue/config.json` for project-local) and merge the rendered fragment into the top-level `slashCommands` array (create the array if it does not exist):",
-      "",
-      "```json",
-      "{",
-      "  // ... existing config ...",
-      "  \"slashCommands\": [",
-      "    /* paste the rendered fragment here */",
-      "  ]",
-      "}",
+      "**Install opencode**:",
+      "```bash",
+      "curl -fsSL https://opencode.ai/install | bash",
+      "# or: npm install -g opencode-ai",
       "```",
       "",
-      "**Use it**: open the Continue chat panel and type `/{name}`. Continue reloads `config.json` automatically.",
+      "**Launch from your repo root**:",
+      "```bash",
+      "opencode",
+      "```",
+      "",
+      "**Use the skill**:",
+      "- `/{name}` &mdash; browse the catalog",
+      "- `/{name} run <skill>` &mdash; fetch & execute inline",
+      "",
+      "opencode auto-discovers skills from `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo) for cross-agent compatibility.",
     ].join("\n"),
   },
 };
@@ -299,31 +242,59 @@ export const DEFAULT_AGENT_ID = "claude";
 interface ParsedTemplate {
   description: string;
   body: string;
+  /**
+   * Frontmatter lines we want to forward verbatim into the rendered
+   * output (e.g. `disable-model-invocation: true`,
+   * `allowed-tools: [...]`). Captured separately from `description` so
+   * the renderer can place the canonical `name:` and `description:`
+   * lines at known positions.
+   */
+  preservedFrontmatter: string[];
 }
 
 /**
  * Strip a leading YAML-ish frontmatter block (`---\n...\n---`) and capture
- * the `description:` field if present. Body retains everything after the
- * closing `---` (or the full input if no frontmatter).
+ * the `description:` field if present, plus any other frontmatter lines
+ * we want to forward unchanged into the rendered SKILL.md (specifically
+ * `disable-model-invocation` and `allowed-tools`, which the two CAIPE
+ * helper templates declare).
  *
- * Intentionally conservative: only single-line `key: value` pairs are
- * recognized; multi-line/folded scalars are left in the body. The live-skills
- * template uses only `description:` so this is sufficient.
+ * Intentionally conservative: only single-line `key: value` pairs and
+ * single-line array literals (`key: [a, b]`) are recognized; multi-line/
+ * folded scalars are left in the body. The two helper templates use only
+ * single-line forms so this is sufficient.
  */
 export function parseFrontmatter(template: string): ParsedTemplate {
   const match = template.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
-  if (!match) return { description: "", body: template };
-
-  let description = "";
-  for (const line of match[1].split("\n")) {
-    const kv = line.match(/^(\w[\w-]*):\s*(.*)$/);
-    if (kv && kv[1] === "description") {
-      description = kv[2].trim();
-      break;
-    }
+  if (!match) {
+    return { description: "", body: template, preservedFrontmatter: [] };
   }
 
-  return { description, body: template.slice(match[0].length) };
+  const PRESERVED_KEYS = new Set([
+    "disable-model-invocation",
+    "allowed-tools",
+  ]);
+  let description = "";
+  const preserved: string[] = [];
+
+  for (const line of match[1].split("\n")) {
+    const kv = line.match(/^(\w[\w-]*):\s*(.*)$/);
+    if (!kv) continue;
+    const key = kv[1];
+    if (key === "description") {
+      description = kv[2].trim();
+    } else if (PRESERVED_KEYS.has(key)) {
+      preserved.push(line);
+    }
+    // `name:` is intentionally dropped — the renderer always emits a
+    // canonical `name:` line matching the directory name.
+  }
+
+  return {
+    description,
+    body: template.slice(match[0].length),
+    preservedFrontmatter: preserved,
+  };
 }
 
 /** Substitute the four canonical placeholders. */
@@ -348,59 +319,31 @@ function quoteYaml(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-/**
- * Render a TOML basic string, escaping `"` and backslash. Single line only.
- */
-function tomlString(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
-/**
- * Render a TOML multi-line basic string. The only sequence that breaks a
- * multi-line basic string is a literal `"""`, so we escape the closing
- * delimiter only. Backslashes are preserved as-is (TOML multi-line basic
- * strings interpret `\` as an escape, but for our prose content we want
- * literal output, so we double up backslashes too).
- */
-function tomlMultiline(value: string): string {
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"""/g, '\\"\\"\\"');
-  return `"""\n${escaped}"""`;
-}
-
 /* ---------- Per-agent rendering ---------- */
 
 export interface RenderResult {
-  /** Final artifact contents (Markdown, TOML, or JSON fragment). */
+  /** Final SKILL.md contents (canonical agentskills.io format). */
   template: string;
   /**
-   * Resolved install path for the requested (layout, scope), with `{name}`
-   * substituted. `null` if that combination is unsupported.
+   * Resolved install path for the requested scope, with `{name}`
+   * substituted. This is the FIRST entry in the resolved scope's path
+   * array — useful for display ("install path") in the UI. Use
+   * `install_paths[scope]` for the full multi-target list. `null` if
+   * no scope was requested.
    */
   install_path: string | null;
   /**
-   * All install paths the agent supports for the resolved layout
-   * (`{name}` substituted), keyed by scope. Lets the UI render the scope
-   * chooser without re-fetching per scope.
+   * All install paths the agent supports for the requested command name,
+   * keyed by scope. `{name}` is substituted in every entry. Lets the UI
+   * render the scope chooser without a second request.
    */
-  install_paths: Partial<Record<AgentScope, string>>;
-  /** Scopes the agent actually supports for the resolved layout. */
+  install_paths: Partial<Record<AgentScope, readonly string[]>>;
+  /** Scopes the agent supports (always `["user", "project"]` in the new layout). */
   scopes_available: AgentScope[];
-  /** The scope that was actually rendered (may differ if requested was unsupported). */
+  /** The scope that was actually rendered (may be `null` if none requested). */
   scope: AgentScope | null;
-  /** True if the requested scope was unsupported and we returned no install_path. */
+  /** True if the requested scope was unsupported. (Always false in the new layout.) */
   scope_fallback: boolean;
-  /** Layouts the agent supports, in display order. */
-  layouts_available: AgentLayout[];
-  /** The layout that was actually rendered. */
-  layout: AgentLayout;
-  /** True if the requested layout was unsupported and we fell back to the default. */
-  layout_fallback: boolean;
-  /** File extension (no leading dot). */
-  file_extension: string;
-  /** Format identifier — useful for the UI to choose syntax highlighting. */
-  format: AgentFormat;
-  /** True if `template` is a fragment to merge, not a standalone file. */
-  is_fragment: boolean;
   /** Launch & invocation guidance, with `{name}` substituted. */
   launch_guide: string;
   /** Optional docs link for the agent. */
@@ -416,65 +359,35 @@ export interface RenderInputs {
   baseUrl: string;
   /**
    * Requested install scope. If `null` / undefined, no `install_path` is
-   * resolved (the UI is expected to require a scope before showing install
-   * commands). If the requested scope is unsupported by the agent,
-   * `install_path` is `null` and `scope_fallback` is `true`.
+   * resolved (the UI is expected to require a scope before showing
+   * install commands).
    */
   scope?: AgentScope | null;
-  /**
-   * Requested layout. If `null` / undefined, the agent's `defaultLayout` is
-   * used (or `commands` if neither is set). If the requested layout is not
-   * supported by the agent, falls back to the default and sets
-   * `layout_fallback: true` on the result.
-   */
-  layout?: AgentLayout | null;
 }
 
-/** Resolve the install-paths map for a given layout. */
-function pathsForLayout(
-  agent: AgentSpec,
-  layout: AgentLayout,
-): Partial<Record<AgentScope, string>> {
-  if (layout === "skills" && agent.skillsPaths) return agent.skillsPaths;
-  return agent.installPaths;
-}
-
-/** Helper: list of scopes the agent supports for the given layout. */
-export function scopesAvailableFor(
-  agent: AgentSpec,
-  layout: AgentLayout = layoutsAvailableFor(agent)[0],
-): AgentScope[] {
-  const paths = pathsForLayout(agent, layout);
+/** Helper: list of scopes the agent supports. */
+export function scopesAvailableFor(agent: AgentSpec): AgentScope[] {
   const out: AgentScope[] = [];
-  if (paths.user) out.push("user");
-  if (paths.project) out.push("project");
-  return out;
-}
-
-/** Helper: list of layouts the agent supports, default-first. */
-export function layoutsAvailableFor(agent: AgentSpec): AgentLayout[] {
-  const out: AgentLayout[] = [];
-  // Prefer the agent's stated default if present.
-  if (agent.defaultLayout === "skills" && agent.skillsPaths) {
-    out.push("skills");
-    if (Object.keys(agent.installPaths).length > 0) out.push("commands");
-    return out;
+  if (agent.installPaths.user && agent.installPaths.user.length > 0) {
+    out.push("user");
   }
-  if (Object.keys(agent.installPaths).length > 0) out.push("commands");
-  if (agent.skillsPaths) out.push("skills");
+  if (agent.installPaths.project && agent.installPaths.project.length > 0) {
+    out.push("project");
+  }
   return out;
 }
 
 export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderResult {
   const parsed = parseFrontmatter(inputs.canonicalTemplate);
 
-  // The canonical live-skills.md ships `description: {{DESCRIPTION}}` so the
-  // single template can be reused across agents. If we picked that string up
-  // verbatim it would land in the rendered frontmatter as
-  // `description: "{{DESCRIPTION}}"` (quoteYaml double-quotes anything with
-  // curly braces) and the agent would see the literal placeholder. Treat any
-  // value that still contains an unsubstituted `{{...}}` token as missing and
-  // fall through to the inputs/default. (See PR #1268 review feedback.)
+  // The canonical helper templates ship `description: {{DESCRIPTION}}` so
+  // the single template can be reused across agents. If we picked that
+  // string up verbatim it would land in the rendered frontmatter as
+  // `description: "{{DESCRIPTION}}"` (quoteYaml double-quotes anything
+  // with curly braces) and the agent would see the literal placeholder.
+  // Treat any value that still contains an unsubstituted `{{...}}` token
+  // as missing and fall through to the inputs/default. (See PR #1268
+  // review feedback.)
   const parsedDesc = parsed.description.trim();
   const parsedDescIsPlaceholder = /\{\{\w+\}\}/.test(parsedDesc);
   const description =
@@ -489,55 +402,18 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
     argRef: agent.argRef,
   }).replace(/^\n+/, ""); // strip leading blank lines from frontmatter strip
 
-  // Resolve the layout. If caller asked for `skills` but agent doesn't
-  // support it, fall back to the agent's default layout and flag it.
-  const layoutsAvail = layoutsAvailableFor(agent);
-  const requestedLayout = inputs.layout ?? null;
-  let resolvedLayout: AgentLayout = layoutsAvail[0];
-  let layoutFallback = false;
-  if (requestedLayout) {
-    if (layoutsAvail.includes(requestedLayout)) {
-      resolvedLayout = requestedLayout;
-    } else {
-      layoutFallback = true;
-    }
-  }
+  // Canonical agentskills.io frontmatter: `name:` matching directory,
+  // `description:` for discovery, plus any preserved keys
+  // (`disable-model-invocation`, `allowed-tools`) the source template
+  // declared.
+  const frontmatterLines = [
+    `name: ${quoteYaml(inputs.commandName)}`,
+    `description: ${quoteYaml(description)}`,
+    ...parsed.preservedFrontmatter,
+  ];
+  const rendered = `---\n${frontmatterLines.join("\n")}\n---\n\n${body}`;
 
-  // For the `skills` layout, every artifact is a Markdown file with
-  // frontmatter (Cursor / Claude / opencode all REQUIRE name + description
-  // frontmatter for skill auto-discovery). Override the per-agent format
-  // when the skills layout is in use to make sure the live-skills skill is
-  // discoverable. The frontmatter MUST include `name:` matching the
-  // directory name — see Cursor / Claude / opencode docs.
-  const useSkillsLayout = resolvedLayout === "skills";
-
-  let rendered: string;
-  if (useSkillsLayout) {
-    rendered = `---\nname: ${quoteYaml(inputs.commandName)}\ndescription: ${quoteYaml(description)}\n---\n\n${body}`;
-  } else {
-    switch (agent.format) {
-      case "markdown-frontmatter":
-        rendered = `---\ndescription: ${quoteYaml(description)}\n---\n\n${body}`;
-        break;
-      case "markdown-plain":
-        rendered = `# ${inputs.commandName}\n\n${body}`;
-        break;
-      case "gemini-toml":
-        rendered = `description = ${tomlString(description)}\nprompt = ${tomlMultiline(body)}\n`;
-        break;
-      case "continue-json-fragment":
-        rendered =
-          JSON.stringify(
-            { name: inputs.commandName, description, prompt: body },
-            null,
-            2,
-          ) + "\n";
-        break;
-    }
-  }
-
-  const layoutPaths = pathsForLayout(agent, resolvedLayout);
-  const scopesAvail = scopesAvailableFor(agent, resolvedLayout);
+  const scopesAvail = scopesAvailableFor(agent);
 
   // Resolve the requested scope. Three cases:
   //  - explicit and supported  → use it
@@ -547,21 +423,26 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
   let resolvedScope: AgentScope | null = null;
   let scopeFallback = false;
   if (requested) {
-    if (layoutPaths[requested]) {
+    if (agent.installPaths[requested] && agent.installPaths[requested]!.length > 0) {
       resolvedScope = requested;
     } else {
       scopeFallback = true;
     }
   }
 
-  const installPaths: Partial<Record<AgentScope, string>> = {};
+  const installPaths: Partial<Record<AgentScope, readonly string[]>> = {};
   for (const s of scopesAvail) {
-    installPaths[s] = layoutPaths[s]!.replace(/\{name\}/g, inputs.commandName);
+    installPaths[s] = agent.installPaths[s]!.map((p) =>
+      p.replace(/\{name\}/g, inputs.commandName),
+    );
   }
 
-  const installPath = resolvedScope
-    ? layoutPaths[resolvedScope]!.replace(/\{name\}/g, inputs.commandName)
-    : null;
+  // For display: the first path in the resolved scope's array. The full
+  // multi-target list is in `install_paths[scope]`.
+  const installPath =
+    resolvedScope && installPaths[resolvedScope]
+      ? installPaths[resolvedScope]![0] ?? null
+      : null;
 
   return {
     template: rendered,
@@ -570,12 +451,6 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
     scopes_available: scopesAvail,
     scope: resolvedScope,
     scope_fallback: scopeFallback,
-    layouts_available: layoutsAvail,
-    layout: resolvedLayout,
-    layout_fallback: layoutFallback,
-    file_extension: useSkillsLayout ? "md" : agent.ext,
-    format: useSkillsLayout ? "markdown-frontmatter" : agent.format,
-    is_fragment: useSkillsLayout ? false : !!agent.isFragment,
     launch_guide: agent.launchGuide.replace(/\{name\}/g, inputs.commandName),
     docs_url: agent.docsUrl,
     label: agent.label,

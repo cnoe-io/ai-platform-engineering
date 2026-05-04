@@ -1,5 +1,7 @@
 ---
 description: {{DESCRIPTION}}
+disable-model-invocation: true
+allowed-tools: ["Bash(uv run ~/.config/caipe/caipe-skills.py*)", "Bash(python3 ~/.config/caipe/caipe-skills.py*)"]
 ---
 
 ## User Input
