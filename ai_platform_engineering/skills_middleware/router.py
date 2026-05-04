@@ -292,8 +292,10 @@ async def refresh_skills(
 
     Query params:
         include_hubs: If false, keep the hub cache intact and only re-merge
-            default + agent_skills sources.  Useful after agent-skills CRUD
-            to avoid the expensive GitHub hub re-fetch.
+            default + agent_skills sources.  The hub portion is now sourced
+            from MongoDB ``hub_skills`` (populated by the UI crawler), so
+            invalidating it is cheap, but skipping it still avoids a Mongo
+            round-trip on hot agent_skills CRUD paths.
     """
     from ai_platform_engineering.skills_middleware.catalog import invalidate_skills_cache
     from ai_platform_engineering.skills_middleware.mas_registry import get_mas_instance
@@ -411,12 +413,40 @@ async def skill_hub_crawl(
     body: SkillHubCrawlBody,
     _auth: CatalogAuthContext = Depends(get_catalog_auth),
 ) -> dict[str, Any]:
-    """Preview SKILL.md paths for a GitHub repo without registering a hub (FR-017)."""
+    """Preview SKILL.md paths for a repo without registering a hub (FR-017).
+
+    GitHub previews are handled in-process via ``preview_github_hub_skills``.
+
+    GitLab previews are intentionally *not* implemented in Python — the
+    Next.js UI ships a feature-complete GitLab crawler in
+    ``ui/src/lib/hub-crawl.ts`` (subgroup support, ancillary capture,
+    private-token resolution) and ``ui/src/app/api/skill-hubs/crawl``
+    short-circuits to it before forwarding here. If a GitLab preview
+    reaches this endpoint it means the UI route was bypassed (e.g. a
+    third-party caller hitting the Python service directly); we return
+    a 501 with an actionable hint rather than silently swallowing the
+    request.
+    """
     from ai_platform_engineering.skills_middleware.loaders.hub_github import (
         preview_github_hub_skills,
     )
 
-    if body.type.lower() != "github":
+    hub_type = body.type.lower()
+    if hub_type == "gitlab":
+        raise HTTPException(
+            status_code=501,
+            detail={
+                "error": "gitlab_crawl_not_implemented",
+                "message": (
+                    "GitLab crawls are handled by the Next.js UI "
+                    "(/api/skill-hubs/crawl) — call that route or add "
+                    "the hub via /api/skill-hubs to trigger the UI "
+                    "crawler instead of calling this Python endpoint "
+                    "directly."
+                ),
+            },
+        )
+    if hub_type != "github":
         raise HTTPException(
             status_code=400,
             detail={"error": "unsupported_type", "message": f"Crawl not supported for type: {body.type}"},

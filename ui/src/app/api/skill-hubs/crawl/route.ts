@@ -27,8 +27,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
+    // Forward GitHub previews to the Python skills service when configured —
+    // it lives co-located with the supervisor and shares its outbound rate
+    // budget, which keeps GitHub API quota out of the Next.js process.
+    //
+    // GitLab previews are intentionally NOT forwarded: the Python endpoint
+    // returns 501 for gitlab (see ai_platform_engineering/skills_middleware
+    // /router.py — GitLab support lives only in the UI's `crawlGitLabRepo`
+    // because subgroup-aware path handling and PRIVATE-TOKEN headers are
+    // already implemented here). Falling through to the local crawler keeps
+    // the preview button working end-to-end without touching Python.
     const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
-    if (backendUrl) {
+    if (backendUrl && type === "github") {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
@@ -50,7 +60,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       return NextResponse.json(data, { status: res.status });
     }
 
-    // Local fallback (no Python skills service)
+    // Local fallback (Python service not configured, OR type === "gitlab")
     const maxPreview = 100;
     try {
       if (type === "github") {

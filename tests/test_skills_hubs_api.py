@@ -216,6 +216,35 @@ class TestSkillsRouter:
             )
         assert resp.status_code == 401
 
+    def test_skill_hubs_crawl_gitlab_returns_501(self, client):
+        """GitLab previews bounce back to the UI (501) — Python is GitHub-only."""
+        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
+            resp = client.post(
+                "/skill-hubs/crawl",
+                json={"type": "gitlab", "location": "mycorp/devops/skills"},
+            )
+
+        # 501 Not Implemented is the contract: it's not a 400 (bad request)
+        # because the request is well-formed, and it's not a 200 because
+        # the Python service deliberately doesn't implement GitLab. The
+        # detail body must be machine-readable so the UI route can
+        # branch on it without parsing free-text.
+        assert resp.status_code == 501
+        body = resp.json()
+        assert body["detail"]["error"] == "gitlab_crawl_not_implemented"
+        assert "/api/skill-hubs/crawl" in body["detail"]["message"]
+
+    def test_skill_hubs_crawl_unknown_type_returns_400(self, client):
+        """Unknown hub types still 400 (the legacy contract for non-gitlab)."""
+        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
+            resp = client.post(
+                "/skill-hubs/crawl",
+                json={"type": "bitbucket", "location": "x/y"},
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "unsupported_type"
+
     def test_supervisor_skills_status_includes_sync(self, client):
         """GET /internal/supervisor/skills-status exposes sync_status (T067)."""
         mas = MagicMock()
@@ -240,12 +269,216 @@ class TestSkillsRouter:
 
 
 # ---------------------------------------------------------------------------
-# Hub fetcher edge cases
+# Hub catalog reader (Mongo ``hub_skills`` cache)
+# ---------------------------------------------------------------------------
+#
+# These cover the Mongo-backed ``_load_hub_skills`` implementation that
+# replaced the GitHub round-trip in ``catalog.py``. The legacy
+# ``fetch_github_hub_skills`` loader still exists for the
+# ``/skill-hubs/crawl`` preview path but is no longer reached by the
+# supervisor catalog refresh.
+
+
+def _make_mongo_stub(hubs, hub_skills_rows):
+    """Build a minimal ``client[db]`` stub returning the given fixtures.
+
+    Returns a tuple of ``(client, hubs_collection, hub_skills_collection)``
+    so individual tests can assert against `find` calls if needed.
+    """
+    hubs_col = MagicMock()
+    hubs_col.find.return_value.sort.return_value = list(hubs)
+
+    hub_skills_col = MagicMock()
+    hub_skills_col.find.return_value = list(hub_skills_rows)
+
+    db = MagicMock()
+    db.__getitem__.side_effect = lambda key: {
+        "skill_hubs": hubs_col,
+        "hub_skills": hub_skills_col,
+    }[key]
+
+    client = MagicMock()
+    client.__getitem__.return_value = db
+    return client, hubs_col, hub_skills_col
+
+
+class TestLoadHubSkillsFromMongo:
+    """``catalog._load_hub_skills`` reads from MongoDB ``hub_skills``."""
+
+    def setup_method(self):
+        from ai_platform_engineering.skills_middleware.catalog import (
+            invalidate_skills_cache,
+        )
+
+        invalidate_skills_cache()
+
+    def test_loads_github_and_gitlab_uniformly(self):
+        """Hub type is irrelevant — GitHub and GitLab rows merge identically."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        hubs = [
+            {"_id": "h1", "id": "h1", "type": "github", "location": "org/gh-repo", "labels": ["sec"]},
+            {"_id": "h2", "id": "h2", "type": "gitlab", "location": "mycorp/gl-repo", "labels": []},
+        ]
+        # ``scan_status: passed`` is required because the default
+        # SKILL_SCANNER_GATE is strict — that's the production posture
+        # and matches what the UI scanner stamps onto every cached row.
+        rows = [
+            {
+                "hub_id": "h1",
+                "skill_id": "ghskill",
+                "name": "ghskill",
+                "description": "From GitHub",
+                "content": "# gh",
+                "metadata": {"category": "ops"},
+                "path": "skills/ghskill/SKILL.md",
+                "ancillary_files": {"helper.sh": "echo hi"},
+                "scan_status": "passed",
+            },
+            {
+                "hub_id": "h2",
+                "skill_id": "glskill",
+                "name": "glskill",
+                "description": "From GitLab",
+                "content": "# gl",
+                "metadata": {},
+                "path": "skills/glskill/SKILL.md",
+                "ancillary_files": {},
+                "scan_status": "passed",
+            },
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
+
+        assert {s["source_id"] for s in skills} == {"h1", "h2"}
+        gh = next(s for s in skills if s["source_id"] == "h1")
+        gl = next(s for s in skills if s["source_id"] == "h2")
+        # Both hub types produce uniformly-shaped catalog rows.
+        assert gh["source"] == gl["source"] == "hub"
+        assert gh["visibility"] == gl["visibility"] == "global"
+        assert gh["team_ids"] == gl["team_ids"] == []
+        assert gh["owner_user_id"] is None and gl["owner_user_id"] is None
+        # Hub-level context is stamped onto metadata.
+        assert gh["metadata"]["hub_type"] == "github"
+        assert gl["metadata"]["hub_type"] == "gitlab"
+        assert gh["metadata"]["hub_location"] == "org/gh-repo"
+        # Hub labels merge into metadata.tags so the supervisor catalog
+        # matches the UI's tag surface.
+        assert "sec" in gh["metadata"]["tags"]
+        # Ancillary files are forwarded so SkillsMiddleware can materialise
+        # them into the StateBackend without any extra fetch.
+        assert gh["ancillary_files"] == {"helper.sh": "echo hi"}
+        # Composite id matches the UI's ``hub-<hub_id>-<skill_id>`` form so
+        # dynamic_agents/services/skills.py can hit the same row.
+        assert gh["id"] == "hub-h1-ghskill"
+
+    def test_skips_blocked_scan_status(self):
+        """Per-skill ``scan_status`` written by the UI scanner gates the catalog."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        hubs = [{"_id": "h1", "id": "h1", "type": "github", "location": "o/r"}]
+        rows = [
+            {
+                "hub_id": "h1",
+                "skill_id": "ok",
+                "name": "ok",
+                "description": "fine",
+                "content": "c",
+                "metadata": {},
+                "scan_status": "passed",
+            },
+            {
+                "hub_id": "h1",
+                "skill_id": "bad",
+                "name": "bad",
+                "description": "flagged",
+                "content": "c",
+                "metadata": {},
+                "scan_status": "flagged",
+            },
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
+
+        # ``is_status_blocked`` returns True for "flagged" — assert that
+        # the helper's contract really is what gates the catalog (so a
+        # change to the policy auto-propagates here).
+        from ai_platform_engineering.skills_middleware.scan_gate import is_status_blocked
+        assert is_status_blocked("flagged") is True
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
+
+        assert [s["name"] for s in skills] == ["ok"]
+
+    def test_drops_rows_for_disabled_hubs(self):
+        """A hub_skills row whose hub was disabled is excluded."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        # Only h1 is enabled; rows reference both hubs to exercise the
+        # disabled-hub filter.
+        hubs = [{"_id": "h1", "id": "h1", "type": "github", "location": "o/r"}]
+        rows = [
+            {"hub_id": "h1", "skill_id": "live", "name": "live", "description": "x", "content": "", "metadata": {}, "scan_status": "passed"},
+            {"hub_id": "h2", "skill_id": "stale", "name": "stale", "description": "x", "content": "", "metadata": {}, "scan_status": "passed"},
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
+
+        assert [s["name"] for s in skills] == ["live"]
+
+    def test_returns_empty_when_mongo_unavailable(self):
+        """No Mongo client = empty catalog (graceful degradation)."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=None,
+        ):
+            assert _load_hub_skills() == []
+
+    def test_skips_rows_with_missing_required_fields(self):
+        """Crawl bug or partial doc must not poison the catalog."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        hubs = [{"_id": "h1", "id": "h1", "type": "github", "location": "o/r"}]
+        rows = [
+            {"hub_id": "h1", "skill_id": "ok", "name": "ok", "description": "yes", "content": "", "metadata": {}, "scan_status": "passed"},
+            {"hub_id": "h1", "skill_id": "no-name", "description": "missing name", "content": "", "scan_status": "passed"},
+            {"hub_id": "h1", "skill_id": "no-desc", "name": "no-desc", "content": "", "scan_status": "passed"},
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
+
+        assert [s["name"] for s in skills] == ["ok"]
+
+
+# ---------------------------------------------------------------------------
+# Legacy GitHub fetcher (now only used by the /skill-hubs/crawl preview
+# route). Smoke-test that the helper still tolerates empty trees / network
+# errors so the preview UI degrades cleanly.
 # ---------------------------------------------------------------------------
 
 
 class TestHubFetcherEdgeCases:
-    """Edge case tests for the GitHub hub fetcher."""
+    """Smoke tests for the legacy ``fetch_github_hub_skills`` preview helper."""
 
     def test_fetch_with_no_token(self):
         """Fetcher works without token (public repos)."""
