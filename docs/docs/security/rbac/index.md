@@ -10,6 +10,7 @@ This is the canonical reference for how authentication and authorization work in
 | Trace a request — login, OBO token-exchange, end-to-end Slack flow, Slack channel → agent routing | [Workflows](./workflows.md) |
 | Log in, exercise a role, verify a denial, link a Slack user, run the demo | [Usage](./usage.md) |
 | Find the file that owns a specific piece of the auth path | [File map](./file-map.md) |
+| Understand the difference between Keycloak **roles** and **client scopes**, what a slug is, and what happens when you create a team | [Roles vs Scopes](./roles-scopes-comparison.md) |
 | **Install CAIPE on a real K8s cluster** — bootstrap admin, IdP, and slack-bot client secrets via dev defaults, manual K8s Secrets, or ESO (Vault / AWS-SM / GCP-SM) | [Secrets bootstrap](./secrets-bootstrap.md) |
 
 Every component-level doc opens with a **badge analogy** to build intuition, followed by the precise technical detail. Read the analogy first, then the technical section — they describe the same thing at different levels of abstraction.
