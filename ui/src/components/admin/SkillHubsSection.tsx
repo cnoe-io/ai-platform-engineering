@@ -5,7 +5,31 @@ import { Loader2, Plus, Trash2, Globe, AlertCircle, CheckCircle2, X, RefreshCcw,
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { GithubIcon, GitlabIcon } from "@/components/ui/icons";
 import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
+import { cn } from "@/lib/utils";
+
+type HubType = "github" | "gitlab";
+
+const HUB_TYPE_HINTS: Record<HubType, {
+  label: string;
+  repoLabel: string;
+  repoPlaceholder: string;
+  credentialEnv: string;
+}> = {
+  github: {
+    label: "GitHub",
+    repoLabel: "GitHub repository",
+    repoPlaceholder: "owner/repo or https://github.com/owner/repo",
+    credentialEnv: "GITHUB_TOKEN",
+  },
+  gitlab: {
+    label: "GitLab",
+    repoLabel: "GitLab project",
+    repoPlaceholder: "group/project, group/sub/project, or https://gitlab.com/...",
+    credentialEnv: "GITLAB_TOKEN",
+  },
+};
 
 interface SkillHub {
   id: string;
@@ -41,6 +65,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [hubs, setHubs] = useState<SkillHub[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [formType, setFormType] = useState<HubType>("github");
   const [formLocation, setFormLocation] = useState("");
   const [formCredRef, setFormCredRef] = useState("");
   const [formLabels, setFormLabels] = useState("");
@@ -100,7 +125,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: "github",
+          type: formType,
           location: formLocation.trim(),
           credentials_ref: formCredRef.trim() || null,
           labels: labels.length > 0 ? labels : undefined,
@@ -112,6 +137,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Failed to register hub (${res.status})`);
       }
+      setFormType("github");
       setFormLocation("");
       setFormCredRef("");
       setFormLabels("");
@@ -198,7 +224,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type: "github",
+          type: formType,
           location: formLocation.trim(),
           credentials_ref: formCredRef.trim() || null,
         }),
@@ -235,7 +261,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
             Skill Hubs
           </CardTitle>
           <CardDescription>
-            Register external GitHub repositories as skill sources. Skills from hubs are merged into the catalog.
+            Register external GitHub or GitLab repositories as skill sources. Skills from hubs are merged into the catalog.
           </CardDescription>
         </div>
         <div className="flex gap-2">
@@ -265,14 +291,55 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         {showAddForm && isAdmin && (
           <div className="mb-4 p-4 border border-border rounded-lg bg-muted/30 space-y-3">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">GitHub Repository</label>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">
+                Source
+              </label>
+              <div
+                role="radiogroup"
+                aria-label="Hub source"
+                className="inline-flex items-center rounded-md border border-border bg-background p-0.5 text-xs"
+              >
+                {(Object.keys(HUB_TYPE_HINTS) as HubType[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    role="radio"
+                    aria-checked={formType === t}
+                    onClick={() => setFormType(t)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded font-medium transition-colors",
+                      formType === t
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t === "github" ? (
+                      <GithubIcon className="h-3.5 w-3.5" />
+                    ) : (
+                      <GitlabIcon className="h-3.5 w-3.5" />
+                    )}
+                    {HUB_TYPE_HINTS[t].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">
+                {HUB_TYPE_HINTS[formType].repoLabel}
+              </label>
               <input
                 type="text"
                 value={formLocation}
                 onChange={(e) => setFormLocation(e.target.value)}
-                placeholder="owner/repo (e.g. cnoe-io/agent-skills)"
+                placeholder={HUB_TYPE_HINTS[formType].repoPlaceholder}
                 className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
+              {formType === "gitlab" && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Subgroup nesting is preserved (e.g. <code className="font-mono">mycorp/devops/platform</code>).
+                  Self-hosted GitLab via <code className="font-mono">GITLAB_API_URL</code>.
+                </p>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Credentials Env Var (optional)</label>
@@ -280,11 +347,19 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                 type="text"
                 value={formCredRef}
                 onChange={(e) => setFormCredRef(e.target.value)}
-                placeholder="e.g. GITHUB_TOKEN_PRIVATE (env var name holding token)"
+                placeholder={
+                  formType === "github"
+                    ? "e.g. GITHUB_TOKEN_PRIVATE (env var name holding token)"
+                    : "e.g. GITLAB_TOKEN_PRIVATE (env var name holding token)"
+                }
                 className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Name of the environment variable holding a GitHub token. Falls back to GITHUB_TOKEN if empty.
+                Name of the environment variable holding a {HUB_TYPE_HINTS[formType].label} token. Falls back to{" "}
+                <code className="font-mono">{HUB_TYPE_HINTS[formType].credentialEnv}</code> if empty.
+                {formType === "gitlab"
+                  ? " Public projects work without a token."
+                  : ""}
               </p>
             </div>
             <div>
@@ -360,7 +435,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
             <h3 className="text-sm font-medium mb-1">No Skill Hubs</h3>
             <p className="text-xs text-muted-foreground">
               {isAdmin
-                ? 'Register a GitHub repository to import its skills into the catalog.'
+                ? 'Register a GitHub or GitLab repository to import its skills into the catalog.'
                 : 'No external skill hubs have been configured yet.'}
             </p>
           </div>
@@ -377,8 +452,16 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
               <div key={hub.id} className="space-y-0.5">
               <div className="grid grid-cols-6 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
                 <div className="col-span-2 flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="font-medium truncate">{hub.location}</span>
+                  {hub.type === "gitlab" ? (
+                    <GitlabIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : hub.type === "github" ? (
+                    <GithubIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : (
+                    <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                  )}
+                  <span className="font-medium truncate" title={`${hub.type}: ${hub.location}`}>
+                    {hub.location}
+                  </span>
                   {hub.labels && hub.labels.length > 0 && hub.labels.map((label) => (
                     <Badge key={label} variant="secondary" className="text-[10px] px-1.5 py-0">
                       {label}
