@@ -182,6 +182,7 @@ pyrightconfig.json
 .env
 .env.*
 .env*
+!ai_platform_engineering/agents/litellm/mcp/.env.example
 
 # Others
 a2a-python
