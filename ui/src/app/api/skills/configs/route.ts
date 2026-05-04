@@ -16,6 +16,12 @@ import type {
 } from "@/types/agent-skill";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
+import {
+  recordRevision,
+  deleteRevisionsForSkill,
+  snapshotsDiffer,
+  type SkillSnapshotInput,
+} from "@/lib/skill-revisions";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import {
   canMutateBuiltinSkill,
@@ -70,6 +76,34 @@ function isUserAdmin(user: { email: string; role?: string }): boolean {
   return user.role === "admin";
 }
 
+/**
+ * Extract the content-bearing fields of an `AgentSkill` for the
+ * revision history.
+ *
+ * The revision schema deliberately excludes administrative fields
+ * (`owner_id`, `is_system`, `visibility`, `shared_with_teams`) — those
+ * are authorization state, not content, and a "restore" should never
+ * change who owns the skill or who can see it. See lib/skill-revisions
+ * for the rationale.
+ */
+function extractSnapshot(skill: AgentSkill): SkillSnapshotInput {
+  return {
+    name: skill.name,
+    description: skill.description,
+    category: skill.category,
+    tasks: skill.tasks ?? [],
+    metadata: skill.metadata,
+    is_quick_start: skill.is_quick_start,
+    difficulty: skill.difficulty,
+    thumbnail: skill.thumbnail,
+    input_form: skill.input_form,
+    skill_content: skill.skill_content,
+    ancillary_files: skill.ancillary_files,
+    scan_status: skill.scan_status,
+    scan_summary: skill.scan_summary,
+  };
+}
+
 const VALID_VISIBILITIES: SkillVisibility[] = ["private", "team", "global"];
 
 async function saveAgentSkillToMongoDB(config: AgentSkill): Promise<void> {
@@ -81,7 +115,7 @@ async function updateAgentSkillInMongoDB(
   id: string,
   updates: Partial<AgentSkill>,
   user: { email: string; role?: string },
-): Promise<void> {
+): Promise<{ before: AgentSkill | null }> {
   console.log(`[MongoDB] ========== updateAgentSkillInMongoDB START ==========`);
   console.log(`[MongoDB] Config ID: ${id}`);
   console.log(`[MongoDB] User: ${user.email}, IsAdmin: ${isUserAdmin(user)}`);
@@ -147,6 +181,14 @@ async function updateAgentSkillInMongoDB(
     });
   }
   console.log(`[MongoDB] ========== updateAgentSkillInMongoDB END ==========`);
+  // Return the pre-update row so the route handler can capture a
+  // revision without doing a duplicate read. We can't return the
+  // post-update doc here because the verification read (`updated`)
+  // is gated behind the same logging-only path; the route layer
+  // overlays the body onto `existing` to derive the post-update
+  // snapshot. Keeping the read here means existing tests that mock
+  // exactly two `findOne` calls keep working.
+  return { before: existing };
 }
 
 async function deleteAgentSkillFromMongoDB(
@@ -271,6 +313,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     });
 
     await saveAgentSkillToMongoDB(config);
+    // Capture revision #1 right after the row is persisted so the
+    // restore path always has a baseline to fall back to. We pass
+    // through the same content fields the caller saved, plus the
+    // freshly computed scan verdict — the workspace timeline shows
+    // both the snapshot and which scanner state it was created at.
+    await recordRevision({
+      skillId: id,
+      snapshot: extractSnapshot(config),
+      trigger: "create",
+      actor: user.email,
+    });
     console.log(
       `[AgentSkill] Created agent config "${body.name}" by ${user.email} (visibility: ${visibility}, scan_status: ${scanResult.scan_status})`,
     );
@@ -411,7 +464,28 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
 
     console.log(`[API PUT] Calling updateAgentSkillInMongoDB...`);
-    await updateAgentSkillInMongoDB(id, body, user);
+    // updateAgentSkillInMongoDB already reads the pre-update row for
+    // its permission check; have it hand the row back so we can build
+    // a `prev` snapshot for the no-op diff guard without burning a
+    // duplicate `findOne`.
+    const { before: beforeUpdate } = await updateAgentSkillInMongoDB(
+      id,
+      body,
+      user,
+    );
+    if (beforeUpdate) {
+      const merged: AgentSkill = { ...beforeUpdate, ...(body as Partial<AgentSkill>) };
+      const prev = extractSnapshot(beforeUpdate);
+      const next = extractSnapshot(merged);
+      if (snapshotsDiffer(prev, next)) {
+        await recordRevision({
+          skillId: id,
+          snapshot: next,
+          trigger: "update",
+          actor: user.email,
+        });
+      }
+    }
     console.log(`[AgentSkill] Updated agent config "${id}" by ${user.email}`);
     console.log(`[API PUT] ============ UPDATE REQUEST END ============`);
 
@@ -443,6 +517,11 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
   return await withAuth(request, async (req, user) => {
     await deleteAgentSkillFromMongoDB(id, user);
+    // Drop history rows for this skill so we don't leak orphaned
+    // revision documents that nobody can render. Best-effort: a
+    // failure here doesn't undo the delete (the skill is already
+    // gone from the user's perspective).
+    await deleteRevisionsForSkill(id);
     console.log(`[AgentSkill] Deleted agent config "${id}" by ${user.email}`);
 
     triggerSupervisorRefresh();

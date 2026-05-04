@@ -10,6 +10,7 @@ import {
   getAgentSkillVisibleToUser,
   userCanModifyAgentSkill,
 } from "@/lib/agent-skill-visibility";
+import { recordRevision } from "@/lib/skill-revisions";
 import type { AgentSkill } from "@/types/agent-skill";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
@@ -106,11 +107,18 @@ export const PUT = withErrorHandler(
       const collection = await getCollection<AgentSkill>("agent_skills");
       const now = new Date();
 
+      // Capture the post-edit content shape locally so the revision
+      // helper sees exactly what was persisted, regardless of whether
+      // we wrote SKILL.md or an ancillary file.
+      let nextSkillContent = skill.skill_content;
+      let nextAncillary = skill.ancillary_files;
+
       if (path === SKILL_MD_PATH) {
         await collection.updateOne(
           { id },
           { $set: { skill_content: content, updated_at: now } },
         );
+        nextSkillContent = content;
       } else {
         const ancillary = { ...(skill.ancillary_files ?? {}) };
         if (
@@ -127,7 +135,35 @@ export const PUT = withErrorHandler(
           { id },
           { $set: { ancillary_files: ancillary, updated_at: now } },
         );
+        nextAncillary = ancillary;
       }
+
+      // Per-file edits go straight to Mongo without touching the
+      // scanner — they're cheap incremental saves from the workspace
+      // file editor. We still snapshot history so a user who fat-
+      // fingers a SKILL.md edit can roll back. The `file_edit` tag
+      // distinguishes these from full-form saves in the timeline.
+      await recordRevision({
+        skillId: id,
+        snapshot: {
+          name: skill.name,
+          description: skill.description,
+          category: skill.category,
+          tasks: skill.tasks ?? [],
+          metadata: skill.metadata,
+          is_quick_start: skill.is_quick_start,
+          difficulty: skill.difficulty,
+          thumbnail: skill.thumbnail,
+          input_form: skill.input_form,
+          skill_content: nextSkillContent,
+          ancillary_files: nextAncillary,
+          scan_status: skill.scan_status,
+          scan_summary: skill.scan_summary,
+        },
+        trigger: "file_edit",
+        actor: user.email,
+        note: `Edited ${path}`,
+      });
       return successResponse({ path, size: Buffer.byteLength(content, "utf-8") });
     });
   },
@@ -154,11 +190,16 @@ export const DELETE = withErrorHandler(
       }
       const collection = await getCollection<AgentSkill>("agent_skills");
       const now = new Date();
+
+      let nextSkillContent = skill.skill_content;
+      let nextAncillary = skill.ancillary_files;
+
       if (path === SKILL_MD_PATH) {
         await collection.updateOne(
           { id },
           { $set: { skill_content: "", updated_at: now } },
         );
+        nextSkillContent = "";
       } else {
         const ancillary = { ...(skill.ancillary_files ?? {}) };
         if (!(path in ancillary)) {
@@ -169,7 +210,32 @@ export const DELETE = withErrorHandler(
           { id },
           { $set: { ancillary_files: ancillary, updated_at: now } },
         );
+        nextAncillary = ancillary;
       }
+
+      // Tag deletes distinctly from edits so the timeline can render
+      // a deletion icon and the diff view knows the file vanished.
+      await recordRevision({
+        skillId: id,
+        snapshot: {
+          name: skill.name,
+          description: skill.description,
+          category: skill.category,
+          tasks: skill.tasks ?? [],
+          metadata: skill.metadata,
+          is_quick_start: skill.is_quick_start,
+          difficulty: skill.difficulty,
+          thumbnail: skill.thumbnail,
+          input_form: skill.input_form,
+          skill_content: nextSkillContent,
+          ancillary_files: nextAncillary,
+          scan_status: skill.scan_status,
+          scan_summary: skill.scan_summary,
+        },
+        trigger: "file_delete",
+        actor: user.email,
+        note: `Deleted ${path}`,
+      });
       return successResponse({ path, deleted: true });
     });
   },

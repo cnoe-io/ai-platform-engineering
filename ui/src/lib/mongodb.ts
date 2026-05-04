@@ -219,6 +219,12 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'agent_skills', { created_at: -1 }),
     safeCreateIndex(db, 'agent_skills', { 'metadata.tags': 1 }),
 
+    // Skill revisions collection (per-skill content history; pruned to
+    // SKILL_REVISIONS_RETENTION on every write — see lib/skill-revisions.ts)
+    safeCreateIndex(db, 'skill_revisions', { id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'skill_revisions', { skill_id: 1, revision_number: -1 }),
+    safeCreateIndex(db, 'skill_revisions', { skill_id: 1, created_at: -1 }),
+
     // Skill hubs collection
     safeCreateIndex(db, 'skill_hubs', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'skill_hubs', { enabled: 1 }),

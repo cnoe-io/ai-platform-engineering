@@ -49,6 +49,9 @@ jest.mock("@/components/skills/workspace/tabs/VariablesTab", () => ({
 jest.mock("@/components/skills/workspace/tabs/ToolsTab", () => ({
   ToolsTab: () => <div data-testid="tools-tab">tools</div>,
 }));
+jest.mock("@/components/skills/workspace/tabs/VersionsTab", () => ({
+  VersionsTab: () => <div data-testid="versions-tab">versions</div>,
+}));
 jest.mock("@/components/skills/workspace/tabs/HistoryTab", () => ({
   // The file now exports `ScanTab` as the canonical name (with a
   // backwards-compat `HistoryTab` alias). Mock both so SkillWorkspace's
@@ -218,16 +221,17 @@ describe("SkillWorkspace — tabs", () => {
 
   it("renders steps with a numbered badge so the order is obvious", () => {
     render(<SkillWorkspace existingConfig={SAMPLE_SKILL} />);
-    // Step rail: 4 steps total when the skill exists. The previous
-    // stand-alone "Variables" step was folded into the Files step
-    // (rendered inside FilesTab as a collapsible side-panel).
+    // Step rail: 5 steps total when the skill exists. Versions sits
+    // between Tools and Scan skill so users have a clear roll-back
+    // affordance without leaving the workspace.
     const steps = screen.getAllByRole("tab");
-    expect(steps).toHaveLength(4);
+    expect(steps).toHaveLength(5);
     // Each tab label includes the visible step name.
     [
       "Overview",
       "Skill content",
       "Tools",
+      "Versions",
       "Scan skill",
     ].forEach((label) => {
       expect(screen.getByRole("tab", { name: new RegExp(label, "i") })).toBeInTheDocument();
@@ -238,12 +242,11 @@ describe("SkillWorkspace — tabs", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillWorkspace — wizard navigation", () => {
-  it("starts the wizard footer on step 1 of 3 for new skills (no Scan skill step)", () => {
+  it("starts the wizard footer on step 1 of 3 for new skills (Versions and Scan are hidden)", () => {
     render(<SkillWorkspace />);
-    // "Step N of M" appears in the wizard footer — assert at least
-    // one match so the test is resilient to layout.
-    // Visible steps for a NEW (unsaved) skill: Overview, Files &
-    // Variables, Tools (Scan skill is hidden until the skill exists).
+    // Visible steps for a NEW (unsaved) skill: Overview, Skill
+    // content, Tools. Both Versions and Scan are hidden until the
+    // skill exists — they read collections keyed off a persisted id.
     expect(screen.getAllByText(/Step 1 of 3/i).length).toBeGreaterThan(0);
     expect(
       screen.getByTestId("skill-workspace-step-prev"),
@@ -256,8 +259,10 @@ describe("SkillWorkspace — wizard navigation", () => {
     const next = screen.getByTestId("skill-workspace-step-next");
     expect(next).toHaveTextContent(/Next: Skill content/i);
     await user.click(next);
+    // Saved skills now expose 5 steps (Overview, Skill content,
+    // Tools, Versions, Scan skill).
     await waitFor(() => {
-      expect(screen.getAllByText(/Step 2 of 4/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Step 2 of 5/i).length).toBeGreaterThan(0);
     });
   });
 
