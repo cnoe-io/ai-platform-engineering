@@ -138,10 +138,22 @@ def require_permission(
 
             bolt_ctx = kwargs.get("context")
             if isinstance(bolt_ctx, dict) and bolt_ctx.get("rbac_enabled"):
-                tid = bolt_ctx.get("platform_team_id")
-                if isinstance(tid, str) and tid:
+                # Prefer `active_team` (slug; set by _rbac_enrich_context). Fall
+                # back to `platform_team_id` for legacy callers — but only if
+                # it looks like a slug, since AGW's CEL and the realm role
+                # naming are slug-keyed (matching `jwt.active_team`).
+                tslug = bolt_ctx.get("active_team")
+                if not (isinstance(tslug, str) and tslug):
+                    tslug = bolt_ctx.get("platform_team_id")
+                # Skip the gate for personal-mode DMs — the AGW CEL has its
+                # own __personal__ branch that doesn't require team_member:*.
+                if (
+                    isinstance(tslug, str)
+                    and tslug
+                    and tslug != "__personal__"
+                ):
                     jwt_roles = _realm_roles_from_access_token_unverified(access_token)
-                    if not user_has_team_member_role(jwt_roles, tid):
+                    if not user_has_team_member_role(jwt_roles, tslug):
                         log_authz_decision(
                             tenant_id=tenant_id,
                             sub=sub,

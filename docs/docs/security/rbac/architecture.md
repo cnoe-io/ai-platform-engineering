@@ -20,7 +20,7 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 | `chat_user` | Yes — all authenticated users | Grants access to supervisor, Slack bot, RAG tools via AgentGateway CEL |
 | `admin` | No — explicit assignment | Full CAIPE admin UI: user management, team CRUD, role assignment, Keycloak Admin API proxy |
 | `kb_admin` | No | Knowledge base management: upload documents, configure RAG pipelines |
-| `team_member` | No | Legacy team marker — superseded by `team_member:<team_id>` (spec 104) |
+| `team_member` | No | Legacy team marker — superseded by `team_member:<slug>` (spec 104) |
 
 `chat_user` is in the `default-roles-caipe` composite, so every newly-created or brokered user gets it automatically. This is patched at runtime by `init-idp.sh` because Keycloak's realm import doesn't reliably populate composite role members.
 
@@ -35,8 +35,8 @@ Spec 104 introduces a second tier of realm roles that bind *resources* (tools, a
 | `tool_user:<server>_*` | `tool_user:jira_*` | All tools from one MCP server (seeded by `init-idp.sh`; AG CEL match is exact today, glob support tracked). |
 | `agent_user:<agent_id>` | `agent_user:test-april-2025` | Caller may chat with this dynamic agent (enforced in DA, not AG). |
 | `agent_admin:<agent_id>` | `agent_admin:test-april-2025` | Caller may modify the agent's config. Implies `agent_user:<agent_id>`. |
-| `team_member:<team_id>` | `team_member:demo-team` | Caller belongs to the team. AG CEL rules already use this prefix for team-scoped resources. |
-| `team_admin:<team_id>` | `team_admin:demo-team` | Caller manages team membership and resource assignments. |
+| `team_member:<slug>` | `team_member:demo-team` | Caller belongs to the team. AG CEL rules already use this prefix for team-scoped resources. **The role name is keyed on the team `slug`, not the Mongo ObjectId** — AGW evaluates `team_member:<jwt.active_team>` and `active_team` carries the slug. The BFF's `members/route.ts` and the reconcile script both write slug-keyed roles; an earlier ObjectId-keyed implementation existed and is migrated by `scripts/reconcile-keycloak-from-mongo.sh` on first run. |
+| `team_admin:<slug>` | `team_admin:demo-team` | Caller manages team membership and resource assignments. |
 | `admin_user` | `admin_user` | Realm-wide superuser for the spec-104 model. Bypasses every per-resource check. Distinct from the legacy flat `admin` so we can deprecate the old model later. Granted automatically to every email in `BOOTSTRAP_ADMIN_EMAILS` by `init-idp.sh`. |
 
 Roles are created and assigned by:

@@ -19,6 +19,7 @@ import {
   getRoleByName,
   assignRealmRolesToUser,
   removeRealmRolesFromUser,
+  isValidTeamSlug,
 } from '@/lib/rbac/keycloak-admin';
 
 function requireMongoDB() {
@@ -43,12 +44,22 @@ function parseTeamId(id: string): ObjectId {
 }
 
 /**
- * Ensure the team_member:<teamId> Keycloak realm role exists and assign it
+ * Ensure the `team_member:<slug>` Keycloak realm role exists and assign it
  * to the user identified by email. Best-effort — logs warnings on failure
  * so that MongoDB membership is never blocked by Keycloak issues.
+ *
+ * NOTE: Role names are keyed on the team **slug**, not the Mongo ObjectId.
+ * AgentGateway's CEL evaluates `team_member:<jwt.active_team>` and
+ * `active_team` is the slug (carried by the `team-<slug>` client scope's
+ * hardcoded mapper). Using the ObjectId here would silently mismatch the
+ * AGW check and deny non-admin members of every team.
  */
-async function syncKeycloakTeamRole(email: string, teamId: string, action: 'assign' | 'remove') {
-  const roleName = `team_member:${teamId}`;
+async function syncKeycloakTeamRole(email: string, teamSlug: string, action: 'assign' | 'remove') {
+  if (!isValidTeamSlug(teamSlug)) {
+    console.warn(`[TeamSync] Invalid team slug "${teamSlug}" — skipping role ${action} for ${email}`);
+    return;
+  }
+  const roleName = `team_member:${teamSlug}`;
   try {
     // Find Keycloak user by email
     const users = await searchRealmUsers({ search: email, first: 0, max: 1 });
@@ -60,12 +71,11 @@ async function syncKeycloakTeamRole(email: string, teamId: string, action: 'assi
     const userId = String(kcUser.id);
 
     if (action === 'assign') {
-      // Ensure role exists (create if missing)
       let role;
       try {
         role = await getRoleByName(roleName);
       } catch {
-        await createRealmRole(roleName, `Team member role for team ${teamId}`);
+        await createRealmRole(roleName, `Team member role for team "${teamSlug}"`);
         role = await getRoleByName(roleName);
       }
       await assignRealmRolesToUser(userId, [role]);
@@ -143,8 +153,16 @@ export const POST = withErrorHandler(async (
 
     const updated = await teams.findOne({ _id: teamId });
 
-    // Sync Keycloak team role (best-effort)
-    await syncKeycloakTeamRole(email, teamId.toString(), 'assign');
+    // Sync Keycloak team role (best-effort). Slug-keyed to match AGW CEL.
+    const teamSlug = String(team.slug || "").trim();
+    if (teamSlug) {
+      await syncKeycloakTeamRole(email, teamSlug, 'assign');
+    } else {
+      console.warn(
+        `[TeamSync] Team ${teamId} has no slug; cannot assign team_member role for ${email}. ` +
+        `Restart caipe-ui to trigger backfill via syncTeamScopesOnStartup.`
+      );
+    }
 
     console.log(`[Admin] Member added to team ${team.name}: ${email} (${role}) by ${user.email}`);
 
@@ -205,8 +223,11 @@ export const DELETE = withErrorHandler(async (
 
     const updated = await teams.findOne({ _id: teamId });
 
-    // Revoke Keycloak team role (best-effort)
-    await syncKeycloakTeamRole(email, teamId.toString(), 'remove');
+    // Revoke Keycloak team role (best-effort). Slug-keyed to match AGW CEL.
+    const teamSlug = String(team.slug || "").trim();
+    if (teamSlug) {
+      await syncKeycloakTeamRole(email, teamSlug, 'remove');
+    }
 
     console.log(`[Admin] Member removed from team ${team.name}: ${email} by ${user.email}`);
 
