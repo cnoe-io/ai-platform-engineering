@@ -166,27 +166,27 @@
 
 ### Phase 6a: Schema + crawler core (US4)
 
-- [ ] **T019** [US4] Extend `SkillHubDoc` (in `ui/src/lib/hub-crawl.ts`) with optional `include_paths?: readonly string[]`. Update `crawlGitHubRepo(owner, repo, token, includePaths?)` and `crawlGitLabRepo(projectPath, token, includePaths?)` to accept the new arg. When `includePaths` is non-empty, filter `skillMdPaths` to entries whose path starts with one of the prefixes (after enforcing a trailing `/` on each prefix). Leave `belongsToNestedSkill` and the ancillary-collection loop untouched. Per FR-021.
+- [x] **T019** [US4] Extend `SkillHubDoc` (in `ui/src/lib/hub-crawl.ts`) with optional `include_paths?: readonly string[]`. Update `crawlGitHubRepo(owner, repo, token, includePaths?)` and `crawlGitLabRepo(projectPath, token, includePaths?)` to accept the new arg. When `includePaths` is non-empty, filter `skillMdPaths` to entries whose path starts with one of the prefixes (after enforcing a trailing `/` on each prefix). Leave `belongsToNestedSkill` and the ancillary-collection loop untouched. Per FR-021.
 
-- [ ] **T020** [US4] Update `_crawlAndCache` (same file) to read `hub.include_paths` and forward it to whichever crawler matches `hub.type`. Per FR-021.
+- [x] **T020** [US4] Update `_crawlAndCache` (same file) to read `hub.include_paths` and forward it to whichever crawler matches `hub.type`. Per FR-021.
 
 ### Phase 6b: Hub admin API (US4)
 
-- [ ] **T021** [US4] Update `POST /api/skill-hubs` (`ui/src/app/api/skill-hubs/route.ts`):
+- [x] **T021** [US4] Update `POST /api/skill-hubs` (`ui/src/app/api/skill-hubs/route.ts`):
   - Accept optional `include_paths: string[]` in the request body
   - Validate: each entry MUST match `/^[A-Za-z0-9._\-/]+$/` (no `..`, no leading `/`); trim; drop empties; dedupe; append a trailing `/` if absent; cap at 20 entries
   - Persist the normalized array into the new doc; absent or empty stays absent (so existing docs are untouched)
   - Widen the URL normalizer: when the URL host is `gitlab.com` (or matches the configured `GITLAB_API_URL` host), keep **every** path segment after the host (preserves subgroups). The existing two-segment truncation MUST stay for `github.com` only.
   - Per FR-020, FR-022.
 
-- [ ] **T022** [US4] Update `PATCH /api/skill-hubs/[id]` (`ui/src/app/api/skill-hubs/[id]/route.ts`):
+- [x] **T022** [US4] Update `PATCH /api/skill-hubs/[id]` (`ui/src/app/api/skill-hubs/[id]/route.ts`):
   - Accept the same `include_paths` field with the same validation/normalization helper extracted from T021 (share the function — do not duplicate)
   - Apply the same widened GitLab subgroup normalizer
   - Per FR-020, FR-022.
 
 ### Phase 6c: Per-skill importer (US4)
 
-- [ ] **T023** [US4] Create `ui/src/app/api/skills/import/route.ts` (the new source-agnostic endpoint):
+- [x] **T023** [US4] Create `ui/src/app/api/skills/import/route.ts` (the new source-agnostic endpoint):
   - `POST` body: `{ source: "github" | "gitlab", repo: string, paths: string[], credentials_ref?: string }`
   - Accept legacy single `path: string` shape transparently (treat as `paths: [path]`)
   - GitHub branch reuses today's `import-github` flow (Git Trees API + contents API) but iterates over every entry in `paths[]`
@@ -195,20 +195,20 @@
   - Response: `{ files, count, conflicts }`. Wrapped via `successResponse` like the legacy route.
   - Per FR-016, FR-017, FR-018.
 
-- [ ] **T024** [US4] Update `ui/src/app/api/skills/import-github/route.ts` to be a thin proxy to `/api/skills/import` with `source: "github"` injected. Mark the file's docstring as "deprecated — prefer POST /api/skills/import". Keep the legacy behavior of returning just `{ files, count }` (no `conflicts` field) so any existing caller is byte-compatible. Per FR-016.
+- [x] **T024** [US4] Update `ui/src/app/api/skills/import-github/route.ts` to be a thin proxy to `/api/skills/import` with `source: "github"` injected. Mark the file's docstring as "deprecated — prefer POST /api/skills/import". Keep the legacy behavior of returning just `{ files, count }` (no `conflicts` field) so any existing caller is byte-compatible. Per FR-016.
 
 ### Phase 6d: UI surfaces (US4)
 
-- [ ] **T025** [US4] Create `ui/src/components/skills/workspace/RepoImportPanel.tsx` based on the existing `GithubImportPanel.tsx` with these additions:
+- [x] **T025** [US4] Create `ui/src/components/skills/workspace/RepoImportPanel.tsx` based on the existing `GithubImportPanel.tsx` with these additions:
   - **Source toggle** above the inputs (radio or segmented control: GitHub / GitLab) — default GitHub for back-compat
   - **Multi-path** support: render the `path` input as a stack of inputs with a `+ Add another path` button (capped at 5 prefixes)
   - Placeholder + credentials hint switch with the source toggle (GitHub: `anthropics/skills`, `GITHUB_TOKEN`; GitLab: `mycorp/platform`, `GITLAB_TOKEN`)
   - POST to `/api/skills/import` with the new body shape; surface `conflicts.length` as a non-blocking toast (e.g. "Imported N files; skipped M duplicates")
   - Per FR-019.
 
-- [ ] **T026** [US4] Replace `ui/src/components/skills/workspace/GithubImportPanel.tsx` with a one-line re-export of `RepoImportPanel` so existing imports (`import { GithubImportPanel } from ...`) keep working without churn. Per FR-019.
+- [x] **T026** [US4] Replace `ui/src/components/skills/workspace/GithubImportPanel.tsx` with a one-line re-export of `RepoImportPanel` so existing imports (`import { GithubImportPanel } from ...`) keep working without churn. Per FR-019.
 
-- [ ] **T027** [US4] Update `ui/src/components/admin/SkillHubsSection.tsx` to add an "Include paths (optional)" input to the hub registration / edit form:
+- [x] **T027** [US4] Update `ui/src/components/admin/SkillHubsSection.tsx` to add an "Include paths (optional)" input to the hub registration / edit form:
   - Multi-line textarea (one prefix per line) is the simplest UI; show a hint: "Leave empty to crawl the entire repo. Trailing slashes are added automatically."
   - On submit, split on newlines, send as `include_paths: string[]`
   - On display (existing hubs), render any persisted `include_paths` as a wrapped chip list under the location
@@ -216,7 +216,7 @@
 
 ### Phase 6e: Tests (US4)
 
-- [ ] **T028** [P] [US4] New + updated test files (run in parallel — independent files):
+- [x] **T028** [P] [US4] New + updated test files (run in parallel — independent files):
   - **NEW** `ui/src/lib/__tests__/hub-crawl-include-paths.test.ts`: assert both crawlers filter the SKILL.md candidate list to the configured prefixes; assert `belongsToNestedSkill` invariant still holds; assert empty/absent `includePaths` is identical to today's behavior.
   - **NEW** `ui/src/app/api/skills/import/__tests__/route.test.ts`: cover GitHub branch (matches legacy behavior), GitLab branch (PRIVATE-TOKEN header, encoded subgroup paths), multi-path merge with conflicts, and the legacy single-`path` body shape.
   - **UPDATE** `ui/src/app/api/skill-hubs/__tests__/url-validation.test.ts`: add a subgroup-URL case (`https://gitlab.com/mycorp/devops/platform` → `mycorp/devops/platform`); add an `include_paths` validation case (rejects `..`, leading `/`, non-allowed chars; normalizes trailing slashes; caps at 20).
@@ -225,9 +225,9 @@
 
 ### Phase 6f: Verification & commit
 
-- [ ] **T029** Run the full UI suite again: `cd ui && npx jest --no-coverage`. Expectation: still green (146+ suites).
+- [x] **T029** Run the full UI suite again: `cd ui && npx jest --no-coverage`. Result: **148 suites pass / 2899 tests pass / 1 skipped** (added 2 new suites — `hub-crawl-include-paths` + `import/__tests__/route` — and extended `url-validation` + `import-panels`; baseline was 146).
 
-- [ ] **T030** Conventional Commits + DCO. Suggested commit slicing on `fix/skills-ai-generate-use-dynamic-agents`:
+- [x] **T030** Conventional Commits + DCO. Commit slicing on `fix/skills-ai-generate-use-dynamic-agents`:
   - `feat(skills): add include_paths filter to hub crawler` (T019, T020)
   - `feat(skill-hubs): accept include_paths and fix GitLab subgroup truncation` (T021, T022)
   - `feat(skills): source-agnostic ad-hoc importer with GitLab + multi-path` (T023, T024)
