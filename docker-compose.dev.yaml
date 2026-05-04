@@ -2225,6 +2225,41 @@ services:
   #   denied-user / denied     → (no roles)
   #   org-b-user / orgb        → chat_user (tenant: globex)
 
+  # Durable Postgres for Keycloak.
+  #
+  # Why this exists: Keycloak's default `start-dev` uses an embedded H2 DB
+  # written under /opt/keycloak/data/h2. Without an external DB AND a named
+  # volume, every `docker compose up` on a recreated container wipes ALL
+  # Keycloak state — users, role assignments, per-team client scopes, the
+  # `team_member:<slug>` realm roles, Slack identity links (slack_user_id
+  # user attribute), token-exchange grants, etc. Mongo still holds the team
+  # docs, so the system silently drifts: BFF startup re-creates the
+  # `team-<slug>` client scopes (via syncTeamScopesOnStartup), but realm
+  # roles + role assignments + identity links are NOT reconciled, leading
+  # to OBO failures like "Could not establish your team-scoped session".
+  #
+  # Putting Keycloak on Postgres with a named volume makes the dev stack
+  # behave like prod: `docker compose down && up` preserves state;
+  # `docker compose down -v` is the only destructive op.
+  keycloak-postgres:
+    image: postgres:16-alpine
+    container_name: keycloak-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    profiles:
+      - rbac
+
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
     container_name: keycloak
@@ -2243,6 +2278,22 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin
       KC_HEALTH_ENABLED: "true"
       KC_LOG_LEVEL: info
+      # Persist KC state in Postgres instead of the ephemeral embedded H2 DB.
+      # Without this, every container recreate wipes users, roles, role
+      # assignments, per-team client scopes, identity links, etc. — and
+      # Mongo's team docs end up referencing KC objects that no longer exist.
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      # Cap JVM heap so KC plays nicely on a busy dev laptop. Default
+      # `start-dev` lets the JVM scale to 25% of host memory, which on a
+      # heavily-loaded compose stack can trip Docker Desktop's OOM killer
+      # during schema init (exit 137). 768m headroom is plenty for dev.
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=256m"
+    # `--import-realm` is still safe with a durable DB: KC only imports on
+    # an empty realm, so subsequent boots become idempotent no-ops and your
+    # runtime mutations (teams, role assignments, identity links) survive.
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
     volumes:
       - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
@@ -2250,6 +2301,9 @@ services:
     ports:
       - "7080:7080"
       - "7443:7443"
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
     # Wait until management is up AND the realm JWKS route returns 200 (TCP-only on 7080 was
     # too early — realm import can lag, leaving the fetcher in an endless curl loop).
     healthcheck:
@@ -2523,4 +2577,9 @@ volumes:
   langgraph_mongodb_data:
     driver: local
   ag_config:
+    driver: local
+  # Durable Keycloak state (users, role assignments, per-team client scopes,
+  # `team_member:<slug>` realm roles, identity links, token-exchange grants).
+  # See the keycloak-postgres service for the rationale.
+  keycloak_postgres_data:
     driver: local
