@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { GithubIcon, GitlabIcon } from "@/components/ui/icons";
 import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
 import { cn } from "@/lib/utils";
+import { detectHubProviderFromUrl } from "@/app/api/skill-hubs/_lib/normalize";
 
 type HubType = "github" | "gitlab";
 
@@ -67,6 +68,12 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [formType, setFormType] = useState<HubType>("github");
   const [formLocation, setFormLocation] = useState("");
+  // Inline notice shown when the location URL's host clearly
+  // identifies a provider that disagrees with the currently-selected
+  // source pill — set by `handleLocationChange` and cleared whenever
+  // the user manually flips the source or types a non-URL location.
+  // Stores the *target* provider so the message can name it.
+  const [autoSwitchedTo, setAutoSwitchedTo] = useState<HubType | null>(null);
   const [formCredRef, setFormCredRef] = useState("");
   const [formLabels, setFormLabels] = useState("");
   // One prefix per line; empty lines are dropped before submit. FR-020.
@@ -305,7 +312,10 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                     type="button"
                     role="radio"
                     aria-checked={formType === t}
-                    onClick={() => setFormType(t)}
+                    onClick={() => {
+                      setFormType(t);
+                      setAutoSwitchedTo(null);
+                    }}
                     className={cn(
                       "inline-flex items-center gap-1.5 px-3 py-1.5 rounded font-medium transition-colors",
                       formType === t
@@ -330,10 +340,46 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
               <input
                 type="text"
                 value={formLocation}
-                onChange={(e) => setFormLocation(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setFormLocation(next);
+                  // Auto-switch the source pill when the typed/pasted
+                  // value is a URL whose host clearly identifies the
+                  // *other* provider. This stops the
+                  // "GitHub selected + gitlab.com URL pasted" pitfall
+                  // from silently producing a misleading
+                  // `api.github.com/repos/<gitlab-group>/<sub>` 404
+                  // (GitHub URL parsing in the legacy preview path
+                  // truncates to the first two path segments without
+                  // checking the host). `detectHubProviderFromUrl`
+                  // returns null for non-URLs / unknown hosts, so
+                  // typing `owner/repo` directly never triggers a
+                  // switch and the user keeps full manual control via
+                  // the source pill.
+                  const detected = detectHubProviderFromUrl(next);
+                  if (detected && detected !== formType) {
+                    setFormType(detected);
+                    setAutoSwitchedTo(detected);
+                  } else if (!detected) {
+                    // User cleared / typed something that's no longer
+                    // a recognizable URL — drop the stale notice.
+                    setAutoSwitchedTo(null);
+                  }
+                }}
                 placeholder={HUB_TYPE_HINTS[formType].repoPlaceholder}
                 className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
+              {autoSwitchedTo && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="text-xs text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1.5"
+                >
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  Detected {HUB_TYPE_HINTS[autoSwitchedTo].label} URL — switched
+                  source to {HUB_TYPE_HINTS[autoSwitchedTo].label}.
+                </p>
+              )}
               {formType === "gitlab" && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Subgroup nesting is preserved (e.g. <code className="font-mono">mycorp/devops/platform</code>).

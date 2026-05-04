@@ -28,6 +28,90 @@ logger = logging.getLogger(__name__)
 CATALOG_API_KEY_HEADER = os.getenv("CAIPE_CATALOG_API_KEY_HEADER", "X-Caipe-Catalog-Key").strip() or "X-Caipe-Catalog-Key"
 
 
+def _gitlab_api_host() -> str:
+    """Return the configured GitLab host (without scheme/port).
+
+    Mirrors ``gitlabApiHost`` in ``ui/src/app/api/skill-hubs/_lib/normalize.ts``
+    so the Python and JS sides recognize the same set of self-hosted
+    GitLab endpoints.
+    """
+    raw = os.getenv("GITLAB_API_URL", "").strip()
+    if not raw:
+        return "gitlab.com"
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(raw)
+        return parsed.hostname or "gitlab.com"
+    except Exception:  # pragma: no cover - urlparse is robust
+        return "gitlab.com"
+
+
+def _is_github_host(host: str) -> bool:
+    """Strict github.com host check (no substring match).
+
+    Mirrors ``isGitHubHost`` in the JS normalize module.
+    """
+    return (
+        host == "github.com"
+        or host == "www.github.com"
+        or host.endswith(".github.com")
+    )
+
+
+def _is_gitlab_host(host: str, configured: str) -> bool:
+    """Strict gitlab.com / configured GitLab host check (no substring match).
+
+    Mirrors ``isGitLabHost`` in the JS normalize module.
+    """
+    if host == "gitlab.com" or host.endswith(".gitlab.com"):
+        return True
+    if configured and host == configured:
+        return True
+    if configured and host.endswith(f".{configured}"):
+        return True
+    return False
+
+
+def detect_hub_provider_from_url(location: str) -> str | None:
+    """Return ``"github"`` / ``"gitlab"`` / ``None`` based on the URL host.
+
+    The Python twin of ``detectHubProviderFromUrl`` in
+    ``ui/src/app/api/skill-hubs/_lib/normalize.ts``. Used by
+    ``skill_hub_crawl`` to reject a host/type mismatch *before* the
+    GitHub URL parser silently truncates the path and makes a
+    confusingly-targeted ``api.github.com`` call (the screenshot bug
+    that motivated this guard: a ``gitlab.com/gitlab-org/ai/skills``
+    URL submitted with ``type=github`` produced a real 404 from
+    ``api.github.com/repos/gitlab-org/ai/git/trees/HEAD``).
+
+    Returns ``None`` for non-URL inputs, unparseable URLs, schemes
+    other than http/https, and hosts not on either provider's
+    allow-list — including hostname-bypass attempts like
+    ``evil-github.com`` or ``github.com.attacker.com`` (security:
+    NEVER use substring matching).
+    """
+    trimmed = (location or "").strip()
+    if not trimmed:
+        return None
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(trimmed)
+    except Exception:
+        return None
+    if parsed.scheme not in ("http", "https"):
+        return None
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    if _is_github_host(host):
+        return "github"
+    if _is_gitlab_host(host, _gitlab_api_host()):
+        return "gitlab"
+    return None
+
+
 class SkillHubCrawlBody(BaseModel):
     """Request body for GitHub hub crawl preview (no persistence)."""
 
@@ -451,6 +535,35 @@ async def skill_hub_crawl(
             status_code=400,
             detail={"error": "unsupported_type", "message": f"Crawl not supported for type: {body.type}"},
         )
+
+    # Backstop: reject host/type mismatches like a ``gitlab.com`` URL
+    # submitted with ``type=github``. Without this, the GitHub URL
+    # parser in ``preview_github_hub_skills`` truncates the path to its
+    # first two segments without checking the host, then hits
+    # ``api.github.com/repos/<gitlab-group>/<sub>/git/trees/HEAD`` which
+    # 404s with a misleading "GitHub repo not found" error. The Next.js
+    # UI form also auto-switches the source pill on URL paste, but we
+    # mirror the guard here so direct API consumers (curl, tests,
+    # third-party callers) get the same protection. See
+    # ``detect_hub_provider_from_url`` for the host-allow-list rules
+    # this delegates to (no substring matching).
+    detected = detect_hub_provider_from_url(body.location)
+    if detected is not None and detected != hub_type:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "type_location_mismatch",
+                "message": (
+                    f"The location URL is a "
+                    f"{'GitHub' if detected == 'github' else 'GitLab'} URL "
+                    f'but the request type is "{body.type}". Either change '
+                    f"the type to {detected} or pass a "
+                    f"{'github.com' if hub_type == 'github' else 'gitlab.com'} "
+                    f"URL."
+                ),
+            },
+        )
+
     result = preview_github_hub_skills(
         body.location.strip(),
         body.credentials_ref,

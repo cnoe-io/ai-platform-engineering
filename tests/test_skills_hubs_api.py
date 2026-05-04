@@ -245,6 +245,202 @@ class TestSkillsRouter:
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "unsupported_type"
 
+    def test_skill_hubs_crawl_rejects_gitlab_url_with_github_type(self, client):
+        """type=github + gitlab.com URL → 400 type_location_mismatch.
+
+        This is the screenshot regression: the admin form submitted
+        ``{type: "github", location: "https://gitlab.com/gitlab-org/ai/skills"}``
+        and the legacy GitHub URL parser silently truncated the URL
+        path to ``gitlab-org/ai`` and made a real
+        ``api.github.com/repos/gitlab-org/ai/git/trees/HEAD`` call,
+        which 404s. The new backstop catches the host/type mismatch
+        before any GitHub API call happens.
+        """
+        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
+            resp = client.post(
+                "/skill-hubs/crawl",
+                json={
+                    "type": "github",
+                    "location": "https://gitlab.com/gitlab-org/ai/skills",
+                },
+            )
+
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["detail"]["error"] == "type_location_mismatch"
+        # Message should name BOTH sides so the caller can fix either.
+        assert "GitLab" in body["detail"]["message"]
+        assert "github" in body["detail"]["message"]
+
+    def test_skill_hubs_crawl_rejects_gitlab_subgroup_url_with_github_type(self, client):
+        """Same regression but with a deeply-nested subgroup URL.
+
+        Pinning this case explicitly because subgroups are exactly the
+        shape that motivated GitLab support — they're easy to paste
+        accidentally while the GitHub pill is still selected.
+        """
+        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
+            resp = client.post(
+                "/skill-hubs/crawl",
+                json={
+                    "type": "github",
+                    "location": "https://gitlab.com/mycorp/devops/platform",
+                },
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "type_location_mismatch"
+
+    def test_skill_hubs_crawl_does_not_normalize_evil_github(self, client):
+        """A look-alike host like ``evil-github.com`` does NOT count as github.
+
+        Returns ``None`` from ``detect_hub_provider_from_url`` (unknown
+        host), so the request is allowed through to the regular GitHub
+        URL parser — which is fine because the URL parser will then
+        produce its own (correct) failure when GitHub doesn't recognize
+        the path. Critically, we don't *bypass* the host check by
+        substring-matching ``github`` inside the hostname.
+        """
+        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
+            resp = client.post(
+                "/skill-hubs/crawl",
+                json={
+                    "type": "github",
+                    "location": "https://evil-github.com/owner/repo",
+                },
+            )
+
+        # The response must NOT be the type_location_mismatch 400
+        # (that would mean we accidentally classified the look-alike
+        # host as a real provider). Whatever else happens (502 from
+        # the GitHub crawler hitting api.github.com with a fake
+        # owner/repo, or success if GitHub happens to have one) is
+        # fine — what we're guarding here is the host classifier.
+        if resp.status_code == 400:
+            assert resp.json()["detail"]["error"] != "type_location_mismatch"
+
+    def test_skill_hubs_crawl_accepts_canonical_github_owner_repo(self, client):
+        """Bare ``owner/repo`` (no URL) does NOT trip the host guard.
+
+        Detection returns ``None`` for non-URL inputs, so the request
+        proceeds normally. Asserting the absence of the mismatch error
+        is sufficient — the actual crawl will hit the network and is
+        covered by other tests.
+        """
+        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
+            resp = client.post(
+                "/skill-hubs/crawl",
+                json={"type": "github", "location": "owner/repo"},
+            )
+
+        if resp.status_code == 400:
+            assert resp.json()["detail"]["error"] != "type_location_mismatch"
+
+    # -------------------------------------------------------------------
+    # ``detect_hub_provider_from_url`` unit tests — pin the host
+    # allow-list rules independently of the route handler so future
+    # refactors of the route can't silently weaken the classifier.
+    # -------------------------------------------------------------------
+
+    def test_detect_provider_recognizes_github_com(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://github.com/owner/repo") == "github"
+
+    def test_detect_provider_recognizes_gitlab_com(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://gitlab.com/group/project") == "gitlab"
+
+    def test_detect_provider_recognizes_gitlab_subgroup_url(self):
+        """The screenshot URL specifically — pin it as a regression."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert (
+            detect_hub_provider_from_url("https://gitlab.com/gitlab-org/ai/skills")
+            == "gitlab"
+        )
+
+    def test_detect_provider_returns_none_for_owner_repo(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("owner/repo") is None
+        assert detect_hub_provider_from_url("group/sub/project") is None
+
+    def test_detect_provider_returns_none_for_empty(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("") is None
+        assert detect_hub_provider_from_url("   ") is None
+
+    def test_detect_provider_rejects_evil_github_substring(self):
+        """Hostname-bypass attempt: ``evil-github.com`` must NOT be classified
+        as github. This is the same security property that
+        ``isGitHubHost`` enforces in the JS twin (no substring match).
+        """
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://evil-github.com/owner/repo") is None
+
+    def test_detect_provider_rejects_github_com_suffix_attack(self):
+        """Suffix attack: ``github.com.attacker.com`` must NOT be github."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert (
+            detect_hub_provider_from_url("https://github.com.attacker.com/owner/repo")
+            is None
+        )
+
+    def test_detect_provider_rejects_evil_gitlab_substring(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://evil-gitlab.com/group/project") is None
+
+    def test_detect_provider_rejects_non_http_scheme(self):
+        """Non-http(s) URLs should be ignored — file://, ssh://, etc.
+
+        SSH-style git URLs like ``git@github.com:owner/repo.git`` aren't
+        valid URL schemes from urlparse's perspective and end up as
+        ``None`` either way; this case pins the explicit scheme guard
+        so future urlparse changes don't accidentally let
+        ``ssh://github.com/...`` through.
+        """
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("ssh://github.com/owner/repo") is None
+        assert detect_hub_provider_from_url("file:///etc/passwd") is None
+
+    def test_detect_provider_recognizes_self_hosted_gitlab(self):
+        """When ``GITLAB_API_URL`` is set, that host counts as gitlab."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        with patch.dict(os.environ, {"GITLAB_API_URL": "https://gitlab.mycorp.com/api/v4"}):
+            assert (
+                detect_hub_provider_from_url("https://gitlab.mycorp.com/group/project")
+                == "gitlab"
+            )
+
+    def test_detect_provider_self_hosted_gitlab_subdomains(self):
+        """Subdomains of the configured self-hosted GitLab host also match."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        with patch.dict(os.environ, {"GITLAB_API_URL": "https://gitlab.mycorp.com"}):
+            assert (
+                detect_hub_provider_from_url("https://review.gitlab.mycorp.com/group/project")
+                == "gitlab"
+            )
+
     def test_supervisor_skills_status_includes_sync(self, client):
         """GET /internal/supervisor/skills-status exposes sync_status (T067)."""
         mas = MagicMock()
