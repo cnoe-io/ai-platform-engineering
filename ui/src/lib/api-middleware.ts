@@ -8,6 +8,12 @@ import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
+import { ApiError } from '@/lib/api-error';
+
+// Re-export so existing `import { ApiError } from "@/lib/api-middleware"`
+// call sites keep working — see ./api-error.ts for why the class lives
+// in its own server-runtime-free module now.
+export { ApiError };
 
 // ============================================================================
 // Authentication Middleware
@@ -181,17 +187,12 @@ export function requireAdminView(session: { role?: string; canViewAdmin?: boolea
 // ============================================================================
 // Error Handling
 // ============================================================================
-
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public statusCode: number = 500,
-    public code?: string
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
+//
+// `ApiError` lives in `@/lib/api-error` (a leaf module with no Next.js
+// server-runtime imports) so it can be safely pulled into client
+// components and jsdom tests. It is re-exported above for source
+// compatibility with existing `import { ApiError } from "@/lib/api-middleware"`
+// call sites.
 
 /**
  * Handle API errors and return appropriate response

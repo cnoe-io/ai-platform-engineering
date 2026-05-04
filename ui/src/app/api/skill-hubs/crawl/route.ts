@@ -6,7 +6,10 @@ import {
   validateCredentialsRef,
 } from "@/lib/api-middleware";
 import { crawlGitHubRepo, crawlGitLabRepo } from "@/lib/hub-crawl";
-import { normalizeHubLocation } from "@/app/api/skill-hubs/_lib/normalize";
+import {
+  detectHubProviderFromUrl,
+  normalizeHubLocation,
+} from "@/app/api/skill-hubs/_lib/normalize";
 
 /**
  * POST /api/skill-hubs/crawl — preview SKILL.md paths for a repo (FR-017).
@@ -24,6 +27,34 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!type || !location || typeof location !== "string") {
       return NextResponse.json(
         { error: "bad_request", message: "Missing type or location." },
+        { status: 400 },
+      );
+    }
+
+    // Backstop guard: if the caller passes a URL whose host clearly
+    // identifies a provider that disagrees with the declared `type`,
+    // reject with an actionable error BEFORE we forward to Python or
+    // attempt a local crawl. This catches the
+    // "GitHub selected + gitlab.com URL pasted" pitfall where the
+    // legacy GitHub URL parser silently truncates the URL path to its
+    // first two segments and produces a real GitHub API call against
+    // a foreign group name (e.g.
+    // `https://gitlab.com/gitlab-org/ai/skills` → owner=`gitlab-org`,
+    // repo=`ai` → 404 from `api.github.com/repos/gitlab-org/ai/...`).
+    // The form already auto-switches when the user pastes a URL, so
+    // this is a defensive backstop for non-form callers (curl, tests,
+    // future API consumers).
+    const detected = detectHubProviderFromUrl(location);
+    if (detected && detected !== type) {
+      return NextResponse.json(
+        {
+          error: "type_location_mismatch",
+          message:
+            `The location URL is a ${detected === "github" ? "GitHub" : "GitLab"} URL ` +
+            `but the request type is "${type}". Either change the source ` +
+            `to ${detected === "github" ? "GitHub" : "GitLab"} or pass a ` +
+            `${type === "github" ? "github.com" : "gitlab.com"} URL.`,
+        },
         { status: 400 },
       );
     }

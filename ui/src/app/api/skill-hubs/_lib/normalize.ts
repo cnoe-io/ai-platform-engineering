@@ -14,7 +14,7 @@
  * Both `POST /api/skill-hubs` and `PATCH /api/skill-hubs/[id]` reuse this
  * module so the two surfaces can never drift.
  */
-import { ApiError } from "@/lib/api-middleware";
+import { ApiError } from "@/lib/api-error";
 
 /**
  * Resolve the configured GitLab API host (without scheme/port) so we can
@@ -44,6 +44,48 @@ function isGitLabHost(hostname: string, configuredHost: string): boolean {
   if (configuredHost && hostname === configuredHost) return true;
   if (configuredHost && hostname.endsWith(`.${configuredHost}`)) return true;
   return false;
+}
+
+/**
+ * Detect the hub provider from a free-form `location` string.
+ *
+ * Returns:
+ *   - `"github"` if `location` is a URL whose host matches the GitHub
+ *     allow-list (github.com / *.github.com).
+ *   - `"gitlab"` if `location` is a URL whose host matches the GitLab
+ *     allow-list (gitlab.com / *.gitlab.com or the configured
+ *     `GITLAB_API_URL` host / its subdomains).
+ *   - `null` if the input is not a URL, the URL is unparseable, or the
+ *     host does not match either provider's allow-list — including
+ *     hostname-bypass attempts like `evil-github.com` or
+ *     `github.com.attacker.com` (security: NEVER use substring match).
+ *
+ * The form on the admin Skill Hubs page uses this to detect the
+ * "user typed a gitlab URL while the GitHub source is selected"
+ * mismatch and auto-switch the source pill, which avoids the
+ * confusing `Client error '404 Not Found' for url ... api.github.com/
+ * repos/gitlab-org/ai/...` toast that surfaced before this guard
+ * existed (the GitHub URL parser in the legacy preview path silently
+ * truncated `https://gitlab.com/gitlab-org/ai/skills` to its first
+ * two path segments and made a real GitHub API call against
+ * `gitlab-org/ai`, which 404s).
+ */
+export function detectHubProviderFromUrl(
+  location: string,
+): "github" | "gitlab" | null {
+  const trimmed = location.trim();
+  if (!trimmed) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  const host = url.hostname;
+  if (isGitHubHost(host)) return "github";
+  if (isGitLabHost(host, gitlabApiHost())) return "gitlab";
+  return null;
 }
 
 /**

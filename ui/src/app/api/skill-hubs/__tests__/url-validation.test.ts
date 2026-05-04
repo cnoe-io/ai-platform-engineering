@@ -10,6 +10,7 @@
  */
 
 import {
+  detectHubProviderFromUrl,
   normalizeHubLocation,
   validateIncludePaths,
 } from "../_lib/normalize";
@@ -222,5 +223,90 @@ describe("hub-crawl.ts GitHub URL normalization", () => {
     expect(normalizeCrawlLoc("cnoe-io/ai-platform-engineering")).toBe(
       "cnoe-io/ai-platform-engineering"
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `detectHubProviderFromUrl` — provider classifier used by the admin form
+// auto-switch and by the route handler backstop. The screenshot
+// regression that motivated this helper: pasting
+// `https://gitlab.com/gitlab-org/ai/skills` into the form while the
+// GitHub source pill was selected silently produced a GitHub API call
+// against `gitlab-org/ai`, which 404s. These tests pin the host
+// allow-list rules — including the security property that we never
+// substring-match `github` / `gitlab` inside arbitrary hostnames.
+// ---------------------------------------------------------------------------
+
+describe("detectHubProviderFromUrl", () => {
+  it("classifies github.com URLs as github", () => {
+    expect(detectHubProviderFromUrl("https://github.com/owner/repo")).toBe("github");
+    expect(detectHubProviderFromUrl("http://github.com/owner/repo")).toBe("github");
+    expect(detectHubProviderFromUrl("https://www.github.com/owner/repo")).toBe("github");
+    expect(detectHubProviderFromUrl("https://api.github.com/repos/x")).toBe("github");
+  });
+
+  it("classifies gitlab.com URLs as gitlab", () => {
+    expect(detectHubProviderFromUrl("https://gitlab.com/group/project")).toBe("gitlab");
+    expect(detectHubProviderFromUrl("https://gitlab.com/group/sub/project")).toBe("gitlab");
+  });
+
+  it("classifies the screenshot URL as gitlab", () => {
+    // Regression pin for the exact URL the admin pasted into the form
+    // while GitHub was selected.
+    expect(
+      detectHubProviderFromUrl("https://gitlab.com/gitlab-org/ai/skills"),
+    ).toBe("gitlab");
+  });
+
+  it("returns null for plain owner/repo (no URL)", () => {
+    expect(detectHubProviderFromUrl("owner/repo")).toBeNull();
+    expect(detectHubProviderFromUrl("group/sub/project")).toBeNull();
+  });
+
+  it("returns null for empty / whitespace input", () => {
+    expect(detectHubProviderFromUrl("")).toBeNull();
+    expect(detectHubProviderFromUrl("   ")).toBeNull();
+  });
+
+  it("rejects evil-github.com (substring attack)", () => {
+    expect(detectHubProviderFromUrl("https://evil-github.com/owner/repo")).toBeNull();
+  });
+
+  it("rejects github.com.attacker.com (suffix attack)", () => {
+    expect(
+      detectHubProviderFromUrl("https://github.com.attacker.com/owner/repo"),
+    ).toBeNull();
+  });
+
+  it("rejects evil-gitlab.com (substring attack)", () => {
+    expect(detectHubProviderFromUrl("https://evil-gitlab.com/group/project")).toBeNull();
+  });
+
+  it("rejects non-http(s) schemes", () => {
+    // Defense-in-depth: SSH-style URLs and file://, etc., never match.
+    expect(detectHubProviderFromUrl("ssh://github.com/owner/repo")).toBeNull();
+    expect(detectHubProviderFromUrl("file:///etc/passwd")).toBeNull();
+  });
+
+  it("returns null for unparseable input", () => {
+    // URLs that look like URLs but URL constructor rejects.
+    expect(detectHubProviderFromUrl("https://[not-a-valid-host")).toBeNull();
+  });
+
+  it("recognizes self-hosted GitLab via GITLAB_API_URL", () => {
+    const prev = process.env.GITLAB_API_URL;
+    try {
+      process.env.GITLAB_API_URL = "https://gitlab.mycorp.com/api/v4";
+      expect(
+        detectHubProviderFromUrl("https://gitlab.mycorp.com/group/project"),
+      ).toBe("gitlab");
+      // Subdomains of the configured host also match.
+      expect(
+        detectHubProviderFromUrl("https://review.gitlab.mycorp.com/group/project"),
+      ).toBe("gitlab");
+    } finally {
+      if (prev === undefined) delete process.env.GITLAB_API_URL;
+      else process.env.GITLAB_API_URL = prev;
+    }
   });
 });
