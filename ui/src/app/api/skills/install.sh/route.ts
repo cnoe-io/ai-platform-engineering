@@ -591,10 +591,13 @@ manifest_register_paths() {
   local name="\$1" kind="\$2"; shift 2
   local cfg_dir; cfg_dir="\$(dirname "\$MANIFEST_PATH")"
   mkdir -p "\$cfg_dir" 2>/dev/null || return 0
-  printf '%s\\n' "\$@" | python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$name" "\$kind" <<'PY' 2>/dev/null || true
+  # IMPORTANT: heredoc + pipe-to-stdin do NOT compose -- the
+  # heredoc redirects stdin to the script source, silently
+  # discarding anything we pipe in. Pass paths as trailing
+  # positional args instead.
+  python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$name" "\$kind" "\$@" <<'PY' 2>/dev/null || true
 import datetime, json, os, sys, tempfile
-manifest_path, agent, scope, name, kind = sys.argv[1:]
-paths = [line.rstrip("\\n") for line in sys.stdin if line.strip()]
+manifest_path, agent, scope, name, kind, *paths = sys.argv[1:]
 data = {"version": 2, "installed": []}
 if os.path.isfile(manifest_path):
     try:
@@ -963,15 +966,18 @@ do_install_bulk() {
 
   # The python helper does the heavy lifting: parses the catalog, filters
   # flagged skills, and writes each skill's SKILL.md (+ any ancillary
-  # files) to every target root. The TSV passed via stdin is the list
-  # of resolved skill-root directories.
-  printf '%s\\n' "\${RESOLVED_SKILL_ROOTS[@]}" \\
-    | python3 - "\$catalog_tmp" "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$FORCE" "\$UPGRADE" <<'PY'
+  # files) to every target root.
+  #
+  # IMPORTANT: bash heredoc + pipe-to-stdin do NOT compose. The
+  # heredoc redirects Python's stdin to the script source, so any
+  # data we tried to pipe in (via printf | python3) would be
+  # silently discarded. We pass the resolved skill-root directories
+  # as trailing positional arguments instead.
+  python3 - "\$catalog_tmp" "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$FORCE" "\$UPGRADE" "\${RESOLVED_SKILL_ROOTS[@]}" <<'PY'
 import base64, datetime, json, os, re, sys, tempfile
 
-src, manifest_path, agent, scope, force_s, upgrade_s = sys.argv[1:]
+src, manifest_path, agent, scope, force_s, upgrade_s, *roots = sys.argv[1:]
 force = force_s == "1"; upgrade = upgrade_s == "1"
-roots = [line.rstrip("\\n") for line in sys.stdin if line.strip()]
 NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 PART_RE = re.compile(r"[^A-Za-z0-9._-]")
 RESERVED = {"skills", "update-skills"}
@@ -1219,7 +1225,7 @@ do_install_hook
 # ---------- Success card ----------
 echo
 echo "================================================================"
-echo "  CAIPE skills installed for \$AGENT_LABEL (\$SCOPE scope)"
+echo "  CAIPE skills installed (\$SCOPE scope)"
 echo "================================================================"
 echo
 echo "  installed to:"
@@ -1227,14 +1233,19 @@ for p in "\${RESOLVED_SKILL_PATHS[@]}"; do
   echo "    \${p%/\\{name\\}/SKILL.md}/<name>/SKILL.md"
 done
 echo
+echo "  Works in: Claude Code, Cursor, Codex CLI, Gemini CLI, opencode"
+echo "  (a single SKILL.md per skill is written to both the Claude tree"
+echo "  and the vendor-neutral ~/.agents/skills/ mirror that the other"
+echo "  four agents auto-discover)"
+echo
 if [ "\$DO_HELPERS" -eq 1 ] && [ "\$NO_HELPERS" -eq 0 ]; then
   echo "  next steps:"
-  echo "    1. launch \$AGENT_LABEL"
+  echo "    1. launch any of the agents listed above"
   echo "    2. type /skills <query>          live-fetch a skill from the catalog"
   echo "    3. type /update-skills           refresh local copies from the catalog"
 elif [ "\$DO_LIVE_ONLY" -eq 1 ]; then
   echo "  next steps:"
-  echo "    1. launch \$AGENT_LABEL"
+  echo "    1. launch any of the agents listed above"
   echo "    2. type /\$COMMAND_NAME"
 fi
 echo
