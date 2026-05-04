@@ -1,0 +1,12 @@
+# Minimal model for AgentGateway + ext_authz + OpenFGA experiment.
+# Tuple written at init: user:<keycloak_sub> can_call document:mcp
+# Bridge maps JWT `sub` → user:<sub> and checks can_call on document:mcp.
+
+model
+  schema 1.1
+
+type user
+
+type document
+  relations
+    define can_call: [user]

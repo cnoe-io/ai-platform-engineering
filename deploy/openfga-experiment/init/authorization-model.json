@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {
+      "type": "user",
+      "relations": {}
+    },
+    {
+      "type": "document",
+      "relations": {
+        "can_call": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_call": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
