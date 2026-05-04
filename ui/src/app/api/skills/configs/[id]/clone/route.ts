@@ -10,6 +10,7 @@ import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
+import { recordRevision } from "@/lib/skill-revisions";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
@@ -143,6 +144,34 @@ export const POST = withErrorHandler(
           !cloned.skill_content?.trim() ||
           scanResult.scan_status === "unscanned",
         duration_ms: Date.now() - t0,
+      });
+
+      // Seed the clone's own revision history with snapshot #1. The
+      // source skill's history doesn't follow the clone — clones are
+      // a new artifact and start their own timeline. The breadcrumb
+      // back to the source lives in `metadata.template_source_id`
+      // already, which is enough for "where did this come from?"
+      // questions without dragging the source's history along.
+      await recordRevision({
+        skillId: newId,
+        snapshot: {
+          name: cloned.name,
+          description: cloned.description,
+          category: cloned.category,
+          tasks: cloned.tasks ?? [],
+          metadata: cloned.metadata,
+          is_quick_start: cloned.is_quick_start,
+          difficulty: cloned.difficulty,
+          thumbnail: cloned.thumbnail,
+          input_form: cloned.input_form,
+          skill_content: cloned.skill_content,
+          ancillary_files: cloned.ancillary_files,
+          scan_status: cloned.scan_status,
+          scan_summary: cloned.scan_summary,
+        },
+        trigger: "clone",
+        actor: user.email,
+        note: `Cloned from ${id}`,
       });
 
       console.log(

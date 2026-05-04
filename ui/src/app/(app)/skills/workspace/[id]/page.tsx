@@ -39,6 +39,7 @@ const VALID_TABS: SkillWorkspaceTabId[] = [
   "overview",
   "files",
   "tools",
+  "versions",
   "history",
 ];
 

@@ -33,6 +33,7 @@ import {
   Download,
   Eye,
   FileCode,
+  History as HistoryIcon,
   Loader2,
   Save,
   Settings as SettingsIcon,
@@ -75,6 +76,7 @@ import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
 import { FilesTab } from "@/components/skills/workspace/tabs/FilesTab";
 import { ToolsTab } from "@/components/skills/workspace/tabs/ToolsTab";
 import { ScanTab } from "@/components/skills/workspace/tabs/HistoryTab";
+import { VersionsTab } from "@/components/skills/workspace/tabs/VersionsTab";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -92,6 +94,7 @@ export type SkillWorkspaceTabId =
   | "overview"
   | "files"
   | "tools"
+  | "versions"
   | "history";
 
 export interface SkillWorkspaceProps {
@@ -154,6 +157,17 @@ const STEPS: StepDef[] = [
     label: "Tools",
     hint: "Pick the agent tools this skill is allowed to call.",
     icon: Wrench,
+  },
+  {
+    // Version history sits between the authoring steps and the
+    // scanner so users have a clear "I broke something — let me roll
+    // back" affordance available without leaving the workspace.
+    // Only available for saved skills (no draft has history yet).
+    id: "versions",
+    label: "Versions",
+    hint: "Browse, diff, and restore earlier snapshots of this skill.",
+    icon: HistoryIcon,
+    fullWidth: true,
   },
   {
     // Step id stays "history" so existing deep links (`?tab=history`)
@@ -457,7 +471,12 @@ export function SkillWorkspace({
   // button always lands somewhere meaningful.
   // ---------------------------------------------------------------------
   const isStepDisabled = useCallback(
-    (id: SkillWorkspaceTabId) => id === "history" && !existingConfig,
+    // Both Versions and Scan need a saved skill — they read
+    // collections keyed off the persisted skill id. New (unsaved)
+    // drafts hide both so the wizard footer's Next button always
+    // lands somewhere meaningful.
+    (id: SkillWorkspaceTabId) =>
+      (id === "history" || id === "versions") && !existingConfig,
     [existingConfig],
   );
   const visibleSteps = useMemo(
@@ -688,6 +707,27 @@ export function SkillWorkspace({
             </TabsContent>
             <TabsContent value="tools" className="mt-0 outline-none">
               <ToolsTab form={form} />
+            </TabsContent>
+            <TabsContent value="versions" className="mt-0 outline-none">
+              {skillIdForHistory ? (
+                <VersionsTab
+                  skillId={skillIdForHistory}
+                  skillName={existingConfig?.name}
+                  canRestore={!readOnly}
+                  onRestored={() => {
+                    // After a restore the live skill content has
+                    // diverged from whatever the form is holding;
+                    // the simplest correct UX is a hard refresh of
+                    // the workspace page so `existingConfig` is
+                    // re-fetched from the server.
+                    if (typeof window !== "undefined") {
+                      window.location.reload();
+                    }
+                  }}
+                />
+              ) : (
+                <EmptyTabState text="Save the skill first — version history starts at the first save." />
+              )}
             </TabsContent>
             <TabsContent value="history" className="mt-0 outline-none">
               {skillIdForHistory ? (
