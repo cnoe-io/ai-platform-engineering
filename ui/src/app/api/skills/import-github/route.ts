@@ -4,78 +4,30 @@ import {
   withErrorHandler,
   requireAdmin,
   successResponse,
-  ApiError,
-  validateCredentialsRef,
 } from "@/lib/api-middleware";
+import { runImport } from "../import/route";
 
 /**
- * POST /api/skills/import-github
+ * @deprecated — prefer POST /api/skills/import (source-agnostic).
  *
- * Fetches all files under a GitHub directory (excluding SKILL.md) and returns
- * them as a `Record<string, string>` for merging into `ancillary_files` before save.
+ * Thin proxy that injects `source: "github"` and forwards to the unified
+ * importer (FR-016). Kept for back-compat with any out-of-tree callers
+ * that still POST to this URL or use the legacy single-`path: string`
+ * body shape.
+ *
+ * Response stays byte-compatible with the historical `{ files, count }`
+ * shape (no `conflicts` field) so existing callers don't break.
  *
  * Body: { repo: "owner/repo", path: "skills/my-skill", credentials_ref?: string }
+ *   OR  { repo: "owner/repo", paths: ["skills/a", "skills/b"], credentials_ref?: string }
  */
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, _user, session) => {
     requireAdmin(session);
 
-    const body = await request.json();
-    const repo: string = body.repo?.trim();
-    const dirPath: string = body.path?.trim();
-    const credentialsRef = validateCredentialsRef(body.credentials_ref);
-
-    if (!repo || !dirPath) {
-      throw new ApiError("Both 'repo' (owner/repo) and 'path' are required", 400);
-    }
-
-    const token =
-      (credentialsRef ? process.env[credentialsRef] : undefined) ||
-      process.env.GITHUB_TOKEN ||
-      "";
-    const apiBase = process.env.GITHUB_API_URL || "https://api.github.com";
-    const headers: Record<string, string> = {
-      Accept: "application/vnd.github.v3+json",
-    };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const treeUrl = `${apiBase}/repos/${repo}/git/trees/HEAD?recursive=1`;
-    const treeResp = await fetch(treeUrl, {
-      headers,
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!treeResp.ok) {
-      throw new ApiError(`GitHub tree fetch failed: ${treeResp.status}`, 502);
-    }
-    const tree = await treeResp.json();
-
-    const prefix = dirPath.replace(/\/$/, "") + "/";
-    const blobs: string[] = [];
-    for (const item of tree.tree ?? []) {
-      const p = (item.path as string).replace(/\\/g, "/");
-      if (item.type === "blob" && p.startsWith(prefix) && !p.endsWith("SKILL.md")) {
-        blobs.push(p);
-      }
-    }
-
-    const files: Record<string, string> = {};
-    for (const blobPath of blobs) {
-      const rel = blobPath.slice(prefix.length);
-      try {
-        const contUrl = `${apiBase}/repos/${repo}/contents/${blobPath}`;
-        const r = await fetch(contUrl, {
-          headers,
-          signal: AbortSignal.timeout(15_000),
-        });
-        if (!r.ok) continue;
-        const data = await r.json();
-        files[rel] = Buffer.from(data.content ?? "", "base64").toString("utf-8");
-      } catch {
-        // skip files that fail to fetch
-      }
-    }
-
-    return successResponse({ files, count: Object.keys(files).length });
+    const body = (await request.json()) as Record<string, unknown>;
+    const { files, count } = await runImport({ ...body, source: "github" });
+    return successResponse({ files, count });
   });
 });
