@@ -137,10 +137,18 @@ This is the **primary** mode. Skills are fetched live and executed without savin
    ```
 2. Parse the JSON response. Extract the `content` field from the first matching skill.
 3. If no match: report the error and suggest `/{{COMMAND_NAME}}` to browse.
-4. **Execute the skill inline**: Treat the fetched `content` as if it were a slash command
+4. **Refuse to run flagged skills.** The helper strips the executable
+   `content` from any skill the security scanner flagged and lists
+   their names in a top-level `_flagged_skipped` array. If the requested
+   skill appears there (or has `runnable: false` /
+   `blocked_reason: "scan_flagged"`), tell the user the skill is
+   disabled, link them to the Skills gallery to re-scan after the
+   underlying SKILL.md is fixed, and **do not attempt to load the
+   content from another source**.
+5. **Execute the skill inline**: Treat the fetched `content` as if it were a slash command
    prompt. Follow its instructions in the current conversation — do NOT save it to disk.
    The content is the full skill markdown (with frontmatter, steps, etc.).
-5. Confirm at the start: "Running skill `<name>` (fetched live from gateway)..."
+6. Confirm at the start: "Running skill `<name>` (fetched live from gateway)..."
 
 ## Notes
 

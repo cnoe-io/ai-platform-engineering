@@ -14,9 +14,22 @@ import {
   X,
   Plus,
   Tag,
+  Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentSkill } from "@/types/agent-skill";
+import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
+
+/**
+ * Mirrors ``isFlaggedSkill`` in ``components/skills/SkillsGallery.tsx``
+ * and the bash filters in ``install.sh``: a skill the security scanner
+ * has flagged must never be runnable, addable to an agent, or
+ * installed by the bulk script. We check all three signals the
+ * gateway stamps (``scan_status``, ``runnable``, ``blocked_reason``)
+ * so a future schema tweak can't silently undo the gate.
+ */
+function isFlaggedSkill(skill: AgentSkill): boolean {
+  return skill.scan_status === "flagged";
+}
 
 interface SkillsSelectorProps {
   value: string[];
@@ -60,6 +73,13 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
         source_id: string | null;
         content: string | null;
         metadata: Record<string, unknown>;
+        // The listing route stamps these via applyRunnableGate. They
+        // were silently dropped from the AgentSkill projection here
+        // before the security-gate fix, which let flagged skills be
+        // attached to custom agents (mirror of the install.sh leak).
+        scan_status?: ScanStatus;
+        runnable?: boolean;
+        blocked_reason?: string;
       }> = data.skills ?? [];
       // Map CatalogSkill → AgentSkill shape used by this component
       const skills: AgentSkill[] = catalogSkills.map((cs) => ({
@@ -78,6 +98,10 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
           ...(cs.source === "hub" ? { hub_type: cs.metadata?.hub_type as string } : {}),
         },
         skill_content: cs.content ?? undefined,
+        // Preserve scan_status so the picker can dim + disable flagged
+        // skills. Without this the picker treated everything as
+        // runnable, mirroring the install.sh leak.
+        scan_status: cs.scan_status,
       }));
       setAvailableSkills(skills);
     } catch (err) {
@@ -138,6 +162,12 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
   const atLimit = value.length >= maxSkills;
 
   function addSkill(skillId: string) {
+    const candidate = availableSkills.find((s) => s.id === skillId);
+    // Refuse to add flagged skills even if a caller bypasses the
+    // disabled button (e.g. clicks the row label, or a future refactor
+    // wires up keyboard activation). Mirrors handleConfigClick in
+    // SkillsGallery.tsx and the install.sh bash filters.
+    if (candidate && isFlaggedSkill(candidate)) return;
     if (!value.includes(skillId) && !atLimit) {
       onChange([...value, skillId]);
     }
@@ -149,8 +179,12 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
 
   function selectAllFiltered() {
     const existing = new Set(value);
+    // Skip flagged skills in bulk-add too -- otherwise "Select all"
+    // would silently re-introduce the security leak the install.sh
+    // filter is supposed to plug.
     for (const s of filtered) {
       if (existing.size >= maxSkills) break;
+      if (isFlaggedSkill(s)) continue;
       existing.add(s.id);
     }
     onChange(Array.from(existing));
@@ -224,17 +258,35 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
           )}
 
           <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto border rounded-lg p-2">
-            {selectedSkills.map((skill) => (
-              <Badge
-                key={skill.id}
-                variant="secondary"
-                className="text-xs px-2 py-0.5 gap-1 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors"
-                onClick={() => !disabled && removeSkill(skill.id)}
-              >
-                {skill.name}
-                <X className="h-3 w-3" />
-              </Badge>
-            ))}
+            {selectedSkills.map((skill) => {
+              // A skill the user attached BEFORE it was flagged stays
+              // in `value` -- the picker can't quietly drop it (that
+              // would silently mutate the agent's saved skill list).
+              // Render it with a red outline + lock icon so the user
+              // knows the next save will leave the agent attached to
+              // a non-runnable skill, and trigger them to remove it.
+              const flagged = isFlaggedSkill(skill);
+              return (
+                <Badge
+                  key={skill.id}
+                  variant={flagged ? "outline" : "secondary"}
+                  className={cn(
+                    "text-xs px-2 py-0.5 gap-1 cursor-pointer hover:bg-destructive/10 hover:text-destructive transition-colors",
+                    flagged && "bg-red-500/10 text-red-600 border-red-500/30",
+                  )}
+                  title={
+                    flagged
+                      ? "This skill is flagged by the security scanner. Remove it; the agent will fail to load it at runtime."
+                      : undefined
+                  }
+                  onClick={() => !disabled && removeSkill(skill.id)}
+                >
+                  {flagged && <Lock className="h-2.5 w-2.5" />}
+                  {skill.name}
+                  <X className="h-3 w-3" />
+                </Badge>
+              );
+            })}
             {/* Show IDs that don't resolve (orphaned references) */}
             {value
               .filter((id) => !availableSkills.some((s) => s.id === id))
@@ -367,39 +419,65 @@ export function SkillsSelector({ value, onChange, disabled, maxSkills = DEFAULT_
                 : "All skills have been selected"}
             </p>
           ) : (
-            filtered.map((skill) => (
-              <button
-                key={skill.id}
-                type="button"
-                onClick={() => addSkill(skill.id)}
-                disabled={disabled || atLimit}
-                className={cn(
-                  "flex items-start gap-2 w-full px-2 py-1.5 rounded-md text-left transition-colors",
-                  "hover:bg-muted cursor-pointer",
-                  (disabled || atLimit) && "opacity-50 cursor-not-allowed"
-                )}
-              >
-                <Plus className="h-3 w-3 text-muted-foreground flex-shrink-0 mt-1" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium truncate">{skill.name}</span>
-                    {skill.category && (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">
-                        {skill.category}
-                      </Badge>
-                    )}
-                    {skill.visibility && skill.visibility !== "private" && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
-                        {skill.visibility}
-                      </Badge>
+            filtered.map((skill) => {
+              // Flagged skills stay visible (admins need to know they
+              // exist + can re-scan from the Skills tab), but are
+              // dimmed, non-clickable, and badged so the user can't
+              // accidentally attach an unsafe skill to an agent.
+              const flagged = isFlaggedSkill(skill);
+              return (
+                <button
+                  key={skill.id}
+                  type="button"
+                  onClick={() => addSkill(skill.id)}
+                  disabled={disabled || atLimit || flagged}
+                  title={
+                    flagged
+                      ? "Disabled — security scan flagged this skill. Re-scan after fixing SKILL.md to restore."
+                      : undefined
+                  }
+                  className={cn(
+                    "flex items-start gap-2 w-full px-2 py-1.5 rounded-md text-left transition-colors",
+                    !flagged && "hover:bg-muted cursor-pointer",
+                    (disabled || atLimit) && "opacity-50 cursor-not-allowed",
+                    flagged && "opacity-60 cursor-not-allowed",
+                  )}
+                >
+                  {flagged ? (
+                    <Lock className="h-3 w-3 text-red-500 flex-shrink-0 mt-1" />
+                  ) : (
+                    <Plus className="h-3 w-3 text-muted-foreground flex-shrink-0 mt-1" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium truncate">{skill.name}</span>
+                      {skill.category && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                          {skill.category}
+                        </Badge>
+                      )}
+                      {skill.visibility && skill.visibility !== "private" && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                          {skill.visibility}
+                        </Badge>
+                      )}
+                      {flagged && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 gap-1 bg-red-500/10 text-red-600 border-red-500/30 flex-shrink-0"
+                        >
+                          <Lock className="h-2.5 w-2.5" />
+                          Disabled — flagged
+                        </Badge>
+                      )}
+                    </div>
+                    {skill.description && (
+                      <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
                     )}
                   </div>
-                  {skill.description && (
-                    <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
-                  )}
-                </div>
-              </button>
-            ))
+                </button>
+              );
+            })
           )}
         </div>
       </div>
