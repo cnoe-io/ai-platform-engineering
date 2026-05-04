@@ -1,9 +1,9 @@
 ---
 sidebar_position: 9
-title: Skills Bootstrap (`/skills` slash command)
+title: Live-skills (`/skills` slash command)
 ---
 
-# Skills Bootstrap (`/skills` slash command)
+# Live-skills (`/skills` slash command)
 
 The **Skills API Gateway** page (UI → *Skills* → *Skills API Gateway*) renders
 a copy-pasteable slash command that lets a coding agent (Claude Code, Cursor,
@@ -11,7 +11,7 @@ Spec Kit, etc.) browse, search, run, install, and update skills served by the
 CAIPE skill catalog.
 
 The body of that slash command is rendered from a single Markdown template
-called the **bootstrap skill**. This page describes how operators can
+called the **live-skills skill**. This page describes how operators can
 customize it for their deployment without forking the chart or rebuilding the
 image.
 
@@ -19,11 +19,11 @@ image.
 
 | Layer            | Location                                                         |
 | ---------------- | ---------------------------------------------------------------- |
-| Packaged default | [`charts/ai-platform-engineering/data/skills/bootstrap.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/data/skills/bootstrap.md) |
-| Helm ConfigMap   | `skills-bootstrap` (key `bootstrap.md`)                          |
-| Mounted in pod   | `/app/data/skills-bootstrap/bootstrap.md` on the `caipe-ui` pod  |
-| Served at        | `GET /api/skills/bootstrap` (returns `{ template, source, … }`)  |
-| Rendered in      | `Skills API Gateway` UI → "Create the bootstrap skill" card      |
+| Packaged default | [`charts/ai-platform-engineering/data/skills/live-skills.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/data/skills/live-skills.md) |
+| Helm ConfigMap   | `skills-live-skills` (key `live-skills.md`)                          |
+| Mounted in pod   | `/app/data/skills-live-skills/live-skills.md` on the `caipe-ui` pod  |
+| Served at        | `GET /api/skills/live-skills` (returns `{ template, source, … }`)  |
+| Rendered in      | `Skills API Gateway` UI → "Create the live-skills skill" card      |
 
 The UI substitutes three placeholders client-side based on the form fields
 on the page:
@@ -42,13 +42,13 @@ template produces the right `$ARGUMENTS` (Claude/Cursor/Spec Kit), `$1`
 
 ## Override resolution order
 
-The UI server (`/api/skills/bootstrap`) picks the **first** source that
+The UI server (`/api/skills/live-skills`) picks the **first** source that
 resolves:
 
-1. `SKILLS_BOOTSTRAP_TEMPLATE` env var (raw markdown) &mdash; highest priority
-2. File at `SKILLS_BOOTSTRAP_FILE` env var
-   (default: `/app/data/skills-bootstrap/bootstrap.md`, mounted by the chart)
-3. Packaged default at `data/skills/bootstrap.md` (chart-relative, dev only)
+1. `SKILLS_LIVE_SKILLS_TEMPLATE` env var (raw markdown) &mdash; highest priority
+2. File at `SKILLS_LIVE_SKILLS_FILE` env var
+   (default: `/app/data/skills-live-skills/live-skills.md`, mounted by the chart)
+3. Packaged default at `data/skills/live-skills.md` (chart-relative, dev only)
 4. A minimal built-in fallback string
 
 The currently active source is shown in the UI under
@@ -59,7 +59,7 @@ The currently active source is shown in the UI under
 Drop a multi-line string into your Helm values:
 
 ~~~yaml
-skillsBootstrap: |
+skillsLiveSkills: |
   ---
   description: My company's skill catalog
   ---
@@ -81,7 +81,7 @@ skillsBootstrap: |
      to execute inline, or `/{{COMMAND_NAME}} install <name>` to save locally.
 ~~~
 
-The chart writes that string verbatim into the `skills-bootstrap`
+The chart writes that string verbatim into the `skills-live-skills`
 ConfigMap. No image rebuild required.
 
 ## Override option 2 &mdash; named variant shipped with the chart
@@ -89,16 +89,16 @@ ConfigMap. No image rebuild required.
 If you want to ship a small set of opinionated variants with your fork of
 the chart (e.g. one per business unit):
 
-1. Drop additional files alongside `bootstrap.md`, named
-   `bootstrap.<variant>.md` &mdash; for example `bootstrap.enterprise.md`.
+1. Drop additional files alongside `live-skills.md`, named
+   `live-skills.<variant>.md` &mdash; for example `live-skills.enterprise.md`.
 2. Select the variant via Helm:
 
    ```yaml
-   skillsBootstrapName: enterprise
+   skillsLiveSkillsName: enterprise
    ```
 
 The template resolves
-`data/skills/bootstrap.<variant>.md` and falls back to `bootstrap.md` if
+`data/skills/live-skills.<variant>.md` and falls back to `live-skills.md` if
 that file isn't found.
 
 ## Override option 3 &mdash; bring-your-own ConfigMap or env
@@ -110,17 +110,17 @@ For deployments that consume the published chart unchanged:
 ```yaml
 caipe-ui:
   volumes:
-    - name: my-bootstrap
+    - name: my-live-skills
       configMap:
-        name: my-custom-skills-bootstrap
+        name: my-custom-skills-live-skills
   volumeMounts:
-    - name: my-bootstrap
-      mountPath: /app/data/skills-bootstrap
+    - name: my-live-skills
+      mountPath: /app/data/skills-live-skills
       readOnly: true
 ```
 
-The default `SKILLS_BOOTSTRAP_FILE` (already set by the chart) keeps pointing
-at `/app/data/skills-bootstrap/bootstrap.md`, so the new ConfigMap content
+The default `SKILLS_LIVE_SKILLS_FILE` (already set by the chart) keeps pointing
+at `/app/data/skills-live-skills/live-skills.md`, so the new ConfigMap content
 takes effect immediately.
 
 ### Or stuff the markdown into an env var
@@ -128,7 +128,7 @@ takes effect immediately.
 ```yaml
 caipe-ui:
   env:
-    SKILLS_BOOTSTRAP_TEMPLATE: |
+    SKILLS_LIVE_SKILLS_TEMPLATE: |
       ---
       description: Inline override via env
       ---
@@ -143,7 +143,7 @@ This wins over any file-based source and is handy for quick experiments.
 ```yaml
 caipe-ui:
   env:
-    SKILLS_BOOTSTRAP_FILE: "/etc/caipe/my-bootstrap.md"
+    SKILLS_LIVE_SKILLS_FILE: "/etc/caipe/my-live-skills.md"
 ```
 
 Useful when mounting a Secret or a sidecar-managed file at a non-default
@@ -169,7 +169,7 @@ ConfigMap serves every surface without operators maintaining N copies.
 
 ## Multi-agent support
 
-`GET /api/skills/bootstrap?agent=<id>&command_name=<name>&description=<desc>`
+`GET /api/skills/live-skills?agent=<id>&command_name=<name>&description=<desc>`
 returns a per-agent rendered artifact plus install/launch metadata. The
 agent registry currently ships with six entries:
 
@@ -186,7 +186,7 @@ The renderer parses the canonical Markdown's frontmatter once, substitutes
 `{{COMMAND_NAME}}`, `{{DESCRIPTION}}`, `{{BASE_URL}}`, and `{{ARG_REF}}`,
 then re-wraps the body as appropriate for each surface (YAML frontmatter,
 TOML basic strings, or a JSON object). Adding a new agent is one entry in
-[`ui/src/app/api/skills/bootstrap/agents.ts`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ui/src/app/api/skills/bootstrap/agents.ts)
+[`ui/src/app/api/skills/live-skills/agents.ts`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ui/src/app/api/skills/live-skills/agents.ts)
 plus a case in `renderForAgent()`.
 
 ### Per-agent launch & invocation guidance
@@ -221,6 +221,6 @@ basic Markdown (bold, inline code, links, fenced code blocks).
 
 ## See also
 
-- Chart-side reference: [`charts/ai-platform-engineering/docs/skills-bootstrap.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/docs/skills-bootstrap.md)
-- Default template: [`bootstrap.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/data/skills/bootstrap.md)
-- ConfigMap template: [`templates/skills-bootstrap-config.yaml`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/templates/skills-bootstrap-config.yaml)
+- Chart-side reference: [`charts/ai-platform-engineering/docs/skills-live-skills.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/docs/skills-live-skills.md)
+- Default template: [`live-skills.md`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/data/skills/live-skills.md)
+- ConfigMap template: [`templates/skills-live-skills-config.yaml`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/charts/ai-platform-engineering/templates/skills-live-skills-config.yaml)

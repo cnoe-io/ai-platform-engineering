@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  *
- * Unit tests for the bootstrap-skill agent registry and renderer.
+ * Unit tests for the live-skills agent registry and renderer.
  *
  * These tests pin the user-visible contract:
  *   - Each shipped agent has a coherent spec (id, install path, format, argRef).
@@ -291,7 +291,7 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
 
   it('treats an unsubstituted {{DESCRIPTION}} placeholder as missing', () => {
     // Regression for PR #1268 review feedback (Jeff Napper #4): the canonical
-    // template at charts/.../bootstrap.md ships
+    // template at charts/.../live-skills.md ships
     // `description: {{DESCRIPTION}}` so a single template can be reused
     // across agents. Before the fix, parseFrontmatter picked up the literal
     // `{{DESCRIPTION}}` string and quoteYaml emitted
