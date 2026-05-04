@@ -68,9 +68,54 @@ export interface SkillHubDoc {
   enabled: boolean;
   credentials_ref: string | null;
   labels?: string[];
+  /**
+   * Optional path-prefix allow-list (each entry normalized to end with `/`).
+   * When non-empty, the crawler only ingests SKILL.md files whose path
+   * begins with one of these prefixes. Empty/absent => crawl whole repo.
+   */
+  include_paths?: readonly string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
+}
+
+/**
+ * Normalize an `include_paths` array for use as path-prefix filters:
+ *  - trim whitespace, drop empties
+ *  - dedupe (preserve order)
+ *  - ensure each entry ends with a trailing `/` so `skills` does not match
+ *    `skills-archive/SKILL.md`
+ *
+ * Returns `null` when no usable entries remain so callers can short-circuit
+ * the filter (treat as "walk the whole repo").
+ */
+export function normalizeIncludePaths(
+  raw: readonly string[] | undefined | null,
+): readonly string[] | null {
+  if (!raw || raw.length === 0) return null;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const withSlash = trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+    if (seen.has(withSlash)) continue;
+    seen.add(withSlash);
+    out.push(withSlash);
+  }
+  return out.length > 0 ? out : null;
+}
+
+function pathMatchesIncludePrefixes(
+  path: string,
+  prefixes: readonly string[] | null,
+): boolean {
+  if (!prefixes) return true;
+  for (const p of prefixes) {
+    if (path.startsWith(p)) return true;
+  }
+  return false;
 }
 
 export interface CatalogSkill {
@@ -294,7 +339,10 @@ export async function crawlGitHubRepo(
   owner: string,
   repo: string,
   token?: string,
+  includePaths?: readonly string[],
 ): Promise<CrawledSkill[]> {
+  const normalizedIncludes = normalizeIncludePaths(includePaths);
+
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
     "User-Agent": "caipe-hub-crawler/1.0",
@@ -314,13 +362,15 @@ export async function crawlGitHubRepo(
   const treeData = await treeRes.json();
   const entries: GitHubTreeEntry[] = treeData.tree || [];
 
-  // Find all SKILL.md files
+  // Find all SKILL.md files (optionally filtered to the configured prefixes
+  // so monorepos don't blast the whole tree into Mongo).
   const skillMdPaths = entries
     .filter(
       (e: GitHubTreeEntry) =>
         e.type === "blob" && e.path.endsWith("/SKILL.md"),
     )
-    .map((e: GitHubTreeEntry) => e.path);
+    .map((e: GitHubTreeEntry) => e.path)
+    .filter((p) => pathMatchesIncludePrefixes(p, normalizedIncludes));
 
   // Index every blob by path so we can enumerate ancillary siblings without
   // additional tree calls.
@@ -456,7 +506,9 @@ interface GitLabTreeEntry {
 export async function crawlGitLabRepo(
   projectPath: string,
   token?: string,
+  includePaths?: readonly string[],
 ): Promise<CrawledSkill[]> {
+  const normalizedIncludes = normalizeIncludePaths(includePaths);
   const encodedProject = encodeURIComponent(projectPath);
   const baseUrl =
     process.env.GITLAB_API_URL || "https://gitlab.com/api/v4";
@@ -478,13 +530,15 @@ export async function crawlGitLabRepo(
   }
   const entries: GitLabTreeEntry[] = await treeRes.json();
 
-  // Find SKILL.md files
+  // Find SKILL.md files (optionally filtered to the configured prefixes
+  // so monorepos don't blast the whole tree into Mongo).
   const skillMdPaths = entries
     .filter(
       (e: GitLabTreeEntry) =>
         e.type === "blob" && e.path.endsWith("/SKILL.md"),
     )
-    .map((e: GitLabTreeEntry) => e.path);
+    .map((e: GitLabTreeEntry) => e.path)
+    .filter((p) => pathMatchesIncludePrefixes(p, normalizedIncludes));
 
   // GitLab tree responses don't carry blob sizes, so we treat unknown sizes
   // as "fetch and check" — `tryAcceptAncillary` still enforces caps after
@@ -684,9 +738,9 @@ async function _crawlAndCache(
       const owner = parts[0];
       const repo = parts[1];
       if (!owner || !repo) throw new Error(`Invalid GitHub location: ${hub.location}`);
-      crawled = await crawlGitHubRepo(owner, repo, token);
+      crawled = await crawlGitHubRepo(owner, repo, token, hub.include_paths);
     } else if (hub.type === "gitlab") {
-      crawled = await crawlGitLabRepo(hub.location, token);
+      crawled = await crawlGitLabRepo(hub.location, token, hub.include_paths);
     } else {
       throw new Error(`Unsupported hub type: ${hub.type}`);
     }
