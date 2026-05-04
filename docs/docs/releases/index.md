@@ -1,3 +1,7 @@
-# Use Cases
+---
+sidebar_position: 1
+---
 
-This is CAIPE Use Cases
+# Releases
+
+Release notes and migration guides for CAIPE (Community AI Platform Engineering).

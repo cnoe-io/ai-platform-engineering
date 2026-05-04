@@ -17,35 +17,60 @@ from utils.config_models import EscalationConfig
 
 
 def execute_escalation(
-    slack_client,
-    sse_client,
-    channel_id,
-    thread_ts,
-    parent_ts,
-    user_id,
-    escalation_config: EscalationConfig,
+  slack_client,
+  sse_client,
+  channel_id: str,
+  thread_ts: str,
+  parent_ts: str,
+  user_id: str,
+  escalation_config: EscalationConfig,
+  agent_id: str = "",
+  conversation_id: str = "",
 ):
-    """Run all configured escalation actions. Returns list of result summaries."""
-    results = []
+  """Run all configured escalation actions.
 
-    if escalation_config.victorops.enabled and escalation_config.victorops.team:
-        result = _ping_victorops_oncall(
-            sse_client, slack_client, channel_id, thread_ts,
-            escalation_config.victorops.team,
-        )
-        results.append(result)
+  Args:
+      slack_client: Slack Web API client.
+      sse_client: SSEClient for streaming AI queries.
+      channel_id: Slack channel ID.
+      thread_ts: Thread timestamp (used for replies).
+      parent_ts: Parent message timestamp (used for emoji reactions).
+      user_id: Slack user ID of the person who triggered escalation.
+      escalation_config: Parsed escalation configuration.
+      agent_id: Agent ID for VictorOps AI queries (channel default).
+      conversation_id: Conversation UUID for VictorOps AI queries.
 
-    if escalation_config.users:
-        result = _ping_users(slack_client, channel_id, thread_ts, escalation_config.users)
-        results.append(result)
+  Returns:
+      List of result summary strings.
+  """
+  results = []
 
-    if escalation_config.emoji.enabled:
-        result = _add_emoji_reaction(
-            slack_client, channel_id, parent_ts, escalation_config.emoji.name,
-        )
-        results.append(result)
+  if escalation_config.victorops.enabled and escalation_config.victorops.team:
+    result = _ping_victorops_oncall(
+      sse_client,
+      slack_client,
+      channel_id,
+      thread_ts,
+      escalation_config.victorops.team,
+      agent_id=agent_id,
+      conversation_id=conversation_id,
+    )
+    results.append(result)
 
-    return results
+  if escalation_config.users:
+    result = _ping_users(slack_client, channel_id, thread_ts, escalation_config.users)
+    results.append(result)
+
+  if escalation_config.emoji.enabled:
+    result = _add_emoji_reaction(
+      slack_client,
+      channel_id,
+      parent_ts,
+      escalation_config.emoji.name,
+    )
+    results.append(result)
+
+  return results
 
 
 def _ping_victorops_oncall(sse_client, slack_client, channel_id, thread_ts, team):

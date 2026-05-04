@@ -126,21 +126,35 @@ export async function validateBearerJWT(
   }
 
   const jwks = await getJWKS();
-  // Spec 104: tokens minted by the Slack bot's OBO exchange carry
-  // `aud=agentgateway` (so they can hit AGW directly). The same token
-  // also flows through the BFF on the way there, so the BFF must accept
-  // either the UI's own audience or the agentgateway audience. Any
-  // additional acceptable audiences can be added via OIDC_EXTRA_AUDIENCES
-  // (comma-separated). `jose.jwtVerify` treats an array as
+  // Build the accepted audience list. `jose.jwtVerify` treats an array as
   // "the token's `aud` MUST contain at least one of these".
-  const primary = process.env.OIDC_CLIENT_ID?.trim();
-  const extras = (process.env.OIDC_EXTRA_AUDIENCES || "agentgateway")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const auds = [primary, ...extras].filter((s): s is string => !!s);
+  //
+  // Order (preserved for test-stability with main's __tests__/jwt-validation.test.ts):
+  //   1. OIDC_ACCEPTED_AUDIENCES (main, comma-separated): used by
+  //      Okta-style deployments where the AS mints tokens with a fixed
+  //      audience that differs from the client ID.
+  //   2. OIDC_CLIENT_ID (the UI's own audience), de-duplicated.
+  //   3. OIDC_EXTRA_AUDIENCES (Spec 104, comma-separated): tokens minted
+  //      by the Slack bot's OBO exchange carry `aud=agentgateway` so
+  //      they can hit AGW directly, but the same token also flows through
+  //      the BFF on the way there. Only injected when explicitly set —
+  //      we do NOT default to "agentgateway" here because that would
+  //      relax audience validation in environments that don't run AGW.
+  //      Set OIDC_EXTRA_AUDIENCES=agentgateway in the dev compose stack.
+  //
+  // Both env-var names are supported to avoid silently breaking either
+  // the Okta deployment path or the Spec 104 OBO path.
+  const accepted: string[] = [];
+  for (const a of (process.env.OIDC_ACCEPTED_AUDIENCES || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (!accepted.includes(a)) accepted.push(a);
+  }
+  const clientId = process.env.OIDC_CLIENT_ID?.trim();
+  if (clientId && !accepted.includes(clientId)) accepted.push(clientId);
+  for (const a of (process.env.OIDC_EXTRA_AUDIENCES || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (!accepted.includes(a)) accepted.push(a);
+  }
   const audience: string | string[] | undefined =
-    auds.length === 0 ? undefined : auds.length === 1 ? auds[0] : auds;
+    accepted.length === 0 ? undefined : accepted;
 
   try {
     const { payload } = await jwtVerify(token, jwks, {

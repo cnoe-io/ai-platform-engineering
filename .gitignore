@@ -302,7 +302,7 @@ tests/rbac/e2e/node_modules/
 # config/slack-bot-config.local.yaml). The committed *.yaml files in
 # config/ stay as example templates; *.local.yaml is where each developer
 # stores their populated dev seed (LLM models, MCP endpoints, etc).
+# Also covers main's CAIPE_APP_CONFIG_FILE / CAIPE_SLACK_BOT_CONFIG_FILE overrides.
 app-config.local.yaml
 config/*.local.yaml
 config/*.local.yml
-

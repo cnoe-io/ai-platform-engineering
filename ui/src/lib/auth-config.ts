@@ -668,7 +668,7 @@ export const authOptions: NextAuthOptions = {
             return token;
           }
 
-          console.log(`[Auth] Token expires in ${timeUntilExpiry}s, attempting refresh...`);
+          console.debug(`[Auth] Token expires in ${timeUntilExpiry}s, attempting refresh...`);
 
           // Only attempt refresh if we have a refresh token
           if (token.refreshToken) {
@@ -712,7 +712,7 @@ export const authOptions: NextAuthOptions = {
 
             return refreshedToken;
           } else {
-            console.warn("[Auth] No refresh token available, falling back to expiry warnings");
+            console.debug("[Auth] No refresh token available, falling back to expiry warnings");
             // Don't set error - just fall back to warning system
             // This allows graceful degradation if provider doesn't support refresh tokens
           }

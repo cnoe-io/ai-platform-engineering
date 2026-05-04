@@ -28,6 +28,10 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "rag-server.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automount | default false }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         # Main RAG Server container
         - name: {{ .Chart.Name }}
@@ -103,7 +107,15 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.webIngestor.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

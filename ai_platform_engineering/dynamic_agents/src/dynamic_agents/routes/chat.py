@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
-from dynamic_agents.services.agent_runtime import get_runtime_cache
-from dynamic_agents.services.encoders import StreamEncoder, get_encoder
+from dynamic_agents.services.runtime_cache import get_runtime_cache
+from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 
 logger = logging.getLogger(__name__)
@@ -115,14 +115,13 @@ async def chat_start_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Get MCP servers for this agent
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # Get MCP servers for this agent and its subagents
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(
         f"[chat] Starting chat request: "
         f"agent='{agent.name}', user={user.email}, "
-        f"provider={agent.model_provider}, model={agent.model_id}, "
+        f"provider={agent.model.provider}, model={agent.model.id}, "
         f"mcp_servers={len(mcp_servers)}, "
         f"protocol={request.protocol}, "
         f"trace_id={request.trace_id or 'auto'}"
@@ -219,9 +218,8 @@ async def chat_resume_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Get MCP servers for this agent
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # Get MCP servers for this agent and its subagents
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(
         f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, "
@@ -268,9 +266,8 @@ async def chat_invoke(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Get MCP servers for this agent
-    server_ids = list(agent.allowed_tools.keys())
-    mcp_servers = mongo.get_servers_by_ids(server_ids) if server_ids else []
+    # Get MCP servers for this agent and its subagents
+    mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(f"Invoke request: agent={agent.name}, user={user.email}, trace_id={request.trace_id or 'auto'}")
 

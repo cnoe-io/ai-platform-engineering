@@ -37,40 +37,81 @@ const BUILTIN_COMMANDS: SlashCommand[] = [
 /**
  * Hook that assembles the full slash command list from:
  * 1. Built-in commands (static)
- * 2. Skills from GET /api/skills (dynamic, fetched once)
+ * 2. Skills (dynamic, scoped to agent when agentSkillIds is provided)
  * 3. Agents from DEFAULT_AGENTS (static)
+ *
+ * @param agentSkillIds - Skill IDs configured on the current dynamic agent.
+ *   When provided with items: fetches /api/agent-skills, filters to those IDs.
+ *   When provided as empty array: no skills shown.
+ *   When undefined (supervisor): fetches full global catalog from /api/skills.
  */
-export function useSlashCommands(): SlashCommand[] {
+export function useSlashCommands(agentSkillIds?: string[]): SlashCommand[] {
   const [skillCommands, setSkillCommands] = useState<SlashCommand[]>([]);
 
-  // Fetch skills from the API once on mount
+  // Stable key for the dependency array — avoids re-fetching on every render
+  const skillIdsKey = agentSkillIds ? agentSkillIds.join(",") : undefined;
+
   useEffect(() => {
+    // Dynamic agent with no skills configured — show nothing
+    if (agentSkillIds && agentSkillIds.length === 0) {
+      setSkillCommands([]);
+      return;
+    }
+
     let cancelled = false;
 
-    fetch("/api/skills", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data?.skills) return;
-        const skills: SlashCommand[] = data.skills.map(
-          (s: { id: string; name: string; description: string }) => ({
-            id: s.name.toLowerCase().replace(/\s+/g, "-"),
-            label: s.name,
-            description: s.description || s.name,
-            category: "skill" as const,
-            action: "insert" as const,
-            value: s.name,
-          }),
-        );
-        setSkillCommands(skills);
-      })
-      .catch(() => {
-        // Skills unavailable — the menu still works with built-ins + agents
-      });
+    if (agentSkillIds) {
+      // Dynamic agent — fetch from unified catalog and filter to configured IDs
+      const skillIdSet = new Set(agentSkillIds);
+
+      fetch("/api/skills", { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (cancelled) return;
+          const allSkills = data?.skills || [];
+          const filtered = allSkills.filter(
+            (s: { id: string }) => skillIdSet.has(s.id),
+          );
+          setSkillCommands(
+            filtered.map(
+              (s: { id: string; title?: string; name?: string; description?: string }) => ({
+                id: s.id,
+                label: s.title || s.name || s.id,
+                description: s.description || s.title || s.name || s.id,
+                category: "skill" as const,
+                action: "insert" as const,
+                value: s.title || s.name || s.id,
+              }),
+            ),
+          );
+        })
+        .catch(() => {});
+    } else {
+      // Supervisor / no agent context — fetch full global catalog
+      fetch("/api/skills", { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (cancelled || !data?.skills) return;
+          setSkillCommands(
+            data.skills.map(
+              (s: { id: string; name: string; description: string }) => ({
+                id: s.name.toLowerCase().replace(/\s+/g, "-"),
+                label: s.name,
+                description: s.description || s.name,
+                category: "skill" as const,
+                action: "insert" as const,
+                value: s.name,
+              }),
+            ),
+          );
+        })
+        .catch(() => {});
+    }
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [skillIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Convert DEFAULT_AGENTS to slash commands
   const agentCommands: SlashCommand[] = useMemo(
@@ -81,7 +122,7 @@ export function useSlashCommands(): SlashCommand[] {
         description: `${agent.label} agent`,
         category: "agent" as const,
         action: "insert" as const,
-        value: agent.prompt, // e.g. "@argocd"
+        value: agent.prompt,
       })),
     [],
   );

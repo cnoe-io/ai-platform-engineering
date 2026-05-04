@@ -131,7 +131,11 @@ RUN if [ "$VARIANT" != "slim" ]; then \
             rm /tmp/chrome.zip && \
             ln -sf /opt/chrome/chrome-${PLATFORM}/chrome /opt/chrome/chrome && \
             chmod -R 755 /opt/chrome && \
-            playwright install-deps chromium; \
+            playwright install-deps chromium && \
+            # Also install Playwright's chromium_headless_shell (used by headless launches)
+            # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH only overrides full-chromium; headless shell
+            # resolves via PLAYWRIGHT_BROWSERS_PATH and must be present there.
+            playwright install chromium; \
         fi; \
     fi
 

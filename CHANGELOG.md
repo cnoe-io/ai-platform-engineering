@@ -1,10 +1,92 @@
+## 0.4.4-dev.3 (2026-04-29)
+
+### Fix
+
+- **rag-server**: install chromium_headless_shell and add init container chart support (#1320)
+
+## 0.4.4-dev.2 (2026-04-29)
+
+### Fix
+
+- **slack-bot**: get first matched agent, wire overthink (#1315)
+- **ui**: dynamic agent chat not loading skill slash commands (#1314)
+
+## 0.4.4-dev.1 (2026-04-29)
+
+### Fix
+
+- **ui**: remove $facet aggregation for CosmosDB/DocumentDB compatibility (#1321)
+- **docs**: fix broken link in 0.3.x-to-0.4.0 migration guide (#1316)
+
+## 0.4.4 (2026-04-28)
+
+## 0.4.3-dev.2 (2026-04-28)
+
+### Feat
+
+- **dynamic-agents**: skills integration, subagent fixes, and agent editor UX (#1299)
+
+## 0.4.3-dev.1 (2026-04-28)
+
+### Fix
+
+- **ci**: oh no ui/ is NOT under ai_platform_engineering/?!?!
+- **ui**: missing asyncs???
+- **migration**: handle stringified artifact dicts and passthrough event types in 0.4.0 a2a migration (#1306)
+
+## 0.4.3 (2026-04-27)
+
+## 0.4.2-dev.1 (2026-04-27)
+
+### Fix
+
+- **setup**: guard empty-array expansions for bash 3.2 compat (#1304)
+- **docs**: correct ci/cd for hotfix
+- **ci**: -hotfix blocked by PEP 440 so use +hotfix in pyproject.toml
+- **docs**: fix iframe style prop, add Releases to sidebar, remove Use Cases (#1292)
+
+### Refactor
+
+- **slack-bot**: replace qanda/ai_alerts config with flat agents list (v0.4.0) (#1288)
+
+## 0.4.2 (2026-04-27)
+
+## 0.4.1-dev.1 (2026-04-27)
+
+### Feat
+
+- **doc**: new cicd diagram and details
+
+### Fix
+
+- **skills**: fix caipe-skills.py 404, add auth fallback, simplify gateway UI (#1286)
+- **docs**: escape bare < in plan.md to fix MDX build error (#1285)
+
 ## 0.4.1 (2026-04-24)
 
 ### Fix
 
 - **gateway**: skills install UX feedback — strip XML comments, per-hub recrawl, layout & history fixes (#1283)
 
-## 0.4.0-rc.24 (2026-04-23)
+## 0.4.0 (2026-04-23)
+
+### Feat
+
+- **ci**: auto label PRs
+
+### Fix
+
+- **ci**: auto tag inf commits
+- **ci**: prevent inf loop for release PRs
+- **ci**: bad pipefails
+- **ci**: auto tag infinite loop fix
+- **ci**: fix helm ci to trigger on tag
+- **ci-prebuild**: use correct chart version
+- **ci**: bad syntax and fix prebuild cleanup
+- **ci**: fail ci if base not latest
+- **ci**: need git name and email to commit
+- **ci**: need to prebuild helm correctly and not prebuild img on pyproject change
+- **ci**: prevent infinite ci loop :)
 
 ## 0.3.11 (2026-04-22)
 
@@ -12,6 +94,7 @@
 
 - **slack**: add escalation policy field and fix humble followup prompt (#1277)
 - **admin**: correct feedback dedup, user linkage, and top user display (#1273)
+- **ci**: detect image changes, chart changes and irrelevant changes
 
 ## 0.3.10 (2026-04-21)
 
@@ -109,6 +192,7 @@
 ### Feat
 
 - **rag**: add Jira issue ingestor and UI read-only datasource support (#988)
+- **ci**: new release management & versioning strategy
 
 ### Fix
 

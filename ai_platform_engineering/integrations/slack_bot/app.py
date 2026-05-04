@@ -274,7 +274,16 @@ for attempt in range(1, max_retries + 1):
 
 
 def _get_agent_id(channel_config=None, mapped_agent_id: str | None = None) -> str:
-  """Resolve agent_id: DB mapping > channel config > global default."""
+  """Resolve agent_id: DB mapping > channel config > global default.
+
+  Spec-098 RBAC helper. When the BFF/MongoDB has a per-channel
+  agent mapping, `mapped_agent_id` is the slug to use; otherwise
+  fall back to the channel's static config and finally to the
+  global default. Currently used as a fallback path; most call
+  sites prefer `_match_agents()` (main's multi-agent dispatcher)
+  with an RBAC override applied separately. Kept here so other
+  spec-098 surfaces that import it continue to work.
+  """
   if mapped_agent_id:
     return mapped_agent_id
   if channel_config and hasattr(channel_config, "agent_id") and channel_config.agent_id:
@@ -283,6 +292,44 @@ def _get_agent_id(channel_config=None, mapped_agent_id: str | None = None) -> st
     return config.defaults.default_agent_id
   logger.warning("No agent_id configured — using empty string")
   return ""
+
+
+def _agent_listens_to(agent_listen, requested):
+  """Check if an agent's listen mode satisfies the requested mode."""
+  return agent_listen == "all" or agent_listen == requested
+
+
+def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, listen=None):
+  """Return all agents configured for this sender type and listen mode."""
+  matched = []
+  for agent in channel_config.agents:
+    if is_bot and agent.bots:
+      if not agent.bots.enabled:
+        continue
+      if listen and not _agent_listens_to(agent.bots.listen, listen):
+        continue
+      if agent.bots.bot_list is not None and bot_username not in agent.bots.bot_list:
+        continue
+      matched.append(agent)
+    elif not is_bot and agent.users:
+      if not agent.users.enabled:
+        continue
+      if listen and not _agent_listens_to(agent.users.listen, listen):
+        continue
+      if agent.users.user_list is not None and user_id not in agent.users.user_list:
+        continue
+      matched.append(agent)
+  return matched
+
+
+def _resolve_escalation(channel_config, agent_id: str | None = None):
+  """Return the escalation config for a specific agent binding, or None."""
+  if not channel_config or not agent_id:
+    return None
+  for agent in channel_config.agents:
+    if agent.agent_id == agent_id:
+      return get_escalation_config(agent)
+  return None
 
 
 def _get_agent_id_for_dm() -> str:
@@ -320,6 +367,53 @@ def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = ""
   return conv_result["conversation_id"]
 
 
+def _track_interaction(
+  conversation_id: str,
+  thread_ts: str,
+  channel_id: str,
+  interaction_type: str,
+  user_id: str,
+  user_email: str | None = None,
+  user_name: str | None = None,
+  response_time_ms: int | None = None,
+  last_processed_ts: str | None = None,
+  thread_owner_agent_id: str | None = None,
+) -> None:
+  """PATCH conversation metadata with interaction tracking fields.
+
+  Called after each successful AI response to record who interacted,
+  how long it took, and what kind of interaction it was.  Also updates
+  ``last_processed_ts`` for delta context on follow-ups, and persists
+  ``thread_owner_agent_id`` so thread ownership survives bot restarts.
+  """
+  metadata: dict[str, object] = {
+    "interaction_type": interaction_type,
+    "user_id": user_id,
+  }
+  if user_email:
+    metadata["user_email"] = user_email
+  if user_name:
+    metadata["user_name"] = user_name
+  if response_time_ms is not None:
+    metadata["response_time_ms"] = response_time_ms
+
+  # Build Slack permalink
+  workspace = _WORKSPACE_URL
+  if workspace and thread_ts:
+    metadata["slack_link"] = f"{workspace}/archives/{channel_id}/p{thread_ts.replace('.', '')}"
+
+  if last_processed_ts:
+    metadata["last_processed_ts"] = last_processed_ts
+
+  if thread_owner_agent_id:
+    metadata["thread_owner_agent_id"] = thread_owner_agent_id
+
+  try:
+    sse_client.update_conversation_metadata(conversation_id, metadata)
+  except Exception:
+    logger.warning(f"[{thread_ts}] Failed to update interaction metadata")
+
+
 def _call_ai(
   client,
   channel_id,
@@ -331,12 +425,12 @@ def _call_ai(
   conversation_id,
   triggered_by_user_id=None,
   additional_footer=None,
-  overthink_mode=False,
+  overthink_config=None,
   escalation_config=None,
   client_context=None,
 ):
   """Route to stream_response or invoke_response based on user type."""
-  logger.info(f"[{thread_ts}] _call_ai: conv={conversation_id} agent={agent_id} user={user_id} overthink={overthink_mode}")
+  logger.info(f"[{thread_ts}] _call_ai: conv={conversation_id} agent={agent_id} user={user_id} overthink={overthink_config}")
   can_stream = user_id and user_id[0] in ("U", "W")
 
   if can_stream:
@@ -352,7 +446,7 @@ def _call_ai(
       conversation_id=conversation_id,
       triggered_by_user_id=triggered_by_user_id,
       additional_footer=additional_footer,
-      overthink_mode=overthink_mode,
+      overthink_config=overthink_config,
       escalation_config=escalation_config,
       client_context=client_context,
     )
@@ -540,6 +634,8 @@ def rbac_global_middleware(body, context, next, logger):
 def handle_mention(event, say, client, context=None):
   """Handle @mentions of the bot to query CAIPE."""
   try:
+    # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
+    t0 = time.monotonic()
     _bind_obo_for_handler(context)
     if event.get("edited") or event.get("subtype") == "message_changed":
       logger.debug("Skipping edited @mention message")
@@ -547,14 +643,11 @@ def handle_mention(event, say, client, context=None):
 
     channel_id = event.get("channel")
 
-    if not utils.check_has_jira_info(channel_id):
+    if not utils.is_configured_channel(channel_id):
       logger.info(f"Channel {channel_id} has no config, ignoring @mention")
       return
 
     channel_config = config.channels[channel_id]
-    if not channel_config.ai_enabled:
-      logger.info(f"Channel {channel_id} does not have ai_enabled=true, ignoring @mention")
-      return
 
     thread_ts = event.get("thread_ts") or event.get("ts")
     user_id = event.get("user")
@@ -576,11 +669,21 @@ def handle_mention(event, say, client, context=None):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
-    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
+    # Run normal match first to seed agent_id for conversation creation.
+    # Ownership may override this below once we have conv_metadata.
+    matches = _match_agents(channel_config, is_bot=False, user_id=user_id, listen="mention")
+    agent_match = matches[0] if matches else None
+    agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
 
-    # Create or retrieve conversation via shared API (server owns ID generation).
-    # Must happen BEFORE context building so we can use `created` to decide
-    # full vs delta thread context.
+    # Spec 098 RBAC: when SLACK_RBAC_ENABLED=true, the per-channel agent
+    # mapping persisted in MongoDB (surfaced into the Bolt context by
+    # `_rbac_enrich_context`) wins over the static config-file match.
+    # When RBAC is off this is a no-op — `_channel_agent_id_from_context`
+    # returns None and `agent_id` keeps the value computed from `_match_agents`.
+    rbac_agent_id = _channel_agent_id_from_context(context)
+    if rbac_agent_id:
+      agent_id = rbac_agent_id
+
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
       agent_id=agent_id,
@@ -597,6 +700,20 @@ def handle_mention(event, say, client, context=None):
     conv_created = conv_result["created"]
     conv_metadata = conv_result.get("metadata", {})
 
+    # Thread ownership: resolve from in-memory cache (hot path) or server
+    # metadata (survives restarts). Only applies to thread replies — root
+    # messages establish ownership after they respond.
+    is_thread_reply = bool(event.get("thread_ts"))
+    if is_thread_reply:
+      owner_id = session_manager.get_thread_owner(thread_ts) or conv_metadata.get("thread_owner_agent_id")
+      if owner_id:
+        session_manager.set_thread_owner(thread_ts, owner_id)  # warm cache on restart
+        logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match{_msg_link(channel_id, thread_ts)}")
+        agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
+        agent_id = owner_id
+
+    overthink = agent_match.users.overthink if agent_match and agent_match.users else None
+
     # Build thread context: full on first interaction, delta on follow-ups
     context_message = message_text
     if event.get("thread_ts"):
@@ -610,8 +727,11 @@ def handle_mention(event, say, client, context=None):
     if is_humble_followup:
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
+      if overthink and overthink.followup_prompt:
+        context_message = f"{overthink.followup_prompt}\n\n{context_message}"
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
+    team_id = event.get("team")
 
     client_context = {
       "source": "slack",
@@ -620,12 +740,12 @@ def handle_mention(event, say, client, context=None):
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
       "humble_followup": is_humble_followup,
+      "overthink": bool(overthink and overthink.enabled),
     }
     if user_email:
       client_context["user_email"] = user_email
 
-    team_id = event.get("team")
-    esc_config = get_escalation_config(channel_config)
+    esc_config = get_escalation_config(agent_match) if agent_match else None
 
     result = _call_ai(
       client=client,
@@ -636,9 +756,16 @@ def handle_mention(event, say, client, context=None):
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
+      overthink_config=overthink,
       escalation_config=esc_config,
       client_context=client_context,
     )
+
+    if isinstance(result, dict) and result.get("skipped"):
+      reason = result.get("reason", "unknown")
+      logger.info(f"[{thread_ts}] Overthink: skipped mention response ({reason}) for {user_name}{_msg_link(channel_id, thread_ts)}")
+      session_manager.set_skipped(thread_ts, True)
+      return
 
     if isinstance(result, dict) and result.get("retry_needed"):
       original_error = result.get("error", "Unknown error")
@@ -663,7 +790,7 @@ def handle_mention(event, say, client, context=None):
                 "text": {"type": "plain_text", "text": "Retry"},
                 "style": "primary",
                 "action_id": "caipe_retry",
-                "value": f"{channel_id}|{thread_ts}",
+                "value": f"{channel_id}|{thread_ts}||{agent_id}",
               },
             ],
           },
@@ -671,14 +798,25 @@ def handle_mention(event, say, client, context=None):
         text="Something went wrong. Click Retry to try again.",
       )
 
+    session_manager.set_thread_owner(thread_ts, agent_id)
     logger.info(f"[{thread_ts}] Completed CAIPE request for {user_name}")
 
-    # Record the timestamp of the last processed message so subsequent
-    # interactions can fetch only the delta.
-    try:
-      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
-    except Exception:
-      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
+    # Telemetry: record interaction metadata. _track_interaction also
+    # updates `last_processed_ts` (delta-context fast path on follow-ups,
+    # spec from commit 706a1994), so this single call replaces what was
+    # previously an inline `update_conversation_metadata` POST.
+    _track_interaction(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      interaction_type="mention",
+      user_id=user_id,
+      user_email=user_email,
+      user_name=user_name,
+      response_time_ms=int((time.monotonic() - t0) * 1000),
+      last_processed_ts=event.get("ts"),
+      thread_owner_agent_id=agent_id,
+    )
 
   except Exception as e:
     logger.exception(f"Error handling CAIPE mention: {e}")
@@ -692,41 +830,61 @@ def handle_mention(event, say, client, context=None):
       logger.exception(f"Failed to send error message: {say_error}")
 
 
-# =============================================================================
-# Q&A Mode (auto respond to messages in channel, excluding bots)
-# =============================================================================
-def handle_qanda_message(event, say, client, context=None):
-  try:
-    _bind_obo_for_handler(context)
-    # Ignore system messages (channel_purpose, channel_topic, channel_join, etc.)
-    if event.get("subtype"):
-      logger.debug(f"Q&A ignoring system message subtype={event['subtype']} in {event.get('channel')}")
-      return
+def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot_username=None, context=None):
+  """Unified handler for both user and bot messages.
 
+  Replaces the previous `handle_qanda_message` Q&A-mode handler. The
+  spec-098 RBAC commit (02589bdd) collapsed channel→team mapping into
+  unified channel→dynamic-agent routing, and main's multi-agent
+  dispatcher (`_match_agents`) is the single dispatch point now.
+
+  `context` is the Slack Bolt request context — needed by the
+  spec-098 RBAC `_channel_agent_id_from_context()` override and by
+  `_bind_obo_for_handler()` so OBO tokens flow into MCP calls. Both
+  default to no-ops when RBAC is disabled.
+  """
+  try:
+    t0 = time.monotonic()
+    _bind_obo_for_handler(context)
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
-    if not utils.verify_thread_exists(client, channel_id, thread_ts):
-      logger.warning(f"[{thread_ts}] Ignoring Q&A message — parent message was deleted")
+    if event.get("subtype") and event.get("subtype") != "bot_message":
       return
 
-    user_id = event.get("user")
+    if not utils.verify_thread_exists(client, channel_id, thread_ts):
+      logger.warning(f"[{thread_ts}] Ignoring message — parent message was deleted")
+      return
+
+    if is_bot:
+      _, bot_user_id = utils.get_bot_info_by_id(event.get("bot_id"))
+      user_id = bot_user_id or event.get("bot_id")
+    else:
+      user_id = event.get("user")
     team_id = event.get("team")
     message_text = slack_context.extract_message_text(event)
 
     user_name, user_email = utils.get_message_author_info(event, client)
+    sender_label = "bot" if is_bot else "user"
 
-    logger.info(f"[{thread_ts}] Q&A MODE - User: {user_name} ({user_id or event.get('bot_id')}), Email: {user_email}, Channel: {channel_id}, Question: {message_text}{_msg_link(channel_id, thread_ts)}")
+    logger.info(f"[{thread_ts}] Routing {sender_label} message to agent={agent_match.agent_id} - User: {user_name} ({user_id}), Channel: {channel_id}{_msg_link(channel_id, thread_ts)}")
 
-    if not message_text.strip():
+    if not message_text or not message_text.strip():
       return
 
-    channel_config = config.channels[channel_id]
-    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
+    agent_id = agent_match.agent_id
 
-    # Create or retrieve conversation via shared API (server owns ID generation)
+    # Spec 098 RBAC: when SLACK_RBAC_ENABLED=true, the per-channel agent
+    # mapping persisted in MongoDB (surfaced into the Bolt context by
+    # `_rbac_enrich_context`) wins over the static config-file match.
+    # When RBAC is off this is a no-op — `_channel_agent_id_from_context`
+    # returns None and `agent_id` keeps the value from `agent_match`.
+    rbac_agent_id = _channel_agent_id_from_context(context)
+    if rbac_agent_id:
+      agent_id = rbac_agent_id
+
     conv_result = sse_client.create_conversation(
-      title=message_text[:50].strip() or "Slack Q&A",
+      title=message_text[:50].strip() or "Slack Thread",
       agent_id=agent_id,
       owner_id=user_email or user_id,
       idempotency_key=thread_ts,
@@ -738,8 +896,30 @@ def handle_qanda_message(event, say, client, context=None):
       },
     )
     conversation_id = conv_result["conversation_id"]
+    conv_metadata = conv_result.get("metadata", {})
+
+    # Thread ownership: bot messages start new threads so are never replies;
+    # for user messages, honour whoever responded first in this thread.
+    # Check in-memory cache first (hot path), fall back to server metadata
+    # (survives restarts). thread_root_ts is the ownership key shared with
+    # handle_mention.
+    thread_root_ts = event.get("thread_ts")
+    if not is_bot and thread_root_ts:
+      owner_id = session_manager.get_thread_owner(thread_root_ts) or conv_metadata.get("thread_owner_agent_id")
+      if owner_id:
+        session_manager.set_thread_owner(thread_root_ts, owner_id)  # warm cache on restart
+        if owner_id != agent_match.agent_id:
+          logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, skipping agent={agent_match.agent_id}{_msg_link(channel_id, thread_root_ts)}")
+          return
+        logger.info(f"[{thread_root_ts}] Thread owned by agent={owner_id}, confirmed match{_msg_link(channel_id, thread_root_ts)}")
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
+
+    overthink = None
+    if is_bot and agent_match.bots:
+      overthink = agent_match.bots.overthink
+    elif not is_bot and agent_match.users:
+      overthink = agent_match.users.overthink
 
     client_context = {
       "source": "slack",
@@ -747,12 +927,20 @@ def handle_qanda_message(event, say, client, context=None):
       "channel_name": channel_config.name,
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
-      "overthink": channel_config.qanda.overthink,
+      "overthink": bool(overthink and overthink.enabled),
+      "timestamp": thread_ts,
     }
     if user_email:
       client_context["user_email"] = user_email
+    if bot_username:
+      client_context["bot_username"] = bot_username
+    if is_bot:
+      if event.get("blocks"):
+        client_context["blocks"] = event["blocks"]
+      if event.get("attachments"):
+        client_context["attachments"] = event["attachments"]
 
-    esc_config = get_escalation_config(channel_config)
+    esc_config = get_escalation_config(agent_match)
 
     result = _call_ai(
       client=client,
@@ -763,7 +951,7 @@ def handle_qanda_message(event, say, client, context=None):
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
-      overthink_mode=channel_config.qanda.overthink,
+      overthink_config=overthink,
       escalation_config=esc_config,
       client_context=client_context,
     )
@@ -774,10 +962,23 @@ def handle_qanda_message(event, say, client, context=None):
       session_manager.set_skipped(thread_ts, True)
       return
 
-    logger.info(f"[{thread_ts}] Completed Q&A request for {user_name}")
+    session_manager.set_thread_owner(thread_root_ts or thread_ts, agent_id)
+    logger.info(f"[{thread_ts}] Completed {sender_label} request for {user_name}")
+
+    _track_interaction(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      interaction_type=sender_label,
+      user_id=user_id,
+      user_email=user_email,
+      user_name=user_name,
+      response_time_ms=int((time.monotonic() - t0) * 1000),
+      thread_owner_agent_id=agent_id,
+    )
 
   except Exception as e:
-    logger.exception(f"Error handling Q&A message: {e}")
+    logger.exception(f"Error handling {sender_label} message: {e}")
     try:
       say(
         blocks=slack_formatter.format_error_message(str(e)),
@@ -940,7 +1141,7 @@ def handle_dm_message(event, say, client, context=None):
                 "text": {"type": "plain_text", "text": "Retry"},
                 "style": "primary",
                 "action_id": "caipe_retry",
-                "value": f"{event.get('channel')}|{thread_ts}",
+                "value": f"{event.get('channel')}|{thread_ts}||{agent_id}",
               },
             ],
           },
@@ -986,76 +1187,39 @@ def handle_message_events(body, say, client, context=None):
     return
 
   channel_id = event.get("channel")
-  is_bot = event.get("bot_id") is not None
-  is_thread = event.get("thread_ts") is not None
+  bot_id = event.get("bot_id")
+  is_bot = bot_id is not None
 
-  should_process_for_qanda = False
-  if not is_bot and not is_thread:
-    should_process_for_qanda = True
-  elif is_bot and not is_thread and utils.check_has_jira_info(channel_id):
-    channel_config = config.channels[channel_id]
-    include_bots_config = channel_config.qanda.include_bots
-
-    if channel_config.qanda.enabled and include_bots_config.enabled:
-      if include_bots_config.bot_list is None:
-        should_process_for_qanda = True
-      else:
-        bot_id = event.get("bot_id")
-        bot_username = utils.get_username_by_bot_id(bot_id)
-        if bot_username in include_bots_config.bot_list:
-          should_process_for_qanda = True
-
-  if should_process_for_qanda:
-    bot_info = client.auth_test()
-    bot_user_id = bot_info.get("user_id")
-
-    if f"<@{bot_user_id}>" in event.get("text", ""):
-      return
-
-    if utils.check_has_jira_info(channel_id):
-      channel_config = config.channels[channel_id]
-      if channel_config.ai_enabled and channel_config.qanda.enabled:
-        handle_qanda_message(event, say, client, context)
-        return
-
-    return
-
-  if not event.get("bot_id"):
-    return
-
-  thread_ts = event.get("thread_ts")
-  message_ts = event.get("ts")
-  if thread_ts and thread_ts != message_ts:
-    return
-
-  event = body["event"]
-  channel_id = utils.get_current_channel_id(event)
-  bot_id = event["bot_id"]
-  bot_username = utils.get_username_by_bot_id(bot_id)
-  if not utils.check_has_jira_info(channel_id):
+  if not utils.is_configured_channel(channel_id):
     return
 
   channel_config = config.channels[channel_id]
-  if channel_config.ai_alerts.enabled:
-    alert_ts = event.get("ts", "unknown")
-    logger.info(f"[{alert_ts}] Routing alert from {bot_username} (bot_id={bot_id}) to AI processing, Channel: {channel_id}{_msg_link(channel_id, alert_ts)}")
-    jira_config = channel_config.other.jira
-    if not jira_config:
-      raise ValueError(f"Channel {channel_id} is missing required 'other.jira' config")
 
-    agent_id = _get_agent_id(channel_config, mapped_agent_id=_channel_agent_id_from_context(context))
-    esc_config = get_escalation_config(channel_config)
-    ai.handle_ai_alert_processing(
-      sse_client,
-      client,
-      event,
-      channel_id,
-      bot_username,
-      jira_config,
-      agent_id=agent_id,
-      custom_prompt=channel_config.ai_alerts.custom_prompt,
-      escalation_config=esc_config,
-    )
+  # Skip threaded user replies (handled by @mention); bots can post in threads
+  is_thread = event.get("thread_ts") is not None
+  if is_thread and not is_bot:
+    return
+
+  # Skip @mentions — handled by handle_mention
+  bot_info = client.auth_test()
+  bot_user_id = bot_info.get("user_id")
+  if f"<@{bot_user_id}>" in event.get("text", ""):
+    return
+
+  bot_username = None
+  if is_bot:
+    bot_username = utils.get_username_by_bot_id(bot_id)
+
+  sender_user_id = event.get("user") if not is_bot else None
+  matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, user_id=sender_user_id, listen="message")
+  if not matches:
+    return
+
+  # First-match wins: config order is the priority order. Only one agent responds
+  # per event so that thread memory stays coherent on follow-ups.
+  # `context` is plumbed through so _route_to_agent can apply the spec-098
+  # RBAC channel→agent override and bind the OBO bearer for downstream MCP calls.
+  _route_to_agent(event, say, client, channel_config, matches[0], is_bot=is_bot, bot_username=bot_username, context=context)
 
 
 # =============================================================================
@@ -1117,11 +1281,13 @@ def handle_caipe_feedback(ack, body, client):
 
     action = actions[0]
     value = action.get("value", "")
-    feedback_type = value.split("|")[0] if "|" in value else value
+    parts = value.split("|")
+    feedback_type = parts[0] if parts else value
+    agent_id = parts[2] if len(parts) > 2 else ""
     is_positive = feedback_type == "positive"
 
     feedback_value = "thumbs_up" if is_positive else "thumbs_down"
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id)
+    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -1142,7 +1308,7 @@ def handle_caipe_feedback(ack, body, client):
         text="Thanks for the feedback! Glad it was helpful.",
       )
     else:
-      action_value = f"{channel_id}|{thread_ts}|{message_ts}"
+      action_value = f"{channel_id}|{thread_ts}|{message_ts}|{agent_id}"
       action_elements = [
         {"type": "button", "text": {"type": "plain_text", "text": "More detail"}, "action_id": "caipe_feedback_more_detail", "value": action_value},
         {"type": "button", "text": {"type": "plain_text", "text": "Briefer"}, "action_id": "caipe_feedback_less_verbose", "value": action_value},
@@ -1152,7 +1318,7 @@ def handle_caipe_feedback(ack, body, client):
 
       # Add "Get help" button if escalation is configured
       channel_config = config.channels.get(channel_id)
-      esc_config = get_escalation_config(channel_config) if channel_config else None
+      esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
       if esc_config:
         action_elements.append({"type": "button", "text": {"type": "plain_text", "text": "\U0001f64b Get help"}, "action_id": "caipe_escalation_get_help", "value": action_value})
 
@@ -1181,10 +1347,10 @@ def handle_feedback_more_detail(ack, body, client):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -1204,7 +1370,7 @@ def handle_feedback_more_detail(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = get_escalation_config(channel_config) if channel_config else None
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
 
     _call_ai(
       client=client,
@@ -1232,10 +1398,10 @@ def handle_feedback_less_verbose(ack, body, client):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -1255,7 +1421,7 @@ def handle_feedback_less_verbose(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = get_escalation_config(channel_config) if channel_config else None
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
 
     _call_ai(
       client=client,
@@ -1283,15 +1449,16 @@ def handle_caipe_retry(ack, body, client):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
-    if not utils.check_has_jira_info(channel_id):
+    if not utils.is_configured_channel(channel_id):
       return
 
     channel_config = config.channels[channel_id]
-    agent_id = _get_agent_id(channel_config)
-    # Resolve server-side conversation_id for this thread
+    if not agent_id:
+      agent_id = channel_config.agents[0].agent_id if channel_config.agents else ""
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -1357,6 +1524,7 @@ def handle_escalation_get_help(ack, body, client):
     parts = action.get("value", "").split("|")
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
+    agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
       return
 
@@ -1369,6 +1537,26 @@ def handle_escalation_get_help(ack, body, client):
         text="Help has already been requested for this thread.",
       )
       return
+
+    # Get escalation config for this channel
+    channel_config = config.channels.get(channel_id)
+    if not channel_config:
+      return
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
+    if not esc_config:
+      return
+
+    # Validate victorops agent is configured before proceeding
+    vo_agent_id = config.defaults.victorops_agent_id
+    if esc_config.victorops.enabled and not vo_agent_id:
+      client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        thread_ts=thread_ts,
+        text="VictorOps escalation is enabled but no agent is configured. Set `SLACK_INTEGRATION_VICTOROPS_AGENT_ID` to enable on-call lookups.",
+      )
+      return
+
     # Mark as escalated
     session_manager.set_escalated(thread_ts)
 
@@ -1392,14 +1580,6 @@ def handle_escalation_get_help(ack, body, client):
       text="Got it! Connecting you with a human...",
     )
 
-    # Get escalation config for this channel
-    channel_config = config.channels.get(channel_id)
-    if not channel_config:
-      return
-    esc_config = get_escalation_config(channel_config)
-    if not esc_config:
-      return
-
     # Determine the parent message ts (root of thread)
     message = body.get("message", {})
     parent_ts = message.get("thread_ts") or thread_ts
@@ -1412,6 +1592,8 @@ def handle_escalation_get_help(ack, body, client):
       parent_ts=parent_ts,
       user_id=user_id,
       escalation_config=esc_config,
+      agent_id=vo_agent_id or "",
+      conversation_id=conversation_id,
     )
   except Exception as e:
     logger.exception(f"Error handling escalation: {e}")
@@ -1430,11 +1612,13 @@ def handle_delete_message(ack, body, client):
     if not channel_id or not message_ts:
       return
 
-    # Check if user is authorized to delete
     channel_config = config.channels.get(channel_id)
     delete_admins = []
-    if channel_config and channel_config.other:
-      delete_admins = channel_config.other.delete_admins or []
+    if channel_config:
+      for agent in channel_config.agents:
+        if agent.escalation and agent.escalation.delete_admins:
+          delete_admins = agent.escalation.delete_admins
+          break
 
     if delete_admins and user_id not in delete_admins:
       client.chat_postEphemeral(
@@ -1522,7 +1706,8 @@ def handle_wrong_answer_submission(ack, body, client, view):
     channel_id = parts[0] if len(parts) > 0 else None
     thread_ts = parts[1] if len(parts) > 1 else None
     message_ts = parts[2] if len(parts) > 2 else None
-    feedback_type = parts[3] if len(parts) > 3 else "wrong_answer"
+    agent_id = parts[3] if len(parts) > 3 else ""
+    feedback_type = parts[4] if len(parts) > 4 else "wrong_answer"
 
     if not channel_id or not thread_ts:
       return
@@ -1532,7 +1717,6 @@ def handle_wrong_answer_submission(ack, body, client, view):
     if not correction_text:
       return
 
-    agent_id = _get_agent_id(config.channels.get(channel_id))
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -1557,9 +1741,8 @@ def handle_wrong_answer_submission(ack, body, client, view):
 
     correction_prompt = f'The user indicated your previous response was incorrect and provided the following IMPORTANT context: "{correction_text}"\n\nPlease carefully review this feedback and provide a corrected response.'
 
-    # Get escalation config for this channel
     channel_config = config.channels.get(channel_id)
-    esc_config = get_escalation_config(channel_config) if channel_config else None
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
 
     _call_ai(
       client=client,

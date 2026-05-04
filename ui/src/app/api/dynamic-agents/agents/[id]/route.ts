@@ -67,7 +67,15 @@ export const GET = withErrorHandler(
         }
       }
 
-      return successResponse(agent);
+      // Normalize legacy model_id/model_provider → model
+      const doc = agent as unknown as Record<string, unknown>;
+      if (doc.model_id && !doc.model) {
+        doc.model = { id: doc.model_id, provider: doc.model_provider || "unknown" };
+        delete doc.model_id;
+        delete doc.model_provider;
+      }
+
+      return successResponse(doc);
     });
   }
 );

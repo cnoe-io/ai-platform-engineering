@@ -177,6 +177,9 @@ class APIClient {
     if (params?.page_size) searchParams.set('page_size', params.page_size.toString());
     if (params?.archived !== undefined) searchParams.set('archived', params.archived.toString());
     if (params?.pinned !== undefined) searchParams.set('pinned', params.pinned.toString());
+    // Default to webui conversations only — excludes Slack/other client conversations.
+    // Use `??` so an explicit empty string from the caller is preserved (vs `||` which would
+    // overwrite it with the default).
     searchParams.set('client_type', params?.client_type ?? 'webui');
 
     return this.request(`/api/chat/conversations?${searchParams}`);

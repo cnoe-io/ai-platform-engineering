@@ -78,15 +78,29 @@ const AGENT_MUTABLE_FIELDS = [
   "system_prompt",
   "allowed_tools",
   "builtin_tools",
-  "model_id",
-  "model_provider",
+  "model",
   "visibility",
   "shared_with_teams",
   "subagents",
+  "skills",
   "ui",
   "features",
   "enabled",
 ] as const;
+
+/**
+ * Normalize a MongoDB agent document to the current schema.
+ * Migrates legacy model_id/model_provider to model object.
+ */
+function normalizeAgentDoc(doc: Record<string, unknown>): Record<string, unknown> {
+  // Migrate legacy model_id/model_provider → model
+  if (doc.model_id && !doc.model) {
+    doc.model = { id: doc.model_id, provider: doc.model_provider || "unknown" };
+    delete doc.model_id;
+    delete doc.model_provider;
+  }
+  return doc;
+}
 
 /**
  * Pick only allowed mutable fields from body, filtering out
@@ -213,7 +227,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       collection.countDocuments(query),
     ]);
 
-    return paginatedResponse(items, total, page, pageSize);
+    // Normalize legacy documents
+    const normalizedItems = items.map((item) =>
+      normalizeAgentDoc(item as unknown as Record<string, unknown>),
+    );
+
+    return paginatedResponse(normalizedItems, total, page, pageSize);
   });
 });
 
@@ -238,17 +257,23 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!body.system_prompt || typeof body.system_prompt !== "string") {
       throw new ApiError("System prompt is required", 400);
     }
-    if (!body.model_id || typeof body.model_id !== "string") {
-      throw new ApiError("Model ID is required", 400);
+    // Normalize legacy model_id/model_provider to model object
+    if (body.model_id && !body.model) {
+      body.model = { id: body.model_id, provider: body.model_provider || "unknown" };
+      delete body.model_id;
+      delete body.model_provider;
     }
-    if (!body.model_provider || typeof body.model_provider !== "string") {
-      throw new ApiError("Model provider is required", 400);
+    if (!body.model?.id || typeof body.model.id !== "string") {
+      throw new ApiError("Model ID is required (model.id)", 400);
+    }
+    if (!body.model?.provider || typeof body.model.provider !== "string") {
+      throw new ApiError("Model provider is required (model.provider)", 400);
     }
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
-    // Generate slug from name
-    const agentId = slugify(body.name);
+    // Generate slug from name with agent- prefix
+    const agentId = `agent-${slugify(body.name)}`;
     if (!agentId) {
       throw new ApiError("Agent name must contain at least one alphanumeric character", 400);
     }
@@ -290,11 +315,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       system_prompt: body.system_prompt as string,
       allowed_tools: (body.allowed_tools as Record<string, string[]>) ?? {},
       builtin_tools: body.builtin_tools ?? undefined,
-      model_id: body.model_id as string,
-      model_provider: body.model_provider as string,
+      model: body.model as { id: string; provider: string },
       visibility,
       shared_with_teams: (body.shared_with_teams as string[]) ?? [],
       subagents,
+      skills: (body.skills as string[]) ?? [],
       ui: body.ui ?? undefined,
       features: body.features ?? undefined,
       enabled: (body.enabled as boolean) ?? true,
@@ -386,7 +411,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("Failed to update agent", 500);
     }
 
-    return successResponse(updated);
+    return successResponse(normalizeAgentDoc(updated as unknown as Record<string, unknown>));
   });
 });
 

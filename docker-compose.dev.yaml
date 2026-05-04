@@ -1253,6 +1253,14 @@ services:
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_ISSUER=${OIDC_ISSUER:-}
+      # Spec 104 — Slack-bot OBO tokens are minted with `aud=agentgateway` so they
+      # can hit AGW directly. The same token also flows through the BFF on its
+      # way to AGW, so the BFF must accept that audience too. Adding it here
+      # via OIDC_EXTRA_AUDIENCES (defaults to "agentgateway") keeps the OBO
+      # path working without forcing every operator to set the env var.
+      # For Okta-style deployments, also see OIDC_ACCEPTED_AUDIENCES.
+      - OIDC_EXTRA_AUDIENCES=${OIDC_EXTRA_AUDIENCES:-agentgateway}
+      - OIDC_ACCEPTED_AUDIENCES=${OIDC_ACCEPTED_AUDIENCES:-}
       # OIDC_DISCOVERY_URL: Docker-internal URL used for server-side discovery +
       # token refresh. Defaults to the in-network Keycloak URL so caipe-ui can
       # fetch the well-known doc without going via the host. Browser still uses
@@ -1303,7 +1311,10 @@ services:
       # config/*.local.yaml is gitignored (see .gitignore).
       - APP_CONFIG_PATH=/app/config/app-config.yaml
     volumes:
-      - ${APP_CONFIG_FILE:-./config/app-config.yaml}:/app/config/app-config.yaml:ro
+      # Override host path with CAIPE_APP_CONFIG_FILE (preferred; matches main's naming) or
+      # legacy APP_CONFIG_FILE (kept for back-compat with existing .env files on this branch).
+      # If neither is set, mount the committed example template config/app-config.yaml.
+      - ${CAIPE_APP_CONFIG_FILE:-${APP_CONFIG_FILE:-./config/app-config.yaml}}:/app/config/app-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
       # Hot-reload bind mounts. These are SAFE in prod because the
       # `runner` stage uses Next standalone output and never reads
@@ -2131,7 +2142,9 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
-      - ./config/slack-bot-config.yaml:/etc/caipe/bot-config.yaml:ro
+      # Override host path with CAIPE_SLACK_BOT_CONFIG_FILE (preferred; matches main's naming).
+      # If unset, mount the committed example template config/slack-bot-config.yaml.
+      - ${CAIPE_SLACK_BOT_CONFIG_FILE:-./config/slack-bot-config.yaml}:/etc/caipe/bot-config.yaml:ro
     # DEV_HOT_RELOAD=true → install dev deps (watchfiles) and wrap python -m app
     # in `watchfiles --filter python` so source edits trigger an automatic restart
     # (Bolt is not ASGI, so uvicorn --reload is not applicable).

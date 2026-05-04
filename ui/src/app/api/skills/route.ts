@@ -274,7 +274,7 @@ async function aggregateLocally(
     unavailableSources.push("default");
   }
 
-  // 2. Agent configs with skill_template (MongoDB)
+  // 2. Agent skills (MongoDB) — match any content field
   try {
     const { getCollection, isMongoDBConfigured } = await import(
       "@/lib/mongodb"
@@ -283,14 +283,26 @@ async function aggregateLocally(
       const collection = await getCollection("agent_skills");
       const docs = await collection
         .find(
-          { skill_template: { $exists: true, $ne: "" } },
+          {
+            $or: [
+              { skill_content: { $exists: true, $ne: "" } },
+              { skill_template: { $exists: true, $ne: "" } },
+              { "tasks.0.llm_prompt": { $exists: true, $ne: "" } },
+            ],
+          },
           {
             projection: {
               _id: 0,
+              id: 1,
               name: 1,
               description: 1,
+              skill_content: 1,
               skill_template: 1,
+              tasks: 1,
               owner_id: 1,
+              visibility: 1,
+              is_system: 1,
+              category: 1,
               metadata: 1,
             },
           },
@@ -299,14 +311,21 @@ async function aggregateLocally(
 
       for (const doc of docs) {
         if (!doc.name || !doc.description) continue;
+        const content =
+          doc.skill_content || doc.skill_template || doc.tasks?.[0]?.llm_prompt || "";
         skills.push({
-          id: String(doc.name),
+          id: String(doc.id || doc.name),
           name: String(doc.name),
           description: String(doc.description).slice(0, 1024),
           source: "agent_skills",
           source_id: doc.owner_id ?? null,
-          content: includeContent ? (doc.skill_template ?? null) : null,
-          metadata: doc.metadata ?? {},
+          content: includeContent ? content : null,
+          metadata: {
+            ...doc.metadata,
+            category: doc.category,
+            visibility: doc.visibility,
+            is_system: doc.is_system,
+          },
         });
       }
       sourcesLoaded.push("agent_skills");
