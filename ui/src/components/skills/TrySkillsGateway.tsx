@@ -67,6 +67,13 @@ export function TrySkillsGateway() {
   const [copiedOneLiner, setCopiedOneLiner] = useState(false);
   const [copiedUpgrade, setCopiedUpgrade] = useState(false);
   const [copiedDownload, setCopiedDownload] = useState(false);
+  // Uninstall flow has two flavors. Both invoke install.sh?mode=uninstall
+  // but the --purge variant additionally removes ~/.config/caipe/config.json
+  // (the gateway URL + api_key); we separate them so the user picks the
+  // semantic they want without having to read the script first.
+  const [copiedUninstall, setCopiedUninstall] = useState(false);
+  const [copiedUninstallPurge, setCopiedUninstallPurge] = useState(false);
+  const [copiedUninstallDryRun, setCopiedUninstallDryRun] = useState(false);
 
   // Per-agent rendered live-skills (fetched from
   // /api/skills/live-skills?agent=<id>&command_name=...&description=...).
@@ -381,6 +388,30 @@ export function TrySkillsGateway() {
     const oneLinerUpgrade = `curl -fsSL ${shellQuote(installShUrl)} | bash -s -- --upgrade`;
     const downloadSnippet = `curl -fsSL -o install-skills.sh ${shellQuote(installShUrl)}\nchmod +x ./install-skills.sh\n./install-skills.sh`;
     return { oneLiner, oneLinerUpgrade, downloadSnippet, installShUrl };
+  })();
+
+  // Uninstall snippets. Mirror `installerSnippets` exactly (same agent +
+  // scope + layout query params) but flip `mode=uninstall`. Three flavors
+  // exposed in the UI:
+  //   - oneLiner       : interactive per-item prompts; preserves config.json
+  //   - oneLinerPurge  : interactive + also removes ~/.config/caipe/config.json
+  //                      (true clean wipe; user has to re-enter the gateway
+  //                      URL + api_key after a future re-install)
+  //   - oneLinerDryRun : preview mode -- prints what would be removed without
+  //                      deleting anything. Implies --all so the output is
+  //                      flat rather than waiting on N prompts.
+  // We keep --all out of the default one-liner: per-item prompts are the
+  // safety net the design questionnaire chose, and a destructive default
+  // shouldn't be a `curl | bash` away.
+  const uninstallSnippets = (() => {
+    if (!selectedScope) return null;
+    const uninstallShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
+      selectedAgent,
+    )}&scope=${encodeURIComponent(selectedScope)}&mode=uninstall`;
+    const oneLiner = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash`;
+    const oneLinerPurge = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash -s -- --purge`;
+    const oneLinerDryRun = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash -s -- --dry-run`;
+    return { oneLiner, oneLinerPurge, oneLinerDryRun, uninstallShUrl };
   })();
 
   // Bulk-install one-liner driven by the "Pick your skills" panel. Reuses
@@ -1339,6 +1370,142 @@ EOF`}
                         </div>
                       </div>
                     </details>
+
+                    {uninstallSnippets ? (
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
+                          Uninstall (reverse the install)
+                        </summary>
+                        <div className="mt-3 space-y-3 pl-4 border-l-2 border-destructive/30">
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            Walks the sidecar manifest at{" "}
+                            <code>~/.config/caipe/installed.json</code> (or{" "}
+                            <code>./.caipe/installed.json</code> for project
+                            scope) and prompts per item before removing each
+                            CAIPE-installed file. Files NOT in the manifest are
+                            never touched, so a hand-authored skill at a
+                            CAIPE-looking path is always safe. When a Claude
+                            <code>SessionStart</code> hook entry is removed,
+                            the matching{" "}
+                            <code>~/.claude/settings.json</code> patch is
+                            reversed surgically — only the entries CAIPE added
+                            are removed, everything else is preserved.
+                          </p>
+
+                          <div>
+                            <p className="text-[11px] font-medium text-foreground mb-1">
+                              Interactive uninstall (preserves your gateway
+                              URL + api_key)
+                            </p>
+                            <div className="relative group">
+                              <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                                {uninstallSnippets.oneLiner}
+                              </pre>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(
+                                    uninstallSnippets.oneLiner,
+                                  );
+                                  setCopiedUninstall(true);
+                                  setTimeout(
+                                    () => setCopiedUninstall(false),
+                                    2000,
+                                  );
+                                }}
+                              >
+                                {copiedUninstall ? (
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Per-item prompts: <code>y</code> = remove,{" "}
+                              <code>N</code> = skip, <code>a</code> = remove
+                              all remaining without prompting,{" "}
+                              <code>q</code> = quit (manifest stays
+                              consistent).
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[11px] font-medium text-foreground mb-1">
+                              Preview only (no files deleted)
+                            </p>
+                            <div className="relative group">
+                              <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                                {uninstallSnippets.oneLinerDryRun}
+                              </pre>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(
+                                    uninstallSnippets.oneLinerDryRun,
+                                  );
+                                  setCopiedUninstallDryRun(true);
+                                  setTimeout(
+                                    () => setCopiedUninstallDryRun(false),
+                                    2000,
+                                  );
+                                }}
+                              >
+                                {copiedUninstallDryRun ? (
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-[11px] font-medium text-foreground mb-1">
+                              Full wipe (also removes{" "}
+                              <code>~/.config/caipe/config.json</code>)
+                            </p>
+                            <div className="relative group">
+                              <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                                {uninstallSnippets.oneLinerPurge}
+                              </pre>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(
+                                    uninstallSnippets.oneLinerPurge,
+                                  );
+                                  setCopiedUninstallPurge(true);
+                                  setTimeout(
+                                    () => setCopiedUninstallPurge(false),
+                                    2000,
+                                  );
+                                }}
+                              >
+                                {copiedUninstallPurge ? (
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              You will need to re-enter the gateway URL +
+                              catalog API key on the next install.
+                            </p>
+                          </div>
+                        </div>
+                      </details>
+                    ) : null}
 
                     <details className="text-xs">
                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
