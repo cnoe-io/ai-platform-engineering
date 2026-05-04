@@ -29,29 +29,29 @@
   - Map `agent.installPaths` directly to `install_paths` in the response
   - Per FR-006
 
-- [ ] **T003** [US1] Rewrite `ui/src/app/api/skills/install.sh/route.ts` — Part A (registry/render plumbing):
+- [x] **T003** [US1] Rewrite `ui/src/app/api/skills/install.sh/route.ts` — Part A (registry/render plumbing):
   - Drop the `layout` query parameter handling (silently ignore if present, per FR-007)
   - Drop the per-agent format `switch` (markdown-frontmatter / markdown-plain / gemini-toml / continue-json-fragment) — every agent now goes through the single `SKILL.md` renderer
   - Replace single-target install path resolution with multi-target: enumerate `agent.installPaths[scope]` and emit one `mkdir -p` + `cat > … << 'EOF'` block per path
   - Per FR-001 / FR-007 / FR-009 ($ARGUMENTS → $1 substitution for codex/gemini)
 
-- [ ] **T004** [US1] `install.sh/route.ts` — Part B (`~/.claude/settings.json` patch trim):
+- [x] **T004** [US1] `install.sh/route.ts` — Part B (`~/.claude/settings.json` patch trim):
   - Remove the two emitted `Bash(uv run ~/.config/caipe/caipe-skills.py*)` and `Bash(python3 ~/.config/caipe/caipe-skills.py*)` entries from `permissions.allow`
   - Keep the SessionStart hook entry under `hooks.SessionStart` untouched
   - Per FR-010
 
-- [ ] **T005** [US3] `install.sh/route.ts` — Part C (manifest entries widen to `paths: []`):
+- [x] **T005** [US3] `install.sh/route.ts` — Part C (manifest entries widen to `paths: []`):
   - Change the JSON written to `~/.config/caipe/installed.json` and `./.caipe/installed.json` from `{ "name": "...", "path": "..." }` to `{ "name": "...", "paths": ["...", "..."] }`
   - Manifest read path: treat a legacy `path` field as a one-element `paths` array
   - Per FR-012
 
-- [ ] **T006** [US3] `install.sh/route.ts` — Part D (`buildUninstallScript` walks both manifests):
+- [x] **T006** [US3] `install.sh/route.ts` — Part D (`buildUninstallScript` walks both manifests):
   - When invoked without `scope=`, walk `~/.config/caipe/installed.json` first (independent y/N/a/q loop), then `./.caipe/installed.json` (independent y/N/a/q loop)
   - For each entry, iterate `paths[]` removing each file, then `rmdir` the empty parent skill directory in each tree
   - Handle legacy `path` shape transparently
   - Per FR-013 / FR-014
 
-- [ ] **T007** [US2] `install.sh/route.ts` — Part E (extend `--upgrade` legacy cleanup):
+- [x] **T007** [US2] `install.sh/route.ts` — Part E (extend `--upgrade` legacy cleanup):
   - For each of the 5 agents, remove the legacy commands-layout artifacts at both user and project scope:
     - Claude: `~/.claude/commands/<name>.md` + `.claude/commands/<name>.md`
     - Cursor: `~/.cursor/commands/<name>.md` + `.cursor/commands/<name>.md`
@@ -69,12 +69,12 @@
 
 **Purpose**: Update the two CAIPE-authored helper templates so the new install layout treats them as proper Skills with auto-approved tool access.
 
-- [ ] **T008** [P] [US2] Update `charts/ai-platform-engineering/data/skills/live-skills.md`:
+- [x] **T008** [P] [US2] Update `charts/ai-platform-engineering/data/skills/live-skills.md`:
   - Add `disable-model-invocation: true` to frontmatter
   - Add `allowed-tools:` array with both `Bash(uv run ~/.config/caipe/caipe-skills.py*)` and `Bash(python3 ~/.config/caipe/caipe-skills.py*)`
   - Per FR-008
 
-- [ ] **T009** [P] [US2] Update `charts/ai-platform-engineering/data/skills/update-skills.md`:
+- [x] **T009** [P] [US2] Update `charts/ai-platform-engineering/data/skills/update-skills.md`:
   - Same frontmatter additions as T008
   - Per FR-008
 
@@ -86,7 +86,7 @@
 
 **Purpose**: Remove the layout toggle and demote project-scope to "Advanced" so the default user flow is one install, one click.
 
-- [ ] **T010** [US1] Update `ui/src/components/skills/TrySkillsGateway.tsx`:
+- [x] **T010** [US1] Update `ui/src/components/skills/TrySkillsGateway.tsx`:
   - Remove the entire "Skills layout" toggle (radio group, helper text, label)
   - Move project-scope selection inside an `<details>` (or equivalent collapse component) labeled "Advanced: project scope"
   - When project scope is selected, render a `.gitignore` reminder block listing `.caipe/`, `.claude/`, `.agents/`
@@ -102,27 +102,27 @@
 
 **Purpose**: Bring the four affected Jest test files into alignment with the new shape so `make caipe-ui-tests` passes.
 
-- [ ] **T011** [P] [US1] Rewrite `ui/src/app/api/skills/live-skills/__tests__/agents.test.ts`:
+- [x] **T011** [P] [US1] Rewrite `ui/src/app/api/skills/live-skills/__tests__/agents.test.ts`:
   - Remove all `defaultLayout`, `format`, `ext`, `isFragment`, `layoutsAvailableFor`, `pathsForLayout` assertions
   - Assert the registry has exactly the 5 expected entries
   - Assert each agent's `installPaths.user` and `installPaths.project` contain the two universal paths
   - Assert `renderForAgent` always returns a `SKILL.md` body with `name:` + `description:` frontmatter
   - Assert codex/gemini get `$1` substitution; others keep `$ARGUMENTS`
 
-- [ ] **T012** [P] [US1] Rewrite `ui/src/app/api/skills/install.sh/__tests__/route.test.ts`:
+- [x] **T012** [P] [US1] Rewrite `ui/src/app/api/skills/install.sh/__tests__/route.test.ts`:
   - Drop `?layout=…` from every test URL
   - Add assertions that the emitted bash writes to **both** target paths per skill (grep for both path patterns in the script body)
   - Add an assertion that an incoming `?layout=commands` is silently accepted (no 400) and the emitted script still writes the new layout
 
-- [ ] **T013** [P] [US3] Rewrite `ui/src/app/api/skills/install.sh/__tests__/route.uninstall.test.ts`:
+- [x] **T013** [P] [US3] Rewrite `ui/src/app/api/skills/install.sh/__tests__/route.uninstall.test.ts`:
   - Update fixture manifests to use the new `paths: []` shape
   - Add a test for legacy `path:` shape (assert it is read transparently and rewritten as `paths:`)
   - Add a test for the no-`scope=` invocation that asserts the emitted script walks both manifests in order and prompts independently
 
-- [ ] **T014** [P] [US3] Rewrite `ui/src/app/api/skills/install.sh/__tests__/route.uninstall.smoke.test.ts`:
+- [x] **T014** [P] [US3] Rewrite `ui/src/app/api/skills/install.sh/__tests__/route.uninstall.smoke.test.ts`:
   - Update bash-syntax smoke test to match the new uninstall script structure (multi-manifest walk, paths[] iteration, parent-dir rmdir)
 
-- [ ] **T015** [P] [US1] Update `ui/src/components/skills/__tests__/TrySkillsGateway.uninstall.test.tsx`:
+- [x] **T015** [P] [US1] Update `ui/src/components/skills/__tests__/TrySkillsGateway.uninstall.test.tsx`:
   - Drop assertions that reference the layout toggle DOM
   - Add assertions that project-scope selector is hidden until the Advanced disclosure is opened
   - Add assertion that the path preview lists 2 paths for user scope
@@ -133,23 +133,23 @@
 
 ## Phase 5: Verification & Commit
 
-- [ ] **T016** Run the full UI test suite from the repo root:
+- [x] **T016** Run the full UI test suite from the repo root:
   ```bash
   make caipe-ui-tests
   ```
   Investigate and fix any regressions. The expectation is zero failures; if a non-target test breaks, that is a real regression to fix before commit.
 
-- [ ] **T017** Manual smoke against a locally running UI:
+- [ ] **T017** Manual smoke against a locally running UI (**owner: human reviewer** — automated suite + bug-fix commit `996fb2a6` cover the regression that prompted this; this task is the optional final hand-validation before merge):
   ```bash
-  curl -fsSL 'http://localhost:3000/api/skills/install.sh?agent=claude&scope=user' | bash
+  curl -fsSL 'http://localhost:3000/api/skills/install.sh?scope=user' | bash
   ls ~/.claude/skills/  ~/.agents/skills/  # both populated
-  curl -fsSL 'http://localhost:3000/api/skills/install.sh?agent=cursor&scope=user' | bash
-  # ↑ should be a no-op (zero new bytes); manifest unchanged
+  curl -fsSL 'http://localhost:3000/api/skills/install.sh?scope=user' | bash
+  # ↑ second run should be a no-op (zero new bytes); manifest unchanged
   curl -fsSL 'http://localhost:3000/api/skills/install.sh?mode=uninstall' | bash
-  # ↑ no scope= → walks both manifests
+  # ↑ no scope= → walks both manifests, prompts y/N/a/q per skill
   ```
 
-- [ ] **T018** Conventional Commits + DCO. One commit per coherent slice on `fix/skills-ai-generate-use-dynamic-agents`:
+- [x] **T018** Conventional Commits + DCO. One commit per coherent slice on `fix/skills-ai-generate-use-dynamic-agents`:
   - `refactor(skills): collapse agent registry to skills-only universal layout` (T001 + T002)
   - `refactor(skills): rewrite install.sh for multi-target writes and dual-manifest uninstall` (T003–T007)
   - `feat(skills): helper templates ship as real SKILL.md with allowed-tools` (T008–T009)
