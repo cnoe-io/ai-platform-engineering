@@ -59,12 +59,26 @@ const callGET = async (url: string): Promise<MockRes> =>
   (await GET(new Request(url))) as unknown as MockRes;
 
 describe("GET /api/skills/install.sh — input validation", () => {
-  it("requires ?agent= for non-uninstall modes", async () => {
+  // After the unified-install UX overhaul, ?agent= is optional in
+  // EVERY mode. The route defaults to claude (DEFAULT_AGENT_ID) so a
+  // bare URL with just ?scope= still produces a runnable script. The
+  // failure mode shifts to "missing or invalid ?scope=" because the
+  // scope is the only thing the script can't infer.
+  it("does NOT require ?agent= (defaults to claude); missing ?scope= is the new gating error", async () => {
     const res = await callGET("https://app.example.com/api/skills/install.sh");
     expect(res.status).toBe(400);
-    expect(res.body).toContain("missing required ?agent=");
+    expect(res.body).toContain("missing or invalid ?scope=");
     expect(res.headers.get("Content-Type")).toContain("text/x-shellscript");
     expect(res.body).toContain("exit 64");
+  });
+
+  it("accepts a bare ?scope=user with no ?agent= (defaults to claude)", async () => {
+    const res = await callGET(
+      "https://app.example.com/api/skills/install.sh?scope=user",
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toContain("install-skills");
+    expect(res.headers.get("Content-Type")).toContain("text/x-shellscript");
   });
 
   it("rejects unknown agents", async () => {
