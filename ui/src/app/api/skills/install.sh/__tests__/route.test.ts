@@ -455,6 +455,52 @@ describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => 
   });
 });
 
+describe("GET /api/skills/install.sh — heredoc-vs-stdin regression", () => {
+  // Regression for a real bug observed in production: the bulk-install
+  // Python helper used `printf '%s\n' "${ROOTS[@]}" | python3 - ... <<'PY'`
+  // which is silently broken because bash's `<<HEREDOC` redirects
+  // stdin to the heredoc body, discarding anything piped in. Result:
+  // `roots = []` inside the Python script -> `wrote 0 files for N/N
+  // skills (skipped 0)`. The fix passes paths as trailing positional
+  // args. These assertions guard against regressing back to a piped-
+  // stdin pattern.
+  it("bulk install passes RESOLVED_SKILL_ROOTS as positional args, not via stdin pipe", async () => {
+    const res = await callGET(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.status).toBe(200);
+    // The python invocation must include "${RESOLVED_SKILL_ROOTS[@]}"
+    // BEFORE the <<'PY' heredoc -- not piped in via printf.
+    expect(res.body).toMatch(
+      /python3 - "\$catalog_tmp"[^\n]*"\${RESOLVED_SKILL_ROOTS\[@\]}"\s+<<'PY'/,
+    );
+    // Hard guard: the broken pattern (printf | python3 ... <<'PY')
+    // must NOT reappear for the bulk install. Match any printf that
+    // pipes into a heredoc-launched python3 call.
+    expect(res.body).not.toMatch(
+      /printf [^|]*\|\s*python3 -[^\n]*<<'PY'\s*\nimport[^\n]*datetime[^\n]*tempfile/,
+    );
+    // The Python script must use *roots = sys.argv[1:] unpacking.
+    expect(res.body).toContain(
+      "src, manifest_path, agent, scope, force_s, upgrade_s, *roots = sys.argv[1:]",
+    );
+  });
+
+  it("manifest_register_paths passes paths as positional args, not via stdin pipe", async () => {
+    const res = await callGET(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.status).toBe(200);
+    // The manifest helper must invoke python with paths in argv.
+    expect(res.body).toMatch(
+      /python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$name" "\$kind" "\$@"\s+<<'PY'/,
+    );
+    expect(res.body).toContain(
+      "manifest_path, agent, scope, name, kind, *paths = sys.argv[1:]",
+    );
+  });
+});
+
 describe("GET /api/skills/install.sh — explicit modes", () => {
   it("explicit ?mode=bulk-with-helpers behaves identically to the default", async () => {
     const explicit = await callGET(
