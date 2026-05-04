@@ -6,11 +6,13 @@
 
 Collapse the multi-layout / multi-format CAIPE skill installer down to a single canonical layout: every supported coding agent reads the same `agentskills.io`-standard `SKILL.md` from the same two universal directories (`~/.claude/skills/<name>/SKILL.md` and `~/.agents/skills/<name>/SKILL.md` — plus their project-scope equivalents). The technical approach is a coordinated rewrite of three TS modules (`agents.ts`, `_lib/template-route.ts`, `install.sh/route.ts`), a UI simplification (`TrySkillsGateway.tsx`), two helper-template frontmatter updates, and a synchronized rewrite of the four affected Jest test files. No new dependencies, no new infrastructure, no schema changes (manifest shape widens but is read-compatible with the legacy form).
 
+**Phase 6 extension (added 2026-05-04)**: Once Phases 1-5 land, the same branch picks up FR-016..FR-022 — bring GitLab to parity with GitHub on the per-skill ad-hoc importer, add an `include_paths: string[]` filter to the hub crawler (`hub-crawl.ts` + `skill_hubs` schema), widen the per-skill import body to accept multiple `paths[]`, and fix the long-standing GitLab subgroup truncation bug in the URL normalizer. Same constraints (no new deps, no new infrastructure); the only schema change is one optional field on `skill_hubs`, read-compatible with existing docs.
+
 ## Technical Context
 
 **Language/Version**: TypeScript 5.x, Node 20+, Next.js App Router (16), React 19
 **Primary Dependencies**: Next.js route handlers, existing in-repo helpers (`shellQuote`, `ensureUid`, etc.); no new deps
-**Storage**: Filesystem only (`~/.config/caipe/installed.json`, `./.caipe/installed.json`); no DB changes
+**Storage**: Filesystem only (`~/.config/caipe/installed.json`, `./.caipe/installed.json`) for Phases 1-5. Phase 6 adds one optional `include_paths: string[]` field to the existing `skill_hubs` MongoDB collection (read-compatible with existing docs; no migration needed).
 **Testing**: Jest + `@testing-library/react` (UI workspace) — `make caipe-ui-tests`
 **Target Platform**: Browser (UI) + Node serverless route handlers (API) + emitted bash script executed in user shells (macOS, Linux, WSL)
 **Project Type**: Web (Next.js UI workspace under `ui/`)
@@ -77,6 +79,42 @@ charts/ai-platform-engineering/data/skills/
 └── update-skills.md                               # FRONTMATTER: same (P1)
 ```
 
+### Phase 6 — Multi-source crawl + path filtering (FR-016..FR-022)
+
+```text
+ui/
+├── src/
+│   ├── app/api/skills/
+│   │   ├── import/                                # NEW: source-agnostic ad-hoc importer
+│   │   │   ├── route.ts                           # NEW (P6): { source, repo, paths[], credentials_ref? }
+│   │   │   └── __tests__/route.test.ts            # NEW (P6): GitHub + GitLab branches, multi-path,
+│   │   │                                          #           conflict resolution, deprecation proxy
+│   │   └── import-github/
+│   │       └── route.ts                           # UPDATE (P6): proxy to /api/skills/import w/ source=github;
+│   │                                              #              accepts legacy single-`path` body
+│   ├── app/api/skill-hubs/
+│   │   ├── route.ts                               # UPDATE (P6): accept + normalize include_paths[];
+│   │   │                                          #              widen GitLab URL normalizer (subgroups)
+│   │   ├── [id]/route.ts                          # UPDATE (P6): same include_paths + normalizer in PATCH
+│   │   └── __tests__/url-validation.test.ts       # UPDATE (P6): add subgroup + include_paths cases
+│   ├── lib/
+│   │   ├── hub-crawl.ts                           # UPDATE (P6): crawlGitHubRepo + crawlGitLabRepo
+│   │   │                                          #              accept includePaths?: readonly string[];
+│   │   │                                          #              SkillHubDoc gains include_paths field;
+│   │   │                                          #              _crawlAndCache forwards from hub doc
+│   │   └── __tests__/hub-crawl-include-paths.test.ts  # NEW (P6): both crawlers + nested-skill invariant
+│   └── components/skills/workspace/
+│       ├── RepoImportPanel.tsx                    # NEW (P6): replaces GithubImportPanel; source toggle,
+│       │                                          #           multi-path inputs, credentials hint switch
+│       ├── GithubImportPanel.tsx                  # KEEP as a one-line shim that re-exports
+│       │                                          #   RepoImportPanel for back-compat with existing imports
+│       └── __tests__/import-panels.test.tsx       # UPDATE (P6): test source toggle, multi-path,
+│                                                  #              and the conflict toast
+└── (admin UI)
+    └── src/components/admin/SkillHubsSection.tsx  # UPDATE (P6): add an "Include paths (optional)"
+                                                   #              textarea/list to the hub form
+```
+
 **Structure Decision**: Continue on `fix/skills-ai-generate-use-dynamic-agents` (already has all the prerequisite work — uninstall mode, bulk install, helper rename, OTel scrubber, security gating). The overhaul is a delta on top of that branch, not a new feature line.
 
 ## Database migrations
@@ -103,3 +141,12 @@ The full task breakdown lives in `tasks.md`. At a glance:
 5. **Phase 5 — Verification & commit**
    - `make caipe-ui-tests`
    - Conventional Commits + DCO sign-off, one logical commit per phase
+6. **Phase 6 — Multi-source crawl + path filtering** (US4, FR-016..FR-022) — added 2026-05-04
+   - New `POST /api/skills/import` (source-agnostic); legacy `import-github` becomes a one-line proxy
+   - GitHub + GitLab branches in the new importer share the path-filter + multi-path-merge logic
+   - `hub-crawl.ts`: both crawlers accept optional `includePaths`; `_crawlAndCache` forwards it from the hub doc
+   - `skill_hubs` schema gains optional `include_paths: string[]`; `POST` + `PATCH` validate + normalize
+   - GitLab subgroup URL normalizer fixed in both `POST /api/skill-hubs` and `PATCH /api/skill-hubs/[id]`
+   - `RepoImportPanel.tsx` replaces `GithubImportPanel.tsx` (kept as a re-export shim)
+   - `SkillHubsSection.tsx` admin form gets an "Include paths (optional)" input
+   - New + updated tests: `lib/__tests__/hub-crawl-include-paths.test.ts`, `app/api/skills/import/__tests__/route.test.ts`, `app/api/skill-hubs/__tests__/url-validation.test.ts` (subgroup + include_paths), `components/skills/workspace/__tests__/import-panels.test.tsx`

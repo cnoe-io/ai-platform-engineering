@@ -160,6 +160,84 @@
 
 ---
 
+## Phase 6: Multi-source crawl + path filtering (US4) — added 2026-05-04
+
+**Purpose**: Bring GitLab to feature parity with GitHub on the per-skill ad-hoc importer, add a path-prefix filter to both the hub crawler and the per-skill importer so admins can target specific subdirectories of large monorepos, and fix the GitLab subgroup URL truncation bug. All work continues on `fix/skills-ai-generate-use-dynamic-agents`.
+
+### Phase 6a: Schema + crawler core (US4)
+
+- [ ] **T019** [US4] Extend `SkillHubDoc` (in `ui/src/lib/hub-crawl.ts`) with optional `include_paths?: readonly string[]`. Update `crawlGitHubRepo(owner, repo, token, includePaths?)` and `crawlGitLabRepo(projectPath, token, includePaths?)` to accept the new arg. When `includePaths` is non-empty, filter `skillMdPaths` to entries whose path starts with one of the prefixes (after enforcing a trailing `/` on each prefix). Leave `belongsToNestedSkill` and the ancillary-collection loop untouched. Per FR-021.
+
+- [ ] **T020** [US4] Update `_crawlAndCache` (same file) to read `hub.include_paths` and forward it to whichever crawler matches `hub.type`. Per FR-021.
+
+### Phase 6b: Hub admin API (US4)
+
+- [ ] **T021** [US4] Update `POST /api/skill-hubs` (`ui/src/app/api/skill-hubs/route.ts`):
+  - Accept optional `include_paths: string[]` in the request body
+  - Validate: each entry MUST match `/^[A-Za-z0-9._\-/]+$/` (no `..`, no leading `/`); trim; drop empties; dedupe; append a trailing `/` if absent; cap at 20 entries
+  - Persist the normalized array into the new doc; absent or empty stays absent (so existing docs are untouched)
+  - Widen the URL normalizer: when the URL host is `gitlab.com` (or matches the configured `GITLAB_API_URL` host), keep **every** path segment after the host (preserves subgroups). The existing two-segment truncation MUST stay for `github.com` only.
+  - Per FR-020, FR-022.
+
+- [ ] **T022** [US4] Update `PATCH /api/skill-hubs/[id]` (`ui/src/app/api/skill-hubs/[id]/route.ts`):
+  - Accept the same `include_paths` field with the same validation/normalization helper extracted from T021 (share the function — do not duplicate)
+  - Apply the same widened GitLab subgroup normalizer
+  - Per FR-020, FR-022.
+
+### Phase 6c: Per-skill importer (US4)
+
+- [ ] **T023** [US4] Create `ui/src/app/api/skills/import/route.ts` (the new source-agnostic endpoint):
+  - `POST` body: `{ source: "github" | "gitlab", repo: string, paths: string[], credentials_ref?: string }`
+  - Accept legacy single `path: string` shape transparently (treat as `paths: [path]`)
+  - GitHub branch reuses today's `import-github` flow (Git Trees API + contents API) but iterates over every entry in `paths[]`
+  - GitLab branch hits `${GITLAB_API_URL || "https://gitlab.com/api/v4"}/projects/<encoded-repo>/repository/tree?recursive=true&per_page=100`, then fetches each blob via `repository/files/<encoded>/raw?ref=HEAD`. Use `PRIVATE-TOKEN` header (matching `crawlGitLabRepo`); resolve token via `validateCredentialsRef` with `GITLAB_TOKEN` fallback.
+  - Multi-path merge: first-wins; populate `conflicts: [{ name, kept_from, dropped_from }]` for every dropped duplicate; always return the field (empty array when none).
+  - Response: `{ files, count, conflicts }`. Wrapped via `successResponse` like the legacy route.
+  - Per FR-016, FR-017, FR-018.
+
+- [ ] **T024** [US4] Update `ui/src/app/api/skills/import-github/route.ts` to be a thin proxy to `/api/skills/import` with `source: "github"` injected. Mark the file's docstring as "deprecated — prefer POST /api/skills/import". Keep the legacy behavior of returning just `{ files, count }` (no `conflicts` field) so any existing caller is byte-compatible. Per FR-016.
+
+### Phase 6d: UI surfaces (US4)
+
+- [ ] **T025** [US4] Create `ui/src/components/skills/workspace/RepoImportPanel.tsx` based on the existing `GithubImportPanel.tsx` with these additions:
+  - **Source toggle** above the inputs (radio or segmented control: GitHub / GitLab) — default GitHub for back-compat
+  - **Multi-path** support: render the `path` input as a stack of inputs with a `+ Add another path` button (capped at 5 prefixes)
+  - Placeholder + credentials hint switch with the source toggle (GitHub: `anthropics/skills`, `GITHUB_TOKEN`; GitLab: `mycorp/platform`, `GITLAB_TOKEN`)
+  - POST to `/api/skills/import` with the new body shape; surface `conflicts.length` as a non-blocking toast (e.g. "Imported N files; skipped M duplicates")
+  - Per FR-019.
+
+- [ ] **T026** [US4] Replace `ui/src/components/skills/workspace/GithubImportPanel.tsx` with a one-line re-export of `RepoImportPanel` so existing imports (`import { GithubImportPanel } from ...`) keep working without churn. Per FR-019.
+
+- [ ] **T027** [US4] Update `ui/src/components/admin/SkillHubsSection.tsx` to add an "Include paths (optional)" input to the hub registration / edit form:
+  - Multi-line textarea (one prefix per line) is the simplest UI; show a hint: "Leave empty to crawl the entire repo. Trailing slashes are added automatically."
+  - On submit, split on newlines, send as `include_paths: string[]`
+  - On display (existing hubs), render any persisted `include_paths` as a wrapped chip list under the location
+  - Per FR-020.
+
+### Phase 6e: Tests (US4)
+
+- [ ] **T028** [P] [US4] New + updated test files (run in parallel — independent files):
+  - **NEW** `ui/src/lib/__tests__/hub-crawl-include-paths.test.ts`: assert both crawlers filter the SKILL.md candidate list to the configured prefixes; assert `belongsToNestedSkill` invariant still holds; assert empty/absent `includePaths` is identical to today's behavior.
+  - **NEW** `ui/src/app/api/skills/import/__tests__/route.test.ts`: cover GitHub branch (matches legacy behavior), GitLab branch (PRIVATE-TOKEN header, encoded subgroup paths), multi-path merge with conflicts, and the legacy single-`path` body shape.
+  - **UPDATE** `ui/src/app/api/skill-hubs/__tests__/url-validation.test.ts`: add a subgroup-URL case (`https://gitlab.com/mycorp/devops/platform` → `mycorp/devops/platform`); add an `include_paths` validation case (rejects `..`, leading `/`, non-allowed chars; normalizes trailing slashes; caps at 20).
+  - **UPDATE** `ui/src/components/skills/workspace/__tests__/import-panels.test.tsx`: assert the source toggle switches placeholders + body `source`; assert "+ Add another path" appends a prefix (capped at 5); assert a `conflicts` payload surfaces a toast.
+  - Per FR-016 through FR-022.
+
+### Phase 6f: Verification & commit
+
+- [ ] **T029** Run the full UI suite again: `cd ui && npx jest --no-coverage`. Expectation: still green (146+ suites).
+
+- [ ] **T030** Conventional Commits + DCO. Suggested commit slicing on `fix/skills-ai-generate-use-dynamic-agents`:
+  - `feat(skills): add include_paths filter to hub crawler` (T019, T020)
+  - `feat(skill-hubs): accept include_paths and fix GitLab subgroup truncation` (T021, T022)
+  - `feat(skills): source-agnostic ad-hoc importer with GitLab + multi-path` (T023, T024)
+  - `feat(ui/skills): RepoImportPanel + admin hub include_paths input` (T025, T026, T027)
+  - `test(skills): cover include_paths + multi-source importer` (T028)
+
+  Use `git commit -s` for every commit (DCO).
+
+---
+
 ## Parallelization notes
 
 - **Phase 1 must run sequentially within itself** (T001 → T002 → T003 → T004 → T005 → T006 → T007), because each task touches downstream consumers of the previous one's types.
@@ -167,6 +245,12 @@
 - **Phase 3 (T010) is sequential after Phase 1** — the UI's path preview reads from `RenderResult.install_paths`.
 - **Phase 4 (T011–T015) is parallel** — five independent test files.
 - **Phase 5 is sequential and final.**
+- **Phase 6**:
+  - 6a (T019, T020) is sequential within itself.
+  - 6b (T021, T022) is sequential after T019 (the validator helper is shared) and runs as a pair (POST + PATCH must agree).
+  - 6c (T023, T024) is sequential after 6a (the importer reuses no shared types from the hub crawler today, but T024 depends on T023 existing).
+  - 6d (T025–T027) can run in parallel with each other once 6c is in (T025 + T026 are coupled by the re-export, so do them together; T027 is independent).
+  - 6e (T028) is parallel within itself (four independent test files).
 
 ## Estimated effort
 
@@ -175,5 +259,9 @@
 - Phase 3: ~45 minutes
 - Phase 4: ~1.5–2 hours
 - Phase 5: ~30 minutes (mostly waiting for `make caipe-ui-tests`)
+- Phase 6a–6b: ~1 hour (crawler arg + admin API + normalizer fix)
+- Phase 6c: ~1.5 hours (new importer route + GitLab branch + multi-path merge)
+- Phase 6d: ~1.5 hours (RepoImportPanel + SkillHubsSection edit)
+- Phase 6e–6f: ~1.5 hours (tests + commit slicing)
 
-**Total: ~6–7 hours of focused work.**
+**Total: ~12–14 hours of focused work** (Phases 1-5: ~6-7h, Phase 6: ~5-6h additional).
