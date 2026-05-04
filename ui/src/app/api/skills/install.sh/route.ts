@@ -1,15 +1,39 @@
 /**
  * GET /api/skills/install.sh
  *
- * Returns a portable bash installer that fetches the rendered live-skills
- * template for a given agent + scope and writes it to disk. The script is
- * intended for `curl … | bash` or "download & inspect first" workflows
- * surfaced from the Skills API Gateway UI.
+ * Returns a portable bash installer that fetches and writes CAIPE skill
+ * artifacts to a user's machine. The script is intended for `curl … | bash`
+ * or "download & inspect first" workflows surfaced from the Skills API
+ * Gateway UI.
  *
- * **Default flow**: install the single live-skills `/skills` command (no `catalog_url`).
- * **Advanced**: pass `catalog_url=…` (encoded `GET /api/skills?…` from the gateway preview) to
- * materialize one file per skill from that query — requires the same catalog API key setup as
- * the default flow. Prefer exploring the live catalog and API key docs in the gateway UI first.
+ * Three modes (mutually exclusive — picked by query params):
+ *
+ * 1. `bulk-with-helpers` (DEFAULT, when no `catalog_url` and no
+ *    `mode=live-only`): the new "everything for native discovery" flow.
+ *    Bulk-installs every skill from the catalog, drops the two helper
+ *    skills (`/skills` live-fetch + `/update-skills` user-driven refresh),
+ *    installs the Python catalog helper at ~/.config/caipe/caipe-skills.py,
+ *    and (Claude Code only) registers a SessionStart hook that injects
+ *    the live catalog index into Claude's `additionalContext`. Auto-seeds
+ *    ~/.config/caipe/config.json with the gateway base_url (never the
+ *    api_key — user supplies that). Cleans up legacy install artifacts
+ *    when `--upgrade` is passed.
+ *
+ *    Flags exposed by the generated script: `--no-bulk` (skip catalog
+ *    materialization), `--no-helpers` (skip the two helper skills),
+ *    `--no-hook` (skip the SessionStart hook even on Claude).
+ *
+ *    Fragment-config agents (Continue today) can't bulk-install — they
+ *    silently fall back to live-only so the UI doesn't have to special-
+ *    case them.
+ *
+ * 2. `live-only` (`?mode=live-only`): the legacy default, demoted to an
+ *    Advanced toggle in the UI. Installs ONLY the single `/skills`
+ *    live-skills slash command. No helpers, no hook, no auto-config.
+ *
+ * 3. `catalog-query bulk` (`?catalog_url=…`): unchanged. Materializes
+ *    one file per skill returned by the gateway query the user built in
+ *    the "Pick your skills" panel. No helpers, no hook.
  *
  * Query params:
  *   - agent:        agent id (claude | cursor | specify | codex | gemini |
@@ -193,6 +217,17 @@ function plainTextError(message: string, status: number): NextResponse {
 
 /* ---------- script generator ---------- */
 
+/**
+ * Which install flow the generated script implements. See the route
+ * docstring for the user-visible behavior of each.
+ *
+ * - "bulk-with-helpers" — new default; full bulk + helpers + hook.
+ * - "live-only"         — single /skills command only (legacy default).
+ * - "catalog-query"     — bulk install from a custom ?catalog_url=...
+ *                         (unchanged from the original "bulk" flow).
+ */
+type InstallMode = "bulk-with-helpers" | "live-only" | "catalog-query";
+
 interface ScriptInputs {
   agent: AgentSpec;
   scope: "user" | "project";
@@ -200,16 +235,895 @@ interface ScriptInputs {
   commandName: string;
   description: string;
   baseUrl: string;
+  mode: InstallMode;
   /**
-   * When set, the installer runs in BULK mode: it ignores the live-skills
-   * template and instead fetches this URL (must be `<baseUrl>/api/skills?…`),
-   * iterating the response and writing one skill file per catalog entry into
-   * the agent's commands directory.
+   * Only set when `mode === "catalog-query"`. URL of a `<baseUrl>/api/skills?...`
+   * gateway listing to iterate; the script writes one file per returned
+   * skill into the agent's commands directory.
    */
   catalogUrl: string | null;
 }
 
-function buildScript({
+function buildScript(inputs: ScriptInputs): string {
+  if (inputs.mode === "bulk-with-helpers") {
+    return buildBulkWithHelpersScript(inputs);
+  }
+  return buildLegacyScript(inputs);
+}
+
+/**
+ * Generates the bash for the new "everything for native discovery" flow.
+ *
+ * The generated script:
+ *
+ *  1. Resolves the catalog API key (--api-key > env > config file).
+ *  2. Optionally fetches & writes every catalog skill to disk so the
+ *     agent gets native autocomplete (suppressed by --no-bulk).
+ *  3. Optionally fetches & writes the two helper skill commands
+ *     (`/skills` live-fetch + `/update-skills` user-driven refresh).
+ *     Suppressed by --no-helpers.
+ *  4. Always installs the Python catalog helper at
+ *     ~/.config/caipe/caipe-skills.py (the helper skills depend on it).
+ *  5. (Claude Code only) Installs ~/.claude/hooks/caipe-catalog.sh and
+ *     patches ~/.claude/settings.json to register a SessionStart hook
+ *     that injects the live catalog index into Claude's
+ *     `additionalContext`. Suppressed by --no-hook or non-Claude agent.
+ *  6. Auto-seeds ~/.config/caipe/config.json with the gateway base_url
+ *     (never the api_key). Skips if the file already exists.
+ *  7. (--upgrade only) Removes legacy install artifacts so the new
+ *     model doesn't double up with the old single-skill install.
+ *  8. Prints a success card with next-step commands, the recommended
+ *     allowlist snippet for Claude/Cursor settings, and gitignore
+ *     guidance for project-scoped installs.
+ *
+ * The generated script is ~400 lines of bash. Most of the bulk and
+ * single-skill logic is shared with `buildLegacyScript` only by
+ * convention (same shell quoting, same manifest schema), not by
+ * code reuse — the two flows are different enough that duplicating
+ * the bash is clearer than parameterizing one giant generator.
+ */
+function buildBulkWithHelpersScript({
+  agent,
+  scope,
+  layout,
+  commandName,
+  description,
+  baseUrl,
+}: ScriptInputs): string {
+  // Path resolution mirrors the legacy script: which `installPaths` table
+  // we use depends on the requested layout. For bulk-with-helpers we
+  // ALWAYS install the helper skills into the agent's commands dir
+  // (so /skills and /update-skills are slash commands, not skill folders),
+  // and we install the catalog skills into the requested layout's dir.
+  //
+  // For the helper SLASH COMMANDS we want the legacy commands layout
+  // even when the user picked layout=skills for the bulk install — the
+  // agent should be able to run `/skills` and `/update-skills` as
+  // normal slash commands, not invoke them via skill-folder discovery.
+  // (This matches how the live-skills route advertises them today.)
+  const commandsLayoutPaths = agent.installPaths;
+  const commandsDirTemplate = commandsDirFor(
+    commandsLayoutPaths[scope] ??
+      // Fragment-config agents won't reach here (handler routes them to
+      // live-only first), but keep a safe fallback so a stray request
+      // doesn't crash the route handler.
+      "~/.caipe-helpers/{name}.md",
+    "commands",
+  );
+
+  // Where catalog skills land (one per skill, either as <name>/SKILL.md
+  // or <name>.<ext> depending on layout). We use the requested layout
+  // table here so the user's "Skills layout" toggle is respected.
+  const skillsLayoutPaths =
+    layout === "skills" && agent.skillsPaths
+      ? agent.skillsPaths
+      : agent.installPaths;
+  const skillsInstallTemplate =
+    skillsLayoutPaths[scope] ?? commandsLayoutPaths[scope]!;
+  const catalogTargetDir = commandsDirFor(skillsInstallTemplate, layout);
+  const catalogFileExt =
+    layout === "skills" ? "md" : extensionForFormat(agent.format);
+
+  // The two helper commands are always rendered for THIS agent, so
+  // their per-agent template URLs are computed up-front and baked in.
+  // We pass `command_name` and `base_url` so the rendered output is
+  // identical to what a fresh GET /api/skills/{live,update}-skills
+  // would produce in the UI.
+  const liveSkillsParams = new URLSearchParams({
+    agent: agent.id,
+    scope,
+    layout: "commands",
+    command_name: "skills",
+    base_url: baseUrl,
+  }).toString();
+  const updateSkillsParams = new URLSearchParams({
+    agent: agent.id,
+    scope,
+    layout: "commands",
+    command_name: "update-skills",
+    base_url: baseUrl,
+  }).toString();
+  const liveSkillsUrl = `${baseUrl}/api/skills/live-skills?${liveSkillsParams}`;
+  const updateSkillsUrl = `${baseUrl}/api/skills/update-skills?${updateSkillsParams}`;
+  const helperPyUrl = `${baseUrl}/api/skills/helpers/caipe-skills.py?base_url=${encodeURIComponent(baseUrl)}`;
+  const hookShUrl = `${baseUrl}/api/skills/hooks/caipe-catalog.sh?base_url=${encodeURIComponent(baseUrl)}`;
+  // Bulk catalog query: include_content=true so we have bodies to write.
+  // page_size=200 covers any realistic single-organization catalog;
+  // operators with larger catalogs can re-run with --no-bulk and use
+  // /update-skills selectively from inside their agent.
+  const bulkCatalogUrl = `${baseUrl}/api/skills?page=1&page_size=200&include_content=true`;
+
+  // Whether THIS agent is Claude Code — only Claude has documented
+  // SessionStart hook support today. Other agents skip the hook step
+  // even if they support skills layouts.
+  const isClaude = agent.id === "claude";
+
+  // Pre-quote everything we templated in.
+  const Q_AGENT_ID = shq(agent.id);
+  const Q_AGENT_LABEL = shq(agent.label);
+  const Q_SCOPE = shq(scope);
+  const Q_LAYOUT = shq(layout);
+  const Q_COMMAND = shq(commandName);
+  const Q_BASE_URL = shq(baseUrl);
+  const Q_COMMANDS_DIR = shq(commandsDirTemplate);
+  const Q_CATALOG_DIR = shq(catalogTargetDir);
+  const Q_CATALOG_EXT = shq(catalogFileExt);
+  const Q_LIVE_URL = shq(liveSkillsUrl);
+  const Q_UPDATE_URL = shq(updateSkillsUrl);
+  const Q_HELPER_PY_URL = shq(helperPyUrl);
+  const Q_HOOK_SH_URL = shq(hookShUrl);
+  const Q_BULK_URL = shq(bulkCatalogUrl);
+  const _description = description; // currently unused in this flow but kept for symmetry / future use
+  void _description;
+
+  return `#!/usr/bin/env bash
+# install-skills.sh — CAIPE bulk-with-helpers installer
+#
+# Generated by ${baseUrl}/api/skills/install.sh
+# Agent  : ${agent.label} (${agent.id})
+# Scope  : ${scope} (${scope === "user" ? "user-global" : "project-local"})
+# Layout : ${layout}
+# Mode   : bulk-with-helpers (everything for native discovery)
+#
+# This installer writes:
+#   - one file per skill from the live catalog (suppress with --no-bulk)
+#   - the /skills helper command          (suppress with --no-helpers)
+#   - the /update-skills helper command   (suppress with --no-helpers)
+#   - the Python catalog helper at ~/.config/caipe/caipe-skills.py
+${isClaude ? `#   - a SessionStart hook for Claude Code (suppress with --no-hook)\n` : `#   (no SessionStart hook — only Claude Code supports them today)\n`}#   - ~/.config/caipe/config.json (base_url only, never api_key)
+#
+# Usage:
+#   CAIPE_CATALOG_KEY=<your-key> bash <(curl -fsSL <this-url>)
+#   ./install-skills.sh --upgrade   # refresh existing CAIPE-owned files + clean legacy artifacts
+#   ./install-skills.sh --no-bulk   # just helpers + hook + helper.py
+#   ./install-skills.sh --no-helpers --no-hook --no-bulk   # only the python helper + config seed
+#
+# Security: this script NEVER prints, logs, or echoes the API key.
+
+set -euo pipefail
+
+AGENT_ID=${Q_AGENT_ID}
+AGENT_LABEL=${Q_AGENT_LABEL}
+SCOPE=${Q_SCOPE}
+LAYOUT=${Q_LAYOUT}
+COMMAND_NAME=${Q_COMMAND}
+BASE_URL=${Q_BASE_URL}
+COMMANDS_DIR_RAW=${Q_COMMANDS_DIR}
+CATALOG_DIR_RAW=${Q_CATALOG_DIR}
+CATALOG_EXT=${Q_CATALOG_EXT}
+LIVE_SKILLS_URL=${Q_LIVE_URL}
+UPDATE_SKILLS_URL=${Q_UPDATE_URL}
+HELPER_PY_URL=${Q_HELPER_PY_URL}
+HOOK_SH_URL=${Q_HOOK_SH_URL}
+BULK_CATALOG_URL=${Q_BULK_URL}
+IS_CLAUDE=${isClaude ? "1" : "0"}
+
+API_KEY="\${CAIPE_CATALOG_KEY:-}"
+FORCE=0
+UPGRADE=0
+NO_BULK=0
+NO_HELPERS=0
+NO_HOOK=0
+
+# Sidecar manifest of files we wrote. Lives next to config.json; one file
+# per workstation in user scope, per project in project scope so worktrees
+# don't bleed into each other.
+case "\$SCOPE" in
+  user)    MANIFEST_PATH="\${HOME:-.}/.config/caipe/installed.json" ;;
+  project) MANIFEST_PATH="./.caipe/installed.json" ;;
+esac
+MANIFEST_PATH="\${CAIPE_INSTALL_MANIFEST:-\$MANIFEST_PATH}"
+
+# Dotfiles for auto-seeding the user-side config.
+CAIPE_CONFIG_DIR="\${HOME:-.}/.config/caipe"
+CAIPE_CONFIG_FILE="\$CAIPE_CONFIG_DIR/config.json"
+CAIPE_HELPER_PY="\$CAIPE_CONFIG_DIR/caipe-skills.py"
+
+# Claude-specific paths for the SessionStart hook. Only used when
+# IS_CLAUDE=1. Project-scope: write the hook into ./.claude/, mirroring
+# how Claude Code resolves project-local hooks.
+case "\$SCOPE" in
+  user)    CLAUDE_DIR="\${HOME:-.}/.claude" ;;
+  project) CLAUDE_DIR="./.claude" ;;
+esac
+CLAUDE_HOOK_DIR="\$CLAUDE_DIR/hooks"
+CLAUDE_HOOK_FILE="\$CLAUDE_HOOK_DIR/caipe-catalog.sh"
+CLAUDE_SETTINGS_FILE="\$CLAUDE_DIR/settings.json"
+
+usage() {
+  cat <<USAGE
+install-skills.sh — bulk-with-helpers installer for \$AGENT_LABEL.
+
+Usage:
+  $0 [flags]
+
+Flags:
+  --upgrade        Refresh existing CAIPE-owned files and clean up
+                   legacy install artifacts from previous versions.
+  --force          Overwrite ANY existing target file (escape hatch).
+  --no-bulk        Skip the bulk catalog install. Only the helpers,
+                   the python helper, and (Claude) the hook are written.
+  --no-helpers     Skip writing the /skills and /update-skills helper
+                   slash commands.
+  --no-hook        Skip the Claude SessionStart hook + settings patch.
+                   No-op when AGENT is not "claude".
+  --api-key=<key>  Pass the catalog key on the command line.
+                   WARNING: visible in 'ps' AND shell history. Prefer
+                   storing the key in ~/.config/caipe/config.json once.
+  --help           Show this message.
+
+Environment:
+  CAIPE_CATALOG_KEY        Catalog API key. Never echoed by this script.
+  CAIPE_INSTALL_MANIFEST   Override path of the install manifest
+                           (default: \$MANIFEST_PATH).
+USAGE
+}
+
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    --api-key=*)
+      API_KEY="\${1#--api-key=}"
+      echo "warning: --api-key passes the secret on the process command line." >&2
+      echo "         It will appear in 'ps' output AND shell history." >&2
+      ;;
+    --api-key)
+      shift
+      API_KEY="\${1:-}"
+      echo "warning: --api-key passes the secret on the process command line." >&2
+      ;;
+    --force) FORCE=1 ;;
+    --upgrade) UPGRADE=1 ;;
+    --no-bulk) NO_BULK=1 ;;
+    --no-helpers) NO_HELPERS=1 ;;
+    --no-hook) NO_HOOK=1 ;;
+    --help|-h) usage; exit 0 ;;
+    *)
+      echo "error: unknown argument: \$1" >&2
+      usage >&2
+      exit 64
+      ;;
+  esac
+  shift || true
+done
+
+# ---------- API key resolution (config > env > flag, same as legacy) ----------
+read_api_key_from_config() {
+  local cfg_path="\$1"
+  [ -r "\$cfg_path" ] || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 -c '
+import json, sys
+try:
+  data = json.load(open(sys.argv[1]))
+except Exception:
+  sys.exit(1)
+key = (data.get("api_key") or "").strip()
+if not key:
+  sys.exit(1)
+sys.stdout.write(key)
+' "\$cfg_path" 2>/dev/null && return 0
+  return 1
+}
+
+if [ -z "\$API_KEY" ]; then
+  for cfg in "\$CAIPE_CONFIG_FILE" "\${HOME:-.}/.config/grid/config.json"; do
+    if k="\$(read_api_key_from_config "\$cfg")" && [ -n "\$k" ]; then
+      API_KEY="\$k"
+      echo "==> using API key from \$cfg" >&2
+      break
+    fi
+  done
+fi
+
+if [ -z "\$API_KEY" ]; then
+  echo "error: catalog API key is required." >&2
+  echo "       Easiest fix: create \$CAIPE_CONFIG_FILE with:" >&2
+  echo "           { \\"api_key\\": \\"<your-key>\\" }" >&2
+  echo "       Or pass --api-key=<key> / set CAIPE_CATALOG_KEY=<key>." >&2
+  exit 64
+fi
+
+# Required tooling.
+if ! command -v curl >/dev/null 2>&1; then
+  echo "error: curl is required but was not found in PATH." >&2
+  exit 69
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error: python3 is required (the helper scripts and manifest" >&2
+  echo "       writer both use it). Install python3 and re-run." >&2
+  exit 69
+fi
+
+# ---------- Resolve install paths for this scope ----------
+case "\$SCOPE" in
+  user)
+    if [ -z "\${HOME:-}" ]; then
+      echo "error: \\$HOME is not set; cannot resolve user-global install path." >&2
+      exit 78
+    fi
+    COMMANDS_DIR="\${COMMANDS_DIR_RAW/#~\\//\$HOME/}"
+    CATALOG_DIR="\${CATALOG_DIR_RAW/#~\\//\$HOME/}"
+    ;;
+  project)
+    COMMANDS_DIR="\$COMMANDS_DIR_RAW"
+    CATALOG_DIR="\$CATALOG_DIR_RAW"
+    ;;
+esac
+
+mkdir -p "\$COMMANDS_DIR" "\$CATALOG_DIR" "\$CAIPE_CONFIG_DIR"
+
+# ---------- Install manifest helpers (shared with the legacy flow) ----------
+manifest_register() {
+  # manifest_register <abs-path> <kind>  (kind: skill|helper|catalog|hook|config)
+  local target="\$1" kind="\${2:-catalog}"
+  local cfg_dir; cfg_dir="\$(dirname "\$MANIFEST_PATH")"
+  mkdir -p "\$cfg_dir" 2>/dev/null || return 0
+  python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$target" "\$kind" <<'PY' 2>/dev/null || true
+import datetime, json, os, sys, tempfile
+manifest_path, agent, scope, target, kind = sys.argv[1:]
+data = {"version": 1, "installed": []}
+if os.path.isfile(manifest_path):
+    try:
+        data = json.load(open(manifest_path))
+        if not isinstance(data, dict):
+            data = {"version": 1, "installed": []}
+        data.setdefault("version", 1)
+        data.setdefault("installed", [])
+    except Exception:
+        data = {"version": 1, "installed": []}
+now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+entry = {"agent": agent, "scope": scope, "path": target, "kind": kind, "installed_at": now}
+data["installed"] = [
+    e for e in data["installed"]
+    if not (e.get("agent") == agent and e.get("scope") == scope and e.get("path") == target)
+] + [entry]
+fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=os.path.dirname(manifest_path) or ".")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\\n")
+    os.replace(tmp, manifest_path)
+    os.chmod(manifest_path, 0o600)
+except Exception:
+    try: os.unlink(tmp)
+    except OSError: pass
+PY
+}
+
+manifest_owns() {
+  local target="\$1"
+  [ -r "\$MANIFEST_PATH" ] || return 1
+  python3 -c '
+import json, sys
+try: data = json.load(open(sys.argv[1]))
+except Exception: sys.exit(1)
+target = sys.argv[2]
+for e in (data or {}).get("installed", []) or []:
+  if e.get("path") == target: sys.exit(0)
+sys.exit(1)
+' "\$MANIFEST_PATH" "\$target" 2>/dev/null
+}
+
+# Centralized "may we write to this path?" gate. Honors --force (always),
+# --upgrade (only if manifest claims ownership), and refuses otherwise.
+# Returns 0 = write OK, 1 = skip.
+may_write() {
+  local target="\$1"
+  if [ ! -e "\$target" ]; then
+    return 0
+  fi
+  if [ "\$FORCE" -eq 1 ]; then
+    return 0
+  fi
+  if [ "\$UPGRADE" -eq 1 ] && manifest_owns "\$target"; then
+    return 0
+  fi
+  return 1
+}
+
+# ---------- Atomic curl-to-file ----------
+# Fetches \$1 with the catalog key into \$2 atomically (tempfile + rename).
+# Returns the curl exit status. Caller is responsible for permissions.
+fetch_to() {
+  local url="\$1" target="\$2"
+  local parent; parent="\$(dirname "\$target")"
+  mkdir -p "\$parent"
+  local tmp; tmp="\$(mktemp "\$parent/.caipe-fetch-XXXXXX")"
+  local status
+  status="\$(curl -sS -o "\$tmp" -w '%{http_code}' \\
+    -H "X-Caipe-Catalog-Key: \$API_KEY" \\
+    -H 'Accept: */*' \\
+    "\$url")" || { rm -f "\$tmp"; echo "error: curl failed for \$url" >&2; return 69; }
+  if [ "\$status" != "200" ]; then
+    echo "error: HTTP \$status for \$url" >&2
+    if [ -s "\$tmp" ]; then echo "       body: \$(head -c 500 "\$tmp")" >&2; fi
+    rm -f "\$tmp"
+    return 76
+  fi
+  mv -f "\$tmp" "\$target"
+  return 0
+}
+
+# Pull the rendered "template" field out of a /api/skills/{live,update}-skills
+# response and write the unwrapped markdown to \$target.
+fetch_template_to() {
+  local url="\$1" target="\$2"
+  local parent; parent="\$(dirname "\$target")"
+  mkdir -p "\$parent"
+  local tmp_json; tmp_json="\$(mktemp "\$parent/.caipe-tpl-XXXXXX")"
+  local status
+  status="\$(curl -sS -o "\$tmp_json" -w '%{http_code}' \\
+    -H "X-Caipe-Catalog-Key: \$API_KEY" \\
+    -H 'Accept: application/json' \\
+    "\$url")" || { rm -f "\$tmp_json"; return 69; }
+  if [ "\$status" != "200" ]; then
+    echo "error: HTTP \$status for \$url" >&2
+    rm -f "\$tmp_json"
+    return 76
+  fi
+  python3 - "\$tmp_json" "\$target" <<'PY' || { rm -f "\$tmp_json"; return 76; }
+import json, os, sys
+src, dst = sys.argv[1:]
+data = json.load(open(src))
+body = data.get("template") or ""
+if not body:
+    sys.stderr.write("template field missing or empty in response\\n")
+    sys.exit(1)
+parent = os.path.dirname(dst) or "."
+import tempfile
+fd, tmp = tempfile.mkstemp(prefix=".caipe-tpl-", dir=parent)
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    f.write(body)
+os.replace(tmp, dst)
+os.chmod(dst, 0o644)
+PY
+  rm -f "\$tmp_json"
+  return 0
+}
+
+# ---------- Step: legacy cleanup (--upgrade only) ----------
+# Removes leftovers from earlier install models that would now conflict
+# with bulk-with-helpers. We only delete files we KNOW were CAIPE-owned
+# (either via the manifest or by canonical path/name heuristics for the
+# pre-manifest era).
+do_legacy_cleanup() {
+  [ "\$UPGRADE" -eq 1 ] || return 0
+  local removed=0
+
+  # 1. Old single-skill install at ~/.claude/commands/skills.md (or
+  #    ./.claude/commands/skills.md). Always replaced by the new
+  #    /skills helper, so safe to remove unconditionally when --upgrade.
+  for legacy in "\$COMMANDS_DIR/skills.md" "\$COMMANDS_DIR/skills.toml"; do
+    if [ -f "\$legacy" ]; then
+      rm -f "\$legacy" && echo "==> removed legacy \$legacy" && removed=\$((removed+1))
+    fi
+  done
+
+  # 2. The pre-bug-fix dual-install path ~/.claude/skills/skills/SKILL.md
+  #    (a "skills" folder named "skills" inside the skills directory),
+  #    which only ever existed because the old code wrote BOTH the
+  #    commands AND skills layout. Remove only if the directory exists
+  #    and contains just SKILL.md (defensive — we don't want to nuke a
+  #    user's hand-authored skill that happens to be named "skills").
+  if [ "\$IS_CLAUDE" = "1" ]; then
+    local dual="\$CLAUDE_DIR/skills/skills"
+    if [ -d "\$dual" ]; then
+      local count
+      count="\$(find "\$dual" -mindepth 1 -maxdepth 1 \\( -name SKILL.md -o -name 'metadata.json' \\) 2>/dev/null | wc -l | tr -d ' ')"
+      local total
+      total="\$(find "\$dual" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
+      if [ "\$count" -gt 0 ] && [ "\$total" -le 2 ]; then
+        rm -rf "\$dual" && echo "==> removed legacy \$dual" && removed=\$((removed+1))
+      fi
+    fi
+  fi
+
+  if [ "\$removed" -gt 0 ]; then
+    echo "==> legacy cleanup: removed \$removed item(s)"
+  fi
+}
+
+# ---------- Step: install python helper at ~/.config/caipe/caipe-skills.py ----------
+do_install_helper_py() {
+  if may_write "\$CAIPE_HELPER_PY"; then
+    if fetch_to "\$HELPER_PY_URL" "\$CAIPE_HELPER_PY"; then
+      chmod 0755 "\$CAIPE_HELPER_PY"
+      manifest_register "\$CAIPE_HELPER_PY" helper
+      echo "==> installed \$CAIPE_HELPER_PY"
+    else
+      echo "warn: failed to install \$CAIPE_HELPER_PY (helper skills will not work without it)" >&2
+      return 1
+    fi
+  else
+    echo "skip: \$CAIPE_HELPER_PY exists (re-run with --upgrade or --force to replace)" >&2
+  fi
+}
+
+# ---------- Step: auto-seed ~/.config/caipe/config.json ----------
+# Writes only if the file is missing. Never overwrites — the api_key
+# field belongs to the user. We only seed base_url so a fresh checkout
+# can immediately run the helper without manual config.
+do_seed_config() {
+  if [ -f "\$CAIPE_CONFIG_FILE" ]; then
+    return 0
+  fi
+  python3 - "\$CAIPE_CONFIG_FILE" "\$BASE_URL" <<'PY'
+import json, os, sys
+path, base_url = sys.argv[1:]
+parent = os.path.dirname(path) or "."
+os.makedirs(parent, exist_ok=True)
+data = {"base_url": base_url, "_comment": "Set api_key here to avoid passing --api-key on the command line."}
+import tempfile
+fd, tmp = tempfile.mkstemp(prefix=".caipe-config-", dir=parent)
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\\n")
+os.replace(tmp, path)
+os.chmod(path, 0o600)
+PY
+  echo "==> seeded \$CAIPE_CONFIG_FILE (base_url only — add api_key yourself)"
+  manifest_register "\$CAIPE_CONFIG_FILE" config
+}
+
+# ---------- Step: install /skills + /update-skills helper commands ----------
+do_install_helpers() {
+  [ "\$NO_HELPERS" -eq 1 ] && return 0
+
+  local live="\$COMMANDS_DIR/skills.md"
+  local upd="\$COMMANDS_DIR/update-skills.md"
+
+  if may_write "\$live"; then
+    if fetch_template_to "\$LIVE_SKILLS_URL" "\$live"; then
+      manifest_register "\$live" helper
+      echo "==> installed \$live (slash command: /skills)"
+    fi
+  else
+    echo "skip: \$live exists (re-run with --upgrade or --force to replace)" >&2
+  fi
+
+  if may_write "\$upd"; then
+    if fetch_template_to "\$UPDATE_SKILLS_URL" "\$upd"; then
+      manifest_register "\$upd" helper
+      echo "==> installed \$upd (slash command: /update-skills)"
+    fi
+  else
+    echo "skip: \$upd exists (re-run with --upgrade or --force to replace)" >&2
+  fi
+}
+
+# ---------- Step: bulk catalog materialization ----------
+# Same algorithm as the legacy catalog-query bulk flow, but driven by
+# the canonical /api/skills query (page=1, page_size=200, content=true)
+# rather than a user-built query. We DO NOT touch the helper command
+# names ("skills", "update-skills") — if the catalog happens to contain
+# a skill with one of those names, we skip it with a warning so the
+# helper command isn't clobbered.
+do_install_bulk() {
+  [ "\$NO_BULK" -eq 1 ] && return 0
+
+  local catalog_tmp; catalog_tmp="\$(mktemp -t caipe-catalog-XXXXXX)"
+  trap 'rm -f "\$catalog_tmp"' RETURN
+  local status
+  status="\$(curl -sS -o "\$catalog_tmp" -w '%{http_code}' \\
+    -H "X-Caipe-Catalog-Key: \$API_KEY" \\
+    -H 'Accept: application/json' \\
+    "\$BULK_CATALOG_URL")" || {
+      echo "warn: failed to reach catalog at \$BASE_URL — skipping bulk install" >&2
+      return 0
+    }
+  if [ "\$status" != "200" ]; then
+    echo "warn: catalog returned HTTP \$status — skipping bulk install" >&2
+    return 0
+  fi
+
+  python3 - "\$catalog_tmp" "\$CATALOG_DIR" "\$LAYOUT" "\$CATALOG_EXT" "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$FORCE" "\$UPGRADE" <<'PY'
+import base64, datetime, json, os, re, sys, tempfile
+
+src, target_dir, layout, ext, manifest_path, agent, scope, force_s, upgrade_s = sys.argv[1:]
+force = force_s == "1"; upgrade = upgrade_s == "1"
+NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
+PART_RE = re.compile(r"[^A-Za-z0-9._-]")
+RESERVED = {"skills", "update-skills"}  # never clobber the helper commands
+
+# Load existing manifest for ownership checks.
+owned = set()
+if os.path.isfile(manifest_path):
+    try:
+        m = json.load(open(manifest_path))
+        for e in (m or {}).get("installed", []) or []:
+            owned.add(e.get("path"))
+    except Exception:
+        pass
+
+def safe_path(rel):
+    rel = rel.replace("\\\\", "/").lstrip("/")
+    parts = []
+    for p in rel.split("/"):
+        if not p or p == "." or p == "..":
+            return None
+        parts.append(PART_RE.sub("_", p))
+    return "/".join(parts) if parts else None
+
+def may_write(path):
+    if not os.path.exists(path):
+        return True
+    if force:
+        return True
+    if upgrade and path in owned:
+        return True
+    return False
+
+data = json.load(open(src))
+skills = data.get("skills", []) or []
+wrote = 0; skipped = 0; reserved = 0; total = 0
+new_entries = []
+now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+for s in skills:
+    name = (s.get("name") or "").strip()
+    if not name:
+        continue
+    total += 1
+    if name in RESERVED:
+        reserved += 1
+        continue
+    safe_name = NAME_RE.sub("_", name)
+    body = s.get("content") or ""
+
+    if layout == "skills":
+        targets = {os.path.join(target_dir, safe_name, "SKILL.md"): body}
+        anc = s.get("ancillary_files") or {}
+        if isinstance(anc, dict):
+            for rel, content in anc.items():
+                if not isinstance(rel, str) or not isinstance(content, str):
+                    continue
+                sp = safe_path(rel)
+                if not sp or sp == "SKILL.md":
+                    continue
+                targets[os.path.join(target_dir, safe_name, sp)] = content
+    else:
+        targets = {os.path.join(target_dir, f"{safe_name}.{ext}"): body}
+
+    for path, content in targets.items():
+        if not may_write(path):
+            skipped += 1
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".caipe-install-", dir=os.path.dirname(path))
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, path)
+        os.chmod(path, 0o644)
+        new_entries.append({
+            "agent": agent, "scope": scope, "path": path,
+            "kind": "skill", "installed_at": now,
+        })
+        wrote += 1
+
+# Atomic manifest update with the new entries appended (replacing any
+# entry for the same path).
+if new_entries:
+    cfg_dir = os.path.dirname(manifest_path) or "."
+    os.makedirs(cfg_dir, exist_ok=True)
+    existing = {"version": 1, "installed": []}
+    if os.path.isfile(manifest_path):
+        try:
+            existing = json.load(open(manifest_path))
+            if not isinstance(existing, dict):
+                existing = {"version": 1, "installed": []}
+            existing.setdefault("version", 1)
+            existing.setdefault("installed", [])
+        except Exception:
+            existing = {"version": 1, "installed": []}
+    new_paths = {e["path"] for e in new_entries}
+    existing["installed"] = [
+        e for e in existing["installed"] if e.get("path") not in new_paths
+    ] + new_entries
+    fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=cfg_dir)
+    with os.fdopen(fd, "w") as f:
+        json.dump(existing, f, indent=2)
+        f.write("\\n")
+    os.replace(tmp, manifest_path)
+    os.chmod(manifest_path, 0o600)
+
+print(f"==> bulk: wrote {wrote} files for {total - reserved}/{total} skills (skipped {skipped}, reserved {reserved})")
+PY
+}
+
+# ---------- Step: install Claude SessionStart hook ----------
+do_install_hook() {
+  [ "\$IS_CLAUDE" = "1" ] || return 0
+  [ "\$NO_HOOK" -eq 1 ] && return 0
+
+  if may_write "\$CLAUDE_HOOK_FILE"; then
+    if fetch_to "\$HOOK_SH_URL" "\$CLAUDE_HOOK_FILE"; then
+      chmod 0755 "\$CLAUDE_HOOK_FILE"
+      manifest_register "\$CLAUDE_HOOK_FILE" hook
+      echo "==> installed \$CLAUDE_HOOK_FILE"
+    else
+      echo "warn: failed to install \$CLAUDE_HOOK_FILE — skipping settings.json patch" >&2
+      return 0
+    fi
+  else
+    echo "skip: \$CLAUDE_HOOK_FILE exists (re-run with --upgrade or --force to replace)" >&2
+  fi
+
+  # Patch settings.json to register the SessionStart hook + allowlist
+  # the helper invocations. This is a deep merge: we never wipe other
+  # hooks or other allowlist entries.
+  python3 - "\$CLAUDE_SETTINGS_FILE" "\$CLAUDE_HOOK_FILE" <<'PY'
+import json, os, sys, tempfile
+
+settings_path, hook_path = sys.argv[1:]
+parent = os.path.dirname(settings_path) or "."
+os.makedirs(parent, exist_ok=True)
+
+data = {}
+if os.path.isfile(settings_path):
+    try:
+        data = json.load(open(settings_path))
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
+        # Corrupt or non-JSON settings file — refuse to clobber it.
+        sys.stderr.write(f"warn: {settings_path} is not valid JSON; skipping hook registration\\n")
+        sys.stderr.write("      (your existing settings file is untouched)\\n")
+        sys.exit(0)
+
+# --- Register SessionStart hook (idempotent) ---
+hooks = data.setdefault("hooks", {})
+if not isinstance(hooks, dict):
+    hooks = {}
+    data["hooks"] = hooks
+
+session_start = hooks.setdefault("SessionStart", [])
+if not isinstance(session_start, list):
+    session_start = []
+    hooks["SessionStart"] = session_start
+
+# Each entry can be either {"hooks": [{type, command, ...}, ...]}
+# (Claude's documented schema) or a bare hook object. We use the
+# documented schema so we play nicely with future hook tooling.
+already_registered = False
+for entry in session_start:
+    if not isinstance(entry, dict):
+        continue
+    inner = entry.get("hooks") or []
+    if not isinstance(inner, list):
+        continue
+    for h in inner:
+        if isinstance(h, dict) and h.get("command") == hook_path:
+            already_registered = True
+            break
+    if already_registered:
+        break
+
+if not already_registered:
+    session_start.append({
+        "hooks": [
+            {
+                "type": "command",
+                "command": hook_path,
+                "timeout": 5,
+            }
+        ]
+    })
+    print(f"==> registered SessionStart hook in {settings_path}")
+else:
+    print(f"==> SessionStart hook already registered in {settings_path}")
+
+# --- Allowlist the python helper invocations (idempotent) ---
+permissions = data.setdefault("permissions", {})
+if not isinstance(permissions, dict):
+    permissions = {}
+    data["permissions"] = permissions
+allow = permissions.setdefault("allow", [])
+if not isinstance(allow, list):
+    allow = []
+    permissions["allow"] = allow
+WANTED = [
+    "Bash(uv run ~/.config/caipe/caipe-skills.py*)",
+    "Bash(python3 ~/.config/caipe/caipe-skills.py*)",
+]
+for rule in WANTED:
+    if rule not in allow:
+        allow.append(rule)
+        print(f"==> added allowlist rule: {rule}")
+
+# --- Atomic write ---
+fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\\n")
+os.replace(tmp, settings_path)
+os.chmod(settings_path, 0o600)
+PY
+  manifest_register "\$CLAUDE_SETTINGS_FILE" config
+}
+
+# ---------- Run the steps in order ----------
+do_legacy_cleanup
+do_seed_config
+do_install_helper_py
+do_install_helpers
+do_install_bulk
+do_install_hook
+
+# ---------- Success card ----------
+echo
+echo "================================================================"
+echo "  CAIPE skills installed for \$AGENT_LABEL (\$SCOPE scope)"
+echo "================================================================"
+echo
+echo "  next steps:"
+if [ "\$NO_HELPERS" -eq 0 ]; then
+  echo "    1. launch \$AGENT_LABEL"
+  echo "    2. type /skills <query>          live-fetch a skill from the catalog"
+  echo "    3. type /update-skills           refresh local copies from the catalog"
+else
+  echo "    /skills and /update-skills helper commands were skipped (--no-helpers)."
+fi
+echo
+echo "  recommended (one-time): add the helper to your agent's allowlist"
+echo "  to avoid approval prompts on every catalog lookup. Example for"
+echo "  ~/.claude/settings.json or ~/.cursor/settings.json:"
+echo
+echo "    {"
+echo "      \\"permissions\\": {"
+echo "        \\"allow\\": ["
+echo "          \\"Bash(uv run ~/.config/caipe/caipe-skills.py*)\\","
+echo "          \\"Bash(python3 ~/.config/caipe/caipe-skills.py*)\\""
+echo "        ]"
+echo "      }"
+echo "    }"
+echo
+if [ "\$IS_CLAUDE" = "1" ] && [ "\$NO_HOOK" -eq 0 ]; then
+  echo "  Claude SessionStart hook installed — your next Claude Code session"
+  echo "  will see the live catalog index in additionalContext."
+elif [ "\$IS_CLAUDE" = "0" ]; then
+  echo "  (SessionStart hook skipped — only Claude Code supports them today.)"
+fi
+echo
+if [ "\$SCOPE" = "project" ]; then
+  echo "  project scope: add this to your .gitignore so manifests and config"
+  echo "  don't end up in version control:"
+  echo
+  echo "    .caipe/"
+  echo
+fi
+echo "  manifest: \$MANIFEST_PATH"
+echo "  config  : \$CAIPE_CONFIG_FILE"
+echo "================================================================"
+`;
+}
+
+/**
+ * Legacy script generator for the live-only and catalog-query modes.
+ * Behavior is byte-identical to the pre-refactor flow; only the entry
+ * point name changed. The new bulk-with-helpers mode delegates to its
+ * own generator above so this 500-line function stays untouched.
+ */
+function buildLegacyScript({
   agent,
   scope,
   layout,
@@ -915,7 +1829,10 @@ export async function GET(request: Request) {
     sanitizeBaseUrl(url.searchParams.get("base_url")) ??
     getRequestOrigin(request);
 
-  // Optional bulk-install mode driven by the Skills API Gateway Query Builder.
+  // Optional catalog-query bulk mode driven by the Skills API Gateway
+  // "Pick your skills" Query Builder. When present this wins over the new
+  // default mode — the user has explicitly composed a query and wants
+  // exactly its result set written to disk, no helpers, no hook.
   const catalogUrlRaw = url.searchParams.get("catalog_url");
   const catalogUrl = sanitizeCatalogUrl(catalogUrlRaw, new URL(baseUrl).origin);
   if (catalogUrlRaw && !catalogUrl) {
@@ -931,6 +1848,32 @@ export async function GET(request: Request) {
     );
   }
 
+  // Resolve install mode. Precedence:
+  //   1. ?catalog_url=... locks us into catalog-query mode (existing flow).
+  //   2. ?mode=live-only opts into the legacy single-skill flow.
+  //   3. Otherwise default to bulk-with-helpers (the new "everything"
+  //      flow), which silently degrades to live-only for fragment-config
+  //      agents since they can't materialize one file per catalog skill.
+  const modeRaw = (url.searchParams.get("mode") ?? "").trim().toLowerCase();
+  let mode: InstallMode;
+  if (catalogUrl) {
+    mode = "catalog-query";
+  } else if (modeRaw === "live-only") {
+    mode = "live-only";
+  } else if (modeRaw && modeRaw !== "bulk" && modeRaw !== "bulk-with-helpers") {
+    return plainTextError(
+      `invalid ?mode= value: ${modeRaw} (allowed: bulk, bulk-with-helpers, live-only)`,
+      400,
+    );
+  } else if (agent.isFragment) {
+    // Fragment-config agents can't bulk-install — fall back without
+    // making the UI special-case them. The generated script's banner
+    // explains the demotion so the user isn't confused.
+    mode = "live-only";
+  } else {
+    mode = "bulk-with-helpers";
+  }
+
   const script = buildScript({
     agent,
     scope,
@@ -938,10 +1881,16 @@ export async function GET(request: Request) {
     commandName,
     description,
     baseUrl,
+    mode,
     catalogUrl,
   });
 
-  const filenameSuffix = catalogUrl ? "-bulk" : "";
+  const filenameSuffix =
+    mode === "catalog-query"
+      ? "-bulk"
+      : mode === "bulk-with-helpers"
+        ? "-bundle"
+        : "";
   return new NextResponse(script, {
     status: 200,
     headers: {

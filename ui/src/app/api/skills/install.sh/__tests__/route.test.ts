@@ -48,15 +48,21 @@ interface MockRes {
   headers: Map<string, string>;
 }
 
-// All pre-existing tests assert the legacy `commands` layout, which is the
-// only layout install.sh supported before the skills/<name>/SKILL.md toggle
-// was added. Inject `layout=commands` so existing assertions remain meaningful;
-// skills-layout coverage lives in its own describe block below that calls
-// callGET with `layout=skills` explicitly.
+// All pre-existing tests assert the legacy `commands` layout AND the
+// legacy single-skill flow. Two defaults shifted in this codebase:
+//   1. The skills/<name>/SKILL.md toggle (layout=skills vs commands)
+//   2. The bulk-with-helpers default (vs the old single-skill default)
+// To keep ~350 lines of pre-existing assertions valid we inject
+// `layout=commands` AND `mode=live-only` here. Coverage for the new
+// bulk-with-helpers default mode lives in its own describe block at
+// the bottom of this file.
 const callGET = async (url: string): Promise<MockRes> => {
   const u = new URL(url);
   if (!u.searchParams.has("layout")) {
     u.searchParams.set("layout", "commands");
+  }
+  if (!u.searchParams.has("mode") && !u.searchParams.has("catalog_url")) {
+    u.searchParams.set("mode", "live-only");
   }
   const res = (await GET(new Request(u.toString()))) as unknown as MockRes;
   return res;
@@ -390,9 +396,18 @@ describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => 
 
 describe("GET /api/skills/install.sh — layout=skills (Shubham C: skills/<name>/SKILL.md)", () => {
   // Bypass the callGET wrapper so we drive `layout=skills` end-to-end and
-  // exercise the new commandsDirFor() / bulk-install branches.
-  const callGetRaw = async (url: string): Promise<MockRes> =>
-    (await GET(new Request(url))) as unknown as MockRes;
+  // exercise the new commandsDirFor() / bulk-install branches in the
+  // legacy single-skill flow. We still pin mode=live-only because these
+  // assertions are about the layout=skills behavior of the pre-existing
+  // single-skill code path; the new bulk-with-helpers default has its
+  // own layout-handling tests below.
+  const callGetRaw = async (url: string): Promise<MockRes> => {
+    const u = new URL(url);
+    if (!u.searchParams.has("mode") && !u.searchParams.has("catalog_url")) {
+      u.searchParams.set("mode", "live-only");
+    }
+    return (await GET(new Request(u.toString()))) as unknown as MockRes;
+  };
 
   it("emits LAYOUT=skills and the parent skills dir as COMMANDS_DIR_RAW (Claude user scope)", async () => {
     const res = await callGetRaw(
@@ -450,5 +465,222 @@ describe("GET /api/skills/install.sh — layout=skills (Shubham C: skills/<name>
     // must carry layout=skills or the callback would re-render with the wrong
     // frontmatter (no `name:` field).
     expect(res.body).toMatch(/LIVE_SKILLS_URL='[^']*[?&]layout=skills/);
+  });
+});
+
+/**
+ * The new default flow: when the caller passes neither `?catalog_url=`
+ * nor `?mode=live-only`, the route returns a script that bulk-installs
+ * the catalog AND drops the two helper slash commands AND (for Claude)
+ * registers a SessionStart hook. These tests assert the structural
+ * shape of the generated bash — the actual end-to-end behavior of
+ * each step is exercised by the script in a sandbox elsewhere.
+ *
+ * No callGET wrapper here — we want the unmodified default to hit the
+ * route so we can prove the default really is bulk-with-helpers.
+ */
+describe("GET /api/skills/install.sh — bulk-with-helpers (new default)", () => {
+  const callRaw = async (url: string): Promise<MockRes> =>
+    (await GET(new Request(url))) as unknown as MockRes;
+
+  it("is the default mode when no ?mode= and no ?catalog_url= are supplied", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.status).toBe(200);
+    // Banner identifies the flow so a user reading the script knows
+    // exactly which behavior to expect.
+    expect(res.body).toContain("CAIPE bulk-with-helpers installer");
+    expect(res.body).toContain("Mode   : bulk-with-helpers");
+    // Filename suffix lets curl-piped users save with a meaningful name.
+    expect(res.headers.get("Content-Disposition")).toContain(
+      "install-skills-claude-user-bundle.sh",
+    );
+  });
+
+  it("emits all four runtime opt-out flags so users can disable any step", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    // Each flag must be both documented in usage() AND parsed in the
+    // arg loop, otherwise users discover broken flags only at runtime.
+    for (const flag of ["--no-bulk", "--no-helpers", "--no-hook", "--upgrade"]) {
+      expect(res.body).toContain(flag);
+    }
+  });
+
+  it("references all helper URLs the script will fetch", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    // The script depends on five gateway endpoints — if any of these
+    // disappear the install silently degrades, so they're worth pinning.
+    expect(res.body).toMatch(/LIVE_SKILLS_URL=.*\/api\/skills\/live-skills/);
+    expect(res.body).toMatch(/UPDATE_SKILLS_URL=.*\/api\/skills\/update-skills/);
+    expect(res.body).toMatch(/HELPER_PY_URL=.*\/api\/skills\/helpers\/caipe-skills\.py/);
+    expect(res.body).toMatch(/HOOK_SH_URL=.*\/api\/skills\/hooks\/caipe-catalog\.sh/);
+    expect(res.body).toMatch(
+      /BULK_CATALOG_URL=.*\/api\/skills\?[^']*include_content=true/,
+    );
+  });
+
+  it("invokes the install steps in dependency order", async () => {
+    // Order matters: legacy_cleanup must run before any writes (it deletes
+    // by canonical path, not by manifest); seed_config must run before
+    // helper_py (which the helper skills will read); helpers/bulk before
+    // hook (so the hook isn't registered against an empty install).
+    //
+    // We can't use indexOf() against the whole body because the function
+    // definitions appear in a different order than the call sequence at
+    // the bottom of the script. Slice the script at the "Run the steps"
+    // marker so we're matching the call list, not the definitions.
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    const marker = "# ---------- Run the steps in order ----------";
+    const callsSection = res.body.slice(res.body.indexOf(marker));
+    expect(callsSection).not.toBe("");
+    const idx = (s: string) => callsSection.indexOf(s);
+    expect(idx("do_legacy_cleanup")).toBeGreaterThan(0);
+    expect(idx("do_seed_config")).toBeGreaterThan(idx("do_legacy_cleanup"));
+    expect(idx("do_install_helper_py")).toBeGreaterThan(idx("do_seed_config"));
+    expect(idx("do_install_helpers")).toBeGreaterThan(
+      idx("do_install_helper_py"),
+    );
+    expect(idx("do_install_bulk")).toBeGreaterThan(idx("do_install_helpers"));
+    expect(idx("do_install_hook")).toBeGreaterThan(idx("do_install_bulk"));
+  });
+
+  it("only emits the SessionStart hook step for Claude", async () => {
+    const claude = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    const cursor = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=cursor&scope=user",
+    );
+    // Claude script flips the IS_CLAUDE flag on, so the hook function
+    // is allowed to run. Cursor (no documented SessionStart hook today)
+    // gets the same function definition but IS_CLAUDE=0 makes it a no-op.
+    // IS_CLAUDE is a numeric literal in the generated bash (matches the
+    // FORCE/UPGRADE/NO_BULK style), not a shell-quoted string.
+    expect(claude.body).toMatch(/^IS_CLAUDE=1$/m);
+    expect(cursor.body).toMatch(/^IS_CLAUDE=0$/m);
+    // Settings.json patch is gated on IS_CLAUDE — so the patch python
+    // block only matters in the Claude script. Both scripts include the
+    // function; only Claude reaches the body.
+    expect(claude.body).toContain("CLAUDE_SETTINGS_FILE=");
+  });
+
+  it("falls back to live-only for fragment-config agents (Continue)", async () => {
+    // Continue can't bulk-install (its config.json holds slash commands
+    // inline), so the new default must downgrade rather than 400. The
+    // alternative — making the UI special-case `isFragment` agents —
+    // would be invisible to users running the script directly.
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=continue&scope=user",
+    );
+    expect(res.status).toBe(200);
+    // Banner from the legacy script identifies live-only mode by name.
+    expect(res.body).toContain("Mode  : single live-skills skill");
+    // No bulk-with-helpers banner.
+    expect(res.body).not.toContain("CAIPE bulk-with-helpers installer");
+  });
+
+  it("rejects unknown ?mode= values with a 400", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&mode=hybrid",
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).toContain("invalid ?mode= value");
+  });
+
+  it("explicit ?mode=bulk-with-helpers behaves identically to the default", async () => {
+    // The UI may want to URL-encode the mode for clarity; assert that
+    // the explicit form produces the same banner / filename so we can't
+    // accidentally diverge the two code paths.
+    const explicit = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&mode=bulk-with-helpers",
+    );
+    expect(explicit.body).toContain("CAIPE bulk-with-helpers installer");
+    expect(explicit.headers.get("Content-Disposition")).toContain(
+      "install-skills-claude-user-bundle.sh",
+    );
+  });
+
+  it("explicit ?mode=live-only opts back into the legacy single-skill flow", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&mode=live-only",
+    );
+    // No -bundle / -bulk suffix on the live-only filename.
+    expect(res.headers.get("Content-Disposition")).toContain(
+      "install-skills-claude-user.sh",
+    );
+    expect(res.headers.get("Content-Disposition")).not.toContain("-bundle");
+    expect(res.body).toContain("Mode  : single live-skills skill");
+  });
+
+  it("never inlines the catalog API key in the generated script", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    // Same security guarantee as the legacy script — the key is asked
+    // for at runtime via env / config / flag, never baked into the bash.
+    expect(res.body).toContain("CAIPE_CATALOG_KEY");
+    expect(res.body).toContain("X-Caipe-Catalog-Key");
+    // No string that looks like a baked secret (rough heuristic — the
+    // routes that bake URLs are explicitly tested above; nothing else
+    // in the script should look like a secret).
+    expect(res.body).not.toMatch(/api_key\s*[:=]\s*["'][A-Za-z0-9_-]{16,}/);
+  });
+
+  it("includes legacy cleanup logic guarded by --upgrade", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    // The two legacy artifacts the cleanup must remove — pin them by
+    // canonical path so a future refactor can't silently stop deleting
+    // either one.
+    expect(res.body).toContain('"$COMMANDS_DIR/skills.md"');
+    expect(res.body).toContain('"$CLAUDE_DIR/skills/skills"');
+    // Cleanup must be guarded by --upgrade or it would surprise users
+    // with destructive behavior on a fresh `curl ... | bash`.
+    expect(res.body).toMatch(/\[ "\$UPGRADE" -eq 1 \] \|\| return 0/);
+  });
+
+  it("ships idempotent settings.json patching (refuses to clobber non-JSON, dedups hooks)", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    // Idempotence is checked by inspecting the embedded python: it
+    // walks existing SessionStart entries before appending and only
+    // adds the allowlist rule when missing.
+    expect(res.body).toContain("already_registered");
+    expect(res.body).toContain('Bash(uv run ~/.config/caipe/caipe-skills.py*)');
+    expect(res.body).toContain('Bash(python3 ~/.config/caipe/caipe-skills.py*)');
+    // Refusal to clobber non-JSON: the embedded python prints a warning
+    // and exits 0 instead of overwriting the broken file.
+    expect(res.body).toContain("is not valid JSON; skipping hook registration");
+  });
+
+  it("reserves the helper command names so the bulk loop can't clobber them", async () => {
+    // If the catalog ever ships a skill named `skills` or
+    // `update-skills`, the bulk loop must NOT overwrite the helper
+    // command we just installed in the same script run.
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.body).toContain('RESERVED = {"skills", "update-skills"}');
+  });
+
+  it("auto-seeds the config file with base_url only (never api_key)", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    // The seed must be additive — only base_url, never api_key. This is
+    // the contract the `do_seed_config` step relies on when claiming it
+    // is safe to run on every install (existing files are skipped, and
+    // a fresh seed never contains a secret to leak).
+    expect(res.body).toContain('"base_url": base_url');
+    expect(res.body).not.toMatch(/data\s*=\s*\{[^}]*"api_key"/);
   });
 });
