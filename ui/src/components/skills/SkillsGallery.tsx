@@ -948,7 +948,7 @@ export function SkillsGallery({
               </div>
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <h1 className="text-xl font-semibold gradient-text leading-tight">Skills</h1>
+                  <h1 className="text-xl font-semibold gradient-text leading-tight">Skills Gallery</h1>
                   {!isLoading && (
                     <Badge variant="secondary" className="tabular-nums text-sm font-normal px-2 py-0.5">
                       {skillConfigs.length}
@@ -979,7 +979,7 @@ export function SkillsGallery({
               </Button>
               {/* "Skills API Gateway" launcher — original prominent
                   gradient pill that opens the dedicated Gateway page
-                  (`/skills/gateway`). We tried a Browse / Gateway
+                  (`/skills/gateway`). We tried a Gallery / Gateway
                   segmented toggle here briefly, but the launcher
                   button reads better in the gallery toolbar and matches
                   the "preview" UX the rest of the catalog uses. */}
