@@ -35,6 +35,15 @@
  *    one file per skill returned by the gateway query the user built in
  *    the "Pick your skills" panel. No helpers, no hook.
  *
+ * 4. `uninstall` (`?mode=uninstall`): the reverse flow. Reads the sidecar
+ *    manifest at `~/.config/caipe/installed.json` (or `./.caipe/installed.json`
+ *    for project scope) and walks the user through removing every CAIPE-
+ *    owned file with per-item confirmation. Surgically reverses the
+ *    Claude `~/.claude/settings.json` SessionStart hook + allowlist patch
+ *    when a hook entry is removed. Preserves `config.json` unless `--purge`
+ *    is passed. Refuses to touch any path not in the manifest -- so a
+ *    user-authored skill at a "CAIPE-looking" path is always safe.
+ *
  * Query params:
  *   - agent:        agent id (claude | cursor | specify | codex | gemini |
  *                   continue). Required (we don't pick a default for an
@@ -225,8 +234,18 @@ function plainTextError(message: string, status: number): NextResponse {
  * - "live-only"         — single /skills command only (legacy default).
  * - "catalog-query"     — bulk install from a custom ?catalog_url=...
  *                         (unchanged from the original "bulk" flow).
+ * - "uninstall"         — reverse of bulk-with-helpers. Reads the sidecar
+ *                         manifest and walks the user through removing
+ *                         every CAIPE-owned file with per-item
+ *                         confirmation. Never touches files outside the
+ *                         manifest, never deletes ~/.config/caipe/config.json
+ *                         unless --purge is passed.
  */
-type InstallMode = "bulk-with-helpers" | "live-only" | "catalog-query";
+type InstallMode =
+  | "bulk-with-helpers"
+  | "live-only"
+  | "catalog-query"
+  | "uninstall";
 
 interface ScriptInputs {
   agent: AgentSpec;
@@ -245,6 +264,9 @@ interface ScriptInputs {
 }
 
 function buildScript(inputs: ScriptInputs): string {
+  if (inputs.mode === "uninstall") {
+    return buildUninstallScript(inputs);
+  }
   if (inputs.mode === "bulk-with-helpers") {
     return buildBulkWithHelpersScript(inputs);
   }
@@ -1145,6 +1167,521 @@ echo "================================================================"
 }
 
 /**
+ * Generates the bash for `mode=uninstall`: the reverse of the
+ * `bulk-with-helpers` flow.
+ *
+ * Design constraints
+ * ------------------
+ * 1. **Manifest-driven, never heuristic.** We only ever delete files
+ *    listed in the sidecar manifest at ``~/.config/caipe/installed.json``
+ *    (or ``./.caipe/installed.json`` for project scope). A path that
+ *    isn't in the manifest is left alone, even if it's at a "CAIPE-
+ *    looking" location. This is the same invariant as the install
+ *    side's ``manifest_owns`` check.
+ *
+ * 2. **Per-item confirmation by default.** The user picked the
+ *    per-item option in the design questionnaire. The prompt accepts
+ *    ``y`` / ``n`` / ``a`` (yes-to-all-remaining) / ``q`` (quit) so a
+ *    long manifest can be batch-approved without forcing 200 keystrokes,
+ *    but the default is "ask once per file" which is the safest choice
+ *    for a destructive flow.
+ *
+ * 3. **Config preservation.** ``~/.config/caipe/config.json`` (api_key
+ *    + base_url + per-host overrides) is preserved by default so the
+ *    user can re-install without re-entering credentials. ``--purge``
+ *    removes it explicitly. This matches the design question answer.
+ *
+ * 4. **Reversible Claude settings patch.** When we encounter a
+ *    ``hook`` entry in the manifest, we ALSO surgically remove the
+ *    matching SessionStart hook entry and the two allowlist rules
+ *    from ``~/.claude/settings.json``. Only the entries pointing at
+ *    our specific hook script path are removed; everything else in
+ *    the user's settings file is preserved. Mirrors the additive
+ *    install-time patch in ``do_install_hook``.
+ *
+ * 5. **Dry-run by default? No.** The user explicitly chose per-item
+ *    prompts as the safety mechanism. ``--dry-run`` is still offered
+ *    so an automation system can ask "what would you do?" without
+ *    destroying anything, but the default flow is interactive
+ *    deletion, not preview-then-apply (which would be user-hostile
+ *    for a `curl | bash` workflow where stdin is the same TTY).
+ *
+ * 6. **Empty-manifest cleanup.** Once every entry is removed (or the
+ *    manifest is exhausted via ``--all``), we delete the manifest
+ *    itself so a fresh install starts from a clean slate. The
+ *    ``--purge`` flag additionally removes ``~/.config/caipe/`` if
+ *    it's then empty.
+ *
+ * 7. **Never recurse, never glob.** Each manifest entry is a single
+ *    absolute path. We refuse to remove directories (a defensive
+ *    invariant — the install side never registers a directory as
+ *    a manifest entry, only files).
+ */
+function buildUninstallScript({
+  agent,
+  scope,
+}: ScriptInputs): string {
+  // Manifest path table mirrors the install side. ``CAIPE_INSTALL_MANIFEST``
+  // is honored as an override so tests + power users can point at a
+  // sandboxed manifest.
+  const manifestUserPath = `\${HOME:-.}/.config/caipe/installed.json`;
+  const manifestProjectPath = `./.caipe/installed.json`;
+  const manifestDefault =
+    scope === "project" ? manifestProjectPath : manifestUserPath;
+
+  // Claude settings file (only relevant when reversing a hook entry).
+  // We compute it server-side and bake the path so the bash script
+  // doesn't have to special-case the agent — the per-entry kind
+  // already tells us which entries are hook entries.
+  const claudeSettingsPath = `\${HOME:-.}/.claude/settings.json`;
+
+  // Helper allowlist rules we add at install time. Listed here so the
+  // settings-cleanup Python heredoc has a stable WANTED list to
+  // remove. Keep in sync with the WANTED list in ``do_install_hook``.
+  const allowlistRules = [
+    "Bash(uv run ~/.config/caipe/caipe-skills.py*)",
+    "Bash(python3 ~/.config/caipe/caipe-skills.py*)",
+  ];
+
+  const agentLabel = agent.label;
+  const agentId = agent.id;
+
+  return `#!/usr/bin/env bash
+#
+# install-skills.sh --uninstall — CAIPE uninstaller for ${agentLabel}.
+#
+# Reverses a previous install (any mode). Manifest-driven: only files
+# tracked in the sidecar manifest are touched. Per-item confirmation
+# prompts protect against accidental data loss.
+#
+# Generated by /api/skills/install.sh?mode=uninstall&agent=${agentId}&scope=${scope}.
+# Do not edit by hand; re-fetch via curl to update.
+#
+set -euo pipefail
+
+AGENT="${agentId}"
+SCOPE="${scope}"
+MANIFEST_PATH="${manifestDefault}"
+MANIFEST_PATH="\${CAIPE_INSTALL_MANIFEST:-\$MANIFEST_PATH}"
+CAIPE_CONFIG_DIR="\${HOME:-.}/.config/caipe"
+CAIPE_CONFIG_FILE="\$CAIPE_CONFIG_DIR/config.json"
+CLAUDE_SETTINGS_FILE="${claudeSettingsPath}"
+
+DRY_RUN=0
+ALL=0
+PURGE=0
+
+usage() {
+  cat <<USAGE
+Usage:
+  $0 [--dry-run] [--all] [--purge]
+
+Removes CAIPE-installed files for agent=\$AGENT scope=\$SCOPE by walking
+the sidecar manifest at \$MANIFEST_PATH. By default each entry is
+prompted for individually. Files not listed in the manifest are
+NEVER touched.
+
+Options:
+  --dry-run   Show what would be removed without deleting anything.
+              Implies --all (no prompts) for clean output.
+  --all       Skip the per-item prompt and remove every manifest entry.
+              Equivalent to answering 'a' (yes-to-all) on the first
+              prompt.
+  --purge     Also remove ~/.config/caipe/config.json (gateway base_url
+              + api_key) and the parent directory if it's empty after
+              cleanup. Without --purge the config file is preserved so
+              a re-install does not require re-entering credentials.
+  -h, --help  Show this help.
+
+Manifest:
+  Default location:
+    --scope=user    : ~/.config/caipe/installed.json
+    --scope=project : ./.caipe/installed.json
+  Override with: CAIPE_INSTALL_MANIFEST=/path/to/manifest.json
+USAGE
+}
+
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    --dry-run)  DRY_RUN=1 ; ALL=1 ;;
+    --all)      ALL=1 ;;
+    --purge)    PURGE=1 ;;
+    -h|--help)  usage ; exit 0 ;;
+    *)          echo "error: unknown flag: \$1" >&2 ; usage >&2 ; exit 64 ;;
+  esac
+  shift
+done
+
+if [ ! -r "\$MANIFEST_PATH" ]; then
+  echo "==> nothing to do: no manifest at \$MANIFEST_PATH"
+  echo "    (either CAIPE was never installed at this scope, or it was"
+  echo "    already uninstalled)"
+  exit 0
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error: python3 is required to read the manifest" >&2
+  exit 69
+fi
+
+# ---------- Read & validate manifest ----------
+# Emit one tab-separated record per installed entry: <kind>\\t<path>
+# Sorted so the user sees a stable order (config last, helpers/skills
+# first) -- gives a predictable confirmation flow.
+ENTRIES_TSV="\$(python3 - "\$MANIFEST_PATH" <<'PY'
+import json, sys
+from pathlib import Path
+
+# Tabs are forbidden inside paths on macOS/Linux so they're a safe
+# field separator. We sort by a small kind priority table so the
+# interactive prompts walk a predictable order regardless of install
+# order: skills > catalog > helpers > hook > config (least to most
+# fundamental, so quitting halfway leaves the install in a usable
+# state -- the python helper + config stick around until the very end).
+KIND_ORDER = {
+    "skill":   0,
+    "catalog": 1,
+    "helper":  2,
+    "hook":    3,
+    "config":  4,
+}
+
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception as e:
+    sys.stderr.write(f"error: manifest is not valid JSON: {e}\\n")
+    sys.exit(70)
+
+if not isinstance(data, dict):
+    sys.stderr.write("error: manifest root is not an object\\n")
+    sys.exit(70)
+
+entries = data.get("installed") or []
+if not isinstance(entries, list):
+    sys.stderr.write("error: manifest.installed is not an array\\n")
+    sys.exit(70)
+
+rows = []
+for e in entries:
+    if not isinstance(e, dict):
+        continue
+    p = e.get("path")
+    k = (e.get("kind") or "skill").strip().lower()
+    if not isinstance(p, str) or not p:
+        continue
+    if "\\t" in p or "\\n" in p:
+        # Defensive: a manifest path with a tab/newline would corrupt
+        # the TSV. Skip + warn -- never silently ignore.
+        sys.stderr.write(f"warn: skipping manifest entry with bad path: {p!r}\\n")
+        continue
+    rows.append((KIND_ORDER.get(k, 99), k, p))
+
+rows.sort()
+for _, k, p in rows:
+    sys.stdout.write(f"{k}\\t{p}\\n")
+PY
+)"
+
+if [ -z "\$ENTRIES_TSV" ]; then
+  echo "==> manifest \$MANIFEST_PATH lists no installed files"
+  echo "    nothing to remove"
+  if [ \$PURGE -eq 1 ]; then
+    if [ -f "\$CAIPE_CONFIG_FILE" ]; then
+      echo "==> --purge: removing \$CAIPE_CONFIG_FILE"
+      [ \$DRY_RUN -eq 1 ] || rm -f "\$CAIPE_CONFIG_FILE"
+    fi
+  fi
+  if [ \$DRY_RUN -eq 0 ]; then
+    rm -f "\$MANIFEST_PATH" || true
+  fi
+  exit 0
+fi
+
+# ---------- Summary ----------
+TOTAL="\$(printf '%s\\n' "\$ENTRIES_TSV" | wc -l | tr -d ' ')"
+echo "================================================================"
+echo "  CAIPE uninstall: \$AGENT (scope=\$SCOPE)"
+echo "  manifest: \$MANIFEST_PATH"
+echo "  \$TOTAL file(s) tracked"
+if [ \$DRY_RUN -eq 1 ]; then
+  echo "  mode: DRY RUN (no files will be deleted)"
+elif [ \$ALL -eq 1 ]; then
+  echo "  mode: --all (no prompts; every entry will be removed)"
+else
+  echo "  mode: interactive (one prompt per file; a=yes-to-all, q=quit)"
+fi
+echo "================================================================"
+
+# ---------- Per-entry walk ----------
+# We answer the per-entry prompt by reading from /dev/tty so this
+# script still works under \`curl ... | bash\` (which puts the script
+# itself on stdin). When stdin is not a tty AND --all wasn't passed,
+# refuse rather than silently remove everything -- that would be a
+# nasty surprise in CI.
+if [ \$ALL -eq 0 ] && [ ! -r /dev/tty ]; then
+  echo "error: stdin is not a tty and --all was not passed" >&2
+  echo "       refusing to remove files non-interactively without --all" >&2
+  echo "       hint: re-run with '--dry-run' to preview, or '--all' to" >&2
+  echo "             remove every manifest entry without prompting" >&2
+  exit 65
+fi
+
+removed_count=0
+skipped_count=0
+hook_paths_to_unregister=()
+
+# Use process substitution so the loop body runs in the parent shell
+# and we can read /dev/tty for the prompts.
+while IFS=\$'\\t' read -r kind path; do
+  [ -n "\$path" ] || continue
+
+  if [ ! -e "\$path" ]; then
+    # Already gone (user removed it manually, or a previous run
+    # partially completed). Drop from manifest silently.
+    echo "  · already gone: \$path (\$kind)"
+    skipped_count=\$((skipped_count + 1))
+    continue
+  fi
+
+  if [ -d "\$path" ]; then
+    echo "  ! refusing to remove directory: \$path (\$kind)"
+    echo "    (the install side never registers directories; this looks"
+    echo "     like a manually-edited manifest -- skipping)"
+    skipped_count=\$((skipped_count + 1))
+    continue
+  fi
+
+  # Preserve config.json unless --purge.
+  if [ "\$kind" = "config" ] && [ \$PURGE -eq 0 ]; then
+    echo "  · keep (no --purge): \$path (\$kind)"
+    skipped_count=\$((skipped_count + 1))
+    continue
+  fi
+
+  if [ \$ALL -eq 1 ]; then
+    answer=y
+  else
+    printf "  ? remove %s [%s]? [y/N/a/q] " "\$path" "\$kind" > /dev/tty
+    IFS= read -r answer < /dev/tty || answer=n
+    answer="\$(printf '%s' "\$answer" | tr '[:upper:]' '[:lower:]')"
+    case "\$answer" in
+      a|all)
+        ALL=1
+        answer=y
+        echo "    (remaining entries will be removed without prompting)"
+        ;;
+      q|quit)
+        echo "    aborted by user; \$removed_count file(s) removed so far"
+        break
+        ;;
+    esac
+  fi
+
+  if [ "\$answer" != "y" ] && [ "\$answer" != "yes" ]; then
+    echo "    skip: \$path"
+    skipped_count=\$((skipped_count + 1))
+    continue
+  fi
+
+  if [ \$DRY_RUN -eq 1 ]; then
+    echo "    [dry-run] would remove \$path"
+  else
+    rm -f "\$path" && echo "    removed \$path"
+  fi
+  removed_count=\$((removed_count + 1))
+
+  # Track hook paths so we can reverse the settings.json patch in a
+  # single pass at the end (one Python invocation per script run, not
+  # per hook entry).
+  if [ "\$kind" = "hook" ]; then
+    hook_paths_to_unregister+=("\$path")
+  fi
+done <<EOF
+\$ENTRIES_TSV
+EOF
+
+# ---------- Reverse ~/.claude/settings.json patch ----------
+# Only runs when at least one hook entry was actually removed, and
+# only when the settings file exists. Surgical: we ONLY remove
+# SessionStart entries pointing at our hook paths and the two
+# specific allowlist rules we added at install. Everything else in
+# the user's settings file is preserved verbatim.
+if [ \${#hook_paths_to_unregister[@]} -gt 0 ] && [ -f "\$CLAUDE_SETTINGS_FILE" ]; then
+  if [ \$DRY_RUN -eq 1 ]; then
+    echo "  [dry-run] would prune \${#hook_paths_to_unregister[@]} hook entry/entries from \$CLAUDE_SETTINGS_FILE"
+  else
+    HOOK_PATHS_JOINED="\$(printf '%s\\n' "\${hook_paths_to_unregister[@]}")"
+    HOOK_PATHS_JOINED="\$HOOK_PATHS_JOINED" ALLOWLIST_RULES=${JSON.stringify(JSON.stringify(allowlistRules))} python3 - "\$CLAUDE_SETTINGS_FILE" <<'PY'
+import json, os, sys, tempfile
+
+settings_path = sys.argv[1]
+hook_paths = set(filter(None, os.environ.get("HOOK_PATHS_JOINED", "").splitlines()))
+try:
+    allowlist_rules = set(json.loads(os.environ.get("ALLOWLIST_RULES", "[]")))
+except Exception:
+    allowlist_rules = set()
+
+if not hook_paths:
+    sys.exit(0)
+
+try:
+    data = json.load(open(settings_path))
+except Exception:
+    # Corrupt or missing settings.json -- nothing to do.
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+
+mutated = False
+
+# --- Prune SessionStart entries whose inner hooks all point at us. ---
+hooks = data.get("hooks")
+if isinstance(hooks, dict):
+    session_start = hooks.get("SessionStart")
+    if isinstance(session_start, list):
+        kept = []
+        for entry in session_start:
+            if not isinstance(entry, dict):
+                kept.append(entry)
+                continue
+            inner = entry.get("hooks")
+            if not isinstance(inner, list):
+                kept.append(entry)
+                continue
+            inner_kept = [
+                h for h in inner
+                if not (isinstance(h, dict) and h.get("command") in hook_paths)
+            ]
+            if not inner_kept:
+                # Whole entry was ours -- drop it entirely.
+                mutated = True
+                continue
+            if len(inner_kept) != len(inner):
+                entry = dict(entry)
+                entry["hooks"] = inner_kept
+                mutated = True
+            kept.append(entry)
+        if len(kept) != len(session_start):
+            mutated = True
+        if kept:
+            hooks["SessionStart"] = kept
+        else:
+            hooks.pop("SessionStart", None)
+            mutated = True
+        if not hooks:
+            data.pop("hooks", None)
+            mutated = True
+
+# --- Prune the two allowlist rules we added at install. ---
+permissions = data.get("permissions")
+if isinstance(permissions, dict):
+    allow = permissions.get("allow")
+    if isinstance(allow, list) and allowlist_rules:
+        kept_rules = [r for r in allow if r not in allowlist_rules]
+        if len(kept_rules) != len(allow):
+            mutated = True
+            if kept_rules:
+                permissions["allow"] = kept_rules
+            else:
+                permissions.pop("allow", None)
+        if not permissions:
+            data.pop("permissions", None)
+            mutated = True
+
+if not mutated:
+    print(f"==> no matching hooks/allowlist entries in {settings_path}")
+    sys.exit(0)
+
+parent = os.path.dirname(settings_path) or "."
+fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\\n")
+    os.replace(tmp, settings_path)
+    os.chmod(settings_path, 0o600)
+    print(f"==> pruned CAIPE entries from {settings_path}")
+except Exception as e:
+    try: os.unlink(tmp)
+    except OSError: pass
+    sys.stderr.write(f"warn: could not update {settings_path}: {e}\\n")
+PY
+  fi
+fi
+
+# ---------- Manifest finalization ----------
+# Rewrite the manifest dropping every entry whose target file no
+# longer exists. If that empties the manifest, delete it. We do this
+# in a single Python pass at the end so a partial run leaves the
+# manifest in a self-consistent state.
+if [ \$DRY_RUN -eq 0 ]; then
+  python3 - "\$MANIFEST_PATH" <<'PY'
+import json, os, sys, tempfile
+mp = sys.argv[1]
+try:
+    data = json.load(open(mp))
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+entries = data.get("installed") or []
+if not isinstance(entries, list):
+    sys.exit(0)
+remaining = [
+    e for e in entries
+    if isinstance(e, dict)
+    and isinstance(e.get("path"), str)
+    and os.path.exists(e["path"])
+]
+if not remaining:
+    try:
+        os.unlink(mp)
+        print(f"==> removed empty manifest {mp}")
+    except FileNotFoundError:
+        pass
+    sys.exit(0)
+data["installed"] = remaining
+parent = os.path.dirname(mp) or "."
+fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=parent)
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\\n")
+    os.replace(tmp, mp)
+    os.chmod(mp, 0o600)
+    print(f"==> kept {len(remaining)} entry/entries in {mp} (still on disk)")
+except Exception:
+    try: os.unlink(tmp)
+    except OSError: pass
+PY
+fi
+
+# ---------- --purge: remove ~/.config/caipe if empty ----------
+if [ \$PURGE -eq 1 ] && [ \$DRY_RUN -eq 0 ]; then
+  if [ -d "\$CAIPE_CONFIG_DIR" ] && [ -z "\$(ls -A "\$CAIPE_CONFIG_DIR" 2>/dev/null)" ]; then
+    rmdir "\$CAIPE_CONFIG_DIR" && echo "==> removed empty \$CAIPE_CONFIG_DIR"
+  fi
+fi
+
+# ---------- Summary ----------
+echo "================================================================"
+if [ \$DRY_RUN -eq 1 ]; then
+  echo "  dry-run complete: \$removed_count file(s) would be removed,"
+  echo "  \$skipped_count skipped"
+else
+  echo "  uninstall complete: \$removed_count file(s) removed,"
+  echo "  \$skipped_count skipped"
+fi
+if [ \$PURGE -eq 0 ] && [ -f "\$CAIPE_CONFIG_FILE" ]; then
+  echo
+  echo "  preserved: \$CAIPE_CONFIG_FILE"
+  echo "    (re-run with --purge to remove the gateway URL + api_key)"
+fi
+echo "================================================================"
+`;
+}
+
+/**
  * Legacy script generator for the live-only and catalog-query modes.
  * Behavior is byte-identical to the pre-refactor flow; only the entry
  * point name changed. The new bulk-with-helpers mode delegates to its
@@ -1920,13 +2457,21 @@ export async function GET(request: Request) {
   //      agents since they can't materialize one file per catalog skill.
   const modeRaw = (url.searchParams.get("mode") ?? "").trim().toLowerCase();
   let mode: InstallMode;
-  if (catalogUrl) {
+  if (modeRaw === "uninstall") {
+    // Uninstall takes precedence over catalog_url -- a user requesting
+    // an uninstall script does not also want a bulk install scaffold.
+    mode = "uninstall";
+  } else if (catalogUrl) {
     mode = "catalog-query";
   } else if (modeRaw === "live-only") {
     mode = "live-only";
-  } else if (modeRaw && modeRaw !== "bulk" && modeRaw !== "bulk-with-helpers") {
+  } else if (
+    modeRaw
+    && modeRaw !== "bulk"
+    && modeRaw !== "bulk-with-helpers"
+  ) {
     return plainTextError(
-      `invalid ?mode= value: ${modeRaw} (allowed: bulk, bulk-with-helpers, live-only)`,
+      `invalid ?mode= value: ${modeRaw} (allowed: bulk, bulk-with-helpers, live-only, uninstall)`,
       400,
     );
   } else if (agent.isFragment) {
@@ -1954,7 +2499,9 @@ export async function GET(request: Request) {
       ? "-bulk"
       : mode === "bulk-with-helpers"
         ? "-bundle"
-        : "";
+        : mode === "uninstall"
+          ? "-uninstall"
+          : "";
   return new NextResponse(script, {
     status: 200,
     headers: {
