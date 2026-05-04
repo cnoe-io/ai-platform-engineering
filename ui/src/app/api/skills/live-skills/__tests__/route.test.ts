@@ -145,16 +145,19 @@ describe('GET /api/skills/live-skills — defaults', () => {
 
 describe('GET /api/skills/live-skills — per-agent rendering', () => {
   // After the overhaul every agent emits the same universal SKILL.md
-  // path (claude tree first, agents tree second). The agent picker
-  // only chooses the argRef token + launch-guide footer.
+  // path (claude tree first, agents tree second). After the
+  // 2026-05-04 cleanup, every agent also uses the same `$ARGUMENTS`
+  // token: only Claude does template substitution per its docs;
+  // Cursor/Codex/Gemini/opencode read SKILL.md verbatim and surface
+  // the token as instructional text.
   it.each([
     ['claude', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
     ['claude', 'project', './.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
     ['cursor', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
     ['cursor', 'project', './.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['codex', 'user', '~/.claude/skills/skills/SKILL.md', '$1'],
-    ['gemini', 'user', '~/.claude/skills/skills/SKILL.md', '$1'],
-    ['gemini', 'project', './.claude/skills/skills/SKILL.md', '$1'],
+    ['codex', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['gemini', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['gemini', 'project', './.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
     ['opencode', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
   ])(
     'agent=%s scope=%s renders the universal SKILL.md path',
