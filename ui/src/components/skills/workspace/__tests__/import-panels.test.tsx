@@ -2,7 +2,7 @@
  * Tests for the three import surfaces in the Workspace toolbar:
  *   - SkillTemplatesMenu
  *   - ImportSkillMdDialog
- *   - GithubImportPanel
+ *   - RepoImportPanel (formerly GithubImportPanel — re-exported as a shim)
  */
 
 import React from "react";
@@ -21,6 +21,7 @@ jest.mock("@/skills", () => ({
 
 import { SkillTemplatesMenu } from "../SkillTemplatesMenu";
 import { ImportSkillMdDialog } from "../ImportSkillMdDialog";
+import { RepoImportPanel } from "../RepoImportPanel";
 import { GithubImportPanel } from "../GithubImportPanel";
 
 beforeEach(() => {
@@ -145,53 +146,160 @@ describe("ImportSkillMdDialog", () => {
 });
 
 // ---------------------------------------------------------------------------
-// GithubImportPanel
+// RepoImportPanel (FR-019)
 // ---------------------------------------------------------------------------
 
-describe("GithubImportPanel", () => {
-  it("disables Import until repo + path are filled", () => {
-    render(<GithubImportPanel onImported={() => {}} />);
+describe("RepoImportPanel", () => {
+  it("disables Import until repo + at least one path are filled", () => {
+    render(<RepoImportPanel onImported={() => {}} />);
     const btn = screen.getByRole("button", { name: /^Import$/ });
     expect(btn).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/Repository/i), {
-      target: { value: "owner/repo" },
+      target: { value: "anthropics/skills" },
     });
     expect(btn).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/Directory path/i), {
+    fireEvent.change(screen.getByLabelText(/Directory path 1/i), {
       target: { value: "skills/foo" },
     });
     expect(btn).toBeEnabled();
   });
 
-  it("calls /api/skills/import-github and forwards files via onImported", async () => {
+  it("POSTs to /api/skills/import with source=github by default", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({
-        data: { files: { "SKILL.md": "---\nname: x\n---\n", "a.txt": "hi" } },
+        data: {
+          files: { "a.txt": "hi", "b.txt": "ho" },
+          count: 2,
+          conflicts: [],
+        },
       }),
     });
     const onImported = jest.fn();
-    render(<GithubImportPanel onImported={onImported} />);
+    render(<RepoImportPanel onImported={onImported} />);
     fireEvent.change(screen.getByLabelText(/Repository/i), {
-      target: { value: "owner/repo" },
+      target: { value: "anthropics/skills" },
     });
-    fireEvent.change(screen.getByLabelText(/Directory path/i), {
+    fireEvent.change(screen.getByLabelText(/Directory path 1/i), {
       target: { value: "skills/foo" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^Import$/ }));
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
-    expect(onImported).toHaveBeenCalledWith({
-      "SKILL.md": "---\nname: x\n---\n",
-      "a.txt": "hi",
-    });
-    expect(mockToast).toHaveBeenCalledWith(
-      "Imported 2 files",
-      "success",
+    expect(onImported).toHaveBeenCalledWith({ "a.txt": "hi", "b.txt": "ho" });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchMock = global.fetch as any;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/skills/import",
+      expect.objectContaining({
+        method: "POST",
+      }),
     );
-    // fields cleared on success
-    expect(screen.getByLabelText(/Repository/i)).toHaveValue("");
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toEqual({
+      source: "github",
+      repo: "anthropics/skills",
+      paths: ["skills/foo"],
+    });
+    expect(mockToast).toHaveBeenCalledWith("Imported 2 files", "success");
+  });
+
+  it("switches placeholders + body source when GitLab is selected", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: { files: { "x.py": "" }, count: 1, conflicts: [] },
+      }),
+    });
+    render(<RepoImportPanel onImported={() => {}} />);
+
+    // Pre-toggle placeholder is GitHub
+    expect(
+      (screen.getByLabelText(/Repository/i) as HTMLInputElement).placeholder,
+    ).toBe("anthropics/skills");
+
+    // Toggle to GitLab via the radiogroup
+    const gitlabRadio = screen.getByRole("radio", { name: /GitLab/i });
+    fireEvent.click(gitlabRadio);
+
+    // Placeholder + label switch
+    expect(
+      (screen.getByLabelText(/Project/i) as HTMLInputElement).placeholder,
+    ).toBe("mycorp/platform");
+
+    fireEvent.change(screen.getByLabelText(/Project/i), {
+      target: { value: "mycorp/platform" },
+    });
+    fireEvent.change(screen.getByLabelText(/Directory path 1/i), {
+      target: { value: "skills/example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Import$/ }));
+
+    await waitFor(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((global.fetch as any).mock.calls).toHaveLength(1);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = JSON.parse((global.fetch as any).mock.calls[0][1].body);
+    expect(body.source).toBe("gitlab");
+    expect(body.repo).toBe("mycorp/platform");
+    expect(body.paths).toEqual(["skills/example"]);
+  });
+
+  it("appends a path with the '+ Add another path' affordance (capped at 5)", () => {
+    render(<RepoImportPanel onImported={() => {}} />);
+    expect(screen.getByLabelText(/Directory path 1/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Directory path 2/i)).not.toBeInTheDocument();
+
+    // Click + 4 times to reach the cap of 5
+    for (let i = 0; i < 4; i++) {
+      fireEvent.click(screen.getByRole("button", { name: /Add another path/i }));
+    }
+    expect(screen.getByLabelText(/Directory path 5/i)).toBeInTheDocument();
+    // Button should disappear once cap is reached
+    expect(
+      screen.queryByRole("button", { name: /Add another path/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("surfaces a conflict toast when first-wins drops a duplicate", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          files: { "shared.txt": "from a", "onlya.txt": "" },
+          count: 2,
+          conflicts: [
+            { name: "shared.txt", kept_from: "skills/a", dropped_from: "skills/b" },
+          ],
+        },
+      }),
+    });
+    render(<RepoImportPanel onImported={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/Repository/i), {
+      target: { value: "owner/repo" },
+    });
+    fireEvent.change(screen.getByLabelText(/Directory path 1/i), {
+      target: { value: "skills/a" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Add another path/i }));
+    fireEvent.change(screen.getByLabelText(/Directory path 2/i), {
+      target: { value: "skills/b" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Import$/ }));
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.stringMatching(/Imported 2 files; skipped 1 duplicate/),
+        "success",
+      ),
+    );
   });
 
   it("toasts on non-OK responses and does NOT call onImported", async () => {
@@ -202,11 +310,11 @@ describe("GithubImportPanel", () => {
       json: async () => ({ error: "not found" }),
     });
     const onImported = jest.fn();
-    render(<GithubImportPanel onImported={onImported} />);
+    render(<RepoImportPanel onImported={onImported} />);
     fireEvent.change(screen.getByLabelText(/Repository/i), {
       target: { value: "owner/repo" },
     });
-    fireEvent.change(screen.getByLabelText(/Directory path/i), {
+    fireEvent.change(screen.getByLabelText(/Directory path 1/i), {
       target: { value: "skills/foo" },
     });
     fireEvent.click(screen.getByRole("button", { name: /^Import$/ }));
@@ -218,6 +326,16 @@ describe("GithubImportPanel", () => {
       ),
     );
     expect(onImported).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GithubImportPanel re-export shim — keep existing imports working (FR-019)
+// ---------------------------------------------------------------------------
+
+describe("GithubImportPanel re-export shim", () => {
+  it("is the same component as RepoImportPanel", () => {
+    expect(GithubImportPanel).toBe(RepoImportPanel);
   });
 });
 
