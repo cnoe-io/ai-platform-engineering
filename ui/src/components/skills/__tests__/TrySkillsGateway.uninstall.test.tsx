@@ -79,36 +79,46 @@ function jsonResponse({ ok, status = 200, body = {} }: FetchEntry) {
   } as Response);
 }
 
+// Post-overhaul shape: install_paths is keyed by scope and each value
+// is an ARRAY of universal-target paths (Claude tree + agents tree).
+// All deprecated layout/format/fragment fields are gone.
 const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
-  template: "# Live-skills\nDo a thing.",
-  install_path: "./.claude/commands/skills.md",
+  template:
+    "---\nname: skills\ndescription: Browse the catalog\n---\n# Live skills\nDo a thing.",
+  install_path: "~/.claude/skills/skills/SKILL.md",
   install_paths: {
-    user: "~/.claude/commands/skills.md",
-    project: "./.claude/commands/skills.md",
+    user: [
+      "~/.claude/skills/skills/SKILL.md",
+      "~/.agents/skills/skills/SKILL.md",
+    ],
+    project: [
+      "./.claude/skills/skills/SKILL.md",
+      "./.agents/skills/skills/SKILL.md",
+    ],
   },
-  scope: "project",
-  scope_requested: "project",
+  scope: "user",
+  scope_requested: "user",
   scope_fallback: false,
   scopes_available: ["user", "project"],
-  file_extension: "md",
-  format: "markdown-frontmatter",
-  is_fragment: false,
   launch_guide:
     "## Launch the skill\n\nRun `/skills` inside Claude Code.\n",
   agents: [
     {
       id: "claude",
       label: "Claude Code",
-      ext: "md",
-      format: "markdown-frontmatter",
       install_paths: {
-        user: "~/.claude/commands/skills.md",
-        project: "./.claude/commands/skills.md",
+        user: [
+          "~/.claude/skills/skills/SKILL.md",
+          "~/.agents/skills/skills/SKILL.md",
+        ],
+        project: [
+          "./.claude/skills/skills/SKILL.md",
+          "./.agents/skills/skills/SKILL.md",
+        ],
       },
       scopes_available: ["user", "project"],
-      is_fragment: false,
     },
   ],
   source: "chart-default",
@@ -171,15 +181,25 @@ async function renderAndChooseScope(scope: "user" | "project" = "user") {
   // The scope picker is a pair of <input type="radio" name="install-scope">
   // with human-friendly labels ("User-wide (reused across all projects)"
   // for `user`, "Project-local (committed with this repo)" for `project`).
-  // Both the page-level Step 3 picker AND the Quick install dialog use
-  // the same radio name -- the page-level one is what we want here.
+  // After the skills-only overhaul, the project radio sits inside an
+  // "Advanced: install per-project instead" <details>. We must open
+  // that disclosure first or the radio won't render in the DOM.
   await waitFor(() => {
     expect(
-      document.querySelectorAll('input[name="install-scope"]').length,
+      document.querySelectorAll('input[name="install-scope"][value="user"]').length,
     ).toBeGreaterThan(0);
   });
-  // Click the FIRST matching radio (page-level, not the dialog -- the
-  // dialog is closed in this test so only the page picker is mounted).
+
+  if (scope === "project") {
+    const advanced = await waitFor(() =>
+      screen.getByText(/Advanced: install per-project instead/i),
+    );
+    await user.click(advanced);
+  }
+
+  // Click the matching radio. Both Step 3 picker and the Quick install
+  // dialog share `name="install-scope"`, so we click the FIRST one
+  // (the dialog is closed in these tests).
   const radios = Array.from(
     document.querySelectorAll<HTMLInputElement>(
       `input[name="install-scope"][value="${scope}"]`,

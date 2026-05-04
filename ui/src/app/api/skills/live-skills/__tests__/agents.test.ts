@@ -1,16 +1,20 @@
 /**
  * @jest-environment node
  *
- * Unit tests for the live-skills agent registry and renderer.
- *
- * These tests pin the user-visible contract:
- *   - Each shipped agent has a coherent spec (id, install path, format, argRef).
- *   - The frontmatter parser correctly splits canonical templates.
- *   - Placeholders are substituted in every supported context (body, install
- *     paths, launch guides) and no `{{...}}` token leaks through to output.
- *   - Per-agent rendering produces syntactically valid Markdown / TOML / JSON
- *     and round-trips the description from the canonical template.
- *   - YAML/TOML/JSON quoting helpers are injection-safe for hostile inputs.
+ * Unit tests for the live-skills agent registry and renderer (skills-only
+ * overhaul). Pin the user-visible contract:
+ *   - Each shipped agent has a coherent spec (id, install paths, argRef).
+ *   - `installPaths[scope]` is always an array of universal SKILL.md
+ *     paths so a single install satisfies every supported agent.
+ *   - parseFrontmatter splits canonical templates and forwards the
+ *     security-relevant frontmatter keys (disable-model-invocation,
+ *     allowed-tools).
+ *   - Placeholders are substituted in body, install paths, and launch
+ *     guides; no `{{...}}` token leaks through.
+ *   - Per-agent rendering produces a canonical SKILL.md with `name:` +
+ *     `description:` frontmatter.
+ *   - The legacy `description: {{DESCRIPTION}}` placeholder is treated
+ *     as missing (regression for PR #1268 / Jeff Napper #4).
  */
 
 import {
@@ -41,29 +45,31 @@ description: Browse and install skills from the CAIPE skill catalog
 2. Slash command: /{{COMMAND_NAME}}.
 `;
 
-// Default to the legacy `commands` layout in this helper so that pre-existing
-// assertions (which were written before the skills-layout toggle was added)
-// keep their meaning. Skills-layout coverage lives in its own describe block
-// further down where `layout: 'skills'` is passed explicitly.
 const baseInputs = (overrides: Partial<RenderInputs> = {}): RenderInputs => ({
   canonicalTemplate: CANONICAL,
   commandName: 'skills',
   description: '',
   baseUrl: 'https://gateway.example.com',
-  layout: 'commands',
   ...overrides,
 });
 
 describe('AGENTS registry', () => {
-  it('contains the six shipped agents', () => {
+  it('contains the five shipped agents', () => {
     expect(Object.keys(AGENTS).sort()).toEqual([
       'claude',
       'codex',
-      'continue',
       'cursor',
       'gemini',
-      'specify',
+      'opencode',
     ]);
+  });
+
+  it('has dropped continue and specify (skills-only overhaul)', () => {
+    // Regression: continue (fragment-config) and specify (Spec Kit)
+    // were removed when every supported agent standardized on the
+    // agentskills.io SKILL.md format.
+    expect((AGENTS as Record<string, unknown>).continue).toBeUndefined();
+    expect((AGENTS as Record<string, unknown>).specify).toBeUndefined();
   });
 
   it('uses claude as the default agent', () => {
@@ -77,41 +83,39 @@ describe('AGENTS registry', () => {
       expect(agent.id).toMatch(/^[a-z][a-z0-9-]*$/);
       expect(agent.label.length).toBeGreaterThan(0);
 
-      // ext should not have a leading dot
-      expect(agent.ext).toMatch(/^[a-z]+$/);
-      expect(agent.ext.startsWith('.')).toBe(false);
-
-      // Every agent must declare at least one scope.
+      // Every agent supports BOTH user and project scope (universal paths).
       const scopes = scopesAvailableFor(agent);
-      expect(scopes.length).toBeGreaterThan(0);
+      expect(scopes).toEqual(['user', 'project']);
 
-      // Each declared install path must contain `{name}` for non-fragment
-      // agents (fragment agents like Continue write to a fixed config file
-      // — config.json — so they don't templatize the filename).
+      // Each scope's installPaths is a non-empty array of templates that
+      // each contain `{name}` and end in /SKILL.md.
       for (const s of scopes) {
-        const p = agent.installPaths[s]!;
-        if (!agent.isFragment) {
+        const paths = agent.installPaths[s]!;
+        expect(Array.isArray(paths)).toBe(true);
+        expect(paths.length).toBeGreaterThan(0);
+        for (const p of paths) {
           expect(p).toContain('{name}');
+          expect(p.endsWith('/SKILL.md')).toBe(true);
+          // No raw shell metacharacters.
+          expect(p).not.toMatch(/[;&|`$()<>]/);
         }
-        // No raw shell metacharacters allowed; we render these straight into
-        // copy-paste install commands.
-        expect(p).not.toMatch(/[;&|`$()<>]/);
       }
 
-      // User-scope paths start with `~/`; project-scope paths start with `./`.
-      if (agent.installPaths.user) {
-        expect(agent.installPaths.user.startsWith('~/')).toBe(true);
+      // User-scope paths start with `~/`; project-scope paths start
+      // with `./` (forward slash for shell-snippet unambiguity).
+      for (const p of agent.installPaths.user!) {
+        expect(p.startsWith('~/')).toBe(true);
       }
-      if (agent.installPaths.project) {
-        expect(agent.installPaths.project.startsWith('./')).toBe(true);
+      for (const p of agent.installPaths.project!) {
+        expect(p.startsWith('./')).toBe(true);
       }
 
       // launch guide must reference the slash command (`{name}`) at least
       // once so users learn the actual invocation syntax.
       expect(agent.launchGuide).toContain('{name}');
 
-      // argRef must be one of the known patterns
-      expect(['$ARGUMENTS', '$1', '{{input}}']).toContain(agent.argRef);
+      // argRef must be one of the two known patterns.
+      expect(['$ARGUMENTS', '$1']).toContain(agent.argRef);
     });
 
     it('docs URL, when present, is https', () => {
@@ -121,36 +125,27 @@ describe('AGENTS registry', () => {
     });
   });
 
-  it('Claude/Cursor/Spec Kit use $ARGUMENTS; Codex/Gemini use $1; Continue uses {{input}}', () => {
+  it('claude/cursor/opencode use $ARGUMENTS; codex/gemini use $1', () => {
     expect(AGENTS.claude.argRef).toBe('$ARGUMENTS');
     expect(AGENTS.cursor.argRef).toBe('$ARGUMENTS');
-    expect(AGENTS.specify.argRef).toBe('$ARGUMENTS');
+    expect(AGENTS.opencode.argRef).toBe('$ARGUMENTS');
     expect(AGENTS.codex.argRef).toBe('$1');
     expect(AGENTS.gemini.argRef).toBe('$1');
-    expect(AGENTS.continue.argRef).toBe('{{input}}');
   });
 
-  it('only Continue is a fragment-style agent', () => {
-    const fragments = Object.values(AGENTS).filter((a) => a.isFragment);
-    expect(fragments.map((a) => a.id)).toEqual(['continue']);
-  });
-
-  describe('scope availability matrix', () => {
-    it('Codex CLI exposes user-only (no project scope per openai/codex#9848)', () => {
-      expect(scopesAvailableFor(AGENTS.codex)).toEqual(['user']);
-      expect(AGENTS.codex.installPaths.project).toBeUndefined();
-    });
-
-    it('Spec Kit exposes project-only (no user scope per github/spec-kit#317)', () => {
-      expect(scopesAvailableFor(AGENTS.specify)).toEqual(['project']);
-      expect(AGENTS.specify.installPaths.user).toBeUndefined();
-    });
-
-    it('Claude / Cursor / Gemini / Continue support both scopes', () => {
-      for (const id of ['claude', 'cursor', 'gemini', 'continue'] as const) {
-        expect(scopesAvailableFor(AGENTS[id])).toEqual(['user', 'project']);
-      }
-    });
+  it('every agent installs to BOTH the agent-specific tree AND the vendor-neutral mirror', () => {
+    // Universal paths invariant: every install writes to
+    // <agent-specific>/skills/<name>/SKILL.md AND to
+    // <vendor-neutral>/agents/skills/<name>/SKILL.md, so a single
+    // install is picked up by every supported agent.
+    for (const agent of Object.values(AGENTS)) {
+      const userPaths = agent.installPaths.user!;
+      const projectPaths = agent.installPaths.project!;
+      expect(userPaths).toContain('~/.claude/skills/{name}/SKILL.md');
+      expect(userPaths).toContain('~/.agents/skills/{name}/SKILL.md');
+      expect(projectPaths).toContain('./.claude/skills/{name}/SKILL.md');
+      expect(projectPaths).toContain('./.agents/skills/{name}/SKILL.md');
+    }
   });
 });
 
@@ -162,6 +157,7 @@ describe('parseFrontmatter', () => {
     );
     expect(out.body.startsWith('## User Input')).toBe(true);
     expect(out.body).not.toContain('---');
+    expect(out.preservedFrontmatter).toEqual([]);
   });
 
   it('returns empty description and full body when no frontmatter', () => {
@@ -169,12 +165,38 @@ describe('parseFrontmatter', () => {
     const out = parseFrontmatter(input);
     expect(out.description).toBe('');
     expect(out.body).toBe(input);
+    expect(out.preservedFrontmatter).toEqual([]);
   });
 
-  it('ignores non-description frontmatter keys', () => {
-    const input = '---\ntitle: foo\nauthor: bar\n---\nbody\n';
+  it('drops `name:` and other unknown frontmatter keys', () => {
+    // The renderer always emits a canonical `name:` matching the
+    // directory, so any incoming `name:` in the source template MUST
+    // be dropped to avoid duplication.
+    const input = '---\nname: drop-me\ntitle: foo\nauthor: bar\n---\nbody\n';
     const out = parseFrontmatter(input);
     expect(out.description).toBe('');
+    expect(out.body).toBe('body\n');
+    expect(out.preservedFrontmatter).toEqual([]);
+  });
+
+  it('preserves disable-model-invocation and allowed-tools verbatim', () => {
+    // T008/T009: the two helper templates declare these keys to
+    // pre-approve the python catalog helper and stop Claude Code from
+    // nagging the user on every invocation. The renderer must forward
+    // them into the rendered SKILL.md unchanged.
+    const input =
+      '---\n' +
+      'description: x\n' +
+      'disable-model-invocation: true\n' +
+      'allowed-tools: ["Bash(python3 /tmp/foo.py*)"]\n' +
+      '---\n' +
+      'body\n';
+    const out = parseFrontmatter(input);
+    expect(out.description).toBe('x');
+    expect(out.preservedFrontmatter).toEqual([
+      'disable-model-invocation: true',
+      'allowed-tools: ["Bash(python3 /tmp/foo.py*)"]',
+    ]);
     expect(out.body).toBe('body\n');
   });
 
@@ -185,7 +207,7 @@ describe('parseFrontmatter', () => {
     expect(out.body).toBe('before\n---\nafter\n');
   });
 
-  it('handles CRLF or trailing whitespace on the description line', () => {
+  it('handles trailing whitespace on the description line', () => {
     const input = '---\ndescription:   spaced out   \n---\nbody\n';
     const out = parseFrontmatter(input);
     expect(out.description).toBe('spaced out');
@@ -221,60 +243,63 @@ describe('substitutePlaceholders', () => {
   });
 });
 
-describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit)', () => {
-  it.each(['claude', 'cursor', 'specify'])(
-    '%s: emits valid frontmatter and substitutes $ARGUMENTS',
+describe('renderForAgent — universal SKILL.md output', () => {
+  it.each(['claude', 'cursor', 'codex', 'gemini', 'opencode'])(
+    '%s: emits canonical SKILL.md with name + description frontmatter',
     (id) => {
-      // Pick a scope the agent supports (Spec Kit only has project).
-      const scope: AgentScope = scopesAvailableFor(AGENTS[id])[0];
+      const scope: AgentScope = 'user';
       const out = renderForAgent(AGENTS[id], baseInputs({ scope }));
-      expect(out.format).toBe('markdown-frontmatter');
-      expect(out.file_extension).toBe('md');
-      expect(out.is_fragment).toBe(false);
       expect(out.scope).toBe(scope);
       expect(out.scope_fallback).toBe(false);
 
-      // Starts with frontmatter
-      expect(out.template.startsWith('---\ndescription: ')).toBe(true);
-      expect(out.template).toMatch(/^---\ndescription: .+\n---\n\n/);
+      // Canonical frontmatter: name (matches directory) + description.
+      expect(out.template).toMatch(/^---\nname: skills\ndescription: .+\n---\n\n/);
 
-      // Argument reference is the agent's $ARGUMENTS
-      expect(out.template).toContain('$ARGUMENTS');
-      expect(out.template).not.toContain('$1');
+      // No leftover placeholders.
       expect(out.template).not.toContain('{{ARG_REF}}');
       expect(out.template).not.toContain('{{COMMAND_NAME}}');
       expect(out.template).not.toContain('{{BASE_URL}}');
       expect(out.template).not.toContain('{{DESCRIPTION}}');
 
-      // Install path is rendered with the command name
+      // install_path is the FIRST path in the resolved scope's array
+      // (the agent-specific tree), with `{name}` substituted.
       expect(out.install_path).not.toBeNull();
-      expect(out.install_path).toContain('skills.md');
+      expect(out.install_path!.endsWith('/skills/SKILL.md')).toBe(true);
       expect(out.install_path).not.toContain('{name}');
+
+      // install_paths is the full multi-target list per scope.
+      expect(out.install_paths.user!.length).toBeGreaterThanOrEqual(2);
+      expect(out.install_paths.project!.length).toBeGreaterThanOrEqual(2);
+      for (const p of out.install_paths.user!) {
+        expect(p.endsWith('/skills/SKILL.md')).toBe(true);
+      }
     },
   );
 
-  it('substitutes a custom command name into both body and install path (project scope)', () => {
+  it('claude: $ARGUMENTS substitution; codex: $1 substitution', () => {
+    const claude = renderForAgent(AGENTS.claude, baseInputs({ scope: 'user' }));
+    expect(claude.template).toContain('$ARGUMENTS');
+    expect(claude.template).not.toContain('$1');
+
+    const codex = renderForAgent(AGENTS.codex, baseInputs({ scope: 'user' }));
+    expect(codex.template).toContain('$1');
+    expect(codex.template).not.toContain('$ARGUMENTS');
+  });
+
+  it('substitutes a custom command name into both body and install paths', () => {
     const out = renderForAgent(
       AGENTS.claude,
       baseInputs({ commandName: 'my-skills', scope: 'project' }),
     );
-    expect(out.install_path).toBe('./.claude/commands/my-skills.md');
-    expect(out.install_paths.project).toBe('./.claude/commands/my-skills.md');
-    expect(out.install_paths.user).toBe('~/.claude/commands/my-skills.md');
+    expect(out.install_path).toBe('./.claude/skills/my-skills/SKILL.md');
+    expect(out.install_paths.project).toContain('./.claude/skills/my-skills/SKILL.md');
+    expect(out.install_paths.project).toContain('./.agents/skills/my-skills/SKILL.md');
+    expect(out.install_paths.user).toContain('~/.claude/skills/my-skills/SKILL.md');
     expect(out.template).toContain('/my-skills');
     expect(out.launch_guide).toContain('/my-skills');
   });
 
-  it('substitutes a custom command name into the user-scope install path', () => {
-    const out = renderForAgent(
-      AGENTS.claude,
-      baseInputs({ commandName: 'my-skills', scope: 'user' }),
-    );
-    expect(out.install_path).toBe('~/.claude/commands/my-skills.md');
-    expect(out.scope).toBe('user');
-  });
-
-  it('falls back to the canonical description when the input description is empty', () => {
+  it('falls back to the canonical description when input is empty', () => {
     const out = renderForAgent(AGENTS.claude, baseInputs({ description: '' }));
     expect(out.template).toContain(
       'description: Browse and install skills from the CAIPE skill catalog',
@@ -290,13 +315,7 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
   });
 
   it('treats an unsubstituted {{DESCRIPTION}} placeholder as missing', () => {
-    // Regression for PR #1268 review feedback (Jeff Napper #4): the canonical
-    // template at charts/.../live-skills.md ships
-    // `description: {{DESCRIPTION}}` so a single template can be reused
-    // across agents. Before the fix, parseFrontmatter picked up the literal
-    // `{{DESCRIPTION}}` string and quoteYaml emitted
-    // `description: "{{DESCRIPTION}}"` into the rendered file — which agents
-    // then interpreted as a literal description containing curly braces.
+    // Regression for PR #1268 review feedback (Jeff Napper #4).
     const placeholderTemplate =
       '---\n' +
       'description: {{DESCRIPTION}}\n' +
@@ -304,13 +323,9 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
       '\n' +
       'Body using {{ARG_REF}}.\n';
 
-    // No input description → fall back to the default (NOT the placeholder).
     const out = renderForAgent(
       AGENTS.claude,
-      baseInputs({
-        canonicalTemplate: placeholderTemplate,
-        description: '',
-      }),
+      baseInputs({ canonicalTemplate: placeholderTemplate, description: '' }),
     );
     expect(out.template).toContain(
       'description: Browse and install skills from the CAIPE skill catalog',
@@ -318,8 +333,6 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
     expect(out.template).not.toContain('{{DESCRIPTION}}');
     expect(out.template).not.toContain('description: "{{DESCRIPTION}}"');
 
-    // Explicit input description wins over both the placeholder and the
-    // default.
     const overridden = renderForAgent(
       AGENTS.claude,
       baseInputs({
@@ -330,113 +343,30 @@ describe('renderForAgent — Markdown frontmatter agents (Claude/Cursor/Spec Kit
     expect(overridden.template).toContain('description: Custom catalog');
     expect(overridden.template).not.toContain('{{DESCRIPTION}}');
   });
-});
 
-describe('renderForAgent — Codex (plain Markdown)', () => {
-  it('emits a heading and no YAML frontmatter, with $1 as argRef', () => {
-    const out = renderForAgent(AGENTS.codex, baseInputs({ scope: 'user' }));
-    expect(out.format).toBe('markdown-plain');
-    expect(out.template.startsWith('# skills\n\n')).toBe(true);
-    expect(out.template).not.toMatch(/^---/);
-    expect(out.template).toContain('$1');
-    expect(out.template).not.toContain('$ARGUMENTS');
-    expect(out.install_path).toBe('~/.codex/prompts/skills.md');
-    expect(out.scopes_available).toEqual(['user']);
-  });
-
-  it('rejects scope=project (Codex has no project scope)', () => {
-    const out = renderForAgent(AGENTS.codex, baseInputs({ scope: 'project' }));
-    expect(out.install_path).toBeNull();
-    expect(out.scope).toBeNull();
-    expect(out.scope_fallback).toBe(true);
-    // The body still renders so the UI can show a preview.
-    expect(out.template).toContain('$1');
-  });
-});
-
-describe('renderForAgent — Gemini (TOML)', () => {
-  it('emits valid TOML with description and prompt keys (user scope)', () => {
-    const out = renderForAgent(AGENTS.gemini, baseInputs({ scope: 'user' }));
-    expect(out.format).toBe('gemini-toml');
-    expect(out.file_extension).toBe('toml');
-    expect(out.install_path).toBe('~/.gemini/commands/skills.toml');
-    expect(out.install_paths.project).toBe('./.gemini/commands/skills.toml');
-
-    expect(out.template).toMatch(/^description = "[^"]+"\nprompt = """\n/);
-    expect(out.template).toMatch(/"""\n$/);
-
-    // Body content survives inside the multi-line basic string
-    expect(out.template).toContain('$1');
-    expect(out.template).toContain('https://gateway.example.com/api/skills');
-  });
-
-  it('escapes embedded backslashes and triple quotes safely', () => {
-    const description = 'has "quote" and \\backslash';
+  it('forwards disable-model-invocation + allowed-tools into rendered output', () => {
+    // T008/T009: the helpers' frontmatter must round-trip from source
+    // template into the rendered SKILL.md so Claude Code pre-approves
+    // the python catalog helper invocations.
+    const helperTemplate =
+      '---\n' +
+      'description: Helper desc\n' +
+      'disable-model-invocation: true\n' +
+      'allowed-tools: ["Bash(python3 ~/.config/caipe/caipe-skills.py*)"]\n' +
+      '---\n' +
+      '\n' +
+      'Body.\n';
     const out = renderForAgent(
-      AGENTS.gemini,
-      baseInputs({ description }),
+      AGENTS.claude,
+      baseInputs({ canonicalTemplate: helperTemplate, scope: 'user' }),
     );
-    // Description line is a TOML basic string with " and \ escaped.
+    expect(out.template).toContain('disable-model-invocation: true');
     expect(out.template).toContain(
-      'description = "has \\"quote\\" and \\\\backslash"',
+      'allowed-tools: ["Bash(python3 ~/.config/caipe/caipe-skills.py*)"]',
     );
-  });
-
-  it('escapes a literal """ inside the rendered prompt body', () => {
-    const evilTemplate =
-      '---\ndescription: x\n---\nbody with """ literal triple-quote\n';
-    const out = renderForAgent(
-      AGENTS.gemini,
-      baseInputs({ canonicalTemplate: evilTemplate }),
+    expect(out.template).toMatch(
+      /^---\nname: skills\ndescription: .+\ndisable-model-invocation: true\nallowed-tools: .+\n---\n\n/,
     );
-    // The inner """ must not close the multi-line string. Renderer escapes
-    // each `"` of a `"""` run individually so the closing fence is unique.
-    const stripped = out.template.replace(/^description = .*\nprompt = """\n/, '');
-    // Count un-escaped triple quotes in the body — should be exactly one
-    // (the closing fence at the end).
-    const closingFenceCount = (stripped.match(/(^|[^\\])"""/g) ?? []).length;
-    expect(closingFenceCount).toBe(1);
-  });
-});
-
-describe('renderForAgent — Continue (JSON fragment)', () => {
-  it('emits valid JSON with name/description/prompt keys (user scope)', () => {
-    const out = renderForAgent(AGENTS.continue, baseInputs({ scope: 'user' }));
-    expect(out.format).toBe('continue-json-fragment');
-    expect(out.file_extension).toBe('json');
-    expect(out.is_fragment).toBe(true);
-    expect(out.install_path).toBe('~/.continue/config.json');
-    expect(out.install_paths.project).toBe('./.continue/config.json');
-
-    // Must parse as valid JSON
-    const parsed = JSON.parse(out.template);
-    expect(parsed.name).toBe('skills');
-    expect(typeof parsed.description).toBe('string');
-    expect(parsed.prompt).toContain('{{input}}');
-    expect(parsed.prompt).toContain('https://gateway.example.com/api/skills');
-  });
-
-  it('safely handles description with quotes, backslashes, and newlines', () => {
-    const description = 'has "quotes" and \\slashes\nand newlines';
-    const out = renderForAgent(
-      AGENTS.continue,
-      baseInputs({ description }),
-    );
-    // JSON.parse round-trips the value losslessly — proves no injection.
-    const parsed = JSON.parse(out.template);
-    expect(parsed.description).toBe(description);
-  });
-
-  it('safely handles an XSS-style command name (server still sanitizes upstream)', () => {
-    // The route validates `command_name` strictly; the renderer itself
-    // should not crash or produce invalid JSON for unusual but
-    // technically-allowed strings.
-    const out = renderForAgent(
-      AGENTS.continue,
-      baseInputs({ commandName: 'a.b-c_d' }),
-    );
-    const parsed = JSON.parse(out.template);
-    expect(parsed.name).toBe('a.b-c_d');
   });
 });
 
@@ -465,84 +395,13 @@ describe('renderForAgent — base URL handling', () => {
   });
 });
 
-describe('renderForAgent — skills/<name>/SKILL.md layout (Claude/Cursor)', () => {
-  // Per Shubham Bakshi #C: Claude Code (Oct 2025), Cursor, and opencode all
-  // standardize on `<scope>/.<agent>/skills/<name>/SKILL.md`. This block
-  // covers the layout=skills branch end-to-end: install paths, frontmatter
-  // (must include `name:` for auto-discovery), and per-agent fallback when
-  // an agent doesn't support the skills layout.
-
-  it('claude: layout=skills resolves the user-scope SKILL.md path', () => {
-    const out = renderForAgent(
-      AGENTS.claude,
-      { ...baseInputs({ scope: 'user' }), layout: 'skills' },
-    );
-    expect(out.layout).toBe('skills');
-    expect(out.layout_fallback).toBe(false);
-    expect(out.layouts_available).toEqual(['skills', 'commands']);
-    expect(out.install_path).toBe('~/.claude/skills/skills/SKILL.md');
-    expect(out.install_paths.user).toBe('~/.claude/skills/skills/SKILL.md');
-    expect(out.install_paths.project).toBe('./.claude/skills/skills/SKILL.md');
-  });
-
-  it('claude: layout=skills resolves the project-scope SKILL.md path with custom name', () => {
-    const out = renderForAgent(
-      AGENTS.claude,
-      {
-        ...baseInputs({ scope: 'project', commandName: 'my-skill' }),
-        layout: 'skills',
-      },
-    );
-    expect(out.install_path).toBe('./.claude/skills/my-skill/SKILL.md');
-  });
-
-  it('cursor: layout=skills resolves to ~/.cursor/skills/<name>/SKILL.md', () => {
-    const out = renderForAgent(
-      AGENTS.cursor,
-      { ...baseInputs({ scope: 'user', commandName: 'kube' }), layout: 'skills' },
-    );
-    expect(out.layout).toBe('skills');
-    expect(out.install_path).toBe('~/.cursor/skills/kube/SKILL.md');
-  });
-
-  it('renders frontmatter with name + description (required by Claude/Cursor/opencode)', () => {
-    const out = renderForAgent(
-      AGENTS.claude,
-      {
-        ...baseInputs({ scope: 'user', description: 'Catalog' }),
-        layout: 'skills',
-      },
-    );
-    // YAML frontmatter MUST start with --- and include both name + description.
-    // Claude/Cursor/opencode require `name:` matching the directory name for
-    // skill auto-discovery; without it the skill won't be loaded.
-    expect(out.template.startsWith('---\nname: ')).toBe(true);
-    expect(out.template).toMatch(/^---\nname: skills\ndescription: .+\n---\n\n/);
-    // Format/extension are forced to markdown for skills layout regardless
-    // of the agent's per-format preference (TOML/JSON wouldn't be a skill).
-    expect(out.format).toBe('markdown-frontmatter');
-    expect(out.file_extension).toBe('md');
-  });
-
-  it('falls back to commands layout when an agent does not support skills', () => {
-    // Codex CLI only ships `installPaths` (no `skillsPaths`), so requesting
-    // skills should fall back gracefully instead of erroring.
-    const out = renderForAgent(
-      AGENTS.codex,
-      { ...baseInputs({ scope: 'user' }), layout: 'skills' },
-    );
-    expect(out.layout).toBe('commands');
-    expect(out.layout_fallback).toBe(true);
-    expect(out.install_path).toBe('~/.codex/prompts/skills.md');
-    expect(out.layouts_available).toEqual(['commands']);
-  });
-
-  it('uses the agent default layout when no layout is requested (claude → skills)', () => {
-    const out = renderForAgent(
-      AGENTS.claude,
-      { ...baseInputs({ scope: 'user' }), layout: null },
-    );
-    expect(out.layout).toBe('skills');
-    expect(out.install_path).toBe('~/.claude/skills/skills/SKILL.md');
+describe('renderForAgent — scope handling', () => {
+  it('returns null install_path when no scope is requested', () => {
+    const out = renderForAgent(AGENTS.claude, baseInputs({ scope: null }));
+    expect(out.install_path).toBeNull();
+    expect(out.scope).toBeNull();
+    expect(out.scope_fallback).toBe(false);
+    // Template still renders so the UI can show a preview.
+    expect(out.template).toContain('$ARGUMENTS');
   });
 });
