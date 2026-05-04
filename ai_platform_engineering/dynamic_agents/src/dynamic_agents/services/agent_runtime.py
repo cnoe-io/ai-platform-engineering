@@ -27,6 +27,7 @@ from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from pymongo import MongoClient
 
 from dynamic_agents.config import Settings, get_settings
+from dynamic_agents.metrics import metrics as prom_metrics
 from dynamic_agents.models import (
     AgentContext,
     ClientContext,
@@ -213,6 +214,8 @@ class AgentRuntime(StreamingMixin):
         if self._initialized:
             return
 
+        t_start = time.monotonic()
+
         # 1. Build MCP connections for servers referenced in allowed_tools
         server_ids = list(self.config.allowed_tools.keys())
         if not server_ids:
@@ -232,7 +235,13 @@ class AgentRuntime(StreamingMixin):
             else:
                 # 2. Get tools from MCP servers with per-server error handling
                 # This connects to each server independently so one failure doesn't affect others
+                t_mcp = time.monotonic()
                 all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
+                logger.info(
+                    f"[init] MCP tools fetched in {time.monotonic() - t_mcp:.2f}s "
+                    f"(agent='{self.config.name}', servers={len(connections)}, "
+                    f"failed={len(failed_servers)})"
+                )
 
                 # Store failed servers for warning events
                 if failed_servers:
@@ -363,8 +372,11 @@ class AgentRuntime(StreamingMixin):
         )
 
         self._initialized = True
+        init_duration = time.monotonic() - t_start
+        prom_metrics.runtime_init_duration_seconds.labels(agent_name=self.config.name).observe(init_duration)
+        prom_metrics.runtime_init_duration_summary.labels(agent_name=self.config.name).observe(init_duration)
         logger.info(
-            f"[agent] Agent '{self.config.name}' initialized: "
+            f"[agent] Agent '{self.config.name}' initialized in {init_duration:.2f}s: "
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
 

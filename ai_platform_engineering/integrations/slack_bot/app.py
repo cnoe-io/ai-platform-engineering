@@ -992,6 +992,8 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
 def handle_dm_message(event, say, client, context=None):
   """Handle direct messages to the bot."""
   try:
+    # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
+    t0 = time.monotonic()
     _bind_obo_for_handler(context)
     if event.get("bot_id"):
       return
@@ -1151,12 +1153,20 @@ def handle_dm_message(event, say, client, context=None):
 
     logger.info(f"[{thread_ts}] Completed DM request for {user_name}")
 
-    # Record the timestamp of the last processed message so subsequent
-    # interactions can fetch only the delta.
-    try:
-      sse_client.update_conversation_metadata(conversation_id, {"last_processed_ts": event.get("ts")})
-    except Exception:
-      logger.warning(f"[{thread_ts}] Failed to update last_processed_ts — delta context may fall back to full on next turn")
+    # Telemetry: record interaction metadata. _track_interaction also
+    # updates `last_processed_ts` (delta-context fast path on follow-ups),
+    # so this single call replaces the older inline metadata POST.
+    _track_interaction(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      interaction_type="dm",
+      user_id=user_id,
+      user_email=user_email,
+      user_name=user_name,
+      response_time_ms=int((time.monotonic() - t0) * 1000),
+      last_processed_ts=event.get("ts"),
+    )
 
   except Exception as e:
     logger.exception(f"Error handling DM message: {e}")
@@ -1595,6 +1605,13 @@ def handle_escalation_get_help(ack, body, client):
       agent_id=vo_agent_id or "",
       conversation_id=conversation_id,
     )
+
+    # Mark conversation as escalated for admin dashboard resolution stats
+    try:
+      sse_client.update_conversation_metadata(conversation_id, {"escalated": True})
+    except Exception:
+      logger.warning(f"[{thread_ts}] Failed to mark conversation as escalated in metadata")
+
   except Exception as e:
     logger.exception(f"Error handling escalation: {e}")
 

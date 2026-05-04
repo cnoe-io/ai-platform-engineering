@@ -16,7 +16,7 @@ construction and are handled with explicit builder functions.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from botocore.config import Config as BotocoreConfig
@@ -40,6 +40,8 @@ if TYPE_CHECKING:
 
     from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
 
+from dynamic_agents.metrics import MetricsAgentMiddleware, TimedMiddlewareWrapper
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +58,11 @@ class MiddlewareSpec:
     default_params: dict[str, Any]
     enabled_by_default: bool
     allow_multiple: bool
+    label: str
+    description: str
+    model_params: bool = False
+    param_schema: dict[str, str] = field(default_factory=dict)
+    # Values: "number", "boolean", "string", or "opt1|opt2|..." for selects
 
 
 # Order defines the default stack order when features is None.
@@ -68,48 +75,96 @@ MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
         default_params={"max_retries": 5, "backoff_factor": 2.0, "on_failure": "continue"},
         enabled_by_default=True,
         allow_multiple=False,
+        label="Model Retry",
+        description="Retries failed LLM calls with exponential backoff",
+        param_schema={
+            "max_retries": "number",
+            "backoff_factor": "number",
+            "on_failure": "continue|return_message|raise|error|end",
+        },
     ),
     "tool_retry": MiddlewareSpec(
         cls=ToolRetryMiddleware,
         default_params={"max_retries": 3, "backoff_factor": 2.0, "initial_delay": 2.0, "on_failure": "return_message"},
         enabled_by_default=True,
         allow_multiple=False,
+        label="Tool Retry",
+        description="Retries failed tool calls with exponential backoff",
+        param_schema={
+            "max_retries": "number",
+            "backoff_factor": "number",
+            "initial_delay": "number",
+            "on_failure": "continue|return_message|raise|error|end",
+        },
     ),
     "model_call_limit": MiddlewareSpec(
         cls=ModelCallLimitMiddleware,
         default_params={"run_limit": 200, "exit_behavior": "end"},
         enabled_by_default=True,
         allow_multiple=False,
+        label="Model Call Limit",
+        description="Caps total LLM calls per run to prevent runaway loops",
+        param_schema={
+            "run_limit": "number",
+            "exit_behavior": "end|error|continue",
+        },
     ),
     "tool_call_limit": MiddlewareSpec(
         cls=ToolCallLimitMiddleware,
         default_params={"run_limit": 500, "exit_behavior": "continue"},
         enabled_by_default=False,
-        allow_multiple=True,  # per-tool limits need separate instances
+        allow_multiple=True,
+        label="Tool Call Limit",
+        description="Caps total tool invocations per run",
+        param_schema={
+            "run_limit": "number",
+            "exit_behavior": "end|error|continue",
+        },
     ),
     "context_editing": MiddlewareSpec(
         cls=ContextEditingMiddleware,
         default_params={"trigger": 100_000, "keep": 3},
         enabled_by_default=False,
         allow_multiple=False,
+        label="Context Editing",
+        description="Clears older tool outputs when approaching token limits",
+        param_schema={
+            "trigger": "number",
+            "keep": "number",
+        },
     ),
     "pii": MiddlewareSpec(
         cls=PIIMiddleware,
         default_params={"pii_type": "email", "strategy": "redact"},
         enabled_by_default=False,
-        allow_multiple=True,  # one instance per PII type
+        allow_multiple=True,
+        label="PII Detection",
+        description="Detects and handles Personally Identifiable Information",
+        param_schema={
+            "pii_type": "email|credit_card|ip|mac_address|url",
+            "strategy": "redact|mask|hash|block",
+        },
     ),
     "llm_tool_selector": MiddlewareSpec(
         cls=LLMToolSelectorMiddleware,
         default_params={"max_tools": 10},
         enabled_by_default=False,
         allow_multiple=False,
+        label="LLM Tool Selector",
+        description="Uses an LLM to select relevant tools before calling main model",
+        model_params=True,
+        param_schema={
+            "max_tools": "number",
+        },
     ),
     "model_fallback": MiddlewareSpec(
         cls=ModelFallbackMiddleware,
         default_params={},
         enabled_by_default=False,
         allow_multiple=False,
+        label="Model Fallback",
+        description="Falls back to an alternative model when primary fails",
+        model_params=True,
     ),
 }
 
@@ -227,6 +282,27 @@ def get_default_middleware_entries() -> list[dict[str, Any]]:
     ]
 
 
+def get_middleware_definitions() -> list[dict[str, Any]]:
+    """Return the middleware registry as a list of dicts for the API.
+
+    Excludes the ``cls`` field (not serializable). The UI uses this to
+    render the middleware picker without hardcoding definitions.
+    """
+    return [
+        {
+            "key": key,
+            "label": spec.label,
+            "description": spec.description,
+            "enabled_by_default": spec.enabled_by_default,
+            "allow_multiple": spec.allow_multiple,
+            "default_params": spec.default_params,
+            "model_params": spec.model_params,
+            "param_schema": spec.param_schema,
+        }
+        for key, spec in MIDDLEWARE_REGISTRY.items()
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Builder
 # ---------------------------------------------------------------------------
@@ -235,6 +311,8 @@ def get_default_middleware_entries() -> list[dict[str, Any]]:
 def build_middleware(
     features: FeaturesConfig | None,
     session_id: str | None = None,
+    agent_name: str = "unknown",
+    model_id: str = "unknown",
 ) -> list[AgentMiddleware]:
     """Build the middleware stack from an agent's features config.
 
@@ -245,9 +323,15 @@ def build_middleware(
     in order.  Disabled entries are skipped.  Singleton middleware types
     that appear more than once log a warning and only the first is used.
 
+    Each middleware is wrapped with ``TimedMiddlewareWrapper`` for
+    per-middleware Prometheus timing, and a ``MetricsAgentMiddleware``
+    is appended at the end to record total LLM/tool call duration.
+
     Args:
         features: Agent features config, or None for all defaults.
         session_id: Optional conversation ID for log context.
+        agent_name: Agent name for metric labels.
+        model_id: Model identifier for metric labels.
 
     Returns:
         Ordered list of middleware instances.
@@ -302,6 +386,12 @@ def build_middleware(
 
         result.append(instance)
         logger.debug("conv=%s Middleware '%s' added with params: %s", conv, entry.type, params)
+
+    # Wrap each middleware with timing instrumentation
+    result = [TimedMiddlewareWrapper(mw, agent_name=agent_name) for mw in result]
+
+    # Append MetricsAgentMiddleware at the end to capture total LLM/tool duration
+    result.append(MetricsAgentMiddleware(agent_name=agent_name, model_id=model_id))
 
     logger.info(
         "conv=%s Built middleware stack: %s",
