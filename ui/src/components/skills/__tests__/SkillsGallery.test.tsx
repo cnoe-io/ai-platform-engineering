@@ -287,7 +287,13 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=true", () => {
 
   it("displays multi-task workflow in the main Skills grid", async () => {
     await renderGallery();
-    expect(screen.getAllByRole("heading", { name: "Skills" }).length).toBeGreaterThan(0);
+    // The page H1 is "Skills Gallery" (level 1); we assert on level 1
+    // explicitly so this match can't be satisfied by section H2s like
+    // "My Skills" / "Team Skills" / "Global Skills" if the H1 silently
+    // disappears in a future refactor.
+    expect(
+      screen.getByRole("heading", { level: 1, name: /^Skills Gallery$/ }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("Deploy Pipeline Workflow").length).toBeGreaterThan(0);
   });
 });

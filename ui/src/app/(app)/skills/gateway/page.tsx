@@ -19,7 +19,7 @@ export default function SkillsGatewayPage() {
             onClick={() => router.push("/skills")}
             className="px-3 py-1.5 text-sm rounded-md text-muted-foreground hover:bg-muted transition-colors"
           >
-            Browse
+            Skills Gallery
           </button>
           <button
             type="button"
