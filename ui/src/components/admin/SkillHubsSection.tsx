@@ -14,6 +14,8 @@ interface SkillHub {
   enabled: boolean;
   credentials_ref: string | null;
   labels?: string[];
+  /** Optional path-prefix allow-list for hub crawl (FR-020). */
+  include_paths?: string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -42,6 +44,8 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [formLocation, setFormLocation] = useState("");
   const [formCredRef, setFormCredRef] = useState("");
   const [formLabels, setFormLabels] = useState("");
+  // One prefix per line; empty lines are dropped before submit. FR-020.
+  const [formIncludePaths, setFormIncludePaths] = useState("");
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -79,12 +83,19 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
     loadHubs();
   }, [loadHubs]);
 
+  const parseIncludePaths = (raw: string): string[] =>
+    raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
   const handleAdd = async () => {
     if (!formLocation.trim()) return;
     setAdding(true);
     setError(null);
     try {
       const labels = formLabels.split(",").map((l) => l.trim().toLowerCase()).filter(Boolean);
+      const includePaths = parseIncludePaths(formIncludePaths);
       const res = await fetch("/api/skill-hubs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,6 +104,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           location: formLocation.trim(),
           credentials_ref: formCredRef.trim() || null,
           labels: labels.length > 0 ? labels : undefined,
+          include_paths: includePaths.length > 0 ? includePaths : undefined,
           enabled: true,
         }),
       });
@@ -103,6 +115,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       setFormLocation("");
       setFormCredRef("");
       setFormLabels("");
+      setFormIncludePaths("");
       setShowAddForm(false);
       await loadHubs();
     } catch (err: any) {
@@ -287,6 +300,26 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                 Labels are merged into every skill&apos;s tags from this hub.
               </p>
             </div>
+            <div>
+              <label
+                htmlFor="hub-include-paths"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Include paths (optional)
+              </label>
+              <textarea
+                id="hub-include-paths"
+                value={formIncludePaths}
+                onChange={(e) => setFormIncludePaths(e.target.value)}
+                placeholder={"skills/\nagents/observability/skills/"}
+                rows={3}
+                className="mt-1 w-full px-3 py-2 text-sm font-mono bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                One prefix per line. Leave empty to crawl the entire repo.
+                Trailing slashes are added automatically.
+              </p>
+            </div>
             <div className="flex flex-wrap gap-2 pt-1">
               <Button variant="outline" size="sm" onClick={() => setShowAddForm(false)}>
                 Cancel
@@ -426,6 +459,20 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                   </div>
                 )}
               </div>
+              {hub.include_paths && hub.include_paths.length > 0 ? (
+                <div className="px-2 pl-10 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                  <span className="opacity-70">Paths:</span>
+                  {hub.include_paths.map((p) => (
+                    <Badge
+                      key={p}
+                      variant="outline"
+                      className="font-mono text-[10px] py-0 px-1.5"
+                    >
+                      {p}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
               {hub.last_skill_scan_at != null && hub.last_skill_scan_at > 0 ? (
                 <div className="px-2 pl-10 text-[11px] text-muted-foreground">
                   Skill Scanner:{" "}
