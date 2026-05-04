@@ -186,6 +186,11 @@ config:
   DYNAMIC_AGENTS_ENABLED: "false"
   # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
   # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+  # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
+  # Set when global.skillScanner.enabled=true on the parent chart so the
+  # UI can reach the in-cluster scanner Service. Leave empty to disable
+  # the safety scan (skills will save with scan_status=unscanned).
+  SKILL_SCANNER_URL: "http://ai-platform-engineering-skill-scanner:8000"
   # OIDC required group (non-sensitive)
   OIDC_REQUIRED_GROUP: "app-users"
   # OIDC admin group (non-sensitive)

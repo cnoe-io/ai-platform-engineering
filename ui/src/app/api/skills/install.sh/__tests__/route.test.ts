@@ -14,7 +14,7 @@
  *   - Per-agent + per-scope install paths are resolved correctly into the
  *     script (`~/.claude/...` for user, `./.claude/...` for project, etc.).
  *   - User-supplied `command_name` is templated into the install path; the
- *     bootstrap callback URL embeds the same parameters.
+ *     live-skills callback URL embeds the same parameters.
  *   - Hostile inputs (bad command_name, bad base_url) are sanitized before
  *     they reach the script.
  *   - Continue (fragment-style) gets a special "merge into config.json" path
@@ -154,7 +154,7 @@ describe("GET /api/skills/install.sh — script content", () => {
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
     // Per Jeff Napper's PR #1268 review feedback (#1): the install script
-    // should read the API key out of the same config.json the bootstrap
+    // should read the API key out of the same config.json the live-skills
     // helper writes, so users don't have to pass it on every invocation.
     expect(res.body).toContain("read_api_key_from_config");
     expect(res.body).toContain("/.config/caipe/config.json");
@@ -188,15 +188,15 @@ describe("GET /api/skills/install.sh — script content", () => {
     },
   );
 
-  it("substitutes a custom command_name into the install path and bootstrap URL", async () => {
+  it("substitutes a custom command_name into the install path and live-skills URL", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=project&command_name=my-skills",
     );
     expect(res.body).toContain("INSTALL_PATH_RAW='./.claude/commands/my-skills.md'");
     expect(res.body).toContain("COMMAND_NAME='my-skills'");
-    // Bootstrap URL preserves the chosen agent/scope/command for re-fetch.
+    // Live-skills URL preserves the chosen agent/scope/command for re-fetch.
     expect(res.body).toMatch(
-      /BOOTSTRAP_URL='https:\/\/app\.example\.com\/api\/skills\/bootstrap\?[^']*agent=claude/,
+      /LIVE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/live-skills\??[^']*agent=claude/,
     );
     expect(res.body).toContain("scope=project");
     expect(res.body).toContain("command_name=my-skills");
@@ -217,7 +217,7 @@ describe("GET /api/skills/install.sh — script content", () => {
         encodeURIComponent("javascript:alert(1)"),
     );
     expect(res.body).toContain("BASE_URL='https://app.example.com'");
-    // No javascript: URL sneaks through into the bootstrap callback.
+    // No javascript: URL sneaks through into the live-skills callback.
     expect(res.body).not.toContain("javascript:");
   });
 
@@ -295,13 +295,13 @@ describe("GET /api/skills/install.sh — script content", () => {
     expect(geminiRes.body).not.toContain("MARKER_PREFIX=");
   });
 
-  it("honours a custom base_url on the bootstrap callback", async () => {
+  it("honours a custom base_url on the live-skills callback", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=gemini&scope=user&base_url=https://gateway.test.io",
     );
     expect(res.body).toContain("BASE_URL='https://gateway.test.io'");
     expect(res.body).toContain(
-      "BOOTSTRAP_URL='https://gateway.test.io/api/skills/bootstrap?",
+      "LIVE_SKILLS_URL='https://gateway.test.io/api/skills/live-skills?",
     );
   });
 });
@@ -325,7 +325,7 @@ describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => 
     expect(res.headers.get("Content-Disposition")).toContain(
       'filename="install-skills-claude-user-bulk.sh"',
     );
-    // Bulk mode never bakes the bootstrap template into the script — it
+    // Bulk mode never bakes the live-skills template into the script — it
     // walks the catalog response and writes one file per skill into the
     // commands directory derived from the agent's installPaths entry.
     expect(res.body).toContain("COMMANDS_DIR_RAW='~/.claude/commands'");
@@ -442,13 +442,13 @@ describe("GET /api/skills/install.sh — layout=skills (Shubham C: skills/<name>
     expect(res.body).toContain(`LAYOUT='skills'`);
   });
 
-  it("threads layout through to the bootstrap callback URL", async () => {
+  it("threads layout through to the live-skills callback URL", async () => {
     const res = await callGetRaw(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&layout=skills",
     );
-    // The script re-fetches the rendered SKILL.md via BOOTSTRAP_URL; that URL
+    // The script re-fetches the rendered SKILL.md via LIVE_SKILLS_URL; that URL
     // must carry layout=skills or the callback would re-render with the wrong
     // frontmatter (no `name:` field).
-    expect(res.body).toMatch(/BOOTSTRAP_URL='[^']*[?&]layout=skills/);
+    expect(res.body).toMatch(/LIVE_SKILLS_URL='[^']*[?&]layout=skills/);
   });
 });

@@ -126,6 +126,20 @@ global:
   langgraphRedis:
     enabled: false
 
+  # Standalone cisco-ai-defense/skill-scanner microservice. The CAIPE UI
+  # uploads zipped SKILL packages to this Service for safety scanning.
+  # Disabled by default; enable when you want the scanner running in
+  # cluster (recommended for any production deployment that exposes the
+  # Skills builder). When enabled, also wire the URL into caipe-ui:
+  #
+  #   caipe-ui:
+  #     config:
+  #       SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
+  #
+  # The scanner is unauthenticated by design — Service stays ClusterIP.
+  skillScanner:
+    enabled: false
+
   # Global checkpoint persistence for all agents + supervisor.
   # Set once here; all subcharts inherit automatically.
   # Per-agent override: set checkpointPersistence on individual agent sections.
@@ -200,21 +214,21 @@ promptConfig: ""              # Custom prompt config (overrides promptConfigType
 ragPromptConfig: ""           # Custom RAG prompt config (overrides default if set)
 
 # ---------------------------------------------------------------------------
-# Skills bootstrap command template (rendered as the `/skills` slash command
+# Live-skills command template (rendered as the `/skills` slash command
 # in the "Skills API Gateway" UI page). Customizable per-deployment.
 #
 # Resolution order (mirrors promptConfig):
-#   1. .Values.skillsBootstrap          - inline multi-line string (highest)
-#   2. .Values.skillsBootstrapName      - selects data/skills/bootstrap.<name>.md
-#   3. data/skills/bootstrap.md         - packaged default
+#   1. .Values.skillsLiveSkills          - inline multi-line string (highest)
+#   2. .Values.skillsLiveSkillsName      - selects data/skills/live-skills.<name>.md
+#   3. data/skills/live-skills.md         - packaged default
 #
 # The template supports the following placeholders, substituted by the UI:
 #   {{COMMAND_NAME}} - slash command name (default: "skills")
 #   {{DESCRIPTION}}  - short description shown in the slash-command picker
 #   {{BASE_URL}}     - gateway base URL (auto-detected from window.location)
 # ---------------------------------------------------------------------------
-skillsBootstrapName: ""       # Variant name (looks up data/skills/bootstrap.<name>.md)
-skillsBootstrap: ""           # Inline custom bootstrap skill (overrides everything)
+skillsLiveSkillsName: ""       # Variant name (looks up data/skills/live-skills.<name>.md)
+skillsLiveSkills: ""           # Inline custom live-skills skill (overrides everything)
 
 # Task Configuration
 # Self-service workflow definitions (Create LLM Key, GitHub Org Invite, etc.)
@@ -655,16 +669,16 @@ caipe-ui:
     - name: skill-templates
       configMap:
         name: skill-templates
-    - name: skills-bootstrap
+    - name: skills-live-skills
       configMap:
-        name: skills-bootstrap
+        name: skills-live-skills
         optional: true
   volumeMounts:
     - name: skill-templates
       mountPath: /app/data/skills
       readOnly: true
-    - name: skills-bootstrap
-      mountPath: /app/data/skills-bootstrap
+    - name: skills-live-skills
+      mountPath: /app/data/skills-live-skills
       readOnly: true
   # ConfigMap for non-sensitive configuration
   config:
@@ -672,12 +686,21 @@ caipe-ui:
     A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
     # Skills template directory (mounted from ConfigMap)
     SKILLS_DIR: "/app/data/skills"
-    # Bootstrap skill template (mounted from ConfigMap "skills-bootstrap").
-    # Override per-deployment via .Values.skillsBootstrap (inline string) or
-    # .Values.skillsBootstrapName (selects data/skills/bootstrap.<name>.md).
-    SKILLS_BOOTSTRAP_FILE: "/app/data/skills-bootstrap/bootstrap.md"
+    # Live-skills skill template (mounted from ConfigMap "skills-live-skills").
+    # Override per-deployment via .Values.skillsLiveSkills (inline string) or
+    # .Values.skillsLiveSkillsName (selects data/skills/live-skills.<name>.md).
+    SKILLS_LIVE_SKILLS_FILE: "/app/data/skills-live-skills/live-skills.md"
     # Python helper served at /api/skills/helpers/caipe-skills.py (mounted from same ConfigMap).
-    SKILLS_HELPER_FILE: "/app/data/skills-bootstrap/caipe-skills.py"
+    SKILLS_HELPER_FILE: "/app/data/skills-live-skills/caipe-skills.py"
+    # Update-skills slash-command template (companion to live-skills.md);
+    # served at /api/skills/update-skills. Override paths follow the same
+    # pattern as SKILLS_LIVE_SKILLS_FILE.
+    SKILLS_UPDATE_SKILLS_FILE: "/app/data/skills-live-skills/update-skills.md"
+    # Claude Code SessionStart hook script served at
+    # /api/skills/hooks/caipe-catalog.sh (mounted from same ConfigMap).
+    # install.sh installs this on the user's machine and registers it as
+    # a SessionStart hook so the catalog is always discoverable in chat.
+    SKILLS_HOOK_FILE: "/app/data/skills-live-skills/caipe-catalog.sh"
     # Feature flags
     ENABLE_SUBAGENT_CARDS: "true"
     SSO_ENABLED: "false"

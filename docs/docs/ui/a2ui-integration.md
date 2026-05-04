@@ -705,7 +705,7 @@ As the [A2UI specification evolves](https://a2ui.org/roadmap), CAIPE's implement
 - **Renderer**: `ui/src/components/a2a/A2UIRenderer.tsx`
 - **Widget Catalog**: `ui/src/components/a2a/widgets/`
 - **Types**: `ui/src/types/a2a.ts`
-- **Constitution**: `ui/.specify/memory/constitution.md`
+- **Constitution**: `.specify/memory/constitution.md`
 
 ### Related Documentation
 

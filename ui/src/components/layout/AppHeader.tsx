@@ -56,6 +56,32 @@ function formatInterval(seconds: number): string {
   return `${seconds}s`;
 }
 
+/**
+ * Editor routes that own an in-page "Discard unsaved changes?" dialog.
+ *
+ * When a user is on one of these pages AND `hasUnsavedChanges` is set,
+ * `GuardedLink` intercepts clicks on top-nav links and stores the
+ * requested href in the global store. The editor component (TaskBuilder,
+ * SkillWorkspace, …) reads `pendingNavigationHref` and surfaces its own
+ * confirm dialog — keeping the discard UI consistent with each editor's
+ * native "Back" button rather than duplicating a header-level modal per
+ * editor.
+ *
+ * Add new editor route prefixes here when they wire into the
+ * unsaved-changes store.
+ */
+const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
+  "/task-builder",
+  "/skills/workspace",
+];
+
+function isOnGuardedEditor(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) =>
+    pathname.startsWith(p),
+  );
+}
+
 function GuardedLink({
   href,
   children,
@@ -70,11 +96,10 @@ function GuardedLink({
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
   const pathname = usePathname();
 
-  const isOnTaskBuilderEditor =
-    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+  const onGuardedEditor = isOnGuardedEditor(pathname) && hasUnsavedChanges;
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (isOnTaskBuilderEditor && href !== pathname) {
+    if (onGuardedEditor && href !== pathname) {
       e.preventDefault();
       requestNavigation(href);
     }
@@ -100,6 +125,11 @@ export function AppHeader() {
     setUnsaved,
   } = useUnsavedChangesStore();
 
+  // Only the Task Builder asks the AppHeader to render the discard
+  // dialog on its behalf. Other editors (e.g. /skills/workspace) own
+  // their own in-page dialog and consume `pendingNavigationHref`
+  // directly — that keeps the dialog visually consistent with each
+  // editor's "Back" button.
   const isOnTaskBuilderEditor =
     pathname?.startsWith("/task-builder") && hasUnsavedChanges;
 

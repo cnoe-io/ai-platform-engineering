@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { Loader2, Plus, Trash2, Globe, AlertCircle, CheckCircle2, X, RefreshCcw, Search } from "lucide-react";
+import { Loader2, Plus, Trash2, Globe, AlertCircle, CheckCircle2, X, RefreshCcw, Search, ShieldAlert, Zap } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
 
 interface SkillHub {
   id: string;
@@ -23,6 +24,11 @@ interface SkillHub {
   last_skill_scan_exit_code?: number | null;
   last_skill_scan_max_severity?: string | null;
   last_skill_scan_blocked?: boolean | null;
+  /** Per-skill scan-state aggregates from /api/skill-hubs (Option C nudge). */
+  skills_count?: number;
+  scan_unscanned_count?: number;
+  scan_flagged_count?: number;
+  scan_passed_count?: number;
 }
 
 interface SkillHubsSectionProps {
@@ -45,6 +51,9 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [crawlLoading, setCrawlLoading] = useState(false);
   const [crawlPaths, setCrawlPaths] = useState<string[]>([]);
   const [crawlPreview, setCrawlPreview] = useState<{ path: string; name: string; description: string }[]>([]);
+  // Bulk-scan dialog scoped to a single hub via the per-hub "Scan now"
+  // nudge. `null` means the dialog is closed.
+  const [scanHubId, setScanHubId] = useState<string | null>(null);
 
   const loadHubs = useCallback(async () => {
     try {
@@ -435,6 +444,44 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                   Recrawled — {recrawlResult[hub.id]} skill{recrawlResult[hub.id] !== 1 ? "s" : ""} found
                 </div>
               ) : null}
+              {/* Option C nudge: surface unscanned / flagged skills per
+                  hub with a one-click retry that opens the bulk dialog
+                  scoped to this hub. When everything passed we still
+                  show a tiny green confirmation so admins see at a
+                  glance that scans actually ran. */}
+              {isAdmin && (hub.skills_count ?? 0) > 0 && (
+                ((hub.scan_unscanned_count ?? 0) > 0 || (hub.scan_flagged_count ?? 0) > 0) ? (
+                  <div className="px-2 pl-10 flex items-center gap-2 text-[11px]">
+                    {(hub.scan_unscanned_count ?? 0) > 0 && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 text-amber-600 border-amber-500/30 gap-1">
+                        <ShieldAlert className="h-3 w-3" />
+                        {hub.scan_unscanned_count} unscanned
+                      </Badge>
+                    )}
+                    {(hub.scan_flagged_count ?? 0) > 0 && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 text-red-500 border-red-500/30 gap-1">
+                        <AlertCircle className="h-3 w-3" />
+                        {hub.scan_flagged_count} flagged
+                      </Badge>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] gap-1"
+                      onClick={() => setScanHubId(hub.id)}
+                      title="Open bulk scan dialog scoped to this hub"
+                    >
+                      <Zap className="h-3 w-3" />
+                      Scan now
+                    </Button>
+                  </div>
+                ) : (hub.scan_passed_count ?? 0) > 0 ? (
+                  <div className="px-2 pl-10 flex items-center gap-1.5 text-[11px] text-green-600 dark:text-green-400">
+                    <CheckCircle2 className="h-3 w-3" />
+                    All {hub.scan_passed_count} skill{hub.scan_passed_count === 1 ? "" : "s"} passed scan
+                  </div>
+                ) : null
+              )}
               </div>
             ))}
           </div>
@@ -452,7 +499,7 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         )}
 
         <p className="text-xs text-muted-foreground mt-6 border-t border-border pt-4 leading-relaxed">
-          Hub ingest may run{" "}
+          Hub ingest uses{" "}
           <a
             href="https://github.com/cisco-ai-defense/skill-scanner"
             target="_blank"
@@ -465,6 +512,21 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           guarantee security; a clean scan does not imply safety.
         </p>
       </CardContent>
+
+      {/* Per-hub bulk-scan dialog. Pre-scoped to the hub the operator
+          clicked so they don't have to reselect anything. */}
+      <ScanAllDialog
+        open={scanHubId !== null}
+        onOpenChange={(next) => {
+          if (!next) setScanHubId(null);
+        }}
+        initialScope="hub"
+        initialHubIds={scanHubId ? [scanHubId] : undefined}
+        onComplete={() => {
+          // Refresh per-hub aggregates so the nudge clears immediately.
+          loadHubs();
+        }}
+      />
     </Card>
   );
 }

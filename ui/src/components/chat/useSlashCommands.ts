@@ -41,7 +41,7 @@ const BUILTIN_COMMANDS: SlashCommand[] = [
  * 3. Agents from DEFAULT_AGENTS (static)
  *
  * @param agentSkillIds - Skill IDs configured on the current dynamic agent.
- *   When provided with items: fetches /api/agent-skills, filters to those IDs.
+ *   When provided with items: fetches GET /api/skills (merged catalog), filters to those IDs.
  *   When provided as empty array: no skills shown.
  *   When undefined (supervisor): fetches full global catalog from /api/skills.
  */

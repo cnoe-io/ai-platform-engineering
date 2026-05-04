@@ -42,7 +42,6 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { cn } from "@/lib/utils";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
-import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentSkill, WorkflowDifficulty } from "@/types/agent-skill";
 
 interface AgentBuilderGalleryProps {
@@ -131,7 +130,6 @@ export function AgentBuilderGallery({
     isFavorite,
     getFavoriteSkills
   } = useAgentSkillsStore();
-  const { isAdmin } = useAdminRole();
   const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
 
@@ -157,16 +155,7 @@ export function AgentBuilderGallery({
       .finally(() => setSupervisorLoading(false));
   }, []);
 
-  // Check if user can edit/delete a config
-  const canModifyConfig = (config: AgentSkill) => {
-    // Admins can modify system configs
-    if (config.is_system) {
-      console.log(`[canModifyConfig] System config ${config.id}, isAdmin: ${isAdmin}`);
-      return isAdmin;
-    }
-    // Users can modify their own configs
-    return true;
-  };
+  const canModifyConfig = (_config: AgentSkill) => true;
 
   // Load configs on mount
   useEffect(() => {
@@ -223,7 +212,7 @@ export function AgentBuilderGallery({
 
     // Confirm deletion
     const confirmMessage = config.is_system
-      ? `Are you sure you want to delete the system template "${config.name}"? This action requires admin privileges.`
+      ? `Remove built-in template "${config.name}" from this environment?\n\nYou can restore it later via Import templates or workspace seed.`
       : `Are you sure you want to delete "${config.name}"?`;
 
     if (!confirm(confirmMessage)) return;

@@ -1,10 +1,15 @@
 /**
  * GET /api/skills/install.sh
  *
- * Returns a portable bash installer that fetches the rendered bootstrap
+ * Returns a portable bash installer that fetches the rendered live-skills
  * template for a given agent + scope and writes it to disk. The script is
  * intended for `curl … | bash` or "download & inspect first" workflows
  * surfaced from the Skills API Gateway UI.
+ *
+ * **Default flow**: install the single live-skills `/skills` command (no `catalog_url`).
+ * **Advanced**: pass `catalog_url=…` (encoded `GET /api/skills?…` from the gateway preview) to
+ * materialize one file per skill from that query — requires the same catalog API key setup as
+ * the default flow. Prefer exploring the live catalog and API key docs in the gateway UI first.
  *
  * Query params:
  *   - agent:        agent id (claude | cursor | specify | codex | gemini |
@@ -31,7 +36,7 @@
  *     The Step-3 UI walks users through creating the config.json file, so the
  *     happy path is "set it once, never type the key again."
  *   - The rendered template body is NOT baked into the script. Instead the
- *     script does a fresh GET to /api/skills/bootstrap?... at install time,
+ *     script does a fresh GET to /api/skills/live-skills?... at install time,
  *     so users always get the latest canonical template and the script stays
  *     small and easy to audit.
  *   - We refuse to overwrite an existing target file unless `--upgrade` (for
@@ -58,10 +63,10 @@ import {
   scopesAvailableFor,
   type AgentLayout,
   type AgentSpec,
-} from "../bootstrap/agents";
+} from "../live-skills/agents";
 import { getRequestOrigin } from "../_lib/request-origin";
 
-/* ---------- input sanitizers (mirror the bootstrap route) ---------- */
+/* ---------- input sanitizers (mirror the live-skills route) ---------- */
 
 function sanitizeCommandName(raw: string | null): string {
   const trimmed = (raw ?? "").trim();
@@ -94,7 +99,7 @@ function sanitizeBaseUrl(raw: string | null): string | null {
  * Query Builder. We only allow URLs that point back at our own gateway's
  * `/api/skills` listing endpoint — never an arbitrary host. Returning the
  * normalized URL means `install.sh` switches into "bulk install" mode and
- * iterates the catalog response instead of installing the bootstrap skill.
+ * iterates the catalog response instead of installing the live-skills skill.
  *
  * Constraints (enforced server-side, not by the bash script):
  *   - http:// or https:// only
@@ -196,7 +201,7 @@ interface ScriptInputs {
   description: string;
   baseUrl: string;
   /**
-   * When set, the installer runs in BULK mode: it ignores the bootstrap
+   * When set, the installer runs in BULK mode: it ignores the live-skills
    * template and instead fetches this URL (must be `<baseUrl>/api/skills?…`),
    * iterating the response and writing one skill file per catalog entry into
    * the agent's commands directory.
@@ -232,7 +237,7 @@ function buildScript({
     base_url: baseUrl,
     ...(description ? { description } : {}),
   }).toString();
-  const bootstrapUrl = `${baseUrl}/api/skills/bootstrap?${queryString}`;
+  const liveSkillsUrl = `${baseUrl}/api/skills/live-skills?${queryString}`;
   const fileExt = layout === "skills" ? "md" : extensionForFormat(agent.format);
   const bulkMode = !!catalogUrl;
 
@@ -244,7 +249,7 @@ function buildScript({
   const Q_COMMAND = shq(commandName);
   const Q_FORMAT = shq(agent.format);
   const Q_INSTALL_PATH = shq(resolvedPath);
-  const Q_BOOTSTRAP_URL = shq(bootstrapUrl);
+  const Q_LIVE_SKILLS_URL = shq(liveSkillsUrl);
   const Q_BASE_URL = shq(baseUrl);
   const Q_COMMANDS_DIR = shq(commandsDirTemplate);
   const Q_FILE_EXT = shq(fileExt);
@@ -257,7 +262,7 @@ function buildScript({
 # Agent : ${agent.label} (${agent.id})
 # Scope : ${scope} (${scope === "user" ? "user-global" : "project-local"})
 # Format: ${agent.format}
-# Mode  : ${bulkMode ? "BULK (one file per skill from catalog query)" : "single bootstrap skill"}
+# Mode  : ${bulkMode ? "BULK (one file per skill from catalog query)" : "single live-skills skill"}
 # Target: ${bulkMode ? commandsDirTemplate + "/<skill>." + fileExt : resolvedPath}
 #
 # Usage:
@@ -280,7 +285,7 @@ FORMAT=${Q_FORMAT}
 INSTALL_PATH_RAW=${Q_INSTALL_PATH}
 COMMANDS_DIR_RAW=${Q_COMMANDS_DIR}
 FILE_EXT=${Q_FILE_EXT}
-BOOTSTRAP_URL=${Q_BOOTSTRAP_URL}
+LIVE_SKILLS_URL=${Q_LIVE_SKILLS_URL}
 BASE_URL=${Q_BASE_URL}
 CATALOG_URL=${Q_CATALOG_URL}
 BULK_MODE=${bulkMode ? "1" : "0"}
@@ -292,13 +297,13 @@ UPGRADE=0
 
 # Sidecar manifest of files this installer has written, used by --upgrade to
 # decide whether it's safe to overwrite an existing target. Lives next to the
-# config.json the bootstrap helper already reads, so a single dotfile sync
+# config.json the live-skills helper already reads, so a single dotfile sync
 # moves both with the user.
 MANIFEST_PATH="\${CAIPE_INSTALL_MANIFEST:-\${HOME:-.}/.config/caipe/installed.json}"
 
 usage() {
   cat <<USAGE
-install-skills.sh — installs the CAIPE bootstrap skill for \$AGENT_LABEL.
+install-skills.sh — installs the CAIPE live-skills skill for \$AGENT_LABEL.
 
 Usage:
   $0 [--upgrade|--force] [--api-key=<key>]
@@ -361,7 +366,7 @@ while [ "\$#" -gt 0 ]; do
 done
 
 # Try the on-disk config files when no key has been supplied yet. We use
-# python3 (always available where this script runs because the bootstrap
+# python3 (always available where this script runs because the live-skills
 # helper requires it) so we don't need to ship a JSON parser in bash.
 read_api_key_from_config() {
   local cfg_path="\$1"
@@ -565,35 +570,75 @@ if [ "\$BULK_MODE" = "1" ]; then
     exit 76
   fi
 
-  # Emit each skill as a NUL-delimited "<safe_name>\\0<base64_content>\\0"
-  # record. NUL/base64 keeps newlines and special chars in the body intact
-  # across the read loop, and we sanitize the name to a strict allow-list
-  # so a hostile catalog can't write outside \$COMMANDS_DIR.
+  # Emit each *file* (SKILL.md + any ancillary files) as a NUL-delimited
+  # "<safe_skill_name>\\0<relative_path>\\0<base64_body>\\0" triple.
+  #
+  # The SKILL.md body is emitted with rel_path = "SKILL.md"; ancillary
+  # files keep the path the catalog/hub recorded (e.g. "scripts/extract.py",
+  # "references/forms.json"). This lets multi-file skills (Anthropic's pdf,
+  # docx, slack, etc.) install verbatim — the agent can resolve SKILL.md's
+  # internal references against the same on-disk layout it had on GitHub.
+  #
+  # Path sanitization rules:
+  #   - skill name -> strict [A-Za-z0-9._-]+
+  #   - rel_path components individually sanitized; absolute paths, double-dot
+  #     parents, leading slash, and empty components are rejected, so a hostile
+  #     catalog cannot escape \$COMMANDS_DIR/<skill>/.
   emit_records() {
-    if command -v jq >/dev/null 2>&1; then
+    if command -v python3 >/dev/null 2>&1; then
+      python3 -c '
+import base64, json, re, sys
+data = json.load(open(sys.argv[1]))
+out = sys.stdout.buffer
+NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
+PART_RE = re.compile(r"[^A-Za-z0-9._-]")
+def safe_path(rel):
+    rel = rel.replace("\\\\", "/").lstrip("/")
+    parts = []
+    for p in rel.split("/"):
+        if not p or p == "." or p == "..":
+            return None
+        parts.append(PART_RE.sub("_", p))
+    return "/".join(parts) if parts else None
+for s in data.get("skills", []) or []:
+    name = (s.get("name") or "").strip()
+    if not name:
+        continue
+    safe_name = NAME_RE.sub("_", name)
+    body = (s.get("content") or "").encode("utf-8")
+    out.write(safe_name.encode("ascii") + b"\\x00" + b"SKILL.md" + b"\\x00" + base64.b64encode(body) + b"\\x00")
+    anc = s.get("ancillary_files") or {}
+    if isinstance(anc, dict):
+        for rel, content in anc.items():
+            if not isinstance(rel, str) or not isinstance(content, str):
+                continue
+            sp = safe_path(rel)
+            if not sp or sp == "SKILL.md":
+                continue
+            ab = content.encode("utf-8")
+            out.write(safe_name.encode("ascii") + b"\\x00" + sp.encode("ascii") + b"\\x00" + base64.b64encode(ab) + b"\\x00")
+' "\$CATALOG_TMP"
+    elif command -v jq >/dev/null 2>&1; then
+      # jq fallback: SKILL.md only (ancillary files require a real
+      # tokenizer for path sanitization that jq can't safely express).
+      # Operators who need full multi-file install should ensure python3
+      # is on PATH; we still install the SKILL.md so the skill is at least
+      # discoverable.
       jq -j '
         .skills[]
         | select((.name? // "") != "")
         | (
             (.name | gsub("[^A-Za-z0-9._-]"; "_"))
             + "\\u0000"
+            + "SKILL.md"
+            + "\\u0000"
             + ((.content // "") | @base64)
             + "\\u0000"
           )
       ' < "\$CATALOG_TMP"
-    elif command -v python3 >/dev/null 2>&1; then
-      python3 -c '
-import base64, json, re, sys
-data = json.load(open(sys.argv[1]))
-out = sys.stdout.buffer
-for s in data.get("skills", []) or []:
-    name = (s.get("name") or "").strip()
-    if not name:
-        continue
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)
-    body = (s.get("content") or "").encode("utf-8")
-    out.write(safe.encode("ascii") + b"\\x00" + base64.b64encode(body) + b"\\x00")
-' "\$CATALOG_TMP"
+      if jq -e '[.skills[]?.ancillary_files // {} | length] | add // 0 | . > 0' < "\$CATALOG_TMP" >/dev/null 2>&1; then
+        echo "warn: ancillary files were skipped (install python3 to materialize the full skill folder)" >&2
+      fi
     else
       echo "error: need jq or python3 to parse the catalog response." >&2
       return 69
@@ -605,21 +650,42 @@ for s in data.get("skills", []) or []:
   WROTE=0
   SKIPPED=0
   TOTAL=0
+  SKILLS_SEEN=""
 
-  # Read NUL-delimited (name, b64body) pairs.
-  while IFS= read -r -d '' SKILL_NAME && IFS= read -r -d '' SKILL_B64; do
-    TOTAL=\$((TOTAL + 1))
-    if [ -z "\$SKILL_NAME" ]; then
+  # Read NUL-delimited (name, rel_path, b64body) triples. Each skill emits
+  # one record per file: SKILL.md first, then ancillary files (if any).
+  while IFS= read -r -d '' SKILL_NAME && IFS= read -r -d '' REL_PATH && IFS= read -r -d '' SKILL_B64; do
+    if [ -z "\$SKILL_NAME" ] || [ -z "\$REL_PATH" ]; then
       continue
     fi
-    # In skills layout each skill lives in its own dir as SKILL.md (the
-    # filename Claude/Cursor/opencode auto-discover). In commands layout
-    # we keep the legacy flat <skill>.<ext> file.
+
+    # Track unique skill names so the summary still counts skills, not files.
+    case " \$SKILLS_SEEN " in
+      *" \$SKILL_NAME "*) ;;
+      *) SKILLS_SEEN="\$SKILLS_SEEN \$SKILL_NAME"; TOTAL=\$((TOTAL + 1)) ;;
+    esac
+
+    # Layout decisions:
+    #   - "skills" layout (Claude/Cursor/opencode): one folder per skill,
+    #     ancillary files preserved at their relative paths so SKILL.md's
+    #     internal references (scripts/, references/, assets/) resolve.
+    #   - "commands" layout (legacy slash commands): flat <skill>.<ext>
+    #     file. Ancillary files don't make sense here — agents in this
+    #     layout don't load sibling files — so we drop them with a notice.
     if [ "\$LAYOUT" = "skills" ]; then
       TARGET_DIR="\$COMMANDS_DIR/\$SKILL_NAME"
-      TARGET="\$TARGET_DIR/SKILL.md"
-      mkdir -p "\$TARGET_DIR"
+      if [ "\$REL_PATH" = "SKILL.md" ]; then
+        TARGET="\$TARGET_DIR/SKILL.md"
+      else
+        TARGET="\$TARGET_DIR/\$REL_PATH"
+      fi
+      mkdir -p "\$(dirname "\$TARGET")"
     else
+      if [ "\$REL_PATH" != "SKILL.md" ]; then
+        # Commands-layout agents don't load ancillary files — skip silently
+        # (the SKILL.md still installs and the user gets the prompt body).
+        continue
+      fi
       TARGET_DIR="\$COMMANDS_DIR"
       TARGET="\$COMMANDS_DIR/\$SKILL_NAME.\$FILE_EXT"
     fi
@@ -649,12 +715,13 @@ for s in data.get("skills", []) or []:
     # Decode the base64 body into a tempfile in the same dir, then atomic-rename.
     # The body is written verbatim — no marker line, no preamble — so what
     # lands on disk is byte-for-byte the catalog's content.
-    PER_TMP="\$(mktemp "\$TARGET_DIR/.caipe-install-XXXXXX")"
+    PARENT_DIR="\$(dirname "\$TARGET")"
+    PER_TMP="\$(mktemp "\$PARENT_DIR/.caipe-install-XXXXXX")"
     if command -v base64 >/dev/null 2>&1; then
       # macOS uses -D, GNU uses -d. Try -d first, fall back to -D.
       if ! printf '%s' "\$SKILL_B64" | base64 -d > "\$PER_TMP" 2>/dev/null; then
         if ! printf '%s' "\$SKILL_B64" | base64 -D > "\$PER_TMP" 2>/dev/null; then
-          echo "error: failed to decode body for \$SKILL_NAME" >&2
+          echo "error: failed to decode body for \$SKILL_NAME/\$REL_PATH" >&2
           rm -f "\$PER_TMP"
           continue
         fi
@@ -675,7 +742,7 @@ for s in data.get("skills", []) or []:
   echo "==> agent : \$AGENT_LABEL (\$AGENT_ID)"
   echo "==> scope : \$SCOPE"
   echo "==> dir   : \$COMMANDS_DIR"
-  echo "==> wrote \$WROTE of \$TOTAL skills (\$SKIPPED skipped)"
+  echo "==> wrote \$WROTE files across \$TOTAL skills (\$SKIPPED skipped)"
   if [ "\$WROTE" -eq 0 ] && [ "\$TOTAL" -gt 0 ]; then
     echo "    (re-run with --upgrade to refresh existing CAIPE skills" >&2
     echo "     or --force to overwrite unconditionally)" >&2
@@ -701,13 +768,13 @@ trap 'rm -f "\$TMP_FILE"' EXIT
 HTTP_STATUS="\$(curl -sS -o "\$TMP_FILE" -w '%{http_code}' \\
   -H "X-Caipe-Catalog-Key: \$API_KEY" \\
   -H 'Accept: application/json' \\
-  "\$BOOTSTRAP_URL")" || {
+  "\$LIVE_SKILLS_URL")" || {
     echo "error: failed to reach \$BASE_URL" >&2
     exit 69
   }
 
 if [ "\$HTTP_STATUS" != "200" ]; then
-  echo "error: gateway returned HTTP \$HTTP_STATUS for \$BOOTSTRAP_URL" >&2
+  echo "error: gateway returned HTTP \$HTTP_STATUS for \$LIVE_SKILLS_URL" >&2
   if [ -s "\$TMP_FILE" ]; then
     echo "       body: \$(head -c 500 "\$TMP_FILE")" >&2
   fi

@@ -49,15 +49,60 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
     const hubs = await collection.find().sort({ created_at: 1 }).toArray();
 
-    // Count cached skills per hub
+    // Per-hub counts: total cached skills + scan outcome buckets so the
+    // admin section can render an accurate "X unscanned, Y flagged"
+    // nudge without a second round-trip.
     const hubSkills = await getCollection("hub_skills");
-    const counts = await hubSkills.aggregate<{ _id: string; count: number }>([
-      { $group: { _id: "$hub_id", count: { $sum: 1 } } },
+    const counts = await hubSkills.aggregate<{
+      _id: string;
+      count: number;
+      unscanned: number;
+      flagged: number;
+      passed: number;
+    }>([
+      {
+        $group: {
+          _id: "$hub_id",
+          count: { $sum: 1 },
+          // Treat "no scan_status field yet" as unscanned — that's what
+          // the workspace UI does, and it's how a freshly-crawled skill
+          // looks before the async scan finishes.
+          unscanned: {
+            $sum: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: ["$scan_status", "unscanned"] },
+                    { $eq: [{ $ifNull: ["$scan_status", null] }, null] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          flagged: {
+            $sum: { $cond: [{ $eq: ["$scan_status", "flagged"] }, 1, 0] },
+          },
+          passed: {
+            $sum: { $cond: [{ $eq: ["$scan_status", "passed"] }, 1, 0] },
+          },
+        },
+      },
     ]).toArray();
-    const countMap = new Map(counts.map((c) => [c._id, c.count]));
+    const countMap = new Map(counts.map((c) => [c._id, c]));
 
     return NextResponse.json({
-      hubs: hubs.map((h) => ({ ...sanitizeHub(h), skills_count: countMap.get(h.id) ?? 0 })),
+      hubs: hubs.map((h) => {
+        const c = countMap.get(h.id);
+        return {
+          ...sanitizeHub(h),
+          skills_count: c?.count ?? 0,
+          scan_unscanned_count: c?.unscanned ?? 0,
+          scan_flagged_count: c?.flagged ?? 0,
+          scan_passed_count: c?.passed ?? 0,
+        };
+      }),
     });
   });
 });

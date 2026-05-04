@@ -12,7 +12,7 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
  *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-skills.
+ *   Otherwise, aggregates locally from disk templates and MongoDB `agent_skills` (same data as GET /api/skills/configs).
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -34,7 +34,7 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  *   503 — { error: "skills_unavailable", message: "..." }
  */
 
-interface CatalogSkill {
+export interface CatalogSkill {
   id: string;
   name: string;
   description: string;
@@ -42,6 +42,46 @@ interface CatalogSkill {
   source_id: string | null;
   content: string | null;
   metadata: Record<string, unknown>;
+  /**
+   * Sibling files (paths relative to the skill folder). Populated only
+   * when the caller asks for `include_content=true`. Lets API gateway
+   * consumers (Claude Code, Cursor, install.sh) materialise the full
+   * skill folder verbatim instead of only SKILL.md.
+   */
+  ancillary_files?: Record<string, string>;
+  /** Operator-facing summary of what was captured / skipped. */
+  ancillary_summary?: {
+    total_files: number;
+    total_bytes: number;
+    skipped_binary: number;
+    skipped_too_large: number;
+    truncated_at_count_cap: boolean;
+    truncated_at_size_cap: boolean;
+  };
+  /**
+   * Cached scan state, hydrated from the appropriate collection per source:
+   *   - `agent_skills` doc directly (already projected here)
+   *   - `builtin_skill_scans` keyed by template id (joined below)
+   *   - hub crawler returns these on its own
+   * Absent when the skill has never been scanned.
+   */
+  scan_status?: "passed" | "flagged" | "unscanned";
+  scan_summary?: string;
+  scan_updated_at?: string;
+  /**
+   * Whether the skill is runnable / installable / ingestible. Set to
+   * `false` whenever the security scanner has flagged the skill — the
+   * UI surfaces this as a disabled card with a "Disabled — flagged"
+   * badge so admins can still see and re-scan it. Defaults to `true`
+   * when omitted.
+   *
+   * The supervisor + dynamic agents enforce the same rule
+   * independently (Python ``scan_gate`` module) so a stale UI badge
+   * cannot make a flagged skill executable.
+   */
+  runnable?: boolean;
+  /** Operator-visible reason for ``runnable=false``. */
+  blocked_reason?: "scan_flagged";
 }
 
 interface CatalogResponse {
@@ -234,7 +274,7 @@ async function fetchFromBackend(
 
 /**
  * Local aggregation fallback: merge skill-templates (filesystem) and
- * agent-skills (MongoDB) into a single catalog.
+ * persisted agent skills from MongoDB (`agent_skills`) into a single catalog.
  */
 async function aggregateLocally(
   includeContent: boolean,
@@ -249,6 +289,46 @@ async function aggregateLocally(
       "./skill-templates-loader"
     );
     const templates = loadSkillTemplatesInternal();
+
+    // Best-effort lookup of cached scan results so the gallery shield
+    // shows fresh badges immediately after a sweep / per-template scan.
+    // If Mongo is down we just leave scan_status undefined → "Unscanned".
+    let builtinScans = new Map<
+      string,
+      {
+        scan_status: "passed" | "flagged" | "unscanned";
+        scan_summary?: string;
+        scan_updated_at?: Date;
+      }
+    >();
+    try {
+      const { getCollection: getColForScans, isMongoDBConfigured: scansMongoOk } =
+        await import("@/lib/mongodb");
+      if (scansMongoOk) {
+        const scansCol = await getColForScans<{
+          id: string;
+          scan_status: "passed" | "flagged" | "unscanned";
+          scan_summary?: string;
+          scan_updated_at?: Date;
+        }>("builtin_skill_scans");
+        const scanDocs = await scansCol
+          .find({})
+          .project<{
+            id: string;
+            scan_status: "passed" | "flagged" | "unscanned";
+            scan_summary?: string;
+            scan_updated_at?: Date;
+          }>({ _id: 0 })
+          .toArray();
+        builtinScans = new Map(scanDocs.map((d) => [d.id, d]));
+      }
+    } catch (err) {
+      console.warn(
+        "[Skills] Failed to load builtin_skill_scans cache (badges will show as Unscanned):",
+        err,
+      );
+    }
+
     for (const t of templates) {
       const meta: Record<string, unknown> = {
         category: t.category,
@@ -258,6 +338,7 @@ async function aggregateLocally(
       if (t.input_variables && t.input_variables.length > 0) {
         meta.input_variables = t.input_variables;
       }
+      const scan = builtinScans.get(t.id);
       skills.push({
         id: t.id,
         name: t.name,
@@ -266,6 +347,18 @@ async function aggregateLocally(
         source_id: null,
         content: includeContent ? t.content : null,
         metadata: meta,
+        ...(scan?.scan_status ? { scan_status: scan.scan_status } : {}),
+        ...(scan?.scan_summary !== undefined
+          ? { scan_summary: scan.scan_summary }
+          : {}),
+        ...(scan?.scan_updated_at
+          ? {
+              scan_updated_at:
+                scan.scan_updated_at instanceof Date
+                  ? scan.scan_updated_at.toISOString()
+                  : String(scan.scan_updated_at),
+            }
+          : {}),
       });
     }
     sourcesLoaded.push("default");
@@ -304,6 +397,10 @@ async function aggregateLocally(
               is_system: 1,
               category: 1,
               metadata: 1,
+              ancillary_files: 1,
+              scan_status: 1,
+              scan_summary: 1,
+              scan_updated_at: 1,
             },
           },
         )
@@ -326,6 +423,24 @@ async function aggregateLocally(
             visibility: doc.visibility,
             is_system: doc.is_system,
           },
+          ancillary_files:
+            includeContent && doc.ancillary_files
+              ? (doc.ancillary_files as Record<string, string>)
+              : undefined,
+          ...(doc.scan_status
+            ? { scan_status: doc.scan_status as "passed" | "flagged" | "unscanned" }
+            : {}),
+          ...(doc.scan_summary !== undefined
+            ? { scan_summary: String(doc.scan_summary) }
+            : {}),
+          ...(doc.scan_updated_at
+            ? {
+                scan_updated_at:
+                  doc.scan_updated_at instanceof Date
+                    ? doc.scan_updated_at.toISOString()
+                    : String(doc.scan_updated_at),
+              }
+            : {}),
         });
       }
       sourcesLoaded.push("agent_skills");
@@ -347,7 +462,16 @@ async function aggregateLocally(
       for (const hub of enabledHubs) {
         try {
           const hubSkills = await getHubSkills(hub);
-          skills.push(...hubSkills);
+          for (const s of hubSkills) {
+            // Hub crawler always returns content + ancillary_files in the
+            // CatalogSkill shape; strip them when the caller didn't ask
+            // for content so the listing payload stays small.
+            skills.push({
+              ...s,
+              content: includeContent ? s.content : null,
+              ancillary_files: includeContent ? s.ancillary_files : undefined,
+            });
+          }
           sourcesLoaded.push(`hub:${hub.id}`);
         } catch (err) {
           console.error(`[Skills] Hub ${hub.location} failed:`, err);
@@ -401,13 +525,34 @@ function sanitizeSkillContent(content: string | null): string | null {
   return content.replace(/^(<!--[\s\S]*?-->\s*\n?)+/, "");
 }
 
+/**
+ * Stamp ``runnable`` / ``blocked_reason`` on every skill based on its
+ * cached scan status. Default is ``runnable: true``; a ``flagged``
+ * skill is forced to ``runnable: false`` with reason ``scan_flagged``.
+ *
+ * This is the single UI-facing enforcement point so the gallery,
+ * runner, and downstream consumers (Skills API gateway, install.sh)
+ * all agree without each having to re-derive the rule. The Python
+ * supervisor and dynamic agents enforce the same policy via
+ * ``scan_gate.py``; this stamp is for UI affordances + defense in
+ * depth against a backend that hasn't yet been updated.
+ */
+export function applyRunnableGate(skill: CatalogSkill): CatalogSkill {
+  if (skill.scan_status === "flagged") {
+    return { ...skill, runnable: false, blocked_reason: "scan_flagged" };
+  }
+  return { ...skill, runnable: skill.runnable ?? true };
+}
+
 function sanitizeCatalogResponse(data: CatalogResponse): CatalogResponse {
   return {
     ...data,
-    skills: data.skills.map((s) => ({
-      ...s,
-      content: sanitizeSkillContent(s.content),
-    })),
+    skills: data.skills.map((s) =>
+      applyRunnableGate({
+        ...s,
+        content: sanitizeSkillContent(s.content),
+      }),
+    ),
   };
 }
 
@@ -432,7 +577,7 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
       sources_loaded: catalog.meta.sources_loaded,
       unavailable_sources: catalog.meta.unavailable_sources,
     });
-    return NextResponse.json(response);
+    return NextResponse.json(sanitizeCatalogResponse(response));
   } catch (err) {
     console.error("[Skills] Catalog unavailable:", err);
     return NextResponse.json(
