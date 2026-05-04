@@ -684,3 +684,88 @@ describe("GET /api/skills/install.sh — bulk-with-helpers (new default)", () =>
     expect(res.body).not.toMatch(/data\s*=\s*\{[^}]*"api_key"/);
   });
 });
+
+/**
+ * Regression coverage for the security-scanner gate. A skill the
+ * scanner has flagged must NEVER reach disk via any install.sh code
+ * path -- the agent's native discovery (Claude/Cursor walking the
+ * skills directory at startup) would otherwise pick it up regardless
+ * of UI runnability state. Three predicates are checked, mirroring
+ * applyRunnableGate in the listing route:
+ *   - scan_status === "flagged"
+ *   - runnable === false
+ *   - blocked_reason === "scan_flagged"
+ *
+ * Bash filters live in two emitters per install mode (bulk-with-helpers
+ * uses one Python heredoc; catalog-query uses a python -c block plus
+ * a jq fallback). All four sites must carry the predicate or a regression
+ * silently leaks flagged content again.
+ */
+describe("GET /api/skills/install.sh — flagged-skill security gate", () => {
+  const callRaw = async (url: string): Promise<MockRes> =>
+    (await GET(new Request(url))) as unknown as MockRes;
+
+  it("bulk-with-helpers Python loop checks all three flag signals", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.body).toContain('def is_flagged(skill):');
+    // All three predicates -- pinning by name catches a future refactor
+    // that, say, drops blocked_reason "because scan_status covers it"
+    // (the gateway can stamp either one independently).
+    expect(res.body).toContain('skill.get("scan_status") == "flagged"');
+    expect(res.body).toContain('skill.get("runnable") is False');
+    expect(res.body).toContain('skill.get("blocked_reason") == "scan_flagged"');
+    // User-visible notice: the bash output must tell the user exactly
+    // what was suppressed (silent-skip would surprise admins debugging
+    // why their newly-published skill didn't land).
+    expect(res.body).toContain('flagged by security scanner');
+    // Summary line must include the flagged tally so wrote+skipped+
+    // reserved+flagged sums to total -- no quietly-lost skills.
+    expect(res.body).toMatch(/flagged \{flagged_count\}/);
+  });
+
+  it("catalog-query Python emitter mirrors the same flag signals", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&catalog_url=https%3A%2F%2Fapp.example.com%2Fapi%2Fskills%3Fpage%3D1",
+    );
+    expect(res.body).toContain('def is_flagged(s):');
+    expect(res.body).toContain('s.get("scan_status") == "flagged"');
+    expect(res.body).toContain('s.get("runnable") is False');
+    expect(res.body).toContain('s.get("blocked_reason") == "scan_flagged"');
+    // Skip notices go to STDERR in this emitter (stdout carries the
+    // NUL-delimited triples the bash while-read loop consumes; mixing
+    // text into that stream would corrupt the install).
+    expect(res.body).toMatch(/err\.write\(f"==> skipped \{name\} \(flagged by security scanner\)/);
+  });
+
+  it("catalog-query jq fallback mirrors the same flag signals", async () => {
+    // Some operator environments only have jq, not python3. The jq
+    // emitter MUST carry the same gate or the install silently
+    // degrades into the original leak when python3 is missing.
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&catalog_url=https%3A%2F%2Fapp.example.com%2Fapi%2Fskills%3Fpage%3D1",
+    );
+    // Predicate inside the jq emitter selects clean skills only.
+    expect(res.body).toContain('(.scan_status? // "") != "flagged"');
+    expect(res.body).toContain('(.runnable? // true) != false');
+    expect(res.body).toContain('(.blocked_reason? // "") != "scan_flagged"');
+    // Second jq invocation prints the skip-notice list to stderr so the
+    // user sees what was suppressed under the jq path too.
+    expect(res.body).toMatch(/select\(\s*\(\.scan_status\? \/\/ ""\) == "flagged"/);
+    expect(res.body).toContain('(flagged by security scanner)');
+  });
+
+  it("live-only mode keeps BULK_MODE=0 so the bulk emitter (and its filter) never runs", async () => {
+    // live-only and catalog-query share the legacy script template, so
+    // the is_flagged predicate is always emitted in the bash text. The
+    // semantic gate is BULK_MODE: live-only sets it to 0 which short-
+    // circuits the emitter entirely. Pinning this prevents a future
+    // refactor from quietly turning live-only into a bulk install.
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&mode=live-only",
+    );
+    expect(res.body).toContain('BULK_MODE=0');
+    expect(res.body).not.toContain('BULK_MODE=1');
+  });
+});

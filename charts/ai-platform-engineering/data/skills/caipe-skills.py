@@ -518,10 +518,67 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    # Defense in depth against runnable-but-flagged skills reaching the
+    # caller LLM. The gateway's listing route already stamps
+    # `runnable=false` + `blocked_reason="scan_flagged"` for any skill
+    # the security scanner flagged, but a recent regression showed those
+    # fields are easy to overlook downstream (install.sh used to install
+    # them anyway). Strip the executable `content` field from any flagged
+    # entry here so the agent literally cannot run it, while preserving
+    # the metadata so the agent can tell the user *why* it was skipped.
+    body = _redact_flagged_content(body)
+
     sys.stdout.write(body)
     if not body.endswith("\n"):
         sys.stdout.write("\n")
     return 0
+
+
+def _redact_flagged_content(body: str) -> str:
+    """Strip ``content`` (and optional ``ancillary_files``) from any
+    skill the catalog has marked flagged, and append ``_flagged_skipped``
+    to the response so the agent has a structured signal to surface to
+    the user.
+
+    Best-effort: if the body isn't valid JSON, isn't a dict, or has no
+    ``skills`` array, return it unchanged so we never break a
+    pass-through case the gateway might add later. Errors here must
+    never fail the helper because catalog browsing is a read-only flow
+    and silent stripping is preferable to a hard error.
+    """
+    try:
+        data = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return body
+    if not isinstance(data, dict):
+        return body
+    skills = data.get("skills")
+    if not isinstance(skills, list):
+        return body
+    flagged: list[str] = []
+    for entry in skills:
+        if not isinstance(entry, dict):
+            continue
+        if (
+            entry.get("scan_status") == "flagged"
+            or entry.get("runnable") is False
+            or entry.get("blocked_reason") == "scan_flagged"
+        ):
+            name = entry.get("name") or entry.get("id") or "<unnamed>"
+            flagged.append(name)
+            # Strip executable surface; keep id/name/description so the
+            # agent can describe what was skipped to the user.
+            entry.pop("content", None)
+            entry.pop("ancillary_files", None)
+            # Stamp explicit fields in case the gateway omitted them
+            # (older deployments may pre-date applyRunnableGate).
+            entry["runnable"] = False
+            entry.setdefault("blocked_reason", "scan_flagged")
+    if flagged:
+        # Agent-readable structured field. Top-level so the slash command
+        # template can grep for it without walking every skill.
+        data["_flagged_skipped"] = flagged
+    return json.dumps(data)
 
 
 if __name__ == "__main__":

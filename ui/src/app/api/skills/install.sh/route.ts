@@ -845,6 +845,21 @@ NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 PART_RE = re.compile(r"[^A-Za-z0-9._-]")
 RESERVED = {"skills", "update-skills"}  # never clobber the helper commands
 
+def is_flagged(skill):
+    """A skill the security scanner has marked unsafe must NEVER be
+    materialized to disk -- the agent's native discovery would otherwise
+    pick it up regardless of UI state. The catalog response stamps both
+    runnable=false (from applyRunnableGate in the listing route) and
+    scan_status='flagged' for any flagged skill; we treat either signal
+    as authoritative so a future schema change can't silently regress.
+    Skipping happens here at the install boundary (mirrors scan_gate.py
+    on the supervisor + dynamic-agent side)."""
+    return (
+        skill.get("scan_status") == "flagged"
+        or skill.get("runnable") is False
+        or skill.get("blocked_reason") == "scan_flagged"
+    )
+
 # Load existing manifest for ownership checks.
 owned = set()
 if os.path.isfile(manifest_path):
@@ -875,7 +890,7 @@ def may_write(path):
 
 data = json.load(open(src))
 skills = data.get("skills", []) or []
-wrote = 0; skipped = 0; reserved = 0; total = 0
+wrote = 0; skipped = 0; reserved = 0; total = 0; flagged_count = 0
 new_entries = []
 now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
@@ -884,6 +899,14 @@ for s in skills:
     if not name:
         continue
     total += 1
+    if is_flagged(s):
+        # Print one notice per flagged skill so the user can see exactly
+        # what was suppressed. We deliberately use stderr-equivalent
+        # phrasing on stdout because the bulk loop runs inside bash -e
+        # and stderr would be muted in some shells; visibility wins.
+        print(f"==> skipped {name} (flagged by security scanner)")
+        flagged_count += 1
+        continue
     if name in RESERVED:
         reserved += 1
         continue
@@ -946,7 +969,11 @@ if new_entries:
     os.replace(tmp, manifest_path)
     os.chmod(manifest_path, 0o600)
 
-print(f"==> bulk: wrote {wrote} files for {total - reserved}/{total} skills (skipped {skipped}, reserved {reserved})")
+eligible = total - reserved - flagged_count
+print(
+    f"==> bulk: wrote {wrote} files for {eligible}/{total} skills "
+    f"(skipped {skipped}, reserved {reserved}, flagged {flagged_count})"
+)
 PY
 }
 
@@ -1504,6 +1531,7 @@ if [ "\$BULK_MODE" = "1" ]; then
 import base64, json, re, sys
 data = json.load(open(sys.argv[1]))
 out = sys.stdout.buffer
+err = sys.stderr
 NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 PART_RE = re.compile(r"[^A-Za-z0-9._-]")
 def safe_path(rel):
@@ -1514,9 +1542,22 @@ def safe_path(rel):
             return None
         parts.append(PART_RE.sub("_", p))
     return "/".join(parts) if parts else None
+def is_flagged(s):
+    # Mirror of the bulk-with-helpers loop -- a flagged skill must
+    # never reach disk no matter which install mode is in use.
+    return (
+        s.get("scan_status") == "flagged"
+        or s.get("runnable") is False
+        or s.get("blocked_reason") == "scan_flagged"
+    )
 for s in data.get("skills", []) or []:
     name = (s.get("name") or "").strip()
     if not name:
+        continue
+    if is_flagged(s):
+        # stderr so the line-extracting bash loop downstream
+        # (NUL-delimited triples on stdout) keeps working unchanged.
+        err.write(f"==> skipped {name} (flagged by security scanner)\\n")
         continue
     safe_name = NAME_RE.sub("_", name)
     body = (s.get("content") or "").encode("utf-8")
@@ -1538,9 +1579,20 @@ for s in data.get("skills", []) or []:
       # Operators who need full multi-file install should ensure python3
       # is on PATH; we still install the SKILL.md so the skill is at least
       # discoverable.
+      #
+      # The select(...) predicate must reject any skill the security
+      # scanner has flagged -- the same three signals the python emitter
+      # checks, expressed in jq. This is a hard correctness boundary:
+      # without it a flagged skill would land in ~/.claude/skills and
+      # the agent would discover and execute it natively.
       jq -j '
         .skills[]
         | select((.name? // "") != "")
+        | select(
+            (.scan_status? // "") != "flagged"
+            and (.runnable? // true) != false
+            and (.blocked_reason? // "") != "scan_flagged"
+          )
         | (
             (.name | gsub("[^A-Za-z0-9._-]"; "_"))
             + "\\u0000"
@@ -1550,6 +1602,18 @@ for s in data.get("skills", []) or []:
             + "\\u0000"
           )
       ' < "\$CATALOG_TMP"
+      # Print one notice per filtered-out flagged skill on stderr so the
+      # user sees what was suppressed (jq's stdout is going to the bash
+      # while-read loop downstream, can't mix the two streams).
+      jq -r '
+        .skills[]
+        | select(
+            (.scan_status? // "") == "flagged"
+            or (.runnable? // true) == false
+            or (.blocked_reason? // "") == "scan_flagged"
+          )
+        | "==> skipped \\(.name) (flagged by security scanner)"
+      ' < "\$CATALOG_TMP" >&2 || true
       if jq -e '[.skills[]?.ancillary_files // {} | length] | add // 0 | . > 0' < "\$CATALOG_TMP" >/dev/null 2>&1; then
         echo "warn: ancillary files were skipped (install python3 to materialize the full skill folder)" >&2
       fi
