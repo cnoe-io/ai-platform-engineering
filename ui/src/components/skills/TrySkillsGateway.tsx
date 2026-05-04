@@ -43,7 +43,7 @@ export function TrySkillsGateway() {
   const [copiedSkill, setCopiedSkill] = useState(false);
   const [copiedInstall, setCopiedInstall] = useState(false);
 
-  // Bootstrap skill customization
+  // Live-skills skill customization
   const [skillCommandName, setSkillCommandName] = useState("skills");
   const [skillDescription, setSkillDescription] = useState(
     "Browse and install skills from the CAIPE skill catalog",
@@ -68,10 +68,10 @@ export function TrySkillsGateway() {
   const [copiedUpgrade, setCopiedUpgrade] = useState(false);
   const [copiedDownload, setCopiedDownload] = useState(false);
 
-  // Per-agent rendered bootstrap (fetched from
-  // /api/skills/bootstrap?agent=<id>&command_name=...&description=...).
-  // The server resolves the canonical template from SKILLS_BOOTSTRAP_TEMPLATE,
-  // SKILLS_BOOTSTRAP_FILE, the chart default, or a built-in fallback, then
+  // Per-agent rendered live-skills (fetched from
+  // /api/skills/live-skills?agent=<id>&command_name=...&description=...).
+  // The server resolves the canonical template from SKILLS_LIVE_SKILLS_TEMPLATE,
+  // SKILLS_LIVE_SKILLS_FILE, the chart default, or a built-in fallback, then
   // renders it for the selected agent (Markdown frontmatter, plain Markdown,
   // Gemini TOML, or Continue JSON fragment).
   interface AgentMeta {
@@ -95,7 +95,7 @@ export function TrySkillsGateway() {
      *  value when `selectedLayout` is null. */
     default_layout?: AgentLayout;
   }
-  interface BootstrapResponse {
+  interface LiveSkillsResponse {
     agent: string;
     label: string;
     template: string;
@@ -122,8 +122,8 @@ export function TrySkillsGateway() {
     /** Layouts this agent supports, in display order (default first). */
     layouts_available?: AgentLayout[];
   }
-  const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
-  const [bootstrapTemplateSource, setBootstrapTemplateSource] = useState<
+  const [liveSkills, setLiveSkills] = useState<LiveSkillsResponse | null>(null);
+  const [liveSkillsTemplateSource, setLiveSkillsTemplateSource] = useState<
     string | null
   >(null);
   const [agents, setAgents] = useState<AgentMeta[]>([]);
@@ -205,7 +205,7 @@ export function TrySkillsGateway() {
       .catch(() => {});
   }, []);
 
-  // Re-fetch the per-agent rendered bootstrap whenever the agent, scope,
+  // Re-fetch the per-agent rendered live-skills whenever the agent, scope,
   // command name, or description changes. Debounced lightly so typing is
   // smooth. Scope is optional (null = "ask the user first"); if set we
   // forward it so the response carries an `install_path` for the chosen
@@ -221,16 +221,16 @@ export function TrySkillsGateway() {
       if (selectedLayout) params.set("layout", selectedLayout);
       const desc = skillDescription.trim();
       if (desc) params.set("description", desc);
-      fetch(`/api/skills/bootstrap?${params.toString()}`, {
+      fetch(`/api/skills/live-skills?${params.toString()}`, {
         credentials: "include",
         signal: controller.signal,
       })
         .then((res) => (res.ok ? res.json() : null))
-        .then((data: BootstrapResponse | null) => {
+        .then((data: LiveSkillsResponse | null) => {
           if (!data || typeof data.template !== "string") return;
-          setBootstrap(data);
+          setLiveSkills(data);
           if (typeof data.source === "string") {
-            setBootstrapTemplateSource(data.source);
+            setLiveSkillsTemplateSource(data.source);
           }
           if (Array.isArray(data.agents)) setAgents(data.agents);
         })
@@ -252,7 +252,7 @@ export function TrySkillsGateway() {
   // available, or null when both are valid (force the user to pick again).
   useEffect(() => {
     const meta = agents.find((a) => a.id === selectedAgent);
-    if (!meta) return; // first paint, before /api/skills/bootstrap returns
+    if (!meta) return; // first paint, before /api/skills/live-skills returns
     if (selectedScope && !meta.scopes_available.includes(selectedScope)) {
       setSelectedScope(
         meta.scopes_available.length === 1 ? meta.scopes_available[0] : null,
@@ -329,15 +329,15 @@ export function TrySkillsGateway() {
 
   // Rendered artifact + metadata from the server (per selected agent).
   // Falls back to placeholders while the first fetch is in flight.
-  const bootstrapSkillContent =
-    bootstrap?.template ?? "# Loading bootstrap skill template…\n";
-  const installPath = bootstrap?.install_path ?? null;
-  const isFragment = bootstrap?.is_fragment ?? false;
-  const launchGuide = bootstrap?.launch_guide ?? "";
-  const agentLabel = bootstrap?.label ?? "Claude Code";
-  const agentDocsUrl = bootstrap?.docs_url;
+  const liveSkillsSkillContent =
+    liveSkills?.template ?? "# Loading live-skills skill template…\n";
+  const installPath = liveSkills?.install_path ?? null;
+  const isFragment = liveSkills?.is_fragment ?? false;
+  const launchGuide = liveSkills?.launch_guide ?? "";
+  const agentLabel = liveSkills?.label ?? "Claude Code";
+  const agentDocsUrl = liveSkills?.docs_url;
   const scopesAvailable: InstallScope[] =
-    bootstrap?.scopes_available ?? ["user", "project"];
+    liveSkills?.scopes_available ?? ["user", "project"];
 
   // Build the heredoc-style install command, scoped to the picked location.
   // null when the user hasn't picked a scope yet (UI hides the block in that
@@ -354,8 +354,8 @@ export function TrySkillsGateway() {
     const expandedPath = installPath.startsWith("~/")
       ? `"$HOME/${installPath.slice(2)}"`
       : installPath;
-    return `mkdir -p ${expandedDir}\ncat > ${expandedPath} << 'SKILL'\n${bootstrapSkillContent}${
-      bootstrapSkillContent.endsWith("\n") ? "" : "\n"
+    return `mkdir -p ${expandedDir}\ncat > ${expandedPath} << 'SKILL'\n${liveSkillsSkillContent}${
+      liveSkillsSkillContent.endsWith("\n") ? "" : "\n"
     }SKILL`;
   })();
 
@@ -386,7 +386,7 @@ export function TrySkillsGateway() {
   // Bulk-install one-liner driven by the "Pick your skills" panel. Reuses
   // the same /api/skills/install.sh endpoint, but adds ?catalog_url=… so the
   // generated script writes one file per catalog skill instead of installing
-  // the bootstrap skill. Disabled when the agent is fragment-config (Continue)
+  // the live-skills skill. Disabled when the agent is fragment-config (Continue)
   // or when no scope has been chosen yet.
   const bulkInstallerSnippet = (() => {
     if (!selectedScope) return null;
@@ -417,7 +417,7 @@ export function TrySkillsGateway() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Start with the live catalog (Step 1), then mint a catalog API key (Step 2) for authenticated{" "}
-          <code className="text-xs">curl</code> / installer access. Step 3 installs the single bootstrap{" "}
+          <code className="text-xs">curl</code> / installer access. Step 3 installs the single live-skills{" "}
           <code className="text-xs">/skills</code> command. Bulk install of every previewed skill is optional and
           listed after Step 2 as an advanced flow.
         </p>
@@ -779,7 +779,7 @@ export function TrySkillsGateway() {
               Optional. Writes one slash-command file per skill from your Step 1 preview using{" "}
               <code className="text-xs">install.sh?catalog_url=…</code>. Complete Step 2 first (API key in{" "}
               <code className="text-xs">~/.config/caipe/config.json</code>), then pick agent and install scope in Step 3
-              before running the one-liner. The default path is a single bootstrap skill in Step 3 — use bulk only when
+              before running the one-liner. The default path is a single live-skills skill in Step 3 — use bulk only when
               you want every previewed skill materialized on disk.
             </CardDescription>
           </CardHeader>
@@ -902,7 +902,7 @@ EOF`}
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
                 2
               </span>
-              Install the bootstrap skill
+              Install the live-skills skill
             </p>
             {/* PRIMARY ACTION — Quick install. Per Shubham Bakshi's review
                 feedback (PR #1268): the per-agent customization grid is
@@ -1144,7 +1144,7 @@ EOF`}
               <div className="flex flex-col gap-2">
                 {(["user", "project"] as InstallScope[]).map((s) => {
                   const supported = scopesAvailable.includes(s);
-                  const path = bootstrap?.install_paths?.[s];
+                  const path = liveSkills?.install_paths?.[s];
                   const isSelected = selectedScope === s;
                   const labelText =
                     s === "user"
@@ -1185,7 +1185,7 @@ EOF`}
                         </span>
                         {path ? (
                           <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {(bootstrap?.layout === "skills" || selectedLayout === "skills")
+                            {(liveSkills?.layout === "skills" || selectedLayout === "skills")
                               ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
                               : path}
                           </code>
@@ -1445,26 +1445,26 @@ EOF`}
 
             <p className="text-[11px] text-muted-foreground mt-4 mb-2 leading-relaxed">
               Template source:{" "}
-              <code>{bootstrapTemplateSource ?? "loading…"}</code>
+              <code>{liveSkillsTemplateSource ?? "loading…"}</code>
               {". Override via Helm value "}
-              <code>skillsBootstrap</code>
+              <code>skillsLiveSkills</code>
               {" (inline) or "}
-              <code>skillsBootstrapName</code>
+              <code>skillsLiveSkillsName</code>
               {" (selects "}
-              <code>data/skills/bootstrap.&lt;name&gt;.md</code>
+              <code>data/skills/live-skills.&lt;name&gt;.md</code>
               {"), or container env "}
-              <code>SKILLS_BOOTSTRAP_FILE</code>
+              <code>SKILLS_LIVE_SKILLS_FILE</code>
               {" / "}
-              <code>SKILLS_BOOTSTRAP_TEMPLATE</code>.
+              <code>SKILLS_LIVE_SKILLS_TEMPLATE</code>.
             </p>
 
             <details className="text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                Preview generated skill ({bootstrap?.file_extension ?? "md"})
+                Preview generated skill ({liveSkills?.file_extension ?? "md"})
               </summary>
               <div className="relative group mt-2">
                 <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
-                  {bootstrapSkillContent}
+                  {liveSkillsSkillContent}
                 </pre>
                 <Button
                   type="button"
@@ -1472,7 +1472,7 @@ EOF`}
                   size="icon"
                   className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                   onClick={() => {
-                    void navigator.clipboard.writeText(bootstrapSkillContent);
+                    void navigator.clipboard.writeText(liveSkillsSkillContent);
                     setCopiedSkill(true);
                     setTimeout(() => setCopiedSkill(false), 2000);
                   }}
@@ -1586,7 +1586,7 @@ EOF`}
               <div className="mt-1 flex flex-col gap-2">
                 {(["user", "project"] as InstallScope[]).map((s) => {
                   const supported = scopesAvailable.includes(s);
-                  const path = bootstrap?.install_paths?.[s];
+                  const path = liveSkills?.install_paths?.[s];
                   const isSelected = selectedScope === s;
                   const labelText =
                     s === "user"
@@ -1622,7 +1622,7 @@ EOF`}
                         </span>
                         {path ? (
                           <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {(bootstrap?.layout === "skills" || selectedLayout === "skills")
+                            {(liveSkills?.layout === "skills" || selectedLayout === "skills")
                               ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
                               : path}
                           </code>
@@ -1668,7 +1668,7 @@ EOF`}
                   selectedScope,
                 )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
                 const targetPath =
-                  bootstrap?.install_paths?.[selectedScope] ?? null;
+                  liveSkills?.install_paths?.[selectedScope] ?? null;
                 const skillCount = previewData?.meta?.total ?? null;
                 // Single-line install snippet. install.sh reads the API key
                 // from ~/.config/caipe/config.json (Step 1), so we don't
@@ -1886,7 +1886,7 @@ function CopyableBlock({
 
 /**
  * Minimal Markdown renderer for the per-agent launch guide returned by
- * /api/skills/bootstrap. Supports the subset our agent registry uses:
+ * /api/skills/live-skills. Supports the subset our agent registry uses:
  *   - fenced code blocks (```...```)
  *   - blank-line separated paragraphs
  *   - **bold** and `inline code`
@@ -1908,7 +1908,7 @@ function LaunchGuide({
   if (!markdown) {
     return (
       <p className="text-xs text-muted-foreground italic">
-        Launch instructions will appear here once the bootstrap template loads.
+        Launch instructions will appear here once the live-skills template loads.
       </p>
     );
   }

@@ -12,8 +12,15 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-Browse the CAIPE skill catalog, fetch skills on demand from the gateway,
-and execute them inline — no local copy required. Skills are always fresh.
+Browse the CAIPE skill catalog and **execute skills inline from the live
+gateway**, without writing them to disk. This is the "live escape hatch":
+useful for one-off experiments, trying skills you haven't installed yet,
+or running a guaranteed-fresh version of a skill that's also installed
+locally.
+
+For routine use, prefer the locally-installed copies (just type
+`/<skill-name>`), and run `/update-skills` when you want to pull catalog
+changes onto disk.
 
 ## SECURITY — never expose the API key
 
@@ -30,8 +37,9 @@ Parse `{{ARG_REF}}` to determine the mode:
 | (empty) | **Browse** — list all skills | `/{{COMMAND_NAME}}` |
 | `<query>` | **Search** — find matching skills | `/{{COMMAND_NAME}} pipeline` |
 | `run <name>` | **Run** — fetch & execute inline | `/{{COMMAND_NAME}} run create-ci-pipeline` |
-| `install <name>` | **Install** — save locally | `/{{COMMAND_NAME}} install create-ci-pipeline` |
-| `update` | **Update** — refresh all locally installed skills | `/{{COMMAND_NAME}} update` |
+
+To install or refresh on-disk copies, use the dedicated `/update-skills`
+slash command instead of doing it inline here.
 
 ## API Helper
 
@@ -48,7 +56,7 @@ sandbox allowlist so it runs without a confirmation dialog each time:
 { "allowedTools": ["Bash(uv run ~/.config/caipe/caipe-skills.py*)"] }
 ```
 
-### One-time bootstrap (first run only)
+### One-time setup (first run only)
 
 If `~/.config/caipe/caipe-skills.py` does not exist, fetch it once:
 
@@ -134,35 +142,11 @@ This is the **primary** mode. Skills are fetched live and executed without savin
    The content is the full skill markdown (with frontmatter, steps, etc.).
 5. Confirm at the start: "Running skill `<name>` (fetched live from gateway)..."
 
-## Steps — Install mode (save locally)
-
-Use when the user explicitly wants a local copy (e.g., for offline use).
-
-1. Call the API helper with `INCLUDE_CONTENT=true` and `QUERY` set to the skill name.
-2. Extract the `content` field from the matching skill.
-3. Detect the install layout and save accordingly:
-   - **Skills layout** (preferred): if `.claude/skills/` exists, save to
-     `.claude/skills/<skill-name>/SKILL.md` (create the directory).
-     Similarly `.cursor/skills/<skill-name>/SKILL.md` for Cursor.
-   - **Commands layout** (fallback): `.claude/commands/<skill-name>.md`,
-     `.cursor/commands/<skill-name>.md`,
-     or `.specify/templates/commands/<skill-name>.md`.
-4. Confirm: "Skill `<name>` installed to `<path>`."
-
-## Steps — Update mode (refresh installed skills)
-
-1. Detect the layout:
-   - Skills layout: scan `.claude/skills/*/SKILL.md` (and `.cursor/skills/*/SKILL.md`).
-   - Commands layout: list `.md` files in the commands directory, excluding `{{COMMAND_NAME}}.md` and `speckit.*.md`.
-2. For each installed skill, extract the skill name (directory name for skills layout, filename stem for commands layout).
-3. Fetch each from the API with `INCLUDE_CONTENT=true`.
-4. Overwrite the local file with the fetched content.
-5. Report what was updated.
-
 ## Notes
 
 - API path: `/api/skills` — no `/v1/` prefix
 - `source=github` for GitHub hub skills, `source=gitlab` for GitLab, `source=default` for built-in
 - `repo=owner/repo` to filter by a specific hub repository
 - To browse all: `/{{COMMAND_NAME}}` — to search: `/{{COMMAND_NAME}} <query>`
-- To run live: `/{{COMMAND_NAME}} run <name>` — to install locally: `/{{COMMAND_NAME}} install <name>`
+- To run live: `/{{COMMAND_NAME}} run <name>`
+- To install or refresh on-disk copies: use `/update-skills` (separate slash command).

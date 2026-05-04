@@ -1,6 +1,6 @@
 /**
  * Resolve the public-facing origin (`https://host`) for URLs we hand back
- * to clients (install.sh `base_url`, bootstrap callback URL, same-origin
+ * to clients (install.sh `base_url`, live-skills callback URL, same-origin
  * checks for `catalog_url`).
  *
  * Why we can't just use `new URL(request.url).origin`:

@@ -1,5 +1,5 @@
 /**
- * Agent registry + per-agent rendering for the bootstrap skill.
+ * Agent registry + per-agent rendering for the live-skills skill.
  *
  * One canonical Markdown template (with `---\ndescription:\n---` frontmatter
  * and `{{COMMAND_NAME}}`, `{{DESCRIPTION}}`, `{{BASE_URL}}`, `{{ARG_REF}}`
@@ -42,7 +42,7 @@ export type AgentScope = "user" | "project";
  *   Claude Code (Oct 2025), Cursor, and opencode; all three back-scan
  *   `.claude/skills/` for cross-agent compatibility.
  *
- * The bootstrap UI exposes this as a per-agent toggle for agents that
+ * The live-skills UI exposes this as a per-agent toggle for agents that
  * support both layouts (Claude, Cursor today). Agents without a
  * `skillsPaths` entry only support `commands`.
  */
@@ -307,7 +307,7 @@ interface ParsedTemplate {
  * closing `---` (or the full input if no frontmatter).
  *
  * Intentionally conservative: only single-line `key: value` pairs are
- * recognized; multi-line/folded scalars are left in the body. The bootstrap
+ * recognized; multi-line/folded scalars are left in the body. The live-skills
  * template uses only `description:` so this is sufficient.
  */
 export function parseFrontmatter(template: string): ParsedTemplate {
@@ -468,7 +468,7 @@ export function layoutsAvailableFor(agent: AgentSpec): AgentLayout[] {
 export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderResult {
   const parsed = parseFrontmatter(inputs.canonicalTemplate);
 
-  // The canonical bootstrap.md ships `description: {{DESCRIPTION}}` so the
+  // The canonical live-skills.md ships `description: {{DESCRIPTION}}` so the
   // single template can be reused across agents. If we picked that string up
   // verbatim it would land in the rendered frontmatter as
   // `description: "{{DESCRIPTION}}"` (quoteYaml double-quotes anything with
@@ -506,7 +506,7 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
   // For the `skills` layout, every artifact is a Markdown file with
   // frontmatter (Cursor / Claude / opencode all REQUIRE name + description
   // frontmatter for skill auto-discovery). Override the per-agent format
-  // when the skills layout is in use to make sure the bootstrap skill is
+  // when the skills layout is in use to make sure the live-skills skill is
   // discoverable. The frontmatter MUST include `name:` matching the
   // directory name — see Cursor / Claude / opencode docs.
   const useSkillsLayout = resolvedLayout === "skills";

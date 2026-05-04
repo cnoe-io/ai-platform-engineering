@@ -1,12 +1,12 @@
 /**
  * GET /api/skills/install.sh
  *
- * Returns a portable bash installer that fetches the rendered bootstrap
+ * Returns a portable bash installer that fetches the rendered live-skills
  * template for a given agent + scope and writes it to disk. The script is
  * intended for `curl … | bash` or "download & inspect first" workflows
  * surfaced from the Skills API Gateway UI.
  *
- * **Default flow**: install the single bootstrap `/skills` command (no `catalog_url`).
+ * **Default flow**: install the single live-skills `/skills` command (no `catalog_url`).
  * **Advanced**: pass `catalog_url=…` (encoded `GET /api/skills?…` from the gateway preview) to
  * materialize one file per skill from that query — requires the same catalog API key setup as
  * the default flow. Prefer exploring the live catalog and API key docs in the gateway UI first.
@@ -36,7 +36,7 @@
  *     The Step-3 UI walks users through creating the config.json file, so the
  *     happy path is "set it once, never type the key again."
  *   - The rendered template body is NOT baked into the script. Instead the
- *     script does a fresh GET to /api/skills/bootstrap?... at install time,
+ *     script does a fresh GET to /api/skills/live-skills?... at install time,
  *     so users always get the latest canonical template and the script stays
  *     small and easy to audit.
  *   - We refuse to overwrite an existing target file unless `--upgrade` (for
@@ -63,10 +63,10 @@ import {
   scopesAvailableFor,
   type AgentLayout,
   type AgentSpec,
-} from "../bootstrap/agents";
+} from "../live-skills/agents";
 import { getRequestOrigin } from "../_lib/request-origin";
 
-/* ---------- input sanitizers (mirror the bootstrap route) ---------- */
+/* ---------- input sanitizers (mirror the live-skills route) ---------- */
 
 function sanitizeCommandName(raw: string | null): string {
   const trimmed = (raw ?? "").trim();
@@ -99,7 +99,7 @@ function sanitizeBaseUrl(raw: string | null): string | null {
  * Query Builder. We only allow URLs that point back at our own gateway's
  * `/api/skills` listing endpoint — never an arbitrary host. Returning the
  * normalized URL means `install.sh` switches into "bulk install" mode and
- * iterates the catalog response instead of installing the bootstrap skill.
+ * iterates the catalog response instead of installing the live-skills skill.
  *
  * Constraints (enforced server-side, not by the bash script):
  *   - http:// or https:// only
@@ -201,7 +201,7 @@ interface ScriptInputs {
   description: string;
   baseUrl: string;
   /**
-   * When set, the installer runs in BULK mode: it ignores the bootstrap
+   * When set, the installer runs in BULK mode: it ignores the live-skills
    * template and instead fetches this URL (must be `<baseUrl>/api/skills?…`),
    * iterating the response and writing one skill file per catalog entry into
    * the agent's commands directory.
@@ -237,7 +237,7 @@ function buildScript({
     base_url: baseUrl,
     ...(description ? { description } : {}),
   }).toString();
-  const bootstrapUrl = `${baseUrl}/api/skills/bootstrap?${queryString}`;
+  const liveSkillsUrl = `${baseUrl}/api/skills/live-skills?${queryString}`;
   const fileExt = layout === "skills" ? "md" : extensionForFormat(agent.format);
   const bulkMode = !!catalogUrl;
 
@@ -249,7 +249,7 @@ function buildScript({
   const Q_COMMAND = shq(commandName);
   const Q_FORMAT = shq(agent.format);
   const Q_INSTALL_PATH = shq(resolvedPath);
-  const Q_BOOTSTRAP_URL = shq(bootstrapUrl);
+  const Q_LIVE_SKILLS_URL = shq(liveSkillsUrl);
   const Q_BASE_URL = shq(baseUrl);
   const Q_COMMANDS_DIR = shq(commandsDirTemplate);
   const Q_FILE_EXT = shq(fileExt);
@@ -262,7 +262,7 @@ function buildScript({
 # Agent : ${agent.label} (${agent.id})
 # Scope : ${scope} (${scope === "user" ? "user-global" : "project-local"})
 # Format: ${agent.format}
-# Mode  : ${bulkMode ? "BULK (one file per skill from catalog query)" : "single bootstrap skill"}
+# Mode  : ${bulkMode ? "BULK (one file per skill from catalog query)" : "single live-skills skill"}
 # Target: ${bulkMode ? commandsDirTemplate + "/<skill>." + fileExt : resolvedPath}
 #
 # Usage:
@@ -285,7 +285,7 @@ FORMAT=${Q_FORMAT}
 INSTALL_PATH_RAW=${Q_INSTALL_PATH}
 COMMANDS_DIR_RAW=${Q_COMMANDS_DIR}
 FILE_EXT=${Q_FILE_EXT}
-BOOTSTRAP_URL=${Q_BOOTSTRAP_URL}
+LIVE_SKILLS_URL=${Q_LIVE_SKILLS_URL}
 BASE_URL=${Q_BASE_URL}
 CATALOG_URL=${Q_CATALOG_URL}
 BULK_MODE=${bulkMode ? "1" : "0"}
@@ -297,13 +297,13 @@ UPGRADE=0
 
 # Sidecar manifest of files this installer has written, used by --upgrade to
 # decide whether it's safe to overwrite an existing target. Lives next to the
-# config.json the bootstrap helper already reads, so a single dotfile sync
+# config.json the live-skills helper already reads, so a single dotfile sync
 # moves both with the user.
 MANIFEST_PATH="\${CAIPE_INSTALL_MANIFEST:-\${HOME:-.}/.config/caipe/installed.json}"
 
 usage() {
   cat <<USAGE
-install-skills.sh — installs the CAIPE bootstrap skill for \$AGENT_LABEL.
+install-skills.sh — installs the CAIPE live-skills skill for \$AGENT_LABEL.
 
 Usage:
   $0 [--upgrade|--force] [--api-key=<key>]
@@ -366,7 +366,7 @@ while [ "\$#" -gt 0 ]; do
 done
 
 # Try the on-disk config files when no key has been supplied yet. We use
-# python3 (always available where this script runs because the bootstrap
+# python3 (always available where this script runs because the live-skills
 # helper requires it) so we don't need to ship a JSON parser in bash.
 read_api_key_from_config() {
   local cfg_path="\$1"
@@ -768,13 +768,13 @@ trap 'rm -f "\$TMP_FILE"' EXIT
 HTTP_STATUS="\$(curl -sS -o "\$TMP_FILE" -w '%{http_code}' \\
   -H "X-Caipe-Catalog-Key: \$API_KEY" \\
   -H 'Accept: application/json' \\
-  "\$BOOTSTRAP_URL")" || {
+  "\$LIVE_SKILLS_URL")" || {
     echo "error: failed to reach \$BASE_URL" >&2
     exit 69
   }
 
 if [ "\$HTTP_STATUS" != "200" ]; then
-  echo "error: gateway returned HTTP \$HTTP_STATUS for \$BOOTSTRAP_URL" >&2
+  echo "error: gateway returned HTTP \$HTTP_STATUS for \$LIVE_SKILLS_URL" >&2
   if [ -s "\$TMP_FILE" ]; then
     echo "       body: \$(head -c 500 "\$TMP_FILE")" >&2
   fi

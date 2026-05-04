@@ -20,7 +20,7 @@
  *   5. The footer action closes the dialog.
  *
  * We mock `fetch` per-URL so the component receives realistic shapes from
- * `/api/skills/bootstrap`, `/api/skills`, `/api/catalog-api-keys`, etc.
+ * `/api/skills/live-skills`, `/api/skills`, `/api/catalog-api-keys`, etc.
  * `next/navigation` and `next/link` are stubbed because they are imported
  * transitively and would otherwise throw outside an `<App>` router.
  */
@@ -83,10 +83,10 @@ function jsonResponse({ ok, status = 200, body = {} }: FetchEntry) {
   } as Response);
 }
 
-const BOOTSTRAP_BODY = {
+const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
-  template: "# Skills bootstrap\nDo a thing.",
+  template: "# Live-skills\nDo a thing.",
   install_path: "./.claude/commands/skills.md",
   install_paths: {
     user: "~/.claude/commands/skills.md",
@@ -177,13 +177,13 @@ beforeEach(() => {
     }
 
     // Skills list (used for autocomplete + preview).
-    if (url.startsWith("/api/skills") && !url.includes("/bootstrap")) {
+    if (url.startsWith("/api/skills") && !url.includes('/live-skills')) {
       return jsonResponse({ ok: true, body: SKILLS_LIST_BODY });
     }
 
-    // Bootstrap (per-agent rendered template).
-    if (url.startsWith("/api/skills/bootstrap")) {
-      return jsonResponse({ ok: true, body: BOOTSTRAP_BODY });
+    // Live-skills (per-agent rendered template).
+    if (url.startsWith("/api/skills/live-skills")) {
+      return jsonResponse({ ok: true, body: LIVE_SKILLS_BODY });
     }
 
     // Anything else: log + return empty 200 so we don't crash.
@@ -226,17 +226,17 @@ async function renderAndOpenModal({
   const user = userEvent.setup();
   render(<TrySkillsGateway />);
 
-  // Wait for the bootstrap fetch to resolve so the modal has agents +
+  // Wait for the live-skills fetch to resolve so the modal has agents +
   // install_paths populated. Without this the dialog opens with
-  // "Pick an install scope" because `bootstrap` is still null.
+  // "Pick an install scope" because `liveSkills` is still null.
   await waitFor(() =>
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/skills/bootstrap"),
+      expect.stringContaining("/api/skills/live-skills"),
       expect.anything(),
     ),
   );
   // After PR #1268 review feedback (Shubham Bakshi), "Quick install" is
-  // now both the primary CTA in Step 3 ("Install the bootstrap skill") AND
+  // now both the primary CTA in Step 3 ("Install the live-skills skill") AND
   // the inline button under the Query Builder's Preview button. Either one
   // opens the same dialog, so we just pick the first match.
   await waitFor(() => {
@@ -287,13 +287,13 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     // Agent chip: default selected agent is "claude" → label "Claude Code".
-    // The chip appears alongside the bootstrap target path. We use
+    // The chip appears alongside the live-skills target path. We use
     // `getAllByText` because the agent label also appears in the picker
     // <select>.
     expect(within(dialog).getAllByText(/Claude Code/).length).toBeGreaterThan(0);
 
-    // Default scope after bootstrap returns is "project" (from the mocked
-    // BOOTSTRAP_BODY.scope), so the project path should be in the chip
+    // Default scope after the live-skills fetch returns is "project" (from the mocked
+    // LIVE_SKILLS_BODY.scope), so the project path should be in the chip
     // row. The same path also appears in the scope picker label, so we
     // assert at-least-one match instead of unique.
     expect(

@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  *
- * Tests for GET /api/skills/bootstrap
+ * Tests for GET /api/skills/live-skills
  *
  * Covers:
  *   - Default (no query) renders Claude with default command/description
@@ -10,8 +10,8 @@
  *   - Unknown agent ids fall back to Claude with `agent_fallback: true`.
  *   - Sanitization of `command_name`, `description`, and `base_url` rejects
  *     hostile inputs and falls back to safe defaults.
- *   - Template resolution order: SKILLS_BOOTSTRAP_TEMPLATE env >
- *     SKILLS_BOOTSTRAP_FILE env > chart-relative file > built-in fallback.
+ *   - Template resolution order: SKILLS_LIVE_SKILLS_TEMPLATE env >
+ *     SKILLS_LIVE_SKILLS_FILE env > chart-relative file > built-in fallback.
  *   - The response carries the catalog of all agents and the canonical
  *     template for the UI.
  *   - Cache-Control: no-store is set.
@@ -51,8 +51,8 @@ beforeEach(() => {
   // Default: no files exist anywhere — falls through to built-in template.
   mockExists.mockReturnValue(false);
   mockStat.mockReturnValue({ isFile: () => false, size: 0 });
-  delete process.env.SKILLS_BOOTSTRAP_TEMPLATE;
-  delete process.env.SKILLS_BOOTSTRAP_FILE;
+  delete process.env.SKILLS_LIVE_SKILLS_TEMPLATE;
+  delete process.env.SKILLS_LIVE_SKILLS_FILE;
 });
 
 afterAll(() => {
@@ -73,9 +73,9 @@ const callGET = async (url: string) => {
   return res.json() as Promise<any>;
 };
 
-describe('GET /api/skills/bootstrap — defaults', () => {
+describe('GET /api/skills/live-skills — defaults', () => {
   it('returns Claude rendering with default command/description when no query', async () => {
-    const data = await callGET('https://app.example.com/api/skills/bootstrap');
+    const data = await callGET('https://app.example.com/api/skills/live-skills');
 
     expect(data.agent).toBe('claude');
     expect(data.agent_fallback).toBe(false);
@@ -123,18 +123,18 @@ describe('GET /api/skills/bootstrap — defaults', () => {
 
   it('sets Cache-Control: no-store', async () => {
     const res = await GET(
-      new Request('https://app.example.com/api/skills/bootstrap'),
+      new Request('https://app.example.com/api/skills/live-skills'),
     );
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 
   it('reports the source as fallback when no file/env source is configured', async () => {
-    const data = await callGET('https://app.example.com/api/skills/bootstrap');
+    const data = await callGET('https://app.example.com/api/skills/live-skills');
     expect(data.source).toBe('fallback');
   });
 });
 
-describe('GET /api/skills/bootstrap — per-agent rendering', () => {
+describe('GET /api/skills/live-skills — per-agent rendering', () => {
   // Each row picks a scope that the agent actually supports — Codex is
   // user-only, Spec Kit is project-only, the rest support both and we
   // exercise both flavours below.
@@ -159,7 +159,7 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
     'agent=%s scope=%s renders with the right install path / format / argRef',
     async (agent, scope, installPath, format, argRef) => {
       const data = await callGET(
-        `https://app.example.com/api/skills/bootstrap?agent=${agent}&scope=${scope}`,
+        `https://app.example.com/api/skills/live-skills?agent=${agent}&scope=${scope}`,
       );
       expect(data.agent).toBe(agent);
       expect(data.agent_fallback).toBe(false);
@@ -174,7 +174,7 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
   it('returns scope_fallback=true when the requested scope is not supported', async () => {
     // Codex CLI has no project scope (per openai/codex#9848).
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=codex&scope=project',
+      'https://app.example.com/api/skills/live-skills?agent=codex&scope=project',
     );
     expect(data.agent).toBe('codex');
     expect(data.scope_requested).toBe('project');
@@ -186,7 +186,7 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
 
   it('ignores invalid scope values and treats them as unset', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=claude&scope=root',
+      'https://app.example.com/api/skills/live-skills?agent=claude&scope=root',
     );
     expect(data.scope_requested).toBeNull();
     expect(data.install_path).toBeNull();
@@ -195,19 +195,19 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
 
   it('Continue is the only fragment-style result', async () => {
     const cont = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=continue&scope=user',
+      'https://app.example.com/api/skills/live-skills?agent=continue&scope=user',
     );
     expect(cont.is_fragment).toBe(true);
 
     const claude = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=claude&scope=user',
+      'https://app.example.com/api/skills/live-skills?agent=claude&scope=user',
     );
     expect(claude.is_fragment).toBe(false);
   });
 
   it('Gemini output is a TOML payload that lints as basic TOML', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=gemini&scope=user',
+      'https://app.example.com/api/skills/live-skills?agent=gemini&scope=user',
     );
     expect(data.template).toMatch(/^description = ".+"\nprompt = """\n/);
     expect(data.template).toMatch(/"""\n$/);
@@ -215,7 +215,7 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
 
   it('Continue output is parseable JSON', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=continue&scope=user',
+      'https://app.example.com/api/skills/live-skills?agent=continue&scope=user',
     );
     const parsed = JSON.parse(data.template);
     expect(parsed.name).toBe('skills');
@@ -224,7 +224,7 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
 
   it('falls back to Claude with agent_fallback=true for unknown agents', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=does-not-exist',
+      'https://app.example.com/api/skills/live-skills?agent=does-not-exist',
     );
     expect(data.agent).toBe('claude');
     expect(data.agent_fallback).toBe(true);
@@ -232,17 +232,17 @@ describe('GET /api/skills/bootstrap — per-agent rendering', () => {
 
   it('treats agent ids case-insensitively', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?agent=GEMINI',
+      'https://app.example.com/api/skills/live-skills?agent=GEMINI',
     );
     expect(data.agent).toBe('gemini');
     expect(data.agent_fallback).toBe(false);
   });
 });
 
-describe('GET /api/skills/bootstrap — input sanitization', () => {
+describe('GET /api/skills/live-skills — input sanitization', () => {
   it('substitutes a clean command_name into install path and body', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?command_name=my-skills&scope=project',
+      'https://app.example.com/api/skills/live-skills?command_name=my-skills&scope=project',
     );
     expect(data.inputs.command_name).toBe('my-skills');
     expect(data.install_path).toBe('./.claude/commands/my-skills.md');
@@ -261,7 +261,7 @@ describe('GET /api/skills/bootstrap — input sanitization', () => {
     ['x'.repeat(65), 'too long (>64 chars)'],
   ])('rejects hostile command_name (%s) and uses default "skills"', async (bad) => {
     const data = await callGET(
-      `https://app.example.com/api/skills/bootstrap?command_name=${encodeURIComponent(
+      `https://app.example.com/api/skills/live-skills?command_name=${encodeURIComponent(
         bad,
       )}&scope=project`,
     );
@@ -272,14 +272,14 @@ describe('GET /api/skills/bootstrap — input sanitization', () => {
   it('caps description at 500 chars', async () => {
     const long = 'a'.repeat(600);
     const data = await callGET(
-      `https://app.example.com/api/skills/bootstrap?description=${encodeURIComponent(long)}`,
+      `https://app.example.com/api/skills/live-skills?description=${encodeURIComponent(long)}`,
     );
     expect(data.inputs.description.length).toBe(500);
   });
 
   it('uses a custom base_url when valid (https)', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?base_url=https://gateway.test.io',
+      'https://app.example.com/api/skills/live-skills?base_url=https://gateway.test.io',
     );
     expect(data.inputs.base_url).toBe('https://gateway.test.io');
     expect(data.template).toContain('https://gateway.test.io/api/skills');
@@ -287,7 +287,7 @@ describe('GET /api/skills/bootstrap — input sanitization', () => {
 
   it('strips trailing slashes from base_url', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?base_url=https://gateway.test.io/',
+      'https://app.example.com/api/skills/live-skills?base_url=https://gateway.test.io/',
     );
     expect(data.inputs.base_url).toBe('https://gateway.test.io');
   });
@@ -300,17 +300,17 @@ describe('GET /api/skills/bootstrap — input sanitization', () => {
     ['not a url', 'invalid URL'],
   ])('rejects hostile base_url (%s) and falls back to request origin', async (bad) => {
     const data = await callGET(
-      `https://app.example.com/api/skills/bootstrap?base_url=${encodeURIComponent(bad)}`,
+      `https://app.example.com/api/skills/live-skills?base_url=${encodeURIComponent(bad)}`,
     );
     expect(data.inputs.base_url).toBe('https://app.example.com');
   });
 });
 
-describe('GET /api/skills/bootstrap — template resolution order', () => {
-  it('SKILLS_BOOTSTRAP_TEMPLATE env wins over everything else', async () => {
-    process.env.SKILLS_BOOTSTRAP_TEMPLATE =
+describe('GET /api/skills/live-skills — template resolution order', () => {
+  it('SKILLS_LIVE_SKILLS_TEMPLATE env wins over everything else', async () => {
+    process.env.SKILLS_LIVE_SKILLS_TEMPLATE =
       '---\ndescription: From env\n---\nbody from env {{ARG_REF}}\n';
-    process.env.SKILLS_BOOTSTRAP_FILE = '/path/to/file.md';
+    process.env.SKILLS_LIVE_SKILLS_FILE = '/path/to/file.md';
     mockExists.mockReturnValue(true);
     mockStat.mockReturnValue({ isFile: () => true, size: 100 });
     mockRead.mockReturnValue(
@@ -318,33 +318,33 @@ describe('GET /api/skills/bootstrap — template resolution order', () => {
     );
 
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap',
+      'https://app.example.com/api/skills/live-skills',
     );
-    expect(data.source).toBe('env:SKILLS_BOOTSTRAP_TEMPLATE');
+    expect(data.source).toBe('env:SKILLS_LIVE_SKILLS_TEMPLATE');
     expect(data.template).toContain('body from env');
     expect(data.template).not.toContain('body from file');
     // Description should come from the env template's frontmatter
     expect(data.template).toContain('description: From env');
   });
 
-  it('SKILLS_BOOTSTRAP_FILE wins when SKILLS_BOOTSTRAP_TEMPLATE is empty', async () => {
-    process.env.SKILLS_BOOTSTRAP_FILE = '/var/data/bootstrap.md';
-    mockExists.mockImplementation((p: string) => p === '/var/data/bootstrap.md');
+  it('SKILLS_LIVE_SKILLS_FILE wins when SKILLS_LIVE_SKILLS_TEMPLATE is empty', async () => {
+    process.env.SKILLS_LIVE_SKILLS_FILE = '/var/data/live-skills.md';
+    mockExists.mockImplementation((p: string) => p === '/var/data/live-skills.md');
     mockStat.mockReturnValue({ isFile: () => true, size: 100 });
     mockRead.mockReturnValue(
       '---\ndescription: From file\n---\nbody from file {{ARG_REF}}\n',
     );
 
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap',
+      'https://app.example.com/api/skills/live-skills',
     );
-    expect(data.source).toBe('file:/var/data/bootstrap.md');
+    expect(data.source).toBe('file:/var/data/live-skills.md');
     expect(data.template).toContain('body from file');
     expect(data.template).toContain('description: From file');
   });
 
   it('rejects oversized files (>256 KiB) and falls through to the next source', async () => {
-    process.env.SKILLS_BOOTSTRAP_FILE = '/huge.md';
+    process.env.SKILLS_LIVE_SKILLS_FILE = '/huge.md';
     mockExists.mockReturnValue(true);
     mockStat.mockReturnValue({ isFile: () => true, size: 257 * 1024 });
     mockRead.mockReturnValue('would-be-content');
@@ -352,7 +352,7 @@ describe('GET /api/skills/bootstrap — template resolution order', () => {
     // Suppress the expected console.warn from safeReadFile.
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap',
+      'https://app.example.com/api/skills/live-skills',
     );
     warnSpy.mockRestore();
 
@@ -361,29 +361,29 @@ describe('GET /api/skills/bootstrap — template resolution order', () => {
     expect(mockRead).not.toHaveBeenCalled();
   });
 
-  it('ignores SKILLS_BOOTSTRAP_FILE when the path is not a regular file', async () => {
-    process.env.SKILLS_BOOTSTRAP_FILE = '/etc';
+  it('ignores SKILLS_LIVE_SKILLS_FILE when the path is not a regular file', async () => {
+    process.env.SKILLS_LIVE_SKILLS_FILE = '/etc';
     mockExists.mockReturnValue(true);
     mockStat.mockReturnValue({ isFile: () => false, size: 0 });
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap',
+      'https://app.example.com/api/skills/live-skills',
     );
     expect(data.source).toBe('fallback');
   });
 
-  it('treats a whitespace-only SKILLS_BOOTSTRAP_TEMPLATE as unset', async () => {
-    process.env.SKILLS_BOOTSTRAP_TEMPLATE = '   \n  ';
+  it('treats a whitespace-only SKILLS_LIVE_SKILLS_TEMPLATE as unset', async () => {
+    process.env.SKILLS_LIVE_SKILLS_TEMPLATE = '   \n  ';
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap',
+      'https://app.example.com/api/skills/live-skills',
     );
     expect(data.source).toBe('fallback');
   });
 });
 
-describe('GET /api/skills/bootstrap — response shape', () => {
+describe('GET /api/skills/live-skills — response shape', () => {
   it('exposes placeholders, defaults, and the canonical template for the UI', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap',
+      'https://app.example.com/api/skills/live-skills',
     );
     expect(data.placeholders).toEqual([
       '{{COMMAND_NAME}}',
@@ -397,7 +397,7 @@ describe('GET /api/skills/bootstrap — response shape', () => {
 
   it('agents catalog reflects the user-supplied command_name in install paths', async () => {
     const data = await callGET(
-      'https://app.example.com/api/skills/bootstrap?command_name=catalog',
+      'https://app.example.com/api/skills/live-skills?command_name=catalog',
     );
     const claudeMeta = data.agents.find((a: any) => a.id === 'claude');
     const geminiMeta = data.agents.find((a: any) => a.id === 'gemini');
@@ -436,7 +436,7 @@ describe('GET /api/skills/bootstrap — response shape', () => {
   });
 });
 
-describe('GET /api/skills/bootstrap — layout=skills (Shubham C: skills/<name>/SKILL.md)', () => {
+describe('GET /api/skills/live-skills — layout=skills (Shubham C: skills/<name>/SKILL.md)', () => {
   // Uses GET directly (bypasses callGET wrapper) so `layout=skills` is the
   // only layout in the query string — exercises the new skills-layout branch.
   const callGetRaw = async (url: string) => {
@@ -446,7 +446,7 @@ describe('GET /api/skills/bootstrap — layout=skills (Shubham C: skills/<name>/
 
   it('renders Claude with the skills layout, frontmatter `name:`, and SKILL.md path', async () => {
     const data = await callGetRaw(
-      'https://app.example.com/api/skills/bootstrap?agent=claude&layout=skills&scope=user',
+      'https://app.example.com/api/skills/live-skills?agent=claude&layout=skills&scope=user',
     );
     expect(data.layout).toBe('skills');
     expect(data.layout_requested).toBe('skills');
@@ -460,7 +460,7 @@ describe('GET /api/skills/bootstrap — layout=skills (Shubham C: skills/<name>/
 
   it('falls back to commands when an agent does not support the skills layout (codex)', async () => {
     const data = await callGetRaw(
-      'https://app.example.com/api/skills/bootstrap?agent=codex&layout=skills&scope=user',
+      'https://app.example.com/api/skills/live-skills?agent=codex&layout=skills&scope=user',
     );
     expect(data.layout).toBe('commands');
     expect(data.layout_requested).toBe('skills');
@@ -470,7 +470,7 @@ describe('GET /api/skills/bootstrap — layout=skills (Shubham C: skills/<name>/
 
   it('agents catalog advertises install_paths_by_layout and default_layout', async () => {
     const data = await callGetRaw(
-      'https://app.example.com/api/skills/bootstrap?layout=skills',
+      'https://app.example.com/api/skills/live-skills?layout=skills',
     );
     const claudeMeta = data.agents.find((a: any) => a.id === 'claude');
     expect(claudeMeta.default_layout).toBe('skills');
