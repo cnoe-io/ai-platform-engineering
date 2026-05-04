@@ -10,8 +10,11 @@
  * Routes that use it stay tiny: import {@link makeTemplateRouteHandler},
  * pass a {@link TemplateRouteConfig}, and re-export the result as `GET`.
  *
- * The response shape is unchanged from the historical `bootstrap` route
- * so existing UI code and tests keep working without per-route forks.
+ * History: this handler used to negotiate a `commands`-vs-`skills` layout
+ * and four per-agent file formats. After the skills-only overhaul (see
+ * docs/docs/specs/2026-05-04-skills-only-overhaul/) every agent receives
+ * the same canonical SKILL.md, and the `layout` query param is silently
+ * ignored for backward compatibility with copy-pasted one-liners.
  */
 
 import { NextResponse } from "next/server";
@@ -20,10 +23,8 @@ import path from "path";
 import {
   AGENTS,
   DEFAULT_AGENT_ID,
-  layoutsAvailableFor,
   renderForAgent,
   scopesAvailableFor,
-  type AgentLayout,
   type AgentScope,
   type AgentSpec,
 } from "../live-skills/agents";
@@ -186,12 +187,6 @@ function selectScope(raw: string | null): AgentScope | null {
   return null;
 }
 
-function selectLayout(raw: string | null): AgentLayout | null {
-  const v = (raw ?? "").trim().toLowerCase();
-  if (v === "skills" || v === "commands") return v;
-  return null;
-}
-
 /**
  * Build a Next.js `GET` route handler for a per-agent rendered template.
  *
@@ -205,7 +200,9 @@ export function makeTemplateRouteHandler(
     const url = new URL(request.url);
     const { agent, fallback } = selectAgent(url.searchParams.get("agent"));
     const requestedScope = selectScope(url.searchParams.get("scope"));
-    const requestedLayout = selectLayout(url.searchParams.get("layout"));
+    // `layout=` is intentionally accepted (and ignored) for backward
+    // compatibility with copy-pasted one-liners from before the
+    // skills-only overhaul. See spec FR-007.
 
     const commandName = sanitizeCommandName(
       url.searchParams.get("command_name"),
@@ -228,7 +225,6 @@ export function makeTemplateRouteHandler(
       description: descriptionInput,
       baseUrl,
       scope: requestedScope,
-      layout: requestedLayout,
     });
 
     return NextResponse.json(
@@ -243,45 +239,23 @@ export function makeTemplateRouteHandler(
         scope_requested: requestedScope,
         scope_fallback: rendered.scope_fallback,
         scopes_available: rendered.scopes_available,
-        file_extension: rendered.file_extension,
-        format: rendered.format,
-        is_fragment: rendered.is_fragment,
         launch_guide: rendered.launch_guide,
         docs_url: rendered.docs_url,
-        layout: rendered.layout,
-        layout_requested: requestedLayout,
-        layout_fallback: rendered.layout_fallback,
-        layouts_available: rendered.layouts_available,
 
         agents: Object.values(AGENTS).map((a) => {
-          const layouts = layoutsAvailableFor(a);
-          const pathsByLayout: Partial<
-            Record<AgentLayout, Partial<Record<AgentScope, string>>>
-          > = {};
-          for (const lay of layouts) {
-            const scopes = scopesAvailableFor(a, lay);
-            const layPaths: Partial<Record<AgentScope, string>> = {};
-            const tpl =
-              lay === "skills" && a.skillsPaths
-                ? a.skillsPaths
-                : a.installPaths;
-            for (const s of scopes) {
-              layPaths[s] = tpl[s]!.replace(/\{name\}/g, commandName);
-            }
-            pathsByLayout[lay] = layPaths;
+          const scopes = scopesAvailableFor(a);
+          const installPaths: Partial<Record<AgentScope, readonly string[]>> = {};
+          for (const s of scopes) {
+            installPaths[s] = a.installPaths[s]!.map((p) =>
+              p.replace(/\{name\}/g, commandName),
+            );
           }
-          const defaultLayoutForAgent = layouts[0];
           return {
             id: a.id,
             label: a.label,
-            ext: a.ext,
-            format: a.format,
-            install_paths: pathsByLayout[defaultLayoutForAgent] ?? {},
-            install_paths_by_layout: pathsByLayout,
-            scopes_available: scopesAvailableFor(a, defaultLayoutForAgent),
-            layouts_available: layouts,
-            default_layout: defaultLayoutForAgent,
-            is_fragment: !!a.isFragment,
+            install_paths: installPaths,
+            scopes_available: scopes,
+            arg_ref: a.argRef,
             docs_url: a.docsUrl,
           };
         }),
@@ -292,7 +266,6 @@ export function makeTemplateRouteHandler(
           description: descriptionInput,
           base_url: baseUrl,
           scope: requestedScope,
-          layout: requestedLayout,
         },
         canonical_template: canonicalTemplate,
         placeholders: [
