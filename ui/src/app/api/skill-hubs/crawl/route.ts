@@ -6,6 +6,7 @@ import {
   validateCredentialsRef,
 } from "@/lib/api-middleware";
 import { crawlGitHubRepo, crawlGitLabRepo } from "@/lib/hub-crawl";
+import { normalizeHubLocation } from "@/app/api/skill-hubs/_lib/normalize";
 
 /**
  * POST /api/skill-hubs/crawl — preview SKILL.md paths for a repo (FR-017).
@@ -60,18 +61,24 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       return NextResponse.json(data, { status: res.status });
     }
 
-    // Local fallback (Python service not configured, OR type === "gitlab")
+    // Local fallback (Python service not configured, OR type === "gitlab").
+    //
+    // The preview button accepts whatever the admin types — typically a
+    // full URL (`https://gitlab.com/group/sub/project`) rather than the
+    // canonical `group/sub/project`. The shared `normalizeHubLocation`
+    // collapses both to the form the crawlers expect: GitHub stays flat
+    // (`owner/repo`); GitLab preserves subgroup nesting. Without this,
+    // GitLab crawls hit `encodeURIComponent` against a full URL and
+    // produce 404s from the GitLab API (the project lookup `/projects/
+    // <id-or-encoded-path>` cannot resolve a URL-encoded URL).
     const maxPreview = 100;
+    const normalizedLocation = normalizeHubLocation(
+      location.trim(),
+      type === "gitlab" ? "gitlab" : "github",
+    );
     try {
       if (type === "github") {
-        let loc = location.trim();
-        try {
-          const parsed = new URL(loc);
-          if (parsed.hostname === "github.com" || parsed.hostname.endsWith(".github.com")) {
-            loc = parsed.pathname.replace(/^\/+|\/+$/g, "");
-          }
-        } catch { /* not a URL */ }
-        const [owner, repo] = loc.split("/").filter(Boolean);
+        const [owner, repo] = normalizedLocation.split("/").filter(Boolean);
         if (!owner || !repo) {
           return NextResponse.json(
             { error: "invalid_location", message: "Expected owner/repo." },
@@ -95,10 +102,29 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       }
 
       if (type === "gitlab") {
+        // Reject anything that still looks like a URL after normalization
+        // (defensive: covers self-hosted hosts not in the GITLAB_API_URL
+        // allow-list which `normalizeHubLocation` deliberately leaves
+        // unchanged so we don't smuggle attacker-controlled hosts past
+        // it). A URL here would silently produce 404s downstream.
+        if (
+          normalizedLocation.includes("://") ||
+          !normalizedLocation.includes("/")
+        ) {
+          return NextResponse.json(
+            {
+              error: "invalid_location",
+              message:
+                "Expected a GitLab project path like 'group/project' or 'group/subgroup/project'. Self-hosted GitLab hosts must be configured via GITLAB_API_URL.",
+            },
+            { status: 400 },
+          );
+        }
+
         const token = (credentialsRef ? process.env[credentialsRef] : undefined)
           || process.env.GITLAB_TOKEN;
 
-        const crawled = await crawlGitLabRepo(location.trim(), token);
+        const crawled = await crawlGitLabRepo(normalizedLocation, token);
         const sliced = crawled.slice(0, maxPreview);
         return NextResponse.json({
           paths: sliced.map((s) => s.path),

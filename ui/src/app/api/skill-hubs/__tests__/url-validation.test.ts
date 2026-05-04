@@ -80,6 +80,30 @@ describe("skill-hubs URL hostname validation", () => {
     expect(result).toBe("mycorp/devops/platform");
   });
 
+  // Regression: a user pasted `https://gitlab.com/gitlab-org/ai/skills`
+  // into the admin "Preview skills (crawl)" form and got
+  // "GitLab API error: 404 Not Found" because the preview route did
+  // not run `normalizeHubLocation` before calling `crawlGitLabRepo`,
+  // so the full URL got `encodeURIComponent`'d into the GitLab API
+  // project lookup. Pin the normalization here so the route can rely
+  // on the canonical `gitlab-org/ai/skills` form regardless of how
+  // the URL was typed.
+  it("normalizes the gitlab-org/ai/skills repro URL to the canonical path", () => {
+    const result = normalizeHubLocation(
+      "https://gitlab.com/gitlab-org/ai/skills",
+      "gitlab",
+    );
+    expect(result).toBe("gitlab-org/ai/skills");
+  });
+
+  it("normalizes a gitlab.com URL with a trailing slash", () => {
+    const result = normalizeHubLocation(
+      "https://gitlab.com/gitlab-org/ai/skills/",
+      "gitlab",
+    );
+    expect(result).toBe("gitlab-org/ai/skills");
+  });
+
   it("still flattens GitHub URLs to two segments (no subgroup support)", () => {
     const result = normalizeHubLocation(
       "https://github.com/owner/repo/tree/main",

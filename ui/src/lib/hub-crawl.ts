@@ -508,8 +508,39 @@ export async function crawlGitLabRepo(
   token?: string,
   includePaths?: readonly string[],
 ): Promise<CrawledSkill[]> {
+  // GitLab's API addresses projects by URL-encoded namespaced path
+  // (`group/sub/project`), NOT by full URL. Callers MUST pass the
+  // canonical path; if a URL slips through, `encodeURIComponent`
+  // produces something like `https%3A%2F%2Fgitlab.com%2F...` which
+  // GitLab returns 404 for, and the resulting toast (`GitLab API
+  // error: 404 Not Found`) is impossible to debug without reading the
+  // wire. Fail loud with an actionable message instead.
+  //
+  // Self-hosted callers should set `GITLAB_API_URL` and pass the bare
+  // namespaced path; the shared `normalizeHubLocation` helper in
+  // `app/api/skill-hubs/_lib/normalize` does this correctly for inputs
+  // arriving from the UI.
+  const trimmed = projectPath.trim();
+  if (!trimmed) {
+    throw new Error("GitLab project path is empty");
+  }
+  if (trimmed.includes("://") || trimmed.startsWith("/")) {
+    throw new Error(
+      `GitLab project path must be a namespaced path like ` +
+        `"group/project" or "group/subgroup/project", not a URL ` +
+        `(got: "${trimmed}"). Normalize via normalizeHubLocation() ` +
+        `before calling crawlGitLabRepo.`,
+    );
+  }
+  if (!trimmed.includes("/")) {
+    throw new Error(
+      `GitLab project path must include at least one "/" separator ` +
+        `(got: "${trimmed}").`,
+    );
+  }
+
   const normalizedIncludes = normalizeIncludePaths(includePaths);
-  const encodedProject = encodeURIComponent(projectPath);
+  const encodedProject = encodeURIComponent(trimmed);
   const baseUrl =
     process.env.GITLAB_API_URL || "https://gitlab.com/api/v4";
 
