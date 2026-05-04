@@ -6,26 +6,35 @@
  * or "download & inspect first" workflows surfaced from the Skills API
  * Gateway UI.
  *
- * Three modes (mutually exclusive — picked by query params):
+ * Skills-only layout
+ * ------------------
+ * Every supported coding agent (Claude Code, Cursor, Codex CLI, Gemini
+ * CLI, opencode) consumes the open `agentskills.io` standard
+ * `SKILL.md` format. A single install writes each skill to TWO universal
+ * paths per scope so one run satisfies every supported agent
+ * simultaneously:
  *
+ *   user scope    → `~/.claude/skills/<name>/SKILL.md`
+ *                   `~/.agents/skills/<name>/SKILL.md`
+ *   project scope → `./.claude/skills/<name>/SKILL.md`
+ *                   `./.agents/skills/<name>/SKILL.md`
+ *
+ * The agent picker only affects:
+ *   - which `argRef` substitution token (`$ARGUMENTS` vs `$1`) is baked
+ *     into the helper templates, and
+ *   - which launch-guide footer the success card prints.
+ *
+ * Modes
+ * -----
  * 1. `bulk-with-helpers` (DEFAULT, when no `catalog_url` and no
- *    `mode=live-only`): the new "everything for native discovery" flow.
- *    Bulk-installs every skill from the catalog, drops the two helper
- *    skills (`/skills` live-fetch + `/update-skills` user-driven refresh),
- *    installs the Python catalog helper at ~/.config/caipe/caipe-skills.py,
- *    and (Claude Code only) registers a SessionStart hook that injects
- *    the live catalog index into Claude's `additionalContext`. Auto-seeds
- *    ~/.config/caipe/config.json with the gateway base_url (never the
- *    api_key — user supplies that). Cleans up legacy install artifacts
- *    when `--upgrade` is passed.
- *
- *    Flags exposed by the generated script: `--no-bulk` (skip catalog
- *    materialization), `--no-helpers` (skip the two helper skills),
- *    `--no-hook` (skip the SessionStart hook even on Claude).
- *
- *    Fragment-config agents (Continue today) can't bulk-install — they
- *    silently fall back to live-only so the UI doesn't have to special-
- *    case them.
+ *    `mode=live-only`): bulk-install every catalog skill, drop the two
+ *    helper skills (`/skills` live-fetch + `/update-skills` user-driven
+ *    refresh), install the Python catalog helper at
+ *    ~/.config/caipe/caipe-skills.py, and (Claude only) register the
+ *    SessionStart hook that injects the live catalog index into Claude's
+ *    `additionalContext`. Auto-seeds ~/.config/caipe/config.json with
+ *    the gateway base_url (never the api_key — user supplies that).
+ *    Cleans up legacy install artifacts when `--upgrade` is passed.
  *
  * 2. `live-only` (`?mode=live-only`): the legacy default, demoted to an
  *    Advanced toggle in the UI. Installs ONLY the single `/skills`
@@ -36,70 +45,74 @@
  *    the "Pick your skills" panel. No helpers, no hook.
  *
  * 4. `uninstall` (`?mode=uninstall`): the reverse flow. Reads the sidecar
- *    manifest at `~/.config/caipe/installed.json` (or `./.caipe/installed.json`
- *    for project scope) and walks the user through removing every CAIPE-
- *    owned file with per-item confirmation. Surgically reverses the
- *    Claude `~/.claude/settings.json` SessionStart hook + allowlist patch
- *    when a hook entry is removed. Preserves `config.json` unless `--purge`
- *    is passed. Refuses to touch any path not in the manifest -- so a
- *    user-authored skill at a "CAIPE-looking" path is always safe.
+ *    manifest at `~/.config/caipe/installed.json` (or
+ *    `./.caipe/installed.json` for project scope) and walks the user
+ *    through removing every CAIPE-owned file with per-item confirmation.
+ *    When no `?scope=` is set, walks BOTH manifests in deterministic
+ *    order (user, then project) with independent y/N/a/q loops.
+ *    Surgically reverses the Claude `~/.claude/settings.json`
+ *    SessionStart hook patch when a hook entry is removed. Preserves
+ *    `config.json` unless `--purge` is passed.
+ *
+ * Backward compatibility
+ * ----------------------
+ * - `?layout=…` is silently accepted and ignored. (Pre-overhaul one-liners
+ *   still work.)
  *
  * Query params:
- *   - agent:        agent id (claude | cursor | specify | codex | gemini |
- *                   continue). Required (we don't pick a default for an
- *                   installer; ambiguity here would write to the wrong path).
- *   - scope:        install scope ("user" | "project"). Required and must be
- *                   one of the agent's `scopes_available` (Codex has no
- *                   project, Spec Kit has no user). Mismatch returns 400.
+ *   - agent:        agent id (claude | cursor | codex | gemini | opencode).
+ *                   Required for non-uninstall modes (we don't pick a
+ *                   default for an installer; ambiguity here would write
+ *                   to the wrong path). For `mode=uninstall` agent
+ *                   defaults to `claude` since uninstall is manifest-
+ *                   driven and only consults the agent for the launch
+ *                   label in the success card.
+ *   - scope:        install scope ("user" | "project"). Required for
+ *                   non-uninstall modes. For `mode=uninstall` the scope
+ *                   is OPTIONAL — when omitted the script walks BOTH
+ *                   manifests with independent prompt loops.
  *   - command_name: slash command name. Defaults to "skills" (sanitized).
- *   - description:  optional description; defaults to the canonical template's
- *                   frontmatter description.
- *   - base_url:     gateway base URL the script should call back into when
- *                   fetching the rendered template at install time. Defaults
- *                   to the request origin.
+ *   - description:  optional description; defaults to the canonical
+ *                   template's frontmatter description.
+ *   - base_url:     gateway base URL the script should call back into
+ *                   when fetching the rendered template at install time.
+ *                   Defaults to the request origin.
  *
  * Security notes:
  *   - The script NEVER prints or logs the API key. Resolution order:
- *       1. `--api-key=<value>` flag (warns: visible in `ps` to other users on
- *          the same host)
+ *       1. `--api-key=<value>` flag (warns: visible in `ps`)
  *       2. `$CAIPE_CATALOG_KEY` env var
  *       3. `~/.config/caipe/config.json` { "api_key": "..." }
- *       4. `~/.config/grid/config.json`  { "api_key": "..." } (fallback for
- *          shared dotfiles between Grid and CAIPE)
- *     The Step-3 UI walks users through creating the config.json file, so the
- *     happy path is "set it once, never type the key again."
- *   - The rendered template body is NOT baked into the script. Instead the
- *     script does a fresh GET to /api/skills/live-skills?... at install time,
- *     so users always get the latest canonical template and the script stays
- *     small and easy to audit.
- *   - We refuse to overwrite an existing target file unless `--upgrade` (for
- *     a previously-installed CAIPE skill) or `--force` (escape hatch) is
- *     passed, so re-running the one-liner is safe.
+ *       4. `~/.config/grid/config.json`  { "api_key": "..." } (fallback)
+ *   - The rendered template body is NOT baked into the script. Instead
+ *     the script does a fresh GET to /api/skills/live-skills?... at
+ *     install time, so users always get the latest canonical template
+ *     and the script stays small and easy to audit.
+ *   - We refuse to overwrite an existing target file unless `--upgrade`
+ *     (for a previously-installed CAIPE skill) or `--force` (escape
+ *     hatch) is passed.
  *   - Ownership of installed files is tracked in a sidecar manifest at
- *     `~/.config/caipe/installed.json`. `--upgrade` consults the manifest to
- *     decide whether it's safe to overwrite a file. The manifest is the only
- *     state we keep on disk besides the installed skills themselves.
+ *     `~/.config/caipe/installed.json`. `--upgrade` consults the manifest
+ *     to decide whether it's safe to overwrite a file. The manifest entry
+ *     shape is `{ name, kind, paths: [<list>], installed_at }`. Legacy
+ *     entries with a single `path` field are read transparently.
  *
  * Response:
  *   - Content-Type: text/x-shellscript; charset=utf-8
  *   - Content-Disposition: attachment; filename=install-skills-<agent>-<scope>.sh
  *   - Cache-Control: no-store
- *
- * Errors are returned as plain text so `curl … | bash` shows a readable
- * message instead of a JSON blob the shell would try to execute.
  */
 
 import { NextResponse } from "next/server";
 import {
   AGENTS,
-  layoutsAvailableFor,
+  DEFAULT_AGENT_ID,
   scopesAvailableFor,
-  type AgentLayout,
   type AgentSpec,
 } from "../live-skills/agents";
 import { getRequestOrigin } from "../_lib/request-origin";
 
-/* ---------- input sanitizers (mirror the live-skills route) ---------- */
+/* ---------- input sanitizers ---------- */
 
 function sanitizeCommandName(raw: string | null): string {
   const trimmed = (raw ?? "").trim();
@@ -128,17 +141,12 @@ function sanitizeBaseUrl(raw: string | null): string | null {
 }
 
 /**
- * Sanitize an optional ?catalog_url=… coming from the Skills API Gateway UI
- * Query Builder. We only allow URLs that point back at our own gateway's
- * `/api/skills` listing endpoint — never an arbitrary host. Returning the
- * normalized URL means `install.sh` switches into "bulk install" mode and
- * iterates the catalog response instead of installing the live-skills skill.
- *
- * Constraints (enforced server-side, not by the bash script):
+ * Sanitize an optional ?catalog_url=… coming from the Skills API Gateway
+ * UI Query Builder. Same constraints as before the overhaul:
  *   - http:// or https:// only
  *   - no userinfo
- *   - same origin as `base_url` (or the request origin if base_url is unset)
- *   - path must be exactly `/api/skills` (no path traversal, no other endpoints)
+ *   - same origin as `base_url` (or the request origin)
+ *   - path must be exactly `/api/skills`
  */
 function sanitizeCatalogUrl(
   raw: string | null,
@@ -155,61 +163,34 @@ function sanitizeCatalogUrl(
   if (parsed.username || parsed.password) return null;
   if (parsed.origin !== baseOrigin) return null;
   if (parsed.pathname.replace(/\/+$/, "") !== "/api/skills") return null;
-  // Force include_content=true so the script always has bodies to write.
   parsed.searchParams.set("include_content", "true");
   return parsed.toString();
-}
-
-/**
- * Per-format file extension used when bulk-writing one file per catalog skill.
- * Must stay in sync with the marker comment syntax below.
- */
-function extensionForFormat(format: AgentSpec["format"]): string {
-  switch (format) {
-    case "gemini-toml":
-      return "toml";
-    case "markdown-frontmatter":
-    case "markdown-plain":
-      return "md";
-    default:
-      return "md";
-  }
-}
-
-/**
- * Compute the parent directory used for bulk installs.
- *
- * - `commands` layout: install path is `<dir>/{name}.<ext>`, so we strip
- *   the last segment.
- * - `skills` layout: install path is `<dir>/{name}/SKILL.md`, so we strip
- *   the last TWO segments to recover `<dir>` (the skills directory itself).
- */
-function commandsDirFor(
-  installPathTemplate: string,
-  layout: AgentLayout,
-): string {
-  if (layout === "skills") {
-    // Expect /{name}/SKILL.md tail. Strip both segments.
-    const stripped = installPathTemplate.replace(/\/\{name\}\/[^/]+$/, "");
-    if (stripped !== installPathTemplate) return stripped;
-    // Fallback: drop the last segment if the template doesn't match.
-    const idx = installPathTemplate.lastIndexOf("/");
-    return idx < 0 ? "." : installPathTemplate.slice(0, idx);
-  }
-  const idx = installPathTemplate.lastIndexOf("/");
-  if (idx < 0) return ".";
-  return installPathTemplate.slice(0, idx);
 }
 
 /* ---------- shell quoting ---------- */
 
 /**
- * Single-quote a value for safe inclusion in a bash script. Replaces any
- * `'` with `'\''` (close, escaped quote, reopen) which works inside any
- * `bash`-compatible shell. Used for every value we templated into the script.
+ * Single-quote a value for safe inclusion in a bash script. Replaces
+ * any `'` with `'\''` (close, escaped quote, reopen).
  */
 function shq(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Compute the parent skill directory from a `.../skills/{name}/SKILL.md`
+ * template. We strip the trailing `/{name}/SKILL.md` to recover the
+ * `<root>/skills` portion (the directory the bulk install loop creates
+ * `<safe_name>/SKILL.md` underneath).
+ */
+function skillsRootDirFor(installPathTemplate: string): string {
+  const stripped = installPathTemplate.replace(/\/\{name\}\/[^/]+$/, "");
+  if (stripped !== installPathTemplate) return stripped;
+  // Defensive fallback: if the template doesn't match, drop the last
+  // segment and hope the caller knows what they're doing. Today every
+  // entry in AGENTS.installPaths follows the canonical shape.
+  const idx = installPathTemplate.lastIndexOf("/");
+  return idx < 0 ? "." : installPathTemplate.slice(0, idx);
 }
 
 /* ---------- error responses (plain text) ---------- */
@@ -229,17 +210,6 @@ function plainTextError(message: string, status: number): NextResponse {
 /**
  * Which install flow the generated script implements. See the route
  * docstring for the user-visible behavior of each.
- *
- * - "bulk-with-helpers" — new default; full bulk + helpers + hook.
- * - "live-only"         — single /skills command only (legacy default).
- * - "catalog-query"     — bulk install from a custom ?catalog_url=...
- *                         (unchanged from the original "bulk" flow).
- * - "uninstall"         — reverse of bulk-with-helpers. Reads the sidecar
- *                         manifest and walks the user through removing
- *                         every CAIPE-owned file with per-item
- *                         confirmation. Never touches files outside the
- *                         manifest, never deletes ~/.config/caipe/config.json
- *                         unless --purge is passed.
  */
 type InstallMode =
   | "bulk-with-helpers"
@@ -250,118 +220,81 @@ type InstallMode =
 interface ScriptInputs {
   agent: AgentSpec;
   scope: "user" | "project";
-  layout: AgentLayout;
+  /**
+   * Only meaningful for `mode === "uninstall"`. When `true` the
+   * generated script walks BOTH the user manifest and the project
+   * manifest (in that order) with independent y/N/a/q prompt loops.
+   * When `false` only the explicitly-requested scope's manifest is
+   * walked.
+   */
+  walkBothManifests: boolean;
   commandName: string;
   description: string;
   baseUrl: string;
   mode: InstallMode;
   /**
-   * Only set when `mode === "catalog-query"`. URL of a `<baseUrl>/api/skills?...`
-   * gateway listing to iterate; the script writes one file per returned
-   * skill into the agent's commands directory.
+   * Only set when `mode === "catalog-query"`. URL of a
+   * `<baseUrl>/api/skills?...` listing to iterate; the script writes
+   * one SKILL.md per returned skill into both universal skill roots.
    */
   catalogUrl: string | null;
 }
 
 function buildScript(inputs: ScriptInputs): string {
-  if (inputs.mode === "uninstall") {
-    return buildUninstallScript(inputs);
-  }
-  if (inputs.mode === "bulk-with-helpers") {
-    return buildBulkWithHelpersScript(inputs);
-  }
-  return buildLegacyScript(inputs);
+  if (inputs.mode === "uninstall") return buildUninstallScript(inputs);
+  return buildInstallScript(inputs);
 }
 
-/**
- * Generates the bash for the new "everything for native discovery" flow.
+/* ===========================================================================
  *
- * The generated script:
+ * INSTALL SCRIPT
  *
- *  1. Resolves the catalog API key (--api-key > env > config file).
- *  2. Optionally fetches & writes every catalog skill to disk so the
- *     agent gets native autocomplete (suppressed by --no-bulk).
- *  3. Optionally fetches & writes the two helper skill commands
- *     (`/skills` live-fetch + `/update-skills` user-driven refresh).
- *     Suppressed by --no-helpers.
- *  4. Always installs the Python catalog helper at
- *     ~/.config/caipe/caipe-skills.py (the helper skills depend on it).
- *  5. (Claude Code only) Installs ~/.claude/hooks/caipe-catalog.sh and
- *     patches ~/.claude/settings.json to register a SessionStart hook
- *     that injects the live catalog index into Claude's
- *     `additionalContext`. Suppressed by --no-hook or non-Claude agent.
- *  6. Auto-seeds ~/.config/caipe/config.json with the gateway base_url
- *     (never the api_key). Skips if the file already exists.
- *  7. (--upgrade only) Removes legacy install artifacts so the new
- *     model doesn't double up with the old single-skill install.
- *  8. Prints a success card with next-step commands, the recommended
- *     allowlist snippet for Claude/Cursor settings, and gitignore
- *     guidance for project-scoped installs.
+ * Handles bulk-with-helpers (default), live-only (legacy single-skill),
+ * and catalog-query (user-built ?catalog_url query) in one generator.
+ * Mode-specific steps are gated by environment variables baked into the
+ * script header, so the generated bash is uniform regardless of mode.
  *
- * The generated script is ~400 lines of bash. Most of the bulk and
- * single-skill logic is shared with `buildLegacyScript` only by
- * convention (same shell quoting, same manifest schema), not by
- * code reuse — the two flows are different enough that duplicating
- * the bash is clearer than parameterizing one giant generator.
- */
-function buildBulkWithHelpersScript({
-  agent,
-  scope,
-  layout,
-  commandName,
-  description,
-  baseUrl,
-}: ScriptInputs): string {
-  // Path resolution mirrors the legacy script: which `installPaths` table
-  // we use depends on the requested layout. For bulk-with-helpers we
-  // ALWAYS install the helper skills into the agent's commands dir
-  // (so /skills and /update-skills are slash commands, not skill folders),
-  // and we install the catalog skills into the requested layout's dir.
-  //
-  // For the helper SLASH COMMANDS we want the legacy commands layout
-  // even when the user picked layout=skills for the bulk install — the
-  // agent should be able to run `/skills` and `/update-skills` as
-  // normal slash commands, not invoke them via skill-folder discovery.
-  // (This matches how the live-skills route advertises them today.)
-  const commandsLayoutPaths = agent.installPaths;
-  const commandsDirTemplate = commandsDirFor(
-    commandsLayoutPaths[scope] ??
-      // Fragment-config agents won't reach here (handler routes them to
-      // live-only first), but keep a safe fallback so a stray request
-      // doesn't crash the route handler.
-      "~/.caipe-helpers/{name}.md",
-    "commands",
-  );
+ * ========================================================================= */
 
-  // Where catalog skills land (one per skill, either as <name>/SKILL.md
-  // or <name>.<ext> depending on layout). We use the requested layout
-  // table here so the user's "Skills layout" toggle is respected.
-  const skillsLayoutPaths =
-    layout === "skills" && agent.skillsPaths
-      ? agent.skillsPaths
-      : agent.installPaths;
-  const skillsInstallTemplate =
-    skillsLayoutPaths[scope] ?? commandsLayoutPaths[scope]!;
-  const catalogTargetDir = commandsDirFor(skillsInstallTemplate, layout);
-  const catalogFileExt =
-    layout === "skills" ? "md" : extensionForFormat(agent.format);
+function buildInstallScript(inputs: ScriptInputs): string {
+  const {
+    agent,
+    scope,
+    commandName,
+    description,
+    baseUrl,
+    mode,
+    catalogUrl,
+  } = inputs;
 
-  // The two helper commands are always rendered for THIS agent, so
-  // their per-agent template URLs are computed up-front and baked in.
-  // We pass `command_name` and `base_url` so the rendered output is
-  // identical to what a fresh GET /api/skills/{live,update}-skills
-  // would produce in the UI.
+  // Resolve the multi-target install paths for the requested scope.
+  // Each agent in AGENTS uses the same UNIVERSAL_USER_PATHS /
+  // UNIVERSAL_PROJECT_PATHS, but we compute them per-call so a future
+  // per-agent override would Just Work.
+  const scopePaths = agent.installPaths[scope] ?? [];
+  if (scopePaths.length === 0) {
+    // The handler should have caught this already, but be defensive.
+    throw new Error(
+      `agent ${agent.id} has no install paths for scope=${scope}`,
+    );
+  }
+
+  // Where the multi-target SKILL.md files for any given <name> land.
+  // We pre-compute the parent skill-root directory for each target so
+  // the bash side can `mkdir -p` them once.
+  const skillRootDirs = scopePaths.map(skillsRootDirFor);
+
+  // The two helper-template URLs. We always render against THIS agent
+  // so $ARGUMENTS-vs-$1 substitution lands correctly.
   const liveSkillsParams = new URLSearchParams({
     agent: agent.id,
     scope,
-    layout: "commands",
     command_name: "skills",
     base_url: baseUrl,
   }).toString();
   const updateSkillsParams = new URLSearchParams({
     agent: agent.id,
     scope,
-    layout: "commands",
     command_name: "update-skills",
     base_url: baseUrl,
   }).toString();
@@ -369,56 +302,90 @@ function buildBulkWithHelpersScript({
   const updateSkillsUrl = `${baseUrl}/api/skills/update-skills?${updateSkillsParams}`;
   const helperPyUrl = `${baseUrl}/api/skills/helpers/caipe-skills.py?base_url=${encodeURIComponent(baseUrl)}`;
   const hookShUrl = `${baseUrl}/api/skills/hooks/caipe-catalog.sh?base_url=${encodeURIComponent(baseUrl)}`;
-  // Bulk catalog query: include_content=true so we have bodies to write.
-  // page_size=200 covers any realistic single-organization catalog;
-  // operators with larger catalogs can re-run with --no-bulk and use
-  // /update-skills selectively from inside their agent.
-  const bulkCatalogUrl = `${baseUrl}/api/skills?page=1&page_size=200&include_content=true`;
 
-  // Whether THIS agent is Claude Code — only Claude has documented
-  // SessionStart hook support today. Other agents skip the hook step
-  // even if they support skills layouts.
+  // Bulk catalog query (used by both bulk-with-helpers and catalog-query
+  // modes). page_size=200 covers any realistic single-org catalog.
+  const bulkCatalogUrl =
+    catalogUrl ??
+    `${baseUrl}/api/skills?page=1&page_size=200&include_content=true`;
+
+  // For the live-only mode we render the single /skills slash command
+  // for THIS agent and write it into the multi-target skill-root dirs
+  // as <root>/<commandName>/SKILL.md (same place the helpers go).
+  const singleSkillUrl = `${baseUrl}/api/skills/live-skills?${new URLSearchParams(
+    {
+      agent: agent.id,
+      scope,
+      command_name: commandName,
+      base_url: baseUrl,
+      ...(description ? { description } : {}),
+    },
+  ).toString()}`;
+
+  // Whether THIS agent is Claude Code. Only Claude has documented
+  // SessionStart hook support today.
   const isClaude = agent.id === "claude";
 
-  // Pre-quote everything we templated in.
+  // Pre-quote everything.
   const Q_AGENT_ID = shq(agent.id);
   const Q_AGENT_LABEL = shq(agent.label);
   const Q_SCOPE = shq(scope);
-  const Q_LAYOUT = shq(layout);
   const Q_COMMAND = shq(commandName);
   const Q_BASE_URL = shq(baseUrl);
-  const Q_COMMANDS_DIR = shq(commandsDirTemplate);
-  const Q_CATALOG_DIR = shq(catalogTargetDir);
-  const Q_CATALOG_EXT = shq(catalogFileExt);
   const Q_LIVE_URL = shq(liveSkillsUrl);
   const Q_UPDATE_URL = shq(updateSkillsUrl);
   const Q_HELPER_PY_URL = shq(helperPyUrl);
   const Q_HOOK_SH_URL = shq(hookShUrl);
   const Q_BULK_URL = shq(bulkCatalogUrl);
-  const _description = description; // currently unused in this flow but kept for symmetry / future use
-  void _description;
+  const Q_SINGLE_URL = shq(singleSkillUrl);
+
+  // Mode flags baked into the script header.
+  const DO_BULK = mode === "bulk-with-helpers" || mode === "catalog-query"
+    ? "1"
+    : "0";
+  const DO_HELPERS = mode === "bulk-with-helpers" ? "1" : "0";
+  const DO_HOOK = mode === "bulk-with-helpers" && isClaude ? "1" : "0";
+  const DO_LIVE_ONLY = mode === "live-only" ? "1" : "0";
+
+  // Paths: emit each as a quoted bash array element, one per line for
+  // readability.
+  const pathArrayLines = scopePaths.map((p) => `  ${shq(p)}`).join("\n");
+  const skillRootArrayLines = skillRootDirs
+    .map((p) => `  ${shq(p)}`)
+    .join("\n");
+
+  // Modes for the script banner.
+  const modeBanner =
+    mode === "bulk-with-helpers"
+      ? "bulk-with-helpers (everything for native discovery)"
+      : mode === "catalog-query"
+        ? "bulk install from custom ?catalog_url"
+        : "live-only (single /" + commandName + " slash command)";
 
   return `#!/usr/bin/env bash
-# install-skills.sh — CAIPE bulk-with-helpers installer
+# install-skills.sh — CAIPE skills installer
 #
 # Generated by ${baseUrl}/api/skills/install.sh
-# Agent  : ${agent.label} (${agent.id})
-# Scope  : ${scope} (${scope === "user" ? "user-global" : "project-local"})
-# Layout : ${layout}
-# Mode   : bulk-with-helpers (everything for native discovery)
+# Agent : ${agent.label} (${agent.id})
+# Scope : ${scope} (${scope === "user" ? "user-global" : "project-local"})
+# Mode  : ${modeBanner}
 #
-# This installer writes:
-#   - one file per skill from the live catalog (suppress with --no-bulk)
-#   - the /skills helper command          (suppress with --no-helpers)
-#   - the /update-skills helper command   (suppress with --no-helpers)
-#   - the Python catalog helper at ~/.config/caipe/caipe-skills.py
-${isClaude ? `#   - a SessionStart hook for Claude Code (suppress with --no-hook)\n` : `#   (no SessionStart hook — only Claude Code supports them today)\n`}#   - ~/.config/caipe/config.json (base_url only, never api_key)
+# This installer writes SKILL.md files to BOTH of these per-skill paths
+# so a single install satisfies Claude Code, Cursor, Codex CLI, Gemini
+# CLI, and opencode simultaneously:
+#
+${scopePaths.map((p) => `#   - ${p}`).join("\n")}
+#
+# Mode-gated steps:
+#   - bulk catalog materialization     (${DO_BULK === "1" ? "enabled" : "skipped"})
+#   - /skills + /update-skills helpers (${DO_HELPERS === "1" ? "enabled" : "skipped"})
+${isClaude ? `#   - Claude SessionStart hook         (${DO_HOOK === "1" ? "enabled" : "skipped"})\n` : `#   (no SessionStart hook — only Claude Code supports them today)\n`}#   - python helper at ~/.config/caipe/caipe-skills.py
+#   - ~/.config/caipe/config.json (base_url only, never api_key)
 #
 # Usage:
 #   CAIPE_CATALOG_KEY=<your-key> bash <(curl -fsSL <this-url>)
-#   ./install-skills.sh --upgrade   # refresh existing CAIPE-owned files + clean legacy artifacts
+#   ./install-skills.sh --upgrade   # refresh existing CAIPE-owned files
 #   ./install-skills.sh --no-bulk   # just helpers + hook + helper.py
-#   ./install-skills.sh --no-helpers --no-hook --no-bulk   # only the python helper + config seed
 #
 # Security: this script NEVER prints, logs, or echoes the API key.
 
@@ -427,18 +394,31 @@ set -euo pipefail
 AGENT_ID=${Q_AGENT_ID}
 AGENT_LABEL=${Q_AGENT_LABEL}
 SCOPE=${Q_SCOPE}
-LAYOUT=${Q_LAYOUT}
 COMMAND_NAME=${Q_COMMAND}
 BASE_URL=${Q_BASE_URL}
-COMMANDS_DIR_RAW=${Q_COMMANDS_DIR}
-CATALOG_DIR_RAW=${Q_CATALOG_DIR}
-CATALOG_EXT=${Q_CATALOG_EXT}
 LIVE_SKILLS_URL=${Q_LIVE_URL}
 UPDATE_SKILLS_URL=${Q_UPDATE_URL}
 HELPER_PY_URL=${Q_HELPER_PY_URL}
 HOOK_SH_URL=${Q_HOOK_SH_URL}
 BULK_CATALOG_URL=${Q_BULK_URL}
+SINGLE_SKILL_URL=${Q_SINGLE_URL}
 IS_CLAUDE=${isClaude ? "1" : "0"}
+DO_BULK=${DO_BULK}
+DO_HELPERS=${DO_HELPERS}
+DO_HOOK=${DO_HOOK}
+DO_LIVE_ONLY=${DO_LIVE_ONLY}
+
+# Multi-target install paths (templates with {name} placeholders).
+# These are the per-skill SKILL.md files; the helpers and live-only
+# install use the same {name} substitution.
+SKILL_PATH_TEMPLATES=(
+${pathArrayLines}
+)
+# Pre-stripped parent skill-root directories. SKILL_PATH_TEMPLATES[i]
+# corresponds to "\${SKILL_ROOT_DIRS[i]}/<name>/SKILL.md".
+SKILL_ROOT_DIRS=(
+${skillRootArrayLines}
+)
 
 API_KEY="\${CAIPE_CATALOG_KEY:-}"
 FORCE=0
@@ -462,8 +442,7 @@ CAIPE_CONFIG_FILE="\$CAIPE_CONFIG_DIR/config.json"
 CAIPE_HELPER_PY="\$CAIPE_CONFIG_DIR/caipe-skills.py"
 
 # Claude-specific paths for the SessionStart hook. Only used when
-# IS_CLAUDE=1. Project-scope: write the hook into ./.claude/, mirroring
-# how Claude Code resolves project-local hooks.
+# IS_CLAUDE=1.
 case "\$SCOPE" in
   user)    CLAUDE_DIR="\${HOME:-.}/.claude" ;;
   project) CLAUDE_DIR="./.claude" ;;
@@ -474,7 +453,7 @@ CLAUDE_SETTINGS_FILE="\$CLAUDE_DIR/settings.json"
 
 usage() {
   cat <<USAGE
-install-skills.sh — bulk-with-helpers installer for \$AGENT_LABEL.
+install-skills.sh — installer for \$AGENT_LABEL.
 
 Usage:
   $0 [flags]
@@ -486,12 +465,11 @@ Flags:
   --no-bulk        Skip the bulk catalog install. Only the helpers,
                    the python helper, and (Claude) the hook are written.
   --no-helpers     Skip writing the /skills and /update-skills helper
-                   slash commands.
-  --no-hook        Skip the Claude SessionStart hook + settings patch.
+                   skill commands.
+  --no-hook        Skip the Claude SessionStart hook.
                    No-op when AGENT is not "claude".
   --api-key=<key>  Pass the catalog key on the command line.
-                   WARNING: visible in 'ps' AND shell history. Prefer
-                   storing the key in ~/.config/caipe/config.json once.
+                   WARNING: visible in 'ps' AND shell history.
   --help           Show this message.
 
 Environment:
@@ -506,7 +484,6 @@ while [ "\$#" -gt 0 ]; do
     --api-key=*)
       API_KEY="\${1#--api-key=}"
       echo "warning: --api-key passes the secret on the process command line." >&2
-      echo "         It will appear in 'ps' output AND shell history." >&2
       ;;
     --api-key)
       shift
@@ -528,7 +505,7 @@ while [ "\$#" -gt 0 ]; do
   shift || true
 done
 
-# ---------- API key resolution (config > env > flag, same as legacy) ----------
+# ---------- API key resolution (config > env > flag) ----------
 read_api_key_from_config() {
   local cfg_path="\$1"
   [ -r "\$cfg_path" ] || return 1
@@ -577,48 +554,70 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 # ---------- Resolve install paths for this scope ----------
+# Expand ~ in user scope; project paths stay relative.
+RESOLVED_SKILL_PATHS=()
+RESOLVED_SKILL_ROOTS=()
 case "\$SCOPE" in
   user)
     if [ -z "\${HOME:-}" ]; then
       echo "error: \\$HOME is not set; cannot resolve user-global install path." >&2
       exit 78
     fi
-    COMMANDS_DIR="\${COMMANDS_DIR_RAW/#~\\//\$HOME/}"
-    CATALOG_DIR="\${CATALOG_DIR_RAW/#~\\//\$HOME/}"
+    for tpl in "\${SKILL_PATH_TEMPLATES[@]}"; do
+      RESOLVED_SKILL_PATHS+=( "\${tpl/#~\\//\$HOME/}" )
+    done
+    for d in "\${SKILL_ROOT_DIRS[@]}"; do
+      RESOLVED_SKILL_ROOTS+=( "\${d/#~\\//\$HOME/}" )
+    done
     ;;
   project)
-    COMMANDS_DIR="\$COMMANDS_DIR_RAW"
-    CATALOG_DIR="\$CATALOG_DIR_RAW"
+    for tpl in "\${SKILL_PATH_TEMPLATES[@]}"; do
+      RESOLVED_SKILL_PATHS+=( "\$tpl" )
+    done
+    for d in "\${SKILL_ROOT_DIRS[@]}"; do
+      RESOLVED_SKILL_ROOTS+=( "\$d" )
+    done
     ;;
 esac
 
-mkdir -p "\$COMMANDS_DIR" "\$CATALOG_DIR" "\$CAIPE_CONFIG_DIR"
+# ---------- Install manifest helpers ----------
+# Manifest entries use the new shape: { name, kind, paths: [...], ... }.
+# A legacy entry with a single "path" field is read transparently
+# (treated as a one-element paths array) but never written back.
 
-# ---------- Install manifest helpers (shared with the legacy flow) ----------
-manifest_register() {
-  # manifest_register <abs-path> <kind>  (kind: skill|helper|catalog|hook|config)
-  local target="\$1" kind="\${2:-catalog}"
+manifest_register_paths() {
+  # manifest_register_paths <name> <kind> <path1> [<path2> ...]
+  # kind: skill | helper | catalog | hook | config | helper-py
+  local name="\$1" kind="\$2"; shift 2
   local cfg_dir; cfg_dir="\$(dirname "\$MANIFEST_PATH")"
   mkdir -p "\$cfg_dir" 2>/dev/null || return 0
-  python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$target" "\$kind" <<'PY' 2>/dev/null || true
+  printf '%s\\n' "\$@" | python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$name" "\$kind" <<'PY' 2>/dev/null || true
 import datetime, json, os, sys, tempfile
-manifest_path, agent, scope, target, kind = sys.argv[1:]
-data = {"version": 1, "installed": []}
+manifest_path, agent, scope, name, kind = sys.argv[1:]
+paths = [line.rstrip("\\n") for line in sys.stdin if line.strip()]
+data = {"version": 2, "installed": []}
 if os.path.isfile(manifest_path):
     try:
         data = json.load(open(manifest_path))
         if not isinstance(data, dict):
-            data = {"version": 1, "installed": []}
-        data.setdefault("version", 1)
+            data = {"version": 2, "installed": []}
+        data.setdefault("version", 2)
         data.setdefault("installed", [])
     except Exception:
-        data = {"version": 1, "installed": []}
+        data = {"version": 2, "installed": []}
 now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
-entry = {"agent": agent, "scope": scope, "path": target, "kind": kind, "installed_at": now}
-data["installed"] = [
-    e for e in data["installed"]
-    if not (e.get("agent") == agent and e.get("scope") == scope and e.get("path") == target)
-] + [entry]
+entry = {
+    "agent": agent, "scope": scope, "name": name, "kind": kind,
+    "paths": paths, "installed_at": now,
+}
+# De-dupe: replace any existing entry for the same (agent, scope, name, kind).
+def is_dup(e):
+    return (
+        e.get("agent") == agent and e.get("scope") == scope
+        and (e.get("name") or "").lower() == name.lower()
+        and (e.get("kind") or "skill") == kind
+    )
+data["installed"] = [e for e in data["installed"] if not is_dup(e)] + [entry]
 fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=os.path.dirname(manifest_path) or ".")
 try:
     with os.fdopen(fd, "w") as f:
@@ -633,6 +632,9 @@ PY
 }
 
 manifest_owns() {
+  # manifest_owns <abs-path>  →  exit 0 if the manifest records this path,
+  # exit 1 otherwise. Handles both the new "paths" array shape and the
+  # legacy single-"path" shape.
   local target="\$1"
   [ -r "\$MANIFEST_PATH" ] || return 1
   python3 -c '
@@ -641,14 +643,13 @@ try: data = json.load(open(sys.argv[1]))
 except Exception: sys.exit(1)
 target = sys.argv[2]
 for e in (data or {}).get("installed", []) or []:
-  if e.get("path") == target: sys.exit(0)
+    paths = e.get("paths") or ([e["path"]] if isinstance(e.get("path"), str) else [])
+    if target in paths: sys.exit(0)
 sys.exit(1)
 ' "\$MANIFEST_PATH" "\$target" 2>/dev/null
 }
 
-# Centralized "may we write to this path?" gate. Honors --force (always),
-# --upgrade (only if manifest claims ownership), and refuses otherwise.
-# Returns 0 = write OK, 1 = skip.
+# Centralized "may we write to this path?" gate.
 may_write() {
   local target="\$1"
   if [ ! -e "\$target" ]; then
@@ -664,8 +665,6 @@ may_write() {
 }
 
 # ---------- Atomic curl-to-file ----------
-# Fetches \$1 with the catalog key into \$2 atomically (tempfile + rename).
-# Returns the curl exit status. Caller is responsible for permissions.
 fetch_to() {
   local url="\$1" target="\$2"
   local parent; parent="\$(dirname "\$target")"
@@ -704,7 +703,7 @@ fetch_template_to() {
     return 76
   fi
   python3 - "\$tmp_json" "\$target" <<'PY' || { rm -f "\$tmp_json"; return 76; }
-import json, os, sys
+import json, os, sys, tempfile
 src, dst = sys.argv[1:]
 data = json.load(open(src))
 body = data.get("template") or ""
@@ -712,7 +711,7 @@ if not body:
     sys.stderr.write("template field missing or empty in response\\n")
     sys.exit(1)
 parent = os.path.dirname(dst) or "."
-import tempfile
+os.makedirs(parent, exist_ok=True)
 fd, tmp = tempfile.mkstemp(prefix=".caipe-tpl-", dir=parent)
 with os.fdopen(fd, "w", encoding="utf-8") as f:
     f.write(body)
@@ -723,30 +722,96 @@ PY
   return 0
 }
 
+# Write a single SKILL.md to ALL multi-target paths under <root>/<name>/.
+# Used by the live-only flow + by the helpers (which need the SAME
+# rendered body in every target). Returns 0 if at least one target was
+# written; 1 if every target was skipped.
+write_to_all_targets() {
+  local name="\$1" tmp_body="\$2" kind="\$3"
+  local wrote=0
+  local written_paths=()
+  local i=0
+  while [ \$i -lt \${#RESOLVED_SKILL_ROOTS[@]} ]; do
+    local root="\${RESOLVED_SKILL_ROOTS[\$i]}"
+    local target="\$root/\$name/SKILL.md"
+    if may_write "\$target"; then
+      mkdir -p "\$(dirname "\$target")"
+      local tmp; tmp="\$(mktemp "\$(dirname "\$target")/.caipe-install-XXXXXX")"
+      cp "\$tmp_body" "\$tmp"
+      mv -f "\$tmp" "\$target"
+      chmod 0644 "\$target"
+      written_paths+=( "\$target" )
+      echo "==> installed \$target"
+      wrote=\$((wrote + 1))
+    else
+      echo "skip: \$target exists (re-run with --upgrade or --force to replace)" >&2
+    fi
+    i=\$((i + 1))
+  done
+  if [ \$wrote -gt 0 ]; then
+    manifest_register_paths "\$name" "\$kind" "\${written_paths[@]}"
+    return 0
+  fi
+  return 1
+}
+
 # ---------- Step: legacy cleanup (--upgrade only) ----------
-# Removes leftovers from earlier install models that would now conflict
-# with bulk-with-helpers. We only delete files we KNOW were CAIPE-owned
-# (either via the manifest or by canonical path/name heuristics for the
-# pre-manifest era).
+# Removes commands-layout artifacts from prior CAIPE versions for ALL
+# five supported agents at both user + project scope. We only delete
+# files whose presence is unambiguously a CAIPE leftover (canonical
+# slash-command paths the install side previously wrote).
 do_legacy_cleanup() {
   [ "\$UPGRADE" -eq 1 ] || return 0
   local removed=0
 
-  # 1. Old single-skill install at ~/.claude/commands/skills.md (or
-  #    ./.claude/commands/skills.md). Always replaced by the new
-  #    /skills helper, so safe to remove unconditionally when --upgrade.
-  for legacy in "\$COMMANDS_DIR/skills.md" "\$COMMANDS_DIR/skills.toml"; do
+  # Legacy commands-layout paths for every supported agent. Both helper
+  # commands (skills, update-skills) and the original single-skill
+  # install named after \$COMMAND_NAME are cleaned up.
+  local home="\${HOME:-.}"
+  local legacy_paths=(
+    # Claude Code
+    "\$home/.claude/commands/skills.md"
+    "\$home/.claude/commands/update-skills.md"
+    "\$home/.claude/commands/\$COMMAND_NAME.md"
+    "./.claude/commands/skills.md"
+    "./.claude/commands/update-skills.md"
+    "./.claude/commands/\$COMMAND_NAME.md"
+    # Cursor
+    "\$home/.cursor/commands/skills.md"
+    "\$home/.cursor/commands/update-skills.md"
+    "\$home/.cursor/commands/\$COMMAND_NAME.md"
+    "./.cursor/commands/skills.md"
+    "./.cursor/commands/update-skills.md"
+    "./.cursor/commands/\$COMMAND_NAME.md"
+    # Codex CLI
+    "\$home/.codex/prompts/skills.md"
+    "\$home/.codex/prompts/update-skills.md"
+    "\$home/.codex/prompts/\$COMMAND_NAME.md"
+    "./.codex/prompts/skills.md"
+    "./.codex/prompts/update-skills.md"
+    "./.codex/prompts/\$COMMAND_NAME.md"
+    # Gemini CLI (TOML)
+    "\$home/.gemini/commands/skills.toml"
+    "\$home/.gemini/commands/update-skills.toml"
+    "\$home/.gemini/commands/\$COMMAND_NAME.toml"
+    "./.gemini/commands/skills.toml"
+    "./.gemini/commands/update-skills.toml"
+    "./.gemini/commands/\$COMMAND_NAME.toml"
+    # opencode
+    "\$home/.config/opencode/command/skills.md"
+    "\$home/.config/opencode/command/update-skills.md"
+    "\$home/.config/opencode/command/\$COMMAND_NAME.md"
+    "./.opencode/command/skills.md"
+    "./.opencode/command/update-skills.md"
+    "./.opencode/command/\$COMMAND_NAME.md"
+  )
+  for legacy in "\${legacy_paths[@]}"; do
     if [ -f "\$legacy" ]; then
       rm -f "\$legacy" && echo "==> removed legacy \$legacy" && removed=\$((removed+1))
     fi
   done
 
-  # 2. The pre-bug-fix dual-install path ~/.claude/skills/skills/SKILL.md
-  #    (a "skills" folder named "skills" inside the skills directory),
-  #    which only ever existed because the old code wrote BOTH the
-  #    commands AND skills layout. Remove only if the directory exists
-  #    and contains just SKILL.md (defensive — we don't want to nuke a
-  #    user's hand-authored skill that happens to be named "skills").
+  # Pre-overhaul ~/.claude/skills/skills/SKILL.md dual-install artifact.
   if [ "\$IS_CLAUDE" = "1" ]; then
     local dual="\$CLAUDE_DIR/skills/skills"
     if [ -d "\$dual" ]; then
@@ -760,6 +825,52 @@ do_legacy_cleanup() {
     fi
   fi
 
+  # Strip the two legacy allowlist entries from ~/.claude/settings.json
+  # (the SessionStart hook entry is preserved untouched).
+  if [ "\$IS_CLAUDE" = "1" ] && [ -f "\$CLAUDE_SETTINGS_FILE" ]; then
+    python3 - "\$CLAUDE_SETTINGS_FILE" <<'PY' || true
+import json, os, sys, tempfile
+settings_path = sys.argv[1]
+WANTED = {
+    "Bash(uv run ~/.config/caipe/caipe-skills.py*)",
+    "Bash(python3 ~/.config/caipe/caipe-skills.py*)",
+}
+try:
+    data = json.load(open(settings_path))
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+permissions = data.get("permissions")
+if not isinstance(permissions, dict):
+    sys.exit(0)
+allow = permissions.get("allow")
+if not isinstance(allow, list):
+    sys.exit(0)
+kept = [r for r in allow if r not in WANTED]
+if len(kept) == len(allow):
+    sys.exit(0)
+if kept:
+    permissions["allow"] = kept
+else:
+    permissions.pop("allow", None)
+if not permissions:
+    data.pop("permissions", None)
+parent = os.path.dirname(settings_path) or "."
+fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
+try:
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\\n")
+    os.replace(tmp, settings_path)
+    os.chmod(settings_path, 0o600)
+    print(f"==> stripped legacy allowlist entries from {settings_path}")
+except Exception:
+    try: os.unlink(tmp)
+    except OSError: pass
+PY
+  fi
+
   if [ "\$removed" -gt 0 ]; then
     echo "==> legacy cleanup: removed \$removed item(s)"
   fi
@@ -770,7 +881,7 @@ do_install_helper_py() {
   if may_write "\$CAIPE_HELPER_PY"; then
     if fetch_to "\$HELPER_PY_URL" "\$CAIPE_HELPER_PY"; then
       chmod 0755 "\$CAIPE_HELPER_PY"
-      manifest_register "\$CAIPE_HELPER_PY" helper
+      manifest_register_paths "caipe-skills.py" "helper-py" "\$CAIPE_HELPER_PY"
       echo "==> installed \$CAIPE_HELPER_PY"
     else
       echo "warn: failed to install \$CAIPE_HELPER_PY (helper skills will not work without it)" >&2
@@ -782,20 +893,16 @@ do_install_helper_py() {
 }
 
 # ---------- Step: auto-seed ~/.config/caipe/config.json ----------
-# Writes only if the file is missing. Never overwrites — the api_key
-# field belongs to the user. We only seed base_url so a fresh checkout
-# can immediately run the helper without manual config.
 do_seed_config() {
   if [ -f "\$CAIPE_CONFIG_FILE" ]; then
     return 0
   fi
   python3 - "\$CAIPE_CONFIG_FILE" "\$BASE_URL" <<'PY'
-import json, os, sys
+import json, os, sys, tempfile
 path, base_url = sys.argv[1:]
 parent = os.path.dirname(path) or "."
 os.makedirs(parent, exist_ok=True)
 data = {"base_url": base_url, "_comment": "Set api_key here to avoid passing --api-key on the command line."}
-import tempfile
 fd, tmp = tempfile.mkstemp(prefix=".caipe-config-", dir=parent)
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
@@ -804,43 +911,39 @@ os.replace(tmp, path)
 os.chmod(path, 0o600)
 PY
   echo "==> seeded \$CAIPE_CONFIG_FILE (base_url only — add api_key yourself)"
-  manifest_register "\$CAIPE_CONFIG_FILE" config
+  manifest_register_paths "config" "config" "\$CAIPE_CONFIG_FILE"
 }
 
-# ---------- Step: install /skills + /update-skills helper commands ----------
+# ---------- Step: install /skills + /update-skills helper skills ----------
+# Each helper is rendered ONCE for this agent then copied to every
+# universal target path. The helper's frontmatter declares
+# disable-model-invocation: true and allowed-tools so Claude Code
+# does not nag for permission on every catalog invocation.
 do_install_helpers() {
+  [ "\$DO_HELPERS" -eq 1 ] || return 0
   [ "\$NO_HELPERS" -eq 1 ] && return 0
 
-  local live="\$COMMANDS_DIR/skills.md"
-  local upd="\$COMMANDS_DIR/update-skills.md"
-
-  if may_write "\$live"; then
-    if fetch_template_to "\$LIVE_SKILLS_URL" "\$live"; then
-      manifest_register "\$live" helper
-      echo "==> installed \$live (slash command: /skills)"
-    fi
-  else
-    echo "skip: \$live exists (re-run with --upgrade or --force to replace)" >&2
+  # Helper 1: /skills
+  local tmp_live; tmp_live="\$(mktemp -t caipe-live-XXXXXX)"
+  if fetch_template_to "\$LIVE_SKILLS_URL" "\$tmp_live"; then
+    write_to_all_targets "skills" "\$tmp_live" "helper" || true
   fi
+  rm -f "\$tmp_live"
 
-  if may_write "\$upd"; then
-    if fetch_template_to "\$UPDATE_SKILLS_URL" "\$upd"; then
-      manifest_register "\$upd" helper
-      echo "==> installed \$upd (slash command: /update-skills)"
-    fi
-  else
-    echo "skip: \$upd exists (re-run with --upgrade or --force to replace)" >&2
+  # Helper 2: /update-skills
+  local tmp_upd; tmp_upd="\$(mktemp -t caipe-upd-XXXXXX)"
+  if fetch_template_to "\$UPDATE_SKILLS_URL" "\$tmp_upd"; then
+    write_to_all_targets "update-skills" "\$tmp_upd" "helper" || true
   fi
+  rm -f "\$tmp_upd"
 }
 
 # ---------- Step: bulk catalog materialization ----------
-# Same algorithm as the legacy catalog-query bulk flow, but driven by
-# the canonical /api/skills query (page=1, page_size=200, content=true)
-# rather than a user-built query. We DO NOT touch the helper command
-# names ("skills", "update-skills") — if the catalog happens to contain
-# a skill with one of those names, we skip it with a warning so the
-# helper command isn't clobbered.
+# Same algorithm as before the overhaul, but writes each skill to ALL
+# universal target paths instead of one. We never overwrite the helper
+# command names ("skills", "update-skills").
 do_install_bulk() {
+  [ "\$DO_BULK" -eq 1 ] || return 0
   [ "\$NO_BULK" -eq 1 ] && return 0
 
   local catalog_tmp; catalog_tmp="\$(mktemp -t caipe-catalog-XXXXXX)"
@@ -858,37 +961,45 @@ do_install_bulk() {
     return 0
   fi
 
-  python3 - "\$catalog_tmp" "\$CATALOG_DIR" "\$LAYOUT" "\$CATALOG_EXT" "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$FORCE" "\$UPGRADE" <<'PY'
+  # The python helper does the heavy lifting: parses the catalog, filters
+  # flagged skills, and writes each skill's SKILL.md (+ any ancillary
+  # files) to every target root. The TSV passed via stdin is the list
+  # of resolved skill-root directories.
+  printf '%s\\n' "\${RESOLVED_SKILL_ROOTS[@]}" \\
+    | python3 - "\$catalog_tmp" "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$FORCE" "\$UPGRADE" <<'PY'
 import base64, datetime, json, os, re, sys, tempfile
 
-src, target_dir, layout, ext, manifest_path, agent, scope, force_s, upgrade_s = sys.argv[1:]
+src, manifest_path, agent, scope, force_s, upgrade_s = sys.argv[1:]
 force = force_s == "1"; upgrade = upgrade_s == "1"
+roots = [line.rstrip("\\n") for line in sys.stdin if line.strip()]
 NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 PART_RE = re.compile(r"[^A-Za-z0-9._-]")
-RESERVED = {"skills", "update-skills"}  # never clobber the helper commands
+RESERVED = {"skills", "update-skills"}
 
 def is_flagged(skill):
-    """A skill the security scanner has marked unsafe must NEVER be
-    materialized to disk -- the agent's native discovery would otherwise
-    pick it up regardless of UI state. The catalog response stamps both
-    runnable=false (from applyRunnableGate in the listing route) and
-    scan_status='flagged' for any flagged skill; we treat either signal
-    as authoritative so a future schema change can't silently regress.
-    Skipping happens here at the install boundary (mirrors scan_gate.py
-    on the supervisor + dynamic-agent side)."""
+    """Mirror of the supervisor-side scan_gate: a skill the security
+    scanner has marked unsafe MUST NOT be materialized to disk, since
+    the agent's native discovery would pick it up regardless of UI
+    state."""
     return (
         skill.get("scan_status") == "flagged"
         or skill.get("runnable") is False
         or skill.get("blocked_reason") == "scan_flagged"
     )
 
-# Load existing manifest for ownership checks.
+# Load existing manifest for ownership checks. Handle both new (paths[])
+# and legacy (path) shapes transparently.
 owned = set()
 if os.path.isfile(manifest_path):
     try:
         m = json.load(open(manifest_path))
         for e in (m or {}).get("installed", []) or []:
-            owned.add(e.get("path"))
+            paths = e.get("paths")
+            if isinstance(paths, list):
+                for p in paths:
+                    if isinstance(p, str): owned.add(p)
+            elif isinstance(e.get("path"), str):
+                owned.add(e["path"])
     except Exception:
         pass
 
@@ -912,8 +1023,8 @@ def may_write(path):
 
 data = json.load(open(src))
 skills = data.get("skills", []) or []
+new_entries = []  # one entry per (skill name) — paths is multi-target
 wrote = 0; skipped = 0; reserved = 0; total = 0; flagged_count = 0
-new_entries = []
 now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 for s in skills:
@@ -922,10 +1033,6 @@ for s in skills:
         continue
     total += 1
     if is_flagged(s):
-        # Print one notice per flagged skill so the user can see exactly
-        # what was suppressed. We deliberately use stderr-equivalent
-        # phrasing on stdout because the bulk loop runs inside bash -e
-        # and stderr would be muted in some shells; visibility wins.
         print(f"==> skipped {name} (flagged by security scanner)")
         flagged_count += 1
         continue
@@ -935,8 +1042,12 @@ for s in skills:
     safe_name = NAME_RE.sub("_", name)
     body = s.get("content") or ""
 
-    if layout == "skills":
-        targets = {os.path.join(target_dir, safe_name, "SKILL.md"): body}
+    # Build the per-root file map. SKILL.md goes at root/<name>/SKILL.md;
+    # ancillary files preserve their relative paths under root/<name>/.
+    written_paths_for_skill = []
+    for root in roots:
+        # SKILL.md
+        targets = [(os.path.join(root, safe_name, "SKILL.md"), body)]
         anc = s.get("ancillary_files") or {}
         if isinstance(anc, dict):
             for rel, content in anc.items():
@@ -945,44 +1056,50 @@ for s in skills:
                 sp = safe_path(rel)
                 if not sp or sp == "SKILL.md":
                     continue
-                targets[os.path.join(target_dir, safe_name, sp)] = content
-    else:
-        targets = {os.path.join(target_dir, f"{safe_name}.{ext}"): body}
-
-    for path, content in targets.items():
-        if not may_write(path):
-            skipped += 1
-            continue
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=".caipe-install-", dir=os.path.dirname(path))
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(content)
-        os.replace(tmp, path)
-        os.chmod(path, 0o644)
+                targets.append((os.path.join(root, safe_name, sp), content))
+        for path, content in targets:
+            if not may_write(path):
+                skipped += 1
+                continue
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".caipe-install-", dir=os.path.dirname(path))
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp, path)
+            os.chmod(path, 0o644)
+            written_paths_for_skill.append(path)
+            wrote += 1
+    if written_paths_for_skill:
         new_entries.append({
-            "agent": agent, "scope": scope, "path": path,
-            "kind": "skill", "installed_at": now,
+            "agent": agent, "scope": scope, "name": name,
+            "kind": "skill", "paths": written_paths_for_skill,
+            "installed_at": now,
         })
-        wrote += 1
 
 # Atomic manifest update with the new entries appended (replacing any
-# entry for the same path).
+# entry for the same (agent, scope, name, kind)).
 if new_entries:
     cfg_dir = os.path.dirname(manifest_path) or "."
     os.makedirs(cfg_dir, exist_ok=True)
-    existing = {"version": 1, "installed": []}
+    existing = {"version": 2, "installed": []}
     if os.path.isfile(manifest_path):
         try:
             existing = json.load(open(manifest_path))
             if not isinstance(existing, dict):
-                existing = {"version": 1, "installed": []}
-            existing.setdefault("version", 1)
+                existing = {"version": 2, "installed": []}
+            existing.setdefault("version", 2)
             existing.setdefault("installed", [])
         except Exception:
-            existing = {"version": 1, "installed": []}
-    new_paths = {e["path"] for e in new_entries}
+            existing = {"version": 2, "installed": []}
+    new_keys = {(e["agent"], e["scope"], (e.get("name") or "").lower(), e.get("kind") or "skill") for e in new_entries}
+    def key_of(e):
+        return (
+            e.get("agent"), e.get("scope"),
+            (e.get("name") or "").lower(),
+            e.get("kind") or "skill",
+        )
     existing["installed"] = [
-        e for e in existing["installed"] if e.get("path") not in new_paths
+        e for e in existing["installed"] if key_of(e) not in new_keys
     ] + new_entries
     fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=cfg_dir)
     with os.fdopen(fd, "w") as f:
@@ -1000,14 +1117,18 @@ PY
 }
 
 # ---------- Step: install Claude SessionStart hook ----------
+# We REGISTER the hook entry but no longer touch permissions.allow —
+# the helpers' SKILL.md frontmatter (allowed-tools: ...) handles the
+# pre-approval natively, so the legacy allowlist patch is gone.
 do_install_hook() {
-  [ "\$IS_CLAUDE" = "1" ] || return 0
+  [ "\$DO_HOOK" -eq 1 ] || return 0
   [ "\$NO_HOOK" -eq 1 ] && return 0
+  [ "\$IS_CLAUDE" = "1" ] || return 0
 
   if may_write "\$CLAUDE_HOOK_FILE"; then
     if fetch_to "\$HOOK_SH_URL" "\$CLAUDE_HOOK_FILE"; then
       chmod 0755 "\$CLAUDE_HOOK_FILE"
-      manifest_register "\$CLAUDE_HOOK_FILE" hook
+      manifest_register_paths "caipe-catalog-hook" "hook" "\$CLAUDE_HOOK_FILE"
       echo "==> installed \$CLAUDE_HOOK_FILE"
     else
       echo "warn: failed to install \$CLAUDE_HOOK_FILE — skipping settings.json patch" >&2
@@ -1017,9 +1138,6 @@ do_install_hook() {
     echo "skip: \$CLAUDE_HOOK_FILE exists (re-run with --upgrade or --force to replace)" >&2
   fi
 
-  # Patch settings.json to register the SessionStart hook + allowlist
-  # the helper invocations. This is a deep merge: we never wipe other
-  # hooks or other allowlist entries.
   python3 - "\$CLAUDE_SETTINGS_FILE" "\$CLAUDE_HOOK_FILE" <<'PY'
 import json, os, sys, tempfile
 
@@ -1034,7 +1152,6 @@ if os.path.isfile(settings_path):
         if not isinstance(data, dict):
             data = {}
     except Exception:
-        # Corrupt or non-JSON settings file — refuse to clobber it.
         sys.stderr.write(f"warn: {settings_path} is not valid JSON; skipping hook registration\\n")
         sys.stderr.write("      (your existing settings file is untouched)\\n")
         sys.exit(0)
@@ -1050,56 +1167,25 @@ if not isinstance(session_start, list):
     session_start = []
     hooks["SessionStart"] = session_start
 
-# Each entry can be either {"hooks": [{type, command, ...}, ...]}
-# (Claude's documented schema) or a bare hook object. We use the
-# documented schema so we play nicely with future hook tooling.
 already_registered = False
 for entry in session_start:
-    if not isinstance(entry, dict):
-        continue
+    if not isinstance(entry, dict): continue
     inner = entry.get("hooks") or []
-    if not isinstance(inner, list):
-        continue
+    if not isinstance(inner, list): continue
     for h in inner:
         if isinstance(h, dict) and h.get("command") == hook_path:
             already_registered = True
             break
-    if already_registered:
-        break
+    if already_registered: break
 
 if not already_registered:
     session_start.append({
-        "hooks": [
-            {
-                "type": "command",
-                "command": hook_path,
-                "timeout": 5,
-            }
-        ]
+        "hooks": [{"type": "command", "command": hook_path, "timeout": 5}]
     })
     print(f"==> registered SessionStart hook in {settings_path}")
 else:
     print(f"==> SessionStart hook already registered in {settings_path}")
 
-# --- Allowlist the python helper invocations (idempotent) ---
-permissions = data.setdefault("permissions", {})
-if not isinstance(permissions, dict):
-    permissions = {}
-    data["permissions"] = permissions
-allow = permissions.setdefault("allow", [])
-if not isinstance(allow, list):
-    allow = []
-    permissions["allow"] = allow
-WANTED = [
-    "Bash(uv run ~/.config/caipe/caipe-skills.py*)",
-    "Bash(python3 ~/.config/caipe/caipe-skills.py*)",
-]
-for rule in WANTED:
-    if rule not in allow:
-        allow.append(rule)
-        print(f"==> added allowlist rule: {rule}")
-
-# --- Atomic write ---
 fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
@@ -1107,7 +1193,18 @@ with os.fdopen(fd, "w") as f:
 os.replace(tmp, settings_path)
 os.chmod(settings_path, 0o600)
 PY
-  manifest_register "\$CLAUDE_SETTINGS_FILE" config
+  manifest_register_paths "claude-settings" "config" "\$CLAUDE_SETTINGS_FILE"
+}
+
+# ---------- Step: live-only single skill ----------
+do_install_live_only() {
+  [ "\$DO_LIVE_ONLY" -eq 1 ] || return 0
+
+  local tmp; tmp="\$(mktemp -t caipe-live-XXXXXX)"
+  if fetch_template_to "\$SINGLE_SKILL_URL" "\$tmp"; then
+    write_to_all_targets "\$COMMAND_NAME" "\$tmp" "skill" || true
+  fi
+  rm -f "\$tmp"
 }
 
 # ---------- Run the steps in order ----------
@@ -1116,6 +1213,7 @@ do_seed_config
 do_install_helper_py
 do_install_helpers
 do_install_bulk
+do_install_live_only
 do_install_hook
 
 # ---------- Success card ----------
@@ -1124,40 +1222,34 @@ echo "================================================================"
 echo "  CAIPE skills installed for \$AGENT_LABEL (\$SCOPE scope)"
 echo "================================================================"
 echo
-echo "  next steps:"
-if [ "\$NO_HELPERS" -eq 0 ]; then
+echo "  installed to:"
+for p in "\${RESOLVED_SKILL_PATHS[@]}"; do
+  echo "    \${p%/\\{name\\}/SKILL.md}/<name>/SKILL.md"
+done
+echo
+if [ "\$DO_HELPERS" -eq 1 ] && [ "\$NO_HELPERS" -eq 0 ]; then
+  echo "  next steps:"
   echo "    1. launch \$AGENT_LABEL"
   echo "    2. type /skills <query>          live-fetch a skill from the catalog"
   echo "    3. type /update-skills           refresh local copies from the catalog"
-else
-  echo "    /skills and /update-skills helper commands were skipped (--no-helpers)."
+elif [ "\$DO_LIVE_ONLY" -eq 1 ]; then
+  echo "  next steps:"
+  echo "    1. launch \$AGENT_LABEL"
+  echo "    2. type /\$COMMAND_NAME"
 fi
 echo
-echo "  recommended (one-time): add the helper to your agent's allowlist"
-echo "  to avoid approval prompts on every catalog lookup. Example for"
-echo "  ~/.claude/settings.json or ~/.cursor/settings.json:"
-echo
-echo "    {"
-echo "      \\"permissions\\": {"
-echo "        \\"allow\\": ["
-echo "          \\"Bash(uv run ~/.config/caipe/caipe-skills.py*)\\","
-echo "          \\"Bash(python3 ~/.config/caipe/caipe-skills.py*)\\""
-echo "        ]"
-echo "      }"
-echo "    }"
-echo
-if [ "\$IS_CLAUDE" = "1" ] && [ "\$NO_HOOK" -eq 0 ]; then
+if [ "\$IS_CLAUDE" = "1" ] && [ "\$DO_HOOK" -eq 1 ] && [ "\$NO_HOOK" -eq 0 ]; then
   echo "  Claude SessionStart hook installed — your next Claude Code session"
   echo "  will see the live catalog index in additionalContext."
-elif [ "\$IS_CLAUDE" = "0" ]; then
-  echo "  (SessionStart hook skipped — only Claude Code supports them today.)"
 fi
 echo
 if [ "\$SCOPE" = "project" ]; then
-  echo "  project scope: add this to your .gitignore so manifests and config"
-  echo "  don't end up in version control:"
+  echo "  project scope: add this to your .gitignore so manifests, helpers,"
+  echo "  and the agent dotfiles don't end up in version control:"
   echo
   echo "    .caipe/"
+  echo "    .claude/"
+  echo "    .agents/"
   echo
 fi
 echo "  manifest: \$MANIFEST_PATH"
@@ -1166,78 +1258,31 @@ echo "================================================================"
 `;
 }
 
-/**
- * Generates the bash for `mode=uninstall`: the reverse of the
- * `bulk-with-helpers` flow.
+/* ===========================================================================
  *
- * Design constraints
- * ------------------
- * 1. **Manifest-driven, never heuristic.** We only ever delete files
- *    listed in the sidecar manifest at ``~/.config/caipe/installed.json``
- *    (or ``./.caipe/installed.json`` for project scope). A path that
- *    isn't in the manifest is left alone, even if it's at a "CAIPE-
- *    looking" location. This is the same invariant as the install
- *    side's ``manifest_owns`` check.
+ * UNINSTALL SCRIPT
  *
- * 2. **Per-item confirmation by default.** The user picked the
- *    per-item option in the design questionnaire. The prompt accepts
- *    ``y`` / ``n`` / ``a`` (yes-to-all-remaining) / ``q`` (quit) so a
- *    long manifest can be batch-approved without forcing 200 keystrokes,
- *    but the default is "ask once per file" which is the safest choice
- *    for a destructive flow.
+ * Manifest-driven, never heuristic. Walks ONE manifest (when scope= is
+ * explicit) or BOTH manifests in deterministic order user→project (when
+ * scope= is omitted). Each manifest gets its own independent y/N/a/q
+ * prompt loop — an "all" answer in the first loop does NOT carry across
+ * to the next.
  *
- * 3. **Config preservation.** ``~/.config/caipe/config.json`` (api_key
- *    + base_url + per-host overrides) is preserved by default so the
- *    user can re-install without re-entering credentials. ``--purge``
- *    removes it explicitly. This matches the design question answer.
+ * Manifest entry shape (read):
+ *   New: { name, kind, paths: [<list>], ... }
+ *   Legacy: { name?, kind, path: <string>, ... }
  *
- * 4. **Reversible Claude settings patch.** When we encounter a
- *    ``hook`` entry in the manifest, we ALSO surgically remove the
- *    matching SessionStart hook entry and the two allowlist rules
- *    from ``~/.claude/settings.json``. Only the entries pointing at
- *    our specific hook script path are removed; everything else in
- *    the user's settings file is preserved. Mirrors the additive
- *    install-time patch in ``do_install_hook``.
+ * Settings reversal (Claude only):
+ *   When a `hook` entry is removed, the matching SessionStart entry is
+ *   surgically removed from ~/.claude/settings.json. The two legacy
+ *   `Bash(...caipe-skills.py*)` allowlist entries are also stripped if
+ *   they are present (older installs added them; new installs do not).
  *
- * 5. **Dry-run by default? No.** The user explicitly chose per-item
- *    prompts as the safety mechanism. ``--dry-run`` is still offered
- *    so an automation system can ask "what would you do?" without
- *    destroying anything, but the default flow is interactive
- *    deletion, not preview-then-apply (which would be user-hostile
- *    for a `curl | bash` workflow where stdin is the same TTY).
- *
- * 6. **Empty-manifest cleanup.** Once every entry is removed (or the
- *    manifest is exhausted via ``--all``), we delete the manifest
- *    itself so a fresh install starts from a clean slate. The
- *    ``--purge`` flag additionally removes ``~/.config/caipe/`` if
- *    it's then empty.
- *
- * 7. **Never recurse, never glob.** Each manifest entry is a single
- *    absolute path. We refuse to remove directories (a defensive
- *    invariant — the install side never registers a directory as
- *    a manifest entry, only files).
- */
-function buildUninstallScript({
-  agent,
-  scope,
-}: ScriptInputs): string {
-  // Manifest path table mirrors the install side. ``CAIPE_INSTALL_MANIFEST``
-  // is honored as an override so tests + power users can point at a
-  // sandboxed manifest.
-  const manifestUserPath = `\${HOME:-.}/.config/caipe/installed.json`;
-  const manifestProjectPath = `./.caipe/installed.json`;
-  const manifestDefault =
-    scope === "project" ? manifestProjectPath : manifestUserPath;
+ * ========================================================================= */
 
-  // Claude settings file (only relevant when reversing a hook entry).
-  // We compute it server-side and bake the path so the bash script
-  // doesn't have to special-case the agent — the per-entry kind
-  // already tells us which entries are hook entries.
+function buildUninstallScript(inputs: ScriptInputs): string {
+  const { agent, walkBothManifests } = inputs;
   const claudeSettingsPath = `\${HOME:-.}/.claude/settings.json`;
-
-  // Helper allowlist rules we add at install time. Listed here so the
-  // settings-cleanup Python heredoc has a stable WANTED list to
-  // remove. Keep in sync with the WANTED list in ``do_install_hook``.
   const allowlistRules = [
     "Bash(uv run ~/.config/caipe/caipe-skills.py*)",
     "Bash(python3 ~/.config/caipe/caipe-skills.py*)",
@@ -1246,29 +1291,54 @@ function buildUninstallScript({
   const agentLabel = agent.label;
   const agentId = agent.id;
 
+  // The list of manifests this script will walk, in order. Each entry
+  // is the bash expansion of the manifest path. When walkBothManifests
+  // is false we honor the requested scope; otherwise we visit user
+  // first, then project.
+  const manifestExpansions = walkBothManifests
+    ? [
+        `\${HOME:-.}/.config/caipe/installed.json`,
+        `./.caipe/installed.json`,
+      ]
+    : inputs.scope === "project"
+      ? [`./.caipe/installed.json`]
+      : [`\${HOME:-.}/.config/caipe/installed.json`];
+
+  const manifestArrayLines = manifestExpansions
+    .map((p) => `  ${shq(p)}`)
+    .join("\n");
+
   return `#!/usr/bin/env bash
 #
 # install-skills.sh --uninstall — CAIPE uninstaller for ${agentLabel}.
 #
-# Reverses a previous install (any mode). Manifest-driven: only files
-# tracked in the sidecar manifest are touched. Per-item confirmation
-# prompts protect against accidental data loss.
+# Reverses a previous install by walking the sidecar manifest(s).
+# Manifest-driven: only files tracked in a manifest are touched.
+# Per-item confirmation prompts protect against accidental data loss.
 #
-# Generated by /api/skills/install.sh?mode=uninstall&agent=${agentId}&scope=${scope}.
-# Do not edit by hand; re-fetch via curl to update.
+# Generated by /api/skills/install.sh?mode=uninstall&agent=${agentId}${walkBothManifests ? "" : `&scope=${inputs.scope}`}.
 #
 set -euo pipefail
 
 AGENT="${agentId}"
-SCOPE="${scope}"
-MANIFEST_PATH="${manifestDefault}"
-MANIFEST_PATH="\${CAIPE_INSTALL_MANIFEST:-\$MANIFEST_PATH}"
 CAIPE_CONFIG_DIR="\${HOME:-.}/.config/caipe"
 CAIPE_CONFIG_FILE="\$CAIPE_CONFIG_DIR/config.json"
 CLAUDE_SETTINGS_FILE="${claudeSettingsPath}"
 
+# Manifests to walk. Each is processed in order with its OWN independent
+# y/N/a/q prompt loop -- an "a" (apply-to-all) answer in the first
+# manifest's loop does NOT carry across to the next.
+MANIFESTS=(
+${manifestArrayLines}
+)
+# CAIPE_INSTALL_MANIFEST overrides the FIRST manifest only (kept for
+# backward compatibility with single-scope invocations).
+if [ -n "\${CAIPE_INSTALL_MANIFEST:-}" ]; then
+  MANIFESTS=("\$CAIPE_INSTALL_MANIFEST")
+fi
+
 DRY_RUN=0
-ALL=0
+ALL_GLOBAL=0    # --all on the command line forces ALL=1 in every manifest's loop
 PURGE=0
 
 usage() {
@@ -1276,35 +1346,28 @@ usage() {
 Usage:
   $0 [--dry-run] [--all] [--purge]
 
-Removes CAIPE-installed files for agent=\$AGENT scope=\$SCOPE by walking
-the sidecar manifest at \$MANIFEST_PATH. By default each entry is
-prompted for individually. Files not listed in the manifest are
-NEVER touched.
+Removes CAIPE-installed files by walking the sidecar manifest(s).
+By default each manifest entry is prompted for individually.
 
 Options:
   --dry-run   Show what would be removed without deleting anything.
               Implies --all (no prompts) for clean output.
   --all       Skip the per-item prompt and remove every manifest entry.
-              Equivalent to answering 'a' (yes-to-all) on the first
-              prompt.
+              Equivalent to answering 'a' (yes-to-all) in every loop.
   --purge     Also remove ~/.config/caipe/config.json (gateway base_url
-              + api_key) and the parent directory if it's empty after
-              cleanup. Without --purge the config file is preserved so
-              a re-install does not require re-entering credentials.
+              + api_key). Without --purge the config file is preserved
+              so a re-install does not require re-entering credentials.
   -h, --help  Show this help.
 
-Manifest:
-  Default location:
-    --scope=user    : ~/.config/caipe/installed.json
-    --scope=project : ./.caipe/installed.json
-  Override with: CAIPE_INSTALL_MANIFEST=/path/to/manifest.json
+Manifests walked (in order):
+${manifestExpansions.map((p) => `  ${p}`).join("\n")}
 USAGE
 }
 
 while [ \$# -gt 0 ]; do
   case "\$1" in
-    --dry-run)  DRY_RUN=1 ; ALL=1 ;;
-    --all)      ALL=1 ;;
+    --dry-run)  DRY_RUN=1 ; ALL_GLOBAL=1 ;;
+    --all)      ALL_GLOBAL=1 ;;
     --purge)    PURGE=1 ;;
     -h|--help)  usage ; exit 0 ;;
     *)          echo "error: unknown flag: \$1" >&2 ; usage >&2 ; exit 64 ;;
@@ -1312,229 +1375,197 @@ while [ \$# -gt 0 ]; do
   shift
 done
 
-if [ ! -r "\$MANIFEST_PATH" ]; then
-  echo "==> nothing to do: no manifest at \$MANIFEST_PATH"
-  echo "    (either CAIPE was never installed at this scope, or it was"
-  echo "    already uninstalled)"
-  exit 0
-fi
-
 if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 is required to read the manifest" >&2
   exit 69
 fi
 
-# ---------- Read & validate manifest ----------
-# Emit one tab-separated record per installed entry: <kind>\\t<path>
-# Sorted so the user sees a stable order (config last, helpers/skills
-# first) -- gives a predictable confirmation flow.
-ENTRIES_TSV="\$(python3 - "\$MANIFEST_PATH" <<'PY'
+# Track total removed/skipped across all manifests for the final card.
+TOTAL_REMOVED=0
+TOTAL_SKIPPED=0
+
+# Walk each manifest with its own independent prompt loop.
+for MANIFEST_PATH in "\${MANIFESTS[@]}"; do
+  if [ ! -r "\$MANIFEST_PATH" ]; then
+    echo "==> nothing to do: no manifest at \$MANIFEST_PATH"
+    continue
+  fi
+
+  # ---------- Read & validate this manifest ----------
+  # Emit one TSV record per file: <kind>\\t<name>\\t<path>
+  # A single manifest entry with N paths produces N rows so the prompt
+  # loop can ask per-file (not per-skill).
+  ENTRIES_TSV="\$(python3 - "\$MANIFEST_PATH" <<'PY'
 import json, sys
-from pathlib import Path
-
-# Tabs are forbidden inside paths on macOS/Linux so they're a safe
-# field separator. We sort by a small kind priority table so the
-# interactive prompts walk a predictable order regardless of install
-# order: skills > catalog > helpers > hook > config (least to most
-# fundamental, so quitting halfway leaves the install in a usable
-# state -- the python helper + config stick around until the very end).
-KIND_ORDER = {
-    "skill":   0,
-    "catalog": 1,
-    "helper":  2,
-    "hook":    3,
-    "config":  4,
-}
-
+KIND_ORDER = {"skill": 0, "catalog": 1, "helper": 2, "helper-py": 2, "hook": 3, "config": 4}
 try:
     data = json.load(open(sys.argv[1]))
 except Exception as e:
     sys.stderr.write(f"error: manifest is not valid JSON: {e}\\n")
     sys.exit(70)
-
 if not isinstance(data, dict):
     sys.stderr.write("error: manifest root is not an object\\n")
     sys.exit(70)
-
 entries = data.get("installed") or []
 if not isinstance(entries, list):
     sys.stderr.write("error: manifest.installed is not an array\\n")
     sys.exit(70)
-
 rows = []
 for e in entries:
-    if not isinstance(e, dict):
-        continue
-    p = e.get("path")
+    if not isinstance(e, dict): continue
+    name = (e.get("name") or "").strip()
     k = (e.get("kind") or "skill").strip().lower()
-    if not isinstance(p, str) or not p:
-        continue
-    if "\\t" in p or "\\n" in p:
-        # Defensive: a manifest path with a tab/newline would corrupt
-        # the TSV. Skip + warn -- never silently ignore.
-        sys.stderr.write(f"warn: skipping manifest entry with bad path: {p!r}\\n")
-        continue
-    rows.append((KIND_ORDER.get(k, 99), k, p))
-
+    paths = e.get("paths")
+    if isinstance(paths, list):
+        path_list = [p for p in paths if isinstance(p, str) and p]
+    elif isinstance(e.get("path"), str) and e["path"]:
+        path_list = [e["path"]]
+    else:
+        path_list = []
+    for p in path_list:
+        if "\\t" in p or "\\n" in p:
+            sys.stderr.write(f"warn: skipping manifest entry with bad path: {p!r}\\n")
+            continue
+        rows.append((KIND_ORDER.get(k, 99), k, name, p))
 rows.sort()
-for _, k, p in rows:
-    sys.stdout.write(f"{k}\\t{p}\\n")
+for _, k, n, p in rows:
+    sys.stdout.write(f"{k}\\t{n}\\t{p}\\n")
 PY
 )"
 
-if [ -z "\$ENTRIES_TSV" ]; then
-  echo "==> manifest \$MANIFEST_PATH lists no installed files"
-  echo "    nothing to remove"
-  if [ \$PURGE -eq 1 ]; then
-    if [ -f "\$CAIPE_CONFIG_FILE" ]; then
-      echo "==> --purge: removing \$CAIPE_CONFIG_FILE"
-      [ \$DRY_RUN -eq 1 ] || rm -f "\$CAIPE_CONFIG_FILE"
-    fi
-  fi
-  if [ \$DRY_RUN -eq 0 ]; then
-    rm -f "\$MANIFEST_PATH" || true
-  fi
-  exit 0
-fi
-
-# ---------- Summary ----------
-TOTAL="\$(printf '%s\\n' "\$ENTRIES_TSV" | wc -l | tr -d ' ')"
-echo "================================================================"
-echo "  CAIPE uninstall: \$AGENT (scope=\$SCOPE)"
-echo "  manifest: \$MANIFEST_PATH"
-echo "  \$TOTAL file(s) tracked"
-if [ \$DRY_RUN -eq 1 ]; then
-  echo "  mode: DRY RUN (no files will be deleted)"
-elif [ \$ALL -eq 1 ]; then
-  echo "  mode: --all (no prompts; every entry will be removed)"
-else
-  echo "  mode: interactive (one prompt per file; a=yes-to-all, q=quit)"
-fi
-echo "================================================================"
-
-# ---------- Per-entry walk ----------
-# We answer the per-entry prompt by reading from /dev/tty so this
-# script still works under \`curl ... | bash\` (which puts the script
-# itself on stdin). When stdin is not a tty AND --all wasn't passed,
-# refuse rather than silently remove everything -- that would be a
-# nasty surprise in CI.
-if [ \$ALL -eq 0 ] && [ ! -r /dev/tty ]; then
-  echo "error: stdin is not a tty and --all was not passed" >&2
-  echo "       refusing to remove files non-interactively without --all" >&2
-  echo "       hint: re-run with '--dry-run' to preview, or '--all' to" >&2
-  echo "             remove every manifest entry without prompting" >&2
-  exit 65
-fi
-
-removed_count=0
-skipped_count=0
-hook_paths_to_unregister=()
-
-# Use process substitution so the loop body runs in the parent shell
-# and we can read /dev/tty for the prompts.
-while IFS=\$'\\t' read -r kind path; do
-  [ -n "\$path" ] || continue
-
-  if [ ! -e "\$path" ]; then
-    # Already gone (user removed it manually, or a previous run
-    # partially completed). Drop from manifest silently.
-    echo "  · already gone: \$path (\$kind)"
-    skipped_count=\$((skipped_count + 1))
+  if [ -z "\$ENTRIES_TSV" ]; then
+    echo "==> manifest \$MANIFEST_PATH lists no installed files"
     continue
   fi
 
-  if [ -d "\$path" ]; then
-    echo "  ! refusing to remove directory: \$path (\$kind)"
-    echo "    (the install side never registers directories; this looks"
-    echo "     like a manually-edited manifest -- skipping)"
-    skipped_count=\$((skipped_count + 1))
-    continue
-  fi
-
-  # Preserve config.json unless --purge.
-  if [ "\$kind" = "config" ] && [ \$PURGE -eq 0 ]; then
-    echo "  · keep (no --purge): \$path (\$kind)"
-    skipped_count=\$((skipped_count + 1))
-    continue
-  fi
-
-  if [ \$ALL -eq 1 ]; then
-    answer=y
-  else
-    printf "  ? remove %s [%s]? [y/N/a/q] " "\$path" "\$kind" > /dev/tty
-    IFS= read -r answer < /dev/tty || answer=n
-    answer="\$(printf '%s' "\$answer" | tr '[:upper:]' '[:lower:]')"
-    case "\$answer" in
-      a|all)
-        ALL=1
-        answer=y
-        echo "    (remaining entries will be removed without prompting)"
-        ;;
-      q|quit)
-        echo "    aborted by user; \$removed_count file(s) removed so far"
-        break
-        ;;
-    esac
-  fi
-
-  if [ "\$answer" != "y" ] && [ "\$answer" != "yes" ]; then
-    echo "    skip: \$path"
-    skipped_count=\$((skipped_count + 1))
-    continue
-  fi
-
+  TOTAL="\$(printf '%s\\n' "\$ENTRIES_TSV" | wc -l | tr -d ' ')"
+  echo "================================================================"
+  echo "  CAIPE uninstall: \$MANIFEST_PATH"
+  echo "  \$TOTAL file(s) tracked"
   if [ \$DRY_RUN -eq 1 ]; then
-    echo "    [dry-run] would remove \$path"
+    echo "  mode: DRY RUN (no files will be deleted)"
+  elif [ \$ALL_GLOBAL -eq 1 ]; then
+    echo "  mode: --all (no prompts; every entry will be removed)"
   else
-    rm -f "\$path" && echo "    removed \$path"
+    echo "  mode: interactive (one prompt per file; a=yes-to-all-IN-THIS-MANIFEST, q=quit-this-manifest)"
   fi
-  removed_count=\$((removed_count + 1))
+  echo "================================================================"
 
-  # Track hook paths so we can reverse the settings.json patch in a
-  # single pass at the end (one Python invocation per script run, not
-  # per hook entry).
-  if [ "\$kind" = "hook" ]; then
-    hook_paths_to_unregister+=("\$path")
+  # If stdin is not a tty AND --all wasn't passed, refuse rather than
+  # silently remove everything (CI hostility guard).
+  if [ \$ALL_GLOBAL -eq 0 ] && [ ! -r /dev/tty ]; then
+    echo "error: stdin is not a tty and --all was not passed" >&2
+    echo "       refusing to remove files non-interactively without --all" >&2
+    exit 65
   fi
-done <<EOF
+
+  # Per-manifest "all" state. An 'a' answer toggles this for THIS
+  # manifest only -- the next manifest in the loop starts fresh.
+  ALL_LOCAL=\$ALL_GLOBAL
+  removed_count=0
+  skipped_count=0
+  hook_paths_to_unregister=()
+  removed_paths=()
+  parent_dirs_to_check=()
+
+  while IFS=\$'\\t' read -r kind name path; do
+    [ -n "\$path" ] || continue
+
+    if [ ! -e "\$path" ]; then
+      echo "  · already gone: \$path (\$kind)"
+      skipped_count=\$((skipped_count + 1))
+      removed_paths+=("\$path")  # still drop from manifest
+      continue
+    fi
+
+    if [ -d "\$path" ]; then
+      echo "  ! refusing to remove directory: \$path (\$kind)"
+      skipped_count=\$((skipped_count + 1))
+      continue
+    fi
+
+    if [ "\$kind" = "config" ] && [ \$PURGE -eq 0 ]; then
+      echo "  · keep (no --purge): \$path (\$kind)"
+      skipped_count=\$((skipped_count + 1))
+      continue
+    fi
+
+    if [ \$ALL_LOCAL -eq 1 ]; then
+      answer=y
+    else
+      printf "  ? remove %s [%s/%s]? [y/N/a/q] " "\$path" "\$kind" "\$name" > /dev/tty
+      IFS= read -r answer < /dev/tty || answer=n
+      answer="\$(printf '%s' "\$answer" | tr '[:upper:]' '[:lower:]')"
+      case "\$answer" in
+        a|all)
+          ALL_LOCAL=1
+          answer=y
+          echo "    (remaining entries in THIS manifest will be removed without prompting)"
+          ;;
+        q|quit)
+          echo "    aborted by user; \$removed_count file(s) removed so far in this manifest"
+          break
+          ;;
+      esac
+    fi
+
+    if [ "\$answer" != "y" ] && [ "\$answer" != "yes" ]; then
+      echo "    skip: \$path"
+      skipped_count=\$((skipped_count + 1))
+      continue
+    fi
+
+    if [ \$DRY_RUN -eq 1 ]; then
+      echo "    [dry-run] would remove \$path"
+    else
+      rm -f "\$path" && echo "    removed \$path"
+      # Track the parent directory so we can rmdir it if empty (the
+      # universal-paths layout creates per-skill folders we should
+      # clean up: <root>/<name>/SKILL.md → rmdir <root>/<name>).
+      parent_dirs_to_check+=("\$(dirname "\$path")")
+    fi
+    removed_count=\$((removed_count + 1))
+    removed_paths+=("\$path")
+
+    if [ "\$kind" = "hook" ]; then
+      hook_paths_to_unregister+=("\$path")
+    fi
+  done <<EOF
 \$ENTRIES_TSV
 EOF
 
-# ---------- Reverse ~/.claude/settings.json patch ----------
-# Only runs when at least one hook entry was actually removed, and
-# only when the settings file exists. Surgical: we ONLY remove
-# SessionStart entries pointing at our hook paths and the two
-# specific allowlist rules we added at install. Everything else in
-# the user's settings file is preserved verbatim.
-if [ \${#hook_paths_to_unregister[@]} -gt 0 ] && [ -f "\$CLAUDE_SETTINGS_FILE" ]; then
-  if [ \$DRY_RUN -eq 1 ]; then
-    echo "  [dry-run] would prune \${#hook_paths_to_unregister[@]} hook entry/entries from \$CLAUDE_SETTINGS_FILE"
-  else
-    HOOK_PATHS_JOINED="\$(printf '%s\\n' "\${hook_paths_to_unregister[@]}")"
-    HOOK_PATHS_JOINED="\$HOOK_PATHS_JOINED" ALLOWLIST_RULES=${JSON.stringify(JSON.stringify(allowlistRules))} python3 - "\$CLAUDE_SETTINGS_FILE" <<'PY'
-import json, os, sys, tempfile
+  # ---------- rmdir empty per-skill parent directories ----------
+  if [ \$DRY_RUN -eq 0 ] && [ \${#parent_dirs_to_check[@]} -gt 0 ]; then
+    # Dedupe; rmdir each (errors are silently ignored — non-empty dirs stay).
+    while IFS= read -r d; do
+      [ -d "\$d" ] && rmdir "\$d" 2>/dev/null || true
+    done < <(printf '%s\\n' "\${parent_dirs_to_check[@]}" | sort -u)
+  fi
 
+  # ---------- Reverse ~/.claude/settings.json patch ----------
+  # Surgical: remove ONLY SessionStart entries pointing at our hook
+  # paths, and the two legacy allowlist rules (if present from older
+  # installs). Everything else in the user's settings file is preserved.
+  if [ \${#hook_paths_to_unregister[@]} -gt 0 ] && [ -f "\$CLAUDE_SETTINGS_FILE" ]; then
+    if [ \$DRY_RUN -eq 1 ]; then
+      echo "  [dry-run] would prune \${#hook_paths_to_unregister[@]} hook entry/entries from \$CLAUDE_SETTINGS_FILE"
+    else
+      HOOK_PATHS_JOINED="\$(printf '%s\\n' "\${hook_paths_to_unregister[@]}")"
+      HOOK_PATHS_JOINED="\$HOOK_PATHS_JOINED" ALLOWLIST_RULES=${JSON.stringify(JSON.stringify(allowlistRules))} python3 - "\$CLAUDE_SETTINGS_FILE" <<'PY'
+import json, os, sys, tempfile
 settings_path = sys.argv[1]
 hook_paths = set(filter(None, os.environ.get("HOOK_PATHS_JOINED", "").splitlines()))
 try:
     allowlist_rules = set(json.loads(os.environ.get("ALLOWLIST_RULES", "[]")))
 except Exception:
     allowlist_rules = set()
-
-if not hook_paths:
-    sys.exit(0)
-
+if not hook_paths: sys.exit(0)
 try:
     data = json.load(open(settings_path))
 except Exception:
-    # Corrupt or missing settings.json -- nothing to do.
     sys.exit(0)
-if not isinstance(data, dict):
-    sys.exit(0)
-
+if not isinstance(data, dict): sys.exit(0)
 mutated = False
-
-# --- Prune SessionStart entries whose inner hooks all point at us. ---
 hooks = data.get("hooks")
 if isinstance(hooks, dict):
     session_start = hooks.get("SessionStart")
@@ -1542,37 +1573,22 @@ if isinstance(hooks, dict):
         kept = []
         for entry in session_start:
             if not isinstance(entry, dict):
-                kept.append(entry)
-                continue
+                kept.append(entry); continue
             inner = entry.get("hooks")
             if not isinstance(inner, list):
-                kept.append(entry)
-                continue
-            inner_kept = [
-                h for h in inner
-                if not (isinstance(h, dict) and h.get("command") in hook_paths)
-            ]
+                kept.append(entry); continue
+            inner_kept = [h for h in inner if not (isinstance(h, dict) and h.get("command") in hook_paths)]
             if not inner_kept:
-                # Whole entry was ours -- drop it entirely.
-                mutated = True
-                continue
+                mutated = True; continue
             if len(inner_kept) != len(inner):
-                entry = dict(entry)
-                entry["hooks"] = inner_kept
-                mutated = True
+                entry = dict(entry); entry["hooks"] = inner_kept; mutated = True
             kept.append(entry)
-        if len(kept) != len(session_start):
-            mutated = True
-        if kept:
-            hooks["SessionStart"] = kept
+        if len(kept) != len(session_start): mutated = True
+        if kept: hooks["SessionStart"] = kept
         else:
-            hooks.pop("SessionStart", None)
-            mutated = True
+            hooks.pop("SessionStart", None); mutated = True
         if not hooks:
-            data.pop("hooks", None)
-            mutated = True
-
-# --- Prune the two allowlist rules we added at install. ---
+            data.pop("hooks", None); mutated = True
 permissions = data.get("permissions")
 if isinstance(permissions, dict):
     allow = permissions.get("allow")
@@ -1580,18 +1596,12 @@ if isinstance(permissions, dict):
         kept_rules = [r for r in allow if r not in allowlist_rules]
         if len(kept_rules) != len(allow):
             mutated = True
-            if kept_rules:
-                permissions["allow"] = kept_rules
-            else:
-                permissions.pop("allow", None)
+            if kept_rules: permissions["allow"] = kept_rules
+            else: permissions.pop("allow", None)
         if not permissions:
-            data.pop("permissions", None)
-            mutated = True
-
+            data.pop("permissions", None); mutated = True
 if not mutated:
-    print(f"==> no matching hooks/allowlist entries in {settings_path}")
-    sys.exit(0)
-
+    print(f"==> no matching hooks/allowlist entries in {settings_path}"); sys.exit(0)
 parent = os.path.dirname(settings_path) or "."
 fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
 try:
@@ -1606,41 +1616,41 @@ except Exception as e:
     except OSError: pass
     sys.stderr.write(f"warn: could not update {settings_path}: {e}\\n")
 PY
+    fi
   fi
-fi
 
-# ---------- Manifest finalization ----------
-# Rewrite the manifest dropping every entry whose target file no
-# longer exists. If that empties the manifest, delete it. We do this
-# in a single Python pass at the end so a partial run leaves the
-# manifest in a self-consistent state.
-if [ \$DRY_RUN -eq 0 ]; then
-  python3 - "\$MANIFEST_PATH" <<'PY'
+  # ---------- Manifest finalization ----------
+  # Drop any entry whose paths no longer exist on disk. If the resulting
+  # manifest has zero entries, delete the file. Always re-emit in the
+  # new (paths[]) shape so legacy entries are migrated.
+  if [ \$DRY_RUN -eq 0 ]; then
+    python3 - "\$MANIFEST_PATH" <<'PY'
 import json, os, sys, tempfile
 mp = sys.argv[1]
-try:
-    data = json.load(open(mp))
-except Exception:
-    sys.exit(0)
-if not isinstance(data, dict):
-    sys.exit(0)
+try: data = json.load(open(mp))
+except Exception: sys.exit(0)
+if not isinstance(data, dict): sys.exit(0)
 entries = data.get("installed") or []
-if not isinstance(entries, list):
-    sys.exit(0)
-remaining = [
-    e for e in entries
-    if isinstance(e, dict)
-    and isinstance(e.get("path"), str)
-    and os.path.exists(e["path"])
-]
+if not isinstance(entries, list): sys.exit(0)
+remaining = []
+for e in entries:
+    if not isinstance(e, dict): continue
+    paths = e.get("paths")
+    if not isinstance(paths, list):
+        if isinstance(e.get("path"), str): paths = [e["path"]]
+        else: continue
+    surviving = [p for p in paths if isinstance(p, str) and os.path.exists(p)]
+    if not surviving: continue
+    new_e = dict(e); new_e["paths"] = surviving; new_e.pop("path", None)
+    remaining.append(new_e)
 if not remaining:
     try:
         os.unlink(mp)
         print(f"==> removed empty manifest {mp}")
-    except FileNotFoundError:
-        pass
+    except FileNotFoundError: pass
     sys.exit(0)
 data["installed"] = remaining
+data["version"] = 2
 parent = os.path.dirname(mp) or "."
 fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=parent)
 try:
@@ -1654,23 +1664,30 @@ except Exception:
     try: os.unlink(tmp)
     except OSError: pass
 PY
-fi
+  fi
 
-# ---------- --purge: remove ~/.config/caipe if empty ----------
+  TOTAL_REMOVED=\$((TOTAL_REMOVED + removed_count))
+  TOTAL_SKIPPED=\$((TOTAL_SKIPPED + skipped_count))
+done
+
+# ---------- --purge: remove ~/.config/caipe/config.json + parent if empty ----------
 if [ \$PURGE -eq 1 ] && [ \$DRY_RUN -eq 0 ]; then
+  if [ -f "\$CAIPE_CONFIG_FILE" ]; then
+    rm -f "\$CAIPE_CONFIG_FILE" && echo "==> removed \$CAIPE_CONFIG_FILE"
+  fi
   if [ -d "\$CAIPE_CONFIG_DIR" ] && [ -z "\$(ls -A "\$CAIPE_CONFIG_DIR" 2>/dev/null)" ]; then
     rmdir "\$CAIPE_CONFIG_DIR" && echo "==> removed empty \$CAIPE_CONFIG_DIR"
   fi
 fi
 
-# ---------- Summary ----------
+# ---------- Final summary ----------
 echo "================================================================"
 if [ \$DRY_RUN -eq 1 ]; then
-  echo "  dry-run complete: \$removed_count file(s) would be removed,"
-  echo "  \$skipped_count skipped"
+  echo "  dry-run complete: \$TOTAL_REMOVED file(s) would be removed,"
+  echo "  \$TOTAL_SKIPPED skipped"
 else
-  echo "  uninstall complete: \$removed_count file(s) removed,"
-  echo "  \$skipped_count skipped"
+  echo "  uninstall complete: \$TOTAL_REMOVED file(s) removed,"
+  echo "  \$TOTAL_SKIPPED skipped"
 fi
 if [ \$PURGE -eq 0 ] && [ -f "\$CAIPE_CONFIG_FILE" ]; then
   echo
@@ -1681,759 +1698,66 @@ echo "================================================================"
 `;
 }
 
-/**
- * Legacy script generator for the live-only and catalog-query modes.
- * Behavior is byte-identical to the pre-refactor flow; only the entry
- * point name changed. The new bulk-with-helpers mode delegates to its
- * own generator above so this 500-line function stays untouched.
- */
-function buildLegacyScript({
-  agent,
-  scope,
-  layout,
-  commandName,
-  description,
-  baseUrl,
-  catalogUrl,
-}: ScriptInputs): string {
-  // Pick the right install path table for the requested layout.
-  const layoutPaths =
-    layout === "skills" && agent.skillsPaths
-      ? agent.skillsPaths
-      : agent.installPaths;
-  const installPathTemplate = layoutPaths[scope]!;
-  const resolvedPath = installPathTemplate.replace(/\{name\}/g, commandName);
-  const commandsDirTemplate = commandsDirFor(installPathTemplate, layout);
-  // In skills layout the per-agent format is irrelevant — every artifact is
-  // a Markdown SKILL.md file with `name:` + `description:` frontmatter.
-  const isFragment = layout === "skills" ? false : !!agent.isFragment;
-  const queryString = new URLSearchParams({
-    agent: agent.id,
-    scope,
-    layout,
-    command_name: commandName,
-    base_url: baseUrl,
-    ...(description ? { description } : {}),
-  }).toString();
-  const liveSkillsUrl = `${baseUrl}/api/skills/live-skills?${queryString}`;
-  const fileExt = layout === "skills" ? "md" : extensionForFormat(agent.format);
-  const bulkMode = !!catalogUrl;
-
-  // Pre-quote everything we templated in.
-  const Q_AGENT_ID = shq(agent.id);
-  const Q_AGENT_LABEL = shq(agent.label);
-  const Q_SCOPE = shq(scope);
-  const Q_LAYOUT = shq(layout);
-  const Q_COMMAND = shq(commandName);
-  const Q_FORMAT = shq(agent.format);
-  const Q_INSTALL_PATH = shq(resolvedPath);
-  const Q_LIVE_SKILLS_URL = shq(liveSkillsUrl);
-  const Q_BASE_URL = shq(baseUrl);
-  const Q_COMMANDS_DIR = shq(commandsDirTemplate);
-  const Q_FILE_EXT = shq(fileExt);
-  const Q_CATALOG_URL = shq(catalogUrl ?? "");
-
-  return `#!/usr/bin/env bash
-# install-skills.sh — fetch and install CAIPE skills as slash commands
-#
-# Generated by ${baseUrl}/api/skills/install.sh
-# Agent : ${agent.label} (${agent.id})
-# Scope : ${scope} (${scope === "user" ? "user-global" : "project-local"})
-# Format: ${agent.format}
-# Mode  : ${bulkMode ? "BULK (one file per skill from catalog query)" : "single live-skills skill"}
-# Target: ${bulkMode ? commandsDirTemplate + "/<skill>." + fileExt : resolvedPath}
-#
-# Usage:
-#   CAIPE_CATALOG_KEY=<your-key> ./install-skills.sh
-#   ./install-skills.sh --api-key=<your-key>     # value leaks into shell history
-#   ./install-skills.sh --upgrade                # replace a previously-installed CAIPE skill
-#   ./install-skills.sh --force                  # overwrite an existing file unconditionally
-#
-# Security: this script NEVER prints the API key. The key is only used in
-# the X-Caipe-Catalog-Key request header sent to the gateway.
-
-set -euo pipefail
-
-AGENT_ID=${Q_AGENT_ID}
-AGENT_LABEL=${Q_AGENT_LABEL}
-SCOPE=${Q_SCOPE}
-LAYOUT=${Q_LAYOUT}
-COMMAND_NAME=${Q_COMMAND}
-FORMAT=${Q_FORMAT}
-INSTALL_PATH_RAW=${Q_INSTALL_PATH}
-COMMANDS_DIR_RAW=${Q_COMMANDS_DIR}
-FILE_EXT=${Q_FILE_EXT}
-LIVE_SKILLS_URL=${Q_LIVE_SKILLS_URL}
-BASE_URL=${Q_BASE_URL}
-CATALOG_URL=${Q_CATALOG_URL}
-BULK_MODE=${bulkMode ? "1" : "0"}
-IS_FRAGMENT=${isFragment ? "1" : "0"}
-
-API_KEY="\${CAIPE_CATALOG_KEY:-}"
-FORCE=0
-UPGRADE=0
-
-# Sidecar manifest of files this installer has written, used by --upgrade to
-# decide whether it's safe to overwrite an existing target. Lives next to the
-# config.json the live-skills helper already reads, so a single dotfile sync
-# moves both with the user.
-MANIFEST_PATH="\${CAIPE_INSTALL_MANIFEST:-\${HOME:-.}/.config/caipe/installed.json}"
-
-usage() {
-  cat <<USAGE
-install-skills.sh — installs the CAIPE live-skills skill for \$AGENT_LABEL.
-
-Usage:
-  $0 [--upgrade|--force] [--api-key=<key>]
-
-API key resolution (first match wins):
-  1. --api-key=<key>              passed on the command line (WARNING: see below)
-  2. \\\$CAIPE_CATALOG_KEY          environment variable (WARNING: see below)
-  3. ~/.config/caipe/config.json     { "api_key": "..." }   ← recommended
-  4. ~/.config/grid/config.json      { "api_key": "..." }   (shared dotfile)
-
-The config.json approach keeps your key out of shell history entirely.
-Options 1 and 2 both appear in shell history (--api-key as a flag on the
-command line; CAIPE_CATALOG_KEY=<key> as an export or inline assignment).
-
-Options:
-  --api-key=<key>   Supply the catalog API key as a flag. WARNING: visible in
-                    \\\`ps\\\` output AND shell history. Prefer config.json.
-  --upgrade         Replace a previously-installed CAIPE skill at the target
-                    path with the latest version. Looks up ownership in the
-                    manifest at $MANIFEST_PATH and refuses to touch files it
-                    doesn't own.
-  --force           Overwrite the target file unconditionally. Use this only
-                    if you know you want to discard the existing contents.
-  --help            Show this message.
-
-Environment:
-  CAIPE_CATALOG_KEY        Catalog API key. Never echoed by this script.
-  CAIPE_INSTALL_MANIFEST   Override path of the sidecar install manifest
-                           (default: ~/.config/caipe/installed.json).
-USAGE
-}
-
-# Parse args. Use "case" rather than getopts so --api-key=… and --force can
-# appear in any order without surprises on macOS bash 3.2.
-while [ "\$#" -gt 0 ]; do
-  case "\$1" in
-    --api-key=*)
-      API_KEY="\${1#--api-key=}"
-      echo "warning: --api-key passes the secret on the process command line." >&2
-      echo "         It will appear in 'ps' output to other users on this host." >&2
-      echo "         Prefer storing the key in ~/.config/caipe/config.json once." >&2
-      ;;
-    --api-key)
-      shift
-      API_KEY="\${1:-}"
-      echo "warning: --api-key passes the secret on the process command line." >&2
-      echo "         It will appear in 'ps' output to other users on this host." >&2
-      echo "         Prefer storing the key in ~/.config/caipe/config.json once." >&2
-      ;;
-    --force) FORCE=1 ;;
-    --upgrade) UPGRADE=1 ;;
-    --help|-h) usage; exit 0 ;;
-    *)
-      echo "error: unknown argument: \$1" >&2
-      usage >&2
-      exit 64
-      ;;
-  esac
-  shift || true
-done
-
-# Try the on-disk config files when no key has been supplied yet. We use
-# python3 (always available where this script runs because the live-skills
-# helper requires it) so we don't need to ship a JSON parser in bash.
-read_api_key_from_config() {
-  local cfg_path="\$1"
-  if [ ! -r "\$cfg_path" ]; then
-    return 1
-  fi
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c '
-import json, sys
-try:
-  data = json.load(open(sys.argv[1]))
-except Exception:
-  sys.exit(1)
-key = (data.get("api_key") or "").strip()
-if not key:
-  sys.exit(1)
-sys.stdout.write(key)
-' "\$cfg_path" 2>/dev/null && return 0
-  fi
-  return 1
-}
-
-if [ -z "\$API_KEY" ]; then
-  for cfg in "\${HOME:-.}/.config/caipe/config.json" "\${HOME:-.}/.config/grid/config.json"; do
-    if k="\$(read_api_key_from_config "\$cfg")" && [ -n "\$k" ]; then
-      API_KEY="\$k"
-      echo "==> using API key from \$cfg" >&2
-      break
-    fi
-  done
-fi
-
-if [ -z "\$API_KEY" ]; then
-  echo "error: catalog API key is required." >&2
-  echo "       Easiest fix: create ~/.config/caipe/config.json with:" >&2
-  echo "           { \\"api_key\\": \\"<your-key>\\" }" >&2
-  echo "       Or pass --api-key=<key> / set CAIPE_CATALOG_KEY=<key>." >&2
-  exit 64
-fi
-
-# Required tooling.
-if ! command -v curl >/dev/null 2>&1; then
-  echo "error: curl is required but was not found in PATH." >&2
-  exit 69
-fi
-
-# Resolve install path for the chosen scope.
-case "\$SCOPE" in
-  user)
-    if [ -z "\${HOME:-}" ]; then
-      echo "error: \\$HOME is not set; cannot resolve user-global install path." >&2
-      exit 78
-    fi
-    INSTALL_PATH="\${INSTALL_PATH_RAW/#~\\//\$HOME/}"
-    ;;
-  project)
-    # ./… paths are already relative to \$PWD.
-    INSTALL_PATH="\$INSTALL_PATH_RAW"
-    ;;
-  *)
-    echo "error: unknown scope: \$SCOPE" >&2
-    exit 64
-    ;;
-esac
-
-INSTALL_DIR="\$(dirname "\$INSTALL_PATH")"
-
-# Resolve the per-agent commands directory from the same scope substitution
-# rule as INSTALL_PATH. Used in BULK_MODE only.
-case "\$SCOPE" in
-  user)    COMMANDS_DIR="\${COMMANDS_DIR_RAW/#~\\//\$HOME/}" ;;
-  project) COMMANDS_DIR="\$COMMANDS_DIR_RAW" ;;
-esac
-
-# ---------- sidecar install manifest helpers ----------
-#
-# Ownership of installed files is tracked in a JSON manifest at
-# \$MANIFEST_PATH. The on-disk file body is unmodified — no comment markers,
-# no preamble lines — so what we write is byte-for-byte what the catalog
-# returned, and \`grep\`/\`diff\` against the upstream skill source produces a
-# clean diff.
-
-manifest_owns() {
-  # manifest_owns <abs-path>  →  exit 0 if the manifest records this path as
-  # installed by us, exit 1 otherwise. Missing manifest means "we own
-  # nothing". Robust to a corrupt file (treated as empty).
-  local target="\$1"
-  if [ ! -r "\$MANIFEST_PATH" ]; then
-    return 1
-  fi
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c '
-import json, sys
-try:
-  data = json.load(open(sys.argv[1]))
-except Exception:
-  sys.exit(1)
-target = sys.argv[2]
-for entry in (data or {}).get("installed", []) or []:
-  if entry.get("path") == target:
-    sys.exit(0)
-sys.exit(1)
-' "\$MANIFEST_PATH" "\$target" 2>/dev/null
-    return \$?
-  fi
-  return 1
-}
-
-manifest_register() {
-  # manifest_register <abs-path>
-  # Idempotently insert/update an entry for this path in the manifest. We
-  # scope by (agent, scope, path) so re-installing the same skill at the same
-  # path replaces its record rather than duplicating it.
-  local target="\$1"
-  local cfg_dir
-  cfg_dir="\$(dirname "\$MANIFEST_PATH")"
-  if ! mkdir -p "\$cfg_dir" 2>/dev/null; then
-    echo "warning: could not create \$cfg_dir; --upgrade will not work next time" >&2
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    # No python3 means we also couldn't have parsed config.json above; skip
-    # tracking gracefully so the install itself still succeeds.
-    return 0
-  fi
-  python3 - "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$target" <<'PY' 2>/dev/null || true
-import datetime, json, os, sys, tempfile
-
-manifest_path, agent, scope, target = sys.argv[1:]
-data = {"version": 1, "installed": []}
-if os.path.isfile(manifest_path):
-    try:
-        data = json.load(open(manifest_path))
-        if not isinstance(data, dict):
-            data = {"version": 1, "installed": []}
-        data.setdefault("version", 1)
-        data.setdefault("installed", [])
-    except Exception:
-        data = {"version": 1, "installed": []}
-
-now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
-entry = {
-    "agent": agent,
-    "scope": scope,
-    "path": target,
-    "installed_at": now,
-}
-# Replace any existing entry for the same (agent, scope, path).
-data["installed"] = [
-    e for e in data["installed"]
-    if not (e.get("agent") == agent and e.get("scope") == scope and e.get("path") == target)
-] + [entry]
-
-# Atomic write via tempfile in the same dir.
-fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=os.path.dirname(manifest_path) or ".")
-try:
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, manifest_path)
-    os.chmod(manifest_path, 0o600)
-except Exception:
-    try:
-        os.unlink(tmp)
-    except OSError:
-        pass
-PY
-}
-
-# ---------- bulk install ("Pick your skills" selection) ----------
-#
-# Triggered when the gateway templated a non-empty CATALOG_URL into the
-# script. We fetch the catalog listing, then write one file per returned
-# skill into \$COMMANDS_DIR with the same manifest/--upgrade semantics as
-# the single-skill flow below.
-if [ "\$BULK_MODE" = "1" ]; then
-  if [ "\$IS_FRAGMENT" = "1" ]; then
-    echo "error: bulk install is not supported for \$AGENT_LABEL" >&2
-    echo "       (\$AGENT_LABEL stores commands inside an existing config" >&2
-    echo "       file; merging multiple skills automatically would risk" >&2
-    echo "       clobbering your editor settings)." >&2
-    exit 64
-  fi
-
-  CATALOG_TMP="\$(mktemp -t caipe-catalog-XXXXXX)"
-  trap 'rm -f "\$CATALOG_TMP"' EXIT
-
-  CAT_STATUS="\$(curl -sS -o "\$CATALOG_TMP" -w '%{http_code}' \\
-    -H "X-Caipe-Catalog-Key: \$API_KEY" \\
-    -H 'Accept: application/json' \\
-    "\$CATALOG_URL")" || {
-      echo "error: failed to reach catalog at \$BASE_URL" >&2
-      exit 69
-    }
-
-  if [ "\$CAT_STATUS" != "200" ]; then
-    echo "error: catalog returned HTTP \$CAT_STATUS for \$CATALOG_URL" >&2
-    if [ -s "\$CATALOG_TMP" ]; then
-      echo "       body: \$(head -c 500 "\$CATALOG_TMP")" >&2
-    fi
-    exit 76
-  fi
-
-  # Emit each *file* (SKILL.md + any ancillary files) as a NUL-delimited
-  # "<safe_skill_name>\\0<relative_path>\\0<base64_body>\\0" triple.
-  #
-  # The SKILL.md body is emitted with rel_path = "SKILL.md"; ancillary
-  # files keep the path the catalog/hub recorded (e.g. "scripts/extract.py",
-  # "references/forms.json"). This lets multi-file skills (Anthropic's pdf,
-  # docx, slack, etc.) install verbatim — the agent can resolve SKILL.md's
-  # internal references against the same on-disk layout it had on GitHub.
-  #
-  # Path sanitization rules:
-  #   - skill name -> strict [A-Za-z0-9._-]+
-  #   - rel_path components individually sanitized; absolute paths, double-dot
-  #     parents, leading slash, and empty components are rejected, so a hostile
-  #     catalog cannot escape \$COMMANDS_DIR/<skill>/.
-  emit_records() {
-    if command -v python3 >/dev/null 2>&1; then
-      python3 -c '
-import base64, json, re, sys
-data = json.load(open(sys.argv[1]))
-out = sys.stdout.buffer
-err = sys.stderr
-NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
-PART_RE = re.compile(r"[^A-Za-z0-9._-]")
-def safe_path(rel):
-    rel = rel.replace("\\\\", "/").lstrip("/")
-    parts = []
-    for p in rel.split("/"):
-        if not p or p == "." or p == "..":
-            return None
-        parts.append(PART_RE.sub("_", p))
-    return "/".join(parts) if parts else None
-def is_flagged(s):
-    # Mirror of the bulk-with-helpers loop -- a flagged skill must
-    # never reach disk no matter which install mode is in use.
-    return (
-        s.get("scan_status") == "flagged"
-        or s.get("runnable") is False
-        or s.get("blocked_reason") == "scan_flagged"
-    )
-for s in data.get("skills", []) or []:
-    name = (s.get("name") or "").strip()
-    if not name:
-        continue
-    if is_flagged(s):
-        # stderr so the line-extracting bash loop downstream
-        # (NUL-delimited triples on stdout) keeps working unchanged.
-        err.write(f"==> skipped {name} (flagged by security scanner)\\n")
-        continue
-    safe_name = NAME_RE.sub("_", name)
-    body = (s.get("content") or "").encode("utf-8")
-    out.write(safe_name.encode("ascii") + b"\\x00" + b"SKILL.md" + b"\\x00" + base64.b64encode(body) + b"\\x00")
-    anc = s.get("ancillary_files") or {}
-    if isinstance(anc, dict):
-        for rel, content in anc.items():
-            if not isinstance(rel, str) or not isinstance(content, str):
-                continue
-            sp = safe_path(rel)
-            if not sp or sp == "SKILL.md":
-                continue
-            ab = content.encode("utf-8")
-            out.write(safe_name.encode("ascii") + b"\\x00" + sp.encode("ascii") + b"\\x00" + base64.b64encode(ab) + b"\\x00")
-' "\$CATALOG_TMP"
-    elif command -v jq >/dev/null 2>&1; then
-      # jq fallback: SKILL.md only (ancillary files require a real
-      # tokenizer for path sanitization that jq can't safely express).
-      # Operators who need full multi-file install should ensure python3
-      # is on PATH; we still install the SKILL.md so the skill is at least
-      # discoverable.
-      #
-      # The select(...) predicate must reject any skill the security
-      # scanner has flagged -- the same three signals the python emitter
-      # checks, expressed in jq. This is a hard correctness boundary:
-      # without it a flagged skill would land in ~/.claude/skills and
-      # the agent would discover and execute it natively.
-      jq -j '
-        .skills[]
-        | select((.name? // "") != "")
-        | select(
-            (.scan_status? // "") != "flagged"
-            and (.runnable? // true) != false
-            and (.blocked_reason? // "") != "scan_flagged"
-          )
-        | (
-            (.name | gsub("[^A-Za-z0-9._-]"; "_"))
-            + "\\u0000"
-            + "SKILL.md"
-            + "\\u0000"
-            + ((.content // "") | @base64)
-            + "\\u0000"
-          )
-      ' < "\$CATALOG_TMP"
-      # Print one notice per filtered-out flagged skill on stderr so the
-      # user sees what was suppressed (jq's stdout is going to the bash
-      # while-read loop downstream, can't mix the two streams).
-      jq -r '
-        .skills[]
-        | select(
-            (.scan_status? // "") == "flagged"
-            or (.runnable? // true) == false
-            or (.blocked_reason? // "") == "scan_flagged"
-          )
-        | "==> skipped \\(.name) (flagged by security scanner)"
-      ' < "\$CATALOG_TMP" >&2 || true
-      if jq -e '[.skills[]?.ancillary_files // {} | length] | add // 0 | . > 0' < "\$CATALOG_TMP" >/dev/null 2>&1; then
-        echo "warn: ancillary files were skipped (install python3 to materialize the full skill folder)" >&2
-      fi
-    else
-      echo "error: need jq or python3 to parse the catalog response." >&2
-      return 69
-    fi
-  }
-
-  mkdir -p "\$COMMANDS_DIR"
-
-  WROTE=0
-  SKIPPED=0
-  TOTAL=0
-  SKILLS_SEEN=""
-
-  # Read NUL-delimited (name, rel_path, b64body) triples. Each skill emits
-  # one record per file: SKILL.md first, then ancillary files (if any).
-  while IFS= read -r -d '' SKILL_NAME && IFS= read -r -d '' REL_PATH && IFS= read -r -d '' SKILL_B64; do
-    if [ -z "\$SKILL_NAME" ] || [ -z "\$REL_PATH" ]; then
-      continue
-    fi
-
-    # Track unique skill names so the summary still counts skills, not files.
-    case " \$SKILLS_SEEN " in
-      *" \$SKILL_NAME "*) ;;
-      *) SKILLS_SEEN="\$SKILLS_SEEN \$SKILL_NAME"; TOTAL=\$((TOTAL + 1)) ;;
-    esac
-
-    # Layout decisions:
-    #   - "skills" layout (Claude/Cursor/opencode): one folder per skill,
-    #     ancillary files preserved at their relative paths so SKILL.md's
-    #     internal references (scripts/, references/, assets/) resolve.
-    #   - "commands" layout (legacy slash commands): flat <skill>.<ext>
-    #     file. Ancillary files don't make sense here — agents in this
-    #     layout don't load sibling files — so we drop them with a notice.
-    if [ "\$LAYOUT" = "skills" ]; then
-      TARGET_DIR="\$COMMANDS_DIR/\$SKILL_NAME"
-      if [ "\$REL_PATH" = "SKILL.md" ]; then
-        TARGET="\$TARGET_DIR/SKILL.md"
-      else
-        TARGET="\$TARGET_DIR/\$REL_PATH"
-      fi
-      mkdir -p "\$(dirname "\$TARGET")"
-    else
-      if [ "\$REL_PATH" != "SKILL.md" ]; then
-        # Commands-layout agents don't load ancillary files — skip silently
-        # (the SKILL.md still installs and the user gets the prompt body).
-        continue
-      fi
-      TARGET_DIR="\$COMMANDS_DIR"
-      TARGET="\$COMMANDS_DIR/\$SKILL_NAME.\$FILE_EXT"
-    fi
-
-    # Per-file overwrite policy mirrors the single-skill flow:
-    #   --force   : overwrite anything
-    #   --upgrade : overwrite only if our manifest records this path
-    #   neither   : skip (don't error — partial bulk should still complete)
-    if [ -e "\$TARGET" ]; then
-      if [ "\$FORCE" -eq 1 ]; then
-        :
-      elif [ "\$UPGRADE" -eq 1 ]; then
-        if manifest_owns "\$TARGET"; then
-          :
-        else
-          echo "skip: \$TARGET exists but is not tracked by \$MANIFEST_PATH" >&2
-          SKIPPED=\$((SKIPPED + 1))
-          continue
-        fi
-      else
-        echo "skip: \$TARGET already exists (re-run with --upgrade or --force)" >&2
-        SKIPPED=\$((SKIPPED + 1))
-        continue
-      fi
-    fi
-
-    # Decode the base64 body into a tempfile in the same dir, then atomic-rename.
-    # The body is written verbatim — no marker line, no preamble — so what
-    # lands on disk is byte-for-byte the catalog's content.
-    PARENT_DIR="\$(dirname "\$TARGET")"
-    PER_TMP="\$(mktemp "\$PARENT_DIR/.caipe-install-XXXXXX")"
-    if command -v base64 >/dev/null 2>&1; then
-      # macOS uses -D, GNU uses -d. Try -d first, fall back to -D.
-      if ! printf '%s' "\$SKILL_B64" | base64 -d > "\$PER_TMP" 2>/dev/null; then
-        if ! printf '%s' "\$SKILL_B64" | base64 -D > "\$PER_TMP" 2>/dev/null; then
-          echo "error: failed to decode body for \$SKILL_NAME/\$REL_PATH" >&2
-          rm -f "\$PER_TMP"
-          continue
-        fi
-      fi
-    else
-      echo "error: 'base64' is required for bulk install" >&2
-      rm -f "\$PER_TMP"
-      exit 69
-    fi
-    mv -f "\$PER_TMP" "\$TARGET"
-    chmod 0644 "\$TARGET"
-    manifest_register "\$TARGET"
-    echo "==> wrote \$TARGET"
-    WROTE=\$((WROTE + 1))
-  done < <(emit_records)
-
-  echo
-  echo "==> agent : \$AGENT_LABEL (\$AGENT_ID)"
-  echo "==> scope : \$SCOPE"
-  echo "==> dir   : \$COMMANDS_DIR"
-  echo "==> wrote \$WROTE files across \$TOTAL skills (\$SKIPPED skipped)"
-  if [ "\$WROTE" -eq 0 ] && [ "\$TOTAL" -gt 0 ]; then
-    echo "    (re-run with --upgrade to refresh existing CAIPE skills" >&2
-    echo "     or --force to overwrite unconditionally)" >&2
-  fi
-  exit 0
-fi
-
-if [ "\$IS_FRAGMENT" = "1" ]; then
-  # Continue stores commands inside an existing config.json. We do NOT
-  # rewrite the file from this script — it would risk clobbering user config.
-  echo "==> \$AGENT_LABEL stores commands as a JSON fragment inside:"
-  echo "    \$INSTALL_PATH"
-  echo
-  echo "    Fetching the rendered fragment now; please merge it into the"
-  echo "    top-level \\"slashCommands\\" array of that file."
-  echo
-fi
-
-# Fetch the rendered template from the gateway. We never log the key.
-TMP_FILE="\$(mktemp -t caipe-install-XXXXXX)"
-trap 'rm -f "\$TMP_FILE"' EXIT
-
-HTTP_STATUS="\$(curl -sS -o "\$TMP_FILE" -w '%{http_code}' \\
-  -H "X-Caipe-Catalog-Key: \$API_KEY" \\
-  -H 'Accept: application/json' \\
-  "\$LIVE_SKILLS_URL")" || {
-    echo "error: failed to reach \$BASE_URL" >&2
-    exit 69
-  }
-
-if [ "\$HTTP_STATUS" != "200" ]; then
-  echo "error: gateway returned HTTP \$HTTP_STATUS for \$LIVE_SKILLS_URL" >&2
-  if [ -s "\$TMP_FILE" ]; then
-    echo "       body: \$(head -c 500 "\$TMP_FILE")" >&2
-  fi
-  exit 76
-fi
-
-# Pull the rendered "template" field out of the JSON response. Prefer jq
-# (correct + simple); fall back to python3, then to a defensive sed/awk
-# combo, so the installer keeps working in minimal environments.
-extract_template() {
-  if command -v jq >/dev/null 2>&1; then
-    jq -er '.template' < "\$TMP_FILE"
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import json, sys; sys.stdout.write(json.load(open(sys.argv[1]))["template"])' "\$TMP_FILE"
-  elif command -v python >/dev/null 2>&1; then
-    python -c 'import json, sys; sys.stdout.write(json.load(open(sys.argv[1]))["template"])' "\$TMP_FILE"
-  else
-    echo "error: need jq or python3 to parse the gateway response." >&2
-    return 69
-  fi
-}
-
-RENDERED="\$(extract_template)" || exit \$?
-
-if [ -z "\$RENDERED" ]; then
-  echo "error: gateway returned an empty template." >&2
-  exit 76
-fi
-
-# Decide if we may write to \$INSTALL_PATH.
-#   --force   : overwrite anything (escape hatch)
-#   --upgrade : overwrite ONLY if the manifest records this path as ours
-#   neither   : refuse if the file already exists
-if [ -e "\$INSTALL_PATH" ]; then
-  if [ "\$FORCE" -eq 1 ]; then
-    : # caller asked for unconditional overwrite
-  elif [ "\$UPGRADE" -eq 1 ]; then
-    if manifest_owns "\$INSTALL_PATH"; then
-      : # safe to upgrade — manifest says we wrote this file previously
-    else
-      echo "error: \$INSTALL_PATH exists but is not tracked by" >&2
-      echo "       \$MANIFEST_PATH. Re-run with --force to overwrite anyway," >&2
-      echo "       or remove the file first." >&2
-      exit 73
-    fi
-  else
-    echo "error: \$INSTALL_PATH already exists." >&2
-    echo "       Re-run with --upgrade to replace a previously-installed" >&2
-    echo "       CAIPE skill, or --force to overwrite unconditionally." >&2
-    exit 73
-  fi
-fi
-
-mkdir -p "\$INSTALL_DIR"
-
-# Atomic write: render to a tempfile in the same dir, then rename. The body
-# is written verbatim — no marker line, no preamble — so what lands on disk
-# is byte-for-byte the gateway's rendered template. Ownership is recorded in
-# the sidecar manifest after the rename succeeds.
-TARGET_TMP="\$(mktemp "\$INSTALL_DIR/.caipe-install-XXXXXX")"
-printf '%s' "\$RENDERED" > "\$TARGET_TMP"
-mv -f "\$TARGET_TMP" "\$INSTALL_PATH"
-chmod 0644 "\$INSTALL_PATH"
-manifest_register "\$INSTALL_PATH"
-
-echo "==> wrote \$INSTALL_PATH"
-echo "==> agent : \$AGENT_LABEL (\$AGENT_ID)"
-echo "==> scope : \$SCOPE"
-echo "==> command: /\$COMMAND_NAME"
-echo
-if [ "\$IS_FRAGMENT" = "1" ]; then
-  echo "Next step: merge the fragment above into the \\"slashCommands\\" array"
-  echo "of \$INSTALL_PATH (or your editor's Continue config). The current file"
-  echo "now contains ONLY the fragment — back up first if you had existing"
-  echo "config in place. (We refuse to merge automatically to avoid clobbering"
-  echo "your editor settings.)"
-else
-  echo "Next step: launch \$AGENT_LABEL and run /\$COMMAND_NAME."
-fi
-`;
-}
-
 /* ---------- handler ---------- */
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const modeRaw = (url.searchParams.get("mode") ?? "").trim().toLowerCase();
+  const isUninstall = modeRaw === "uninstall";
 
-  const agentId = (url.searchParams.get("agent") ?? "").trim().toLowerCase();
+  // Agent: required for non-uninstall modes; optional (defaults to claude
+  // for the launch-label) for uninstall mode.
+  const agentIdRaw = (url.searchParams.get("agent") ?? "").trim().toLowerCase();
+  let agentId = agentIdRaw;
   if (!agentId) {
-    return plainTextError("missing required ?agent=<id> parameter", 400);
+    if (isUninstall) {
+      agentId = DEFAULT_AGENT_ID;
+    } else {
+      return plainTextError("missing required ?agent=<id> parameter", 400);
+    }
   }
   const agent = AGENTS[agentId];
   if (!agent) {
     return plainTextError(`unknown agent: ${agentId}`, 400);
   }
 
+  // Scope: required for non-uninstall modes; optional for uninstall
+  // (omitting it walks BOTH manifests).
   const scopeRaw = (url.searchParams.get("scope") ?? "").trim().toLowerCase();
-  if (scopeRaw !== "user" && scopeRaw !== "project") {
+  let scope: "user" | "project";
+  let walkBothManifests = false;
+  if (scopeRaw === "user" || scopeRaw === "project") {
+    scope = scopeRaw;
+  } else if (isUninstall) {
+    // No scope on an uninstall request → walk both manifests.
+    scope = "user"; // arbitrary default for the script's CLAUDE_DIR resolution
+    walkBothManifests = true;
+  } else {
     return plainTextError(
       "missing or invalid ?scope=<user|project> parameter",
       400,
     );
   }
-  const scope = scopeRaw as "user" | "project";
 
-  // Resolve the layout BEFORE checking scope support — `scope_available` is
-  // layout-dependent (an agent might support `user` only for `commands` and
-  // both for `skills`, etc.). Default: agent's stated default; falls back to
-  // `commands` if the request asked for an unsupported layout.
-  const layoutsAvail = layoutsAvailableFor(agent);
-  const layoutRaw = (url.searchParams.get("layout") ?? "").trim().toLowerCase();
-  let layout: AgentLayout = layoutsAvail[0];
-  if (layoutRaw === "skills" || layoutRaw === "commands") {
-    if (!layoutsAvail.includes(layoutRaw as AgentLayout)) {
-      return plainTextError(
-        `agent ${agentId} does not support layout=${layoutRaw} (supported: ${layoutsAvail.join(", ")})`,
-        400,
-      );
-    }
-    layout = layoutRaw as AgentLayout;
-  }
-
-  const supported = scopesAvailableFor(agent, layout);
+  // Validate that the agent supports the chosen scope (always true today
+  // since every agent in the registry has both scopes).
+  const supported = scopesAvailableFor(agent);
   if (!supported.includes(scope)) {
     return plainTextError(
-      `agent ${agentId} does not support scope=${scope} for layout=${layout} (supported: ${supported.join(", ") || "none"})`,
+      `agent ${agentId} does not support scope=${scope} (supported: ${supported.join(", ") || "none"})`,
       400,
     );
   }
 
   const commandName = sanitizeCommandName(url.searchParams.get("command_name"));
   const description = sanitizeDescription(url.searchParams.get("description"));
-  // `request.url` is the internal listen address behind an ingress
-  // (e.g. http://0.0.0.0:3000), so we MUST honor x-forwarded-* headers.
-  // Otherwise the script we hand back tries to call back into the pod IP
-  // and fails with `tlsv1 alert protocol version` / connection refused.
   const baseUrl =
     sanitizeBaseUrl(url.searchParams.get("base_url")) ??
     getRequestOrigin(request);
 
   // Optional catalog-query bulk mode driven by the Skills API Gateway
-  // "Pick your skills" Query Builder. When present this wins over the new
-  // default mode — the user has explicitly composed a query and wants
-  // exactly its result set written to disk, no helpers, no hook.
+  // "Pick your skills" Query Builder. When present this wins over the
+  // default mode — the user has explicitly composed a query.
   const catalogUrlRaw = url.searchParams.get("catalog_url");
   const catalogUrl = sanitizeCatalogUrl(catalogUrlRaw, new URL(baseUrl).origin);
   if (catalogUrlRaw && !catalogUrl) {
@@ -2442,51 +1766,39 @@ export async function GET(request: Request) {
       400,
     );
   }
-  if (catalogUrl && agent.isFragment) {
-    return plainTextError(
-      `bulk install via ?catalog_url= is not supported for agent ${agent.id} (fragment-config agent)`,
-      400,
-    );
-  }
 
   // Resolve install mode. Precedence:
-  //   1. ?catalog_url=... locks us into catalog-query mode (existing flow).
-  //   2. ?mode=live-only opts into the legacy single-skill flow.
-  //   3. Otherwise default to bulk-with-helpers (the new "everything"
-  //      flow), which silently degrades to live-only for fragment-config
-  //      agents since they can't materialize one file per catalog skill.
-  const modeRaw = (url.searchParams.get("mode") ?? "").trim().toLowerCase();
+  //   1. ?mode=uninstall locks us into uninstall mode.
+  //   2. ?catalog_url=... locks us into catalog-query mode.
+  //   3. ?mode=live-only opts into the legacy single-skill flow.
+  //   4. Otherwise default to bulk-with-helpers.
   let mode: InstallMode;
-  if (modeRaw === "uninstall") {
-    // Uninstall takes precedence over catalog_url -- a user requesting
-    // an uninstall script does not also want a bulk install scaffold.
+  if (isUninstall) {
     mode = "uninstall";
   } else if (catalogUrl) {
     mode = "catalog-query";
   } else if (modeRaw === "live-only") {
     mode = "live-only";
   } else if (
-    modeRaw
-    && modeRaw !== "bulk"
-    && modeRaw !== "bulk-with-helpers"
+    modeRaw &&
+    modeRaw !== "bulk" &&
+    modeRaw !== "bulk-with-helpers"
   ) {
     return plainTextError(
       `invalid ?mode= value: ${modeRaw} (allowed: bulk, bulk-with-helpers, live-only, uninstall)`,
       400,
     );
-  } else if (agent.isFragment) {
-    // Fragment-config agents can't bulk-install — fall back without
-    // making the UI special-case them. The generated script's banner
-    // explains the demotion so the user isn't confused.
-    mode = "live-only";
   } else {
     mode = "bulk-with-helpers";
   }
 
+  // `?layout=...` is intentionally accepted and ignored. Kept for
+  // backward compatibility with one-liners users have copy-pasted.
+
   const script = buildScript({
     agent,
     scope,
-    layout,
+    walkBothManifests,
     commandName,
     description,
     baseUrl,
@@ -2500,7 +1812,9 @@ export async function GET(request: Request) {
       : mode === "bulk-with-helpers"
         ? "-bundle"
         : mode === "uninstall"
-          ? "-uninstall"
+          ? walkBothManifests
+            ? "-uninstall-all"
+            : "-uninstall"
           : "";
   return new NextResponse(script, {
     status: 200,
