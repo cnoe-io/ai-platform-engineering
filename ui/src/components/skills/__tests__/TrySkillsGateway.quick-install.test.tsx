@@ -412,7 +412,13 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(copied).not.toContain("export CAIPE_CATALOG_KEY");
     expect(copied).not.toContain(FAKE_MINT_KEY);
     expect(copied).toContain("/api/skills/install.sh?");
-    expect(copied).toContain("agent=claude");
+    // ?agent= is omitted now -- the install is universal across
+    // Claude / Cursor / Codex / Gemini / opencode and the route
+    // defaults to claude. The UI no longer surfaces an agent picker
+    // in the Quick install modal.
+    expect(copied).not.toContain("agent=");
+    // Scope must still be in the URL (drives ~/.claude vs ./.claude).
+    expect(copied).toMatch(/scope=(user|project)/);
     expect(copied).toMatch(/\| bash$/);
     expect(copied).not.toContain("<your-catalog-api-key>");
 

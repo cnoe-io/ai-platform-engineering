@@ -230,7 +230,12 @@ async function openUninstallDetails() {
 // ----------------------------------------------------------------------------
 
 describe("TrySkillsGateway — uninstall block visibility", () => {
-  it("renders nothing for the uninstall block before a scope is picked", async () => {
+  it("appears on first paint because user-wide scope is the new default", async () => {
+    // After the agent-picker drop + scope-default change, the
+    // installerSnippets block (which hosts the uninstall <details>)
+    // is gated on `selectedScope` -- and `selectedScope` now starts
+    // at "user" instead of null. So the uninstall summary should
+    // show up immediately, no clicks required.
     const { TrySkillsGateway } = await import("../TrySkillsGateway");
     render(<TrySkillsGateway />);
     await waitFor(() =>
@@ -239,15 +244,14 @@ describe("TrySkillsGateway — uninstall block visibility", () => {
         expect.anything(),
       ),
     );
-    // The summary text only renders inside `installerSnippets ? ... : null`,
-    // which itself is gated on `selectedScope`. Without a scope click we
-    // must NOT see the uninstall summary anywhere.
-    expect(
-      screen.queryByText(/Uninstall \(reverse the install\)/i),
-    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Uninstall \(reverse the install\)/i),
+      ).toBeInTheDocument(),
+    );
   });
 
-  it("appears after picking user scope", async () => {
+  it("still appears after explicitly re-picking user scope", async () => {
     await renderAndChooseScope("user");
     await waitFor(() =>
       expect(
@@ -271,9 +275,11 @@ describe("TrySkillsGateway — uninstall snippet content", () => {
     expect(interactive).toMatch(/curl -fsSL '.+install\.sh\?[^']+' \| bash$/);
     // Must include mode=uninstall (the whole point of the block).
     expect(interactive).toContain("mode=uninstall");
-    // Must include the agent + scope so the script reads the right
-    // manifest. We only assert the keys, not URL ordering.
-    expect(interactive).toContain("agent=claude");
+    // Scope must still be in the URL so the script reads the right
+    // manifest. The agent picker was dropped from the UI -- ?agent=
+    // is no longer emitted; install.sh defaults to claude server-
+    // side. We only assert the scope key, not URL ordering.
+    expect(interactive).not.toContain("agent=");
     expect(interactive).toContain("scope=user");
     // Default flavor MUST NOT carry --all/--purge/--dry-run -- the
     // safety net is the per-item prompt, and a destructive default

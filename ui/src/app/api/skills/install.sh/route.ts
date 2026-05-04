@@ -1705,17 +1705,14 @@ export async function GET(request: Request) {
   const modeRaw = (url.searchParams.get("mode") ?? "").trim().toLowerCase();
   const isUninstall = modeRaw === "uninstall";
 
-  // Agent: required for non-uninstall modes; optional (defaults to claude
-  // for the launch-label) for uninstall mode.
+  // Agent: optional in every mode now that installs write to BOTH the
+  // agent-specific tree (~/.claude/skills/) AND the vendor-neutral
+  // mirror (~/.agents/skills/). Defaults to Claude — the agent picker
+  // only affected the launch-guide footer + the success-card label,
+  // and the unified install one-liner the UI emits is now agent-
+  // agnostic. An explicit ?agent= still works for back-compat.
   const agentIdRaw = (url.searchParams.get("agent") ?? "").trim().toLowerCase();
-  let agentId = agentIdRaw;
-  if (!agentId) {
-    if (isUninstall) {
-      agentId = DEFAULT_AGENT_ID;
-    } else {
-      return plainTextError("missing required ?agent=<id> parameter", 400);
-    }
-  }
+  const agentId = agentIdRaw || DEFAULT_AGENT_ID;
   const agent = AGENTS[agentId];
   if (!agent) {
     return plainTextError(`unknown agent: ${agentId}`, 400);

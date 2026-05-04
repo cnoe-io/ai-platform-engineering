@@ -48,14 +48,28 @@ export function TrySkillsGateway() {
   const [skillDescription, setSkillDescription] = useState(
     "Browse and install skills from the CAIPE skill catalog",
   );
-  // Selected coding agent (drives install path, file format, and launch guide).
-  const [selectedAgent, setSelectedAgent] = useState<string>("claude");
-  // Install scope: "user" (~/...) or "project" (./...). null = user has not
-  // picked yet, in which case we hide the install/installer commands and
-  // prompt the user to choose. Reset whenever the agent changes so we don't
-  // show a scope the new agent does not support.
+  // After the skills-only overhaul, every supported agent (Claude Code,
+  // Cursor, Codex CLI, Gemini CLI, opencode) reads the same
+  // `agentskills.io` SKILL.md format, and the install writes to BOTH
+  // ~/.claude/skills/<name>/SKILL.md AND ~/.agents/skills/<name>/SKILL.md
+  // (the vendor-neutral mirror that Cursor/Codex/Gemini/opencode all
+  // discover). We've also verified against the upstream agent docs that
+  // only Claude does template substitution in the body (`$ARGUMENTS`,
+  // `$N`); the other four read SKILL.md verbatim. So the agent picker
+  // had no functional effect on what gets installed -- it only changed
+  // the launch-guide footer + the success-card label. We pin Claude
+  // here as the rendering default (its $ARGUMENTS token is treated as
+  // plain text by the other four agents, so it is safe across the
+  // board) and drop the picker from both Quick install and Step 3.
+  const selectedAgent = "claude";
+  // Install scope: "user" (~/...) or "project" (./...). Defaults to
+  // "user" (the recommended choice -- per the new UX, project-scope
+  // is hidden behind an Advanced disclosure so the common case works
+  // without a click). Setting null would force a pre-flight pick.
   type InstallScope = "user" | "project";
-  const [selectedScope, setSelectedScope] = useState<InstallScope | null>(null);
+  const [selectedScope, setSelectedScope] = useState<InstallScope | null>(
+    "user",
+  );
   // After the skills-only overhaul, every supported agent reads the same
   // agentskills.io SKILL.md format, so there's no layout toggle anymore.
   // The local `AgentLayout` alias is kept for compatibility with API JSON
@@ -232,19 +246,10 @@ export function TrySkillsGateway() {
     };
   }, [selectedAgent, selectedScope, skillCommandName, skillDescription]);
 
-  // When the user switches agents, drop any scope choice that the new agent
-  // does not support (e.g. moving from Claude → Codex with scope=project, or
-  // → Spec Kit with scope=user). Falls back to whichever single scope is
-  // available, or null when both are valid (force the user to pick again).
-  useEffect(() => {
-    const meta = agents.find((a) => a.id === selectedAgent);
-    if (!meta) return; // first paint, before /api/skills/live-skills returns
-    if (selectedScope && !meta.scopes_available.includes(selectedScope)) {
-      setSelectedScope(
-        meta.scopes_available.length === 1 ? meta.scopes_available[0] : null,
-      );
-    }
-  }, [selectedAgent, agents, selectedScope]);
+  // (Removed: the agent-change scope-reset effect is no longer needed.
+  // The agent is pinned to Claude and every supported agent supports
+  // both user and project scopes, so there is no per-agent scope
+  // narrowing to apply.)
 
   const handleMint = async () => {
     setMintBusy(true);
@@ -348,11 +353,14 @@ export function TrySkillsGateway() {
   // itself telling them to create the config file or pass --api-key=…
   const installerSnippets = (() => {
     if (!selectedScope) return null;
-    const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
-      selectedAgent,
-    )}&scope=${encodeURIComponent(selectedScope)}&command_name=${encodeURIComponent(
-      safeCommandName,
-    )}`;
+    // Note: ?agent= is intentionally omitted. The install.sh route
+    // defaults to Claude and the install is universal (writes to both
+    // ~/.claude/skills/ and ~/.agents/skills/), so the only thing
+    // ?agent= used to control was the success-card label. We keep
+    // the URL short and copy-pasteable instead.
+    const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
+      selectedScope,
+    )}&command_name=${encodeURIComponent(safeCommandName)}`;
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
     // Upgrade variant: forwards `--upgrade` to the script via `bash -s`,
     // which is `bash`'s standard way of passing flags to a piped script.
@@ -376,9 +384,9 @@ export function TrySkillsGateway() {
   // shouldn't be a `curl | bash` away.
   const uninstallSnippets = (() => {
     if (!selectedScope) return null;
-    const uninstallShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
-      selectedAgent,
-    )}&scope=${encodeURIComponent(selectedScope)}&mode=uninstall`;
+    const uninstallShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
+      selectedScope,
+    )}&mode=uninstall`;
     const oneLiner = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash`;
     const oneLinerPurge = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash -s -- --purge`;
     const oneLinerDryRun = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash -s -- --dry-run`;
@@ -397,9 +405,9 @@ export function TrySkillsGateway() {
         ? previewData.skills.length
         : 0;
     if (previewSkillCount === 0) return null;
-    const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
-      selectedAgent,
-    )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}`;
+    const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
+      selectedScope,
+    )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
     // No CAIPE_CATALOG_KEY=… injection — install.sh reads the key from
     // ~/.config/caipe/config.json (Step 1). See installerSnippets above.
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
@@ -788,7 +796,9 @@ export function TrySkillsGateway() {
                 {previewData.skills.length === 1 ? "" : "s"}
               </div>
               <div className="text-xs text-muted-foreground">
-                agent: <span className="font-mono">{selectedAgent}</span>
+                <span title="Works in Claude Code, Cursor, Codex CLI, Gemini CLI, and opencode">
+                  universal install
+                </span>
                 {" · "}
                 scope:{" "}
                 <span className="font-mono">{selectedScope ?? "(set in Step 3)"}</span>
@@ -846,8 +856,14 @@ export function TrySkillsGateway() {
                   </div>
                 </details>
                 <p className="text-[11px] text-muted-foreground">
-                  Writes one file per skill into the {selectedAgent} commands directory. Existing files are skipped
-                  unless you re-run with <code className="font-mono">--upgrade</code> or{" "}
+                  Writes one{" "}
+                  <code className="font-mono">SKILL.md</code> per skill into
+                  both <code className="font-mono">~/.claude/skills/</code> and
+                  the vendor-neutral{" "}
+                  <code className="font-mono">~/.agents/skills/</code> mirror
+                  (or the project-local equivalents). Existing files are
+                  skipped unless you re-run with{" "}
+                  <code className="font-mono">--upgrade</code> or{" "}
                   <code className="font-mono">--force</code>.
                 </p>
               </>
@@ -968,60 +984,30 @@ EOF`}
               </div>
             </div>
 
-            <div className="pt-4">
-              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
+            {/* Coding-agent picker dropped: the install is universal.
+                The same SKILL.md is written to the agent-specific tree
+                (~/.claude/skills/) AND the vendor-neutral mirror
+                (~/.agents/skills/), and Cursor / Codex CLI / Gemini
+                CLI / opencode all auto-discover the latter. We
+                surface the supported-agents list inline so users
+                know which CLIs will pick up the install without
+                having to read a docs link. */}
+            <div className="pt-4 rounded-md bg-muted/20 px-3 py-2.5">
+              <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-1.5">
                 <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
                   a
                 </span>
-                Coding agent
-              </label>
-              <select
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {(agents.length > 0
-                  ? agents
-                  : [
-                      {
-                        id: "claude",
-                        label: "Claude Code",
-                        install_paths: {
-                          user: ["~/.claude/skills/skills/SKILL.md"],
-                          project: ["./.claude/skills/skills/SKILL.md"],
-                        },
-                        scopes_available: ["user", "project"] as InstallScope[],
-                      } as AgentMeta,
-                    ]
-                ).map((a) => {
-                  // Show one of the agent's install paths in the option label
-                  // so the user has a hint of where this agent installs.
-                  // Prefer project-local for git-trackable agents (Claude,
-                  // Cursor, Gemini) and user-global for everything else.
-                  const previewPaths =
-                    a.install_paths?.project ?? a.install_paths?.user ?? [];
-                  // install_paths entries are arrays of universal-target
-                  // paths; the option label only has room for one, so
-                  // pick the first (the agent-specific tree, e.g.
-                  // ~/.claude/skills/...).
-                  const previewPath = Array.isArray(previewPaths)
-                    ? previewPaths[0] ?? ""
-                    : ((previewPaths as unknown as string) || "");
-                  return (
-                    <option key={a.id} value={a.id}>
-                      {a.label}
-                      {previewPath ? ` — ${previewPath}` : ""}
-                    </option>
-                  );
-                })}
-              </select>
-              {agentDocsUrl ? (
-                <p className="text-[11px] text-muted-foreground mt-2">
-                  <a href={agentDocsUrl} target="_blank" rel="noreferrer" className="text-primary underline">
-                    {agentLabel} docs
-                  </a>
-                </p>
-              ) : null}
+                Works in
+              </p>
+              <p className="text-xs text-foreground leading-relaxed">
+                <strong>Claude Code</strong>, <strong>Cursor</strong>,{" "}
+                <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and{" "}
+                <strong>opencode</strong> &mdash; the install writes a
+                single <code className="font-mono text-[11px]">SKILL.md</code>{" "}
+                per skill to the universal{" "}
+                <code className="font-mono text-[11px]">~/.agents/skills/</code>{" "}
+                location every supported agent discovers.
+              </p>
             </div>
 
             {/* Scope chooser. After the skills-only overhaul every agent
@@ -1641,10 +1627,64 @@ EOF`}
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
                 3
               </span>
-              Launch {agentLabel} and use it
+              Launch your coding agent and use it
             </p>
-            <div className="ml-8">
-              <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
+            <div className="ml-8 space-y-3">
+              <p className="text-sm text-foreground">
+                The install wrote one{" "}
+                <code className="font-mono text-[12px]">SKILL.md</code> per
+                skill into both the Claude tree and the vendor-neutral{" "}
+                <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
+                mirror. Open any of these CLIs in a fresh shell and the
+                skills are immediately discoverable:
+              </p>
+              <ul className="text-sm text-foreground space-y-2 list-disc pl-5">
+                <li>
+                  <strong>Claude Code</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">claude</code> then
+                  type <code className="font-mono text-[12px]">/{safeCommandName}</code>
+                  {" "}to browse the catalog. Skills are also auto-invoked
+                  by description when you describe a matching task.
+                </li>
+                <li>
+                  <strong>Cursor</strong> &mdash; open Cursor and type{" "}
+                  <code className="font-mono text-[12px]">/</code> in the
+                  Agent chat to search by name, or describe the task and
+                  let the model pick the right skill.
+                </li>
+                <li>
+                  <strong>Codex CLI</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">codex</code> then
+                  type <code className="font-mono text-[12px]">/skills</code>{" "}
+                  to list, or use{" "}
+                  <code className="font-mono text-[12px]">$skill-name</code>{" "}
+                  to invoke explicitly.
+                </li>
+                <li>
+                  <strong>Gemini CLI</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">gemini</code> and
+                  use <code className="font-mono text-[12px]">/skills list</code>{" "}
+                  to confirm discovery; Gemini auto-activates skills by
+                  description.
+                </li>
+                <li>
+                  <strong>opencode</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">opencode</code>;
+                  the agent sees skills via the built-in{" "}
+                  <code className="font-mono text-[12px]">skill</code> tool
+                  and loads them on demand.
+                </li>
+              </ul>
+              {launchGuide ? (
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                    Detailed launch guide for {agentLabel}
+                  </summary>
+                  <div className="mt-3">
+                    <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
+                  </div>
+                </details>
+              ) : null}
             </div>
           </section>
         </CardContent>
@@ -1684,45 +1724,27 @@ EOF`}
               Quick install
             </DialogTitle>
             <DialogDescription>
-              Pick your coding agent and where to install. We&rsquo;ll
-              generate a one-line installer that fetches skills from your
-              catalog and writes them to the agent&rsquo;s skills directory.
+              We&rsquo;ll generate a one-line installer that fetches skills
+              from your catalog and writes a single SKILL.md per skill that
+              works in <strong>Claude Code</strong>, <strong>Cursor</strong>,
+              {" "}
+              <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and
+              {" "}
+              <strong>opencode</strong> &mdash; no per-agent setup
+              required.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 text-sm">
-            {/* Agent picker — same options as Step 3, kept compact. */}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">
-                Coding agent
-              </label>
-              <select
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {(agents.length > 0
-                  ? agents
-                  : [
-                      {
-                        id: "claude",
-                        label: "Claude Code",
-                        install_paths: {
-                          user: ["~/.claude/skills/skills/SKILL.md"],
-                          project: ["./.claude/skills/skills/SKILL.md"],
-                        },
-                        scopes_available: ["user", "project"] as InstallScope[],
-                      } as AgentMeta,
-                    ]
-                ).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Agent picker dropped: the install writes to BOTH the
+                Claude tree (~/.claude/skills/) AND the vendor-neutral
+                mirror (~/.agents/skills/) which Cursor, Codex, Gemini,
+                and opencode all discover. The picker only used to
+                affect the launch-guide footer + success-card label;
+                see the new "compatibility" section after install for
+                the unified launch instructions. */}
 
-            {/* Scope picker — matches Step 3 wording. */}
+            {/* Scope picker. */}
             <div>
               <label className="text-xs font-medium text-muted-foreground">
                 Where to install?
@@ -1808,9 +1830,10 @@ EOF`}
                     </p>
                   );
                 }
-                const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
-                  selectedAgent,
-                )}&scope=${encodeURIComponent(
+                // ?agent= omitted -- the install is universal across
+                // Claude / Cursor / Codex / Gemini / opencode (writes
+                // to both ~/.claude/skills/ and ~/.agents/skills/).
+                const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
                   selectedScope,
                 )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
                 const targetPath =
