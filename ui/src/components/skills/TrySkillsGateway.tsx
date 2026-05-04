@@ -56,14 +56,12 @@ export function TrySkillsGateway() {
   // show a scope the new agent does not support.
   type InstallScope = "user" | "project";
   const [selectedScope, setSelectedScope] = useState<InstallScope | null>(null);
-  // Agent file-system layout for skill artifacts. `commands` is the legacy
-  // <dir>/commands/{name}.<ext> single-file layout (Codex, Spec Kit, Continue,
-  // Gemini); `skills` is the modern <dir>/skills/{name}/SKILL.md per-skill-dir
-  // layout standardized by Claude Code (Oct 2025), Cursor, and opencode.
-  // null = "use the agent's documented default" (skills where supported,
-  // commands otherwise) so users get the right behavior without thinking.
-  type AgentLayout = "commands" | "skills";
-  const [selectedLayout, setSelectedLayout] = useState<AgentLayout | null>(null);
+  // After the skills-only overhaul, every supported agent reads the same
+  // agentskills.io SKILL.md format, so there's no layout toggle anymore.
+  // The local `AgentLayout` alias is kept for compatibility with API JSON
+  // that may still reference legacy fields, but no UI control consumes
+  // it.
+  type AgentLayout = "skills";
   const [copiedOneLiner, setCopiedOneLiner] = useState(false);
   const [copiedUpgrade, setCopiedUpgrade] = useState(false);
   const [copiedDownload, setCopiedDownload] = useState(false);
@@ -84,50 +82,32 @@ export function TrySkillsGateway() {
   interface AgentMeta {
     id: string;
     label: string;
-    ext: string;
-    format: string;
-    /** Per-scope install paths; absent keys mean the agent does not support that scope. */
-    install_paths: Partial<Record<InstallScope, string>>;
+    /**
+     * Per-scope install paths. Each scope maps to an array of universal
+     * SKILL.md paths the install script writes to. The display path
+     * (first entry) is what the UI shows; the rest are mirrors for
+     * vendor-neutral agent discovery (`~/.agents/skills/...`).
+     */
+    install_paths: Partial<Record<InstallScope, string[] | readonly string[]>>;
     /** Scopes this agent actually supports. */
     scopes_available: InstallScope[];
-    is_fragment: boolean;
     docs_url?: string;
-    /** Per-layout, per-scope install paths. Server emits a sub-map per
-     *  layout the agent supports (`commands`, `skills`). Used to render
-     *  the layout toggle and resolve paths client-side without a refetch. */
-    install_paths_by_layout?: Partial<
-      Record<AgentLayout, Partial<Record<InstallScope, string>>>
-    >;
-    /** Agent's documented default layout. Used as the toggle's initial
-     *  value when `selectedLayout` is null. */
-    default_layout?: AgentLayout;
   }
   interface LiveSkillsResponse {
     agent: string;
     label: string;
     template: string;
-    /** Resolved path for the requested scope, or null if no scope selected / unsupported. */
+    /** Resolved first path for the requested scope (display only). */
     install_path: string | null;
-    install_paths: Partial<Record<InstallScope, string>>;
+    install_paths: Partial<Record<InstallScope, string[] | readonly string[]>>;
     scope: InstallScope | null;
     scope_requested: InstallScope | null;
     scope_fallback: boolean;
     scopes_available: InstallScope[];
-    file_extension: string;
-    format: string;
-    is_fragment: boolean;
     launch_guide: string;
     docs_url?: string;
     agents: AgentMeta[];
     source: string;
-    /** Resolved layout for this render (after any fallback). */
-    layout?: AgentLayout;
-    /** What the client requested (or null if it accepted the default). */
-    layout_requested?: AgentLayout | null;
-    /** True iff the requested layout was unsupported and we fell back. */
-    layout_fallback?: boolean;
-    /** Layouts this agent supports, in display order (default first). */
-    layouts_available?: AgentLayout[];
   }
   const [liveSkills, setLiveSkills] = useState<LiveSkillsResponse | null>(null);
   const [liveSkillsTemplateSource, setLiveSkillsTemplateSource] = useState<
@@ -225,7 +205,6 @@ export function TrySkillsGateway() {
         command_name: skillCommandName.trim() || "skills",
       });
       if (selectedScope) params.set("scope", selectedScope);
-      if (selectedLayout) params.set("layout", selectedLayout);
       const desc = skillDescription.trim();
       if (desc) params.set("description", desc);
       fetch(`/api/skills/live-skills?${params.toString()}`, {
@@ -251,7 +230,7 @@ export function TrySkillsGateway() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [selectedAgent, selectedScope, selectedLayout, skillCommandName, skillDescription]);
+  }, [selectedAgent, selectedScope, skillCommandName, skillDescription]);
 
   // When the user switches agents, drop any scope choice that the new agent
   // does not support (e.g. moving from Claude → Codex with scope=project, or
@@ -265,17 +244,7 @@ export function TrySkillsGateway() {
         meta.scopes_available.length === 1 ? meta.scopes_available[0] : null,
       );
     }
-    // Same dance for layout: dropping the choice when the target agent
-    // doesn't expose it (e.g. skills→commands when moving Claude→Codex).
-    // null means "use the agent's documented default", so we don't have to
-    // pick one for them.
-    const layoutsAvail = meta.install_paths_by_layout
-      ? (Object.keys(meta.install_paths_by_layout) as AgentLayout[])
-      : (["commands"] as AgentLayout[]);
-    if (selectedLayout && !layoutsAvail.includes(selectedLayout)) {
-      setSelectedLayout(null);
-    }
-  }, [selectedAgent, agents, selectedScope, selectedLayout]);
+  }, [selectedAgent, agents, selectedScope]);
 
   const handleMint = async () => {
     setMintBusy(true);
@@ -339,7 +308,11 @@ export function TrySkillsGateway() {
   const liveSkillsSkillContent =
     liveSkills?.template ?? "# Loading live-skills skill template…\n";
   const installPath = liveSkills?.install_path ?? null;
-  const isFragment = liveSkills?.is_fragment ?? false;
+  // Fragment-config agents (Continue) are gone in the skills-only
+  // overhaul; every supported agent uses the universal SKILL.md format.
+  // Kept as a const for any leftover branches that conditionally render
+  // fragment-only copy.
+  const isFragment = false;
   const launchGuide = liveSkills?.launch_guide ?? "";
   const agentLabel = liveSkills?.label ?? "Claude Code";
   const agentDocsUrl = liveSkills?.docs_url;
@@ -379,9 +352,7 @@ export function TrySkillsGateway() {
       selectedAgent,
     )}&scope=${encodeURIComponent(selectedScope)}&command_name=${encodeURIComponent(
       safeCommandName,
-    )}${
-      selectedLayout ? `&layout=${encodeURIComponent(selectedLayout)}` : ""
-    }`;
+    )}`;
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
     // Upgrade variant: forwards `--upgrade` to the script via `bash -s`,
     // which is `bash`'s standard way of passing flags to a piped script.
@@ -421,8 +392,6 @@ export function TrySkillsGateway() {
   // or when no scope has been chosen yet.
   const bulkInstallerSnippet = (() => {
     if (!selectedScope) return null;
-    const meta = agents.find((a) => a.id === selectedAgent);
-    if (meta?.is_fragment) return null;
     const previewSkillCount =
       previewData?.skills && Array.isArray(previewData.skills)
         ? previewData.skills.length
@@ -430,9 +399,7 @@ export function TrySkillsGateway() {
     if (previewSkillCount === 0) return null;
     const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
       selectedAgent,
-    )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}${
-      selectedLayout ? `&layout=${encodeURIComponent(selectedLayout)}` : ""
-    }`;
+    )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}`;
     // No CAIPE_CATALOG_KEY=… injection — install.sh reads the key from
     // ~/.config/caipe/config.json (Step 1). See installerSnippets above.
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
@@ -886,9 +853,8 @@ export function TrySkillsGateway() {
               </>
             ) : (
               <p className="text-xs text-amber-700 dark:text-amber-300">
-                {agents.find((a) => a.id === selectedAgent)?.is_fragment
-                  ? `${selectedAgent} stores commands inside an editor config file; bulk install is disabled. Install skills individually or use a non-fragment agent.`
-                  : "Pick an install scope (user-global or project-local) in Step 3 below to enable the bulk install command."}
+                Pick an install scope (user-global or project-local) in Step 3
+                below to enable the bulk install command.
               </p>
             )}
           </CardContent>
@@ -1020,26 +986,27 @@ EOF`}
                       {
                         id: "claude",
                         label: "Claude Code",
-                        ext: "md",
-                        format: "markdown-frontmatter",
                         install_paths: {
-                          user: "~/.claude/commands/skills.md",
-                          project: "./.claude/commands/skills.md",
+                          user: ["~/.claude/skills/skills/SKILL.md"],
+                          project: ["./.claude/skills/skills/SKILL.md"],
                         },
                         scopes_available: ["user", "project"] as InstallScope[],
-                        is_fragment: false,
                       } as AgentMeta,
                     ]
                 ).map((a) => {
                   // Show one of the agent's install paths in the option label
                   // so the user has a hint of where this agent installs.
                   // Prefer project-local for git-trackable agents (Claude,
-                  // Cursor, Spec Kit, Gemini, Continue) and user-global for
-                  // Codex (no project scope).
-                  const previewPath =
-                    a.install_paths?.project ??
-                    a.install_paths?.user ??
-                    "";
+                  // Cursor, Gemini) and user-global for everything else.
+                  const previewPaths =
+                    a.install_paths?.project ?? a.install_paths?.user ?? [];
+                  // install_paths entries are arrays of universal-target
+                  // paths; the option label only has room for one, so
+                  // pick the first (the agent-specific tree, e.g.
+                  // ~/.claude/skills/...).
+                  const previewPath = Array.isArray(previewPaths)
+                    ? previewPaths[0] ?? ""
+                    : ((previewPaths as unknown as string) || "");
                   return (
                     <option key={a.id} value={a.id}>
                       {a.label}
@@ -1057,96 +1024,11 @@ EOF`}
               ) : null}
             </div>
 
-            {/* Layout toggle: skills/<name>/SKILL.md (Claude Code Oct 2025
-                + Cursor + opencode) vs the legacy <agent>/commands/{name}.md
-                file. Only visible for agents that support BOTH layouts —
-                otherwise the choice is forced. Defaults to the agent's
-                documented default (skills for Claude/Cursor, commands for
-                everyone else) so users get the right behavior on first paint
-                without having to think about it. Per Shubham Bakshi review
-                feedback (#1268, point C). */}
-            {(() => {
-              const meta = agents.find((a) => a.id === selectedAgent);
-              const layoutsAvail = meta?.install_paths_by_layout
-                ? (Object.keys(meta.install_paths_by_layout) as AgentLayout[])
-                : (["commands"] as AgentLayout[]);
-              if (layoutsAvail.length < 2) return null;
-              const effectiveLayout: AgentLayout =
-                selectedLayout ?? meta?.default_layout ?? layoutsAvail[0];
-              return (
-                <div className="mt-2 rounded-md bg-muted/20 p-3">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">
-                    File layout
-                    <span className="ml-1 text-[11px] font-normal opacity-70">
-                      ({agentLabel} supports both)
-                    </span>
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {layoutsAvail.map((layout) => {
-                      const isSelected = effectiveLayout === layout;
-                      const paths = meta?.install_paths_by_layout?.[layout];
-                      // Show the path that matches whichever scope is currently
-                      // picked; fall back to user-scope, then any available path
-                      // so the example never collapses to "undefined".
-                      const examplePath =
-                        (selectedScope && paths?.[selectedScope]) ||
-                        paths?.user ||
-                        paths?.project ||
-                        "";
-                      const labelText =
-                        layout === "skills"
-                          ? "Skills layout (SKILL.md per directory)"
-                          : "Commands layout (one .md file per command)";
-                      const sub =
-                        layout === "skills"
-                          ? "Auto-discovered by Claude Code, Cursor, opencode."
-                          : "Legacy slash-command layout. Pick this for portability with older agent versions.";
-                      return (
-                        <label
-                          key={layout}
-                          className={`flex items-start gap-2 rounded-md border p-2 cursor-pointer transition-colors ${
-                            isSelected
-                              ? "border-primary bg-primary/5"
-                              : "border-border bg-background/50 hover:bg-muted/30"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="agent-layout"
-                            value={layout}
-                            checked={isSelected}
-                            onChange={() => setSelectedLayout(layout)}
-                            className="mt-1"
-                          />
-                          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                            <span className="text-sm font-medium">
-                              {labelText}
-                            </span>
-                            <span className="text-[11px] text-muted-foreground">
-                              {sub}
-                            </span>
-                            {examplePath ? (
-                              <code className="text-[11px] font-mono text-muted-foreground break-all">
-                                {examplePath}
-                              </code>
-                            ) : null}
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Scope chooser: user (~/) vs project (./). Some agents only
-                support one of these (Codex = user-only, Spec Kit = project-
-                only) — we disable the unavailable radio rather than hide it
-                so the asymmetry is visible.
-
-                When the user has chosen an agent but not a scope, ring-
-                highlight this block so the eye lands on "the next thing to
-                do". */}
+            {/* Scope chooser. After the skills-only overhaul every agent
+                supports BOTH user and project scope, so we default-pick
+                "user" and put "project" behind an Advanced disclosure
+                with a `.gitignore` reminder for the per-project install
+                artifacts. */}
             <div
               className={`mt-2 rounded-md p-3 transition-colors ${
                 !selectedScope
@@ -1173,55 +1055,64 @@ EOF`}
                 Where to install?
               </p>
               <div className="flex flex-col gap-2">
-                {(["user", "project"] as InstallScope[]).map((s) => {
-                  const supported = scopesAvailable.includes(s);
-                  const path = liveSkills?.install_paths?.[s];
-                  const isSelected = selectedScope === s;
-                  const labelText =
-                    s === "user"
-                      ? "User-wide (reused across all projects)"
-                      : "Project-local (committed with this repo)";
+                {(() => {
+                  // User scope — the default. Render at the top, prominently.
+                  // Multi-target paths are shown as a stacked list of <code>
+                  // blocks since every install writes to BOTH the
+                  // ~/.claude/skills/ tree AND the vendor-neutral
+                  // ~/.agents/skills/ mirror.
+                  const userPathsRaw = liveSkills?.install_paths?.user;
+                  const userPaths: string[] = Array.isArray(userPathsRaw)
+                    ? (userPathsRaw as string[])
+                    : userPathsRaw
+                      ? [userPathsRaw as unknown as string]
+                      : [];
+                  const userSelected = selectedScope === "user";
+                  const userSupported = scopesAvailable.includes("user");
                   return (
                     <label
-                      key={s}
                       className={`flex items-start gap-3 text-xs rounded-md border px-3 py-2 transition-colors ${
-                        supported
+                        userSupported
                           ? `cursor-pointer hover:bg-background/60 ${
-                              isSelected
+                              userSelected
                                 ? "border-primary/60 bg-background"
                                 : "border-border/60 bg-background/30"
                             }`
                           : "cursor-not-allowed opacity-50 border-border/40"
                       }`}
-                      title={
-                        supported
-                          ? path
-                          : `${agentLabel} does not support ${s}-scope commands.`
-                      }
                     >
                       <input
                         type="radio"
                         name="install-scope"
-                        value={s}
-                        checked={isSelected}
-                        disabled={!supported}
-                        onChange={() =>
-                          supported && setSelectedScope(s)
-                        }
+                        value="user"
+                        checked={userSelected}
+                        disabled={!userSupported}
+                        onChange={() => userSupported && setSelectedScope("user")}
                         className="mt-0.5"
                       />
                       <span className="flex-1 leading-relaxed">
                         <span className="block font-medium text-foreground">
-                          {labelText}
+                          User-wide (reused across all projects)
+                          <span className="ml-2 inline-flex items-center rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            Recommended
+                          </span>
                         </span>
-                        {path ? (
-                          <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {(liveSkills?.layout === "skills" || selectedLayout === "skills")
-                              ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
-                              : path}
-                          </code>
+                        {userPaths.length > 0 ? (
+                          <span className="block mt-0.5 space-y-0.5">
+                            {userPaths.map((p) => (
+                              <code
+                                key={p}
+                                className="block text-[11px] text-muted-foreground font-mono"
+                              >
+                                {p.replace(
+                                  new RegExp(`/${skillCommandName}/SKILL\\.md$`),
+                                  "/<skill-name>/SKILL.md",
+                                )}
+                              </code>
+                            ))}
+                          </span>
                         ) : null}
-                        {!supported ? (
+                        {!userSupported ? (
                           <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
                             Not supported by {agentLabel}.
                           </span>
@@ -1229,7 +1120,96 @@ EOF`}
                       </span>
                     </label>
                   );
-                })}
+                })()}
+
+                {/* Advanced: project-local install. Hidden by default;
+                    expanding it shows the radio + a .gitignore reminder
+                    so users who pick this know to keep `.caipe/`,
+                    `.claude/`, and `.agents/` out of version control. */}
+                <details className="rounded-md border border-border/40 bg-background/20 px-3 py-2 group">
+                  <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground select-none">
+                    <span className="inline-block transition-transform group-open:rotate-90 mr-1">›</span>
+                    Advanced: install per-project instead
+                  </summary>
+                  <div className="mt-3">
+                    {(() => {
+                      const projectPathsRaw =
+                        liveSkills?.install_paths?.project;
+                      const projectPaths: string[] = Array.isArray(
+                        projectPathsRaw,
+                      )
+                        ? (projectPathsRaw as string[])
+                        : projectPathsRaw
+                          ? [projectPathsRaw as unknown as string]
+                          : [];
+                      const projectSelected = selectedScope === "project";
+                      const projectSupported =
+                        scopesAvailable.includes("project");
+                      return (
+                        <label
+                          className={`flex items-start gap-3 text-xs rounded-md border px-3 py-2 transition-colors ${
+                            projectSupported
+                              ? `cursor-pointer hover:bg-background/60 ${
+                                  projectSelected
+                                    ? "border-primary/60 bg-background"
+                                    : "border-border/60 bg-background/30"
+                                }`
+                              : "cursor-not-allowed opacity-50 border-border/40"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="install-scope"
+                            value="project"
+                            checked={projectSelected}
+                            disabled={!projectSupported}
+                            onChange={() =>
+                              projectSupported && setSelectedScope("project")
+                            }
+                            className="mt-0.5"
+                          />
+                          <span className="flex-1 leading-relaxed">
+                            <span className="block font-medium text-foreground">
+                              Project-local (committed with this repo)
+                            </span>
+                            {projectPaths.length > 0 ? (
+                              <span className="block mt-0.5 space-y-0.5">
+                                {projectPaths.map((p) => (
+                                  <code
+                                    key={p}
+                                    className="block text-[11px] text-muted-foreground font-mono"
+                                  >
+                                    {p.replace(
+                                      new RegExp(
+                                        `/${skillCommandName}/SKILL\\.md$`,
+                                      ),
+                                      "/<skill-name>/SKILL.md",
+                                    )}
+                                  </code>
+                                ))}
+                              </span>
+                            ) : null}
+                            {!projectSupported ? (
+                              <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
+                                Not supported by {agentLabel}.
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      );
+                    })()}
+                    <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+                      Reminder: add these to your <code className="font-mono">.gitignore</code> so
+                      manifests, helpers, and the agent dotfiles do not end up in
+                      version control:
+                    </p>
+                    <pre className="mt-1 rounded bg-muted/40 p-2 text-[11px] font-mono leading-snug text-muted-foreground">
+{`.caipe/
+.claude/
+.agents/`}
+                    </pre>
+                  </div>
+                </details>
               </div>
               {!selectedScope ? (
                 <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
@@ -1627,7 +1607,7 @@ EOF`}
 
             <details className="text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                Preview generated skill ({liveSkills?.file_extension ?? "md"})
+                Preview generated skill (md)
               </summary>
               <div className="relative group mt-2">
                 <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
@@ -1727,14 +1707,11 @@ EOF`}
                       {
                         id: "claude",
                         label: "Claude Code",
-                        ext: "md",
-                        format: "markdown-frontmatter",
                         install_paths: {
-                          user: "~/.claude/commands/skills.md",
-                          project: "./.claude/commands/skills.md",
+                          user: ["~/.claude/skills/skills/SKILL.md"],
+                          project: ["./.claude/skills/skills/SKILL.md"],
                         },
                         scopes_available: ["user", "project"] as InstallScope[],
-                        is_fragment: false,
                       } as AgentMeta,
                     ]
                 ).map((a) => (
@@ -1753,7 +1730,12 @@ EOF`}
               <div className="mt-1 flex flex-col gap-2">
                 {(["user", "project"] as InstallScope[]).map((s) => {
                   const supported = scopesAvailable.includes(s);
-                  const path = liveSkills?.install_paths?.[s];
+                  const pathsRaw = liveSkills?.install_paths?.[s];
+                  const paths: string[] = Array.isArray(pathsRaw)
+                    ? (pathsRaw as string[])
+                    : pathsRaw
+                      ? [pathsRaw as unknown as string]
+                      : [];
                   const isSelected = selectedScope === s;
                   const labelText =
                     s === "user"
@@ -1787,12 +1769,20 @@ EOF`}
                         <span className="block font-medium text-foreground">
                           {labelText}
                         </span>
-                        {path ? (
-                          <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {(liveSkills?.layout === "skills" || selectedLayout === "skills")
-                              ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
-                              : path}
-                          </code>
+                        {paths.length > 0 ? (
+                          <span className="block mt-0.5 space-y-0.5">
+                            {paths.map((p) => (
+                              <code
+                                key={p}
+                                className="block text-[11px] text-muted-foreground font-mono"
+                              >
+                                {p.replace(
+                                  new RegExp(`/${skillCommandName}/SKILL\\.md$`),
+                                  "/<skill-name>/SKILL.md",
+                                )}
+                              </code>
+                            ))}
+                          </span>
                         ) : null}
                         {!supported ? (
                           <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
@@ -1809,17 +1799,6 @@ EOF`}
             {/* Result snippet (or guidance when blocked). */}
             <div className="border-t border-border pt-4">
               {(() => {
-                const meta = agents.find((a) => a.id === selectedAgent);
-                if (meta?.is_fragment) {
-                  return (
-                    <p className="text-xs text-amber-700 dark:text-amber-400 inline-flex items-start gap-1.5">
-                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      {agentLabel} uses a config-fragment install (not a
-                      slash command), so the bulk one-liner doesn&rsquo;t
-                      apply. Use the detailed instructions in Step 3.
-                    </p>
-                  );
-                }
                 if (!selectedScope) {
                   return (
                     <p className="text-xs text-muted-foreground inline-flex items-start gap-1.5">
