@@ -1,35 +1,20 @@
 /**
  * @jest-environment node
  *
- * Tests for URL hostname validation in skill-hubs routes.
+ * Tests for URL hostname + include_paths validation in skill-hubs routes.
  * Verifies that hostname checks use exact match instead of substring match
- * to prevent SSRF / URL bypass attacks.
+ * to prevent SSRF / URL bypass attacks, that GitLab subgroup nesting is
+ * preserved end-to-end (FR-022), and that `include_paths` is correctly
+ * normalized + validated (FR-020).
  * assisted-by claude code claude-sonnet-4-6
  */
 
+import {
+  normalizeHubLocation,
+  validateIncludePaths,
+} from "../_lib/normalize";
+
 describe("skill-hubs URL hostname validation", () => {
-  /**
-   * Helper that extracts the normalized location from a given URL string
-   * by applying the same hostname logic used in the route handlers.
-   */
-  function normalizeHubLocation(rawLoc: string): string {
-    let loc = rawLoc.trim();
-    try {
-      const url = new URL(loc);
-      if (
-        url.hostname === "github.com" ||
-        url.hostname.endsWith(".github.com") ||
-        url.hostname === "gitlab.com" ||
-        url.hostname.endsWith(".gitlab.com")
-      ) {
-        const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
-        if (segments.length >= 2) loc = `${segments[0]}/${segments[1]}`;
-      }
-    } catch {
-      // Not a URL — return as-is
-    }
-    return loc;
-  }
 
   it("normalizes a real github.com URL to owner/repo", () => {
     const result = normalizeHubLocation("https://github.com/owner/repo");
@@ -55,19 +40,121 @@ describe("skill-hubs URL hostname validation", () => {
   });
 
   it("normalizes a real gitlab.com URL to owner/repo", () => {
-    const result = normalizeHubLocation("https://gitlab.com/owner/repo");
+    const result = normalizeHubLocation("https://gitlab.com/owner/repo", "gitlab");
     expect(result).toBe("owner/repo");
   });
 
   it("does NOT normalize evil-gitlab.com", () => {
     const raw = "https://evil-gitlab.com/owner/repo";
-    const result = normalizeHubLocation(raw);
+    const result = normalizeHubLocation(raw, "gitlab");
     expect(result).toBe(raw);
   });
 
   it("leaves plain owner/repo string unchanged", () => {
     const result = normalizeHubLocation("owner/repo");
     expect(result).toBe("owner/repo");
+  });
+
+  // FR-022 / SC-010: GitLab subgroup nesting must survive normalization.
+  it("preserves every path segment for gitlab.com subgroup URLs", () => {
+    const result = normalizeHubLocation(
+      "https://gitlab.com/mycorp/devops/platform",
+      "gitlab",
+    );
+    expect(result).toBe("mycorp/devops/platform");
+  });
+
+  it("preserves arbitrarily-deep GitLab subgroup nesting", () => {
+    const result = normalizeHubLocation(
+      "https://gitlab.com/group/subgroup/sub-subgroup/project",
+      "gitlab",
+    );
+    expect(result).toBe("group/subgroup/sub-subgroup/project");
+  });
+
+  it("strips GitLab UI suffixes (e.g. /-/tree/main) while keeping subgroups", () => {
+    const result = normalizeHubLocation(
+      "https://gitlab.com/mycorp/devops/platform/-/tree/main",
+      "gitlab",
+    );
+    expect(result).toBe("mycorp/devops/platform");
+  });
+
+  it("still flattens GitHub URLs to two segments (no subgroup support)", () => {
+    const result = normalizeHubLocation(
+      "https://github.com/owner/repo/tree/main",
+      "github",
+    );
+    expect(result).toBe("owner/repo");
+  });
+});
+
+describe("skill-hubs include_paths validation (FR-020)", () => {
+  it("returns undefined for absent input", () => {
+    expect(validateIncludePaths(undefined)).toBeUndefined();
+    expect(validateIncludePaths(null)).toBeUndefined();
+  });
+
+  it("returns undefined for an empty array (so existing docs are untouched)", () => {
+    expect(validateIncludePaths([])).toBeUndefined();
+  });
+
+  it("appends a trailing slash to each entry", () => {
+    expect(validateIncludePaths(["skills", "agents/ops/skills/"])).toEqual([
+      "skills/",
+      "agents/ops/skills/",
+    ]);
+  });
+
+  it("trims whitespace and drops empties", () => {
+    expect(validateIncludePaths(["  skills  ", "", "  ", "agents/"])).toEqual([
+      "skills/",
+      "agents/",
+    ]);
+  });
+
+  it("dedupes preserving order", () => {
+    expect(
+      validateIncludePaths(["skills/", "skills", "agents/", "skills"]),
+    ).toEqual(["skills/", "agents/"]);
+  });
+
+  it("rejects entries containing '..'", () => {
+    expect(() => validateIncludePaths(["../escape"])).toThrow(/\.\./);
+  });
+
+  it("rejects entries with leading slash", () => {
+    expect(() => validateIncludePaths(["/abs/path"])).toThrow(/must not start with "\/"/);
+  });
+
+  it("rejects entries with disallowed characters", () => {
+    expect(() => validateIncludePaths(["skills with space/"])).toThrow(
+      /disallowed characters/,
+    );
+    expect(() => validateIncludePaths(["weird*char/"])).toThrow(
+      /disallowed characters/,
+    );
+  });
+
+  it("caps at 20 entries", () => {
+    const tooMany = Array.from({ length: 21 }, (_, i) => `dir${i}/`);
+    expect(() => validateIncludePaths(tooMany)).toThrow(/maximum of 20/);
+  });
+
+  it("rejects non-array input", () => {
+    expect(() => validateIncludePaths("skills/")).toThrow(/must be an array/);
+  });
+
+  it("rejects non-string entries", () => {
+    expect(() => validateIncludePaths([42 as unknown as string])).toThrow(
+      /entries must be strings/,
+    );
+  });
+
+  it("accepts a typical 2-prefix configuration round-trip", () => {
+    expect(
+      validateIncludePaths(["skills/", "agents/observability/skills/"]),
+    ).toEqual(["skills/", "agents/observability/skills/"]);
   });
 });
 
