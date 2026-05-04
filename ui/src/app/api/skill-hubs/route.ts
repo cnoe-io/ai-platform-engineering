@@ -7,6 +7,10 @@ import {
   ApiError,
   validateCredentialsRef,
 } from "@/lib/api-middleware";
+import {
+  normalizeHubLocation,
+  validateIncludePaths,
+} from "./_lib/normalize";
 import { ObjectId } from "mongodb";
 
 /**
@@ -26,6 +30,8 @@ interface SkillHubDoc {
   enabled: boolean;
   credentials_ref: string | null;
   labels: string[];
+  /** Optional path-prefix allow-list for hub crawl (FR-020). */
+  include_paths?: string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -135,23 +141,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    // Normalize full URLs to owner/repo format (users may paste a GitHub URL)
-    let normalizedLocation = location.trim();
-    try {
-      const url = new URL(normalizedLocation);
-      if (url.hostname === "github.com" || url.hostname === "gitlab.com" || url.hostname === "www.github.com") {
-        const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
-        if (segments.length >= 2) {
-          normalizedLocation = `${segments[0]}/${segments[1]}`;
-        }
-      }
-    } catch {
-      // Not a URL — keep as-is (already owner/repo format)
-    }
+    // Normalize full URLs to canonical form. GitHub stays flat owner/repo;
+    // GitLab preserves every subgroup segment so e.g.
+    // https://gitlab.com/mycorp/devops/platform → mycorp/devops/platform
+    // (FR-022 / SC-010).
+    const normalizedLocation = normalizeHubLocation(location, type);
 
     const labels: string[] = Array.isArray(body.labels)
       ? body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20)
       : [];
+
+    const includePaths = validateIncludePaths(body.include_paths);
 
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
 
@@ -178,6 +178,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       created_at: now,
       updated_at: now,
     };
+    if (includePaths) hubDoc.include_paths = includePaths;
 
     await collection.insertOne(hubDoc as any);
 
