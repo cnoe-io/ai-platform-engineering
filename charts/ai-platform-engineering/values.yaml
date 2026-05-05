@@ -130,11 +130,13 @@ global:
   # uploads zipped SKILL packages to this Service for safety scanning.
   # Disabled by default; enable when you want the scanner running in
   # cluster (recommended for any production deployment that exposes the
-  # Skills builder). When enabled, also wire the URL into caipe-ui:
+  # Skills builder).
   #
-  #   caipe-ui:
-  #     config:
-  #       SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
+  # When `enabled: true` the parent chart automatically wires the
+  # in-cluster URL into the caipe-ui ConfigMap (see `caipe-ui.config`
+  # below) — no manual `caipe-ui.config.SKILL_SCANNER_URL` override is
+  # required for the standard install. Override it there only if you
+  # want to point the UI at a scanner running outside this release.
   #
   # The scanner is unauthenticated by design — Service stays ClusterIP.
   skillScanner:
@@ -713,6 +715,14 @@ caipe-ui:
     DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
     # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+    # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
+    # Active when global.skillScanner.enabled=true; the in-cluster Service
+    # name is derived from the Helm release name, so the URL is rendered
+    # via `tpl` in the caipe-ui ConfigMap template — `{{ .Release.Name }}`
+    # tracks the actual install name (e.g. `helm install foo ...` resolves
+    # to `foo-skill-scanner`). Override only to point at a scanner running
+    # outside this release (e.g. shared cluster-wide instance).
+    SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
     # MongoDB configuration
     MONGODB_DATABASE: "caipe"
     # NextAuth URL (non-sensitive)
