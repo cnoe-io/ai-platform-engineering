@@ -1733,7 +1733,7 @@ EOF`}
           and falls back to a placeholder so the user knows where to paste
       */}
       <Dialog open={quickInstallOpen} onOpenChange={setQuickInstallOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Zap className="h-5 w-5 text-primary" />
@@ -1925,17 +1925,89 @@ EOF`}
                           API key minted.
                         </div>
                         <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                          ⚠ Copy it now and paste it into{" "}
-                          <code className="font-mono">
-                            ~/.config/caipe/config.json
-                          </code>{" "}
-                          (Step 1) — we cannot show it again:
+                          ⚠ Copy it now — we cannot show it again. Two
+                          options:
                         </div>
-                        <CopyableBlock
-                          as="code"
-                          text={mintedKey}
-                          ariaLabel="Copy API key"
-                        />
+
+                        {/* Option A: bare key, for users who want to
+                            hand-edit ~/.config/caipe/config.json
+                            (matches the previous UX). */}
+                        <div className="space-y-1">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                            Option A — paste into{" "}
+                            <code className="font-mono">
+                              ~/.config/caipe/config.json
+                            </code>{" "}
+                            yourself
+                          </p>
+                          <CopyableBlock
+                            as="code"
+                            text={mintedKey}
+                            ariaLabel="Copy API key"
+                          />
+                        </div>
+
+                        {/* Option B (Option-4 from the install-flow
+                            design): single-shot bootstrap. Writes
+                            ~/.config/caipe/config.json with chmod 600
+                            then runs the same install one-liner the
+                            "Run this in your terminal" block shows
+                            below. The key is embedded INSIDE a
+                            single-quoted heredoc so bash doesn't try
+                            to expand $... or backticks; both values
+                            are JSON.stringify'd so any character is
+                            safe inside the JSON string literal.
+                            chmod 600 lands the key on disk readable
+                            only by the owner. The bare curl is
+                            unchanged below for repeat-installs that
+                            don't need to re-seed config.json. */}
+                        {(() => {
+                          const bootstrapSnippet = [
+                            `mkdir -p ~/.config/caipe && \\`,
+                            `cat > ~/.config/caipe/config.json <<'CAIPE_BOOTSTRAP_EOF'`,
+                            `{`,
+                            `  "base_url": ${JSON.stringify(baseUrl)},`,
+                            `  "api_key": ${JSON.stringify(mintedKey)}`,
+                            `}`,
+                            `CAIPE_BOOTSTRAP_EOF`,
+                            `chmod 600 ~/.config/caipe/config.json && \\`,
+                            oneLiner,
+                          ].join("\n");
+                          return (
+                            <div
+                              className="space-y-1"
+                              data-testid="quick-install-bootstrap-snippet"
+                            >
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                                Option B — write config + install in
+                                one shot{" "}
+                                <span className="normal-case font-normal text-muted-foreground">
+                                  (recommended for first-time setup)
+                                </span>
+                              </p>
+                              <CopyableBlock
+                                as="pre"
+                                text={bootstrapSnippet}
+                                ariaLabel="Copy bootstrap install snippet"
+                                className="break-all"
+                              />
+                              <p className="text-[10px] text-muted-foreground leading-snug">
+                                Writes{" "}
+                                <code className="font-mono">
+                                  ~/.config/caipe/config.json
+                                </code>{" "}
+                                with{" "}
+                                <code className="font-mono">chmod 600</code>{" "}
+                                (owner-readable only), then runs the
+                                install. The key lives in the single-
+                                quoted heredoc so bash doesn&rsquo;t
+                                expand it; the only place it lands on
+                                disk is the config file you just
+                                created.
+                              </p>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex flex-wrap items-center gap-3">
@@ -2091,6 +2163,7 @@ EOF`}
                           variant="outline"
                           size="sm"
                           className="h-7 gap-1.5 text-xs"
+                          data-testid="quick-install-copy-bare-curl"
                           onClick={() => {
                             void navigator.clipboard.writeText(oneLiner);
                             setCopiedQuickInstall(true);
