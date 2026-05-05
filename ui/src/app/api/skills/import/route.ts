@@ -214,23 +214,84 @@ async function importFromGitLab(
   // work without a token; we only set the header when one is resolved.
   if (token) headers["PRIVATE-TOKEN"] = token;
 
-  const treeUrl = `${apiBase}/projects/${encodedProject}/repository/tree?recursive=true&per_page=100`;
-  const treeResp = await fetch(treeUrl, {
-    headers,
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!treeResp.ok) {
-    // GitLab returns 404 for unauthenticated reads of private projects,
-    // which is misleading. Surface a friendlier hint when no token is set.
-    if ((treeResp.status === 404 || treeResp.status === 401 || treeResp.status === 403) && !token) {
+  // Walk the GitLab tree across pages. Without this loop a project with
+  // more than 100 entries would silently truncate (only the first page is
+  // returned), the prefix scan would find no blobs, and the importer would
+  // succeed with `count: 0`. Mirrors the pagination contract in
+  // `crawlGitLabRepo`. The cap is conservative for an inline import flow
+  // (50 pages × 100 = 5,000 entries); admins can raise it via env if a
+  // monorepo legitimately needs deeper traversal.
+  const maxTreePages = (() => {
+    const raw = process.env.GITLAB_IMPORT_MAX_TREE_PAGES;
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 500) : 50;
+  })();
+  const entries: GitLabTreeItem[] = [];
+  let truncatedAtCap = false;
+  for (let page = 1; page <= maxTreePages; page += 1) {
+    const treeUrl =
+      `${apiBase}/projects/${encodedProject}/repository/tree` +
+      `?recursive=true&per_page=100&page=${page}`;
+    const treeResp = await fetch(treeUrl, {
+      headers,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!treeResp.ok) {
+      // GitLab returns 404 for unauthenticated reads of private projects,
+      // which is misleading. Surface a friendlier hint when no token is set.
+      if (
+        (treeResp.status === 404 || treeResp.status === 401 || treeResp.status === 403) &&
+        !token
+      ) {
+        throw new ApiError(
+          `GitLab tree fetch failed: ${treeResp.status} (set GITLAB_TOKEN or pass credentials_ref for private projects)`,
+          502,
+        );
+      }
+      throw new ApiError(`GitLab tree fetch failed: ${treeResp.status}`, 502);
+    }
+    // Defensive: if GitLab (or a proxy in front of it) returns a non-JSON
+    // body — e.g. an SSO HTML redirect — surface a useful 502 instead of
+    // letting `await .json()` throw the opaque
+    // ``Unexpected token '<', "<!DOCTYPE "`` to the client.
+    const ct = treeResp.headers.get("content-type") ?? "";
+    if (!ct.toLowerCase().includes("json")) {
+      const preview = await treeResp.text().catch(() => "");
       throw new ApiError(
-        `GitLab tree fetch failed: ${treeResp.status} (set GITLAB_TOKEN or pass credentials_ref for private projects)`,
+        `GitLab tree fetch returned non-JSON response ` +
+          `(HTTP ${treeResp.status}, Content-Type: ${ct || "unset"}). ` +
+          `This usually means a proxy/SSO challenge intercepted the request. ` +
+          `Body starts with: ${preview.slice(0, 200)}`,
         502,
       );
     }
-    throw new ApiError(`GitLab tree fetch failed: ${treeResp.status}`, 502);
+    let pageEntries: GitLabTreeItem[];
+    try {
+      pageEntries = (await treeResp.json()) as GitLabTreeItem[];
+    } catch (err) {
+      throw new ApiError(
+        `GitLab tree response was not parseable JSON: ${err instanceof Error ? err.message : String(err)}`,
+        502,
+      );
+    }
+    if (!Array.isArray(pageEntries) || pageEntries.length === 0) break;
+    entries.push(...pageEntries);
+    if (pageEntries.length < 100) break;
+    if (page === maxTreePages) {
+      truncatedAtCap = true;
+      break;
+    }
   }
-  const entries: GitLabTreeItem[] = await treeResp.json();
+  if (truncatedAtCap) {
+    // Surface truncation as an inline warning in the response. We
+    // *don't* fail the import — partial results are better than none —
+    // but the caller can show it as a toast.
+    // (Future: add a structured `truncation` field to ImportResult.)
+    console.warn(
+      `[skills/import] GitLab tree for ${projectPath} hit the ${maxTreePages}-page cap; ` +
+        `some files may be missing. Raise GITLAB_IMPORT_MAX_TREE_PAGES if needed.`,
+    );
+  }
 
   const result: ImportResult = { files: {}, count: 0, conflicts: [] };
   const ownership = new Map<string, string>();

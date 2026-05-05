@@ -9,6 +9,7 @@ import { GithubIcon, GitlabIcon } from "@/components/ui/icons";
 import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
 import { cn } from "@/lib/utils";
 import { detectHubProviderFromUrl } from "@/app/api/skill-hubs/_lib/normalize";
+import { readJson, readJsonOrError } from "@/lib/safe-json";
 
 type HubType = "github" | "gitlab";
 
@@ -120,9 +121,12 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           setError("Admin access required to manage skill hubs.");
           return;
         }
-        throw new Error("Failed to load skill hubs");
+        throw new Error(`Failed to load skill hubs (HTTP ${res.status})`);
       }
-      const data = await res.json();
+      // ``readJson`` surfaces a useful error if the response is HTML
+      // (e.g. an upstream proxy 504) instead of the opaque
+      // ``Unexpected token '<', "<!DOCTYPE "...`` parse failure.
+      const data = await readJson<{ hubs?: SkillHub[] }>(res);
       setHubs(data.hubs || []);
       setError(null);
     } catch (err: any) {
@@ -323,9 +327,18 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
     setRecrawlingId(hubId);
     try {
       const res = await fetch(`/api/skill-hubs/${hubId}/refresh`, { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Recrawl failed");
-      setRecrawlResult((prev) => ({ ...prev, [hubId]: data.skills_count ?? 0 }));
+      const parsed = await readJsonOrError<{ error?: string; skills_count?: number }>(res);
+      if (!res.ok) {
+        if (parsed.ok) {
+          throw new Error(parsed.data.error || `Recrawl failed (HTTP ${res.status})`);
+        }
+        const detail = parsed.preview ? ` Body starts with: ${parsed.preview.slice(0, 120)}` : "";
+        throw new Error(`Recrawl failed (HTTP ${parsed.status}): ${parsed.error}${detail}`);
+      }
+      if (!parsed.ok) {
+        throw new Error(`Recrawl returned non-JSON response: ${parsed.error}`);
+      }
+      setRecrawlResult((prev) => ({ ...prev, [hubId]: parsed.data.skills_count ?? 0 }));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -381,10 +394,26 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           max_tree_pages: maxTreePages,
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const parsed = await readJsonOrError<{
+        message?: string;
+        detail?: { message?: string };
+        error?: string;
+        paths?: string[];
+        skills_preview?: { path: string; name: string; description: string }[];
+        truncation?: HubLastCrawlTruncation;
+      }>(res);
       if (!res.ok) {
-        throw new Error(data.message || data.detail?.message || data.error || `Crawl failed (${res.status})`);
+        if (parsed.ok) {
+          const d = parsed.data;
+          throw new Error(d.message || d.detail?.message || d.error || `Crawl failed (HTTP ${res.status})`);
+        }
+        const detail = parsed.preview ? ` Body starts with: ${parsed.preview.slice(0, 120)}` : "";
+        throw new Error(`Crawl failed (HTTP ${parsed.status}): ${parsed.error}${detail}`);
       }
+      if (!parsed.ok) {
+        throw new Error(`Crawl returned non-JSON response: ${parsed.error}`);
+      }
+      const data = parsed.data;
       setCrawlPaths(data.paths || []);
       setCrawlPreview(data.skills_preview || []);
       if (data.truncation && data.truncation.kind && data.truncation.kind !== "ok") {
