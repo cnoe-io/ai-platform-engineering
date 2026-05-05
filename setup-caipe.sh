@@ -764,7 +764,7 @@ choose_deployment_mode() {
     if ! ask_yn "Keep existing deployment mode (${CAIPE_DEPLOYMENT_MODE})?" "y"; then
       CAIPE_DEPLOYMENT_MODE=""  # fall through to prompt
     else
-      return
+      return 0
     fi
   fi
 
@@ -814,7 +814,7 @@ collect_credentials() {
       if ! ask_yn "Keep existing LLM provider (${LLM_PROVIDER})?" "y"; then
         LLM_PROVIDER=""  # fall through to full prompt
       else
-        return
+        return 0
       fi
     fi
   fi
@@ -1642,7 +1642,7 @@ _choose_agents() {
   if [[ ${#SELECTED_AGENTS[@]} -gt 0 ]]; then
     log "Detected enabled agents: ${SELECTED_AGENTS[*]}"
     if ask_yn "Keep existing agent selection?" "y"; then
-      return
+      return 0
     fi
     SELECTED_AGENTS=()
     HELM_AGENT_ARGS=()
