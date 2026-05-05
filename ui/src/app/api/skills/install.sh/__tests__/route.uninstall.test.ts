@@ -73,8 +73,20 @@ describe("GET /api/skills/install.sh — mode=uninstall dispatch", () => {
     // Both manifests are baked into the MANIFESTS array, in order:
     // user first (so `q` quitting the first loop still leaves the
     // second to run).
+    //
+    // CRITICAL: paths MUST be DOUBLE-quoted so bash actually expands
+    // ${HOME:-.} at runtime. We previously single-quoted these,
+    // which silently broke uninstall for user-scope (every run
+    // checked a literal "${HOME:-.}/..." path that never exists on
+    // any filesystem). The regex below pins that contract.
     expect(res.body).toMatch(
-      /MANIFESTS=\(\s*'\$\{HOME:-\.\}\/\.config\/caipe\/installed\.json'\s*'\.\/\.caipe\/installed\.json'\s*\)/,
+      /MANIFESTS=\(\s*"\$\{HOME:-\.\}\/\.config\/caipe\/installed\.json"\s*"\.\/\.caipe\/installed\.json"\s*\)/,
+    );
+    // Regression invariant: the rendered script MUST NOT contain a
+    // single-quoted form of the HOME-relative manifest path. Single
+    // quotes prevent parameter expansion and re-introduce the bug.
+    expect(res.body).not.toContain(
+      "'${HOME:-.}/.config/caipe/installed.json'",
     );
     // Filename suffix communicates the dual-manifest scope. The
     // route falls back to scope=user for the slug (the script itself
@@ -141,6 +153,14 @@ describe("GET /api/skills/install.sh — mode=uninstall script content", () => {
     );
     expect(res.body).toContain("/.config/caipe/installed.json");
     expect(res.body).not.toContain("./.caipe/installed.json");
+    // Pin the double-quoted array form so the ${HOME:-.} expansion
+    // bug can't silently re-emerge for the single-scope case either.
+    expect(res.body).toMatch(
+      /MANIFESTS=\(\s*"\$\{HOME:-\.\}\/\.config\/caipe\/installed\.json"\s*\)/,
+    );
+    expect(res.body).not.toContain(
+      "'${HOME:-.}/.config/caipe/installed.json'",
+    );
   });
 
   it("project-scope reads the manifest at ./.caipe/installed.json", async () => {
@@ -148,6 +168,11 @@ describe("GET /api/skills/install.sh — mode=uninstall script content", () => {
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=project&mode=uninstall",
     );
     expect(res.body).toContain("./.caipe/installed.json");
+    // Project paths don't contain expansions, but pin the form for
+    // symmetry with the user-scope test above.
+    expect(res.body).toMatch(
+      /MANIFESTS=\(\s*"\.\/\.caipe\/installed\.json"\s*\)/,
+    );
   });
 
   it("honors the CAIPE_INSTALL_MANIFEST override (overrides first manifest)", async () => {
