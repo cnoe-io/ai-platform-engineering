@@ -596,21 +596,17 @@ class AgentRuntime:
         Releases MCP client, checkpointer, graph, and MongoClient (if owned).
         After cleanup, this runtime instance should not be reused.
         """
-        # 1. MCP client — release reference
-        if self._mcp_client:
-            self._mcp_client = None
-
-        # 2. Checkpointer — do NOT call .close() as it closes the underlying
+        # 1. Checkpointer — do NOT call .close() as it closes the underlying
         #    MongoClient (which may be shared). Just release the reference.
         self._checkpointer = None
 
-        # 3. MongoClient — only close if we created it ourselves
+        # 2. MongoClient — only close if we created it ourselves
         if self._owns_mongo_client and self._mongo_client:
             self._mongo_client.close()
             logger.info("Closed owned MongoClient for agent '%s'", self.config.name)
         self._mongo_client = None
 
-        # 4. Graph — release compiled LangGraph to free tool references
+        # 3. Graph — release compiled LangGraph to free tool references
         self._graph = None
 
         self._initialized = False
