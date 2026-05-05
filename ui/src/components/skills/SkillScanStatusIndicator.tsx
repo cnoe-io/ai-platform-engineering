@@ -287,6 +287,37 @@ export function SkillScanStatusIndicator({
   const showClearOverrideButton =
     adminCanOverride && status === "admin_overridden";
 
+  // Dev-only diagnostic — logs exactly which gate is hiding the
+  // override button when the dialog opens. Silent in production
+  // builds and silent until the user actually opens the dialog.
+  // Useful when an admin sees a flagged skill but no override CTA
+  // (the v1 source-restriction is the most common cause).
+  if (
+    process.env.NODE_ENV !== "production" &&
+    reportOpen &&
+    status === "flagged" &&
+    !showOverrideButton
+  ) {
+    const reasons: string[] = [];
+    if (!isAdmin) reasons.push("not admin (useAdminRole().isAdmin=false)");
+    if (overrideEndpoint === null) {
+      const catalogSource = (
+        config.metadata as { catalog_source?: string } | undefined
+      )?.catalog_source;
+      const isHub = /^catalog-hub-([^-]+)-(.+)$/.test(config.id);
+      reasons.push(
+        `unsupported source for v1 override (id=${config.id}, ` +
+          `metadata.catalog_source=${catalogSource ?? "<unset>"}, ` +
+          `is_hub_id=${isHub})`,
+      );
+    }
+    // eslint-disable-next-line no-console
+    console.info(
+      "[SkillScanStatusIndicator] override button hidden:",
+      reasons.join("; "),
+    );
+  }
+
   const overrideMeta = merged.scan_override;
   const overrideSetAtLabel = overrideMeta
     ? formatScanTime(overrideMeta.set_at)
