@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ChevronRight,
@@ -588,42 +588,38 @@ function FileBody({
     );
   }
 
-  if (isMarkdown && !showSource) {
-    return (
-      <div
-        className={cn(
-          // Markdown preview is a `prose` block with no intrinsic
-          // scroll — give it the flex slot + its own scrollbar so long
-          // SKILL.md files don't push the dialog past the viewport.
-          "flex-1 min-h-0 overflow-y-auto",
-          "prose prose-sm dark:prose-invert max-w-none px-6 py-5",
-          // Tighten + boost contrast: default `prose-invert` washes everything
-          // to ~60% opacity which looked grey-on-grey in the dialog.
-          "prose-headings:text-foreground prose-headings:font-semibold",
-          "prose-h1:text-2xl prose-h1:mt-0 prose-h1:mb-4 prose-h1:pb-2 prose-h1:border-b prose-h1:border-border/60",
-          "prose-h2:text-lg prose-h2:mt-6 prose-h2:mb-3",
-          "prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2",
-          "prose-p:text-foreground/85 prose-p:leading-relaxed",
-          "prose-li:text-foreground/85 prose-li:my-0.5",
-          "prose-strong:text-foreground prose-strong:font-semibold",
-          "prose-a:text-primary prose-a:font-medium prose-a:no-underline hover:prose-a:underline",
-          "prose-code:text-pink-600 dark:prose-code:text-pink-300 prose-code:bg-muted/60",
-          "prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:text-[0.85em]",
-          "prose-code:before:content-none prose-code:after:content-none",
-          "prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border/60 prose-pre:text-foreground/90",
-          "prose-blockquote:border-l-primary/40 prose-blockquote:text-foreground/75",
-          "prose-hr:border-border/60",
-        )}
-      >
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{file.content || ""}</ReactMarkdown>
-      </div>
-    );
-  }
-
-  // Fallthrough — should be unreachable because the read-only branch above
-  // already handles non-markdown text files. Render an empty fragment so
-  // TypeScript stays happy.
-  return null;
+  // Markdown preview is the only remaining branch: the `image`/`binary`/
+  // `truncated` and `!isMarkdown || showSource` cases above already
+  // return, so we know `isMarkdown && !showSource` holds here.
+  return (
+    <div
+      className={cn(
+        // Markdown preview is a `prose` block with no intrinsic
+        // scroll — give it the flex slot + its own scrollbar so long
+        // SKILL.md files don't push the dialog past the viewport.
+        "flex-1 min-h-0 overflow-y-auto",
+        "prose prose-sm dark:prose-invert max-w-none px-6 py-5",
+        // Tighten + boost contrast: default `prose-invert` washes everything
+        // to ~60% opacity which looked grey-on-grey in the dialog.
+        "prose-headings:text-foreground prose-headings:font-semibold",
+        "prose-h1:text-2xl prose-h1:mt-0 prose-h1:mb-4 prose-h1:pb-2 prose-h1:border-b prose-h1:border-border/60",
+        "prose-h2:text-lg prose-h2:mt-6 prose-h2:mb-3",
+        "prose-h3:text-base prose-h3:mt-5 prose-h3:mb-2",
+        "prose-p:text-foreground/85 prose-p:leading-relaxed",
+        "prose-li:text-foreground/85 prose-li:my-0.5",
+        "prose-strong:text-foreground prose-strong:font-semibold",
+        "prose-a:text-primary prose-a:font-medium prose-a:no-underline hover:prose-a:underline",
+        "prose-code:text-pink-600 dark:prose-code:text-pink-300 prose-code:bg-muted/60",
+        "prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:text-[0.85em]",
+        "prose-code:before:content-none prose-code:after:content-none",
+        "prose-pre:bg-muted/80 prose-pre:border prose-pre:border-border/60 prose-pre:text-foreground/90",
+        "prose-blockquote:border-l-primary/40 prose-blockquote:text-foreground/75",
+        "prose-hr:border-border/60",
+      )}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{file.content || ""}</ReactMarkdown>
+    </div>
+  );
 }
 
 function EmptyPane() {
