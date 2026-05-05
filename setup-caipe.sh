@@ -1751,19 +1751,69 @@ choose_features() {
       log "Ingress enabled for: ${CAIPE_DOMAIN}"
 
       echo ""
-      echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
-      prompt "TLS cert file path (leave blank for self-signed): "
-      tty_read -r TLS_CERT_FILE
-      if [[ -n "$TLS_CERT_FILE" ]]; then
-        prompt "TLS key file path: "
-        tty_read -r TLS_KEY_FILE
-        if [[ -z "$TLS_KEY_FILE" ]]; then
-          err "TLS key file is required when cert is provided"
-          exit 1
+      # Auto-detect certs in common locations
+      local _auto_cert="" _auto_key=""
+      local _cert_search_paths=(
+        "$HOME/certs/fullchain.pem"   "$HOME/certs/cert.pem"   "$HOME/certs/tls.crt"
+        "$HOME/.certs/fullchain.pem"  "$HOME/.certs/cert.pem"
+        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/fullchain.pem"
+        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/cert.pem"
+        "/etc/ssl/certs/${CAIPE_DOMAIN}.pem"
+      )
+      local _key_search_paths=(
+        "$HOME/certs/privkey.pem"     "$HOME/certs/key.pem"    "$HOME/certs/tls.key"
+        "$HOME/.certs/privkey.pem"    "$HOME/.certs/key.pem"
+        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/privkey.pem"
+        "/etc/ssl/private/${CAIPE_DOMAIN}.key"
+      )
+      for _p in "${_cert_search_paths[@]}"; do
+        [[ -f "$_p" ]] && { _auto_cert="$_p"; break; }
+      done
+      for _p in "${_key_search_paths[@]}"; do
+        [[ -f "$_p" ]] && { _auto_key="$_p"; break; }
+      done
+
+      if [[ -n "$_auto_cert" && -n "$_auto_key" ]]; then
+        echo -e "  ${GREEN}  ✓${NC} Auto-detected TLS certificates:"
+        echo -e "      cert: ${_auto_cert}"
+        echo -e "      key:  ${_auto_key}"
+        if ask_yn "Use these certificates?" "y"; then
+          TLS_CERT_FILE="$_auto_cert"
+          TLS_KEY_FILE="$_auto_key"
+          log "Using auto-detected TLS cert: ${TLS_CERT_FILE}"
+        else
+          _auto_cert=""  # fall through to manual prompt
         fi
-        log "Using custom TLS cert: ${TLS_CERT_FILE}"
-      else
-        log "Will generate self-signed cert for ${CAIPE_DOMAIN}"
+      fi
+
+      if [[ -z "$_auto_cert" ]]; then
+        echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
+        while true; do
+          prompt "TLS cert file path (leave blank for self-signed): "
+          tty_read -r TLS_CERT_FILE
+          TLS_CERT_FILE="${TLS_CERT_FILE/#\~/$HOME}"
+          if [[ -z "$TLS_CERT_FILE" ]]; then
+            log "Will generate self-signed cert for ${CAIPE_DOMAIN}"
+            break
+          elif [[ ! -f "$TLS_CERT_FILE" ]]; then
+            warn "File not found: ${TLS_CERT_FILE}"
+          else
+            while true; do
+              prompt "TLS key file path: "
+              tty_read -r TLS_KEY_FILE
+              TLS_KEY_FILE="${TLS_KEY_FILE/#\~/$HOME}"
+              if [[ -z "$TLS_KEY_FILE" ]]; then
+                err "TLS key file is required when cert is provided"
+              elif [[ ! -f "$TLS_KEY_FILE" ]]; then
+                warn "File not found: ${TLS_KEY_FILE}"
+              else
+                log "Using custom TLS cert: ${TLS_CERT_FILE}"
+                break
+              fi
+            done
+            break
+          fi
+        done
       fi
     else
       log "Ingress skipped"
