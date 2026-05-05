@@ -4,6 +4,10 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
+import dotenv
+
+dotenv.load_dotenv()  # Ensure .env is in os.environ before any boto3/httpx clients are created
+
 from dynamic_agents.log_config import setup_logging
 
 # Setup logging before other imports that trigger cnoe-agent-utils
@@ -29,8 +33,8 @@ from fastapi.responses import JSONResponse
 from dynamic_agents.config import get_settings
 from dynamic_agents.metrics import PrometheusHTTPMiddleware
 from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, health, mcp_servers, middleware
-from dynamic_agents.services.runtime_cache import RuntimeInitError, get_runtime_cache
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
+from dynamic_agents.services.runtime_cache import RuntimeCapacityError, RuntimeInitError, get_runtime_cache
 
 
 @asynccontextmanager
@@ -119,6 +123,19 @@ def create_app() -> FastAPI:
                 "agent_id": exc.agent_id,
                 "error_type": type(exc.cause).__name__,
             },
+        )
+
+    @app.exception_handler(RuntimeCapacityError)
+    async def runtime_capacity_error_handler(request: Request, exc: RuntimeCapacityError):
+        """Return a 503 when the runtime cache is at capacity."""
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "agent_busy",
+                "message": "This agent is at capacity right now. Please try again in a moment.",
+                "retry_after_seconds": 5,
+            },
+            headers={"Retry-After": "5"},
         )
 
     @app.get("/")

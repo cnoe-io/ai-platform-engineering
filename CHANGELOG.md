@@ -1,3 +1,33 @@
+## 0.4.5-dev.2 (2026-05-05)
+
+### Feat
+
+- **setup-caipe**: UX improvements — Docker install, back-nav, upgrade detection, agent selection (#1336)
+- **dynamic-agents**: add memory management with shared clients and lazy provider loading
+
+### Fix
+
+- **dynamic-agents**: handle empty except in runtime cache
+- **dynamic-agents**: remove unused AgentRuntime import in get_or_create
+- **dynamic-agents**: prevent duplicate runtime init via single-flight future pattern
+- **dynamic-agents**: update uv.lock for pinned memray
+- **dynamic-agents**: pin memray dependency to 1.19.3
+- **dynamic-agents**: reduce Retry-After from 10s to 5s
+
+### Refactor
+
+- **dynamic-agents**: simplify llm_clients and reduce runtime TTL to 60s
+- **dynamic-agents**: remove provider guard, use cnoe-agent-utils 0.4.0 lazy imports
+- **dynamic-agents**: simplify memory management — remove gunicorn and adaptive sizing
+
+## 0.4.5-dev.1 (2026-04-30)
+
+### Fix
+
+- **ui**: sync agents tab to URL param, include agent name in editor title (#1325)
+
+## 0.4.5 (2026-04-29)
+
 ## 0.4.4-dev.3 (2026-04-29)
 
 ### Fix

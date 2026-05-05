@@ -46,7 +46,7 @@ AWS_PROFILE="${AWS_PROFILE:-}"
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
 AWS_BEDROCK_ENABLE_PROMPT_CACHE="${AWS_BEDROCK_ENABLE_PROMPT_CACHE:-}"
-LLM_PROVIDER="${LLM_PROVIDER:-anthropic-claude}"
+LLM_PROVIDER="${LLM_PROVIDER:-}"  # filled by cluster detection or user prompt; default applied per-use
 EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
 EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"
 ENABLE_GRAPH_RAG=false
@@ -79,6 +79,8 @@ TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
 ENABLE_DYNAMIC_AGENTS=false
+# Agents selected interactively; empty means all defaults are used (non-interactive path)
+SELECTED_AGENTS=()
 CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
 
 # When run via "curl | bash", stdin is the script content — bash reads it
@@ -125,6 +127,9 @@ prompt()  { echo -en "${BOLD}  ▸ $*${NC}"; }
 # "curl | bash" keeps reading the script from stdin while prompts
 # go to the terminal.  Passes all arguments through to `read`.
 tty_read() { read "$@" <&3; }
+
+# Returns 0 (true) when the user wants to go back — accepts "b", "back", "0"
+_is_back() { [[ "${1,,}" == "b" || "${1,,}" == "back" || "$1" == "0" ]]; }
 
 ask_yn() {
   local question="$1" default="${2:-y}"
@@ -322,8 +327,118 @@ _install_ollama_macos() {
   log "Ollama installed"
 }
 
+_install_docker_linux() {
+  log "Installing Docker..."
+  local os_id
+  os_id=$(. /etc/os-release && echo "$ID")
+  case "$os_id" in
+    ubuntu|debian)
+      sudo apt-get update -qq
+      sudo apt-get install -y ca-certificates curl gnupg &>/dev/null
+      sudo install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL "https://download.docker.com/linux/${os_id}/gpg" \
+        | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      sudo chmod a+r /etc/apt/keyrings/docker.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/${os_id} \
+$(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+        | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      sudo apt-get update -qq
+      sudo apt-get install -y docker-ce docker-ce-cli containerd.io \
+        docker-buildx-plugin docker-compose-plugin &>/dev/null
+      sudo systemctl enable --now docker
+      sudo usermod -aG docker "$USER"
+      log "Docker installed — run 'newgrp docker' or re-login to use without sudo"
+      ;;
+    fedora|rhel|centos|rocky|almalinux)
+      sudo dnf -y install dnf-plugins-core &>/dev/null
+      sudo dnf config-manager --add-repo \
+        https://download.docker.com/linux/fedora/docker-ce.repo &>/dev/null
+      sudo dnf install -y docker-ce docker-ce-cli containerd.io \
+        docker-buildx-plugin docker-compose-plugin &>/dev/null
+      sudo systemctl enable --now docker
+      sudo usermod -aG docker "$USER"
+      log "Docker installed — run 'newgrp docker' or re-login to use without sudo"
+      ;;
+    *)
+      err "Unsupported Linux distro '${os_id}' for automatic Docker installation."
+      err "Install Docker manually: https://docs.docker.com/engine/install/"
+      exit 1
+      ;;
+  esac
+}
+
+_install_docker_macos() {
+  log "Installing Docker..."
+  if command -v brew &>/dev/null; then
+    brew install --cask docker
+    log "Docker Desktop installed — open the Docker app to complete setup, then re-run this script"
+    exit 0
+  else
+    err "Homebrew not found. Install Docker Desktop manually: https://docs.docker.com/desktop/mac/install/"
+    exit 1
+  fi
+}
+
+_check_kubeconfig() {
+  local cfg="$HOME/.kube/config"
+  mkdir -p "$HOME/.kube"
+
+  if [[ -L "$cfg" ]]; then
+    local target
+    target="$(readlink -f "$cfg" 2>/dev/null || readlink "$cfg")"
+    warn "~/.kube/config is a symlink → ${target}"
+
+    # Known EKS/kubelet placeholder paths that are not real cluster configs
+    if [[ "$target" == *kubelet* || "$target" == *eks* || "$target" == /var/lib/* ]]; then
+      warn "This looks like an EKS node kubelet config, not a user kubeconfig."
+      warn "kind requires a writable ~/.kube/config and will fail otherwise."
+      if ask_yn "Replace the symlink with a writable kubeconfig file?" "y"; then
+        rm -f "$cfg"
+        install -m 600 /dev/null "$cfg"
+        log "~/.kube/config replaced with a writable file"
+      else
+        warn "Skipped — kind cluster creation may fail."
+        warn "To fix manually: rm ~/.kube/config && install -m 600 /dev/null ~/.kube/config"
+      fi
+    else
+      warn "Unexpected kubeconfig symlink. kind may fail to write cluster credentials."
+      warn "To fix manually: rm ~/.kube/config && install -m 600 /dev/null ~/.kube/config"
+    fi
+  elif [[ -f "$cfg" && ! -w "$cfg" ]]; then
+    warn "~/.kube/config exists but is not writable (owner: $(stat -c '%U' "$cfg" 2>/dev/null || stat -f '%Su' "$cfg"))"
+    warn "To fix manually: sudo chown \$USER ~/.kube/config"
+  fi
+}
+
+_check_docker_access() {
+  # Docker binary present but socket not accessible without sudo
+  if command -v docker &>/dev/null && ! docker info &>/dev/null 2>&1; then
+    if sudo docker info &>/dev/null 2>&1; then
+      warn "Docker is running but your user (${USER}) cannot reach the socket."
+      if ! groups | grep -qw docker; then
+        if ask_yn "Add ${USER} to the 'docker' group so kind can use Docker?" "y"; then
+          sudo usermod -aG docker "$USER"
+          warn "Done — open a new terminal (or run 'newgrp docker'), then re-run this script."
+        else
+          warn "Skipped — you can run the script with 'sudo' or add yourself manually:"
+          warn "  sudo usermod -aG docker \$USER && newgrp docker"
+        fi
+      else
+        warn "You are in the 'docker' group but this shell session predates the change."
+        warn "Open a new terminal (or run 'newgrp docker'), then re-run this script."
+      fi
+      exit 0
+    fi
+  fi
+}
+
 check_prerequisites() {
   step "Checking prerequisites"
+
+  # Kubeconfig sanity — must run before any kubectl calls
+  _check_kubeconfig
+
   local missing=()
   for cmd in kubectl helm openssl curl jq; do
     if ! command -v "$cmd" &>/dev/null; then
@@ -351,10 +466,61 @@ check_prerequisites() {
       exit 1
     fi
   fi
+
+  # Docker is required by kind — detect and auto-install before any cluster work
+  if ! command -v docker &>/dev/null; then
+    warn "Docker is not installed — it is required to run kind clusters."
+    local os
+    os="$(uname -s)"
+    if [[ "$os" == "Linux" || "$os" == "Darwin" ]]; then
+      if ask_yn "Install Docker now?" "y"; then
+        step "Installing Docker"
+        if [[ "$os" == "Linux" ]]; then
+          _install_docker_linux
+        else
+          _install_docker_macos
+        fi
+      else
+        err "Docker is required. Install it from https://docs.docker.com/engine/install/ and re-run."
+        exit 1
+      fi
+    else
+      err "Docker is required but not installed. Install it from https://docs.docker.com/engine/install/ and re-run."
+      exit 1
+    fi
+  fi
+
+  # Docker installed — verify the current user can reach the socket
+  _check_docker_access
+
   if ! command -v kind &>/dev/null; then
     warn "kind not found — Kind cluster options will be unavailable"
   fi
-  log "Prerequisites checked (kubectl, helm, openssl, curl, jq)"
+
+  # k9s — optional but strongly recommended; auto-install if missing
+  if ! command -v k9s &>/dev/null; then
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      log "Installing k9s (Kubernetes TUI)..."
+      local _k9s_url
+      _k9s_url=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest \
+        | grep "browser_download_url" | grep "Linux_amd64.tar.gz" | head -1 | cut -d'"' -f4)
+      if [[ -n "$_k9s_url" ]]; then
+        curl -sL "$_k9s_url" | sudo tar xz -C /usr/local/bin k9s 2>/dev/null \
+          && log "k9s installed: $(k9s version --short 2>/dev/null || true)" \
+          || warn "k9s install failed — you can install it manually from https://k9scli.io"
+      else
+        warn "Could not fetch k9s release URL — skipping k9s install"
+      fi
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+      if command -v brew &>/dev/null; then
+        brew install derailed/k9s/k9s &>/dev/null && log "k9s installed via Homebrew" || true
+      else
+        warn "k9s not found — install it with: brew install derailed/k9s/k9s"
+      fi
+    fi
+  fi
+
+  log "Prerequisites checked (docker, kubectl, helm, openssl, curl, jq, k9s)"
 }
 
 choose_cluster() {
@@ -562,11 +728,13 @@ choose_chart_version() {
 
   if [[ ${#versions[@]} -eq 1 ]]; then
     echo -e "  ${DIM}Latest version: ${versions[0]}${NC}"
-    prompt "Chart version ${CYAN}[${versions[0]}]${NC}${BOLD}: "
+    prompt "Chart version ${CYAN}[${versions[0]}]${NC} (or 'b' to go back)${BOLD}: "
     tty_read -r input
+    if _is_back "$input"; then return 1; fi
     CAIPE_CHART_VERSION="${input:-${versions[0]}}"
   else
     echo -e "  ${DIM}Available versions (most recent first):${NC}"
+    echo -e "    ${BOLD}0)${NC} ${DIM}← Back to previous step${NC}"
     local i=1
     for v in "${versions[@]}"; do
       if [[ $i -eq 1 ]]; then
@@ -581,6 +749,7 @@ choose_chart_version() {
     prompt "Select a version ${CYAN}[1]${NC}${BOLD}: "
     tty_read -r choice
     choice="${choice:-1}"
+    if _is_back "$choice"; then return 1; fi
 
     if [[ "$choice" -eq "$i" ]]; then
       prompt "Enter chart version: "
@@ -613,8 +782,32 @@ choose_deployment_mode() {
     return
   fi
 
+  # If not already detected, try reading from the live Helm release
+  if [[ -z "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
+    local _hm
+    _hm=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '.global.deploymentMode // empty' 2>/dev/null || true)
+    case "$_hm" in
+      single-node) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
+      multi-node)  CAIPE_DEPLOYMENT_MODE="distributed" ;;
+    esac
+    [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && log "Detected existing deployment mode from cluster: ${CAIPE_DEPLOYMENT_MODE}"
+  fi
+
+  # Already known — confirm and skip
+  if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
+    log "Detected existing deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
+    if ! ask_yn "Keep existing deployment mode (${CAIPE_DEPLOYMENT_MODE})?" "y"; then
+      CAIPE_DEPLOYMENT_MODE=""  # fall through to prompt
+    else
+      return 0
+    fi
+  fi
+
   echo ""
   echo -e "  ${BOLD}How would you like to deploy CAIPE?${NC}"
+  echo ""
+  echo -e "  ${BOLD}0)${NC} ${DIM}← Back to previous step${NC}"
   echo ""
   echo -e "  ${BOLD}1) All-in-One CAIPE${NC}  ${DIM}(recommended)${NC}"
   echo -e "     ${DIM}A single supervisor pod handles all agent integrations internally.${NC}"
@@ -630,6 +823,7 @@ choose_deployment_mode() {
   prompt "Select deployment mode ${CYAN}[1]${NC}${BOLD}: "
   tty_read -r mode_choice
   mode_choice="${mode_choice:-1}"
+  if _is_back "$mode_choice"; then return 1; fi
 
   case "$mode_choice" in
     1) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
@@ -643,60 +837,111 @@ choose_deployment_mode() {
 collect_credentials() {
   step "LLM credentials"
 
-  # ── Provider selection ───────────────────────────────────────────────
-  # cnoe-agent-utils LLMFactory supports: openai, anthropic-claude,
-  # azure-openai, aws-bedrock, google-gemini, gcp-vertexai, groq
-  # LiteLLM proxies present an OpenAI-compatible API, so we use LLM_PROVIDER=openai.
-  if ! $NON_INTERACTIVE; then
-    echo ""
-    echo -e "  ${DIM}Select your LLM provider (powered by cnoe-agent-utils LLMFactory):${NC}"
-    echo -e "    ${BOLD}1) Anthropic Claude  (claude-haiku-4-5, claude-sonnet-4, etc.) — recommended${NC}"
-    echo -e "    ${BOLD}2)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
-    echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
-    echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
-    echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(local models: llama2, mistral, neural-chat, etc.)${NC}"
-    echo ""
-    prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
-    tty_read -r provider_choice
-    provider_choice="${provider_choice:-1}"
-    case "$provider_choice" in
-      1) LLM_PROVIDER="anthropic-claude" ;;
-      2) LLM_PROVIDER="aws-bedrock" ;;
-      3) LLM_PROVIDER="openai" ;;
-      4) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
-      5) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
-      *) err "Invalid choice"; exit 1 ;;
+  # If detect_deployed_features wasn't called first (e.g. fresh wizard run after
+  # a partial install), try to read directly from the cluster secret now.
+  if ! $NON_INTERACTIVE && [[ -z "${LLM_PROVIDER:-}" ]]; then
+    local _raw
+    _raw=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+    if [[ -n "$_raw" ]]; then
+      local _sv; _sv() { echo "$_raw" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+      LLM_PROVIDER=$(_sv LLM_PROVIDER)
+      case "${LLM_PROVIDER:-}" in
+        anthropic-claude)
+          [[ -z "${ANTHROPIC_API_KEY:-}" ]]   && ANTHROPIC_API_KEY=$(_sv ANTHROPIC_API_KEY)
+          [[ -z "${ANTHROPIC_MODEL_NAME:-}" ]] && ANTHROPIC_MODEL_NAME=$(_sv ANTHROPIC_MODEL_NAME)
+          ;;
+        aws-bedrock)
+          [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(_sv AWS_ACCESS_KEY_ID)
+          [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(_sv AWS_SECRET_ACCESS_KEY)
+          [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(_sv AWS_REGION)
+          [[ -z "${AWS_BEDROCK_MODEL_ID:-}" ]]  && AWS_BEDROCK_MODEL_ID=$(_sv AWS_BEDROCK_MODEL_ID)
+          [[ -z "${AWS_BEDROCK_PROVIDER:-}" ]]  && AWS_BEDROCK_PROVIDER=$(_sv AWS_BEDROCK_PROVIDER)
+          ;;
+        *)
+          [[ -z "${OPENAI_API_KEY:-}" ]]   && OPENAI_API_KEY=$(_sv OPENAI_API_KEY)
+          [[ -z "${OPENAI_ENDPOINT:-}" ]]  && OPENAI_ENDPOINT=$(_sv OPENAI_ENDPOINT)
+          [[ -z "${OPENAI_MODEL_NAME:-}" ]] && OPENAI_MODEL_NAME=$(_sv OPENAI_MODEL_NAME)
+          ;;
+      esac
+      [[ -n "${LLM_PROVIDER:-}" ]] && log "Loaded LLM config from existing cluster secret (provider: ${LLM_PROVIDER})"
+    fi
+  fi
+
+  # If the provider is already known from the cluster (env, detect_deployed_features,
+  # or the inline read above) AND the llm-secret exists, offer to keep it.
+  # We don't require the API key to be in shell variables — the secret already has it.
+  if [[ -n "${LLM_PROVIDER:-}" ]] && ! $NON_INTERACTIVE; then
+    if kubectl get secret llm-secret -n caipe &>/dev/null 2>&1; then
+      log "Existing llm-secret found in cluster (provider: ${LLM_PROVIDER})"
+      if ! ask_yn "Keep existing LLM provider (${LLM_PROVIDER})?" "y"; then
+        LLM_PROVIDER=""  # fall through to full prompt
+      else
+        return 0
+      fi
+    fi
+  fi
+
+  # ── Provider selection loop — user can go back to re-pick provider ────
+  while true; do
+    # Reset provider-specific flags on each loop so a back→re-select is clean
+    if ! $NON_INTERACTIVE; then
+      ENABLE_VLLM=false
+      ENABLE_OLLAMA=false
+
+      echo ""
+      echo -e "  ${DIM}Select your LLM provider (powered by cnoe-agent-utils LLMFactory):${NC}"
+      echo -e "    ${BOLD}0)${NC} ${DIM}← Back to previous step${NC}"
+      echo -e "    ${BOLD}1) Anthropic Claude  (claude-haiku-4-5, claude-sonnet-4, etc.) — recommended${NC}"
+      echo -e "    ${BOLD}2)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
+      echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
+      echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
+      echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(local models: llama2, mistral, neural-chat, etc.)${NC}"
+      echo ""
+      prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
+      tty_read -r provider_choice
+      provider_choice="${provider_choice:-1}"
+      if _is_back "$provider_choice"; then return 1; fi
+      case "$provider_choice" in
+        1) LLM_PROVIDER="anthropic-claude" ;;
+        2) LLM_PROVIDER="aws-bedrock" ;;
+        3) LLM_PROVIDER="openai" ;;
+        4) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
+        5) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
+        *) err "Invalid choice"; continue ;;
+      esac
+    fi
+
+    # If ENABLE_VLLM was set via env or option 4, collect vLLM-specific config
+    if $ENABLE_VLLM; then
+      LLM_PROVIDER="openai"
+      _collect_vllm_credentials || continue
+    fi
+
+    # If ENABLE_OLLAMA was set via env or option 5, ensure Ollama is installed
+    if $ENABLE_OLLAMA; then
+      LLM_PROVIDER="openai"
+      _collect_ollama_config || continue
+    fi
+
+    # Non-interactive: apply default if still unset (env var not provided, no cluster secret)
+    if $NON_INTERACTIVE && [[ -z "${LLM_PROVIDER:-}" ]]; then
+      LLM_PROVIDER="anthropic-claude"
+      log "LLM_PROVIDER not set — defaulting to anthropic-claude"
+    fi
+
+    # ── Collect credentials per provider — return 1 loops back to provider menu
+    local _cred_status=0
+    case "$LLM_PROVIDER" in
+      anthropic-claude) _collect_anthropic_credentials  || _cred_status=$? ;;
+      aws-bedrock)      _collect_bedrock_credentials    || _cred_status=$? ;;
+      azure-openai)     _collect_azure_openai_credentials || _cred_status=$? ;;
+      *)                _collect_openai_credentials     || _cred_status=$? ;;
     esac
-  fi
 
-  # If ENABLE_VLLM was set via env or option 4, collect vLLM-specific config
-  # then fall through to the openai credentials path (LiteLLM is OpenAI-compat)
-  if $ENABLE_VLLM; then
-    LLM_PROVIDER="openai"
-    _collect_vllm_credentials
-  fi
-
-  # If ENABLE_OLLAMA was set via env or option 5, ensure Ollama is installed
-  if $ENABLE_OLLAMA; then
-    LLM_PROVIDER="openai"
-    _collect_ollama_config
-  fi
-
-  # ── Collect credentials per provider ─────────────────────────────────
-  case "$LLM_PROVIDER" in
-    anthropic-claude)
-      _collect_anthropic_credentials
-      ;;
-    aws-bedrock)
-      _collect_bedrock_credentials
-      ;;
-    azure-openai)
-      _collect_azure_openai_credentials
-      ;;
-    *)
-      _collect_openai_credentials
-      ;;
-  esac
+    [[ $_cred_status -eq 0 ]] && break
+    # _cred_status=1 means user typed 'b' — re-show provider menu
+    warn "Going back to provider selection..."
+  done
 }
 
 _collect_anthropic_credentials() {
@@ -710,9 +955,10 @@ _collect_anthropic_credentials() {
       err "Anthropic API key is required (set ANTHROPIC_API_KEY or create ~/.config/claude.txt)"
       exit 1
     fi
-    prompt "Enter your Anthropic API key: "
+    prompt "Enter your Anthropic API key (or 'b' to go back): "
     tty_read -rs ANTHROPIC_API_KEY
     echo ""
+    if _is_back "$ANTHROPIC_API_KEY"; then ANTHROPIC_API_KEY=""; return 1; fi
     if [[ -z "$ANTHROPIC_API_KEY" ]]; then
       err "API key is required"
       exit 1
@@ -723,6 +969,7 @@ _collect_anthropic_credentials() {
   if ! $NON_INTERACTIVE; then
     echo ""
     echo -e "  ${DIM}Anthropic model:${NC}"
+    echo -e "    ${BOLD}0)${NC} ${DIM}← Back to provider selection${NC}"
     echo -e "    ${BOLD}1)${NC} claude-haiku-4-5     ${DIM}(fast, low cost — default)${NC}"
     echo -e "    ${BOLD}2)${NC} claude-sonnet-4-20250514    ${DIM}(balanced)${NC}"
     echo -e "    ${BOLD}3)${NC} claude-opus-4-20250514      ${DIM}(most capable)${NC}"
@@ -731,6 +978,7 @@ _collect_anthropic_credentials() {
     prompt "Select model ${CYAN}[1]${NC}${BOLD}: "
     tty_read -r model_choice
     model_choice="${model_choice:-1}"
+    if _is_back "$model_choice"; then ANTHROPIC_API_KEY=""; return 1; fi
     case "$model_choice" in
       1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001-v1:0" ;;
       2) ANTHROPIC_MODEL_NAME="claude-sonnet-4-20250514" ;;
@@ -893,16 +1141,19 @@ _collect_bedrock_credentials() {
 
     echo ""
     echo -e "  ${DIM}AWS Bedrock authentication (keys will be stored in the K8s secret):${NC}"
+    echo -e "    ${BOLD}0)${NC} ${DIM}← Back to provider selection${NC}"
     echo -e "    ${BOLD}1)${NC} Enter access key + secret key directly"
     echo -e "    ${BOLD}2)${NC} Read from an AWS profile ${DIM}(~/.aws/credentials)${NC}"
     echo ""
     prompt "Select auth method ${CYAN}[1]${NC}${BOLD}: "
     tty_read -r auth_choice
     auth_choice="${auth_choice:-1}"
+    if _is_back "$auth_choice"; then return 1; fi
     case "$auth_choice" in
       1)
-        prompt "AWS Access Key ID: "
+        prompt "AWS Access Key ID (or 'b' to go back): "
         tty_read -r AWS_ACCESS_KEY_ID
+        if _is_back "$AWS_ACCESS_KEY_ID"; then AWS_ACCESS_KEY_ID=""; return 1; fi
         prompt "AWS Secret Access Key: "
         tty_read -rs AWS_SECRET_ACCESS_KEY
         echo ""
@@ -915,6 +1166,7 @@ _collect_bedrock_credentials() {
       2)
         prompt "AWS profile name ${CYAN}[default]${NC}${BOLD}: "
         tty_read -r input
+        if _is_back "$input"; then return 1; fi
         local prof="${input:-default}"
         if _resolve_aws_keys_from_profile "$prof"; then
           log "Resolved access keys from profile '${prof}'"
@@ -930,10 +1182,12 @@ _collect_bedrock_credentials() {
   if ! $NON_INTERACTIVE; then
     prompt "AWS region ${CYAN}[${AWS_REGION}]${NC}${BOLD}: "
     tty_read -r input
+    if _is_back "$input"; then AWS_ACCESS_KEY_ID=""; AWS_SECRET_ACCESS_KEY=""; return 1; fi
     AWS_REGION="${input:-$AWS_REGION}"
 
     echo ""
     echo -e "  ${DIM}Bedrock model:${NC}"
+    echo -e "    ${BOLD}0)${NC} ${DIM}← Back to provider selection${NC}"
     echo -e "    ${BOLD}1)${NC} global.anthropic.claude-sonnet-4-6           ${DIM}(recommended)${NC}"
     echo -e "    ${BOLD}2)${NC} global.anthropic.claude-haiku-4-5            ${DIM}(fast, low cost)${NC}"
     echo -e "    ${BOLD}3)${NC} global.anthropic.claude-3-5-sonnet"
@@ -942,6 +1196,7 @@ _collect_bedrock_credentials() {
     prompt "Select model ${CYAN}[1]${NC}${BOLD}: "
     tty_read -r model_choice
     model_choice="${model_choice:-1}"
+    if _is_back "$model_choice"; then AWS_ACCESS_KEY_ID=""; AWS_SECRET_ACCESS_KEY=""; return 1; fi
     case "$model_choice" in
       1) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-sonnet-4-6" ;;
       2) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-haiku-4-5" ;;
@@ -975,9 +1230,10 @@ _collect_openai_credentials() {
       err "API key is required (set OPENAI_API_KEY or create ~/.config/openai.txt)"
       exit 1
     fi
-    prompt "Enter your OpenAI API key: "
+    prompt "Enter your OpenAI API key (or 'b' to go back): "
     tty_read -rs OPENAI_API_KEY
     echo ""
+    if _is_back "$OPENAI_API_KEY"; then OPENAI_API_KEY=""; return 1; fi
     if [[ -z "$OPENAI_API_KEY" ]]; then
       err "API key is required"
       exit 1
@@ -988,6 +1244,7 @@ _collect_openai_credentials() {
   if ! $NON_INTERACTIVE; then
     prompt "OpenAI endpoint ${CYAN}[${OPENAI_ENDPOINT}]${NC}${BOLD}: "
     tty_read -r input
+    if _is_back "$input"; then OPENAI_API_KEY=""; return 1; fi
     OPENAI_ENDPOINT="${input:-$OPENAI_ENDPOINT}"
 
     prompt "Model name ${CYAN}[${OPENAI_MODEL_NAME}]${NC}${BOLD}: "
@@ -1008,10 +1265,16 @@ _collect_azure_openai_credentials() {
       err "Missing Azure OpenAI environment variable(s): ${missing[*]}"
       exit 1
     fi
+    echo -e "  ${DIM}Enter 'b' at any prompt to go back to provider selection.${NC}"
     for var in "${missing[@]}"; do
       prompt "Enter ${var}: "
       tty_read -rs val
       echo ""
+      if _is_back "$val"; then
+        # clear any vars we already set in this loop
+        unset AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_DEPLOYMENT AZURE_OPENAI_API_VERSION
+        return 1
+      fi
       [[ -z "$val" ]] && { err "${var} is required"; exit 1; }
       export "$var"="$val"
     done
@@ -1301,30 +1564,41 @@ install_nginx_ingress() {
         -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null || true
     fi
 
-    # Docker adds a blanket DROP in its DOCKER chain for all non-kind-bridge
-    # traffic destined to the kind bridge. Without an explicit ACCEPT, the
-    # DNAT'd packets are dropped in the FORWARD chain before reaching nginx.
-    # Add the ACCEPT to DOCKER-USER (Docker never resets this chain).
-    local kind_bridge
-    kind_bridge=$(docker network inspect kind --format '{{.Options.com\.docker\.network\.bridge\.name}}' 2>/dev/null || true)
-    if [[ -n "$kind_bridge" ]]; then
-      local ext_iface
-      ext_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
-      if ! sudo iptables -C DOCKER-USER \
-           -i "${ext_iface:-eth0}" -o "$kind_bridge" \
-           -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
-           -j ACCEPT 2>/dev/null; then
-        sudo iptables -I DOCKER-USER 1 \
-          -i "${ext_iface:-eth0}" -o "$kind_bridge" \
-          -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
-          -j ACCEPT 2>/dev/null \
-          || warn "Could not add DOCKER-USER forward rule — traffic from outside may be blocked"
+    # Docker's DOCKER chain contains a blanket DROP for all traffic to the kind
+    # bridge that wasn't initiated from inside the container network. DNAT'd
+    # packets from the host (external → ingress IP) hit this DROP before they
+    # reach nginx. Fix: insert ACCEPT rules for ports 80/443 to the ingress IP
+    # at the top of the DOCKER chain, before the DROP catch-all.
+    #
+    # We target the DOCKER chain directly (not DOCKER-USER) because the
+    # DOCKER-USER approach requires knowing the exact bridge interface name,
+    # which is not always exposed via docker network inspect on kind clusters.
+    _fix_docker_chain_drop() {
+      local _ip="$1"
+      if ! sudo iptables -L DOCKER -n &>/dev/null 2>&1; then
+        return 0  # DOCKER chain doesn't exist — not a Docker-managed host
       fi
-      # Also allow return traffic from the ingress IP back to external clients.
-      if ! sudo iptables -C DOCKER-USER -s "$ingress_ip" -j ACCEPT 2>/dev/null; then
-        sudo iptables -A DOCKER-USER -s "$ingress_ip" -j ACCEPT 2>/dev/null || true
+      # Check if the DOCKER chain has any DROP rules at all; skip if clean.
+      if ! sudo iptables -L DOCKER -n 2>/dev/null | grep -q "^DROP"; then
+        return 0
       fi
-    fi
+      log "Detected DROP catch-all in DOCKER chain — inserting ACCEPT rules for ingress IP"
+      for _port in 443 80; do
+        if ! sudo iptables -C DOCKER -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null; then
+          sudo iptables -I DOCKER 1 -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null \
+            || warn "Could not insert DOCKER chain ACCEPT for port ${_port} — external traffic may be blocked"
+        fi
+      done
+      # Also add to DOCKER-USER (Docker never resets this chain) so the rules
+      # survive a 'docker restart' which rebuilds the DOCKER chain from scratch.
+      for _port in 443 80; do
+        if ! sudo iptables -C DOCKER-USER -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null; then
+          sudo iptables -I DOCKER-USER 1 -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null || true
+        fi
+      done
+      log "DOCKER chain: ACCEPT rules added for ${_ip}:80,443"
+    }
+    _fix_docker_chain_drop "$ingress_ip"
 
     # Persist iptables rules and ip_forward so they survive a reboot.
     _persist_iptables "$ingress_ip"
@@ -1382,7 +1656,20 @@ SVCEOF
 setup_tls() {
   step "Configuring TLS for ${CAIPE_DOMAIN}"
 
+  # Expand leading ~ manually — kubectl doesn't go through the shell so it
+  # receives the literal tilde and fails with "no such file or directory".
+  TLS_CERT_FILE="${TLS_CERT_FILE/#\~/$HOME}"
+  TLS_KEY_FILE="${TLS_KEY_FILE/#\~/$HOME}"
+
   if [[ -n "$TLS_CERT_FILE" && -n "$TLS_KEY_FILE" ]]; then
+    if [[ ! -f "$TLS_CERT_FILE" ]]; then
+      err "TLS cert file not found: ${TLS_CERT_FILE}"
+      exit 1
+    fi
+    if [[ ! -f "$TLS_KEY_FILE" ]]; then
+      err "TLS key file not found: ${TLS_KEY_FILE}"
+      exit 1
+    fi
     log "Using provided TLS cert: ${TLS_CERT_FILE}"
   else
     log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
@@ -1411,10 +1698,98 @@ setup_tls() {
   log "TLS secret 'caipe-tls' created in namespace caipe"
 }
 
+_choose_agents() {
+  # All available agents with display labels
+  local -a _agent_keys=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  local -a _agent_labels=(
+    "ArgoCD        — GitOps / CD pipelines"
+    "AWS           — cloud resources & infrastructure"
+    "Backstage     — developer portal & catalog"
+    "Confluence    — wiki & knowledge base"
+    "GitHub        — repos, PRs, issues, Actions"
+    "Jira          — tickets & project tracking"
+    "Komodor       — Kubernetes health & incidents"
+    "NetUtils      — network diagnostics"
+    "PagerDuty     — on-call & incident response"
+    "Slack         — messaging & notifications"
+    "Splunk        — log search & SIEM"
+    "Webex         — video meetings & messaging"
+    "AI Gateway    — multi-model LLM routing"
+  )
+
+  # If not already populated, try reading from the live Helm release
+  if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    local _ha
+    _ha=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '."supervisor-agent".singleNode.enabledSubAgents // {} | to_entries[] | select(.value==true) | .key' \
+      2>/dev/null || true)
+    if [[ -n "$_ha" ]]; then
+      while IFS= read -r _akey; do
+        [[ -n "$_akey" ]] && SELECTED_AGENTS+=("$_akey")
+      done <<< "$_ha"
+      log "Detected enabled agents from cluster: ${SELECTED_AGENTS[*]}"
+    fi
+  fi
+
+  # Already known — confirm and skip
+  if [[ ${#SELECTED_AGENTS[@]} -gt 0 ]]; then
+    log "Detected enabled agents: ${SELECTED_AGENTS[*]}"
+    if ask_yn "Keep existing agent selection?" "y"; then
+      return 0
+    fi
+    SELECTED_AGENTS=()
+    HELM_AGENT_ARGS=()
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Select agents to install${NC} ${DIM}(all enabled by default)${NC}"
+  echo -e "  ${DIM}Enter comma-separated numbers, 'all', or press Enter for all:${NC}"
+  echo ""
+
+  local i=1
+  for label in "${_agent_labels[@]}"; do
+    printf "    ${BOLD}%2d)${NC} %s\n" "$i" "$label"
+    i=$((i + 1))
+  done
+  echo ""
+  prompt "Select agents ${CYAN}[all]${NC}${BOLD}: "
+  tty_read -r _input
+  _input="${_input:-all}"
+
+  SELECTED_AGENTS=()
+  if [[ "${_input,,}" == "all" || -z "$_input" ]]; then
+    SELECTED_AGENTS=("${_agent_keys[@]}")
+    log "All agents selected"
+    return
+  fi
+
+  # Parse comma-separated numbers
+  local _invalid=()
+  IFS=',' read -ra _picks <<< "$_input"
+  for _pick in "${_picks[@]}"; do
+    _pick="${_pick// /}"  # trim spaces
+    if [[ "$_pick" =~ ^[0-9]+$ ]] && [[ "$_pick" -ge 1 && "$_pick" -le "${#_agent_keys[@]}" ]]; then
+      SELECTED_AGENTS+=("${_agent_keys[$((_pick - 1))]}")
+    else
+      _invalid+=("$_pick")
+    fi
+  done
+
+  if [[ ${#_invalid[@]} -gt 0 ]]; then
+    warn "Ignored invalid selections: ${_invalid[*]}"
+  fi
+  if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    warn "No valid agents selected — falling back to all agents"
+    SELECTED_AGENTS=("${_agent_keys[@]}")
+  fi
+
+  log "Selected agents: ${SELECTED_AGENTS[*]}"
+}
+
 choose_features() {
   step "Feature selection"
 
-  echo -e "  ${DIM}Base setup always includes: supervisor, weather, and NetUtils agents${NC}"
+  echo -e "  ${DIM}Base setup always includes: supervisor and NetUtils agents${NC}"
 
   if $NON_INTERACTIVE; then
     if $ENABLE_RAG; then
@@ -1446,78 +1821,350 @@ choose_features() {
 
   echo ""
 
-  if ask_yn "Enable RAG (knowledge base retrieval)?" "n"; then
+  # ── RAG: detect from cluster ──────────────────────────────────────────────────
+  # Always check the cluster — detect_deployed_features may have already set
+  # ENABLE_RAG=true, but we still need to read embeddings config and confirm.
+  local _rag_from_cluster=false
+  if kubectl get svc rag-server -n caipe &>/dev/null 2>&1; then
     ENABLE_RAG=true
-    log "RAG enabled"
-
-    prompt "Embeddings provider ${CYAN}[${EMBEDDINGS_PROVIDER}]${NC}${BOLD}: "
-    tty_read -r input
-    EMBEDDINGS_PROVIDER="${input:-$EMBEDDINGS_PROVIDER}"
-
-    echo ""
-    echo -e "  ${DIM}Embeddings model:${NC}"
-    echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality)${NC}"
-    echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost)${NC}"
-    echo -e "    ${BOLD}3)${NC} Custom"
-    echo ""
-    prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-    tty_read -r emb_choice
-    emb_choice="${emb_choice:-1}"
-    case "$emb_choice" in
-      1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
-      2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
-      3)
-        prompt "Enter custom embeddings model name: "
-        tty_read -r EMBEDDINGS_MODEL
-        if [[ -z "$EMBEDDINGS_MODEL" ]]; then
-          err "Model name is required"
-          exit 1
-        fi
-        ;;
-      *) err "Invalid choice"; exit 1 ;;
-    esac
-    log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
-
-    if [[ "$EMBEDDINGS_PROVIDER" == "openai" && "$LLM_PROVIDER" != "openai" ]]; then
-      _collect_openai_embeddings_key
+    _rag_from_cluster=true
+    # Read embeddings config from live Helm values
+    local _helm_vals_json
+    _helm_vals_json=$(helm get values caipe -n caipe -o json 2>/dev/null || true)
+    local _ep _em
+    _ep=$(echo "$_helm_vals_json" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_PROVIDER // empty' 2>/dev/null || true)
+    _em=$(echo "$_helm_vals_json" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_MODEL // empty' 2>/dev/null || true)
+    [[ -n "$_ep" ]] && EMBEDDINGS_PROVIDER="$_ep"
+    [[ -n "$_em" ]] && EMBEDDINGS_MODEL="$_em"
+    # Read Azure embeddings creds from llm-secret (they are merged in there)
+    if [[ "${EMBEDDINGS_PROVIDER:-}" == "azure-openai" ]]; then
+      local _ls
+      _ls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+      if [[ -n "$_ls" ]]; then
+        local _sv2; _sv2() { echo "$_ls" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+        [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(_sv2 AZURE_OPENAI_API_KEY)
+        [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_sv2 AZURE_OPENAI_ENDPOINT)
+        [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_sv2 AZURE_OPENAI_API_VERSION)
+      fi
     fi
-
-    warn "Graph RAG is NOT needed for the basic setup. It requires Neo4j + ontology agent and uses significantly more resources. Most users should skip this."
-    if ask_yn "Enable Graph RAG? (requires Neo4j + ontology agent, uses more resources)" "n"; then
-      ENABLE_GRAPH_RAG=true
-      log "Graph RAG enabled"
-    else
-      log "Graph RAG disabled (vector-only RAG)"
-    fi
-  else
-    log "RAG skipped"
   fi
 
-  if ask_yn "Enable Langfuse tracing (observability)?" "n"; then
-    ENABLE_TRACING=true
-    log "Tracing enabled"
+  if $ENABLE_RAG && $_rag_from_cluster; then
+    log "Detected RAG is enabled (embeddings: ${EMBEDDINGS_PROVIDER:-openai}/${EMBEDDINGS_MODEL:-text-embedding-3-large})"
+    local _keep_rag=true
+    if ! ask_yn "Keep existing RAG configuration (${EMBEDDINGS_PROVIDER:-openai})?" "y"; then
+      ENABLE_RAG=false
+      EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"  # reset to default for re-prompt below
+      _keep_rag=false
+    fi
+    if $_keep_rag; then
+      log "RAG kept"
+      # Validate that the required embeddings credentials are available.
+      # They may be missing if the LLM provider changed and the old secret was wiped.
+      # Prompt now so provision_secrets can include them in the rebuilt llm-secret.
+      case "${EMBEDDINGS_PROVIDER:-openai}" in
+        openai)
+          if [[ "$LLM_PROVIDER" != "openai" && -z "${OPENAI_API_KEY:-}" ]]; then
+            # Try to rescue from the existing secret first
+            local _ols
+            _ols=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            [[ -n "$_ols" ]] && OPENAI_API_KEY=$(echo "$_ols" | jq -r '.data.OPENAI_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+              warn "OpenAI embeddings require OPENAI_API_KEY (not found in existing secret)"
+              _collect_openai_embeddings_key
+            fi
+          fi
+          ;;
+        azure-openai)
+          if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+            local _als
+            _als=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            if [[ -n "$_als" ]]; then
+              [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(echo "$_als" | jq -r '.data.AZURE_OPENAI_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+              [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(echo "$_als" | jq -r '.data.AZURE_OPENAI_ENDPOINT // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+              [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(echo "$_als" | jq -r '.data.AZURE_OPENAI_API_VERSION // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+            fi
+            if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+              warn "Azure OpenAI embeddings credentials not found — please enter them now"
+              prompt "Azure OpenAI API key: "; tty_read -rs AZURE_OPENAI_API_KEY; echo ""
+              prompt "Azure OpenAI endpoint: "; tty_read -r AZURE_OPENAI_ENDPOINT
+              prompt "API version [2025-04-01-preview]: "; tty_read -r _v; AZURE_OPENAI_API_VERSION="${_v:-2025-04-01-preview}"
+            fi
+          fi
+          ;;
+      esac
+      # Fall through — agent prompts still need to run below
+    fi
+  fi
+
+  if ! $ENABLE_RAG; then
+    if ask_yn "Enable RAG (knowledge base retrieval)?" "n"; then
+      ENABLE_RAG=true
+      log "RAG enabled"
+
+      echo ""
+      echo -e "  ${DIM}Embeddings provider:${NC}"
+      echo -e "    ${BOLD}1)${NC} OpenAI            ${DIM}(text-embedding-3-large — default)${NC}"
+      echo -e "    ${BOLD}2)${NC} Azure OpenAI       ${DIM}(uses your Azure deployment)${NC}"
+      echo -e "    ${BOLD}3)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible embeddings endpoint)${NC}"
+      echo -e "    ${BOLD}4)${NC} Ollama             ${DIM}(local embeddings)${NC}"
+      echo ""
+      prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
+      tty_read -r emb_provider_choice
+      emb_provider_choice="${emb_provider_choice:-1}"
+      case "$emb_provider_choice" in
+        1) EMBEDDINGS_PROVIDER="openai" ;;
+        2) EMBEDDINGS_PROVIDER="azure-openai" ;;
+        3) EMBEDDINGS_PROVIDER="litellm" ;;
+        4) EMBEDDINGS_PROVIDER="ollama" ;;
+        *) err "Invalid choice"; exit 1 ;;
+      esac
+
+      echo ""
+      echo -e "  ${DIM}Embeddings model:${NC}"
+      echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality)${NC}"
+      echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost)${NC}"
+      echo -e "    ${BOLD}3)${NC} Custom"
+      echo ""
+      prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+      tty_read -r emb_choice
+      emb_choice="${emb_choice:-1}"
+      case "$emb_choice" in
+        1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
+        2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
+        3)
+          prompt "Enter custom embeddings model name: "
+          tty_read -r EMBEDDINGS_MODEL
+          if [[ -z "$EMBEDDINGS_MODEL" ]]; then
+            err "Model name is required"
+            exit 1
+          fi
+          ;;
+        *) err "Invalid choice"; exit 1 ;;
+      esac
+      log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
+
+      # Collect any extra credentials the chosen embeddings provider needs
+      if [[ "$EMBEDDINGS_PROVIDER" == "openai" && "$LLM_PROVIDER" != "openai" ]]; then
+        _collect_openai_embeddings_key
+      elif [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+        echo ""
+        echo -e "  ${DIM}Azure OpenAI embeddings credentials:${NC}"
+        if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+          prompt "Azure OpenAI API key: "
+          tty_read -rs AZURE_OPENAI_API_KEY; echo ""
+          [[ -z "$AZURE_OPENAI_API_KEY" ]] && { err "AZURE_OPENAI_API_KEY is required"; exit 1; }
+        fi
+        if [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
+          prompt "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com): "
+          tty_read -r AZURE_OPENAI_ENDPOINT
+          [[ -z "$AZURE_OPENAI_ENDPOINT" ]] && { err "AZURE_OPENAI_ENDPOINT is required"; exit 1; }
+        fi
+        if [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]]; then
+          prompt "API version ${CYAN}[2025-04-01-preview]${NC}${BOLD}: "
+          tty_read -r input
+          AZURE_OPENAI_API_VERSION="${input:-2025-04-01-preview}"
+        fi
+        log "Azure OpenAI embeddings credentials collected"
+      fi
+
+      warn "Graph RAG is NOT needed for the basic setup. It requires Neo4j + ontology agent and uses significantly more resources. Most users should skip this."
+      if ask_yn "Enable Graph RAG? (requires Neo4j + ontology agent, uses more resources)" "n"; then
+        ENABLE_GRAPH_RAG=true
+        log "Graph RAG enabled"
+      else
+        log "Graph RAG disabled (vector-only RAG)"
+      fi
+    else
+      log "RAG skipped"
+    fi
+  fi
+
+  # ── Agent selection ───────────────────────────────────────────────────
+  _choose_agents
+
+  # ── Per-agent credentials ─────────────────────────────────────────────
+  echo ""
+  echo -e "  ${BOLD}Agent credentials${NC}"
+  echo -e "  ${DIM}Enter credentials for each selected agent. Leave blank to skip (agent will be disabled).${NC}"
+
+  # Agents that need no credentials
+  local _no_creds_agents=(netutils aigateway)
+
+  for _agent in "${SELECTED_AGENTS[@]}"; do
+    # Skip agents that don't need creds
+    local _needs_creds=true
+    for _nc in "${_no_creds_agents[@]}"; do
+      [[ "$_agent" == "$_nc" ]] && { _needs_creds=false; break; }
+    done
+    $_needs_creds || continue
+
+    echo ""
+    echo -e "  ${CYAN}${BOLD}── ${_agent} ──${NC}"
+    local _secret_name="caipe-${_agent}-secret"
+    local _secret_args=()
+    local _skip=false
+
+    # If the secret already exists in the cluster, offer to keep it
+    if kubectl get secret "$_secret_name" -n caipe &>/dev/null 2>&1; then
+      log "Secret '${_secret_name}' already exists in cluster"
+      if ask_yn "Keep existing ${_agent} credentials?" "y"; then
+        HELM_AGENT_ARGS+=(
+          --set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=true"
+          --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
+        )
+        continue
+      fi
+    fi
+
+    case "$_agent" in
+      argocd)
+        prompt "ArgoCD API URL (e.g. https://argocd.example.com, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping argocd"; _skip=true; } || _secret_args+=(--from-literal=ARGOCD_API_URL="$_v")
+        if ! $_skip; then
+          prompt "ArgoCD token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=ARGOCD_TOKEN="$_v")
+          prompt "Verify SSL? ${CYAN}[true]${NC}${BOLD}: "; tty_read -r _v; _secret_args+=(--from-literal=ARGOCD_VERIFY_SSL="${_v:-true}")
+        fi ;;
+      aws)
+        prompt "AWS Access Key ID (blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping aws"; _skip=true; } || _secret_args+=(--from-literal=AWS_ACCESS_KEY_ID="$_v")
+        if ! $_skip; then
+          prompt "AWS Secret Access Key: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=AWS_SECRET_ACCESS_KEY="$_v")
+          prompt "AWS Region ${CYAN}[${AWS_REGION:-us-east-1}]${NC}${BOLD}: "; tty_read -r _v; _v="${_v:-${AWS_REGION:-us-east-1}}"
+          _secret_args+=(--from-literal=AWS_REGION="$_v" --from-literal=AWS_DEFAULT_REGION="$_v")
+        fi ;;
+      backstage)
+        prompt "Backstage URL (e.g. https://backstage.example.com, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping backstage"; _skip=true; } || _secret_args+=(--from-literal=BACKSTAGE_URL="$_v")
+        if ! $_skip; then
+          prompt "Backstage API token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=BACKSTAGE_API_TOKEN="$_v")
+        fi ;;
+      confluence)
+        prompt "Confluence URL (e.g. https://company.atlassian.net/wiki, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping confluence"; _skip=true; } || _secret_args+=(--from-literal=CONFLUENCE_URL="$_v" --from-literal=CONFLUENCE_API_URL="$_v")
+        if ! $_skip; then
+          prompt "Atlassian email: "; tty_read -r _v; _secret_args+=(--from-literal=CONFLUENCE_USERNAME="$_v" --from-literal=ATLASSIAN_EMAIL="$_v")
+          prompt "Atlassian API token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=CONFLUENCE_API_TOKEN="$_v" --from-literal=CONFLUENCE_TOKEN="$_v" --from-literal=ATLASSIAN_TOKEN="$_v")
+        fi ;;
+      github)
+        prompt "GitHub Personal Access Token (blank to skip): "
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping github"; _skip=true; } || _secret_args+=(--from-literal=GITHUB_PERSONAL_ACCESS_TOKEN="$_v" --from-literal=GITHUB_TOKEN="$_v")
+        ;;
+      jira)
+        prompt "Jira/Atlassian API URL (e.g. https://company.atlassian.net, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping jira"; _skip=true; } || _secret_args+=(--from-literal=ATLASSIAN_API_URL="$_v" --from-literal=JIRA_URL="$_v")
+        if ! $_skip; then
+          prompt "Atlassian email: "; tty_read -r _v; _secret_args+=(--from-literal=ATLASSIAN_EMAIL="$_v" --from-literal=JIRA_USERNAME="$_v")
+          prompt "Atlassian API token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=ATLASSIAN_TOKEN="$_v" --from-literal=JIRA_API_TOKEN="$_v")
+        fi ;;
+      komodor)
+        prompt "Komodor API URL (e.g. https://app.komodor.com, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping komodor"; _skip=true; } || _secret_args+=(--from-literal=KOMODOR_API_URL="$_v")
+        if ! $_skip; then
+          prompt "Komodor token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=KOMODOR_TOKEN="$_v")
+        fi ;;
+      pagerduty)
+        prompt "PagerDuty API URL ${CYAN}[https://api.pagerduty.com]${NC}${BOLD}: "
+        tty_read -r _v; _secret_args+=(--from-literal=PAGERDUTY_API_URL="${_v:-https://api.pagerduty.com}")
+        prompt "PagerDuty API key (blank to skip): "; tty_read -rs _v; echo ""
+        [[ -z "$_v" ]] && { warn "Skipping pagerduty"; _skip=true; } || _secret_args+=(--from-literal=PAGERDUTY_API_KEY="$_v") ;;
+      slack)
+        prompt "Slack Bot Token (xoxb-..., blank to skip): "
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping slack"; _skip=true; } || _secret_args+=(--from-literal=SLACK_BOT_TOKEN="$_v")
+        if ! $_skip; then
+          prompt "Slack App Token (xapp-..., optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=SLACK_APP_TOKEN="$_v")
+          prompt "Slack Signing Secret (optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=SLACK_SIGNING_SECRET="$_v")
+          prompt "Slack Team ID (optional): "; tty_read -r _v; [[ -n "$_v" ]] && _secret_args+=(--from-literal=SLACK_TEAM_ID="$_v")
+        fi ;;
+      splunk)
+        prompt "Splunk API URL (e.g. https://splunk.example.com:8089, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping splunk"; _skip=true; } || _secret_args+=(--from-literal=SPLUNK_API_URL="$_v")
+        if ! $_skip; then
+          prompt "Splunk token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=SPLUNK_TOKEN="$_v")
+        fi ;;
+      webex)
+        prompt "Webex Bot Token (blank to skip): "
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_BOT_TOKEN="$_v" --from-literal=WEBEX_TOKEN="$_v")
+        if ! $_skip; then
+          prompt "Webex Webhook Secret (optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=WEBEX_WEBHOOK_SECRET="$_v")
+        fi ;;
+    esac
+
+    if ! $_skip && [[ ${#_secret_args[@]} -gt 0 ]]; then
+      kubectl create secret generic "$_secret_name" \
+        -n caipe "${_secret_args[@]}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      HELM_AGENT_ARGS+=(
+        --set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=true"
+        --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
+      )
+      log "${_agent}: secret created"
+    else
+      $_skip && HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=false")
+    fi
+  done
+
+  # Disable all agents NOT in SELECTED_AGENTS
+  local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  for _agent in "${_all_agents[@]}"; do
+    local _selected=false
+    for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_agent" == "$_s" ]] && { _selected=true; break; }; done
+    $_selected || HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=false")
+  done
+
+  echo ""
+  if $ENABLE_DYNAMIC_AGENTS; then
+    log "Dynamic agents already enabled (detected from cluster)"
+    if ! ask_yn "Keep dynamic agents?" "y"; then ENABLE_DYNAMIC_AGENTS=false; fi
   else
-    log "Tracing skipped"
+    if ask_yn "Enable dynamic agents (custom agent builder)?" "n"; then
+      ENABLE_DYNAMIC_AGENTS=true
+      log "Dynamic agents enabled"
+    else
+      log "Dynamic agents skipped"
+    fi
+  fi
+
+  if $ENABLE_TRACING; then
+    log "Langfuse tracing already enabled (detected from cluster)"
+    if ! ask_yn "Keep Langfuse tracing?" "y"; then ENABLE_TRACING=false; fi
+  else
+    if ask_yn "Enable Langfuse tracing (observability)?" "n"; then
+      ENABLE_TRACING=true
+      log "Tracing enabled"
+    else
+      log "Tracing skipped"
+    fi
   fi
 
   echo ""
   echo -e "  ${DIM}AgentGateway federates all MCP servers behind a single endpoint,${NC}"
   echo -e "  ${DIM}allowing MCP clients (Cursor, VS Code, Claude Code) to connect once.${NC}"
-  if ask_yn "Enable AgentGateway for MCP server access?" "n"; then
-    ENABLE_AGENTGATEWAY=true
-    log "AgentGateway enabled"
+  if $ENABLE_AGENTGATEWAY; then
+    log "AgentGateway already enabled (detected from cluster)"
+    if ! ask_yn "Keep AgentGateway?" "y"; then ENABLE_AGENTGATEWAY=false; fi
   else
-    log "AgentGateway skipped"
+    if ask_yn "Enable AgentGateway for MCP server access?" "n"; then
+      ENABLE_AGENTGATEWAY=true
+      log "AgentGateway enabled"
+    else
+      log "AgentGateway skipped"
+    fi
   fi
 
   echo ""
   echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
   echo -e "  ${DIM}in a dedicated Redis Stack pod, surviving pod restarts.${NC}"
-  if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "n"; then
-    ENABLE_PERSISTENCE=true
-    log "Redis persistence enabled"
+  if $ENABLE_PERSISTENCE; then
+    log "Redis persistence already enabled (detected from cluster)"
+    if ! ask_yn "Keep Redis persistence?" "y"; then ENABLE_PERSISTENCE=false; fi
   else
-    log "Persistence skipped"
+    if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "n"; then
+      ENABLE_PERSISTENCE=true
+      log "Redis persistence enabled"
+    else
+      log "Persistence skipped"
+    fi
   fi
 
   echo ""
@@ -1539,19 +2186,69 @@ choose_features() {
       log "Ingress enabled for: ${CAIPE_DOMAIN}"
 
       echo ""
-      echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
-      prompt "TLS cert file path (leave blank for self-signed): "
-      tty_read -r TLS_CERT_FILE
-      if [[ -n "$TLS_CERT_FILE" ]]; then
-        prompt "TLS key file path: "
-        tty_read -r TLS_KEY_FILE
-        if [[ -z "$TLS_KEY_FILE" ]]; then
-          err "TLS key file is required when cert is provided"
-          exit 1
+      # Auto-detect certs in common locations
+      local _auto_cert="" _auto_key=""
+      local _cert_search_paths=(
+        "$HOME/certs/fullchain.pem"   "$HOME/certs/cert.pem"   "$HOME/certs/tls.crt"
+        "$HOME/.certs/fullchain.pem"  "$HOME/.certs/cert.pem"
+        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/fullchain.pem"
+        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/cert.pem"
+        "/etc/ssl/certs/${CAIPE_DOMAIN}.pem"
+      )
+      local _key_search_paths=(
+        "$HOME/certs/privkey.pem"     "$HOME/certs/key.pem"    "$HOME/certs/tls.key"
+        "$HOME/.certs/privkey.pem"    "$HOME/.certs/key.pem"
+        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/privkey.pem"
+        "/etc/ssl/private/${CAIPE_DOMAIN}.key"
+      )
+      for _p in "${_cert_search_paths[@]}"; do
+        [[ -f "$_p" ]] && { _auto_cert="$_p"; break; }
+      done
+      for _p in "${_key_search_paths[@]}"; do
+        [[ -f "$_p" ]] && { _auto_key="$_p"; break; }
+      done
+
+      if [[ -n "$_auto_cert" && -n "$_auto_key" ]]; then
+        echo -e "  ${GREEN}  ✓${NC} Auto-detected TLS certificates:"
+        echo -e "      cert: ${_auto_cert}"
+        echo -e "      key:  ${_auto_key}"
+        if ask_yn "Use these certificates?" "y"; then
+          TLS_CERT_FILE="$_auto_cert"
+          TLS_KEY_FILE="$_auto_key"
+          log "Using auto-detected TLS cert: ${TLS_CERT_FILE}"
+        else
+          _auto_cert=""  # fall through to manual prompt
         fi
-        log "Using custom TLS cert: ${TLS_CERT_FILE}"
-      else
-        log "Will generate self-signed cert for ${CAIPE_DOMAIN}"
+      fi
+
+      if [[ -z "$_auto_cert" ]]; then
+        echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
+        while true; do
+          prompt "TLS cert file path (leave blank for self-signed): "
+          tty_read -r TLS_CERT_FILE
+          TLS_CERT_FILE="${TLS_CERT_FILE/#\~/$HOME}"
+          if [[ -z "$TLS_CERT_FILE" ]]; then
+            log "Will generate self-signed cert for ${CAIPE_DOMAIN}"
+            break
+          elif [[ ! -f "$TLS_CERT_FILE" ]]; then
+            warn "File not found: ${TLS_CERT_FILE}"
+          else
+            while true; do
+              prompt "TLS key file path: "
+              tty_read -r TLS_KEY_FILE
+              TLS_KEY_FILE="${TLS_KEY_FILE/#\~/$HOME}"
+              if [[ -z "$TLS_KEY_FILE" ]]; then
+                err "TLS key file is required when cert is provided"
+              elif [[ ! -f "$TLS_KEY_FILE" ]]; then
+                warn "File not found: ${TLS_KEY_FILE}"
+              else
+                log "Using custom TLS cert: ${TLS_CERT_FILE}"
+                break
+              fi
+            done
+            break
+          fi
+        done
       fi
     else
       log "Ingress skipped"
@@ -1742,6 +2439,30 @@ create_namespace_and_secrets() {
   kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "Namespace 'caipe' ready"
 
+  # Rescue embeddings credentials from the existing llm-secret before we
+  # overwrite it, so a LLM-provider switch doesn't silently break RAG.
+  local _existing_lls
+  _existing_lls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+  if [[ -n "$_existing_lls" ]]; then
+    _elv() { echo "$_existing_lls" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+    if $ENABLE_RAG; then
+      case "${EMBEDDINGS_PROVIDER:-}" in
+        openai)
+          [[ -z "${OPENAI_API_KEY:-}" ]] && OPENAI_API_KEY=$(_elv OPENAI_API_KEY)
+          ;;
+        azure-openai)
+          [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(_elv AZURE_OPENAI_API_KEY)
+          [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_elv AZURE_OPENAI_ENDPOINT)
+          [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_elv AZURE_OPENAI_API_VERSION)
+          ;;
+        litellm)
+          [[ -z "${LITELLM_ENDPOINT:-}" ]]  && LITELLM_ENDPOINT=$(_elv LITELLM_API_BASE)
+          [[ -z "${LITELLM_API_KEY:-}" ]]   && LITELLM_API_KEY=$(_elv LITELLM_API_KEY)
+          ;;
+      esac
+    fi
+  fi
+
   local secret_args=(
     --from-literal=LLM_PROVIDER="$LLM_PROVIDER"
   )
@@ -1774,10 +2495,10 @@ create_namespace_and_secrets() {
       ;;
     *)
       secret_args+=(
-        --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY"
-        --from-literal=OPENAI_ENDPOINT="$OPENAI_ENDPOINT"
-        --from-literal=OPENAI_BASE_URL="$OPENAI_ENDPOINT"
-        --from-literal=OPENAI_MODEL_NAME="$OPENAI_MODEL_NAME"
+        --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY:-}"
+        --from-literal=OPENAI_ENDPOINT="${OPENAI_ENDPOINT:-}"
+        --from-literal=OPENAI_BASE_URL="${OPENAI_ENDPOINT:-}"
+        --from-literal=OPENAI_MODEL_NAME="${OPENAI_MODEL_NAME:-}"
       )
       ;;
   esac
@@ -1804,6 +2525,10 @@ create_namespace_and_secrets() {
   # not expose envFrom as a configurable value, so merging the Azure keys here
   # is the only approach that survives helm upgrades without a post-deploy patch.
   if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+    if [[ -z "${AZURE_OPENAI_API_KEY:-}" || -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
+      err "Azure OpenAI embeddings require AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT — re-run and select Azure OpenAI embeddings to be prompted for them"
+      exit 1
+    fi
     secret_args+=(
       --from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}"
       --from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}"
@@ -3271,19 +3996,7 @@ deploy_caipe() {
       --set "global.deploymentMode=single-node"
       --set "supervisor-agent.image.args={platform-engineer-single}"
       --set "supervisor-agent.env.SKIP_AGENT_CONNECTIVITY_CHECK=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.argocd=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.aws=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.backstage=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.confluence=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.github=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.jira=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.komodor=true"
       --set "supervisor-agent.singleNode.enabledSubAgents.netutils=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.pagerduty=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.slack=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.splunk=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.webex=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.aigateway=true"
     )
     log "Deployment mode: All-in-One (single supervisor with embedded agents)"
   else
@@ -3291,6 +4004,12 @@ deploy_caipe() {
       --set "global.deploymentMode=multi-node"
     )
     log "Deployment mode: Distributed (each agent runs as its own service)"
+  fi
+
+  # Append per-agent enable/secret flags collected interactively
+  if [[ ${#HELM_AGENT_ARGS[@]} -gt 0 ]]; then
+    helm_args+=("${HELM_AGENT_ARGS[@]}")
+    log "Wiring ${#HELM_AGENT_ARGS[@]} agent Helm flags from interactive selection"
   fi
 
   # Dynamic agents (custom agent builder)
@@ -3311,7 +4030,7 @@ deploy_caipe() {
 
     # Auth + OIDC: enable when a public domain + OIDC issuer are configured.
     # Without AUTH_ENABLED the API is open to anyone who can reach the service.
-    local da_oidc_issuer da_oidc_client_id da_oidc_admin_group
+    local da_oidc_issuer="" da_oidc_client_id="" da_oidc_admin_group=""
     if [[ -n "$UI_ENV_FILE" ]]; then
       da_oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
       da_oidc_client_id=$(_env_get "$UI_ENV_FILE" "OIDC_CLIENT_ID")
@@ -4824,6 +5543,10 @@ detect_deployed_features() {
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     ENABLE_AGENTGATEWAY=true
   fi
+  if kubectl get deployment caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
+    ENABLE_DYNAMIC_AGENTS=true
+  fi
+
   # Detect chart version from Helm; ignore "unknown" (local chart installs)
   if [[ -z "$CAIPE_CHART_VERSION" ]]; then
     local _detected_version
@@ -4831,7 +5554,85 @@ detect_deployed_features() {
       | jq -r '.version // empty' 2>/dev/null || true)
     if [[ -n "$_detected_version" && "$_detected_version" != "unknown" ]]; then
       CAIPE_CHART_VERSION="$_detected_version"
+      log "Detected deployed chart version: ${CAIPE_CHART_VERSION}"
     fi
+  fi
+
+  # ── Read LLM provider + credentials from the existing llm-secret ──────────
+  # This lets the upgrade path skip all credential prompts when secrets are
+  # already in the cluster — the user only needs to change what differs.
+  local _llm_secret_data
+  _llm_secret_data=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+  if [[ -n "$_llm_secret_data" ]]; then
+    _secret_val() { echo "$_llm_secret_data" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+
+    local _detected_provider; _detected_provider=$(_secret_val LLM_PROVIDER)
+    [[ -n "$_detected_provider" && -z "$LLM_PROVIDER" ]] && LLM_PROVIDER="$_detected_provider"
+
+    case "${LLM_PROVIDER:-}" in
+      anthropic-claude)
+        [[ -z "${ANTHROPIC_API_KEY:-}" ]]   && ANTHROPIC_API_KEY=$(_secret_val ANTHROPIC_API_KEY)
+        [[ -z "${ANTHROPIC_MODEL_NAME:-}" ]] && ANTHROPIC_MODEL_NAME=$(_secret_val ANTHROPIC_MODEL_NAME)
+        ;;
+      aws-bedrock)
+        [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(_secret_val AWS_ACCESS_KEY_ID)
+        [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(_secret_val AWS_SECRET_ACCESS_KEY)
+        [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(_secret_val AWS_REGION)
+        [[ -z "${AWS_BEDROCK_MODEL_ID:-}" ]]  && AWS_BEDROCK_MODEL_ID=$(_secret_val AWS_BEDROCK_MODEL_ID)
+        [[ -z "${AWS_BEDROCK_PROVIDER:-}" ]]  && AWS_BEDROCK_PROVIDER=$(_secret_val AWS_BEDROCK_PROVIDER)
+        ;;
+      openai|*)
+        [[ -z "${OPENAI_API_KEY:-}" ]]    && OPENAI_API_KEY=$(_secret_val OPENAI_API_KEY)
+        [[ -z "${OPENAI_ENDPOINT:-}" ]]   && OPENAI_ENDPOINT=$(_secret_val OPENAI_ENDPOINT)
+        [[ -z "${OPENAI_MODEL_NAME:-}" ]] && OPENAI_MODEL_NAME=$(_secret_val OPENAI_MODEL_NAME)
+        ;;
+    esac
+    log "Loaded LLM config from existing llm-secret (provider: ${LLM_PROVIDER:-unknown})"
+  fi
+
+  # ── Read deployment mode from Helm values ─────────────────────────────────
+  if [[ -z "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
+    local _helm_mode
+    _helm_mode=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '.global.deploymentMode // empty' 2>/dev/null || true)
+    case "$_helm_mode" in
+      single-node) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
+      multi-node)  CAIPE_DEPLOYMENT_MODE="distributed" ;;
+    esac
+    [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && log "Detected deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
+  fi
+
+  # ── Read selected agents from Helm values ─────────────────────────────────
+  if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    local _helm_agents
+    _helm_agents=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '."supervisor-agent".singleNode.enabledSubAgents // {} | to_entries[] | select(.value==true) | .key' \
+      2>/dev/null || true)
+    if [[ -n "$_helm_agents" ]]; then
+      while IFS= read -r _a; do
+        [[ -n "$_a" ]] && SELECTED_AGENTS+=("$_a")
+      done <<< "$_helm_agents"
+      log "Detected enabled agents: ${SELECTED_AGENTS[*]}"
+    fi
+  fi
+
+  # ── Re-populate HELM_AGENT_ARGS from detected agent selection ─────────────
+  if [[ ${#SELECTED_AGENTS[@]} -gt 0 && ${#HELM_AGENT_ARGS[@]} -eq 0 ]]; then
+    local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+    for _a in "${_all_agents[@]}"; do
+      local _on=false
+      for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_a" == "$_s" ]] && { _on=true; break; }; done
+      if $_on; then
+        HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_a}=true")
+        # Wire existing agent secret if present
+        local _sec="caipe-${_a}-secret"
+        if kubectl get secret "$_sec" -n caipe &>/dev/null 2>&1; then
+          HELM_AGENT_ARGS+=(--set "agent-${_a}.agentSecrets.secretName=${_sec}")
+        fi
+      else
+        HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_a}=false")
+      fi
+    done
   fi
 }
 
@@ -5016,10 +5817,20 @@ BANNER
     done
   fi
 
-  choose_chart_version
-  choose_deployment_mode
-  collect_credentials
-  choose_features
+  # ── Wizard step loop — each step can return 1 to go back ─────────────
+  # The || _rc=$? shield is required: set -e would otherwise kill the script
+  # the moment any step function returns non-zero (e.g. user typed 'b').
+  local _wizard_steps=(choose_chart_version choose_deployment_mode collect_credentials choose_features)
+  local _step=0
+  while [[ $_step -lt ${#_wizard_steps[@]} ]]; do
+    local _rc=0
+    "${_wizard_steps[$_step]}" || _rc=$?
+    case $_rc in
+      0) _step=$((_step + 1)) ;;
+      1) [[ $_step -gt 0 ]] && _step=$((_step - 1)) || _step=0 ;;
+      *) exit 1 ;;
+    esac
+  done
   create_namespace_and_secrets
 
   if $ENABLE_TRACING; then

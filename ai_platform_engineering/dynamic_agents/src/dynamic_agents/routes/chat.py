@@ -10,9 +10,9 @@ from pydantic import BaseModel, Field
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
-from dynamic_agents.services.runtime_cache import get_runtime_cache
-from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
+from dynamic_agents.services.runtime_cache import RuntimeCapacityError, get_runtime_cache
+from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,10 @@ async def _generate_sse_events(
         async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder):
             yield frame
 
+    except RuntimeCapacityError as e:
+        logger.warning(f"Agent runtime at capacity: {e}")
+        for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
+            yield frame
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
         for frame in encoder.on_run_error(str(e)):
@@ -186,6 +190,10 @@ async def _generate_resume_sse_events(
         async for frame in runtime.resume(session_id, user.email, form_data, trace_id, encoder):
             yield frame
 
+    except RuntimeCapacityError as e:
+        logger.warning(f"Agent runtime at capacity: {e}")
+        for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
+            yield frame
     except Exception as e:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
         for frame in encoder.on_run_error(str(e)):
