@@ -266,12 +266,13 @@ export function ToolsTab({ form }: ToolsTabProps) {
             Allowed tools
           </h2>
           <a
-            href="https://code.claude.com/docs/en/skills#pre-approve-tools-for-a-skill"
+            href="https://code.claude.com/docs/en/skills"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+            title="Claude Code Skills documentation"
           >
-            allowed-tools reference
+            Skills documentation
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
@@ -896,12 +897,12 @@ function CustomToolsSection({
         for any tool the catalog above doesn&rsquo;t know about. Format
         reference:{" "}
         <a
-          href="https://code.claude.com/docs/en/skills#pre-approve-tools-for-a-skill"
+          href="https://code.claude.com/docs/en/skills"
           target="_blank"
           rel="noopener noreferrer"
           className="text-primary hover:underline"
         >
-          Claude allowed-tools docs
+          Claude Code Skills docs
         </a>
         .
       </p>
