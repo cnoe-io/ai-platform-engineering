@@ -787,18 +787,42 @@ function SubagentSegmentView({
   );
   
   // Build a description string for collapsed mode
-  const purposePreview = info.purpose 
-    ? (info.purpose.length > 180 ? info.purpose.slice(0, 180) + "..." : info.purpose)
-    : null;
+  const purposeIsLong = info.purpose && info.purpose.length > 80;
+  const [purposeExpanded, setPurposeExpanded] = useState(false);
 
   return (
     <CollapsibleSection
       title={
-        <span className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="flex flex-col gap-0.5 flex-1 min-w-0">
           <span className="font-medium text-foreground/80">{subagentLookup?.name || info.name}</span>
-          {purposePreview && (
-            <span className="text-muted-foreground/50 truncate text-[11px]">
-              — {purposePreview}
+          {info.purpose && (
+            <span className="text-muted-foreground/60 text-[11px]">
+              {purposeIsLong && !purposeExpanded ? (
+                <span>
+                  {info.purpose.slice(0, 80)}...{" "}
+                  <span
+                    className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                    onClick={(e) => { e.stopPropagation(); setPurposeExpanded(true); }}
+                  >
+                    show more
+                  </span>
+                </span>
+              ) : (
+                <span className="whitespace-pre-wrap break-words">
+                  {info.purpose}
+                  {purposeIsLong && (
+                    <>
+                      {" "}
+                      <span
+                        className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setPurposeExpanded(false); }}
+                      >
+                        show less
+                      </span>
+                    </>
+                  )}
+                </span>
+              )}
             </span>
           )}
         </span>
