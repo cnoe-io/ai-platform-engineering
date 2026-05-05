@@ -26,6 +26,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Upload as UploadIcon,
   Variable as VariableIcon,
+  Archive as ArchiveIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,10 @@ import { SkillMdEditor } from "@/components/skills/workspace/SkillMdEditor";
 import { SkillTemplatesMenu } from "@/components/skills/workspace/SkillTemplatesMenu";
 import { ImportSkillMdDialog } from "@/components/skills/workspace/ImportSkillMdDialog";
 import { GithubImportPanel } from "@/components/skills/workspace/GithubImportPanel";
+import {
+  ImportSkillZipDialog,
+  type ZipSingleSkillPayload,
+} from "@/components/skills/ImportSkillZipDialog";
 import { SkillFileTree } from "@/components/skills/workspace/SkillFileTree";
 import { AiAssistButton } from "@/components/ai-assist";
 import { parseSkillMd } from "@/lib/skill-md-parser";
@@ -111,6 +116,7 @@ export interface FilesTabProps {
 export function FilesTab({ form, readOnly = false }: FilesTabProps) {
   const { toast } = useToast();
   const [showImport, setShowImport] = useState(false);
+  const [showZipImport, setShowZipImport] = useState(false);
   const [showGithubImport, setShowGithubImport] = useState(false);
   // Variables panel is opened from the toolbar (or auto-opens when there
   // are undeclared `{{var}}` references in SKILL.md — see effect below).
@@ -170,6 +176,36 @@ export function FilesTab({ form, readOnly = false }: FilesTabProps) {
         delete next["skill.md"];
       }
       form.setAncillaryFiles((prev) => ({ ...prev, ...next }));
+    },
+    [form],
+  );
+
+  /**
+   * Single-skill payload from a zip (one SKILL.md inside the
+   * archive). We mirror `handleGithubImported`'s shape: SKILL.md
+   * replaces the editor body; ancillary files are merged with the
+   * existing tree so users can stage zip imports on top of an
+   * already-edited draft. The dialog falls back to the bulk API
+   * for multi-skill zips, which doesn't reach this callback.
+   */
+  const handleZipSingleSkill = useCallback(
+    (payload: ZipSingleSkillPayload) => {
+      form.setSkillContentAndSyncTools(payload.skillContent);
+      if (payload.ancillaryFiles && Object.keys(payload.ancillaryFiles).length) {
+        form.setAncillaryFiles((prev) => ({
+          ...prev,
+          ...payload.ancillaryFiles,
+        }));
+      }
+      // Pre-fill the form's name/description from frontmatter so the
+      // user doesn't re-key the same metadata they just zipped.
+      // Existing values win when the zip's frontmatter is empty so
+      // we don't blank-out a user's manual edits.
+      form.setFormData((prev) => ({
+        ...prev,
+        name: payload.proposedName || prev.name,
+        description: payload.description || prev.description,
+      }));
     },
     [form],
   );
@@ -426,6 +462,17 @@ export function FilesTab({ form, readOnly = false }: FilesTabProps) {
               variant="ghost"
               size="sm"
               className="h-7 gap-1.5 text-xs"
+              onClick={() => setShowZipImport(true)}
+              data-testid="files-tab-import-zip"
+            >
+              <ArchiveIcon className="h-3.5 w-3.5" />
+              Import .zip
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
               onClick={() => setShowGithubImport((v) => !v)}
               aria-pressed={showGithubImport}
             >
@@ -560,6 +607,11 @@ export function FilesTab({ form, readOnly = false }: FilesTabProps) {
         open={showImport}
         onOpenChange={setShowImport}
         onImport={handleImportMd}
+      />
+      <ImportSkillZipDialog
+        open={showZipImport}
+        onOpenChange={setShowZipImport}
+        onSingleSkillApplied={handleZipSingleSkill}
       />
     </div>
   );

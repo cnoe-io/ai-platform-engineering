@@ -61,6 +61,7 @@ import {
   Filter,
   Waypoints,
   Copy,
+  Archive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,6 +85,7 @@ import type { AgentSkill } from "@/types/agent-skill";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
 import { SupervisorSyncBadge } from "@/components/skills/SupervisorSyncBadge";
 import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
+import { ImportSkillZipDialog } from "@/components/skills/ImportSkillZipDialog";
 import {
   makeConfigFolderAdapter,
   makeHubFolderAdapter,
@@ -373,6 +375,10 @@ export function SkillsGallery({
 
   const { toast } = useToast();
   const [importModalOpen, setImportModalOpen] = useState(false);
+  // Distinct from `importModalOpen` (packaged-template install). The
+  // zip-import dialog accepts a user-uploaded archive and runs through
+  // POST /api/skills/configs/import-zip.
+  const [zipImportOpen, setZipImportOpen] = useState(false);
   const [diskTemplates, setDiskTemplates] = useState<{ id: string; label: string }[]>([]);
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importSubmitting, setImportSubmitting] = useState(false);
@@ -1022,6 +1028,29 @@ export function SkillsGallery({
                   <span className="sm:hidden font-semibold">Import</span>
                 </Button>
               )}
+              {/* Bulk zip upload — any authenticated user can import
+                  their own .zip into private skills. Distinct from
+                  "Import templates" which is admin-only and writes
+                  system rows. */}
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setZipImportOpen(true)}
+                title="Import skills from a .zip archive"
+                data-testid="gallery-import-zip"
+                className={cn(
+                  "gap-2 h-9 text-sm px-4 font-medium border border-amber-500/25",
+                  "text-amber-50/95 shadow-md shadow-black/25",
+                  "bg-gradient-to-r from-slate-800 via-amber-950/85 to-orange-950",
+                  "hover:border-amber-400/35 hover:brightness-[1.04]",
+                  "focus-visible:ring-2 focus-visible:ring-amber-500/40 focus-visible:ring-offset-2 ring-offset-background",
+                  "transition-all duration-200",
+                )}
+              >
+                <Archive className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2.25} />
+                <span className="hidden sm:inline">Import zip</span>
+                <span className="sm:hidden font-semibold">Zip</span>
+              </Button>
               <Button
                 size="sm"
                 onClick={onCreateNew}
@@ -1864,6 +1893,17 @@ export function SkillsGallery({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ImportSkillZipDialog
+        open={zipImportOpen}
+        onOpenChange={setZipImportOpen}
+        onBulkImported={() => {
+          // Refresh the catalog so newly imported skills appear in
+          // the grid without a manual reload. We don't await — the
+          // dialog closes itself after rendering the import summary.
+          void loadSkills();
+        }}
+      />
     </div>
   );
 }
