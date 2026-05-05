@@ -453,6 +453,47 @@ describe("GET /api/skills/install.sh — bulk install via ?catalog_url=", () => 
     expect(res.status).toBe(400);
     expect(res.body).toContain("invalid ?catalog_url=");
   });
+
+  // Regression for the "/update-skills doesn't autocomplete in Claude
+  // Code after a Quick Install" symptom. The Quick Install modal
+  // always includes ?catalog_url= because it pipes the user's
+  // chosen catalog page through. Without this branch in the route's
+  // mode-resolution, ?catalog_url= silently downgraded to
+  // catalog-query mode (DO_HELPERS=0) and the helper SKILL.md files
+  // never landed on disk.
+  it("?catalog_url= + ?mode=bulk-with-helpers honors the explicit mode override", async () => {
+    const res = await callGET(
+      `https://app.example.com/api/skills/install.sh?agent=claude&scope=user&catalog_url=${sameOriginCatalog}&mode=bulk-with-helpers`,
+    );
+    expect(res.status).toBe(200);
+    // The user's catalog URL is still used for the bulk fetch — the
+    // mode override only flips on helpers + the SessionStart hook,
+    // it doesn't change which page of the catalog gets installed.
+    expect(res.body).toMatch(/^DO_BULK=1$/m);
+    expect(res.body).toMatch(/^DO_HELPERS=1$/m);
+    expect(res.body).toMatch(/^DO_HOOK=1$/m);
+    expect(res.body).toMatch(
+      /BULK_CATALOG_URL='https:\/\/app\.example\.com\/api\/skills\?[^']*include_content=true[^']*'/,
+    );
+    // Filename uses the bundle suffix — the script installs the full
+    // bulk-with-helpers payload, not the catalog-query subset.
+    expect(res.headers.get("Content-Disposition")).toContain(
+      "install-skills-claude-user-bundle.sh",
+    );
+  });
+
+  it("?catalog_url= without mode= still defaults to catalog-query (helpers off)", async () => {
+    // Backward-compat guard: any old copy-pasted curl that doesn't
+    // pass mode=bulk-with-helpers must keep its previous behaviour
+    // so we don't surprise users who relied on "catalog only" being
+    // the implicit semantics of catalog_url=.
+    const res = await callGET(
+      `https://app.example.com/api/skills/install.sh?agent=claude&scope=user&catalog_url=${sameOriginCatalog}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toMatch(/^DO_HELPERS=0$/m);
+    expect(res.body).toMatch(/^DO_HOOK=0$/m);
+  });
 });
 
 describe("GET /api/skills/install.sh — heredoc-vs-stdin regression", () => {

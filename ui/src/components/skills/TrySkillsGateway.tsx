@@ -49,6 +49,13 @@ export function TrySkillsGateway() {
   const [quickInstallMode, setQuickInstallMode] = useState<
     "default" | "upgrade" | "force"
   >("default");
+  // When true, the rendered one-liner asks install.sh to also write
+  // the /skills and /update-skills helper SKILL.md files. Default ON
+  // because (a) Quick Install used to silently skip them when
+  // ?catalog_url= was set (it forced mode=catalog-query, which has
+  // DO_HELPERS=0) and (b) those two helpers are how users actually
+  // search/refresh the catalog from inside Claude Code et al.
+  const [quickInstallHelpers, setQuickInstallHelpers] = useState(true);
   const [copiedSkill, setCopiedSkill] = useState(false);
   const [copiedInstall, setCopiedInstall] = useState(false);
 
@@ -1842,9 +1849,21 @@ EOF`}
                 // ?agent= omitted -- the install is universal across
                 // Claude / Cursor / Codex / Gemini / opencode (writes
                 // to both ~/.claude/skills/ and ~/.agents/skills/).
-                const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
-                  selectedScope,
-                )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
+                // The install URL is composed from (in order):
+                //   * scope (user/project) — drives ~/.claude vs ./.claude
+                //   * catalog_url= — the user-chosen catalog page from
+                //                    the "Pick your skills" preview
+                //   * mode=bulk-with-helpers — only when the helpers
+                //                    checkbox is on. Without this the
+                //                    server routes catalog_url= to
+                //                    catalog-query mode which has
+                //                    DO_HELPERS=0 (= no /skills,
+                //                    /update-skills SKILL.md files).
+                const installShUrl =
+                  `${baseUrl}/api/skills/install.sh` +
+                  `?scope=${encodeURIComponent(selectedScope)}` +
+                  `&catalog_url=${encodeURIComponent(catalogUrl)}` +
+                  (quickInstallHelpers ? `&mode=bulk-with-helpers` : "");
                 const targetPath =
                   liveSkills?.install_paths?.[selectedScope] ?? null;
                 const skillCount = previewData?.meta?.total ?? null;
@@ -1944,6 +1963,55 @@ EOF`}
                         </Button>
                       </div>
                     )}
+
+                    {/* Install options. Single checkbox controlling
+                        whether the rendered one-liner asks install.sh
+                        to also drop the /skills and /update-skills
+                        helper SKILL.md files (the meta-helpers that
+                        let the user search and refresh the catalog
+                        from inside Claude Code, Cursor, etc.).
+
+                        Default ON because the previous default URL
+                        silently skipped these helpers — ?catalog_url=
+                        forced mode=catalog-query on the server, which
+                        has DO_HELPERS=0. Users had no UI affordance
+                        to discover the gap. */}
+                    <div
+                      className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-1.5"
+                      data-testid="quick-install-helpers-toggle"
+                    >
+                      <p className="text-[11px] font-medium text-foreground">
+                        Install options
+                      </p>
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={quickInstallHelpers}
+                          onChange={(e) =>
+                            setQuickInstallHelpers(e.target.checked)
+                          }
+                          className="rounded border-border mt-0.5"
+                          data-testid="quick-install-helpers"
+                        />
+                        <span className="text-xs">
+                          <span className="font-medium">
+                            Install <code className="font-mono">/skills</code>{" "}
+                            and{" "}
+                            <code className="font-mono">/update-skills</code>{" "}
+                            helpers
+                          </span>
+                          <span className="block text-[11px] text-muted-foreground mt-0.5">
+                            Adds two slash commands to your skill tree:{" "}
+                            <code className="font-mono">/skills</code>{" "}
+                            (search and run any catalog skill) and{" "}
+                            <code className="font-mono">/update-skills</code>{" "}
+                            (refresh on-disk skills from the live
+                            catalog). Recommended — leave on unless
+                            you only want the bulk skill files.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
 
                     {/* Install-mode toggles. Modeled as two checkboxes
                         (matching the include_content pattern in the Live

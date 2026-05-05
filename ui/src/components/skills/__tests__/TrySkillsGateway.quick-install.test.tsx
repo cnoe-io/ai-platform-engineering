@@ -540,6 +540,56 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(snippet!.textContent || "").toMatch(/\| bash -s -- --force$/);
   });
 
+  // ---------------------------------------------------------------------
+  // Helpers checkbox (default ON).
+  //
+  // The Quick Install URL must include &mode=bulk-with-helpers when the
+  // checkbox is on so the server installs /skills + /update-skills
+  // helper SKILL.md files. Without this the route silently downgrades
+  // to catalog-query mode (DO_HELPERS=0) because ?catalog_url= takes
+  // precedence over a missing mode.
+  // ---------------------------------------------------------------------
+
+  it("helpers checkbox: defaults to ON and snippet contains &mode=bulk-with-helpers", async () => {
+    await renderAndOpenModal();
+    const dialog = getDialog();
+
+    const helpers = within(dialog).getByTestId(
+      "quick-install-helpers",
+    ) as HTMLInputElement;
+    expect(helpers.checked).toBe(true);
+
+    const snippet = dialog.querySelector("pre");
+    expect(snippet!.textContent || "").toContain("mode=bulk-with-helpers");
+  });
+
+  it("helpers checkbox: unticking removes &mode=bulk-with-helpers from the snippet", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    await user.click(within(dialog).getByTestId("quick-install-helpers"));
+
+    const snippet = dialog.querySelector("pre");
+    expect(snippet!.textContent || "").not.toContain("mode=bulk-with-helpers");
+    // The rest of the URL (scope, catalog_url) must still be there —
+    // we're only stripping the mode override, not breaking the URL.
+    expect(snippet!.textContent || "").toMatch(/scope=(user|project)/);
+    expect(snippet!.textContent || "").toContain("catalog_url=");
+  });
+
+  it("helpers checkbox: stacks with --force (both flags coexist on the same one-liner)", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    // Default state already has helpers=on; layer --force on top.
+    await user.click(within(dialog).getByTestId("quick-install-force"));
+
+    const snippet = dialog.querySelector("pre");
+    const text = snippet!.textContent || "";
+    expect(text).toContain("mode=bulk-with-helpers");
+    expect(text).toMatch(/\| bash -s -- --force$/);
+  });
+
   it("overwrite-policy: --upgrade and --force are mutually exclusive", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();

@@ -1840,12 +1840,22 @@ export async function GET(request: Request) {
 
   // Resolve install mode. Precedence:
   //   1. ?mode=uninstall locks us into uninstall mode.
-  //   2. ?catalog_url=... locks us into catalog-query mode.
-  //   3. ?mode=live-only opts into the legacy single-skill flow.
-  //   4. Otherwise default to bulk-with-helpers.
+  //   2. ?catalog_url=... + ?mode=bulk-with-helpers → bulk-with-helpers.
+  //      The Quick Install UI relies on this so a user-chosen catalog
+  //      page can still trigger the /skills + /update-skills helper
+  //      install. Without this branch the user would have to choose
+  //      between "use my catalog URL" and "install helpers"; today
+  //      they get neither because catalog_url silently downgraded
+  //      mode to catalog-query and dropped the helpers.
+  //   3. ?catalog_url=... (no explicit mode) → catalog-query (legacy
+  //      bulk-only behaviour kept for any stray copy-paste).
+  //   4. ?mode=live-only opts into the legacy single-skill flow.
+  //   5. Otherwise default to bulk-with-helpers.
   let mode: InstallMode;
   if (isUninstall) {
     mode = "uninstall";
+  } else if (catalogUrl && modeRaw === "bulk-with-helpers") {
+    mode = "bulk-with-helpers";
   } else if (catalogUrl) {
     mode = "catalog-query";
   } else if (modeRaw === "live-only") {
