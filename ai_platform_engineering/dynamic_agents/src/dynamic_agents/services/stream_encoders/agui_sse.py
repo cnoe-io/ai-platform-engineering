@@ -420,7 +420,7 @@ class AGUIStreamEncoder(StreamEncoder):
                                 {
                                     "type": "TOOL_CALL_ARGS",
                                     "toolCallId": tool_call_id,
-                                    "delta": json.dumps(LangGraphStreamHelper.truncate_args(args)),
+                                    "delta": json.dumps(args),
                                     "timestamp": _ts(),
                                 },
                             )

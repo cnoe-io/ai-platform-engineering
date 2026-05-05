@@ -172,14 +172,3 @@ class LangGraphStreamHelper:
             "id": getattr(tc, "id", ""),
             "args": getattr(tc, "args", {}),
         }
-
-    @staticmethod
-    def truncate_args(args: dict[str, Any], max_len: int = 100) -> dict[str, Any]:
-        """Truncate string values in args dict for display."""
-        result = {}
-        for k, v in args.items():
-            if isinstance(v, str) and len(v) > max_len:
-                result[k] = v[:max_len] + "..."
-            else:
-                result[k] = v
-        return result

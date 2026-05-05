@@ -230,7 +230,7 @@ class CustomStreamEncoder(StreamEncoder):
                                 {
                                     "tool_name": tool_name,
                                     "tool_call_id": tool_call_id,
-                                    "args": LangGraphStreamHelper.truncate_args(args),
+                                    "args": args,
                                     "namespace": list(namespace),
                                 },
                             )
