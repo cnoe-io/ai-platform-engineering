@@ -148,7 +148,7 @@ describe("SkillsRunner — rendering", () => {
     render(<SkillsRunner config={makeConfig()} />);
 
     const homeBtn = screen.getByTitle("Go to home page");
-    const backBtn = screen.getByTitle("View workflow history");
+    const backBtn = screen.getByTitle("Back to Skills");
     expect(homeBtn).toBeInTheDocument();
     expect(backBtn).toBeInTheDocument();
   });
@@ -160,11 +160,11 @@ describe("SkillsRunner — rendering", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/");
   });
 
-  it("navigates to history when back button is clicked", () => {
+  it("navigates to skills catalog when back button is clicked", () => {
     render(<SkillsRunner config={makeConfig()} />);
 
-    fireEvent.click(screen.getByTitle("View workflow history"));
-    expect(mockRouterPush).toHaveBeenCalledWith("/skills/history");
+    fireEvent.click(screen.getByTitle("Back to Skills"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/skills");
   });
 
   it("renders Output and History tab buttons", () => {

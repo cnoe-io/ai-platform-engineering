@@ -51,17 +51,43 @@ def _load_agent_skills(
     skill_ids: list[str],
     db: Any,
 ) -> tuple[list[dict[str, Any]], set[str]]:
-    """Query ``agent_skills`` collection. Returns ``(skills, found_ids)``."""
+    """Query ``agent_skills`` collection. Returns ``(skills, found_ids)``.
+
+    Skills with ``scan_status=="flagged"`` are unconditionally
+    excluded; ``unscanned`` skills are excluded only under
+    ``SKILL_SCANNER_GATE=strict`` (the default is ``warn`` so
+    deployments without the optional skill-scanner sidecar still
+    load skills). This keeps dynamic agents in lockstep with the
+    supervisor catalog policy so a flagged skill cannot be ingested
+    via either path.
+    """
     if not skill_ids:
         return [], set()
+
+    # Vendored module — see scan_gate.py docstring. We previously
+    # imported from ai_platform_engineering.skills_middleware.scan_gate,
+    # which works in the dev monorepo but raises ModuleNotFoundError
+    # in the dynamic-agents container (only the dynamic_agents package
+    # is shipped). The exception was caught by load_skills' broad
+    # except, silently returning [] and making every dynamic agent's
+    # virtual filesystem appear empty to the LLM.
+    from dynamic_agents.services.scan_gate import (
+        is_skill_blocked,
+        mongo_scan_filter,
+    )
 
     collection = db["agent_skills"]
     docs = list(
         collection.find(
             {
-                "$or": [
-                    {"id": {"$in": skill_ids}},
-                    {"_id": {"$in": skill_ids}},
+                "$and": [
+                    {
+                        "$or": [
+                            {"id": {"$in": skill_ids}},
+                            {"_id": {"$in": skill_ids}},
+                        ]
+                    },
+                    mongo_scan_filter(),
                 ]
             }
         )
@@ -83,6 +109,14 @@ def _load_agent_skills(
 
         if not name:
             logger.warning("Skipping skill doc %s: missing name", doc_id)
+            continue
+
+        if is_skill_blocked(doc):
+            logger.warning(
+                "Refusing to load agent_skill %r for dynamic agent (scan_status=%r)",
+                name,
+                doc.get("scan_status"),
+            )
             continue
 
         content = doc.get("skill_content") or doc.get("skill_template") or extract_llm_prompt(doc) or ""
@@ -142,10 +176,19 @@ def _load_hub_skills(
     if not hub_ids_map:
         return []
 
-    # Build $or conditions for each (hub_id, skill_id) pair
+    # Vendored — see scan_gate.py docstring (same reason as
+    # ``_load_agent_skills`` above).
+    from dynamic_agents.services.scan_gate import (
+        is_skill_blocked,
+        mongo_scan_filter,
+    )
+
+    # Build $or conditions for each (hub_id, skill_id) pair, then
+    # AND with the scanner gate so a flagged hub skill is never
+    # returned even if explicitly requested by id.
     or_conditions = [{"hub_id": hub_id, "skill_id": skill_id} for hub_id, skill_id in hub_ids_map.values()]
     collection = db["hub_skills"]
-    docs = list(collection.find({"$or": or_conditions}))
+    docs = list(collection.find({"$and": [{"$or": or_conditions}, mongo_scan_filter()]}))
     logger.info(
         "hub_skills query returned %d docs for %d requested hub skill IDs",
         len(docs),
@@ -168,6 +211,15 @@ def _load_hub_skills(
         name = doc.get("name", "")
         if not name:
             logger.warning("Skipping hub skill doc (hub_id=%s, skill_id=%s): missing name", hub_id, skill_id)
+            continue
+
+        if is_skill_blocked(doc):
+            logger.warning(
+                "Refusing to load hub skill %r (hub=%s) for dynamic agent (scan_status=%r)",
+                name,
+                hub_id,
+                doc.get("scan_status"),
+            )
             continue
 
         # Hub skills store the full SKILL.md (with frontmatter) in ``content``

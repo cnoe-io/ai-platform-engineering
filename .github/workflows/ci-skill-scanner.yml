@@ -1,0 +1,403 @@
+name: "[CI] Skill Scanner Build and Push"
+description: "Build and push Skill Scanner Docker image"
+
+# Mirrors ci-caipe-ui.yml. Triggers on:
+#   - tag pushes (any tag): build + push the released image used by the
+#     skill-scanner Helm subchart (image tag = chart appVersion).
+#   - pull requests touching the scanner Dockerfile or compose entry:
+#     PR validation only (push=false except for tags / workflow_dispatch).
+#   - workflow_dispatch: manual rebuild with an explicit tag override.
+#
+# Pre-release tags (-rc.N, -hotfix.N) push to ghcr.io/<owner>/pre-release/skill-scanner.
+# Final release / -dev.N tags push to ghcr.io/<owner>/skill-scanner — this is
+# the path the parent chart's `image.repository` (ghcr.io/cnoe-io/skill-scanner)
+# expects. -chart.N tags skip image work entirely (chart-only releases).
+#
+# This workflow notifies release-finalize.yml via repository_dispatch so the
+# gating logic in release-finalize.yml's REQUIRED_WORKFLOWS can include it.
+
+on:
+  push:
+    tags:
+      - '**'
+  pull_request:
+    paths:
+      # No first-party scanner source lives in this repo (the image installs
+      # `cisco-ai-skill-scanner` from PyPI), so we only need to validate when
+      # the Dockerfile or its compose entrypoint changes.
+      - 'build/Dockerfile.skill-scanner'
+      - 'docker-compose.dev.yaml'
+  workflow_dispatch:
+    inputs:
+      tag_version:
+        description: 'Version tag to apply (e.g., 0.4.5-dev.5)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  determine-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.set-outputs.outputs.should_build }}
+      should_retag: ${{ steps.set-outputs.outputs.should_retag }}
+      tag_version: ${{ steps.version.outputs.tag_version }}
+      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
+      scanner_version: ${{ steps.scanner_version.outputs.scanner_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine Tag
+        id: version
+        uses: ./.github/actions/determine-release-tag
+        with:
+          manual_tag: ${{ inputs.tag_version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        with:
+          filters: |
+            scanner:
+              - 'build/Dockerfile.skill-scanner'
+              - 'docker-compose.dev.yaml'
+
+      - name: Read pinned upstream scanner version
+        id: scanner_version
+        shell: bash
+        run: |
+          # Surface the Dockerfile's pinned ARG default as a workflow output so
+          # both build jobs (and the release-comment / SBOM tooling later, if
+          # we add it) reference one source of truth.
+          PINNED=$(awk -F= '/^ARG SKILL_SCANNER_VERSION=/ {gsub(/[" ]/,"",$2); print $2; exit}' build/Dockerfile.skill-scanner)
+          if [[ -z "$PINNED" ]]; then
+            echo "❌ Could not parse SKILL_SCANNER_VERSION default from build/Dockerfile.skill-scanner"
+            exit 1
+          fi
+          echo "scanner_version=${PINNED}" >> $GITHUB_OUTPUT
+          echo "Resolved upstream scanner version: ${PINNED}"
+
+      - name: Set Outputs
+        id: set-outputs
+        env:
+          SCANNER_CHANGED: ${{ steps.filter.outputs.scanner }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          SHOULD_BUILD="false"
+          SHOULD_RETAG="false"
+          TAG_VERSION="${{ env.TAG_VERSION }}"
+
+          # Chart-only tag: skip image builds entirely (mirrors ci-caipe-ui.yml)
+          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
+            echo "📊 Chart-only tag: skipping image builds"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_retag=false" >> $GITHUB_OUTPUT
+            echo "image_prefix=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Determine pre-release type and number
+          if [[ "$TAG_VERSION" =~ -(dev|rc|hotfix)\.([0-9]+)$ ]]; then
+            IS_PRERELEASE="true"
+            PRERELEASE_NUM="${BASH_REMATCH[2]}"
+          else
+            IS_PRERELEASE="false"
+            PRERELEASE_NUM=0
+          fi
+
+          # GHCR prefix: -rc.N and -hotfix.N go to pre-release/
+          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
+            IMAGE_PREFIX="pre-release/"
+          else
+            IMAGE_PREFIX=""
+          fi
+
+          if [ -n "$TAG_VERSION" ]; then
+            if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
+              if [ "$SCANNER_CHANGED" == "true" ]; then
+                SHOULD_BUILD="true"
+                echo "🔨 Pre-release tag with scanner changes: building"
+              else
+                SHOULD_RETAG="true"
+                echo "🏷️ Pre-release tag without scanner changes: retagging"
+              fi
+            else
+              SHOULD_BUILD="true"
+              echo "🚀 Build all: first pre-release or final release"
+            fi
+          elif [ "$SCANNER_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            SHOULD_BUILD="true"
+            echo "📦 Scanner files changed or manual trigger: building"
+          fi
+
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
+          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: determine-changes
+    if: needs.determine-changes.outputs.should_build == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}skill-scanner
+      DOCKERFILE: build/Dockerfile.skill-scanner
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: Free disk space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          sudo apt-get remove -y '^ghc-*' || true
+          sudo apt-get remove -y '^dotnet-*' || true
+          sudo apt-get remove -y '^llvm-*' || true
+          sudo apt-get remove -y 'php*' || true
+          sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af --volumes || true
+          echo "Disk usage after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          build-args: |
+            SKILL_SCANNER_VERSION=${{ needs.determine-changes.outputs.scanner_version }}
+            BUILDKIT_INLINE_CACHE=1
+            IMAGE_TAG=${{ needs.determine-changes.outputs.tag_version || github.sha }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          provenance: false
+          sbom: false
+
+  retag-unchanged:
+    runs-on: ubuntu-latest
+    needs: determine-changes
+    if: needs.determine-changes.outputs.should_retag == 'true'
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}skill-scanner
+      DOCKERFILE: build/Dockerfile.skill-scanner
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
+        with:
+          egress-policy: audit
+
+      - name: 📦 Install crane
+        run: |
+          VERSION="v0.20.2"
+          curl -sL "https://github.com/google/go-containerregistry/releases/download/${VERSION}/go-containerregistry_Linux_x86_64.tar.gz" | tar xz crane
+          sudo mv crane /usr/local/bin/
+
+      - name: 🔐 Log in to registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: 🔍 Check source image and retag or build
+        id: retag-or-build
+        env:
+          TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+        run: |
+          FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          echo "🏷️ Processing skill-scanner..."
+
+          if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
+            BASE_VERSION="${BASH_REMATCH[1]}"
+            SUFFIX_TYPE="${BASH_REMATCH[2]}"
+            SUFFIX_NUM="${BASH_REMATCH[3]}"
+
+            if [[ "$SUFFIX_NUM" -gt 1 ]]; then
+              PREV_NUM=$((SUFFIX_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}"
+            else
+              SOURCE_TAG="${BASE_VERSION}"
+            fi
+          else
+            SOURCE_TAG="latest"
+          fi
+
+          echo "  Source: ${SOURCE_TAG}"
+          echo "  Target: ${TAG_VERSION}"
+
+          if crane manifest "${FULL_IMAGE}:${SOURCE_TAG}" >/dev/null 2>&1; then
+            echo "  ✅ Source image exists, retagging..."
+            if crane tag "${FULL_IMAGE}:${SOURCE_TAG}" "${TAG_VERSION}"; then
+              echo "  ✅ Successfully retagged from ${SOURCE_TAG}"
+              echo "needs_build=false" >> $GITHUB_OUTPUT
+            else
+              echo "  ⚠️ Retag failed unexpectedly, will build instead"
+              echo "needs_build=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "  ⚠️ Source image ${SOURCE_TAG} not found"
+            echo "  📦 Will build fresh instead"
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+          fi
+
+      # Fallback build if retag not possible
+      - name: Free disk space
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          sudo apt-get remove -y '^ghc-*' || true
+          sudo apt-get remove -y '^dotnet-*' || true
+          sudo apt-get remove -y '^llvm-*' || true
+          sudo apt-get remove -y 'php*' || true
+          sudo apt-get remove -y azure-cli google-cloud-cli hhvm google-chrome-stable firefox powershell mono-devel || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          docker system prune -af --volumes || true
+          echo "Disk usage after cleanup:"
+          df -h
+
+      - name: Checkout repository
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Docker Buildx
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+      - name: Log in to GitHub Container Registry
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+      - name: 🔨 Build and Push (fallback)
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-changes.outputs.tag_version }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          build-args: |
+            SKILL_SCANNER_VERSION=${{ needs.determine-changes.outputs.scanner_version }}
+            BUILDKIT_INLINE_CACHE=1
+            IMAGE_TAG=${{ needs.determine-changes.outputs.tag_version || github.sha }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          provenance: false
+          sbom: false
+
+  # Notify release-finalize workflow when this CI completes. Mirrors
+  # ci-caipe-ui.yml's notify-release; the matching gating entry lives in
+  # release-finalize.yml's REQUIRED_WORKFLOWS list.
+  notify-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for repository_dispatch via gh api
+    needs: [determine-changes, build-and-push, retag-unchanged]
+    if: |
+      always() &&
+      needs.determine-changes.outputs.tag_version != '' &&
+      !contains(needs.determine-changes.outputs.tag_version, '-')
+    steps:
+      - name: 🔔 Notify release finalize
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+        run: |
+          BUILD_RESULT="${{ needs.build-and-push.result }}"
+          RETAG_RESULT="${{ needs.retag-unchanged.result }}"
+
+          if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
+          if [[ "$RETAG_RESULT" == "skipped" ]]; then RETAG_RESULT="success"; fi
+
+          if [[ "$BUILD_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
+            CONCLUSION="success"
+          else
+            CONCLUSION="failure"
+          fi
+
+          echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
+
+          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          {
+            "event_type": "ci-completed",
+            "client_payload": {
+              "tag": "$TAG_VERSION",
+              "workflow": "${{ github.workflow }}",
+              "conclusion": "$CONCLUSION"
+            }
+          }
+          EOF

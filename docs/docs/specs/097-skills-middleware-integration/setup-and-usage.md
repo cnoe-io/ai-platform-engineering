@@ -405,30 +405,40 @@ Among hubs, earlier registration wins.
   │  agent_skills     │─────▶│  get_merged_     │───▶ GET /api/skills (Next.js)
   │  loader (MongoDB) │      │  skills()        │
   ├──────────────────┤      │  precedence +    │
-  │  hub_github       │─────▶│  TTL cache       │───▶ build_skills_files()
-  │  fetcher          │      └──────────────────┘         │
+  │  hub_skills       │─────▶│  TTL cache       │───▶ build_skills_files()
+  │  loader (MongoDB) │      └──────────────────┘         │
   └──────────────────┘                                     ▼
-                                                   StateBackend (files dict)
-                                                           │
-                                                           ▼
-                                                   SkillsMiddleware
-                                                   (system prompt injection)
+         ▲                                          StateBackend (files dict)
+         │ writes                                          │
+         │                                                 ▼
+  ┌──────────────────┐                              SkillsMiddleware
+  │ ui/src/lib/      │                              (system prompt injection)
+  │ hub-crawl.ts     │
+  │ (GitHub+GitLab)  │
+  └──────────────────┘
 ```
+
+The Python middleware is a Mongo-only catalog reader. All hub crawling
+(GitHub + GitLab) lives in the Next.js UI: the admin scan in
+`ui/src/app/api/skill-hubs/[id]/scan/route.ts` and the preview at
+`ui/src/app/api/skill-hubs/crawl/route.ts` both call into
+`ui/src/lib/hub-crawl.ts` and persist results to the `hub_skills`
+Mongo collection that this catalog reads.
 
 ### Key modules
 
 | Module | Purpose |
 |---|---|
-| `skills_middleware/catalog.py` | Merges skills from all sources with TTL cache |
+| `skills_middleware/catalog.py` | Merges skills from all sources with TTL cache (Mongo-only for hubs) |
 | `skills_middleware/loaders/default.py` | Loads built-in SKILL.md from disk |
 | `skills_middleware/loaders/agent_skill.py` | Loads custom skills from MongoDB `agent_skills` |
-| `skills_middleware/loaders/hub_github.py` | Fetches skills from GitHub repos |
 | `skills_middleware/precedence.py` | Deterministic merge with source priority |
 | `skills_middleware/entitlement.py` | Visibility filtering (global/team/personal) |
 | `skills_middleware/router.py` | FastAPI endpoints (`/skills`, `/skills/refresh`) |
 | `skills_middleware/backend_sync.py` | Writes merged skills to `StateBackend` for middleware |
 | `skills_middleware/api_keys_store.py` | Catalog API key management |
 | `skills_middleware/hub_skill_scan.py` | Skill Scanner integration for hubs |
+| `ui/src/lib/hub-crawl.ts` | **(Next.js)** GitHub + GitLab crawler, owner of all VCS round-trips |
 
 ---
 

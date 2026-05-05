@@ -186,6 +186,16 @@ config:
   DYNAMIC_AGENTS_ENABLED: "false"
   # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
   # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+  # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
+  # Set when global.skillScanner.enabled=true on the parent chart so the
+  # UI can reach the in-cluster scanner Service. Leave empty to disable
+  # the safety scan (skills will save with scan_status=unscanned).
+  #
+  # The `{{ .Release.Name }}` template is evaluated by the caipe-ui ConfigMap
+  # template (which runs each `config:` value through `tpl`), so this URL
+  # tracks the actual Helm release name instead of hardcoding the default
+  # `ai-platform-engineering` and silently breaking on `helm install foo …`.
+  SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
   # OIDC required group (non-sensitive)
   OIDC_REQUIRED_GROUP: "app-users"
   # OIDC admin group (non-sensitive)

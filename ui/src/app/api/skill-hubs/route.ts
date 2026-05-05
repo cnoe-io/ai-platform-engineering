@@ -7,6 +7,10 @@ import {
   ApiError,
   validateCredentialsRef,
 } from "@/lib/api-middleware";
+import {
+  normalizeHubLocation,
+  validateIncludePaths,
+} from "./_lib/normalize";
 import { ObjectId } from "mongodb";
 
 /**
@@ -26,6 +30,8 @@ interface SkillHubDoc {
   enabled: boolean;
   credentials_ref: string | null;
   labels: string[];
+  /** Optional path-prefix allow-list for hub crawl (FR-020). */
+  include_paths?: string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -49,15 +55,60 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
     const hubs = await collection.find().sort({ created_at: 1 }).toArray();
 
-    // Count cached skills per hub
+    // Per-hub counts: total cached skills + scan outcome buckets so the
+    // admin section can render an accurate "X unscanned, Y flagged"
+    // nudge without a second round-trip.
     const hubSkills = await getCollection("hub_skills");
-    const counts = await hubSkills.aggregate<{ _id: string; count: number }>([
-      { $group: { _id: "$hub_id", count: { $sum: 1 } } },
+    const counts = await hubSkills.aggregate<{
+      _id: string;
+      count: number;
+      unscanned: number;
+      flagged: number;
+      passed: number;
+    }>([
+      {
+        $group: {
+          _id: "$hub_id",
+          count: { $sum: 1 },
+          // Treat "no scan_status field yet" as unscanned — that's what
+          // the workspace UI does, and it's how a freshly-crawled skill
+          // looks before the async scan finishes.
+          unscanned: {
+            $sum: {
+              $cond: [
+                {
+                  $or: [
+                    { $eq: ["$scan_status", "unscanned"] },
+                    { $eq: [{ $ifNull: ["$scan_status", null] }, null] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
+          flagged: {
+            $sum: { $cond: [{ $eq: ["$scan_status", "flagged"] }, 1, 0] },
+          },
+          passed: {
+            $sum: { $cond: [{ $eq: ["$scan_status", "passed"] }, 1, 0] },
+          },
+        },
+      },
     ]).toArray();
-    const countMap = new Map(counts.map((c) => [c._id, c.count]));
+    const countMap = new Map(counts.map((c) => [c._id, c]));
 
     return NextResponse.json({
-      hubs: hubs.map((h) => ({ ...sanitizeHub(h), skills_count: countMap.get(h.id) ?? 0 })),
+      hubs: hubs.map((h) => {
+        const c = countMap.get(h.id);
+        return {
+          ...sanitizeHub(h),
+          skills_count: c?.count ?? 0,
+          scan_unscanned_count: c?.unscanned ?? 0,
+          scan_flagged_count: c?.flagged ?? 0,
+          scan_passed_count: c?.passed ?? 0,
+        };
+      }),
     });
   });
 });
@@ -90,23 +141,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    // Normalize full URLs to owner/repo format (users may paste a GitHub URL)
-    let normalizedLocation = location.trim();
-    try {
-      const url = new URL(normalizedLocation);
-      if (url.hostname === "github.com" || url.hostname === "gitlab.com" || url.hostname === "www.github.com") {
-        const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
-        if (segments.length >= 2) {
-          normalizedLocation = `${segments[0]}/${segments[1]}`;
-        }
-      }
-    } catch {
-      // Not a URL — keep as-is (already owner/repo format)
-    }
+    // Normalize full URLs to canonical form. GitHub stays flat owner/repo;
+    // GitLab preserves every subgroup segment so e.g.
+    // https://gitlab.com/mycorp/devops/platform → mycorp/devops/platform
+    // (FR-022 / SC-010).
+    const normalizedLocation = normalizeHubLocation(location, type);
 
     const labels: string[] = Array.isArray(body.labels)
       ? body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20)
       : [];
+
+    const includePaths = validateIncludePaths(body.include_paths);
 
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
 
@@ -133,6 +178,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       created_at: now,
       updated_at: now,
     };
+    if (includePaths) hubDoc.include_paths = includePaths;
 
     await collection.insertOne(hubDoc as any);
 

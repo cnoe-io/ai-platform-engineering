@@ -2,7 +2,7 @@
  * Agent skill types (catalog source: agent_skills)
  * 
  * These types define the structure for both:
- * - Multi-step agent workflows (based on task_config.yaml)
+ * - Agent workflows with multiple tasks (based on task_config.yaml)
  * - Quick-start templates (formerly "Use Cases") - single-step prompts
  */
 
@@ -113,6 +113,10 @@ export interface AgentSkillMetadata {
   allowed_tools?: string[];
   /** Input variables shown in the Try Skill modal when skill has no {{var}} in prompt */
   input_variables?: SkillInputVariable[];
+  /** Packaged template id when row was imported from chart/disk templates */
+  template_source_id?: string;
+  /** Provenance for template import (e.g. helm chart) */
+  import_kind?: string;
 }
 
 /** Scan status set by skill-scanner on save/publish (FR-027). */
@@ -120,7 +124,7 @@ export type ScanStatus = "passed" | "flagged" | "unscanned";
 
 /**
  * Main agent skill interface
- * Represents both multi-step workflows and quick-start templates
+ * Represents both multi-task workflows and quick-start templates
  */
 export interface AgentSkill {
   /** Unique identifier */
@@ -135,7 +139,7 @@ export interface AgentSkill {
   tasks: AgentSkillTask[];
   /** Owner's email address (for user-created skills) */
   owner_id: string;
-  /** Whether this is a system/built-in skill (cannot be deleted by users) */
+  /** Whether this is a system/built-in skill row in MongoDB (may be edited or removed; restore via import/seed) */
   is_system: boolean;
   /** Creation timestamp */
   created_at: Date;
@@ -161,6 +165,10 @@ export interface AgentSkill {
   shared_with_teams?: string[];
   /** Scan status from skill-scanner on save (FR-027) */
   scan_status?: ScanStatus;
+  /** Optional scanner output / summary text persisted for UI report */
+  scan_summary?: string;
+  /** When the last scan result was persisted (save or manual Scan now) */
+  scan_updated_at?: Date | string;
   /** Ancillary files (scripts, references, assets) keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
 }
@@ -418,7 +426,7 @@ export function parseTaskConfigObject(
     return {
       id: `config-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
       name,
-      description: `Multi-step workflow for: ${name}`,
+      description: `Workflow for: ${name}`,
       category,
       tasks: value.tasks.map(task => ({
         display_text: task.display_text,

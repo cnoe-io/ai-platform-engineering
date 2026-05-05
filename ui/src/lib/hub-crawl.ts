@@ -7,6 +7,7 @@
 
 import { getCollection } from "@/lib/mongodb";
 import { validateCredentialsRef } from "@/lib/api-middleware";
+import { scanHubSkillsAsync, type HubSkillScanRef } from "@/lib/skill-scan";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,6 +20,27 @@ export interface CrawledSkill {
   content: string;
   metadata: Record<string, unknown>;
   path: string;
+  /**
+   * Sibling files (relative to the skill folder) the crawler captured.
+   * Plain UTF-8 text only — binaries and oversized files are skipped and
+   * tallied in `ancillary_summary` for operator visibility.
+   */
+  ancillary_files?: Record<string, string>;
+  ancillary_summary?: AncillarySummary;
+}
+
+/**
+ * Summary of ancillary-file collection so the gallery / operators can see
+ * what was skipped without parsing the file map. `total_bytes` covers the
+ * collected text files only (not skipped/binary).
+ */
+export interface AncillarySummary {
+  total_files: number;
+  total_bytes: number;
+  skipped_binary: number;
+  skipped_too_large: number;
+  truncated_at_count_cap: boolean;
+  truncated_at_size_cap: boolean;
 }
 
 export interface HubSkillDoc {
@@ -30,6 +52,13 @@ export interface HubSkillDoc {
   metadata: Record<string, unknown>;
   path: string;
   cached_at: Date;
+  /** Latest skill-scanner outcome, persisted on manual scan. */
+  scan_status?: "passed" | "flagged" | "unscanned";
+  scan_summary?: string;
+  scan_updated_at?: Date;
+  /** Sibling files captured during crawl (UTF-8 text only). */
+  ancillary_files?: Record<string, string>;
+  ancillary_summary?: AncillarySummary;
 }
 
 export interface SkillHubDoc {
@@ -39,9 +68,54 @@ export interface SkillHubDoc {
   enabled: boolean;
   credentials_ref: string | null;
   labels?: string[];
+  /**
+   * Optional path-prefix allow-list (each entry normalized to end with `/`).
+   * When non-empty, the crawler only ingests SKILL.md files whose path
+   * begins with one of these prefixes. Empty/absent => crawl whole repo.
+   */
+  include_paths?: readonly string[];
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
+}
+
+/**
+ * Normalize an `include_paths` array for use as path-prefix filters:
+ *  - trim whitespace, drop empties
+ *  - dedupe (preserve order)
+ *  - ensure each entry ends with a trailing `/` so `skills` does not match
+ *    `skills-archive/SKILL.md`
+ *
+ * Returns `null` when no usable entries remain so callers can short-circuit
+ * the filter (treat as "walk the whole repo").
+ */
+export function normalizeIncludePaths(
+  raw: readonly string[] | undefined | null,
+): readonly string[] | null {
+  if (!raw || raw.length === 0) return null;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const withSlash = trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+    if (seen.has(withSlash)) continue;
+    seen.add(withSlash);
+    out.push(withSlash);
+  }
+  return out.length > 0 ? out : null;
+}
+
+function pathMatchesIncludePrefixes(
+  path: string,
+  prefixes: readonly string[] | null,
+): boolean {
+  if (!prefixes) return true;
+  for (const p of prefixes) {
+    if (path.startsWith(p)) return true;
+  }
+  return false;
 }
 
 export interface CatalogSkill {
@@ -52,6 +126,17 @@ export interface CatalogSkill {
   source_id: string | null;
   content: string | null;
   metadata: Record<string, unknown>;
+  /** Hub-only: latest scan outcome surfaced from `hub_skills` cache. */
+  scan_status?: "passed" | "flagged" | "unscanned";
+  scan_summary?: string;
+  scan_updated_at?: string;
+  /**
+   * Sibling files (paths relative to the skill folder) — populated only
+   * when callers request `include_content=true`. Mirrors the same field on
+   * `agent_skills` so editors / installers can treat both sources alike.
+   */
+  ancillary_files?: Record<string, string>;
+  ancillary_summary?: AncillarySummary;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +187,142 @@ function parseFrontmatter(content: string): {
 }
 
 // ---------------------------------------------------------------------------
+// Ancillary-file collection (shared by GitHub + GitLab crawlers)
+//
+// Anthropic-style skills (e.g. `pdf`, `docx`, `slack`) ship runtime code,
+// reference docs, and assets alongside SKILL.md. Without those files an
+// installed skill is broken — SKILL.md references like `scripts/extract.py`
+// won't resolve.
+//
+// Strategy:
+//   - Bound resource use with per-file / per-skill / per-hub caps.
+//   - Skip binaries (extension allowlist + null-byte sniff) since plain-text
+//     storage in Mongo is the simplest way to keep parity with `agent_skills`.
+//     Operators get a count of skipped binaries via `ancillary_summary` so
+//     missing files aren't silent.
+//   - Preserve nested paths verbatim (relative to the skill folder).
+// ---------------------------------------------------------------------------
+
+const HUB_ANCILLARY_PER_FILE_BYTES = parseInt(
+  process.env.HUB_ANCILLARY_PER_FILE_BYTES || String(1 * 1024 * 1024),
+  10,
+);
+const HUB_ANCILLARY_TOTAL_BYTES = parseInt(
+  process.env.HUB_ANCILLARY_TOTAL_BYTES || String(5 * 1024 * 1024),
+  10,
+);
+const HUB_ANCILLARY_FILE_LIMIT = parseInt(
+  process.env.HUB_ANCILLARY_FILE_LIMIT || "100",
+  10,
+);
+
+/** Rough text-file allowlist by extension (extend as needed). */
+const TEXT_FILE_EXTENSIONS = new Set([
+  // Code
+  "py", "js", "jsx", "ts", "tsx", "mjs", "cjs",
+  "go", "rs", "rb", "php", "java", "kt", "swift", "scala", "cs",
+  "c", "h", "cc", "cpp", "hpp", "m", "mm",
+  "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+  "sql", "graphql", "proto",
+  // Markup / config / data
+  "md", "markdown", "mdx", "rst", "txt", "log",
+  "json", "jsonc", "ndjson", "yaml", "yml", "toml", "ini", "cfg", "conf", "env",
+  "xml", "html", "htm", "css", "scss", "less",
+  "csv", "tsv",
+  // DevOps
+  "dockerfile", "tf", "tfvars", "hcl",
+  "lock", "gitignore", "gitattributes", "editorconfig",
+  // Misc text
+  "tpl", "tmpl", "j2", "ejs",
+]);
+
+/** Strong "this is text" override for files without an extension. */
+const TEXT_FILENAMES = new Set([
+  "Dockerfile", "Makefile", "Rakefile", "Gemfile", "Pipfile",
+  "LICENSE", "NOTICE", "README", "CHANGELOG", "CONTRIBUTING",
+  "CODEOWNERS", ".gitignore", ".dockerignore", ".gitattributes",
+  ".editorconfig",
+]);
+
+function isLikelyTextPath(path: string): boolean {
+  const filename = path.split("/").pop() || "";
+  if (TEXT_FILENAMES.has(filename)) return true;
+  const dot = filename.lastIndexOf(".");
+  if (dot < 0) return false; // unknown bareword extension → treat as binary
+  const ext = filename.slice(dot + 1).toLowerCase();
+  return TEXT_FILE_EXTENSIONS.has(ext);
+}
+
+/**
+ * Cheap binary sniff — UTF-8 text shouldn't contain a NUL byte in the
+ * first 8 KiB. Catches the case where an extension allow-listed file is
+ * actually binary (e.g. `.lock` from a non-text format).
+ */
+function looksLikeBinaryContent(text: string): boolean {
+  const sample = text.length > 8192 ? text.slice(0, 8192) : text;
+  return sample.includes("\u0000");
+}
+
+/** Mutable accumulator passed through the per-skill collection loop. */
+interface AncillaryAccumulator {
+  files: Record<string, string>;
+  summary: AncillarySummary;
+}
+
+function newAncillaryAccumulator(): AncillaryAccumulator {
+  return {
+    files: {},
+    summary: {
+      total_files: 0,
+      total_bytes: 0,
+      skipped_binary: 0,
+      skipped_too_large: 0,
+      truncated_at_count_cap: false,
+      truncated_at_size_cap: false,
+    },
+  };
+}
+
+/**
+ * Try to ingest one ancillary file into the accumulator. Returns `false`
+ * when the per-skill caps are exhausted so the caller can stop fetching
+ * additional siblings (saves API calls).
+ */
+function tryAcceptAncillary(
+  acc: AncillaryAccumulator,
+  relPath: string,
+  bytes: number,
+  fetchText: () => Promise<string>,
+): Promise<boolean> {
+  if (acc.summary.total_files >= HUB_ANCILLARY_FILE_LIMIT) {
+    acc.summary.truncated_at_count_cap = true;
+    return Promise.resolve(false);
+  }
+  if (bytes > HUB_ANCILLARY_PER_FILE_BYTES) {
+    acc.summary.skipped_too_large += 1;
+    return Promise.resolve(true);
+  }
+  if (acc.summary.total_bytes + bytes > HUB_ANCILLARY_TOTAL_BYTES) {
+    acc.summary.truncated_at_size_cap = true;
+    return Promise.resolve(false);
+  }
+  if (!isLikelyTextPath(relPath)) {
+    acc.summary.skipped_binary += 1;
+    return Promise.resolve(true);
+  }
+  return fetchText().then((text) => {
+    if (looksLikeBinaryContent(text)) {
+      acc.summary.skipped_binary += 1;
+      return true;
+    }
+    acc.files[relPath] = text;
+    acc.summary.total_files += 1;
+    acc.summary.total_bytes += bytes;
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // GitHub crawler
 // ---------------------------------------------------------------------------
 
@@ -110,13 +331,18 @@ interface GitHubTreeEntry {
   type: string;
   sha: string;
   url: string;
+  /** Blob byte size — present for `type: "blob"` entries from the trees API. */
+  size?: number;
 }
 
 export async function crawlGitHubRepo(
   owner: string,
   repo: string,
   token?: string,
+  includePaths?: readonly string[],
 ): Promise<CrawledSkill[]> {
+  const normalizedIncludes = normalizeIncludePaths(includePaths);
+
   const headers: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
     "User-Agent": "caipe-hub-crawler/1.0",
@@ -136,23 +362,43 @@ export async function crawlGitHubRepo(
   const treeData = await treeRes.json();
   const entries: GitHubTreeEntry[] = treeData.tree || [];
 
-  // Find all SKILL.md files
+  // Find all SKILL.md files (optionally filtered to the configured prefixes
+  // so monorepos don't blast the whole tree into Mongo).
   const skillMdPaths = entries
     .filter(
       (e: GitHubTreeEntry) =>
         e.type === "blob" && e.path.endsWith("/SKILL.md"),
     )
-    .map((e: GitHubTreeEntry) => e.path);
+    .map((e: GitHubTreeEntry) => e.path)
+    .filter((p) => pathMatchesIncludePrefixes(p, normalizedIncludes));
 
-  // Also find metadata.json files for enrichment
-  const metadataPaths = new Set(
-    entries
-      .filter(
-        (e: GitHubTreeEntry) =>
-          e.type === "blob" && e.path.endsWith("/metadata.json"),
-      )
-      .map((e: GitHubTreeEntry) => e.path),
-  );
+  // Index every blob by path so we can enumerate ancillary siblings without
+  // additional tree calls.
+  const blobBySize = new Map<string, number>();
+  for (const e of entries) {
+    if (e.type === "blob") blobBySize.set(e.path, e.size ?? 0);
+  }
+
+  // Sort skill dirs by path so nested-skill detection is deterministic.
+  const skillDirs = skillMdPaths
+    .map((p) => p.replace(/\/SKILL\.md$/, ""))
+    .sort();
+
+  /**
+   * Returns true when `path` lives inside a *nested* skill folder (i.e. a
+   * SKILL.md exists at a deeper level than `currentDir`). Those files are
+   * owned by the nested skill, not the parent, so we must not duplicate
+   * them.
+   */
+  function belongsToNestedSkill(currentDir: string, path: string): boolean {
+    for (const otherDir of skillDirs) {
+      if (otherDir === currentDir) continue;
+      if (!otherDir.startsWith(`${currentDir}/`)) continue;
+      if (path === `${otherDir}/SKILL.md`) return true;
+      if (path.startsWith(`${otherDir}/`)) return true;
+    }
+    return false;
+  }
 
   const skills: CrawledSkill[] = [];
 
@@ -173,25 +419,55 @@ export async function crawlGitHubRepo(
       const dir = skillPath.replace(/\/SKILL\.md$/, "");
       const id = dir.split("/").pop() || dir;
 
-      // Try to fetch metadata.json from the same directory
+      // Collect ancillary siblings (everything under `dir/` except SKILL.md
+      // itself and any files belonging to a nested skill). metadata.json is
+      // also captured here so installers/exports get it verbatim, while we
+      // still parse it separately into `metadata`.
+      const ancillary = newAncillaryAccumulator();
+      const dirPrefix = `${dir}/`;
+      const candidates = Array.from(blobBySize.entries())
+        .filter(([p]) => p.startsWith(dirPrefix))
+        .filter(([p]) => p !== skillPath)
+        .filter(([p]) => !belongsToNestedSkill(dir, p))
+        .sort(([a], [b]) => a.localeCompare(b));
+
+      for (const [absPath, size] of candidates) {
+        const relPath = absPath.slice(dirPrefix.length);
+        const accepted = await tryAcceptAncillary(
+          ancillary,
+          relPath,
+          size,
+          async () => {
+            const fileRes = await fetch(
+              `https://api.github.com/repos/${owner}/${repo}/contents/${absPath}`,
+              { headers, signal: AbortSignal.timeout(10000) },
+            );
+            if (!fileRes.ok) {
+              throw new Error(
+                `GitHub content fetch failed for ${absPath}: ${fileRes.status}`,
+              );
+            }
+            const data = await fileRes.json();
+            // Reject server-side truncations (>1 MiB blobs return empty
+            // `content` with `encoding: "none"`); treat as too-large.
+            if (!data.content || data.encoding !== "base64") {
+              throw new Error(`Unsupported encoding for ${absPath}`);
+            }
+            return Buffer.from(data.content, "base64").toString("utf-8");
+          },
+        );
+        if (!accepted) break;
+      }
+
+      // Parse metadata.json out of the collected ancillary files (we already
+      // fetched it once — no second request needed).
       let metadata: Record<string, unknown> = {};
-      const metaPath = `${dir}/metadata.json`;
-      if (metadataPaths.has(metaPath)) {
+      const metaContent = ancillary.files["metadata.json"];
+      if (metaContent) {
         try {
-          const metaRes = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}/contents/${metaPath}`,
-            { headers, signal: AbortSignal.timeout(10000) },
-          );
-          if (metaRes.ok) {
-            const metaData = await metaRes.json();
-            const metaContent = Buffer.from(
-              metaData.content,
-              "base64",
-            ).toString("utf-8");
-            metadata = JSON.parse(metaContent);
-          }
+          metadata = JSON.parse(metaContent);
         } catch {
-          // metadata.json is optional
+          // Malformed metadata.json — leave empty but keep the file.
         }
       }
 
@@ -204,6 +480,8 @@ export async function crawlGitHubRepo(
         content,
         metadata,
         path: skillPath,
+        ancillary_files: ancillary.files,
+        ancillary_summary: ancillary.summary,
       });
     } catch (err) {
       console.error(`[HubCrawl] Failed to fetch ${skillPath}:`, err);
@@ -228,8 +506,41 @@ interface GitLabTreeEntry {
 export async function crawlGitLabRepo(
   projectPath: string,
   token?: string,
+  includePaths?: readonly string[],
 ): Promise<CrawledSkill[]> {
-  const encodedProject = encodeURIComponent(projectPath);
+  // GitLab's API addresses projects by URL-encoded namespaced path
+  // (`group/sub/project`), NOT by full URL. Callers MUST pass the
+  // canonical path; if a URL slips through, `encodeURIComponent`
+  // produces something like `https%3A%2F%2Fgitlab.com%2F...` which
+  // GitLab returns 404 for, and the resulting toast (`GitLab API
+  // error: 404 Not Found`) is impossible to debug without reading the
+  // wire. Fail loud with an actionable message instead.
+  //
+  // Self-hosted callers should set `GITLAB_API_URL` and pass the bare
+  // namespaced path; the shared `normalizeHubLocation` helper in
+  // `app/api/skill-hubs/_lib/normalize` does this correctly for inputs
+  // arriving from the UI.
+  const trimmed = projectPath.trim();
+  if (!trimmed) {
+    throw new Error("GitLab project path is empty");
+  }
+  if (trimmed.includes("://") || trimmed.startsWith("/")) {
+    throw new Error(
+      `GitLab project path must be a namespaced path like ` +
+        `"group/project" or "group/subgroup/project", not a URL ` +
+        `(got: "${trimmed}"). Normalize via normalizeHubLocation() ` +
+        `before calling crawlGitLabRepo.`,
+    );
+  }
+  if (!trimmed.includes("/")) {
+    throw new Error(
+      `GitLab project path must include at least one "/" separator ` +
+        `(got: "${trimmed}").`,
+    );
+  }
+
+  const normalizedIncludes = normalizeIncludePaths(includePaths);
+  const encodedProject = encodeURIComponent(trimmed);
   const baseUrl =
     process.env.GITLAB_API_URL || "https://gitlab.com/api/v4";
 
@@ -250,22 +561,36 @@ export async function crawlGitLabRepo(
   }
   const entries: GitLabTreeEntry[] = await treeRes.json();
 
-  // Find SKILL.md files
+  // Find SKILL.md files (optionally filtered to the configured prefixes
+  // so monorepos don't blast the whole tree into Mongo).
   const skillMdPaths = entries
     .filter(
       (e: GitLabTreeEntry) =>
         e.type === "blob" && e.path.endsWith("/SKILL.md"),
     )
-    .map((e: GitLabTreeEntry) => e.path);
+    .map((e: GitLabTreeEntry) => e.path)
+    .filter((p) => pathMatchesIncludePrefixes(p, normalizedIncludes));
 
-  const metadataPaths = new Set(
-    entries
-      .filter(
-        (e: GitLabTreeEntry) =>
-          e.type === "blob" && e.path.endsWith("/metadata.json"),
-      )
-      .map((e: GitLabTreeEntry) => e.path),
-  );
+  // GitLab tree responses don't carry blob sizes, so we treat unknown sizes
+  // as "fetch and check" — `tryAcceptAncillary` still enforces caps after
+  // we read the body.
+  const allBlobPaths = entries
+    .filter((e) => e.type === "blob")
+    .map((e) => e.path);
+
+  const skillDirs = skillMdPaths
+    .map((p) => p.replace(/\/SKILL\.md$/, ""))
+    .sort();
+
+  function belongsToNestedSkill(currentDir: string, path: string): boolean {
+    for (const otherDir of skillDirs) {
+      if (otherDir === currentDir) continue;
+      if (!otherDir.startsWith(`${currentDir}/`)) continue;
+      if (path === `${otherDir}/SKILL.md`) return true;
+      if (path.startsWith(`${otherDir}/`)) return true;
+    }
+    return false;
+  }
 
   const skills: CrawledSkill[] = [];
 
@@ -282,20 +607,55 @@ export async function crawlGitLabRepo(
       const dir = skillPath.replace(/\/SKILL\.md$/, "");
       const id = dir.split("/").pop() || dir;
 
+      // Collect ancillary siblings (see GitHub crawler comment for rationale).
+      const ancillary = newAncillaryAccumulator();
+      const dirPrefix = `${dir}/`;
+      const candidates = allBlobPaths
+        .filter((p) => p.startsWith(dirPrefix))
+        .filter((p) => p !== skillPath)
+        .filter((p) => !belongsToNestedSkill(dir, p))
+        .sort();
+
+      for (const absPath of candidates) {
+        const relPath = absPath.slice(dirPrefix.length);
+        // GitLab raw API doesn't expose size in the tree listing; fetch
+        // first and let the per-file cap enforce after the read. We trust
+        // the `Content-Length` header when present to short-circuit large
+        // bodies.
+        const accepted = await tryAcceptAncillary(
+          ancillary,
+          relPath,
+          0, // unknown size — accumulator still enforces total + count caps
+          async () => {
+            const encodedAbs = encodeURIComponent(absPath);
+            const res = await fetch(
+              `${baseUrl}/projects/${encodedProject}/repository/files/${encodedAbs}/raw?ref=HEAD`,
+              { headers, signal: AbortSignal.timeout(10000) },
+            );
+            if (!res.ok) {
+              throw new Error(
+                `GitLab raw fetch failed for ${absPath}: ${res.status}`,
+              );
+            }
+            const text = await res.text();
+            if (text.length > HUB_ANCILLARY_PER_FILE_BYTES) {
+              throw new Error(
+                `Ancillary too large for ${absPath}: ${text.length} bytes`,
+              );
+            }
+            return text;
+          },
+        );
+        if (!accepted) break;
+      }
+
       let metadata: Record<string, unknown> = {};
-      const metaPath = `${dir}/metadata.json`;
-      if (metadataPaths.has(metaPath)) {
+      const metaContent = ancillary.files["metadata.json"];
+      if (metaContent) {
         try {
-          const encodedMetaPath = encodeURIComponent(metaPath);
-          const metaRes = await fetch(
-            `${baseUrl}/projects/${encodedProject}/repository/files/${encodedMetaPath}/raw?ref=HEAD`,
-            { headers, signal: AbortSignal.timeout(10000) },
-          );
-          if (metaRes.ok) {
-            metadata = JSON.parse(await metaRes.text());
-          }
+          metadata = JSON.parse(metaContent);
         } catch {
-          // metadata.json is optional
+          // Malformed metadata.json — leave empty but keep the file.
         }
       }
 
@@ -308,6 +668,8 @@ export async function crawlGitLabRepo(
         content,
         metadata,
         path: skillPath,
+        ancillary_files: ancillary.files,
+        ancillary_summary: ancillary.summary,
       });
     } catch (err) {
       console.error(`[HubCrawl] Failed to fetch ${skillPath}:`, err);
@@ -320,6 +682,10 @@ export async function crawlGitLabRepo(
 // ---------------------------------------------------------------------------
 // Token resolution
 // ---------------------------------------------------------------------------
+
+export function resolveHubToken(hub: SkillHubDoc): string | undefined {
+  return resolveToken(hub);
+}
 
 function resolveToken(hub: SkillHubDoc): string | undefined {
   // First try the explicit credentials_ref
@@ -403,9 +769,9 @@ async function _crawlAndCache(
       const owner = parts[0];
       const repo = parts[1];
       if (!owner || !repo) throw new Error(`Invalid GitHub location: ${hub.location}`);
-      crawled = await crawlGitHubRepo(owner, repo, token);
+      crawled = await crawlGitHubRepo(owner, repo, token, hub.include_paths);
     } else if (hub.type === "gitlab") {
-      crawled = await crawlGitLabRepo(hub.location, token);
+      crawled = await crawlGitLabRepo(hub.location, token, hub.include_paths);
     } else {
       throw new Error(`Unsupported hub type: ${hub.type}`);
     }
@@ -445,8 +811,30 @@ async function _crawlAndCache(
     throw err;
   }
 
-  // Upsert crawled skills into cache
+  // Upsert crawled skills into cache. Track which ones are *new* or have
+  // *changed content* so we can fire an async scan only for those — saves
+  // scanner work on a no-op refresh of a 100-skill hub.
   const now = new Date();
+  // Pull just the fields needed for change detection. Cheaper than
+  // holding the full previous snapshot in memory.
+  const priorDocs = await hubSkillsCol
+    .find(
+      { hub_id: hub.id },
+      { projection: { skill_id: 1, content: 1, scan_status: 1 } },
+    )
+    .toArray();
+  const priorById = new Map(
+    priorDocs.map((d) => [
+      d.skill_id,
+      {
+        content: d.content ?? "",
+        scan_status: (d.scan_status as string | undefined) ?? null,
+      },
+    ]),
+  );
+
+  const refsToScan: HubSkillScanRef[] = [];
+
   for (const skill of crawled) {
     await hubSkillsCol.updateOne(
       { hub_id: hub.id, skill_id: skill.id },
@@ -460,10 +848,39 @@ async function _crawlAndCache(
           metadata: skill.metadata,
           path: skill.path,
           cached_at: now,
+          ancillary_files: skill.ancillary_files ?? {},
+          ancillary_summary:
+            skill.ancillary_summary ?? {
+              total_files: 0,
+              total_bytes: 0,
+              skipped_binary: 0,
+              skipped_too_large: 0,
+              truncated_at_count_cap: false,
+              truncated_at_size_cap: false,
+            },
         },
       },
       { upsert: true },
     );
+
+    const prior = priorById.get(skill.id);
+    const isNew = !prior;
+    const contentChanged = prior !== undefined && prior.content !== skill.content;
+    const neverScanned = prior !== undefined && !prior.scan_status;
+    if (isNew || contentChanged || neverScanned) {
+      refsToScan.push({
+        hub_id: hub.id,
+        skill_id: skill.id,
+        name: skill.name,
+        content: skill.content,
+        // Forward ancillary files so the scanner sees the same surface
+        // the agent runtime materializes into the StateBackend (see
+        // `skills_middleware/backend_sync.py` and
+        // `dynamic_agents/services/skills.py`). Otherwise scripts /
+        // prompts shipped alongside SKILL.md would never be analyzed.
+        ancillary_files: skill.ancillary_files,
+      });
+    }
   }
 
   // Remove stale skills that no longer exist in the repo
@@ -472,6 +889,18 @@ async function _crawlAndCache(
     await hubSkillsCol.deleteMany({
       hub_id: hub.id,
       skill_id: { $nin: currentIds },
+    });
+  }
+
+  // Fire-and-forget: run the scanner against the changed/new skills so
+  // the per-skill scan_status catches up without blocking the crawl
+  // response. Errors are swallowed inside the helper.
+  if (refsToScan.length > 0) {
+    void scanHubSkillsAsync(refsToScan).catch((err) => {
+      console.warn(
+        `[HubCrawl] Auto-scan dispatch failed for ${hub.id}:`,
+        err,
+      );
     });
   }
 
@@ -490,6 +919,8 @@ async function _crawlAndCache(
       path: s.path,
       tags: [...(Array.isArray(s.metadata?.tags) ? (s.metadata.tags as string[]) : []), ...hubLabels],
     },
+    ancillary_files: s.ancillary_files,
+    ancillary_summary: s.ancillary_summary,
   }));
 }
 
@@ -524,5 +955,10 @@ function docToCatalogSkill(hub: SkillHubDoc) {
       path: doc.path,
       tags: [...(Array.isArray(doc.metadata?.tags) ? (doc.metadata.tags as string[]) : []), ...hubLabels],
     },
+    scan_status: doc.scan_status,
+    scan_summary: doc.scan_summary,
+    scan_updated_at: doc.scan_updated_at?.toISOString(),
+    ancillary_files: doc.ancillary_files,
+    ancillary_summary: doc.ancillary_summary,
   });
 }

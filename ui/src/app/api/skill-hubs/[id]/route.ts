@@ -7,6 +7,10 @@ import {
   ApiError,
   validateCredentialsRef,
 } from "@/lib/api-middleware";
+import {
+  normalizeHubLocation,
+  validateIncludePaths,
+} from "../_lib/normalize";
 
 /**
  * Skill Hubs API — Individual hub operations.
@@ -30,33 +34,45 @@ export const PATCH = withErrorHandler(
       const body = await request.json();
 
       const collection = await getCollection("skill_hubs");
-      const existing = await collection.findOne({ id });
+      const existing = await collection.findOne({ id }) as
+        | { type?: "github" | "gitlab" }
+        | null;
       if (!existing) {
         throw new ApiError(`Hub not found: ${id}`, 404);
       }
 
-      // Allow updating: enabled, location, credentials_ref
+      // Allow updating: enabled, location, credentials_ref, labels, include_paths
       const update: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
       };
+      const unset: Record<string, "" | 1> = {};
       if (body.enabled !== undefined) update.enabled = !!body.enabled;
       if (body.location !== undefined) {
-        let loc = String(body.location).trim();
-        try {
-          const url = new URL(loc);
-          if (url.hostname === "github.com" || url.hostname.endsWith(".github.com") || url.hostname === "gitlab.com" || url.hostname.endsWith(".gitlab.com")) {
-            const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
-            if (segments.length >= 2) loc = `${segments[0]}/${segments[1]}`;
-          }
-        } catch { /* not a URL */ }
-        update.location = loc;
+        // Use the existing hub's `type` so a GitLab subgroup URL is
+        // preserved end-to-end on PATCH (FR-022).
+        update.location = normalizeHubLocation(
+          String(body.location),
+          existing.type ?? "github",
+        );
       }
       if (body.credentials_ref !== undefined)
         update.credentials_ref = validateCredentialsRef(body.credentials_ref);
       if (Array.isArray(body.labels))
         update.labels = body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20);
+      if (body.include_paths !== undefined) {
+        const validated = validateIncludePaths(body.include_paths);
+        if (validated && validated.length > 0) {
+          update.include_paths = validated;
+        } else {
+          // Empty array or fully-empty input is treated as "unset" so the
+          // crawler reverts to "walk the whole repo" behavior.
+          unset.include_paths = "";
+        }
+      }
 
-      await collection.updateOne({ id }, { $set: update });
+      const writeOp: Record<string, unknown> = { $set: update };
+      if (Object.keys(unset).length > 0) writeOp.$unset = unset;
+      await collection.updateOne({ id }, writeOp);
 
       const updated = await collection.findOne({ id });
       const { _id, ...rest } = updated as any;

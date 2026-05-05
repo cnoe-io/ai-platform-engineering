@@ -86,7 +86,7 @@
 
 **Independent Test**: Hub CRUD + catalog + `/skills` include hub skills; 403 for unauthorized; hub failure does not wipe catalog.
 
-- [X] T021 [P] [US3] GitHub hub fetcher in `ai_platform_engineering/skills_middleware/loaders/hub_github.py` (FR-011 formats; ClawHub out of scope)
+- [X] T021 [P] [US3] ~~GitHub hub fetcher in `ai_platform_engineering/skills_middleware/loaders/hub_github.py` (FR-011 formats; ClawHub out of scope)~~ — **Superseded (2026-05-05)**: deleted. Hub crawling is owned end-to-end by the Next.js UI (`ui/src/lib/hub-crawl.ts`), which writes results into Mongo `hub_skills`. The Python catalog reads only from Mongo; no Python-side GitHub round-trip exists anymore.
 - [X] T022 [US3] Merge enabled hubs from MongoDB in `ai_platform_engineering/skills_middleware/catalog.py` with failure attribution for `meta.unavailable_sources`
 - [X] T023 [US3] `GET`/`POST` skill-hubs in `ui/src/app/api/skill-hubs/route.ts` per `contracts/skill-hubs-api.md`
 - [X] T024 [P] [US3] `PATCH`/`DELETE` skill-hub by id in `ui/src/app/api/skill-hubs/[id]/route.ts`
@@ -115,8 +115,8 @@
 - [X] T031 After `invalidate_skills_cache()` in `ai_platform_engineering/skills_middleware/router.py`, trigger `AIPlatformEngineerMAS._rebuild_graph()` via `ai_platform_engineering/skills_middleware/mas_registry.py`; return optional `graph_generation` / `skills_loaded_count` in JSON response
 - [X] T032 Record `self._skills_merged_at` (UTC) and `self._skills_loaded_count` after successful merge in `ai_platform_engineering/multi_agents/platform_engineer/deep_agent.py` `_build_graph()`
 - [X] T033 [P] Add authenticated `GET /internal/supervisor/skills-status` in `ai_platform_engineering/skills_middleware/router.py` per `contracts/supervisor-skills-status.md`
-- [X] T034 [P] [US3] Implement `preview_github_hub_skills()` in `ai_platform_engineering/skills_middleware/loaders/hub_github.py` and `POST /skill-hubs/crawl` on the Python router
-- [X] T035 [US3] Add `ui/src/app/api/skill-hubs/crawl/route.ts` (proxy when `BACKEND_SKILLS_URL` set; else `ui/src/lib/hub-crawl.ts`)
+- [X] T034 [P] [US3] ~~Implement `preview_github_hub_skills()` in `ai_platform_engineering/skills_middleware/loaders/hub_github.py` and `POST /skill-hubs/crawl` on the Python router~~ — **Superseded (2026-05-05)**: both removed. Preview is served exclusively by `POST /api/skill-hubs/crawl` in the UI, which calls `crawlGitHubRepo` / `crawlGitLabRepo` from `ui/src/lib/hub-crawl.ts`.
+- [X] T035 [US3] Add `ui/src/app/api/skill-hubs/crawl/route.ts` — **2026-05-05 update**: the Python proxy branch (`NEXT_PUBLIC_A2A_BASE_URL` / `BACKEND_SKILLS_URL`) was removed when the Python `POST /skill-hubs/crawl` endpoint was deleted; the route now always crawls in-process via `ui/src/lib/hub-crawl.ts` for both GitHub and GitLab.
 - [X] T036 [US3] Crawl preview in admin hub form (`Preview skills (crawl)`) in `ui/src/components/admin/SkillHubsSection.tsx`
 - [X] T037 [P] Supervisor status UI in `ui/src/components/admin/SupervisorSkillsStatusSection.tsx` on admin page
 - [X] T038 [P] New routes use existing `withAuth` / `requireAdmin`; no `api-middleware.ts` change required
@@ -132,7 +132,7 @@
 
 **⚠️ CRITICAL**: Complete before Phases 9–12 that rely on filtered catalog and bounded prompts.
 
-- [X] T040 Add `visibility`, `team_ids`, `owner_user_id` defaults on merged skills in `ai_platform_engineering/skills_middleware/catalog.py` and loaders `ai_platform_engineering/skills_middleware/loaders/default.py`, `agent_skill.py`, `hub_github.py`
+- [X] T040 Add `visibility`, `team_ids`, `owner_user_id` defaults on merged skills in `ai_platform_engineering/skills_middleware/catalog.py` and loaders `ai_platform_engineering/skills_middleware/loaders/default.py`, `agent_skill.py` — **2026-05-05 update**: the `hub_github.py` loader was deleted; visibility defaults for hub skills are applied at write time by `ui/src/lib/hub-crawl.ts` and propagated via the Mongo `hub_skills` collection that `catalog._load_hub_skills` reads.
 - [X] T041 Implement entitlement filter helpers (global / team / personal union) in new `ai_platform_engineering/skills_middleware/entitlement.py`
 - [X] T042 Resolve caller principal + team ids from JWT/userinfo and apply entitlement filter on `GET /skills` responses in `ai_platform_engineering/skills_middleware/router.py` (mirror validation **behavior** of `ui/src/lib/jwt-validation.ts` in Python: JWKS, issuer, claims, group claim — do not import TypeScript from Python)
 - [X] T043 Implement `q`, `page`, `page_size`, `source`, `visibility` query handling and `meta.total` in `ai_platform_engineering/skills_middleware/router.py` and `ai_platform_engineering/skills_middleware/catalog.py`
@@ -192,7 +192,7 @@
 **Independent Test**: Fixture hub produces findings row; UI shows severity; policy warn/block configurable.
 
 - [X] T055 [US3] Add scanner runner wrapper (subprocess or SDK) in `ai_platform_engineering/skills_middleware/skill_scanner_runner.py` invoking `cisco-ai-skill-scanner` with documented flags
-- [X] T056 [US3] Invoke scanner after hub fetch in `ai_platform_engineering/skills_middleware/loaders/hub_github.py` or `ai_platform_engineering/skills_middleware/catalog.py`; persist to Mongo `skill_scan_findings` per `data-model.md`; honor **`SKILL_SCANNER_GATE`** / **`SKILL_SCANNER_FAIL_ON`** from `contracts/skill-scanner-pipeline.md` (warn vs block on high/critical)
+- [X] T056 [US3] Invoke scanner after hub fetch — **2026-05-05 update**: the `hub_github.py` loader was deleted, so scanning runs in the Next.js UI side (`ui/src/lib/skill-scan.ts` invoked from `ui/src/app/api/skill-hubs/[id]/scan/route.ts`) and writes findings to Mongo `skill_scan_findings`. The Python catalog reads findings from Mongo; **`SKILL_SCANNER_GATE`** / **`SKILL_SCANNER_FAIL_ON`** from `contracts/skill-scanner-pipeline.md` are honored UI-side.
 - [X] T057 [P] [US3] Surface last scan / max severity / disclaimer in `ui/src/components/admin/SkillHubsSection.tsx` or new `ui/src/components/admin/SkillScanFindingsSection.tsx` (Cisco AI Defense **Skill Scanner** attribution: **T070**)
 
 **Checkpoint**: SC-009 satisfied.
@@ -254,7 +254,7 @@
 - [X] T072 [P] Generalize `_persist_scan_run` in `ai_platform_engineering/skills_middleware/hub_skill_scan.py` to accept `source_type` (`hub` | `agent_skills`) and `source_id` instead of only `hub_id`
 - [X] T073 Add `POST /skills/scan-content` endpoint in `ai_platform_engineering/skills_middleware/router.py`: accept `{name, content}`, run scanner, apply gate logic, persist findings via generalized helper, return `{passed, blocked, max_severity, exit_code, summary}`
 - [X] T074 [P] Add `scan_status?: "passed" | "flagged" | "unscanned"` to `AgentSkill`, `CreateAgentSkillInput`, `UpdateAgentSkillInput` in `ui/src/types/agent-skill.ts`
-- [X] T075 Wire scanner call into `POST` and `PUT` handlers in `ui/src/app/api/agent-skills/route.ts`: call Python `POST /skills/scan-content` when `skill_content` present; set `scan_status` on persisted document; include in response
+- [X] T075 Wire scanner call into `POST` and `PUT` handlers in `ui/src/app/api/skills/configs/route.ts` (historically `agent-skills/route.ts`): call Python `POST /skills/scan-content` when `skill_content` present; set `scan_status` on persisted document; include in response
 - [X] T076 When `SKILL_SCANNER_GATE=strict`, add `scan_status: { $ne: "flagged" }` filter to MongoDB query in `ai_platform_engineering/skills_middleware/loaders/agent_skill.py`
 
 **Checkpoint**: SC-011 satisfied; flagged documents excluded under strict gate; findings in `skill_scan_findings` with `source_type: "agent_skills"`.
@@ -357,12 +357,12 @@ T051: Next.js proxy routes (after T050 handler shapes exist)
 |------|-------------|--------|
 | T077 | Rename "Agent config" to "Custom" in SkillsGallery.tsx SOURCE_LABELS, filters, and help text (FR-021) | Done |
 | T078 | Add `BACKEND_SKILLS_URL` to `ui/.env.local` and `ui/.env.example` (FR-027 fix) | Done |
-| T079 | Update `fetch_github_hub_skills` in `hub_github.py` to fetch full directory tree and populate `ancillary_files` | Done |
-| T080 | Update `preview_github_hub_skills` to show `ancillary_file_count` per skill | Done |
+| T079 | ~~Update `fetch_github_hub_skills` in `hub_github.py` to fetch full directory tree and populate `ancillary_files`~~ — **Superseded (2026-05-05)**: `hub_github.py` deleted; ancillary capture lives in `ui/src/lib/hub-crawl.ts`. | Superseded |
+| T080 | ~~Update `preview_github_hub_skills` to show `ancillary_file_count` per skill~~ — **Superseded (2026-05-05)**: preview is served from the UI; the `ancillary_file_count` field is populated by `crawlGitHubRepo` / `crawlGitLabRepo` in `ui/src/lib/hub-crawl.ts`. | Superseded |
 | T081 | Update `build_skills_files` in `backend_sync.py` to write ancillary files to StateBackend | Done |
 | T082 | Add `ancillary_files` field to `AgentSkill` types in `agent-skill.ts` | Done |
 | T083 | Project `ancillary_files` from MongoDB in `agent_skill.py` loader | Done |
-| T084 | Persist `ancillary_files` in POST/PUT with 5 MB limit + GitHub import endpoint in `agent-skills/route.ts` | Done |
+| T084 | Persist `ancillary_files` in POST/PUT with 5 MB limit + GitHub import endpoint in `ui/src/app/api/skills/configs/route.ts` | Done |
 | T085 | Add file drop zone and GitHub import UI in `SkillsBuilderEditor.tsx` | Done |
 | T086 | Update `data-model.md`, `research.md`, and `tasks.md` for Phase 18 | Done |
 
