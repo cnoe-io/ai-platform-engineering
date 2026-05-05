@@ -303,7 +303,9 @@ class AgentRuntime(StreamingMixin):
                 missing = [sid for sid in self.config.skills if sid not in loaded_ids]
                 if missing:
                     self._failed_skills = missing
-                    from ai_platform_engineering.skills_middleware.scan_gate import (
+                    # Vendored — see services/scan_gate.py docstring for
+                    # why this isn't ai_platform_engineering.skills_middleware.
+                    from dynamic_agents.services.scan_gate import (
                         get_scan_gate,
                     )
                     if get_scan_gate() == "strict":
